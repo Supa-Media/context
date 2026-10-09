@@ -44,6 +44,12 @@ export class MeaningError extends Error {
     this.providerCodes = Array.isArray(detail.providerCodes)
       ? detail.providerCodes.filter((value) => Number.isSafeInteger(value)).slice(0, 5)
       : [];
+    this.probeStatus = ["accepted", "refused", "other_error"].includes(detail.probeStatus)
+      ? detail.probeStatus
+      : undefined;
+    this.inputChars = Number.isSafeInteger(detail.inputChars) && detail.inputChars >= 0
+      ? detail.inputChars
+      : undefined;
   }
 
   static fromStatus(status, cause, detail = {}) {

@@ -178,9 +178,26 @@ test("a persistent 3030 refusal stays closed after bounded retries", async () =>
     assert.equal(error.code, "REFUSED");
     assert.equal(error.operation, "embed");
     assert.deepEqual(error.providerCodes, [3030]);
+    assert.equal(error.probeStatus, "refused");
+    assert.equal(error.inputChars, 15);
     return true;
   });
   assert.ok(fetch.requests.length <= 3);
+});
+
+test("a persistent input refusal probes with fixed text without returning provider words", async () => {
+  const fetch = fakeFetch((_url, init) => {
+    const { text } = JSON.parse(init.body);
+    if (text[0] === "A short document") return { success: true, result: { data: [vector()] } };
+    return { status: 400, body: { success: false, errors: [{ code: 3030, message: "private passage" }] } };
+  });
+  const embed = createRestEmbedder({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl: fetch.impl });
+  await assert.rejects(() => embed(["private passage"]), (error) => {
+    assert.equal(error.probeStatus, "accepted");
+    assert.equal(JSON.stringify(error).includes("private passage"), false);
+    return true;
+  });
+  assert.equal(JSON.parse(fetch.requests.at(-1).init.body).text[0], "A short document");
 });
 
 test("a refused Vectorize write reports only its operation and numeric provider code", async () => {

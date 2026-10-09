@@ -189,7 +189,22 @@ export function createRestEmbedder({ accountId, apiToken, fetchImpl } = {}) {
           if (!isInputRefusal(retryError)) throw retryError;
         }
       }
-      throw error;
+      // A fixed, content-free probe distinguishes a particular input from a
+      // provider-wide refusal. Never carry the provider's message or the
+      // rejected passage into the diagnostic error.
+      let probeStatus = "accepted";
+      try {
+        await request(["A short document"]);
+      } catch (probeError) {
+        probeStatus = isInputRefusal(probeError) ? "refused" : "other_error";
+      }
+      throw new MeaningError("REFUSED", {
+        cause: "http_400",
+        operation: "embed",
+        providerCodes: error.providerCodes,
+        probeStatus,
+        inputChars: Array.from(group[0]).length,
+      });
     }
   }
   return async function embed(texts) {

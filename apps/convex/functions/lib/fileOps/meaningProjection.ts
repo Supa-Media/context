@@ -61,6 +61,10 @@ export interface MeaningPassResult {
   failureOperation?: string | null;
   /** Numeric Cloudflare error codes only, never provider messages. */
   providerCodes?: number[];
+  /** Fixed synthetic probe result; no note or provider text. */
+  probeStatus?: "accepted" | "refused" | "other_error" | null;
+  /** Rejected passage length only. */
+  inputChars?: number | null;
 }
 
 export async function projectMeaningIndex(
