@@ -158,6 +158,8 @@ export async function executeOperation(
    * happens next.
    */
   onFormNotify?: (material: FormNotifyMaterial & { responseId: string }) => void,
+  /** Diagnostic identifier for scheduled search projection logs only. */
+  workspaceId?: string,
 ): Promise<OperationResult> {
   /**
    * One change, in the activity file, if it is one worth mentioning.
@@ -571,7 +573,7 @@ export async function executeOperation(
         // scheduled the pass. A projection built per caller would be one
         // database per membership.
         if (projection === null) return IDLE_PROJECTION;
-        const pass = await projectSearchIndex(store, projection);
+        const pass = await projectSearchIndex(store, projection, { workspaceId });
         return {
           kind: "indexProjected",
           projected: pass.projected,

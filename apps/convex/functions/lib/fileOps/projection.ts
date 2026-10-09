@@ -213,7 +213,7 @@ export async function passCensus(
 export async function projectSearchIndex(
   store: FileStore,
   client: ProjectionClient,
-  options: { budget?: number; noteCap?: number } = {},
+  options: { budget?: number; noteCap?: number; workspaceId?: string } = {},
 ): Promise<ProjectionPass> {
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
   const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
@@ -228,9 +228,14 @@ export async function projectSearchIndex(
   const census = listed?.census ?? fallback?.census ?? null;
   const indexPending = listed ? (listed.truncated ? 1 : 0) : (fallback?.indexPending ?? 0);
   const synced = fallback?.synced ?? null;
+  const budgetAfterCensus = budget.remaining;
 
   const moved = Boolean(synced?.committed);
   if (census === null) {
+    if (options.workspaceId) console.info("fast_search.projection_pass", {
+      workspaceId: options.workspaceId, source: "none", budgetAfterCensus,
+      budgetRemaining: budget.remaining, projected: 0, cursorAdvanced: false,
+    });
     // Nothing to walk. Not a failure — a bucket whose index this pass has just
     // started building is the ordinary first link of a cold chain, and `moved`
     // says whether it got anywhere.
@@ -255,13 +260,16 @@ export async function projectSearchIndex(
     ...(synced?.removed ?? []),
     ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
   ];
+  const budgetBeforeCopy = budget.remaining;
   let projected = 0;
   let deleted = 0;
   let cursorAdvanced = false;
+  let windowsScanned = 0;
   let last = null as Awaited<ReturnType<typeof projectPass>> | null;
   let counted = null as Awaited<ReturnType<typeof projectPass>> | null;
   const noteCap = options.noteCap ?? PROJECTION_NOTE_CAP;
   for (let window = 0; window < PROJECTION_WINDOWS_PER_PASS; window += 1) {
+    windowsScanned += 1;
     // The expensive bucket listing above is valid for every window in this
     // action. Walk current notes here instead of listing the entire bucket
     // again for each 300-path D1 version probe.
@@ -288,6 +296,23 @@ export async function projectSearchIndex(
   const result = last!;
   const progress = progressFrom(counted ?? result);
   const failure: string | null = result.failure ?? null;
+  if (options.workspaceId) console.info("fast_search.projection_pass", {
+    workspaceId: options.workspaceId,
+    source: listed ? "bucket" : "index",
+    censusSize: census.size,
+    listingTruncated: listed?.truncated ?? null,
+    budgetAfterCensus,
+    budgetBeforeCopy,
+    budgetRemaining: budget.remaining,
+    windowsScanned,
+    projected,
+    deleted,
+    cursorAdvanced,
+    sweepComplete: result.sweepComplete,
+    syncCommitted: moved,
+    report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
+    failure,
+  });
   return {
     projected,
     deleted,
