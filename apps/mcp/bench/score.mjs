@@ -64,8 +64,9 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
   }
 
   const runsOf = (setup, n) => key.filter((row) => row.setup === setup && row.question === n);
-  // A run passes when its must and must not lines pass; judge lines are never graded.
-  const runPassed = (id) => judged.get(id).verdicts.every((v) => v.kind === "judge" || v.pass);
+  // A run passes when its must and must not lines pass; judge lines are never
+  // graded, and a run the model never answered (skipped by the judge) fails.
+  const runPassed = (id) => !judged.get(id).skipped && judged.get(id).verdicts.every((v) => v.kind === "judge" || v.pass);
   const questionPassed = (setup, n) => {
     const runs = runsOf(setup, n);
     return runs.length > 0 && runs.every((row) => runPassed(row.id));

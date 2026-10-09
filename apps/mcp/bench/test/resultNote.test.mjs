@@ -141,3 +141,11 @@ test("frontMatter reads the result's keys, including the key file", () => {
   assert.equal(front.test, "texting-assistant");
   assert.equal(front.key, "2026-10-08 texting-assistant key.md");
 });
+
+test("a skipped answer in a judged section is written and read back", async () => {
+  const { judgedSection, parseJudgedSections } = await import("../resultNote.mjs");
+  const text = judgedSection({ model: "m", date: "2026-10-09", blocks: [{ id: "a-b-c-d", verdicts: [], gate: null, skipped: "no answer: model_unavailable" }] });
+  assert.ok(text.includes("skipped: no answer: model_unavailable"));
+  const [section] = parseJudgedSections(`${text}\n`);
+  assert.equal(section.blocks.get("a-b-c-d").skipped, "no answer: model_unavailable");
+});

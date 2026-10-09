@@ -546,6 +546,23 @@ passed, because a setup that finds nothing looks perfectly private. Tests:
 `bench/test/judge.test.mjs` (the judge payload names no setup),
 `score.test.mjs` (mirror rule), `report.test.mjs` (ids, key).
 
+**A judging says what it will cost before it spends, and spends as little as
+the verdicts allow.** The first judging (2026-10-08) sent one request per
+answer, 900 of them, to Claude Fable, with no estimate, no progress, nothing
+saved until the end, and 150 of the answers were `model_unavailable` errors
+with nothing to grade; the owner stopped it after about  of judge calls and
+no verdicts written. Now: every answer to a question travels in one request
+(50 for a 50-question run), answers the model never gave are recorded as
+skipped without a call and fail their question in the score, the judge
+defaults to Haiku, the request count and an estimate are printed first and a
+judging over `--max-usd` (default ) is refused before the first call, each
+question's verdicts are saved to a sidecar as they arrive so a stopped
+judging resumes without paying twice, progress and spend are printed per
+question, and four requests run at once. Tests: `judge.test.mjs` ("an answer
+the model never gave is skipped, never sent to the judge", "a judging over
+--max-usd is refused before any call", "a stopped judging resumes from its
+sidecar"), `score.test.mjs` ("a run the judge skipped ... fails its question").
+
 ### A text has every MCP tool
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
