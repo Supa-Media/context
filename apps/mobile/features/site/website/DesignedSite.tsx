@@ -13,6 +13,7 @@ export function DesignedSite(_props: {
   design: WebsiteDesign;
   navigate: (routePath: string) => void;
   hrefFor: (routePath: string) => string;
+  prefetch?: (routePath: string) => void;
 }) {
   return null;
 }

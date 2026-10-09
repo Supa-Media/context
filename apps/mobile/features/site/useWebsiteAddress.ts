@@ -1,31 +1,68 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { ResolvedWebsiteAddress } from "@context/shared";
 import { fetchEdgeAddress } from "./edgeAddress";
+import {
+  answerKey,
+  heldAnswer,
+  keptAnswer,
+  loadAnswer,
+  noteRevision,
+  noteShown,
+  noteSignedIn,
+  prefetchMenu,
+  prefetchPage,
+  type AskAddress,
+  type SiteAsk,
+} from "./siteAnswers";
 
-export interface WebsiteAddressRequest {
-  handle: string;
-  routePath: string;
-  legacySlug?: string;
+export type WebsiteAddressRequest = SiteAsk;
+
+/** How a page of the site at `handle` is asked for when nothing else is said. */
+const plainAsk = (handle: string) => (routePath: string): SiteAsk => ({ handle, routePath });
+
+/**
+ * One way to ask for an address: a visitor who is not signed in from the copy
+ * the router keeps per Publish (`edgeAddress.ts`), anyone else, or any failure
+ * there, from Convex.
+ */
+function useAskAddress(): { ask: AskAddress; signedIn: boolean; ready: boolean } {
+  const resolveAddress = useAction(api.functions.websites.resolveAddress);
+  const auth = useConvexAuth();
+  const signedIn = auth.isAuthenticated;
+  const ask = useCallback<AskAddress>(
+    async (args) => {
+      const plain = { handle: args.handle, routePath: args.routePath, ...(args.legacySlug === undefined ? {} : { legacySlug: args.legacySlug }) };
+      const edge = signedIn ? null : await fetchEdgeAddress(plain);
+      return edge ?? (await resolveAddress(plain));
+    },
+    [resolveAddress, signedIn],
+  );
+  return { ask, signedIn, ready: !auth.isLoading };
 }
 
 /**
  * Resolve one public address, discarding an answer after navigation, and keep
  * it current while it is open.
  *
- * A visitor who is not signed in is answered from the copy the router keeps
- * per Publish (`edgeAddress.ts`), and anyone else, or any failure there, by
- * Convex. Staying current is only a question of asking again: when the site's
- * revision moves (a Publish, or a restriction) and when the visitor returns
- * to the tab. A refresh keeps the page on screen until the new answer lands;
- * only a new address starts from blank.
+ * Answers are kept for the tab (`siteAnswers.ts`): an address opened before
+ * is drawn at once, the pages the site's menu names are fetched as soon as a
+ * page lands, and an address not fetched yet keeps the site's last page on
+ * screen until its answer lands. Staying current is only a question of asking
+ * again: when the site's revision moves (a Publish, or a restriction), which
+ * also drops every kept answer for the site, when the visitor returns to the
+ * tab, and behind a kept answer that is no longer fresh.
+ *
+ * `askFor` says how a page of this site is asked for by its route path, the
+ * way a click on it would be, so the pages fetched ahead are the ones looked
+ * for.
  */
 export function useWebsiteAddress(
   request: WebsiteAddressRequest | null,
+  askFor?: (routePath: string) => SiteAsk,
 ): ResolvedWebsiteAddress | undefined {
-  const resolveAddress = useAction(api.functions.websites.resolveAddress);
-  const auth = useConvexAuth();
+  const { ask, signedIn, ready } = useAskAddress();
   const [view, setView] = useState<ResolvedWebsiteAddress>();
   const [refreshes, setRefreshes] = useState(0);
   const handle = request?.handle;
@@ -35,15 +72,13 @@ export function useWebsiteAddress(
     api.functions.websites.siteRevision,
     handle === undefined ? "skip" : { handle },
   );
+  const askForRef = useRef(askFor);
+  askForRef.current = askFor;
 
-  const seen = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (revision === undefined) return;
-    if (seen.current !== undefined && seen.current !== revision) {
-      setRefreshes((count) => count + 1);
-    }
-    seen.current = revision;
-  }, [revision]);
+    if (revision === undefined || handle === undefined) return;
+    if (noteRevision(handle, revision)) setRefreshes((count) => count + 1);
+  }, [handle, revision]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -56,23 +91,30 @@ export function useWebsiteAddress(
 
   const address = useRef<string | null>(null);
   useEffect(() => {
-    if (auth.isLoading || handle === undefined || routePath === undefined) {
+    if (!ready || handle === undefined || routePath === undefined) {
       address.current = null;
       setView(undefined);
       return;
     }
-    const key = JSON.stringify([handle, routePath, legacySlug ?? null, auth.isAuthenticated]);
-    if (address.current !== key) {
+    noteSignedIn(signedIn);
+    const args: SiteAsk = { handle, routePath, ...(legacySlug === undefined ? {} : { legacySlug }) };
+    const key = answerKey(args, signedIn);
+    const kept = keptAnswer(args, signedIn);
+    const moved = address.current !== key;
+    if (moved) {
       address.current = key;
-      setView(undefined);
+      setView(kept?.view ?? heldAnswer(handle, signedIn));
+      if (kept !== undefined) noteShown(args, signedIn, kept.view);
     }
+    // A move to a page kept fresh is finished; anything else asks.
+    if (moved && kept?.fresh === true) return;
     let cancelled = false;
-    const args = { handle, routePath, ...(legacySlug === undefined ? {} : { legacySlug }) };
-    const edge = auth.isAuthenticated ? Promise.resolve(null) : fetchEdgeAddress(args);
-    edge
-      .then((kept) => kept ?? resolveAddress(args))
+    loadAnswer(args, signedIn, ask)
       .then((next) => {
-        if (!cancelled) setView(next);
+        if (cancelled) return;
+        setView(next);
+        noteShown(args, signedIn, next);
+        prefetchMenu(args, next, askForRef.current ?? plainAsk(handle), signedIn, ask);
       })
       .catch(() => {
         if (!cancelled) {
@@ -82,15 +124,25 @@ export function useWebsiteAddress(
     return () => {
       cancelled = true;
     };
-  }, [
-    auth.isAuthenticated,
-    auth.isLoading,
-    handle,
-    legacySlug,
-    refreshes,
-    resolveAddress,
-    routePath,
-  ]);
+  }, [ask, handle, legacySlug, ready, refreshes, routePath, signedIn]);
 
   return view;
+}
+
+/**
+ * Fetch a page of the site at `handle` ahead of a click on it: a designed
+ * site's own links, which its menu may not name, as the pointer reaches them.
+ */
+export function useSitePrefetch(
+  handle: string | null,
+  askFor?: (routePath: string) => SiteAsk,
+): (routePath: string) => void {
+  const { ask, signedIn, ready } = useAskAddress();
+  return useCallback(
+    (routePath: string) => {
+      if (!ready || handle === null) return;
+      prefetchPage((askFor ?? plainAsk(handle))(routePath), signedIn, ask);
+    },
+    [ask, askFor, handle, ready, signedIn],
+  );
 }
