@@ -123,9 +123,26 @@ export async function usageRow(ctx: QueryCtx, day: string, feature: string, work
     .unique();
 }
 
+/** Whether the workspace's plan is paying right now. Asked at the moment of use. */
+export async function isPaying(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+}
+
+/**
+ * The daily cap that applies to this workspace: the paying cap, or for a
+ * free workspace on a feature open to every plan, its free cap (none: zero).
+ */
+export function capFor(feature: JevFeatureName, paying: boolean): number {
+  const def = JEV_FEATURES[feature];
+  if (def.plan === "everyone" && !paying) return def.dailyCallsFree ?? 0;
+  return def.dailyCallsPerWorkspace;
+}
+
 /**
  * May this workspace use this feature right now, and for how many requests?
  * Asked at the moment of use, never cached across a run's start.
+ * A "premium" feature refuses a workspace that is not paying; an "everyone"
+ * feature never does, and only its cap differs (`capFor`).
  */
 export async function gate(
   ctx: QueryCtx,
@@ -135,9 +152,10 @@ export async function gate(
 ): Promise<{ allowed: true; remaining: number } | { allowed: false; reason: JevRefusal }> {
   if (disabledByEnv(feature)) return { allowed: false, reason: "disabled" };
   if (!(await featureIsOn(ctx, feature))) return { allowed: false, reason: "switched_off" };
-  if (!planIsPaying(statusOf(await planFor(ctx, workspaceId)))) return { allowed: false, reason: "not_premium" };
+  const paying = await isPaying(ctx, workspaceId);
+  if (JEV_FEATURES[feature].plan === "premium" && !paying) return { allowed: false, reason: "not_premium" };
   const used = await usageRow(ctx, utcDay(now), feature, workspaceId);
-  const remaining = JEV_FEATURES[feature].dailyCallsPerWorkspace - ((used?.calls ?? 0) + (used?.failed ?? 0));
+  const remaining = capFor(feature, paying) - ((used?.calls ?? 0) + (used?.failed ?? 0));
   if (remaining <= 0) return { allowed: false, reason: "daily_cap" };
   return { allowed: true, remaining };
 }

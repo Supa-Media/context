@@ -25,9 +25,8 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
-import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
-import { addModelUsage, addUsage, costMicroUsd, gate, MODEL_NAME, writingCostMicroUsd } from "./lib/jev/meter";
-import { CLEF_MODEL, GLM_MODEL } from "./lib/jev/models";
+import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";
+import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 
@@ -36,14 +35,6 @@ const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([TEXTS_CLIENT_ID, ROUTINES_
 
 /** The meter's name for this feature. Permanent: usage and switches are keyed by it. */
 export const BUILTIN_FEATURE = "assistant" as const;
-
-/** Largest token count one report may carry; a turn is at most eight model calls. */
-const MAX_REPORTED_TOKENS = 2_000_000;
-
-/** The model a report names, when it names a well-formed one; undefined otherwise, so it is priced as GLM. */
-export function reportedModel(raw: unknown): string | undefined {
-  return typeof raw === "string" && MODEL_NAME.test(raw) ? raw : undefined;
-}
 
 const refusalValidator = v.union(
   v.literal("disabled"),
@@ -64,12 +55,10 @@ async function chargedWorkspace(
   hashedAccessToken: string,
   expectedWorkspaceId: string | null,
 ): Promise<{ workspaceId: Id<"workspaces"> } | { refused: "not_texts" } | null> {
-  const session = await resolveGrantByAccessTokenHandler(ctx, { hashedAccessToken });
-  if (session === null) return null;
-  if (!BUILTIN_CLIENTS.has(session.clientId)) return { refused: "not_texts" };
-  const wanted = expectedWorkspaceId ?? session.workspaceId;
-  if (wanted !== session.workspaceId) return null;
-  return { workspaceId: session.workspaceId };
+  const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
+  if (turn === null) return null;
+  if (!BUILTIN_CLIENTS.has(turn.clientId)) return { refused: "not_texts" };
+  return { workspaceId: turn.workspaceId };
 }
 
 /**
@@ -87,15 +76,7 @@ export const startBuiltinTurn = internalMutation({
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
     if (charged === null) return null;
     if ("refused" in charged) return { allowed: false as const, reason: charged.refused };
-    const now = Date.now();
-    const verdict = await gate(ctx, BUILTIN_FEATURE, charged.workspaceId, now);
-    const counts = { failed: 0, questions: 0, tokens: 0, ms: 0 };
-    if (!verdict.allowed) {
-      await addUsage(ctx, BUILTIN_FEATURE, charged.workspaceId, { ...counts, calls: 0, refused: 1 }, now);
-      return verdict;
-    }
-    await addUsage(ctx, BUILTIN_FEATURE, charged.workspaceId, { ...counts, calls: 1, refused: 0 }, now);
-    return { allowed: true as const, remaining: verdict.remaining - 1 };
+    return await countTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, Date.now());
   },
 });
 
@@ -127,65 +108,7 @@ export const recordBuiltinUsage = internalMutation({
   handler: async (ctx, args) => {
     const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
     if (charged === null || "refused" in charged) return false;
-    const clamp = (n: number) => (Number.isFinite(n) ? Math.min(MAX_REPORTED_TOKENS, Math.max(0, Math.floor(n))) : 0);
-    const usage = {
-      input: clamp(args.inputTokens),
-      output: clamp(args.outputTokens),
-      cacheRead: clamp(args.cacheReadTokens ?? 0),
-      cacheWrite: clamp(args.cacheWriteTokens ?? 0),
-      model: reportedModel(args.model),
-    };
-    // Cache tokens are written tokens too: priced above at their own rates, so
-    // they must not be priced again at Clef's rate for `decisionTokens`.
-    const written = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-    const decision = clamp(args.decisionTokens ?? 0);
-    const tokens = written + decision;
-    const now = Date.now();
-    const writtenMicroUsd = writingCostMicroUsd(usage);
-    await addUsage(
-      ctx,
-      BUILTIN_FEATURE,
-      charged.workspaceId,
-      {
-        // A failed turn moves its call to `failed`, so the cap still counts it once.
-        calls: args.failed ? -1 : 0,
-        failed: args.failed ? 1 : 0,
-        refused: 0,
-        questions: 0,
-        tokens,
-        ms: Number.isFinite(args.ms) ? Math.max(0, Math.floor(args.ms)) : 0,
-        writtenTokens: written,
-        writtenMicroUsd,
-      },
-      now,
-    );
-    // The same figures, split by model. A missing model is GLM; a malformed one is passed
-    // on as it is, and `addModelUsage` ignores it, so it has no row (its cost stays in `jevUsage`).
-    await addModelUsage(
-      ctx,
-      BUILTIN_FEATURE,
-      charged.workspaceId,
-      args.model ?? GLM_MODEL,
-      {
-        calls: args.failed ? 0 : 1,
-        input: usage.input,
-        output: usage.output,
-        cacheRead: usage.cacheRead,
-        cacheWrite: usage.cacheWrite,
-        costMicroUsd: writtenMicroUsd,
-      },
-      now,
-    );
-    if (decision > 0) {
-      await addModelUsage(
-        ctx,
-        BUILTIN_FEATURE,
-        charged.workspaceId,
-        CLEF_MODEL,
-        { calls: 0, input: decision, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: costMicroUsd(decision) },
-        now,
-      );
-    }
+    await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, args, GLM_MODEL, Date.now());
     return true;
   },
 });

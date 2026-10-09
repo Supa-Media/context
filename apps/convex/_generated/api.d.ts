@@ -113,6 +113,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_routines from "../functions/routines.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
+import type * as functions_meetingSummary from "../functions/meetingSummary.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
 import type * as functions_searchTimings from "../functions/searchTimings.js";
 import type * as functions_treeAdmin from "../functions/treeAdmin.js";
@@ -242,6 +243,7 @@ declare const fullApi: ApiFromModules<{
   "functions/textLinks": typeof functions_textLinks;
   "functions/routines": typeof functions_routines;
   "functions/builtinModel": typeof functions_builtinModel;
+  "functions/meetingSummary": typeof functions_meetingSummary;
   "functions/agentTurns": typeof functions_agentTurns;
   "functions/searchTimings": typeof functions_searchTimings;
   "functions/treeAdmin": typeof functions_treeAdmin;
