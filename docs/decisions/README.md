@@ -94,6 +94,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
 - The covered-context set is a reach, not an identity
+- One person, several sign-in emails, and accounts are never joined
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 

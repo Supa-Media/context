@@ -100,6 +100,12 @@ export async function isAdmittedWithoutReferral(
       .first();
     if (user !== null) return true;
   }
+  // An address added to an account on Account settings signs in to it.
+  const attached = await db
+    .query("signInEmails")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .first();
+  if (attached !== null) return true;
 
   const row = await db
     .query("waitlist")

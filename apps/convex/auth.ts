@@ -2,6 +2,7 @@ import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
 import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
+import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { scheduleSignupAlert } from "./functions/signupAlerts";
@@ -39,6 +40,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // sign-in. See `functions/signupAlerts.ts`. The same moment is the account
   // conversion X and Meta ads count (`functions/xConversions.ts`,
   // `functions/metaConversions.ts`).
+  // An address added on Account settings signs in to that account rather than
+  // making a new one (`functions/lib/schema/signInEmails.ts`).
+  findUserByEmail: async (ctx, email) => (await userWithSignInEmail(ctx as never, email)) as never,
   onUserCreated: async (ctx, { userId }) => {
     await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
