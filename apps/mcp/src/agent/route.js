@@ -239,6 +239,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
       ? { decide: decisionEngine(env.AI), think: production.router.think }
       : null;
+  // The setup's fallback model (`production.js`), when this deployment can call it.
+  const fallback =
+    productionModel !== null && production.fallback !== null && canRunBuiltin(production.fallback, env) ? production.fallback : null;
 
   const started = Date.now();
   /*
@@ -296,7 +299,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       rounds: timing?.rounds ?? 0,
       inputTokens: usage?.input ?? 0,
       outputTokens: usage?.output ?? 0,
-      trace: Array.isArray(timing?.trace) ? timing.trace : [],
+      trace: Array.isArray(timing?.trace) ? timing.trace.map(wireTraceEntry) : [],
     };
     console.log(
       JSON.stringify({
@@ -362,6 +365,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
       router,
+      fallback,
       maxRounds: production?.maxSteps ?? undefined,
     });
     await afterAnswer(meter(turn.usage, false, turn.model));
@@ -424,6 +428,24 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     }
     throw error;
   }
+}
+
+/**
+ * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
+ * kinds, names, numbers and flags, never a word the router or a provider
+ * wrote. The router's own word (`pick`) and a fallback's `from` stay in this
+ * worker's log line; the status a provider answered is a number and goes.
+ */
+function wireTraceEntry(entry) {
+  const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool };
+  if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model };
+  if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
+  return {
+    ...base,
+    ...(entry.retried ? { retried: true } : {}),
+    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
+  };
 }
 
 /**

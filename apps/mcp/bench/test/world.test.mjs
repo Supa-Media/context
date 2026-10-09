@@ -302,3 +302,34 @@ test("a routed setup records the tier first on the tools line and reports the mo
     world.close();
   }
 });
+
+/* ---------------- a fallback and a retry are on the tools line, and an error keeps its status ---------------- */
+
+const SPARE_SETUP =
+  "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  fallback: \"@cf/zai-org/glm-4.7-flash\"\n---\n\nYou are a test assistant.\n";
+
+const busy = (status) => async () => new Response(JSON.stringify({ error: { type: "overloaded_error" } }), { status, headers: { "Content-Type": "application/json" } });
+
+test("a main model that stays busy is retried, then the fallback answers, and the tools line says both", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const world = await createWorld(bench, "Maya", SPARE_SETUP, { gatewayFetch: busy(529), ai: fakeAi() });
+  try {
+    const turn = await world.text("When is my dentist appointment?");
+    assert.equal(turn.ok, true, turn.error);
+    assert.equal(turn.model, "@cf/zai-org/glm-4.7-flash", "priced as the model that answered");
+    assert.equal(turn.tools[0]?.tool, "fallback: @cf/zai-org/glm-4.7-flash after 529", JSON.stringify(turn.tools));
+  } finally {
+    world.close();
+  }
+});
+
+test("a setup with no fallback records the error with the status the provider gave", async () => {
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: busy(503) });
+  try {
+    const turn = await world.text("When is my dentist appointment?");
+    assert.equal(turn.ok, false);
+    assert.equal(turn.error, "model_unavailable (status 503)");
+  } finally {
+    world.close();
+  }
+});

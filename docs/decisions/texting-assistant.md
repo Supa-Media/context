@@ -682,3 +682,59 @@ every_answer as a list of judge lines", "the test's every_answer lines reach
 the judge as trailing judge lines on every question", "voice is the share of
 judge lines passed; a voice bar holds a setup to it, and no bar only reports
 it".
+
+## A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)
+
+**Decided by the owner (2026-10-09)**, reading round two of the benchmark:
+29 of 708 answers were `model_unavailable`, every one a gateway or provider
+status in a flaky window, and a person texting gets exactly the same. "We
+should be retrying when possible, and when a fallback is used, since this is
+the behaviour in production, it's all part of it: retries, the time, fallbacks
+and everything. Note whenever a fallback is used and keep the reason."
+
+**What it holds:**
+
+- `aiGateway.js` sends a call once more after a short wait when the provider
+  answered 429, 503 or 529, or the request never got through. A 400 or 500 is
+  not retried (it would only fail twice) and a timed-out call is not either (it
+  has spent the round's deadline). The answer says it was retried and after
+  what status.
+- A setup may name `models.fallback` (`production.js`): another model than
+  `main`. When the model a turn is on fails after its retry, the turn goes on
+  from the same messages on the fallback, once (`turn.js`); the trace records
+  it with the status, the meter is told the model that answered, and the turn
+  log keeps it. There is no second fallback.
+- The turn log (`apps/convex/functions/agentTurns.ts`) takes `router` and
+  `fallback` entries, a `retried` flag and a `status` on a `model` entry. Until
+  this change a routed turn's report was refused whole by the log's validator,
+  silently, because the router's entry was a kind it did not know. The wire
+  shape carries kinds, names, numbers and flags: the router's own word and a
+  provider's phrase stay in the worker's log line.
+- `search` and `fetch`, ChatGPT's required pair, are withheld from the agent
+  (`turn.js`), which has `search_notes` and `read_note`: a model offered both
+  reached for `search` by its name and was refused 215 times in one run.
+- The benchmark shows all of it: a retried round and a fallback on the tools
+  line, the status beside an error, and "Retried:" and "Fell back:" lines under
+  the summary, so a run says how often production would have waited or
+  answered from the fallback, and the score says what those answers were worth.
+  Retries and fallbacks count in an answer's time, because they are the
+  person's time.
+- The router's criteria (`router.js`) now call `think` anything that needs more
+  than one place or one step: several notes or workspaces, a span of days, a
+  judgement, an opinion, a change plus a message, a request that could mean two
+  things. Round two routed 5 of 59 questions and missed the ones Haiku lost.
+
+**What a simplification would cost:** a retry inside the turn loop would retry
+a 500 and a timeout too, and would not know what it retried; a fallback chosen
+by the gateway rather than the setup could not be benchmarked; dropping router
+entries from the turn log to fit its validator would hide which tier a slow or
+wrong answer came from, the reason the trace has the entry. Tests
+(`test/agentGateway.test.mjs`, `test/agentFallback.test.mjs`,
+`test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
+`bench/test/report.test.mjs`, `apps/convex/__tests__/agentTurns.test.ts`): "a
+529, a 503 or a 429 is retried once after a wait, and the answer says it was",
+"a 400 or a 500 is not retried", "a main model that fails hands the turn to
+the fallback, which answers, and the trace says so", "a fallback that fails too
+is the end", "ChatGPT's search and fetch are never offered to the agent", "a
+router's pick, a fallback and a retried round are kept with their status, and a
+provider's words are not".

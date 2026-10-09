@@ -81,7 +81,11 @@ const PROPOSAL_TOOL = "propose_note";
  * read tools, and naming it says that automating the key material is a ruling
  * made here, not an accident of a flag.
  */
-const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys"]);
+// `search` and `fetch` are ChatGPT's two required tools: `search_notes` and
+// `read_note` in OpenAI's shape, without the `context` argument. A model that
+// has the real pair reaches for `search` by its name, passes `context`, and is
+// refused: 215 times in one benchmark run (2026-10-09).
+const WITHHELD_FROM_AGENT = new Set(["rotate_encryption_keys", "search", "fetch"]);
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
@@ -283,6 +287,7 @@ export async function runTurn(options) {
     notes = null,
     builtinModelOverride = null,
     router = null,
+    fallback = null,
     maxRounds = MAX_ROUNDS,
     clock = Date.now,
     toolTimeoutMs = TOOL_TIMEOUT_MS,
@@ -317,9 +322,10 @@ export async function runTurn(options) {
     if (routed.tier === "think") model = router.think;
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked });
   }
-  const system =
-    systemPrompt(place, { texting, notes, model, edits: tools.some((tool) => tool.name === "write_note") }) +
+  const systemFor = (answering) =>
+    systemPrompt(place, { texting, notes, model: answering, edits: tools.some((tool) => tool.name === "write_note") }) +
     webPrompt(webNames);
+  let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
     { role: "user", text: question },
@@ -375,6 +381,23 @@ export async function runTurn(options) {
             providerOptions,
           );
     } catch (error) {
+      /*
+        THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
+        failed after its retry costs the person a slower answer, never no
+        answer: the turn goes on from the same messages on the setup's
+        fallback model, once. The trace says so with the status, the meter is
+        told the model that answered, and a benchmark counts how often it
+        happened, because this is what production does too.
+      */
+      if (error instanceof ProviderError && builtin && fallback !== null && model !== fallback) {
+        const ms = clock() - asked;
+        timing.modelMs += ms;
+        trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
+        model = fallback;
+        system = systemFor(model);
+        round -= 1;
+        continue;
+      }
       // A failed turn is the one most worth seeing in the log, so the trace
       // so far travels with the error to `route.js`.
       if (error instanceof ProviderError) {
@@ -384,7 +407,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs,
-          trace: [...trace, { kind: "model", ok: false, ms }],
+          trace: [...trace, { kind: "model", ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
@@ -392,7 +415,13 @@ export async function runTurn(options) {
     const roundMs = clock() - asked;
     timing.rounds += 1;
     timing.modelMs += roundMs;
-    trace.push({ kind: "model", ok: true, ms: roundMs });
+    trace.push({
+      kind: "model",
+      ok: true,
+      ms: roundMs,
+      // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
+      ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
+    });
     if (answer.usage) {
       usage.input += answer.usage.input;
       usage.output += answer.usage.output;

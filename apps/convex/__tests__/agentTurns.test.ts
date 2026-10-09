@@ -107,6 +107,31 @@ describe("the turn log", () => {
     expect(await turns(t)).toHaveLength(0);
   });
 
+  test("a router's pick, a fallback and a retried round are kept with their status, and a provider's words are not", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    const trace = [
+      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40 },
+      { kind: "model", ok: true, ms: 900, retried: true, status: 529 },
+      { kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", ok: true, ms: 2_000, status: 529 },
+      { kind: "model", ok: true, ms: 1_200 },
+    ];
+    expect((await report(t, accessToken, { trace })).recorded).toBe(true);
+    const [row] = await turns(t, workspaceId);
+    expect(row.trace).toEqual(trace);
+    for (const bad of [
+      { kind: "router", model: "anthropic/claude-opus-5-5", ok: true, ms: 1 },
+      { kind: "router", tier: "think", model: "a model\nwith a sentence", ok: true, ms: 1 },
+      { kind: "fallback", ok: true, ms: 1 },
+      { kind: "fallback", model: "@cf/x", tool: "read_note", ok: true, ms: 1 },
+    ]) {
+      expect((await report(t, accessToken, { trace: [bad] })).recorded).toBe(false);
+    }
+    // A field the log does not know is dropped on the way in, never stored.
+    expect((await report(t, accessToken, { trace: [{ kind: "fallback", model: "@cf/x", ok: true, ms: 1, reason: "SECRET-REASON" }] })).recorded).toBe(true);
+    expect(JSON.stringify(await turns(t, workspaceId))).not.toContain("SECRET-REASON");
+  });
+
   test("an unknown token, the wrong workspace, or a missing gateway secret records nothing", async () => {
     const t = setupTest();
     const { accessToken } = await texter(t);
