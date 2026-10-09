@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAction } from "convex/react";
@@ -14,6 +14,7 @@ import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
 import { resetObservabilityUser } from "../observability/client";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
+import { clearPendingPhone } from "./pendingPhone";
 
 /**
  * The phone check (Dev2, 2026-10-09): one screen in front of the whole app
@@ -24,8 +25,16 @@ import { PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./p
  * Two steps, like sign-in: the number, then the code. Once the code is
  * confirmed the layout's subscription answers "not required" and the app
  * draws on its own; this screen does not navigate.
+ *
+ * `initialPhone` is a number typed on the sign-in page that no account held
+ * (board p2): it is texted at once, so the person only types the code.
+ * `onSkip` is drawn only when the check itself is off, for that number.
  */
-export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } = {}) {
+export function PhoneCheckScreen({
+  initialSentTo,
+  initialPhone,
+  onSkip,
+}: { initialSentTo?: string; initialPhone?: string; onSkip?: () => void } = {}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -33,18 +42,18 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
   const sendCode = useAction(api.functions.phoneCheck.sendPhoneCode);
   const confirmCode = useAction(api.functions.phoneCheck.confirmPhoneCode);
 
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(initialPhone ?? "");
   const [sentTo, setSentTo] = useState<string | null>(initialSentTo ?? null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const send = async () => {
+  const send = async (to = sentTo ?? phone) => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await sendCode({ phone: sentTo ?? phone });
+      const result = await sendCode({ phone: to });
       setError(sendError(result.status));
       if (result.status === "sent" && result.phone !== undefined) {
         setSentTo(result.phone);
@@ -57,6 +66,16 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     }
   };
 
+  // The typed number is texted once, on arrival.
+  const textedTypedPhone = useRef(false);
+  useEffect(() => {
+    if (initialPhone === undefined || initialSentTo !== undefined || textedTypedPhone.current) return;
+    textedTypedPhone.current = true;
+    void send(initialPhone);
+    // Once per screen: `send` changes every render and must not re-text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPhone]);
+
   const confirm = async (value = code) => {
     if (busy || sentTo === null || value.length !== OTP_LENGTH) return;
     setBusy(true);
@@ -64,7 +83,8 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     try {
       const result = await confirmCode({ phone: sentTo, code: value });
       setError(confirmError(result.status));
-      if (result.status !== "confirmed") setCode("");
+      if (result.status === "confirmed") clearPendingPhone();
+      else setCode("");
     } catch {
       setError(confirmError("failed"));
     } finally {
@@ -194,6 +214,11 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
             </>
           )}
 
+          {onSkip ? (
+            <Text variant="foot" role="link" style={styles.signOut} onPress={onSkip} testID="phone-check-skip">
+              Not now
+            </Text>
+          ) : null}
           <Text
             variant="foot"
             role="link"

@@ -29,7 +29,9 @@ describe("the gate", () => {
     const gate = source.indexOf("blocksForPhone(");
     expect(gate).toBeGreaterThan(source.indexOf('decision.action === "redirect"'));
     expect(gate).toBeLessThan(source.indexOf("needsOnboarding({"));
-    expect(source).toContain("<PhoneCheckScreen />");
+    expect(source).toContain("<PhoneCheckScreen");
+    // A number typed at sign-in that no account held is confirmed here too.
+    expect(source).toContain("initialPhone={typedPhone");
   });
 });
 

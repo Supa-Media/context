@@ -6,10 +6,8 @@ import { deletePersonalRows } from "./personalRows";
 
 /**
  * Option C (Dev2, 2026-10-09): accounts are never joined, but an account that
- * owns nothing can be folded into another. Two ways in: adding its address on
- * Account settings (`functions/signInEmails.ts`), and answering "yes" to "Do
- * you already use Context with another email?" at a first sign-in
- * (`functions/otherEmail.ts`).
+ * owns nothing can be folded into another, by adding its address on Account
+ * settings (`functions/signInEmails.ts`).
  */
 
 /** Whether `userId` owns any workspace, personal or shared. */
