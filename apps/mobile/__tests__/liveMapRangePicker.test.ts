@@ -9,7 +9,10 @@
  * the calendar segment is the same picker, named "Pick a stretch of time".
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
+
+// The days hook mints a grant through Convex; with no endpoint it asks nothing.
+jest.mock("convex/react", () => ({ useAction: () => async () => null }));
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -38,6 +41,7 @@ function pageWith(extra: Record<string, unknown> = {}) {
     now: NOW,
     events: [],
     workspaceIds: ["ws-a"],
+    historyEndpoint: null,
     playStretch: (s: Stretch) => calls.playStretch.push(s),
     ...extra,
   } as unknown as MapPageState;

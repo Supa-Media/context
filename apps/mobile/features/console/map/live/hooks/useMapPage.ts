@@ -245,6 +245,8 @@ export function useMapPage(data: ConsoleData) {
     custom,
     playStretch,
     workspaceIds: ids,
+    /** Where the range picker asks for the history's days: nowhere for a demo or a fixture. */
+    historyEndpoint: remote ? MCP_ENDPOINT : null,
     replay,
     replaying,
     dispatch,

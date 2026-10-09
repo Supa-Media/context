@@ -4,7 +4,7 @@ import { Button } from "../../../../design/components/Button";
 import { Text } from "../../../../design/components/Text";
 import { space } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
-import { useHistoryDays } from "../hooks/useHistoryDays";
+import { useHistoryDays } from "../hooks/useHistory";
 import type { MapPageState } from "../hooks/useMapPage";
 import { DEFAULT_LENGTH, dateShort, dateText, lengthLabel } from "../replayClock";
 import { Chip } from "./controls";
@@ -55,7 +55,7 @@ export function RangePicker({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const { width: windowWidth } = useWindowDimensions();
-  const history = useHistoryDays(page.workspaceIds);
+  const history = useHistoryDays(page.workspaceIds, page.historyEndpoint);
   const now = page.now;
   const strip = useMemo(() => stripFor(history.days, history.startsAt, now), [history.days, history.startsAt, now]);
   const { starts, counts } = strip;
