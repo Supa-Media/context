@@ -151,7 +151,9 @@ never the owner's, and the texting assistant is recognised by its client name
 (`Texts (iMessage)`), since the activity file records no client id. A person is
 never an AI, and an edit the app's own console made is drawn as the person who
 made it, not as a tool named after its client (`Context (this app)`). The
-server records nothing differently. The handle colours a person without a photo
-is drawn on keep clear of every AI tint, so four are left: red, yellow, lime
-and sky. Dropping the tints from the handle set fails `faceGroundsGuard.test.ts`,
-and a tool that loses its colour to a random pick fails `liveMapAgentKind.test.ts`.
+server records nothing differently. People keep their whole face palette:
+shape tells a person from a tool (a round face against a square robot or the
+round speech badge), so the handle colours are not narrowed to keep clear of
+the tints; trimming them to four made unrelated people share a colour, which
+Dev2 asked to avoid on 2026-09-28. A tool that loses its colour to a random
+pick fails `liveMapAgentKind.test.ts`.

@@ -115,8 +115,17 @@ function normalizeClientName(value) {
   // would have made it.
   if (/[\uD800-\uDBFF]$/.test(name)) name = name.slice(0, -1);
   name = name.trim();
-  return name || "Unnamed MCP client";
+  if (!name) return "Unnamed MCP client";
+  // The names Context's own clients are registered under are drawn as more
+  // than a tool: the app's console as the person whose hand it was, and the
+  // texting assistant as its own badge (`map/live/agentKind.ts`). A stranger
+  // registering one would be drawn the same way, so it is marked instead.
+  if (FIRST_PARTY_NAMES.has(name.toLowerCase())) return `Unverified: ${name}`;
+  return name;
 }
+
+/** Context's own client names (`agentGrant.ts`, `textLinks.ts`), which only Context registers. */
+const FIRST_PARTY_NAMES = new Set(["context (this app)", "texts (imessage)"]);
 
 /**
  * RFC 7591 dynamic client registration.
