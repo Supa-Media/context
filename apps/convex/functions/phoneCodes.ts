@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { contextVerifyKeys } from "./lib/phoneCheck";
-import { storedMessagingServiceSid } from "./lib/adminFns/signInTexts";
+import { smsKeysWithSender, storedMessagingServiceSid } from "./lib/adminFns/signInTexts";
 
 /**
  * Sign-in codes in Context's own words (Dev2, 2026-10-09).
@@ -62,7 +62,7 @@ async function smsKeys(ctx: ActionCtx) {
   const fromDeployment = twilioSmsKeys();
   if (fromDeployment !== null) return fromDeployment;
   const stored: string | null = await ctx.runQuery(internal.functions.phoneCodes.storedSender, {});
-  return stored === null ? null : twilioSmsKeys({ ...process.env, TWILIO_MESSAGING_SERVICE_SID: stored });
+  return stored === null ? null : smsKeysWithSender(stored);
 }
 
 /** Text a sign-in code to `phone` (E.164): Context's own words when it has a sender. */

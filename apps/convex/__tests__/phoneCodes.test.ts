@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { asUser, createUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 import { codeText, newCode } from "../functions/phoneCodes";
+import { smsKeysWithSender } from "../functions/lib/adminFns/signInTexts";
 
 /**
  * SIGN-IN CODES IN CONTEXT'S OWN WORDS.
@@ -242,5 +243,29 @@ describe("the sender staff set in the admin console (Dev2, 2026-10-09)", () => {
     ).rejects.toThrow();
     await expect(asUser(t, stranger).query(api.functions.admin.signInTexts, {})).rejects.toThrow();
     await expect(t.mutation(api.functions.admin.setSignInTextsSender, { messagingServiceSid: STORED })).rejects.toThrow();
+  });
+});
+
+describe("the stored sender on the real runtime", () => {
+  test("reads the account keys by name, because a deployment's environment cannot be listed", () => {
+    // Convex's `process.env` answers a named read but lists no keys, so
+    // `{ ...process.env }` is empty there. That shipped (#1439): the panel
+    // saved the ID and every code still went through Verify.
+    const values: Record<string, string> = {
+      TWILIO_ACCOUNT_SID: "AC_test_not_real",
+      TWILIO_API_KEY_SID: "SK_test_not_real",
+      TWILIO_API_KEY_SECRET: "test-secret-not-real",
+    };
+    const unlistable = new Proxy({} as Record<string, string | undefined>, {
+      get: (_target, name) => values[name as string],
+      ownKeys: () => [],
+    });
+    expect({ ...unlistable }).toEqual({});
+    expect(smsKeysWithSender("MG0123456789abcdef0123456789abcdef", unlistable)).toEqual({
+      accountSid: "AC_test_not_real",
+      apiKeySid: "SK_test_not_real",
+      authToken: "test-secret-not-real",
+      from: { messagingServiceSid: "MG0123456789abcdef0123456789abcdef" },
+    });
   });
 });

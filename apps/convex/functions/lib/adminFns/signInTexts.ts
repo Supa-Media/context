@@ -10,7 +10,7 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { twilioSmsKeys } from "@supa-media/convex/auth";
+import { twilioSmsKeys, type TwilioSmsKeys } from "@supa-media/convex/auth";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { AdminActor } from "../admin";
 import { recordAdminAudit } from "./audit";
@@ -26,6 +26,23 @@ export const signInTextsValidator = v.object({
   saysContext: v.boolean(),
 });
 
+/** The account's own keys, which the stored ID is combined with. */
+const ACCOUNT_KEY_NAMES = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET"] as const;
+
+/**
+ * Keys that send through `messagingServiceSid` from this deployment's account.
+ * Each key is read by name: Convex's `process.env` cannot be listed, so a
+ * spread of it is empty and every code silently fell back to Verify (#1439).
+ */
+export function smsKeysWithSender(
+  messagingServiceSid: string,
+  env: Record<string, string | undefined> = process.env,
+): TwilioSmsKeys | null {
+  const named: Record<string, string | undefined> = { TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid };
+  for (const name of ACCOUNT_KEY_NAMES) named[name] = env[name];
+  return twilioSmsKeys(named);
+}
+
 export async function storedMessagingServiceSid(ctx: QueryCtx): Promise<string | null> {
   return (await ctx.db.query("smsSettings").first())?.messagingServiceSid ?? null;
 }
@@ -36,7 +53,7 @@ export async function signInTextsHandler(ctx: QueryCtx) {
   const saysContext =
     fromDeployment ||
     (messagingServiceSid !== null &&
-      twilioSmsKeys({ ...process.env, TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid }) !== null);
+      smsKeysWithSender(messagingServiceSid) !== null);
   return { messagingServiceSid, fromDeployment, saysContext };
 }
 
