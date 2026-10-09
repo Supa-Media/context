@@ -75,6 +75,12 @@ const SET_ELSEWHERE: Record<string, string> = {
   OPEN_SIGNUP:
     "a self-host's switch back to open sign-up, set by hand; our deployments are invite-only " +
     "and a deploy must never be able to open them",
+  PHONE_CHECK:
+    "the phone check's switch (`lib/phoneCheck.ts`); synced to staging only, and turned on " +
+    "for production by Dev2's decision after staging, never as a side effect of a deploy",
+  PHONE_CHECK_EXEMPT_EMAILS:
+    "test inboxes set by hand on a deployment whose sign-in tests use them; absent exempts " +
+    "nobody, which is the safe default",
   HOME_SITE_HANDLE:
     "a self-host's own homepage handle; our deployments leave it unset and get the " +
     "default, `context-lc`, which is also the router's default",

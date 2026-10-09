@@ -9,6 +9,8 @@ import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
+import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
+import { blocksForPhone } from "../../features/auth/phoneCheck";
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
@@ -188,6 +190,7 @@ export default function AppLayout() {
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
       messages: { query: api.functions.messages.myMessageReads, args: {} },
+      phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
@@ -227,6 +230,15 @@ export default function AppLayout() {
 
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
+
+  /*
+    The phone check (Dev2, 2026-10-09), in front of everything else a signed-in
+    person sees, onboarding included. Drawn in place of the routes rather than
+    redirected to, so no URL gets past it. Unanswered is not a stop: the
+    server answers "required" only when the check is switched on, has its
+    keys, and this account has no confirmed phone (`functions/phoneCheck.ts`).
+  */
+  if (blocksForPhone(usable<{ required: boolean }>(results.phoneCheck))) return <PhoneCheckScreen />;
 
   const onboarding = needsOnboarding({
     standing: standingFrom(rows, usable<unknown[]>(results.invitations)),
