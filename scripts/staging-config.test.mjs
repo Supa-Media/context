@@ -79,7 +79,7 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   const production = read('.github/workflows/deploy-convex.yml');
   const productionSync = production.split('node scripts/convex-env-sync.mjs')[1]?.split('\n\n')[0];
   assert.ok(productionSync);
-  for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID']) {
+  for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_API_KEY_SID', 'TWILIO_API_KEY_SECRET', 'TWILIO_VERIFY_SERVICE_SID']) {
     assert.ok(backendKeys.includes(name));
     assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
     assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
@@ -88,6 +88,7 @@ test('Twilio credentials sync in both deployments and phone check only in stagin
   assert.ok(backendKeys.includes('PHONE_CHECK'));
   assert.ok(staging.includes('PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK }}'));
   assert.doesNotMatch(production, /PHONE_CHECK/);
+  assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
 });
 
 test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
