@@ -308,6 +308,9 @@ export async function countProjected(client) {
  * @param {object} options.budget the shared subrequest budget.
  * @param {number} options.reserve ops this pass may not spend.
  * @param {number} options.noteCap notes this pass may project.
+ * @param {number} options.versionProbeCap paths whose stored versions one pass
+ *   may compare. The control plane can scan more current paths than a gateway
+ *   request without raising the cap on notes it writes.
  * @param {number} options.indexPending notes the R2 index itself has not
  *   reached yet, so a projection cannot honestly call itself complete.
  * @param {(progress: object) => Promise<void>|void} options.reportProgress
@@ -323,6 +326,7 @@ export async function projectPass(
     budget,
     reserve = 0,
     noteCap = D1_PASS_NOTE_CAP,
+    versionProbeCap = VERSION_PROBE_CAP,
     indexPending = 0,
     reportProgress = null,
   } = {}
@@ -341,6 +345,9 @@ export async function projectPass(
   };
   const paths = census instanceof Map ? census : new Map(census || []);
   const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : D1_PASS_NOTE_CAP;
+  const probeCap = Number.isFinite(versionProbeCap)
+    ? Math.max(1, Math.min(300, Math.floor(versionProbeCap)))
+    : VERSION_PROBE_CAP;
   // Every op below is taken against this floor, so the cursor write at the end
   // is affordable however the pass went. `budget.take(floor)` spends one op
   // only while more than `floor` remain.
@@ -380,10 +387,10 @@ export async function projectPass(
     for (const path of sorted) {
       if (cursorKeyOf(path) <= from) continue;
       remaining.push(path);
-      if (remaining.length > VERSION_PROBE_CAP) break;
+      if (remaining.length > probeCap) break;
     }
-    const windowReachedEnd = remaining.length <= VERSION_PROBE_CAP;
-    const window = remaining.slice(0, VERSION_PROBE_CAP);
+    const windowReachedEnd = remaining.length <= probeCap;
+    const window = remaining.slice(0, probeCap);
 
     let stored = new Map();
     if (window.length > 0) {
