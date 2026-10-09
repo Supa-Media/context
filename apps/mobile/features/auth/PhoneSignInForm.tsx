@@ -1,10 +1,10 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
-import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
+import { PhoneNumberField } from "./PhoneNumberField";
 import { ALREADY_HEADING, JOINED_HEADING, PHONE_SIGN_IN_HEADING, WAITLIST_WHY } from "./phoneSignIn";
 import type { PhoneSignIn } from "./usePhoneSignIn";
 
@@ -53,14 +53,9 @@ export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUse
           {PHONE_SIGN_IN_HEADING}
         </Text>
         <View style={styles.field}>
-          <TextField
-            label="Phone number"
+          <PhoneNumberField
             value={flow.phone}
             onChangeText={flow.setPhone}
-            placeholder="+1 555 555 0100"
-            keyboardType="phone-pad"
-            autoComplete="tel"
-            textContentType="telephoneNumber"
             editable={!submitting}
             onSubmitEditing={() => {
               if (flow.canSend && !submitting) void flow.send();

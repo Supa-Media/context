@@ -35,7 +35,7 @@ export function sendError(status: SendStatus): string | null {
     case "not_needed":
       return null;
     case "invalid_phone":
-      return "Enter the number with its country code, like +1 555 555 0100.";
+      return "That number doesn't look right. Check it and the country beside it.";
     case "taken":
       return TAKEN;
     case "too_many":
