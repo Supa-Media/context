@@ -275,7 +275,13 @@ export function ConsoleFrame({
 
   const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
 
-  const contextLabel = atName(current?.slug ?? "your context");
+  /*
+    A visitor's one workspace is named by its display name: the homepage's is
+    "@context", and a shared link's is "Shared with you", which is not a
+    handle and must not read as one (`features/share/SharedConsole.tsx`).
+  */
+  const contextLabel =
+    visitor !== undefined && current?.displayName ? current.displayName : atName(current?.slug ?? "your context");
   // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.
