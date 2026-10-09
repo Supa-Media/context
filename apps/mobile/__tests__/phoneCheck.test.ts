@@ -41,6 +41,8 @@ describe("the words", () => {
     expect(sendError("sent")).toBeNull();
     expect(sendError("not_needed")).toBeNull();
     expect(confirmError("confirmed")).toBeNull();
+    // A number another account holds joined the two; the screen says so itself.
+    expect(confirmError("joined")).toBeNull();
   });
 
   test.each<SendStatus>(["invalid_phone", "taken", "too_many", "failed"])("a refused send (%s) says why", (status) => {

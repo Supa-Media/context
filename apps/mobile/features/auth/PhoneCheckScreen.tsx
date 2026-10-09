@@ -13,7 +13,7 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
 import { resetObservabilityUser } from "../observability/client";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
-import { PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
+import { JOINED_BODY, JOINED_TITLE, PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
 
 /**
  * The phone check (Dev2, 2026-10-09): one screen in front of the whole app
@@ -24,6 +24,10 @@ import { PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./p
  * Two steps, like sign-in: the number, then the code. Once the code is
  * confirmed the layout's subscription answers "not required" and the app
  * draws on its own; this screen does not navigate.
+ *
+ * A number another account already holds joins the two when this one owns
+ * nothing ("joined", `lib/account/phoneJoin.ts`): this account closes into
+ * that one, so the screen says so and the person signs in again to land there.
  */
 export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } = {}) {
   const colors = useColors();
@@ -38,6 +42,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [joined, setJoined] = useState(false);
 
   const send = async () => {
     if (busy) return;
@@ -64,7 +69,8 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     try {
       const result = await confirmCode({ phone: sentTo, code: value });
       setError(confirmError(result.status));
-      if (result.status !== "confirmed") setCode("");
+      if (result.status === "joined") setJoined(true);
+      else if (result.status !== "confirmed") setCode("");
     } catch {
       setError(confirmError("failed"));
     } finally {
@@ -96,7 +102,19 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
               .lc
             </Text>
           </Text>
-          {sentTo === null ? (
+          {joined ? (
+            <>
+              <Text role="heading" aria-level={1} style={styles.pitch}>
+                {JOINED_TITLE}
+              </Text>
+              <Text variant="rowSub" style={styles.body}>
+                {JOINED_BODY}
+              </Text>
+              <View style={styles.primaryRow}>
+                <Button label="Sign in again" variant="accent" onPress={useAnotherAccount} testID="phone-check-sign-in" />
+              </View>
+            </>
+          ) : sentTo === null ? (
             <>
               <Text role="heading" aria-level={1} style={styles.pitch}>
                 {PHONE_CHECK_TITLE}
@@ -148,7 +166,7 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
             </Text>
           ) : null}
 
-          {sentTo === null ? (
+          {joined ? null : sentTo === null ? (
             <View style={styles.primaryRow}>
               <Button
                 label="Text me a code"
@@ -194,15 +212,17 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
             </>
           )}
 
-          <Text
-            variant="foot"
-            role="link"
-            style={styles.signOut}
-            onPress={useAnotherAccount}
-            testID="phone-check-sign-out"
-          >
-            Sign out
-          </Text>
+          {joined ? null : (
+            <Text
+              variant="foot"
+              role="link"
+              style={styles.signOut}
+              onPress={useAnotherAccount}
+              testID="phone-check-sign-out"
+            >
+              Sign out
+            </Text>
+          )}
         </View>
       </CenteredScroll>
     </View>

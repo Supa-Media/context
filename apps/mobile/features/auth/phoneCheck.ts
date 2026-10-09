@@ -7,20 +7,25 @@
  */
 
 export type SendStatus = "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed";
-export type ConfirmStatus = "confirmed" | "wrong" | "taken" | "too_many" | "failed";
+export type ConfirmStatus = "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed";
 
 export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
   "We text you a code once to check it's yours. From then on, your phone is how you sign in.";
 
+/** After "joined": this email went onto the account the number already had. */
+export const JOINED_TITLE = "Welcome back.";
+export const JOINED_BODY =
+  "That number already has a Context account, so this email is on it now. Sign in again with your phone or this email to open it.";
+
 /**
  * One person, one account, however many emails (Dev2, 2026-10-09): a number
- * that already signs in elsewhere is the person's account, so the way on is
- * to sign in with it and add this email there, which folds an empty account
- * in (`functions/signInEmails.ts`).
+ * another account holds joins the two when either owns nothing ("joined",
+ * `lib/account/phoneJoin.ts`). "taken" is left only for two accounts that
+ * each own a workspace, which are never joined.
  */
 const TAKEN =
-  "That number already signs in to a Context account. Sign in with your phone instead, then add this email in Settings › Profile › Emails you sign in with.";
+  "That number already signs in to another Context account that has its own workspace. Use a different number, or sign out and sign in with your phone.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
 const FAILED = "We couldn't send a text just now. Try again in a minute.";
 
@@ -43,6 +48,7 @@ export function sendError(status: SendStatus): string | null {
 export function confirmError(status: ConfirmStatus): string | null {
   switch (status) {
     case "confirmed":
+    case "joined":
       return null;
     case "wrong":
       return "That code didn't work. Check the text, or send a new code.";
