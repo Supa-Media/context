@@ -57,6 +57,20 @@ const lastShown = new Map<string, ResolvedWebsiteAddress>();
 /** Bumped by every drop, so an answer asked before one is never kept after it. */
 let generation = 0;
 let lastSignedIn: boolean | undefined;
+/**
+ * Whether the sign-in state has been watched without a gap since the answers
+ * below were fetched. `noteSignedIn` is called only while a site page is
+ * mounted, so "signing in or out always passes through signed out" is true of
+ * the auth state and **not** of the observed one: a visitor who leaves the
+ * site, signs out, signs in as somebody else and comes back is signed in both
+ * times it is asked, and the signed-out moment between them was never seen.
+ *
+ * A signed-in answer kept across such a gap is therefore not known to be this
+ * account's, and is dropped rather than drawn. A signed-out answer is nobody's
+ * in particular — the server resolves it the same way for every visitor — so
+ * it survives the gap, which is the case this cache exists for.
+ */
+let watched = false;
 
 export function answerKey(ask: SiteAsk, signedIn: boolean): string {
   return JSON.stringify([ask.handle, ask.routePath, ask.legacySlug ?? null, signedIn]);
@@ -223,8 +237,31 @@ export function noteSignedIn(signedIn: boolean): void {
     pending.clear();
     lastShown.clear();
     generation += 1;
+  } else if (signedIn && !watched) {
+    // Watching stopped and the visitor is signed in again: possibly as
+    // somebody else (see `watched`), so the last account's answers go.
+    dropSignedIn();
   }
   lastSignedIn = signedIn;
+  watched = true;
+}
+
+/**
+ * No site page is mounted any more, so the sign-in state stops being watched.
+ * Called from the cleanup of `useWebsiteAddress`'s mount effect.
+ */
+export function noteSiteClosed(): void {
+  watched = false;
+}
+
+/** Every answer given to a signed-in visitor, whoever they were. */
+function dropSignedIn(): void {
+  generation += 1;
+  // `answerKey` is [handle, routePath, legacySlug, signedIn]; `siteKey` is
+  // [handle, signedIn].
+  for (const key of [...kept.keys()]) if ((JSON.parse(key) as unknown[])[3] === true) kept.delete(key);
+  for (const key of [...pending.keys()]) if ((JSON.parse(key) as unknown[])[3] === true) pending.delete(key);
+  for (const key of [...lastShown.keys()]) if ((JSON.parse(key) as unknown[])[1] === true) lastShown.delete(key);
 }
 
 /** Tests only: forget everything this tab kept. */
@@ -234,5 +271,6 @@ export function resetSiteAnswers(): void {
   revisions.clear();
   lastShown.clear();
   lastSignedIn = undefined;
+  watched = false;
   generation += 1;
 }

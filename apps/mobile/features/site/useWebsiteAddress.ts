@@ -11,6 +11,7 @@ import {
   noteRevision,
   noteShown,
   noteSignedIn,
+  noteSiteClosed,
   prefetchLinked,
   prefetchPage,
   type AskAddress,
@@ -88,6 +89,11 @@ export function useWebsiteAddress(
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  // The sign-in state is watched only while a site page is mounted, so the
+  // cache is told when that stops (`siteAnswers.ts`). Its own effect, with no
+  // dependencies: the effect below re-runs on every click.
+  useEffect(() => noteSiteClosed, []);
 
   const address = useRef<string | null>(null);
   useEffect(() => {

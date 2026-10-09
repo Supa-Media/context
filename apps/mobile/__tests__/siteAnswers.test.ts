@@ -16,6 +16,7 @@ import {
   noteRevision,
   noteShown,
   noteSignedIn,
+  noteSiteClosed,
   prefetchLinked,
   prefetchPage,
   resetSiteAnswers,
@@ -168,6 +169,51 @@ describe("signing in or out", () => {
     noteSignedIn(true);
     expect(keptAnswer(about, true)).toBeUndefined();
     expect(heldAnswer("acme", true)).toBeUndefined();
+  });
+
+  /**
+   * `noteSignedIn` is only called while a site page is mounted. A visitor who
+   * leaves the site, signs out, signs in as somebody else and comes back is
+   * signed in both times it is asked, and the signed-out moment between them
+   * was never seen — so "always passes through signed out" is true of the auth
+   * state and not of the observed one.
+   */
+  test("an account switch the tab never watched still drops the last account's pages", async () => {
+    const about = { handle: "acme", routePath: "/about" };
+    noteSignedIn(true);
+    await loadAnswer(about, true, answering());
+    noteShown(about, true, page("/about"));
+    expect(keptAnswer(about, true)).toBeDefined();
+
+    noteSiteClosed();
+    noteSignedIn(true);
+    expect(keptAnswer(about, true)).toBeUndefined();
+    expect(heldAnswer("acme", true)).toBeUndefined();
+  });
+
+  test("an answer asked before an unwatched gap is never kept after it", async () => {
+    const about = { handle: "acme", routePath: "/about" };
+    let settle = (view: ResolvedWebsiteAddress) => { void view; };
+    const slow = jest.fn(async () => await new Promise<ResolvedWebsiteAddress>((resolve) => { settle = resolve; }));
+    noteSignedIn(true);
+    const asking = loadAnswer(about, true, slow);
+    noteSiteClosed();
+    noteSignedIn(true);
+    settle(page("/about"));
+    await asking;
+    expect(keptAnswer(about, true)).toBeUndefined();
+  });
+
+  test("a signed-out answer survives the gap: it is not one account's", async () => {
+    const about = { handle: "acme", routePath: "/about" };
+    noteSignedIn(false);
+    await loadAnswer(about, false, answering());
+    noteShown(about, false, page("/about"));
+
+    noteSiteClosed();
+    noteSignedIn(false);
+    expect(keptAnswer(about, false)).toBeDefined();
+    expect(heldAnswer("acme", false)).toBeDefined();
   });
 
   test("a page kept but stale is not fetched ahead again", async () => {
