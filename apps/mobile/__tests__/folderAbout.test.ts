@@ -3,17 +3,16 @@
  */
 
 /**
- * EVERY FOLDER PAGE OPENS WITH ITS ABOUT NOTE.
+ * EVERY FOLDER PAGE OPENS WITH ITS ABOUT NOTE, AS A SUBTITLE.
  *
  * Decided by the owner on 2026-10-08 (the folder-about boards): a folder's
  * `about.md` — or the older `overview.md`, `index.md`, `README.md`, which
- * mean the same — is drawn at the top of its page with its filename in the
- * corner, and is not a row as well; the top of the workspace's is
- * `index.md`. A writer presses the words to edit them through the console's
- * one editor, and a folder with none offers "Add a description", which
- * creates `about.md`. It replaced the one-paragraph lede on project pages
- * (reported from a project page: "where does this text come from, and why
- * isn't it editable"). Harness shared in shape with `folderPageView.test.ts`.
+ * mean the same — is shown at the top of its page and is not a row as well;
+ * the top of the workspace's is `index.md`. Redesigned on 2026-10-09 ("I
+ * hate how the about.md looks… sometimes about will be long, sometimes
+ * short"): its opening words only, no filename, Read more when there is more
+ * (the side panel where it fits, a sheet where it does not), and an Edit
+ * button for a writer. Harness shared in shape with `folderPageView.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -86,10 +85,14 @@ const NOTES: ListNote[] = [
   { path: "1-projects/loose.md", updatedAt: 20, properties: {} },
 ];
 
+const LONG_LIST = "# Design\n\n- Brand colours\n- Type scale\n- Icon rules\n- Where the files live\n- Who signs off\n";
+
 const BODIES: Record<string, string> = {
   "1-projects/web/overview.md": "---\nstatus: active\n---\n# Website folder\n\nPublish a [folder](https://example.invalid) as a site.\n\n## Domains\n\nOne per site.\n",
   "index.md": "# Seyi\n\nEverything I am working on.\n",
   "1-projects/do this/README.md": "Folder placeholder.\n\nObject storage has no empty folders.\n",
+  "1-projects/fresh/about.md": "",
+  "3-resources/design/about.md": LONG_LIST,
 };
 
 type Write = [path: string, key: string, value: string | null, options: { create?: boolean } | undefined];
@@ -161,50 +164,38 @@ async function press(node: HTMLElement) {
   });
 }
 
+
+
 describe("a folder's about note", () => {
   const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
   const ROOT = listing("", [entry("folder", "1-projects"), entry("file", "index.md"), entry("file", "todo.md")]);
   const DO_THIS = listing("1-projects/do this", [entry("file", "1-projects/do this/README.md")]);
+  const FRESH = listing("1-projects/fresh", [entry("file", "1-projects/fresh/about.md"), entry("file", "1-projects/fresh/a.md")]);
+  const DESIGN = listing("3-resources/design", [entry("file", "3-resources/design/about.md"), entry("file", "3-resources/design/logo.md")]);
 
-  test("is drawn at the top with its filename, whole, and is not a row as well", async () => {
+  test("shows only its opening words, plain, with no filename, and is not a row as well", async () => {
     await mount(entry("folder", "1-projects/web"), WEB, host(null));
     await act(async () => {});
-    const words = strip(one("about-editor").textContent);
-    // The whole note, links as written, without the frontmatter or the heading the title already says.
-    expect(words).toContain("Publish a [folder](https://example.invalid) as a site.");
-    expect(words).toContain("## Domains");
-    expect(words).not.toContain("status: active");
-    expect(words).not.toContain("# Website folder");
-    expect(strip(one("folder-about-file").textContent)).toBe("overview.md");
-    // The listing below has the folder's other note, and not this one again.
+    // The paragraph as words: the link's text, not its address; nothing of the heading below it.
+    expect(strip(one("folder-about-words").textContent)).toBe("Publish a folder as a site.");
+    expect(one("folder-about-words").getAttribute("aria-label")).toBe("Publish a folder as a site. (continues)");
+    expect(strip(document.body.textContent)).not.toContain("Domains");
+    expect(all("folder-about-file")).toHaveLength(0);
+    expect(all("about-editor")).toHaveLength(0);
     const page = strip(one("folder-column").textContent);
     expect(page).toContain("dns");
-    expect(page.match(/overview/g)).toHaveLength(1);
+    expect(page).not.toMatch(/overview|\.md\b/);
   });
 
-  test("its filename opens it as a note", async () => {
-    const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
-    await press(one("folder-about-file"));
-    expect(view.selected).toEqual(["1-projects/web/overview.md"]);
-  });
-
-  test("at the top of the workspace it is index.md, and index.md is not a row", async () => {
+  test("a short one offers no Read more", async () => {
     await mount(entry("folder", ""), ROOT, host(null));
     await act(async () => {});
-    expect(strip(one("about-editor").textContent)).toContain("Everything I am working on.");
-    expect(strip(one("folder-about-file").textContent)).toBe("index.md");
-    expect(strip(one("folder-column").textContent)).toContain("todo");
-    expect(strip(one("folder-column").textContent).match(/index/g)).toHaveLength(1);
+    expect(strip(one("folder-about-words").textContent)).toBe("Everything I am working on.");
+    expect(all("folder-about-more")).toHaveLength(0);
+    expect(strip(one("folder-column").textContent).match(/index/g) ?? []).toHaveLength(0);
   });
 
-  test("a member reads it and has nothing to press", async () => {
-    await mount(entry("folder", "1-projects/web"), WEB, host(null));
-    await act(async () => {});
-    expect(one("about-editor").getAttribute("data-editable")).toBe("false");
-    expect(one("folder-about-words").getAttribute("aria-disabled")).toBe("true");
-  });
-
-  test("a writer presses the words and types in them through the console's one editor, and Done gives it back", async () => {
+  test("Read more opens the whole note beside the page, editable through the console's one editor", async () => {
     const calls: string[] = [];
     const editing: PeekEditing = {
       open: (path) => (calls.push(`open ${path}`), true),
@@ -216,15 +207,56 @@ describe("a folder's about note", () => {
     };
     await mount(entry("folder", "1-projects/web"), WEB, { ...host([]), editing });
     await act(async () => {});
-    // Read-only until pressed: nothing is lent away just by looking at a folder.
+    // Nothing is lent away just by looking at a folder.
     expect(calls).toEqual([]);
-    await press(one("folder-about-words"));
+    await press(one("folder-about-more"));
     await act(async () => {});
+    expect(strip(one("about-panel-title").textContent)).toBe("About Website folder");
     expect(calls).toEqual(["open 1-projects/web/overview.md"]);
-    expect(one("about-editor").getAttribute("data-editable")).not.toBe("false");
-    await press(one("folder-about-done"));
+    await press(one("task-panel-close"));
+    expect(all("about-panel")).toHaveLength(0);
     expect(calls).toEqual(["open 1-projects/web/overview.md", "close 1-projects/web/overview.md"]);
-    expect(all("folder-about-done")).toHaveLength(0);
+  });
+
+  test("where the panel has no room, Read more opens a sheet, and Open as note goes to the note", async () => {
+    windowOf(390, 844);
+    const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
+    await act(async () => {});
+    await press(one("folder-about-more"));
+    await act(async () => {});
+    expect(all("about-sheet")).toHaveLength(1);
+    expect(strip(one("about-editor").textContent)).toContain("## Domains");
+    await press(one("about-sheet-open"));
+    expect(view.selected).toEqual(["1-projects/web/overview.md"]);
+    expect(all("about-sheet")).toHaveLength(0);
+  });
+
+  test("a member reads it and has no Edit", async () => {
+    await mount(entry("folder", "1-projects/web"), WEB, host(null));
+    await act(async () => {});
+    expect(all("folder-about-edit")).toHaveLength(0);
+  });
+
+  test("a writer's Edit turns the opening paragraph into a field, marks and all, and Enter saves it", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects/web"), WEB, host(writes));
+    await act(async () => {});
+    await press(one("folder-about-edit"));
+    await act(async () => {});
+    const field = one("folder-lede-input") as HTMLTextAreaElement;
+    expect(field.value).toBe("Publish a [folder](https://example.invalid) as a site.");
+    await type(field, "Publish a [folder](https://example.invalid) as a website.");
+    expect(writes).toEqual([["1-projects/web/overview.md", "lede", "Publish a [folder](https://example.invalid) as a website.", undefined]]);
+  });
+
+  test("an about that opens with a list shows its first items on one line, and Edit opens the whole note", async () => {
+    await mount(entry("folder", "3-resources/design"), DESIGN, host([]));
+    await act(async () => {});
+    expect(strip(one("folder-about-words").textContent)).toBe("Brand colours · Type scale · Icon rules · Where the files live…");
+    await press(one("folder-about-edit"));
+    await act(async () => {});
+    expect(all("about-panel")).toHaveLength(1);
+    expect(all("folder-lede-input")).toHaveLength(0);
   });
 
   test("the untouched placeholder a new folder used to get is not drawn as one", async () => {
@@ -234,28 +266,46 @@ describe("a folder's about note", () => {
     expect(strip(document.body.textContent)).not.toContain("Folder placeholder");
   });
 
-  test("a folder with none offers a writer Add a description, which creates about.md", async () => {
+  test("a folder with none offers a writer Add a short description, which creates about.md", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects/do this"), DO_THIS, host(writes));
     await act(async () => {});
-    expect(strip(one("folder-lede-edit").textContent)).toBe("Add a description");
+    expect(strip(one("folder-lede-edit").textContent)).toBe("Add a short description");
     await press(one("folder-lede-edit"));
     await act(async () => {});
-    const field = one("folder-lede-input") as HTMLTextAreaElement;
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
-      set.call(field, "Things to get done.");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
+    await type(one("folder-lede-input") as HTMLTextAreaElement, "Things to get done.");
     expect(writes).toEqual([["1-projects/do this/about.md", "lede", "Things to get done.", { create: true }]]);
+  });
+
+  test("the empty about.md a new folder writes asks a writer for words, into that same note", async () => {
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects/fresh"), FRESH, host(writes));
+    await act(async () => {});
+    expect(strip(one("folder-lede-edit").textContent)).toBe("Add a short description");
+    await press(one("folder-lede-edit"));
+    await act(async () => {});
+    await type(one("folder-lede-input") as HTMLTextAreaElement, "Fresh start.");
+    expect(writes).toEqual([["1-projects/fresh/about.md", "lede", "Fresh start.", undefined]]);
   });
 
   test("a member is offered nothing where there is none", async () => {
     await mount(entry("folder", "1-projects/do this"), DO_THIS, host(null));
     await act(async () => {});
     expect(all("folder-lede-edit")).toHaveLength(0);
+    await mount(entry("folder", "1-projects/fresh"), FRESH, host(null));
+    await act(async () => {});
+    expect(all("folder-lede-edit")).toHaveLength(0);
+    expect(all("folder-about")).toHaveLength(0);
   });
 });
+
+async function type(field: HTMLTextAreaElement, text: string) {
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}

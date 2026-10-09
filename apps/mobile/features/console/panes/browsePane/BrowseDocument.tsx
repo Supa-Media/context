@@ -404,7 +404,6 @@ export function BrowseDocument({
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
         page={folderPage}
-        showAudience={data.visitor === undefined}
         phoneHead={phoneHead(selected.path)}
         phoneButtons={
           compact ? (

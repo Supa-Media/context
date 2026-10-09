@@ -47,6 +47,8 @@ import { estimateOf } from "./taskProps";
 import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
 import type { LedeEditing } from "./LedeEditor";
 import { AboutBlock } from "./AboutBlock";
+import { AboutSheet } from "./AboutSheet";
+import { AboutPanel } from "./panel/AboutPanel";
 import { ownerChoiceFor, textOf, type ItemActions, type OwnerChoice } from "./items";
 import { localOwnerSearch, ownersInUse } from "../owners";
 import { useOwnerLabels } from "./useOwnerLabels";
@@ -239,6 +241,8 @@ export function FolderPage({
   const edits = useStatusEdits(loaded, folder, statuses, summary === null ? null : { target: summary.target, creates: summary.creates });
   const [editing, setEditing] = useState(false);
   const [tidyProblem, setTidyProblem] = useState<string | null>(null);
+  // The whole about note, in a sheet where the side panel has no room.
+  const [sheet, setSheet] = useState<string | null>(null);
   const toneOf = useCallback((status: string) => groupOfStatus(status, list) ?? ("unplaced" as const), [list]);
   // Any row pressed on a desktop page opens beside the list (`panel/`); on a phone, on its own page.
   const panel = useTaskPanel(folder, compact, pageWidth);
@@ -356,7 +360,19 @@ export function FolderPage({
   const peeking = panel.path;
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
-    view === "files" || waiting || peeking === null
+    peeking !== null && peeking === about
+      ? (width: number) => (
+          <AboutPanel
+            path={peeking}
+            title={summary?.title ?? fallbackTitle}
+            source={host.source}
+            width={width}
+            onNavigate={onSelect}
+            onClose={panel.close}
+            {...(host.editing === undefined ? {} : { editing: host.editing })}
+          />
+        )
+      : view === "files" || waiting || peeking === null
       ? null
       : (width: number) => (
           <TaskPanel
@@ -408,9 +424,10 @@ export function FolderPage({
           path={about}
           title={summary?.title ?? fallbackTitle}
           source={host.source}
+          compact={compact}
           create={createAbout}
-          onOpenNote={(path) => onSelect(path)}
-          {...(host.editing === undefined ? {} : { editing: host.editing })}
+          setLede={setLede === undefined || !loaded.canEdit ? null : (path, text) => setLede(path, text)}
+          onReadMore={(path) => (panel.fits ? panel.show(path) : setSheet(path))}
         />
         {isProject ? null : rule}
       </FolderHead>
@@ -447,6 +464,9 @@ export function FolderPage({
           inherited={statuses.from !== null && statuses.from !== folder ? statuses.from : null}
           onClose={() => setEditing(false)}
         />
+      ) : null}
+      {sheet !== null && sheet === about ? (
+        <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
         {view === "files" ? (
