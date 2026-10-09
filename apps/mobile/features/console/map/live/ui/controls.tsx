@@ -61,7 +61,8 @@ export function Choice<T extends string>({
 }: {
   label: string;
   options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  value: T;
+  /** `null` when the choice is something the row does not offer, so none is chosen. */
+  value: T | null;
   onChange: (value: T) => void;
   testID?: string;
 }) {
@@ -99,7 +100,8 @@ export function Segmented<T extends string>({
 }: {
   label: string;
   options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  value: T;
+  /** `null` when the choice is something the track does not offer, so none is chosen. */
+  value: T | null;
   onChange: (value: T) => void;
   testID?: string;
   /** Share of the row this track takes beside others. */

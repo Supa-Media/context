@@ -6,18 +6,18 @@ import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../../../../design/theme";
 import { darkMapColors, lightMapColors } from "../../../../design/tokens/colors";
 import type { MapPageState } from "../hooks/useMapPage";
-import { REPLAY_SPEEDS, clockText, dayText, fractionOf, placeMoments, replayTicks, type ReplayState } from "../replayClock";
+import { REPLAY_LENGTHS, clockText, dayText, fractionOf, lengthLabel, lengthSpoken, placeMoments, replayTicks, type ReplayState } from "../replayClock";
+import { RoundButton } from "./controls";
 
 /** How far apart two moment labels in one row sit, as a share of the bar: about one label's width. */
 const MOMENT_GAP = 0.3;
-import { RoundButton } from "./controls";
 
 /**
- * The replay bar: play and pause, how fast, the clock, and the day (or the
- * week) as a track — taller bars where more happened, the marked moments
- * above it, the hours (or days) below, and a playhead to drag. The track is a
- * slider to a keyboard and a screen reader: arrows step, Shift steps further,
- * Home and End go to the ends.
+ * The replay bar: play and pause, how long the whole replay takes, the clock,
+ * and the stretch as a track — taller bars where more happened, the marked
+ * moments above it, the hours (or days, or dates) below, and a playhead to
+ * drag. The track is a slider to a keyboard and a screen reader: arrows step,
+ * Shift steps further, Home and End go to the ends.
  */
 export function ReplayBar({ page, compact = false }: { page: MapPageState; compact?: boolean }) {
   const styles = useThemedStyles(makeStyles);
@@ -42,20 +42,23 @@ export function ReplayBar({ page, compact = false }: { page: MapPageState; compa
           onPress={() => page.dispatch({ type: "toggle" })}
           testID="map-replay-play"
         />
-        <View style={styles.speeds} accessibilityRole="radiogroup" accessibilityLabel="Replay speed">
-          {REPLAY_SPEEDS[replay.range].map((speed) => (
-            <Pressable
-              key={speed}
-              onPress={() => page.dispatch({ type: "speed", speed })}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: replay.speed === speed }}
-              accessibilityLabel={`${speed} times speed`}
-              style={[styles.speed, replay.speed === speed && styles.speedOn]}
-              testID={`map-replay-speed-${speed}`}
-            >
-              <Text style={[styles.speedText, replay.speed === speed && styles.speedTextOn]}>{`${speed}×`}</Text>
-            </Pressable>
-          ))}
+        <View style={styles.takes}>
+          <Text style={styles.takesLabel}>{compact ? "Takes" : "Replay takes"}</Text>
+          <View style={styles.speeds} accessibilityRole="radiogroup" accessibilityLabel="Replay takes">
+            {REPLAY_LENGTHS.map((length) => (
+              <Pressable
+                key={length}
+                onPress={() => page.dispatch({ type: "length", length })}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: replay.length === length }}
+                accessibilityLabel={`Replay takes ${lengthSpoken(length)}`}
+                style={[styles.speed, replay.length === length && styles.speedOn]}
+                testID={`map-replay-length-${length}`}
+              >
+                <Text style={[styles.speedText, replay.length === length && styles.speedTextOn]}>{lengthLabel(length)}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       </View>
       <View style={[styles.time, compact && styles.timeCompact]}>
@@ -81,7 +84,7 @@ function Track({ page, replay, compact }: { page: MapPageState; replay: ReplaySt
   const box = useRef({ x: 0, width: 1 });
   const head = fractionOf(replay.at, replay.from, replay.to);
   // A phone's narrow bar names every other tick.
-  const ticks = replayTicks(replay.range, replay.from, replay.to).filter((_, i) => !compact || i % 2 === 0);
+  const ticks = replayTicks(replay.from, replay.to).filter((_, i) => !compact || i % 2 === 0);
 
   const measure = () => {
     const node = ref.current as unknown as { getBoundingClientRect?: () => { left: number; width: number } } | null;
@@ -207,6 +210,8 @@ const makeStyles = (colors: Colors) =>
     headRow: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     controlsRow: { flexDirection: "row" },
     controls: { alignItems: "center", gap: space.x2 },
+    takes: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    takesLabel: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     speeds: { flexDirection: "row", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong, borderRadius: 8, overflow: "hidden" },
     speed: { paddingHorizontal: 7, paddingVertical: 3 },
     speedOn: { backgroundColor: colors.text },

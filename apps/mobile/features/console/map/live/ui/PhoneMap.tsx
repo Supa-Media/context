@@ -49,7 +49,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
         <MapBar page={page} compact />
         {page.replaying && page.replay !== null ? (
           <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
-            <Text style={styles.badgeText}>{replayBadge(page.replay.range, page.replay.speed)}</Text>
+            <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>
           </View>
         ) : null}
       </View>

@@ -22,12 +22,12 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
   const when = (
     <Choice
       label="When"
-      value={page.mode}
+      value={page.mode === "custom" ? null : page.mode}
       onChange={page.setMode}
       testID="map-when"
       options={[
         { value: "live", label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
-        { value: "today", label: "Today" },
+        { value: "day", label: "Today" },
         { value: "week", label: "This week" },
       ]}
     />
@@ -62,13 +62,13 @@ export function MapBar({ page, compact }: { page: MapPageState; compact: boolean
   if (compact) {
     const whenOptions = [
       { value: "live" as const, label: "Live", leading: <LiveDot pulsing={live} reducedMotion={page.reducedMotion} /> },
-      { value: "today" as const, label: "Today" },
+      { value: "day" as const, label: "Today" },
       { value: "week" as const, label: "Week" },
     ];
     return (
       <View style={styles.phone} testID="map-bar">
         <View style={styles.phoneRow}>
-          <Segmented label="When" value={page.mode} onChange={page.setMode} testID="map-when" options={whenOptions} />
+          <Segmented label="When" value={page.mode === "custom" ? null : page.mode} onChange={page.setMode} testID="map-when" options={whenOptions} />
         </View>
         <View style={styles.phoneRow}>
           <Segmented
