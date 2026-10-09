@@ -73,11 +73,11 @@ const RESULT = {
 };
 
 /** A fixture folder: the benchmark's test, and a result note with its key beside it. */
-async function folder(result = RESULT) {
+async function folder(result = RESULT, { test = TEST_MD } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "bench-judge-"));
   await mkdir(join(dir, "tests"));
   await mkdir(join(dir, "results"));
-  await writeFile(join(dir, "tests", "texting-assistant.md"), TEST_MD);
+  await writeFile(join(dir, "tests", "texting-assistant.md"), test);
   const path = join(dir, "results", "2026-10-08 texting-assistant.md");
   await writeFile(path, resultMarkdown(result));
   await writeFile(join(dir, "results", "2026-10-08 texting-assistant key.md"), keyMarkdown(result));
@@ -367,6 +367,30 @@ test("progress and spend are reported per question, and the default judge is Hai
     assert.equal(DEFAULT_JUDGE, "claude-haiku-5-5");
     assert.ok(lines.some((line) => /^q1: 3 answers judged in \d+\.\d s \(\d\/2, spent \$\d+\.\d\d\)$/.test(line)), lines.join("\n"));
     assert.ok(result.spent.input > 0 && result.spent.usd > 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the test's every_answer lines reach the judge as trailing judge lines on every question", async () => {
+  const withVoice = TEST_MD.replace("runs: 2\n", "runs: 2\nevery_answer:\n  friend: read like a text from a friend\n  one: end on one next step or one question\n");
+  const { dir, path, cleanup } = await folder(RESULT, { test: withVoice });
+  try {
+    const rec = recording(fakeJudge());
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    const payloads = rec.bodies.map(payloadOf);
+    const dentist = payloads.find((p) => p.question === "When's my dentist appointment?");
+    assert.deepEqual(dentist.checks.slice(-2), [
+      { kind: "judge", line: "read like a text from a friend" },
+      { kind: "judge", line: "end on one next step or one question" },
+    ]);
+    const privacy = payloads.find((p) => p.question === "Is my dentist visit private?");
+    assert.deepEqual(privacy.checks.slice(-2).map((c) => c.line), ["read like a text from a friend", "end on one next step or one question"]);
+    assert.equal(privacy.checks.filter((c) => c.kind === "judge").length, 2, "a question with no judge lines of its own still gets the voice lines");
+    const judged = parseJudgedSections(await readFile(path, "utf8"));
+    for (const block of judged[0].blocks.values()) {
+      assert.equal(block.verdicts.filter((v) => v.kind === "judge" && v.line === "read like a text from a friend").length, 1, "every answer gets a verdict under the voice line");
+    }
   } finally {
     await cleanup();
   }

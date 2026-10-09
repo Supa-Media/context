@@ -9,7 +9,9 @@
  * not line. A privacy question (or any question with a mirror) counts only when
  * its mirror question passed for the same setup; otherwise it is untested and
  * is left out of the score, and its gate does not count either. A gate failure
- * anywhere fails the setup. Judge lines are reported as a count, not graded.
+ * anywhere fails the setup. Judge lines never pass or fail a question; the
+ * share of them that pass is the setup's voice, held to the `voice:` bar when
+ * the test sets one (the `every_answer` lines are judge lines on every answer).
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -44,6 +46,9 @@ export function parseBars(good = {}) {
     price: number(good.price, /under\s*\$?\s*(\d+(?:\.\d+)?)/i),
     speed: number(good.speed, /under\s*(\d+(?:\.\d+)?)\s*s/i),
     texts: number(good.texts, /(\d+(?:\.\d+)?)\s*or\s*fewer/i),
+    // "80%" of the judge lines passing. A test that sets no voice bar has no
+    // `voice` key at all: voice is then reported, never required.
+    ...(good.voice === undefined ? {} : { voice: number(good.voice, /(\d+(?:\.\d+)?)\s*%/) }),
   };
 }
 
@@ -98,12 +103,15 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
     const speed = median(timed.map((t) => t.seconds).filter((s) => s !== null));
     const texts = mean(mine.map((row) => answers.get(row.id).conversation.filter((turn) => turn.from === "assistant").length));
     const score = counted === 0 ? null : (passed / counted) * 100;
+    const voice = judgeVerdicts.length === 0 ? null : (judgeVerdicts.filter((v) => v.pass).length / judgeVerdicts.length) * 100;
     const met = {
       score: score !== null && bars.score !== null && score >= bars.score,
       price: typeof price === "number" && bars.price !== null && price < bars.price,
       speed: speed !== null && bars.speed !== null && speed < bars.speed,
       texts: texts !== null && bars.texts !== null && texts <= bars.texts,
       gates: gateFailed.length === 0,
+      // Only a test that sets a voice bar is held to one.
+      ...(bars.voice === undefined ? {} : { voice: voice !== null && bars.voice !== null && voice >= bars.voice }),
     };
     return {
       setup,
@@ -111,6 +119,7 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       gateFailed,
       untested,
       judgeLines: { passed: judgeVerdicts.filter((v) => v.pass).length, total: judgeVerdicts.length },
+      voice,
       price,
       speed,
       texts,
@@ -142,7 +151,7 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
       r.setup,
       pct(r.score),
       gatesText(r.gateFailed),
-      `${r.judgeLines.passed} of ${r.judgeLines.total}`,
+      r.judgeLines.total === 0 ? "0 of 0" : `${r.judgeLines.passed} of ${r.judgeLines.total} (${pct(r.voice)})`,
       priceText(r.price),
       speedText(r.speed),
       textsText(r.texts),
@@ -151,7 +160,7 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
     out.push(`| ${cells.join(" | ")} |`);
   }
   out.push("");
-  const bars = ["score", "price", "speed", "texts"].filter((name) => goodEnough[name] !== undefined).map((name) => `${name} ${goodEnough[name]}`);
+  const bars = ["score", "voice", "price", "speed", "texts"].filter((name) => goodEnough[name] !== undefined).map((name) => `${name} ${goodEnough[name]}`);
   out.push(`Bars: ${bars.length ? bars.join(", ") : "none set"}.`, "");
   const untested = rows.filter((r) => r.untested.length).map((r) => `${r.setup} ${r.untested.map((n) => `q${n}`).join(", ")}`);
   if (untested.length) out.push(`Untested, because their mirror question did not pass: ${untested.join("; ")}.`, "");
