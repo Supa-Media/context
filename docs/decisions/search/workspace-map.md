@@ -94,3 +94,20 @@ database with the file tree (proposed 2026-10-08 by the sidebar-tree work,
 which owns it), the map reads from there instead, with the same serve-time
 filter. Any such store must be a disposable derivative like the rest of
 `.context/search/`, rebuildable and never the only copy of a link.
+
+**The phone app draws the same map (2026-10-09).** React Native has no
+`<canvas>`, so until now the native app showed only who is working and what is
+happening. It now runs the web build's own engine in a `WebView`
+(`map/live/webview/`), compiled into a committed bundle by
+`scripts/build-map-bundle.mjs` the way the editor is, so it ships over the air
+and the two can never drift into two maps. The web view reaches no network: it
+uses the editor's document, whose Content-Security-Policy is
+`default-src 'none'`, refuses every navigation, and gets people's photos from
+the app as data URIs. Everything it sends back is checked
+(`parseGuestMessage`); opening a note is rebuilt field by field. Graphs travel
+only when they change, the rest of the data with every poll, and a web view
+that reloads is sent everything again. Not a native canvas library
+(Skia and the like): that is a second renderer to keep in step, and a native
+dependency an over-the-air update cannot add. Guards:
+`__tests__/liveMapWebview.test.ts`, `__tests__/mapBundle.test.ts`, and the
+`editor-bundle` CI job, which rebuilds both bundles and diffs them.

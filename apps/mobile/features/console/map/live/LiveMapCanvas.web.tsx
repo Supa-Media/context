@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { createMapEngine, type MapData, type MapEngine, type MapEngineOptions } from "./engine";
 import type { Inset } from "./engine/camera";
+import { faceFor as storedFace } from "../../faces/faceStore";
 import { createFaceImages } from "./faceImages";
 
 /**
@@ -38,7 +39,7 @@ export function LiveMapCanvas(props: LiveMapCanvasProps) {
     const host = hostRef.current;
     if (!canvas || !host) return;
     let engine: MapEngine | null = null;
-    const faces = createFaceImages(() => engine?.redraw());
+    const faces = createFaceImages(() => engine?.redraw(), storedFace);
     engine = createMapEngine(canvas, {
       faceFor: faces,
       reducedMotion: !!propsRef.current.reducedMotion,

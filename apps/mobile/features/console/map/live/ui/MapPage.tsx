@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Text } from "../../../../design/components/Text";
 import { fonts, space, pointerType } from "../../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../../design/theme";
@@ -9,7 +9,7 @@ import { replayBadge } from "../replayClock";
 import { MapCanvas, type OpenMapNote } from "./MapCanvas";
 import { Breadcrumb, createCameraStore, OVERLAY_INSET, ZoomControl, type CameraStore } from "./CanvasOverlay";
 import { MapBar } from "./MapBar";
-import { Feed, MapPanel, WorkingNow } from "./MapPanel";
+import { MapPanel } from "./MapPanel";
 import { PhoneMap } from "./PhoneMap";
 import { ReplayBar } from "./ReplayBar";
 import { mapNotice, statusParts } from "./status";
@@ -20,15 +20,15 @@ import { mapNotice, statusParts } from "./status";
  * choices across the top, the canvas with where-you-are and the zoom control
  * over it, the replay bar under it while replaying, and the column of who is
  * working and what is happening beside it. A phone gets the canvas with a
- * sheet over it (`PhoneMap`); native, which has no canvas engine yet, gets
- * the words without the picture (`MapWithoutCanvas`).
+ * sheet over it (`PhoneMap`). In the native app the canvas is the same
+ * engine inside a web view (`LiveMapCanvas.tsx`), so every layout is the
+ * same on every platform.
  */
 export type { OpenMapNote };
 
 export function MapPage({ data, compact, onOpenNote }: { data: ConsoleData; compact: boolean; onOpenNote: OpenMapNote }) {
   const page = useMapPage(data);
   const camera = useMemo(() => createCameraStore(), []);
-  if (Platform.OS !== "web") return <MapWithoutCanvas page={page} onOpenNote={onOpenNote} />;
   if (compact) return <PhoneMap page={page} camera={camera} onOpenNote={onOpenNote} />;
   return <DesktopMap page={page} camera={camera} onOpenNote={onOpenNote} />;
 }
@@ -104,28 +104,6 @@ function StatusLine({ page }: { page: MapPageState }) {
   );
 }
 
-/**
- * Native: the engine draws on a web `<canvas>` and there is no native one yet,
- * so the page says who is working and what is happening — the half of the map
- * that is words — and says in one line where the picture is.
- */
-function MapWithoutCanvas({ page, onOpenNote }: { page: MapPageState; onOpenNote: OpenMapNote }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.native} testID="map-page">
-      <MapBar page={page} compact />
-      <View style={styles.nativeBody}>
-        <Text variant="meta" testID="map-native-note">
-          The map itself is drawn in the web app for now; here is who is working and what is happening.
-        </Text>
-        <WorkingNow page={page} />
-        {page.mode !== "live" ? <ReplayBar page={page} compact /> : null}
-        <Feed items={page.feed} replaying={page.replaying} now={page.now} onOpenNote={onOpenNote} compact />
-      </View>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     page: { flex: 1, minHeight: 0, backgroundColor: colors.pageSurface },
@@ -168,6 +146,4 @@ const makeStyles = (colors: Colors) =>
     statusText: { fontFamily: fonts.body, fontSize: pointerType.label, color: colors.chromeMuted },
     statusStrong: { color: colors.text2, fontWeight: "600" },
     spacer: { flex: 1 },
-    native: { flex: 1, backgroundColor: colors.pageSurface },
-    nativeBody: { padding: space.x4, gap: space.x3 },
   });

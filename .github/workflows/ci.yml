@@ -148,7 +148,7 @@ jobs:
   # clean tree before this was added. If that ever stops being true, this job
   # goes red and says so, which is the right direction to fail in.
   editor-bundle:
-    name: The committed editor bundle is what its sources build
+    name: The committed editor and map bundles are what their sources build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -166,6 +166,7 @@ jobs:
             apps/mcp/src/lists.js
             apps/mobile/features/console/faces/**
             apps/mobile/features/console/files/**
+            apps/mobile/features/console/map/live/**
             apps/mobile/features/console/presence/**
             apps/mobile/features/design/tokens/colors.ts
             apps/mobile/features/voice/**
@@ -173,6 +174,8 @@ jobs:
             packages/drawings/**
             packages/shared/**
             scripts/build-editor-bundle.mjs
+            scripts/build-map-bundle.mjs
+            scripts/lib/guest-bundle.mjs
             .github/workflows/ci.yml
 
       - uses: pnpm/action-setup@v4
@@ -231,6 +234,27 @@ jobs:
           git diff --stat -- "$file"
           exit 1
 
+      # The phone app's live map: the web build's canvas engine, run in a web
+      # view because React Native has no canvas. Same promise as the editor.
+      - name: Rebuild the map bundle from its sources
+        if: steps.scope.outputs.affected == 'true'
+        run: node scripts/build-map-bundle.mjs
+
+      - name: The map bundle must be byte-for-byte what is committed
+        if: steps.scope.outputs.affected == 'true'
+        run: |
+          set -euo pipefail
+          file=apps/mobile/features/console/map/live/webview/bundle.generated.ts
+          if git diff --quiet -- "$file"; then
+            echo "OK — the committed map bundle is exactly what its sources build."
+            exit 0
+          fi
+          echo "ERROR: $file is not what its sources build."
+          echo "Run \`node scripts/build-map-bundle.mjs\` and commit the result,"
+          echo "unless the committed bundle holds code that is not in this repository."
+          git diff --stat -- "$file"
+          exit 1
+
       # Uploaded only on failure, and only the rebuilt file: a reviewer needs to
       # compare it against the commit to see what was added, and scrolling a
       # 500kb single-line diff in a job log is not that.
@@ -239,7 +263,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bundle-rebuilt
-          path: apps/mobile/features/console/files/webview/bundle.generated.ts
+          path: |
+            apps/mobile/features/console/files/webview/bundle.generated.ts
+            apps/mobile/features/console/map/live/webview/bundle.generated.ts
           if-no-files-found: error
 
   # ── THE BRIDGE BETWEEN THE ONE UI AND THE SHELL ──────────────────────────
