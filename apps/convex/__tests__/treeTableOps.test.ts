@@ -15,6 +15,7 @@ import type { Id } from "../_generated/dataModel";
 import type { FileStore } from "../functions/lib/fileOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { sweepTreePass } from "../../mcp/src/tree/sweep.js";
+import { D1Error } from "../../mcp/src/search/d1/client.js";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
@@ -69,7 +70,7 @@ function fakeCtx(options: { target: boolean }) {
       }),
     },
   };
-  return { ctx: ctx as never, scheduled, marked };
+  return { ctx: ctx as never, scheduled, marked, scheduler: ctx.scheduler };
 }
 
 function bucket(): MemoryStore & FileStore {
@@ -259,5 +260,29 @@ describe("a console change", () => {
     expect(Number(sources!.n)).toBeGreaterThan(0);
     const [ready] = await database.query("SELECT value FROM index_state WHERE key = 'tree_links_ready'");
     expect(ready?.value).toBe("1");
+  });
+
+  test("a D1 rate limit schedules a delayed sweep instead of leaving the tree filling", async () => {
+    const store = bucket();
+    const { ctx, scheduler } = fakeCtx({ target: true });
+    const realRunAll = database.runAll.bind(database);
+    let refused = false;
+    const limited = {
+      query: database.query.bind(database),
+      async runAll(statements: Parameters<typeof database.runAll>[0]) {
+        if (!refused) {
+          refused = true;
+          throw new D1Error("RATE_LIMITED", { cause: "http_429" });
+        }
+        return realRunAll(statements);
+      },
+    };
+    const answer = await ops.runTreeOperation(ctx, { ...ARGS, operation: { kind: "sweepTree", passes: 1 } }, store, limited as never);
+    expect(answer).toEqual({ kind: "treeKept", complete: false });
+    expect(scheduler.runAfter).toHaveBeenCalledWith(
+      30_000,
+      expect.anything(),
+      expect.objectContaining({ operation: { kind: "sweepTree", passes: 2 } }),
+    );
   });
 });

@@ -30,7 +30,7 @@ import type { ActionCtx } from "../../../_generated/server";
 // Workers runtime, which is Convex's runtime too. It holds the write token for
 // the life of one call and puts it in exactly one place, an `Authorization`
 // header.
-import { createD1Client, failureDetailOf } from "../../../../mcp/src/search/d1/client.js";
+import { createD1Client, D1Error, failureDetailOf } from "../../../../mcp/src/search/d1/client.js";
 import { readTreeState, setStateStatements } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
@@ -173,9 +173,9 @@ export async function treeClient(
   return await searchDatabaseClient(ctx, target).catch(() => null);
 }
 
-async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scope: "private" | "team", passes: number) {
+async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scope: "private" | "team", passes: number, delay = 0) {
   await ctx.scheduler
-    .runAfter(0, internal.functions.files.runFileOperation, {
+    .runAfter(delay, internal.functions.files.runFileOperation, {
       workspaceId,
       scope,
       operation: { kind: "sweepTree", passes },
@@ -335,6 +335,7 @@ export async function runTreeOperation(
     }
     return { kind: "treeKept", complete: links?.remaining === 0 && props?.remaining === 0 };
   }
+  let retryD1 = false;
   const pass = await sweepTreePass(
     {
       list: async (options: Parameters<FileStore["list"]>[0]) => {
@@ -351,6 +352,7 @@ export async function runTreeOperation(
     client,
   ).catch((error) => {
     const detail = failureDetailOf(error);
+    retryD1 = error instanceof D1Error && (error.code === "RATE_LIMITED" || error.code === "UNAVAILABLE");
     console.error("tree_index.sweep_failed", {
       workspaceId: args.workspaceId,
       source: detail === null ? "storage_or_internal" : "d1",
@@ -358,6 +360,9 @@ export async function runTreeOperation(
     });
     return null;
   });
+  if (retryD1 && passes < TREE_SWEEP_CHAIN) {
+    await scheduleSweep(ctx, args.workspaceId, args.scope, passes, 30_000);
+  }
   // A finished sweep goes on to the links, through the branch above.
   const more = pass !== null && !pass.unsupported && (pass.complete || pass.rows + pass.pages > 0);
   if (more && passes < TREE_SWEEP_CHAIN) {
