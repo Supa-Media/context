@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
+import { DEFAULT_JUDGE, estimateJudging, fakeJudge, judgeFile, sidecarPath, JUDGE_ATTEMPTS } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -391,6 +391,39 @@ test("the test's every_answer lines reach the judge as trailing judge lines on e
     const judged = parseJudgedSections(await readFile(path, "utf8"));
     for (const block of judged[0].blocks.values()) {
       assert.equal(block.verdicts.filter((v) => v.kind === "judge" && v.line === "read like a text from a friend").length, 1, "every answer gets a verdict under the voice line");
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a reply that is not JSON is asked for again, and given up on after three tries", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const good = judging(allPass);
+    let calls = 0;
+    const flaky = async (body) => {
+      calls += 1;
+      if (calls === 1) return json({ content: [{ type: "text", text: "Here are the verdicts: {\"answers\": [" }], stop_reason: "max_tokens", usage: {} });
+      return good(body);
+    };
+    flaky.route = "fake";
+    const result = await judgeFile({ path, dir, send: flaky, concurrency: 1, date: "2026-10-09" });
+    assert.equal(result.judged, 4, "every answer judged");
+    assert.equal(calls, 3, "two questions, one of them asked twice");
+
+    const { dir: dir2, path: path2, cleanup: cleanup2 } = await folder();
+    try {
+      let tries = 0;
+      const broken = async () => {
+        tries += 1;
+        return json({ content: [{ type: "text", text: "no verdicts today" }], usage: {} });
+      };
+      broken.route = "fake";
+      await assert.rejects(judgeFile({ path: path2, dir: dir2, send: broken, concurrency: 1 }), /is not JSON \(3 attempts\)/);
+      assert.equal(tries, JUDGE_ATTEMPTS, "three tries, then the error");
+    } finally {
+      await cleanup2();
     }
   } finally {
     await cleanup();

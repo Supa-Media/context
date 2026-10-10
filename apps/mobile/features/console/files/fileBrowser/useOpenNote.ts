@@ -22,6 +22,7 @@ import { restoreFor } from "../../../offline/restore";
 import { NOT_CACHED, cachedNotice } from "../../../offline/copy";
 import { findEntry } from "../tree";
 import type { OpenNote } from "../types";
+import type { RestoredDraft } from "../editor";
 import { INSTANT_OPEN_MS } from "./timing";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
@@ -33,6 +34,7 @@ type OpenNoteDeps =
   & Pick<
     BrowserStateValues,
     | "autosave"
+    | "collaborationPaths"
     | "dispatch"
     | "editorRef"
     | "openRun"
@@ -48,7 +50,7 @@ type OpenNoteDeps =
 
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
-    autosave, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
+    autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
     settleOpening, workspaceId,
   } = deps;
@@ -62,6 +64,23 @@ export function useOpenNote(deps: OpenNoteDeps) {
     dispatch({ type: "closed" });
     if (isUnreadable(error)) setUnreadable(path);
     else setNotice(toFileError(error).message);
+  };
+
+  /*
+    The text the editor was holding at `from`, when it is still on `from` and
+    holds something the bucket's copy at the new name does not — typing that
+    went on while the rename was in flight. Read at the moment the answer
+    lands rather than when the rename was asked for, so a word typed during
+    the read itself is not the one dropped.
+  */
+  const carriedDraft = (from: string | undefined, note: OpenNote): RestoredDraft | undefined => {
+    if (from === undefined || note.readOnly || note.encrypted === true) return undefined;
+    // A shared document carries its own keystrokes across a rename; the room
+    // at the new name is the authority there, not this draft.
+    if (collaborationPaths.current.has(from)) return undefined;
+    const shown = editorRef.current;
+    if (shown.path !== from || shown.draft === note.text) return undefined;
+    return { text: shown.draft, status: "dirty" };
   };
 
   /**
@@ -89,7 +108,14 @@ export function useOpenNote(deps: OpenNoteDeps) {
    *    moved on into a conflict rather than into an armed overwrite.
    */
   const openNote = useCallback(
-    async (path: string): Promise<void> => {
+    /**
+     * `carriedFrom`: the path this note was open at a moment ago, when it is
+     * the same note at a new name (`followRename`). Whatever the editor holds
+     * for that path when the read lands is kept as the draft — it is what was
+     * typed while the rename was on its way — rather than replaced by the
+     * bucket's copy, which has not had it yet.
+     */
+    async (path: string, carriedFrom?: string): Promise<void> => {
       if (workspaceId === null) return;
       const offline = offlineRef.current;
       /*
@@ -191,7 +217,9 @@ export function useOpenNote(deps: OpenNoteDeps) {
           if (quick.kind === "timeout" && openRun.current === mine) {
             const copy = await offline.instantCopy(source);
             const waiting =
-              offline.pendingFor(path) !== undefined || (await offline.savedDraft(path)) !== null;
+              carriedFrom !== undefined ||
+              offline.pendingFor(path) !== undefined ||
+              (await offline.savedDraft(path)) !== null;
             if (copy !== null && !waiting && openRun.current === mine) {
               early = relabel(copy.value);
               dispatch({ type: "opened", note: early, fromCache: true });
@@ -280,7 +308,9 @@ export function useOpenNote(deps: OpenNoteDeps) {
         // in an editor that has moved on to another context, another note, or
         // no note at all — see the module comment at the top of this file.
         if (openRun.current !== mine) return;
-        dispatch({ type: "opened", note, fromCache, notice, restored });
+        const carried = carriedDraft(carriedFrom, note);
+        dispatch({ type: "opened", note, fromCache, notice, restored: restored ?? carried });
+        if (restored === undefined && carried !== undefined) autosave.edited(path);
       } finally {
         /*
           Every exit, including the early returns above that end in `closed`
@@ -450,7 +480,24 @@ export function useOpenNote(deps: OpenNoteDeps) {
     return true;
   }, [autosave]);
 
-  return { openNote, select, deselect };
+  /**
+   * The open note, renamed: the editor goes on to its new name with what it is
+   * holding. Not `select`, which is a navigation — it flushes the autosave to
+   * the path the editor is on, which is the name the file just left, and opens
+   * the bucket's copy over whatever was typed while the rename was in flight.
+   * That was the rename "bugging out": the words typed after a title came back
+   * as a second note at the old name, and vanished from the one on screen.
+   */
+  const followRename = useCallback(
+    (from: string, to: string): void => {
+      if (workspaceId === null) return;
+      setSelectedPath(to);
+      void openNote(to, from);
+    },
+    [openNote, workspaceId],
+  );
+
+  return { openNote, select, deselect, followRename };
 }
 
 export type OpenNoteValues = ReturnType<typeof useOpenNote>;

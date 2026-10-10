@@ -313,6 +313,15 @@ prompt, with the result copied back by hand.
   folder when neither `--dir` nor `AI_BENCH_DIR` is set (`folder.mjs`).
   Everything in the folder is invented; it was already readable by every
   Context account, and the repository is public.
+- **A judging that dies does not cost the round** (2026-10-10, after the
+  first real Action round answered 708 conversations for about $7 and then
+  died on "judge reply for question 32 is not JSON"). The judge asks a
+  question again, up to three times, when the reply is not JSON, is cut off
+  at `max_tokens`, or has the wrong shape (`JUDGE_ATTEMPTS`); and the Action
+  takes a `judge_run_id`: it downloads that run's result, key and, when the
+  judging stopped partway, its sidecar of verdicts, and judges and scores
+  without answering again. The sidecar is uploaded as `benchmark-judging`
+  only when a judging stopped, so the resume never pays for a verdict twice.
 - A round's result and key still belong in `@context-lc ai/results/`, copied
   from the artifacts by whoever reads the round; a benchmark-runner OAuth
   client with a stored refresh token would close that last hop and is the

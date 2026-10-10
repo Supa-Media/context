@@ -122,78 +122,125 @@ export interface Placed {
   top: number;
 }
 
-/**
- * Stack cards down the margin without overlap.
- *
- * Each card wants to sit level with its line (`want`). Cards are taken in the
- * order they want to be, and a card that would overlap the one above is pushed
- * down just far enough. The active card is the exception: it gets exactly its
- * line, and the cards above it are pushed *up* to make room, so the thread
- * somebody clicked is always beside the words they clicked. That is Google
- * Docs' behaviour and the reason a margin beats a list.
- */
-export function stackCards(
-  cards: readonly { id: string; want: number; height: number }[],
-  active: string | null,
-  gap = 8,
-): Placed[] {
-  const sorted = [...cards].sort((a, b) => a.want - b.want || a.id.localeCompare(b.id));
-  const tops = new Map<string, number>();
-  const pivot = active === null ? -1 : sorted.findIndex((card) => card.id === active);
-  if (pivot === -1) {
-    let floor = -Infinity;
-    for (const card of sorted) {
-      const top = Math.max(card.want, floor);
-      tops.set(card.id, top);
-      floor = top + card.height + gap;
-    }
-  } else {
-    const anchor = sorted[pivot]!;
-    tops.set(anchor.id, anchor.want);
-    let floor = anchor.want + anchor.height + gap;
-    for (const card of sorted.slice(pivot + 1)) {
-      const top = Math.max(card.want, floor);
-      tops.set(card.id, top);
-      floor = top + card.height + gap;
-    }
-    let ceiling = anchor.want - gap;
-    for (const card of sorted.slice(0, pivot).reverse()) {
-      const top = Math.min(card.want, ceiling - card.height);
-      tops.set(card.id, top);
-      ceiling = top - gap;
-    }
-  }
-  return sorted.map((card) => ({ id: card.id, top: tops.get(card.id)! }));
+/** One thing the margin draws, wanting to sit level with its line (`want`). */
+export interface MarginItem {
+  id: string;
+  want: number;
+  height: number;
+  /**
+   * Whether it may fold into a "more here" row. Threads may; the draft being
+   * typed and the Show resolved toggle may not.
+   */
+  foldable: boolean;
 }
 
 /**
- * Lift cards that would run past the bottom of what is on screen, so a
- * thread on one of the last lines is read whole instead of cut off (Dev2,
- * 2026-09-30, in the cast studio). Only cards whose line is on screen move,
- * and only up: the lowest takes the space it needs, and any above it that it
- * would now touch go up with it, so none ever overlap. A card whose line is
- * further down keeps its place, to be met when the note is scrolled there.
+ * A row standing in for threads there was no room to show beside their words:
+ * "3 more here". `key` is its first thread's id. Open, its threads are drawn
+ * one under another below it.
+ */
+export interface Fold {
+  key: string;
+  ids: string[];
+  top: number;
+  open: boolean;
+}
+
+/** How far (px) below its line a card may sit before it folds instead. */
+export const FOLD_SLACK = 48;
+/** The fold row's height; `styles.ts` draws it exactly this tall. */
+export const FOLD_HEIGHT = 30;
+
+/**
+ * Where every card in the margin goes (Dev2, 2026-10-10, option C of
+ * https://claude.ai/artifact/EUFVCFb6J84JdsncMfGyC5).
+ *
+ * A card sits level with its line, or a little below it when the card above
+ * reaches that far, never more than `FOLD_SLACK` below. A thread that would be
+ * pushed further joins a "N more here" row at that spot instead, so a busy
+ * paragraph's cards neither drift down beside the next paragraph nor land on
+ * each other. Nothing ever moves up: the old rule pushed the cards above the
+ * active one up past the top of the note, where they were stopped at the edge
+ * on top of each other.
+ *
+ * When the active thread is folded, its row is open and its threads are drawn
+ * under it. A card that only lands too far from its line because an open row
+ * pushed it folds into a row of its own, so opening a row never changes what
+ * that row holds.
+ */
+export function layoutMargin(
+  items: readonly MarginItem[],
+  active: string | null,
+  gap = 8,
+): { placed: Placed[]; folds: Fold[] } {
+  const sorted = [...items].sort((a, b) => a.want - b.want || a.id.localeCompare(b.id));
+  const run = (open: ReadonlySet<string>) => {
+    const placed: Placed[] = [];
+    const folds: Fold[] = [];
+    let floor = -Infinity;
+    let fold: Fold | null = null;
+    for (const item of sorted) {
+      const top = Math.max(item.want, floor);
+      if (!item.foldable || top - item.want <= FOLD_SLACK) {
+        fold = null;
+        placed.push({ id: item.id, top });
+        floor = top + item.height + gap;
+        continue;
+      }
+      // An open row takes only its own threads; anything else starts a new one.
+      if (fold !== null && fold.open && !open.has(item.id)) fold = null;
+      if (fold === null) {
+        fold = { key: item.id, ids: [], top: floor, open: open.has(item.id) };
+        folds.push(fold);
+        floor = fold.top + FOLD_HEIGHT + gap;
+      }
+      fold.ids.push(item.id);
+      if (fold.open) {
+        placed.push({ id: item.id, top: floor });
+        floor += item.height + gap;
+      }
+    }
+    return { placed, folds };
+  };
+  const closed = run(new Set());
+  const holding = active === null ? undefined : closed.folds.find((fold) => fold.ids.includes(active));
+  // Everything above the row lays out the same either way, so the second run
+  // folds the same threads into it and only opens it.
+  return holding ? run(new Set(holding.ids)) : closed;
+}
+
+/**
+ * Lift what would run past the bottom of the screen, so a thread on one of the
+ * last lines is read whole instead of cut off (Dev2, 2026-09-30, in the cast
+ * studio). The lowest box whose line is on screen may rise above its own line
+ * to fit; a box above it moves up only to stay clear of it, and never above its
+ * own line (Dev2, 2026-10-10: comments stay beside what they are about) or the
+ * top of the note. When that is not enough room, the whole lift gives way and
+ * the lowest box is cut off instead. A box whose line is below the screen keeps
+ * its place, to be met when the note is scrolled there.
  */
 export function keepInView(
-  placed: readonly Placed[],
-  cards: readonly { id: string; want: number; height: number }[],
+  boxes: readonly (Placed & { want: number; height: number })[],
   view: { top: number; bottom: number },
   gap = 8,
 ): Placed[] {
-  const byId = new Map(cards.map((card) => [card.id, card]));
-  const tops = new Map(placed.map((card) => [card.id, card.top]));
-  const onScreen = placed
-    .filter((card) => {
-      const want = byId.get(card.id)?.want;
-      return want !== undefined && want >= view.top && want < view.bottom;
-    })
-    .sort((a, b) => b.top - a.top);
+  const lifted = new Map<string, number>();
   let ceiling = view.bottom;
-  for (const card of onScreen) {
-    const height = byId.get(card.id)!.height;
-    const top = Math.min(tops.get(card.id)!, ceiling - height);
-    tops.set(card.id, top);
+  let giveWay = 0;
+  const candidates = boxes.filter((box) => box.want < view.bottom).sort((a, b) => b.top - a.top);
+  for (const box of candidates) {
+    const onScreen = box.want >= view.top;
+    const top = onScreen || box.top + box.height > ceiling ? Math.min(box.top, ceiling - box.height) : box.top;
+    if (top !== box.top) {
+      const lead = lifted.size === 0;
+      lifted.set(box.id, top);
+      const highest = lead ? 0 : Math.max(0, Math.min(box.top, box.want));
+      giveWay = Math.max(giveWay, highest - top);
+    }
     ceiling = top - gap;
   }
-  return placed.map((card) => ({ id: card.id, top: tops.get(card.id)! }));
+  return boxes.map((box) => {
+    const top = lifted.get(box.id);
+    return { id: box.id, top: top === undefined ? box.top : Math.min(box.top, top + giveWay) };
+  });
 }
