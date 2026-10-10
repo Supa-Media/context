@@ -12,6 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_SEARCH_SETTINGS, readSearchSettings, searchSettingsFor, searchSettingsOf, wireSearchSettings } from "../src/search/settings.js";
+import { reachOf } from "../src/tools/search.js";
 import { parseSearchSetup, parseSetup } from "../src/agent/production.js";
 
 test("a section's keys are read, checked and renamed; what it leaves out stays out", () => {
@@ -97,4 +98,31 @@ test("settings go back to the var's names and read again as themselves", () => {
   const wire = wireSearchSettings(settings);
   assert.deepEqual(wire, { everywhere: true, min_score: 0.3, extra_notes: 6, snippet_chars: 600 });
   assert.deepEqual(searchSettingsFor({ SEARCH_SETTINGS: JSON.stringify(wire) }), { ...DEFAULT_SEARCH_SETTINGS, ...settings });
+});
+
+test("a fan-out reports only the workspaces whose notes reached the answer", () => {
+  // What the egress ledger is told (`privacy/egress.js`): one call handed the
+  // model notes from these workspaces, so this turn is holding their content.
+  const elsewhere = [
+    { name: "@band", workspaceId: "ws_band", scope: "team" },
+    { name: "@quiet", workspaceId: "ws_quiet", scope: "private" },
+    { name: "@broken", workspaceId: undefined, scope: "team" },
+  ];
+  const hits = [{ key: "1-projects/mine.md" }, { key: "@band/gigs/show.md" }];
+  assert.deepEqual(
+    reachOf(hits, elsewhere),
+    [{ workspaceId: "ws_band", scope: "team" }],
+    "the one with a hit in the answer, never the one that found nothing"
+  );
+  assert.deepEqual(reachOf([{ key: "1-projects/mine.md" }], elsewhere), [], "nothing from elsewhere, nothing recorded");
+  assert.deepEqual(
+    reachOf([{ key: "@quiet/2-areas/a.md" }, { key: "@band/gigs/show.md" }], elsewhere),
+    [
+      { workspaceId: "ws_band", scope: "team" },
+      { workspaceId: "ws_quiet", scope: "private" },
+    ],
+    "each workspace once, with the tier this session reads it at"
+  );
+  // A name that is not a workspace prefix is a path, not a reach.
+  assert.deepEqual(reachOf([{ key: "@band" }, { key: "notes/@band.md" }], elsewhere), []);
 });

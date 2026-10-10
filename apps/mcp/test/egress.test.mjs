@@ -14,6 +14,7 @@ import {
   newLedger,
   oneLine,
   recordRead,
+  withReadReach,
   wideningOf,
 } from "../src/privacy/egress.js";
 
@@ -148,6 +149,57 @@ test("a turn seen whole asks only when it read past the new audience", () => {
   const failed = newLedger();
   recordRead(failed, { name: "read_note", args: { path: "2-areas/a.md" }, scope: "private", workspaceId: "ws", result: { isError: true, content: [] } });
   assert.equal(approvalRequired(turn(failed), anyone, "ws"), false, "a refused read handed the model nothing");
+});
+
+test("a search that fanned out records every workspace whose notes it handed over", () => {
+  const team = { audience: "team", summary: "" };
+  const anyone = { audience: "anyone", summary: "" };
+  // `search_notes` with no `context` searches every workspace the person can
+  // reach and fuses one list, so one call hands the model notes from several
+  // workspaces. The ledger has to hear about each of them: it is what
+  // `approvalRequired` reads to decide whether this turn may widen anything,
+  // and a read it never heard about is a read it cannot weigh.
+  const ledger = newLedger();
+  const answer = withReadReach({ content: [{ type: "text", text: "@band/gigs/show.md\n    SNIPPET" }] }, [
+    { workspaceId: "ws_band", scope: "team" },
+  ]);
+  recordRead(ledger, { name: "search_notes", args: { query: "show" }, scope: "team", workspaceId: "ws", result: answer });
+  assert.deepEqual(
+    [...ledger.reads.entries()].sort(),
+    [["ws", "team"], ["ws_band", "team"]],
+    "the workspace asked in, and the one the fan-out read"
+  );
+  assert.equal(approvalRequired({ complete: true, ledger }, team, "ws"), true, "another workspace's notes held: ask before widening here");
+  assert.equal(approvalRequired({ complete: true, ledger }, anyone, "ws"), true);
+
+  // A workspace read at the private tier is the worst case and wins the label.
+  const deeper = newLedger();
+  recordRead(deeper, {
+    name: "search_notes",
+    args: { query: "show" },
+    scope: "team",
+    workspaceId: "ws",
+    result: withReadReach({ content: [{ type: "text", text: "x" }] }, [
+      { workspaceId: "ws_band", scope: "team" },
+      { workspaceId: "ws_band", scope: "private" },
+    ]),
+  });
+  assert.equal(deeper.reads.get("ws_band"), "private", "the narrower tier wins, as it does for one workspace");
+
+  // Nothing to say is nothing recorded: a fan-out that reached no other
+  // workspace, and a refused search, leave the ledger as it was.
+  const none = newLedger();
+  recordRead(none, { name: "search_notes", args: { query: "x" }, scope: "team", workspaceId: "ws", result: withReadReach({ content: [{ type: "text", text: "x" }] }, []) });
+  assert.deepEqual([...none.reads.keys()], ["ws"]);
+  const refused = newLedger();
+  recordRead(refused, {
+    name: "search_notes",
+    args: { query: "x" },
+    scope: "team",
+    workspaceId: "ws",
+    result: withReadReach({ isError: true, content: [] }, [{ workspaceId: "ws_band", scope: "team" }]),
+  });
+  assert.equal(refused.reads.size, 0, "a refused search handed the model nothing, here or elsewhere");
 });
 
 test("anything from outside the workspace makes every widening ask", () => {
