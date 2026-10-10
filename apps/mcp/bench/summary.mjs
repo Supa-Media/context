@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 
 /** The text of one `## <heading>` section, up to the next `## `, or "". */
-function section(raw, heading, { last = false } = {}) {
+export function section(raw, heading, { last = false } = {}) {
   const lines = raw.split("\n");
   const starts = lines
     .map((line, i) => (line.startsWith(`## ${heading}`) ? i : -1))

@@ -3,13 +3,25 @@
 # run a round and read it without a machine, a key or a chat.
 #
 # What it runs is `pnpm ai run`, `judge`, `score` and `summary` from
-# apps/mcp/bench/, against the folder committed at apps/mcp/bench/ai/: invented
-# people and workspaces, the tests, and the setups the round compares. No
-# customer note is anywhere near it. The result and the key go up as two
-# artifacts (plus the judging's sidecar when it stopped partway, which is
-# what `judge_run_id` resumes from); the result and the key still belong in `@context-lc ai/results/`,
-# and whoever reads the round copies them there (the key is a separate
-# artifact so a judge can be handed the result alone).
+# apps/mcp/bench/, against the folder committed at apps/mcp/bench/ai/ (invented
+# people and workspaces, and the tests) and the setups it pulls first from
+# `@context-lc ai/setups/<job>/`, where a person edits and promotes them
+# (decided 2026-10-10). No customer note is anywhere near it. The result and
+# the key go up as two artifacts (plus the judging's sidecar when it stopped
+# partway, which is what `judge_run_id` resumes from), and the scores go back
+# to `@context-lc ai/results/` as a note the run writes itself; the key is a
+# separate artifact so a judge can be handed the result alone.
+#
+# The runner reads and writes Context as the benchmark runner: an OAuth grant
+# of a test account that is an editor of @context-lc, made once by a person
+# with `pnpm ai connect` (apps/mcp/bench/context.mjs). The gateway rotates the
+# refresh token on every use, so the sign-in step puts the rotated token into
+# BENCH_RUNNER_REFRESH_TOKEN_LIVE before anything else runs, and again at the
+# end; the seed from 1Password (BENCH_RUNNER_REFRESH_TOKEN) is used only when
+# no live token exists. The live secret is written by this workflow alone and
+# never synced from the vault: a sync would restore the retired seed and the
+# gateway would revoke the grant as a replay (scripts/check-secrets-allowlist.mjs
+# lists it as not synced, with this reason).
 #
 # What it spends: the gateway's model calls, on the Claude plan credit first
 # (ANTHROPIC_CREDIT_KEY), then Unified Billing; a four-arm texting-assistant
@@ -94,6 +106,12 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+      # The sign-in the steps below share: an access token for the hour and the
+      # rotated refresh token, in the runner's own temp, never an artifact.
+      BENCH_RUNNER_TOKEN_FILE: ${{ runner.temp }}/bench-runner.json
       BENCH_JOB: ${{ inputs.job || 'texting-assistant' }}
       BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
       # Every free-text input arrives here and nowhere else. GitHub pastes an
@@ -143,6 +161,33 @@ jobs:
           for var in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_AI_TOKEN BRAVE_SEARCH_API_KEY; do
             if [ -z "${!var}" ]; then echo "::error::$var is empty in the production environment (scripts/secrets-allowlist.json says which sync fills it)."; exit 1; fi
           done
+
+      # Every run, a fake one included: the setups come from Context, and a run
+      # that cannot keep its rotated refresh token would lose the grant.
+      - name: Refuse to run without the benchmark runner's sign-in
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          for var in BENCH_RUNNER_CLIENT_ID BENCH_RUNNER_REFRESH_TOKEN GH_ADMIN_TOKEN; do
+            if [ -z "${!var}" ]; then echo "::error::$var is empty: the benchmark runner's grant (pnpm ai connect, apps/mcp/bench/context.mjs) is not set up."; exit 1; fi
+          done
+
+      # Rotation first, then the write-back, then nothing else until it is
+      # kept: a token that is spent and not written down is a grant lost. The
+      # value is masked before gh sees it, and gh sends it sealed.
+      - name: Sign in as the benchmark runner and keep the rotated token
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --silent ai signin
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      - name: Fetch the job's setups from Context
+        if: ${{ inputs.judge_run_id == '' }}
+        run: pnpm ai pull "$BENCH_JOB"
 
       # A round whose judging died (a judge reply that was not JSON, a gateway
       # outage, the runner lost) has answers that cost real money and are
@@ -240,6 +285,26 @@ jobs:
           else
             echo "_The run wrote no result note; read the job log._" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # The scores, never the answers or the key, as a note beside the earlier
+      # rounds' reads; a fake or a calibration run has nothing worth keeping.
+      - name: Put the scores in Context
+        if: ${{ !inputs.fake && !inputs.calibrate && steps.name.outputs.result != '' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: pnpm ai publish "$RESULT" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      # The publish may have signed in again after the hour: keep that token too.
+      - name: Keep the runner's rotated token
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$BENCH_RUNNER_TOKEN_FILE" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
 
       - name: Upload the result note
         if: ${{ always() && steps.name.outputs.result != '' }}

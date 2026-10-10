@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { REPO_BENCH_FOLDER, benchFolder } from "../folder.mjs";
@@ -22,7 +22,7 @@ test("--dir wins, then AI_BENCH_DIR, then the repository's bench/ai", () => {
   assert.ok(REPO_BENCH_FOLDER.endsWith(join("bench", "ai")));
 });
 
-test("the repository's folder exists, loads, and holds the texting-assistant test and setups", async () => {
+test("the repository's folder exists, loads, and holds the tests; the setups are pulled from Context", async () => {
   assert.ok(existsSync(REPO_BENCH_FOLDER), REPO_BENCH_FOLDER);
   const bench = await readBenchFolder(REPO_BENCH_FOLDER);
   assert.ok(
@@ -30,8 +30,10 @@ test("the repository's folder exists, loads, and holds the texting-assistant tes
     "nine invented workspaces",
   );
   assert.ok(bench.tests["texting-assistant"], "the texting-assistant test");
-  assert.ok(
-    existsSync(join(REPO_BENCH_FOLDER, "setups", "texting-assistant")),
-    "setups for the job",
-  );
+  assert.ok(bench.tests.search, "the search test");
+  // Decided 2026-10-10: a setup is edited and promoted in `@context-lc ai/`,
+  // so none is committed here; `pnpm ai pull <job>` fills setups/<job>/ before
+  // a run, and git ignores what it writes.
+  const ignored = readFileSync(join(REPO_BENCH_FOLDER, "..", "..", "..", "..", ".gitignore"), "utf8");
+  assert.match(ignored, /^apps\/mcp\/bench\/ai\/setups\/$/m, "setups/ is ignored by git");
 });
