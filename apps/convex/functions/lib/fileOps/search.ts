@@ -315,7 +315,9 @@ export async function searchNotes(
     meaningMs === undefined ? { words: wordsMs } : { words: wordsMs, meaning: meaningMs };
   const merged = async (found: SearchResults): Promise<SearchResults> => {
     const wordsMs = Date.now() - started;
-    const { meaning: _meaning, ...results } = await withMeaning(store, found, await meaningPending, {
+    // `evidence` (the word rank and closeness behind each hit) is for the
+    // gateway's search across workspaces; a console answer carries hits only.
+    const { meaning: _meaning, evidence: _evidence, ...results } = await withMeaning(store, found, await meaningPending, {
       keyField: "path",
     });
     return { ...(results as SearchResults), timing: timed(wordsMs) };
