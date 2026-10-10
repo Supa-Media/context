@@ -56,6 +56,8 @@
  *     to another client of the same person`.
  * 14. `complete: true` for any client's `/agent`. → `a connected AI client
  *     driving /agent is not a turn seen whole`.
+ * 20. The `EGRESS_APPROVALS` switch ignored in `egressGate`. → `with the gate
+ *     switched off, a write into another workspace runs at once` fails.
  * 19. `store.actor` not set in `handleApprovals`. → `a replayed write is in the
  *     audit trail under the client that asked...` fails: the row names nobody.
  */
@@ -361,6 +363,30 @@ export async function runAgentEgressChecks(check) {
       /needs the person's approval/.test(toolReplies(model.requests.at(-1))[0] ?? "") &&
         [...team.keys()].filter((key) => key.startsWith(".context/proposals/")).length === proposalsBefore,
     );
+    await sweep();
+
+    // The deployment switch (`EGRESS_APPROVALS = "off"`, owner, 2026-10-10).
+    env.EGRESS_APPROVALS = "off";
+    try {
+      const pendingBefore = pending().length;
+      const ran = await call(env, TOKEN_MCP, "write_note", {
+        path: "notes/switched-off.md",
+        content: "# Switched off\n",
+        context: "@egress-team",
+      });
+      check(
+        "with the gate switched off, a write into another workspace runs at once",
+        ran.isError !== true && team.get("notes/switched-off.md") !== undefined && pending().length === pendingBefore,
+      );
+    } finally {
+      delete env.EGRESS_APPROVALS;
+    }
+    const heldAgain = await call(env, TOKEN_MCP, "write_note", {
+      path: "notes/switched-on.md",
+      content: "# On\n",
+      context: "@egress-team",
+    });
+    check("unset, the gate holds it again", heldAgain.isError === true && team.get("notes/switched-on.md") === undefined);
     await sweep();
 
   } finally {
