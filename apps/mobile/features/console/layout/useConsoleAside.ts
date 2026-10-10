@@ -261,7 +261,7 @@ export function useConsoleAside({
     endpoint: data.endpoint,
   });
   /*
-    What the egress gate is holding for this context, for the right panel's
+    What the egress gate is holding for this person, in any of their contexts, for the right panel's
     Approvals tab and its count. Read here, beside the engine, because it is the
     same grant for the same workspace — and because the count has to be known
     before anybody opens the tab. Off where there is no panel (a phone's
@@ -269,6 +269,8 @@ export function useConsoleAside({
   */
   const approvals = useApprovals({
     workspaceId: data.selectedContextId,
+    // Held in the asking connection's own workspace, so listed from all of them.
+    workspaceIds: data.contexts.map((c) => c.id),
     endpoint: data.endpoint,
     enabled: !phone && !data.demo && data.selectedContextId !== null,
   });
