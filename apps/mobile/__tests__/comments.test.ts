@@ -23,7 +23,7 @@ import {
   setDraft,
   setShowResolved,
 } from "../features/console/files/comments/extension";
-import { commenterFor, eventsKey, isPerson, keepInView, mayDelete, stackCards, visibleThreads, whenLabel } from "../features/console/files/comments/model";
+import { commenterFor, eventsKey, isPerson, FOLD_HEIGHT, FOLD_SLACK, keepInView, layoutMargin, mayDelete, visibleThreads, whenLabel } from "../features/console/files/comments/model";
 import { shiftFor } from "../features/console/files/comments/rail";
 
 const NOTE = [
@@ -74,62 +74,202 @@ group("the margin's rules", () => {
     expect(visibleThreads(threads, true)).toHaveLength(1);
   });
 
-  test("cards never overlap, and each sits as close to its line as it can", () => {
-    const placed = stackCards(
+  test("comments spread down a note each sit on their own line", () => {
+    const { placed, folds } = layoutMargin(
       [
-        { id: "a", want: 0, height: 100 },
-        { id: "b", want: 40, height: 50 },
-        { id: "c", want: 400, height: 50 },
+        { id: "a", want: 0, height: 100, foldable: true },
+        { id: "b", want: 400, height: 50, foldable: true },
+        { id: "c", want: 900, height: 50, foldable: true },
       ],
       null,
-      8,
     );
     expect(placed).toEqual([
       { id: "a", top: 0 },
-      { id: "b", top: 108 },
-      { id: "c", top: 400 },
+      { id: "b", top: 400 },
+      { id: "c", top: 900 },
+    ]);
+    expect(folds).toEqual([]);
+  });
+
+  // Dev2, 2026-10-10: crowded cards fold into one "N more here" row at the
+  // spot, instead of being pushed away from their lines or onto each other.
+  test("cards that would be pushed away from their line fold into one row there", () => {
+    const { placed, folds } = layoutMargin(
+      [
+        { id: "a", want: 100, height: 150, foldable: true },
+        { id: "b", want: 128, height: 80, foldable: true },
+        { id: "c", want: 156, height: 80, foldable: true },
+        { id: "d", want: 212, height: 80, foldable: true },
+        { id: "far", want: 900, height: 50, foldable: true },
+      ],
+      null,
+    );
+    expect(placed).toEqual([
+      { id: "a", top: 100 },
+      { id: "far", top: 900 },
+    ]);
+    expect(folds).toEqual([{ key: "b", ids: ["b", "c", "d"], top: 258, open: false }]);
+  });
+
+  test("a card only slightly below its line stays a full card", () => {
+    const { placed, folds } = layoutMargin(
+      [
+        { id: "a", want: 0, height: 60, foldable: true },
+        { id: "b", want: 40, height: 60, foldable: true },
+      ],
+      null,
+    );
+    expect(placed).toEqual([
+      { id: "a", top: 0 },
+      { id: "b", top: 68 },
+    ]);
+    expect(folds).toEqual([]);
+  });
+
+  test("opening a folded thread opens its row, with every thread in it stacked below", () => {
+    const cards = [
+      { id: "a", want: 100, height: 150, foldable: true },
+      { id: "b", want: 128, height: 80, foldable: true },
+      { id: "c", want: 156, height: 80, foldable: true },
+      { id: "far", want: 400, height: 50, foldable: true },
+    ];
+    const { placed, folds } = layoutMargin(cards, "c");
+    expect(placed).toEqual([
+      { id: "a", top: 100 },
+      { id: "b", top: 296 },
+      { id: "c", top: 384 },
+    ]);
+    // "far" sat on its own line until the open row pushed it 72px down: it
+    // folds into a row of its own rather than joining the open one.
+    expect(folds).toEqual([
+      { key: "b", ids: ["b", "c"], top: 258, open: true },
+      { key: "far", ids: ["far"], top: 472, open: false },
     ]);
   });
 
-  test("the active card sits exactly on its line and pushes the ones above up", () => {
-    const placed = stackCards(
+  test("clicking a card never pushes the cards above it up", () => {
+    const cards = [
+      { id: "a", want: 0, height: 100, foldable: true },
+      { id: "b", want: 40, height: 50, foldable: true },
+      { id: "c", want: 300, height: 50, foldable: true },
+    ];
+    expect(layoutMargin(cards, "c").placed).toEqual(layoutMargin(cards, null).placed);
+    expect(layoutMargin(cards, "c").placed.every((card) => card.top >= 0)).toBe(true);
+  });
+
+  test("the draft and the resolved toggle never fold", () => {
+    const { placed, folds } = layoutMargin(
       [
-        { id: "a", want: 0, height: 100 },
-        { id: "b", want: 40, height: 50 },
+        { id: "a", want: 100, height: 150, foldable: true },
+        { id: "__draft", want: 120, height: 90, foldable: false },
       ],
-      "b",
-      8,
+      "__draft",
     );
     expect(placed).toEqual([
-      { id: "a", top: -68 },
-      { id: "b", top: 40 },
+      { id: "a", top: 100 },
+      { id: "__draft", top: 258 },
     ]);
+    expect(folds).toEqual([]);
+  });
+
+  test("whatever the comments, nothing drawn overlaps, nothing goes above the note, and every card is near its line", () => {
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    for (let run = 0; run < 300; run += 1) {
+      const count = 1 + Math.floor(random() * 12);
+      const cards = Array.from({ length: count }, (_, i) => ({
+        id: `t${i}`,
+        want: Math.floor(random() * 800),
+        height: 40 + Math.floor(random() * 200),
+        foldable: random() > 0.1,
+      }));
+      const active = random() > 0.5 ? cards[Math.floor(random() * count)]!.id : null;
+      const { placed, folds } = layoutMargin(cards, active);
+      const byId = new Map(cards.map((card) => [card.id, card]));
+      const boxes = [
+        ...placed.map((card) => ({ top: card.top, bottom: card.top + byId.get(card.id)!.height })),
+        ...folds.map((fold) => ({ top: fold.top, bottom: fold.top + FOLD_HEIGHT })),
+      ].sort((x, y) => x.top - y.top);
+      for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.top).toBeGreaterThanOrEqual(boxes[i - 1]!.bottom);
+      expect(boxes.every((box) => box.top >= 0)).toBe(true);
+      const inOpenFold = new Set(folds.filter((fold) => fold.open).flatMap((fold) => fold.ids));
+      for (const card of placed) {
+        const item = byId.get(card.id)!;
+        if (item.foldable && !inOpenFold.has(card.id)) expect(card.top - item.want).toBeLessThanOrEqual(FOLD_SLACK);
+      }
+      // Lifting to fit the screen keeps all of that, and only the lowest box
+      // it lifts may rise above its own line.
+      const boxesIn = [
+        ...placed.map((card) => ({ ...card, want: byId.get(card.id)!.want, height: byId.get(card.id)!.height })),
+        ...folds.map((fold) => ({ id: `fold:${fold.key}`, top: fold.top, want: byId.get(fold.key)!.want, height: FOLD_HEIGHT })),
+      ];
+      const viewTop = Math.floor(random() * 600);
+      const lifted = keepInView(boxesIn, { top: viewTop, bottom: viewTop + 200 + Math.floor(random() * 500) });
+      const before = new Map(boxesIn.map((box) => [box.id, box]));
+      const after = lifted
+        .map((box) => ({ ...box, bottom: box.top + before.get(box.id)!.height }))
+        .sort((x, y) => x.top - y.top);
+      for (let i = 1; i < after.length; i += 1) expect(after[i]!.top).toBeGreaterThanOrEqual(after[i - 1]!.bottom);
+      expect(after.every((box) => box.top >= 0 && box.top <= before.get(box.id)!.top)).toBe(true);
+      const risen = after.filter((box) => box.top < Math.min(before.get(box.id)!.top, before.get(box.id)!.want));
+      expect(risen.length).toBeLessThanOrEqual(1);
+      // Every thread is either drawn or counted in a row: none goes missing.
+      const shown = new Set([...placed.map((card) => card.id), ...folds.flatMap((fold) => fold.ids)]);
+      expect(shown.size).toBe(count);
+    }
   });
 
   test("a card on one of the last lines is lifted to fit on screen, and never onto another", () => {
-    const cards = [
-      { id: "a", want: 100, height: 60 },
-      { id: "b", want: 500, height: 200 },
-      { id: "far", want: 2000, height: 50 },
+    const boxes = [
+      { id: "a", want: 100, top: 100, height: 60 },
+      { id: "b", want: 500, top: 500, height: 200 },
+      { id: "far", want: 2000, top: 2000, height: 50 },
     ];
-    const placed = stackCards(cards, null, 8);
     // The pane shows 0–600: b's line is on screen but its card runs to 700.
-    expect(keepInView(placed, cards, { top: 0, bottom: 600 }, 8)).toEqual([
+    expect(keepInView(boxes, { top: 0, bottom: 600 }, 8)).toEqual([
       { id: "a", top: 100 },
       { id: "b", top: 400 },
       { id: "far", top: 2000 },
     ]);
-    // Lifted far enough to touch a, a goes up too.
+    // Lifting b to fit would push a 58px above its own line, so a stays on
+    // its line and b is lifted only as far as a allows.
     const tall = [
-      { id: "a", want: 100, height: 200 },
-      { id: "b", want: 320, height: 250 },
+      { id: "a", want: 100, top: 100, height: 200 },
+      { id: "b", want: 320, top: 320, height: 250 },
     ];
-    expect(keepInView(stackCards(tall, null, 8), tall, { top: 0, bottom: 500 }, 8)).toEqual([
-      { id: "a", top: 42 },
-      { id: "b", top: 250 },
+    expect(keepInView(tall, { top: 0, bottom: 500 }, 8)).toEqual([
+      { id: "a", top: 100 },
+      { id: "b", top: 308 },
     ]);
     // Everything already fits: nothing moves.
-    expect(keepInView(placed, cards, { top: 0, bottom: 3000 }, 8)).toEqual(placed);
+    expect(keepInView(boxes, { top: 0, bottom: 3000 }, 8)).toEqual(boxes.map(({ id, top }) => ({ id, top })));
+  });
+
+  test("a lifted card never pushes a card whose line is above the screen above that line", () => {
+    // a's line is scrolled off the top, but its card reaches down into view.
+    const boxes = [
+      { id: "a", want: 80, top: 80, height: 300 },
+      { id: "b", want: 400, top: 400, height: 200 },
+    ];
+    const placed = keepInView(boxes, { top: 100, bottom: 500 }, 8);
+    // Lifting b to 300 would push a to -8, above its line at 80, so the
+    // lift gives way: b stops just under a and is cut off at the bottom.
+    expect(placed).toEqual([
+      { id: "a", top: 80 },
+      { id: "b", top: 388 },
+    ]);
+  });
+
+  test("lifting never pushes a card above the top of the note", () => {
+    const boxes = [
+      { id: "a", want: 0, top: 0, height: 300 },
+      { id: "b", want: 310, top: 310, height: 300 },
+    ];
+    const placed = keepInView(boxes, { top: 0, bottom: 400 }, 8);
+    expect(placed).toEqual([
+      { id: "a", top: 0 },
+      { id: "b", top: 308 },
+    ]);
   });
 });
 

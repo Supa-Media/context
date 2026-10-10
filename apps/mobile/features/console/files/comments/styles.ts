@@ -149,6 +149,19 @@ function marginStyles(colors: CommentPalette, font: string | undefined): string 
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .cm-cmt-head { display: flex; justify-content: flex-end; }
+/* Threads with no room beside their words fold into one row (rail.ts); FOLD_HEIGHT is this height. */
+.cm-cmt-fold {
+  position: absolute; box-sizing: border-box; height: 30px;
+  display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px;
+  border: 1px dashed ${colors.lineStrong}; border-radius: 8px;
+  background: ${colors.chipFill}; color: ${colors.text2}; font-size: 12.5px; font-weight: 600;
+}
+.cm-cmt-fold-open { border-style: solid; background: transparent; }
+.cm-cmt-fold-faces { display: inline-flex; }
+.cm-cmt-fold-faces .cm-cmt-av { width: 18px; height: 18px; font-size: 9px; box-shadow: 0 0 0 2px ${colors.surface}; }
+.cm-cmt-fold-faces .cm-cmt-av + .cm-cmt-av { margin-left: -4px; }
+.cm-cmt-fold-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-cmt-folded { visibility: hidden; pointer-events: none; }
 /* A tablet's margin, typed into with a finger: 16px, or iOS zooms on focus. */
 @media (pointer: coarse) { .cm-cmt-input { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) {

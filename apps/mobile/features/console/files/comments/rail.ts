@@ -8,9 +8,10 @@
  *
  * ## Two layouts, decided by the pane's width
  *
- *  - **Wide**: every visible thread has a card beside its line. `stackCards`
- *    keeps them from overlapping and keeps the active one exactly level with
- *    its words.
+ *  - **Wide**: every visible thread has a card beside its line, or a little
+ *    below it. Where a paragraph has more threads than there is room for, the
+ *    extras fold into one "N more here" row at that spot, which opens in place
+ *    (`layoutMargin`, Dev2 2026-10-10). Cards never overlap and never move up.
  *
  *    **The text never moves when a card opens** (Dev2, 2026-09-27, mockup
  *    https://claude.ai/artifact/42zcZ2oQ5dBEmhw4SJDhGJ). On a desktop window
@@ -51,8 +52,8 @@ import {
   startComment,
   submitDraft,
 } from "./extension";
-import { button, carryOver, composer, el, message, report, type Deletion } from "./dom";
-import { eventsKey, hasMargin, keepInView, messages, resolvedBy, stackCards, visibleThreads } from "./model";
+import { avatar, button, carryOver, composer, el, message, report, type Deletion } from "./dom";
+import { FOLD_HEIGHT, eventsKey, hasMargin, keepInView, layoutMargin, messages, resolvedBy, visibleThreads, type Fold } from "./model";
 
 /** The margin the note gives up when it has comments: the card width plus air. */
 export const RAIL_RESERVE = 300;
@@ -62,6 +63,8 @@ const CARD_GAP = 20;
 const HEAD = "__head";
 const DRAFT = "__draft";
 const CHIP = "__chip";
+/** Prefix of a fold row's id among the boxes `keepInView` lifts. */
+const FOLD = "__fold:";
 
 /**
  * How far (px) the reading column moves left to make room for the cards; 0 when
@@ -89,6 +92,8 @@ export function shiftFor(gutter: number): number {
 
 interface CardSpec {
   id: string;
+  /** A thread, which may fold into a "more here" row; the head, draft and chip never do. */
+  thread: boolean;
   /** Document position whose line the card sits beside. */
   pos: number;
   signature: string;
@@ -97,7 +102,9 @@ interface CardSpec {
 
 class Rail implements PluginValue {
   private readonly dom: HTMLDivElement;
-  private readonly cards = new Map<string, { node: HTMLElement; signature: string; pos: number }>();
+  private readonly cards = new Map<string, { node: HTMLElement; signature: string; pos: number; thread: boolean }>();
+  /** The "N more here" rows, by their first thread's id. */
+  private readonly folds = new Map<string, { node: HTMLElement; signature: string }>();
   private wide = false;
   private hasComments = false;
   private destroyed = false;
@@ -133,6 +140,33 @@ class Rail implements PluginValue {
     this.dom.remove();
   }
 
+  /**
+   * A fold row: the faces of whoever started its threads, how many there are,
+   * and Show or Hide. Show opens the row by making its first thread active.
+   */
+  private foldRow(fold: Fold): HTMLElement {
+    const row = el("div", `cm-cmt-fold${fold.open ? " cm-cmt-fold-open" : ""}`);
+    const parsed = this.view.state.field(commentsParsed);
+    const authors = new Set<string>();
+    for (const id of fold.ids) {
+      const first = parsed.threads.find((thread) => thread.id === id);
+      const author = first ? messages(first)[0]?.author : undefined;
+      if (author) authors.add(author);
+    }
+    const faces = el("span", "cm-cmt-fold-faces");
+    faces.setAttribute("aria-hidden", "true");
+    for (const author of [...authors].slice(0, 4)) faces.append(avatar(author));
+    const count = fold.ids.length;
+    const label = fold.open ? `${count} ${count === 1 ? "comment" : "comments"} here` : `${count} more here`;
+    row.append(faces, el("span", "cm-cmt-fold-label", label));
+    const toggle = button(fold.open ? "Hide" : "Show", "cm-cmt-link", () =>
+      this.view.dispatch({ effects: setActiveThread.of(fold.open ? null : fold.ids[0]!) }),
+    );
+    toggle.setAttribute("aria-expanded", String(fold.open));
+    row.append(toggle);
+    return row;
+  }
+
   private specs(): CardSpec[] {
     // No margin: the phone's bottom sheet (`sheet.ts`) shows threads instead.
     if (!this.wide) return [];
@@ -148,6 +182,7 @@ class Rail implements PluginValue {
     if (resolvedCount > 0) {
       specs.push({
         id: HEAD,
+        thread: false,
         pos: 0,
         signature: `head:${resolvedCount}:${ui.showResolved}`,
         build: () => this.header(resolvedCount, ui.showResolved),
@@ -158,16 +193,17 @@ class Rail implements PluginValue {
       const active = ui.active === thread.id;
       specs.push({
         id: thread.id,
+        thread: true,
         pos: anchor?.from ?? 0,
         signature: JSON.stringify([eventsKey(thread), thread.status, thread.anchored, active, editable, moderator]),
         build: () => this.threadCard(thread, active, editable),
       });
     }
     if (ui.draft !== null) {
-      specs.push({ id: DRAFT, pos: ui.draft.from, signature: "draft", build: () => this.draftCard() });
+      specs.push({ id: DRAFT, thread: false, pos: ui.draft.from, signature: "draft", build: () => this.draftCard() });
     } else {
       const selection = commentableSelection(state);
-      if (selection !== null) specs.push({ id: CHIP, pos: selection.from, signature: "chip", build: () => this.chip() });
+      if (selection !== null) specs.push({ id: CHIP, thread: false, pos: selection.from, signature: "chip", build: () => this.chip() });
     }
     return specs;
   }
@@ -207,7 +243,7 @@ class Rail implements PluginValue {
         node.classList.add("cm-cmt-enter");
         this.dom.append(node);
       }
-      this.cards.set(spec.id, { node, signature: spec.signature, pos: spec.pos });
+      this.cards.set(spec.id, { node, signature: spec.signature, pos: spec.pos, thread: spec.thread });
       if (spec.id === DRAFT && !existing) queueMicrotask(() => node.querySelector("textarea")?.focus());
     }
     this.view.requestMeasure({ key: this, read: () => this.measure(), write: (layout) => this.place(layout) });
@@ -235,7 +271,8 @@ class Rail implements PluginValue {
     const length = view.state.doc.length;
     const cards = [...this.cards].map(([id, card]) => {
       const block = view.lineBlockAt(Math.min(card.pos, length));
-      return { id, top: block.top + offset, height: card.node.offsetHeight };
+      // A folded card is hidden but still laid out, so its height is known.
+      return { id, top: block.top + offset, height: card.node.offsetHeight, thread: card.thread };
     });
     // What is on screen, in the same coordinates as the cards, less a little air.
     const visible = { top: scroller.scrollTop, bottom: scroller.scrollTop + scroller.clientHeight - CARD_GAP };
@@ -258,18 +295,67 @@ class Rail implements PluginValue {
     if (this.wide) {
       // Against where the column is going, not where it is mid-ease.
       const left = (layout.centredRight === null ? layout.columnRight : layout.centredRight - shift) + CARD_GAP;
-      const focus = this.cards.has(DRAFT) ? DRAFT : active;
-      const wanted = layout.cards.map((card) => ({ id: card.id, want: card.id === HEAD ? layout.offset : card.top, height: card.height }));
-      const placed = keepInView(stackCards(wanted, focus), wanted, layout.visible);
-      for (const { id, top } of placed) {
-        const node = this.cards.get(id)?.node;
-        if (!node) continue;
-        node.style.top = `${Math.max(0, top)}px`;
-        node.style.left = `${left}px`;
+      const wanted = layout.cards.map((card) => ({
+        id: card.id,
+        want: card.id === HEAD ? layout.offset : card.top,
+        height: card.height,
+        foldable: card.thread,
+      }));
+      const { placed, folds } = layoutMargin(wanted, active);
+      const want = new Map(wanted.map((card) => [card.id, card]));
+      const boxes = [
+        ...placed.map((card) => ({ ...card, want: want.get(card.id)!.want, height: want.get(card.id)!.height })),
+        ...folds.map((fold) => ({ id: FOLD + fold.key, top: fold.top, want: want.get(fold.key)!.want, height: FOLD_HEIGHT })),
+      ];
+      const tops = new Map(keepInView(boxes, layout.visible).map((box) => [box.id, box.top]));
+      const foldOf = new Map(folds.flatMap((fold) => fold.ids.map((id) => [id, fold] as const)));
+      for (const [id, card] of this.cards) {
+        const fold = foldOf.get(id);
+        const hidden = fold !== undefined && !fold.open;
+        // A folded card waits at its row, so opening the row lets it glide out from there.
+        const top = hidden ? tops.get(FOLD + fold.key) : tops.get(id);
+        if (top === undefined) continue;
+        card.node.classList.toggle("cm-cmt-folded", hidden);
+        card.node.style.top = `${top}px`;
+        card.node.style.left = `${left}px`;
         // The Comment button sits at the margin's edge at its own size.
-        node.style.width = id === CHIP ? "auto" : `${CARD_WIDTH}px`;
-        settle(node);
+        card.node.style.width = id === CHIP ? "auto" : `${CARD_WIDTH}px`;
+        settle(card.node);
       }
+      this.placeFolds(folds, tops, left);
+    } else {
+      this.placeFolds([], new Map(), 0);
+    }
+  }
+
+  private placeFolds(folds: Fold[], tops: Map<string, number>, left: number) {
+    const keep = new Set(folds.map((fold) => fold.key));
+    for (const [key, fold] of this.folds) {
+      if (!keep.has(key)) {
+        fold.node.remove();
+        this.folds.delete(key);
+      }
+    }
+    for (const fold of folds) {
+      const signature = JSON.stringify([fold.ids, fold.open]);
+      let entry = this.folds.get(fold.key);
+      if (!entry || entry.signature !== signature) {
+        const node = this.foldRow(fold);
+        if (entry) {
+          node.style.cssText = entry.node.style.cssText;
+          node.classList.add("cm-cmt-placed");
+          entry.node.replaceWith(node);
+        } else {
+          node.classList.add("cm-cmt-enter");
+          this.dom.append(node);
+        }
+        entry = { node, signature };
+        this.folds.set(fold.key, entry);
+      }
+      entry.node.style.top = `${tops.get(FOLD + fold.key) ?? fold.top}px`;
+      entry.node.style.left = `${left}px`;
+      entry.node.style.width = `${CARD_WIDTH}px`;
+      settle(entry.node);
     }
   }
 
