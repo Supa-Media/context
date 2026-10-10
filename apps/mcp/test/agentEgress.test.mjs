@@ -58,6 +58,9 @@
  *     driving /agent is not a turn seen whole`.
  * 20. The `EGRESS_APPROVALS` switch ignored in `egressGate`. → `with the gate
  *     switched off, a write into another workspace runs at once` fails.
+ * 21. `confirm_team_publish` written while the switch is off. → `with the gate
+ *     switched off, a publication still needs the tools' own confirmation`
+ *     fails: a private note goes team with no approval anywhere.
  * 19. `store.actor` not set in `handleApprovals`. → `a replayed write is in the
  *     audit trail under the client that asked...` fails: the row names nobody.
  */
@@ -377,6 +380,44 @@ export async function runAgentEgressChecks(check) {
       check(
         "with the gate switched off, a write into another workspace runs at once",
         ran.isError !== true && team.get("notes/switched-off.md") !== undefined && pending().length === pendingBefore,
+      );
+
+      /*
+        AND THE CHECK THE GATE REPLACED IS STILL THERE.
+
+        Switching the gate off is meant to leave the gateway as it was before
+        the gate: a publication then needed `confirm_team_publish`, which the
+        visibility tools refuse without — "only after explicit user approval".
+        The gate writes that flag on a person's behalf when it lets a widening
+        through, which is right for a turn whose yes it has (a first-party turn
+        with a clean ledger, or a replayed approval) and wrong for a deployment
+        where nobody is asked at all: there it would publish a private note
+        with no approval anywhere in the chain, neither the gate's nor the
+        tool's.
+      */
+      const kept = await call(env, TOKEN_MCP, "write_note", {
+        path: "2-areas/switch-private.md",
+        content: "# Private\n",
+      });
+      const published = await call(env, TOKEN_MCP, "set_visibility", {
+        path: "2-areas/switch-private.md",
+        visibility: "team",
+      });
+      check(
+        "with the gate switched off, a publication still needs the tools' own confirmation",
+        kept.isError !== true &&
+          published.isError === true &&
+          /confirmation required/.test(textOf(published)) &&
+          !teamVisible("2-areas/switch-private.md"),
+      );
+      const confirmed = await call(env, TOKEN_MCP, "set_visibility", {
+        path: "2-areas/switch-private.md",
+        visibility: "team",
+        confirm_team_publish: true,
+      });
+      check(
+        "with the gate switched off, a publication that carries the flag runs",
+        confirmed.isError !== true && teamVisible("2-areas/switch-private.md"),
       );
     } finally {
       delete env.EGRESS_APPROVALS;
