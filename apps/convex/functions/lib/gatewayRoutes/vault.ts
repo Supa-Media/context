@@ -1,6 +1,6 @@
 /**
- * `POST /gateway/vault/request`: a link for the person to save or share a
- * login themselves (`functions/vault.ts`). Answers `{url}` or `{url: null}`.
+ * `POST /gateway/vault/request`: a link for the person to save, share or see
+ * a vault entry themselves (`functions/vault.ts`). Answers `{url}` or `{url: null}`.
  *
  * The clearance is the editor one an agent's website publish spends: the
  * token resolves to a live grant on its own, and the workspace and person come
@@ -18,7 +18,7 @@ export const VAULT_LINK_ROUTE = "/vault";
 export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const accessToken = stringField(body, "accessToken");
   const expected = stringField(body, "expectedWorkspaceId");
-  const kind = body.kind === "add" ? "add" : body.kind === "share" ? "share" : null;
+  const kind = body.kind === "add" || body.kind === "share" || body.kind === "view" ? body.kind : null;
   if (accessToken === null || expected === null || kind === null) return json({ url: null });
   const origin = appOrigin();
   if (origin === null) return json({ url: null });

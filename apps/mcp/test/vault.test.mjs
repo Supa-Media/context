@@ -3,7 +3,9 @@ import { test } from "node:test";
 import { VAULT_PREFIX, newEntryId, readMeta, siteHost, siteMatches, writeEntry, writeMeta } from "../src/vault/entries.js";
 import { VaultRefused, openForFill } from "../src/vault/fill.js";
 import { openPart } from "../src/vault/seal.js";
-import { toolVaultAddLink, toolVaultList, toolVaultShareLink } from "../src/tools/vault.js";
+import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "../src/tools/vault.js";
+import { fieldSummaries, normalizeFields } from "../src/vault/fields.js";
+import { createVaultMethods } from "../src/controlPlane/vault.js";
 
 const PASSWORD = "hunter2-correct-horse";
 const USERNAME = "seyi@example.test";
@@ -150,4 +152,80 @@ test("an agent cannot ask to share a login it may not use", async () => {
   const result = await toolVaultShareLink(store, { entry: id, with: "@sayo" });
   assert.equal(result.isError, true);
   assert.equal(asked, false);
+});
+
+const STRIPE_DEV = "sk_test_fake_dev_0000";
+const STRIPE_PROD = "sk_live_fake_prod_9999";
+
+async function secretVault({ sites = ["dashboard.stripe.com"] } = {}) {
+  const store = memoryStore();
+  const id = newEntryId();
+  const { fields } = normalizeFields([
+    { name: "STRIPE_SECRET_KEY", perEnv: true, values: { dev: STRIPE_DEV, staging: "", prod: STRIPE_PROD } },
+    { name: "Account number", perEnv: false, values: { _: "acct_fake_42" } },
+  ]);
+  await writeEntry(store, KEYS, "ws_1", {
+    id,
+    meta: { type: "secret", name: "Stripe", sites, fields: fieldSummaries(fields), people: ["user_a"], createdBy: "user_a", createdAt: 1, updatedAt: 1 },
+    secret: { fields },
+  });
+  Object.defineProperty(store, "encryptionKey", { value: KEYS, enumerable: false });
+  store.actor = { workspaceId: "ws_1", userId: "user_a", workspaceKind: "shared" };
+  return { store, id };
+}
+
+test("a secret's values and field names never reach the bucket in the clear, and vault_list names fields without values", async () => {
+  const { store, id } = await secretVault();
+  const raw = store.objects.get(`${VAULT_PREFIX}${id}.json`);
+  for (const plain of [STRIPE_DEV, STRIPE_PROD, "acct_fake_42", "STRIPE_SECRET_KEY", "Stripe"]) {
+    assert.equal(raw.includes(plain), false, `${plain} is in the bucket`);
+  }
+  const listed = resultText(await toolVaultList(store));
+  assert.match(listed, /STRIPE_SECRET_KEY \[dev, prod\]/);
+  assert.match(listed, /Account number/);
+  for (const value of [STRIPE_DEV, STRIPE_PROD, "acct_fake_42"]) assert.equal(listed.includes(value), false);
+});
+
+test("the fill step types one field for one environment, on the entry's site only", async () => {
+  const { store, id } = await secretVault();
+  const origin = "https://dashboard.stripe.com";
+  assert.equal((await openForFill(store, undefined, { entryId: id, origin, field: "STRIPE_SECRET_KEY", env: "prod" })).value, STRIPE_PROD);
+  assert.equal((await openForFill(store, undefined, { entryId: id, origin, field: "Account number" })).value, "acct_fake_42");
+  // Staging was left blank, an env is required for a per-environment field, and a secret has no password.
+  for (const ask of [{ field: "STRIPE_SECRET_KEY", env: "staging" }, { field: "STRIPE_SECRET_KEY" }, { field: "NOPE" }, {}]) {
+    await assert.rejects(openForFill(store, undefined, { entryId: id, origin, ...ask }), (e) => e.code === "no_field");
+  }
+  await assert.rejects(openForFill(store, undefined, { entryId: id, origin: "https://stripe.com.evil.example", field: "Account number" }), (e) => e.code === "wrong_site");
+  const siteless = await secretVault({ sites: [] });
+  await assert.rejects(openForFill(siteless.store, undefined, { entryId: siteless.id, origin, field: "Account number" }), (e) => e.code === "wrong_site");
+});
+
+test("fields are named like env variables or labels, unique ignoring case, and capped", () => {
+  assert.equal(normalizeFields([{ name: "A", values: { _: "1" } }, { name: "a", values: { _: "2" } }]).error !== null, true);
+  assert.equal(normalizeFields([{ name: "../x", values: { _: "1" } }]).error !== null, true);
+  assert.equal(normalizeFields([{ name: "K", values: { _: "x".repeat(8193) } }]).error !== null, true);
+  assert.equal(normalizeFields(Array.from({ length: 31 }, (_, i) => ({ name: `K${i}` }))).error !== null, true);
+  const { fields } = normalizeFields([{ name: "K", perEnv: true, values: { dev: "d", prod: "", other: "x" } }]);
+  assert.deepEqual(fields, [{ name: "K", perEnv: true, values: { dev: "d" } }]);
+  assert.deepEqual(fieldSummaries(fields), [{ name: "K", perEnv: true, set: ["dev"] }]);
+});
+
+test("asking to see or save a secret sends the control plane ids only; the form's prefill rides on the URL", async () => {
+  const { store, id } = await secretVault();
+  const posted = [];
+  const methods = createVaultMethods({
+    post: async (path, body) => (posted.push(body), { url: "https://context.example/vault/tok" }),
+    required: (parsed, key) => parsed[key],
+  });
+  Object.defineProperty(store, "vaultLinks", { value: { request: (request) => methods.vaultRequest("at", "ws_1", request) } });
+  const added = resultText(await toolVaultAddLink(store, { type: "secret", name: "Stripe", fields: ["STRIPE_SECRET_KEY"] }));
+  assert.match(added, /type=secret/);
+  assert.match(added, /fields=STRIPE_SECRET_KEY/);
+  assert.match(added, /envs=1/);
+  const viewed = resultText(await toolVaultViewLink(store, { entry: id, env: "prod" }));
+  assert.match(viewed, /env=prod/);
+  assert.deepEqual(posted.map(({ accessToken, expectedWorkspaceId, ...rest }) => rest), [{ kind: "add" }, { kind: "view", entryId: id }]);
+  store.actor = { ...store.actor, userId: "user_b" };
+  assert.equal((await toolVaultViewLink(store, { entry: id })).isError, true);
+  assert.equal(posted.length, 2);
 });
