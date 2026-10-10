@@ -188,8 +188,13 @@ with "I need to correct my last reply: I didn't open Wikipedia in this
 conversation" after a turn that had driven the browser to the article. An
 answer in the history now carries the names of the tools it called
 successfully, and nothing else about them (no arguments, no results, so the
-grant reason above still holds), and the next turn is told "to write those
-earlier answers you used these tools: browse, open_page". Tests
+grant reason above still holds), and the next turn is told, per answer, what
+it used: `- "When was Ada Lovelace born?": you used browse.` (a 60-character
+excerpt of the person's own question). Pooled names for the whole
+conversation were tried first and did not stop it, because a retraction
+already in the history is copied by the next turn; so the prompt also says
+that an earlier text claiming it hadn't checked something was the mistake.
+Tests
 (`agentConversation.test.mjs`, `agent.test.mjs`): "an answer keeps the names
 of the tools it used, and nothing else about them", "a texted answer keeps the
 names of the tools it used, never their arguments".

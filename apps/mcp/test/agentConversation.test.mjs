@@ -99,7 +99,7 @@ test("an answer keeps the names of the tools it used, and nothing else about the
   });
   const turns = await readConversation(store, "texts");
   assert.deepEqual(turns[1], { role: "assistant", text: "1815.", tools: ["browse", "search_web"] });
-  assert.deepEqual(usedTools(turns), ["browse", "search_web"]);
+  assert.deepEqual(usedTools(turns), [{ question: "When was Ada Lovelace born?", tools: ["browse", "search_web"] }]);
 });
 
 test("a history written before tools were kept reads as it did", async () => {
@@ -110,8 +110,20 @@ test("a history written before tools were kept reads as it did", async () => {
   assert.deepEqual(usedTools(turns), []);
 });
 
-test("the next turn is told which tools its earlier answers used", () => {
-  const prompt = systemPrompt(null, { texting: true, continued: true, used: ["browse", "open_page"] });
-  assert.match(prompt, /you used these tools: browse, open_page/);
-  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true }), /you used these tools/);
+test("the next turn is told which tools each earlier answer used, and that a retraction was the mistake", () => {
+  const history = [
+    { role: "user", text: "When was Ada Lovelace born?" },
+    { role: "assistant", text: "1815.", tools: ["browse"] },
+    { role: "user", text: "Thanks" },
+    { role: "assistant", text: "Anytime." },
+    { role: "user", text: `Save "${"a".repeat(100)}"` },
+    { role: "assistant", text: "Saved.", tools: ["write_note"] },
+  ];
+  const used = usedTools(history);
+  assert.equal(used.length, 2);
+  assert.ok(used[1].question.length <= 60 && !used[1].question.includes('"'));
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.match(prompt, /"When was Ada Lovelace born\?": you used browse\./);
+  assert.match(prompt, /that text was the mistake/);
+  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true }), /What you did for those earlier texts/);
 });

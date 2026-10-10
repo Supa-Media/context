@@ -103,12 +103,21 @@ const CONTINUED =
   "are not shown; if something needs checking, read the notes again.";
 
 /**
- * Which tools the earlier answers used, by name (`conversation.js`), so "I
- * didn't open that page" has something to be checked against.
+ * Which tools each earlier answer used, by name (`conversation.js`), so "I
+ * didn't open that page" has something to be checked against. A retraction
+ * already in the history is the model's own mistake, and left alone the next
+ * turn copies it, so it is named as one.
  */
 function usedLine(used) {
-  const names = Array.isArray(used) ? used.filter((name) => typeof name === "string" && name.length > 0) : [];
-  return names.length > 0 ? `To write those earlier answers you used these tools: ${names.join(", ")}.` : "";
+  const answers = Array.isArray(used)
+    ? used.filter((entry) => typeof entry?.question === "string" && Array.isArray(entry.tools) && entry.tools.length > 0)
+    : [];
+  if (answers.length === 0) return "";
+  return [
+    "What you did for those earlier texts (not shown, but it happened):",
+    ...answers.map(({ question, tools }) => `- "${question}": you used ${tools.join(", ")}.`),
+    "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
+  ].join("\n");
 }
 
 export function systemPrompt(
