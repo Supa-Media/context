@@ -140,7 +140,7 @@ export async function runProtocolBasicsChecks() {
   // workspaces without treating model confidence as write authority.
   // 44 without `export_encryption_keys`, removed by the owner on 2026-10-08:
   // leaving the product already hands back every note in plain text.
-  check("44 tools listed", tools.result?.tools.length === 44);
+  check("47 tools listed", tools.result?.tools.length === 47);
   check(
     "Folder lists have an explicit read-only server evaluator",
     tools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
@@ -256,7 +256,7 @@ export async function runProtocolBasicsChecks() {
   const listWithFormsOff = await rpc("priv-token", "tools/list");
   check(
     "a Context plugin turned off takes its tools out of the listing",
-    listWithFormsOff.result?.tools.length === 40 &&
+    listWithFormsOff.result?.tools.length === 43 &&
       listWithFormsOff.result?.tools?.some((tool) => tool.name === "submit_form") === false
   );
   check(
@@ -302,12 +302,12 @@ export async function runProtocolBasicsChecks() {
   await contextStore.put(enablementKey, "{ half a file");
   check(
     "a settings file that does not parse leaves every tool where it was",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 44
+    (await rpc("priv-token", "tools/list")).result?.tools.length === 47
   );
   await contextStore.delete(enablementKey);
   check(
     "and removing the file restores the full listing",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 44
+    (await rpc("priv-token", "tools/list")).result?.tools.length === 47
   );
   check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
   check(

@@ -97,6 +97,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired vault links",
+  { hours: 1 },
+  internal.functions.vault.purgeExpiredVaultRequests,
+);
+
+crons.interval(
   "sweep expired authorization requests",
   { hours: 1 },
   internal.functions.authorizations.purgeExpiredAuthorizations,

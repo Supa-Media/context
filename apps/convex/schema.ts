@@ -28,6 +28,7 @@ import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
+import { vaultTables } from "./functions/lib/schema/vault";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
@@ -94,6 +95,7 @@ const schema = defineSchema({
   ...placeTables,
   ...feedbackTables,
   ...textLinkTables,
+  ...vaultTables,
   ...signInEmailTables,
   ...workspaceDomainTables,
   ...archivedAccountTables,

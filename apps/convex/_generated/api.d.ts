@@ -124,6 +124,7 @@ import type * as functions_treeAdmin from "../functions/treeAdmin.js";
 import type * as functions_treeAdminInternal from "../functions/treeAdminInternal.js";
 import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
+import type * as functions_vault from "../functions/vault.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
 import type * as functions_xConversions from "../functions/xConversions.js";
@@ -259,6 +260,7 @@ declare const fullApi: ApiFromModules<{
   "functions/treeChanges": typeof functions_treeChanges;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
+  "functions/vault": typeof functions_vault;
   "functions/waitlist": typeof functions_waitlist;
   "functions/signupAlerts": typeof functions_signupAlerts;
   "functions/xConversions": typeof functions_xConversions;
