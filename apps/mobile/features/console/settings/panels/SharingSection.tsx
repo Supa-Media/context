@@ -1,43 +1,52 @@
-import { StyleSheet, View } from "react-native";
-import { useThemedStyles } from "../../../design/theme";
+import { useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Icon } from "../../../design/components/Icon";
+import { Text } from "../../../design/components/Text";
+import { TextLink } from "../../../design/components/TextLink";
+import { useColors, useThemedStyles } from "../../../design/theme";
 import { MembersSection } from "../../members/MembersSection";
 import { shareBackSuggestions } from "../../members/members";
 import { selectedContext, type ConsoleData } from "../../types";
 import { GroupsPanel } from "./GroupsPanel";
 import { OrganizationCard } from "./OrganizationCard";
 import { PanelHead } from "./PanelHead";
+import type { SettingsSectionKey } from "../sections";
 import { PrivacyPanel } from "./PrivacyPanel";
 import { SharedLinksPanel } from "./SharedLinksPanel";
 
 /**
- * Settings › Sharing & Access: who is here, who is named as a set, what was
- * handed out one link at a time, and the rules underneath all of it.
+ * Settings › People & sharing: who is here, who sees each folder, what was
+ * handed out one link at a time, and (one press deeper) groups and activity.
  *
- * Its own file since the settings cleanup (2026-09-29), which also took the
- * eyebrow off each block. Every block's card already opens with its own name,
- * so "PEOPLE" over a card titled "People" said it twice, with a paragraph of
- * explanation in between. One sentence at the top now says what the page is.
- *
- * Nothing about what any block *decides* moved. `PrivacyPanel` still reads the
- * live manifest through the same pure modules, and the members, groups and
- * shares views are the same owner-gated shapes they were.
+ * Presentation only: `PrivacyPanel` still reads the live manifest through the
+ * same pure modules, and the members, groups and shares views are the same
+ * owner-gated shapes they were.
  */
-export function SharingSection({ data, sectioned }: { data: ConsoleData; sectioned: boolean }) {
+export function SharingSection({
+  data,
+  sectioned,
+  onSelect,
+}: {
+  data: ConsoleData;
+  sectioned: boolean;
+  /** Absent on the landing-page demo: the activity link is then left out. */
+  onSelect?: (key: SettingsSectionKey) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const current = selectedContext(data);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  const groups = data.groups?.groups ?? [];
+  const names = groups.map((group) => group.label).join(", ");
   return (
     <>
       <PanelHead section="sharing" sectioned={sectioned}>
-        Who can open this workspace, and what they can do.
+        Who can open this workspace.
       </PanelHead>
 
       <MembersSection
         view={data.members}
         viewerRole={current?.role}
-        /*
-          The owner's paragraph about what having members hands over is the
-          Privacy block's sentence in older words, so People does not repeat it.
-        */
         showReachRule={false}
         /*
           Defensive because this pane is rendered from fixtures that carry only
@@ -58,18 +67,46 @@ export function SharingSection({ data, sectioned }: { data: ConsoleData; section
       ) : null}
 
       <View style={styles.block}>
-        <GroupsPanel
-          view={data.groups}
-          members={data.members.members}
-          slug={current?.slug.replace(/^@/, "") ?? ""}
-        />
+        <PrivacyPanel data={data} />
       </View>
 
       <View style={styles.block}>
         <SharedLinksPanel view={data.shares} />
       </View>
 
-      <PrivacyPanel data={data} />
+      <View style={styles.block}>
+        <Pressable
+          role="button"
+          aria-expanded={groupsOpen}
+          accessibilityLabel={`Groups${groups.length > 0 ? `, ${groups.length}` : ""}`}
+          onPress={() => setGroupsOpen((open) => !open)}
+          style={styles.groupsRow}
+          testID="sharing-groups-toggle"
+        >
+          <Icon name={groupsOpen ? "chevronDown" : "chevronRight"} size={13} color={colors.text2} />
+          <Text variant="rowTitle">Groups</Text>
+          <Text variant="rowSub" numberOfLines={1} style={styles.groupsNames}>
+            {groups.length === 0 ? "None yet" : `${groups.length} · ${names}`}
+          </Text>
+        </Pressable>
+        {groupsOpen ? (
+          <View style={styles.groupsBody}>
+            <GroupsPanel
+              bare
+              view={data.groups}
+              members={data.members.members}
+              slug={current?.slug.replace(/^@/, "") ?? ""}
+            />
+          </View>
+        ) : null}
+        {onSelect !== undefined ? (
+          <TextLink
+            label="Who changed what"
+            onPress={() => onSelect("activity")}
+            testID="sharing-activity-link"
+          />
+        ) : null}
+      </View>
     </>
   );
 }
@@ -77,4 +114,7 @@ export function SharingSection({ data, sectioned }: { data: ConsoleData; section
 const makeStyles = () =>
   StyleSheet.create({
     block: { marginTop: 28 },
+    groupsRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
+    groupsNames: { flexShrink: 1 },
+    groupsBody: { marginTop: 8, marginBottom: 8 },
   });

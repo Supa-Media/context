@@ -113,6 +113,15 @@ Three rules the console follows and does not re-derive:
   we do not share, and never to `on`, which would claim a copy of somebody's
   notes exists.
 
+**No off switch in the console since 2026-10-10.** The owner: "fast search
+can't be turned off anymore. It's required now." Settings shows that it is on,
+and keeps **Turn on** for a workspace that was switched off before. The index is
+still a disposable derivative (non-negotiable #3), still lives in the
+customer-data account, and is still released when storage is disconnected or the
+workspace is deleted (`releaseForStorage`), so the exit path is unchanged. The
+`disable` mutation stays on the server with no console caller. The paragraph below
+describes the switch as it was.
+
 Turning it **on** is one press and turning it **off** is two, which is the
 reverse of the usual instinct and follows from what each costs: on is undone by
 off, while off deletes an index that took a backfill to build. The armed state

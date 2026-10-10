@@ -11,11 +11,13 @@ import { Hint } from "../../../design/components/Field";
 import { FormError, Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
+import { TextLink } from "../../../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { leaveTo } from "../../../consent/leave";
 import { selectedContext, type ConsoleData } from "../../types";
 import {
   CHECKOUT_SETTLING_SLOW_MS,
+  EARLY_TESTER_PRICE_SHORT,
   EXPORT_PROMISE,
   checkoutReturnCopy,
   demoPremiumView,
@@ -28,11 +30,13 @@ import {
   premiumPill,
   premiumStateOf,
   renewalLine,
+  type PremiumState,
   unreadablePremiumView,
   usageLine,
   type PremiumView,
 } from "./premium";
 import { PremiumIncludes } from "./PremiumIncludes";
+import { PanelHead } from "./PanelHead";
 import { usePremium } from "./usePremium";
 import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
@@ -88,13 +92,15 @@ export function PremiumPanel({
   onSelect,
 }: {
   data: ConsoleData;
-  /** Kept for callers; the panel no longer draws a title of its own. */
-  section?: string;
+  /** Present when the overlay is showing this one section; it sets the heading's size. */
+  section?: SettingsSectionKey;
   returned?: CheckoutOutcome | null;
   /** The overlay's section switch: the free tier's "bring your own" opens Storage. */
   onSelect?: (key: SettingsSectionKey) => void;
 }) {
   const onOpenStorage = onSelect === undefined ? undefined : () => onSelect("storage");
+  // Absent in the demo: there is no bucket behind it to download.
+  const onDownload = data.demo ? undefined : () => data.files.download("", "folder");
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
     provider in the tree; `useQueries` throws. So the question is asked here,
@@ -119,6 +125,7 @@ export function PremiumPanel({
         section={section}
         returned={returned}
         onOpenStorage={onOpenStorage}
+        onDownload={onDownload}
       />
     );
   }
@@ -128,6 +135,7 @@ export function PremiumPanel({
       section={section}
       returned={returned}
       onOpenStorage={onOpenStorage}
+      onDownload={onDownload}
     />
   );
 }
@@ -138,11 +146,13 @@ function PremiumLive({
   section,
   returned,
   onOpenStorage,
+  onDownload,
 }: {
   workspaceId: string;
-  section?: string;
+  section?: SettingsSectionKey;
   returned: CheckoutOutcome | null;
   onOpenStorage?: () => void;
+  onDownload?: () => void;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
   const autoOrganize = usePremiumOrganizerSlots(returned);
@@ -152,6 +162,7 @@ function PremiumLive({
       section={section}
       returned={returned}
       onOpenStorage={onOpenStorage}
+      onDownload={onDownload}
       autoOrganize={autoOrganize}
     />
   );
@@ -166,10 +177,12 @@ function PremiumLive({
  */
 export function PremiumBody({
   view,
+  section,
   returned = null,
   /** Test seam: the settling copy's later wording, without waiting for it. */
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
   onOpenStorage,
+  onDownload,
   autoOrganize,
 }: {
   view: PremiumView;
@@ -181,7 +194,9 @@ export function PremiumBody({
   autoOrganize?: { top?: ReactNode; included?: ReactNode; afterIncludes?: ReactNode };
   /** Opens Settings › Storage — the free tier's "bring your own" way out. */
   onOpenStorage?: () => void;
-  section?: string;
+  /** Downloads every note as a .zip. Absent in the demo. */
+  onDownload?: () => void;
+  section?: SettingsSectionKey;
   /** What the return from Stripe said, or `null` for an ordinary visit. */
   returned?: CheckoutOutcome | null;
   slowAfter?: number;
@@ -230,14 +245,20 @@ export function PremiumBody({
   const session = view.session;
   const returning = checkoutReturnCopy(returned, state, { slow });
   const migration = status === null ? null : managedMigrationCopy(status);
+  const settling = returning?.working === true;
+  // The free plan's card names its price in the heading, so the price row
+  // below only repeats it for a plan that has one to hold.
+  const headline =
+    state === "free" && status !== null ? `Premium · ${formatPrice(status)}` : copy.title;
+  // Free is offered the short line. Once a subscription is held, the full
+  // promise is what applies.
+  const earlyNote = state === "free" ? EARLY_TESTER_PRICE_SHORT : earlyTesterPriceNote(state);
 
   return (
     <View>
-      {/*
-        No title of its own: `SettingsPane` draws this section's `PanelHead`,
-        and this panel drew the name and an intro a second time under it
-        until the settings cleanup (2026-09-29).
-      */}
+      <PanelHead section="premium" sectioned={section !== undefined}>
+        {planLede(status, state, settling)}
+      </PanelHead>
 
       <FreeTierNudge
         status={status}
@@ -300,7 +321,7 @@ export function PremiumBody({
           <View style={styles.head}>
             <View style={styles.headText}>
               <Text variant="rowTitle" testID="premium-title" role="status">
-                {returning?.working === true ? returning.title : copy.title}
+                {returning?.working === true ? returning.title : headline}
               </Text>
               <Text variant="rowSub" style={styles.blurb}>
                 {returning?.working === true ? returning.body : copy.blurb}
@@ -319,12 +340,14 @@ export function PremiumBody({
           </View>
 
           {status.stagingFreeStorage ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
-          <Row divided style={styles.priceRow}>
-            <Text variant="rowSub">Price</Text>
-            <Text variant="rowTitle" testID="premium-price">
-              {formatPrice(status)}
-            </Text>
-          </Row>
+          {state === "free" ? null : (
+            <Row divided style={styles.priceRow}>
+              <Text variant="rowSub">Price</Text>
+              <Text variant="rowTitle" testID="premium-price">
+                {formatPrice(status)}
+              </Text>
+            </Row>
+          )}
 
           {/*
             Directly under the number, because that is the only place it can be
@@ -333,9 +356,9 @@ export function PremiumBody({
             it would be a promise about a subscription this context no longer
             has. `earlyTesterPriceNote` is the one place that decides.
           */}
-          {status.stagingFreeStorage || earlyTesterPriceNote(state) === null ? null : (
+          {status.stagingFreeStorage || earlyNote === null ? null : (
             <Hint style={styles.hint}>
-              <Text variant="rowSub">{earlyTesterPriceNote(state)}</Text>
+              <Text variant="rowSub">{earlyNote}</Text>
             </Hint>
           )}
 
@@ -474,9 +497,7 @@ export function PremiumBody({
         function of what somebody is paying — see `CLAUDE.md`, non-negotiable
         #1, and the test that walks every state.
       */}
-      <Notice style={styles.notice} testID="premium-export-promise">
-        <Text variant="rowSub">{EXPORT_PROMISE}</Text>
-      </Notice>
+      <TakeEverything onDownload={onDownload} />
 
       {view.deleteTestWorkspace !== undefined ? (
         <Card testID="premium-test-cleanup">
@@ -506,6 +527,75 @@ export function PremiumBody({
         </Card>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * The one line under the plan's name. It says whose plan this is, and it
+ * never says "free" while a payment is settling: that is the contradiction
+ * the settling copy above was written to avoid.
+ */
+function planLede(
+  status: PremiumView["status"],
+  state: PremiumState,
+  settling: boolean,
+): string {
+  if (settling) return "Setting up Premium for this workspace.";
+  if (status === null) return "What this workspace pays for.";
+  switch (state) {
+    case "premium":
+      return "This workspace is on Premium.";
+    case "past_due":
+      return "Premium for this workspace is paused.";
+    case "canceled":
+      return "This workspace is back on the free plan.";
+    case "unavailable":
+      return "Premium is not available here.";
+    default:
+      return "This workspace is on the free plan.";
+  }
+}
+
+/**
+ * Taking everything, as a card on the plan page.
+ *
+ * The short line is the offer. The full promise, including that cancelling
+ * never deletes anything, sits behind "How this works" rather than being
+ * dropped: it is the part of the exit that a person deciding about money
+ * needs to be able to read. Never gated, and not dimmed on the free plan.
+ */
+function TakeEverything({ onDownload }: { onDownload?: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const [showHow, setShowHow] = useState(false);
+  return (
+    <Card style={styles.notice} testID="premium-export-promise">
+      <Row style={styles.actions}>
+        <View style={styles.testCleanupCopy}>
+          <Text variant="rowTitle">Download everything</Text>
+          <Text variant="rowSub">Free on every plan, even after you cancel</Text>
+        </View>
+        {onDownload === undefined ? null : (
+          <Button
+            label="Download"
+            accessibilityLabel="Download every note you can open here, as a .zip"
+            onPress={onDownload}
+            testID="premium-download-all"
+          />
+        )}
+      </Row>
+      <View style={styles.hint}>
+        <TextLink
+          label={showHow ? "Hide details" : "How this works"}
+          onPress={() => setShowHow((open) => !open)}
+          testID="premium-exit-how"
+        />
+        {showHow ? (
+          <Text variant="rowSub" style={styles.blurb}>
+            {EXPORT_PROMISE}
+          </Text>
+        ) : null}
+      </View>
+    </Card>
   );
 }
 

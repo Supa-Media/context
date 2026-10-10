@@ -60,7 +60,7 @@ test("a sent invitation is a row in the people list, with no second heading", ()
   );
   const text = host.textContent ?? "";
   expect(text).toContain("@tomi");
-  expect(text).toContain("Invited to edit · waiting · expires in");
+  expect(text).toContain("Invited to edit · expires in");
   expect(text).not.toContain("Invitations");
 });
 
@@ -119,7 +119,7 @@ test("Remove in the menu only arms; the Confirm beside it removes", async () => 
   expect(calls).toEqual(["remove u2"]);
 });
 
-test("the invite form opens from Invite someone, and Cancel invite withdraws", async () => {
+test("the invite form opens from + Invite, and Cancel invite withdraws", async () => {
   const { view: v, calls } = withActions();
   const host = mountSection(v);
   expect(host.querySelector('[data-testid="members-invite-form"]')).toBeNull();

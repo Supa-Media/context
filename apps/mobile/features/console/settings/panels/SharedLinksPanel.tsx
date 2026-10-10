@@ -19,7 +19,7 @@ import {
 } from "../../shares/shares";
 
 /**
- * Every live link out of this context, with a Revoke beside each.
+ * Every live link out of this workspace, with a Revoke beside each.
  *
  * Before this panel, `listShares` and `revokeShare` existed on the control
  * plane and nothing in the console subscribed to either — "what have I
@@ -121,6 +121,7 @@ function ShareRow({
   // Both come out of somebody's bucket, so both are contained for display.
   const title = share.previewTitle?.trim();
   const name = title ? isolateForDisplay(title) : displayName(baseName(share.entryPath));
+  const anyone = share.audience === "anyone";
   const lifetime = share.expiresAt === undefined ? null : shareLifetime(share.expiresAt, now);
 
   return (
@@ -130,13 +131,18 @@ function ShareRow({
           <Text variant="rowTitle" numberOfLines={1}>
             {name}
           </Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            {[`${share.recipient} can view`, lifetime].filter(Boolean).join(" · ")}
-          </Text>
+          {lifetime !== null ? (
+            <Text variant="rowSub" style={styles.rowSub}>
+              {lifetime}
+            </Text>
+          ) : null}
         </Grow>
+        <Text variant="rowSub" style={anyone ? styles.anyone : undefined}>
+          {anyone ? share.recipient : `${share.recipient} can view`}
+        </Text>
         {actions !== undefined ? (
           <Button
-            label={revocation.stage === "idle" ? "Turn off link" : "Press again to turn off"}
+            label={revocation.stage === "idle" ? "Turn off" : "Press again to turn off"}
             variant={revocation.stage === "idle" ? "mini" : "danger"}
             disabled={busy}
             accessibilityLabel={
@@ -173,5 +179,7 @@ const makeStyles = (colors: Colors) =>
     rowSub: { marginTop: 2 },
     rowError: { marginTop: 8 },
     wrapRow: { flexWrap: "wrap" },
+    /** Open to anybody holding the URL: the one audience that is not a named person. */
+    anyone: { color: colors.warnText, fontWeight: "600" },
     readOnly: { marginTop: 13 },
   });

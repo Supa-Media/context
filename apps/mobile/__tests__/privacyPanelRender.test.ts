@@ -171,6 +171,9 @@ function panel(options: Options): HTMLElement {
   return document.body;
 }
 
+const label2 = (host: HTMLElement) =>
+  host.querySelector('[data-testid="privacy-set-2-areas"]')?.textContent ?? "";
+
 function press(host: HTMLElement, testID: string): void {
   const target = host.querySelector(`[data-testid="${testID}"]`);
   if (target === null) throw new Error(`no control ${testID}`);
@@ -191,19 +194,23 @@ describe("the block is reachable inside Sharing & Access", () => {
       }),
     );
     const text = document.body.textContent ?? "";
-    expect(text).toContain("Privacy");
-    expect(text).toContain("folder by folder");
+    expect(text).toContain("Who sees each folder");
+    expect(text).toContain("Nothing here is public.");
     // One section at a time: the neighbouring panels stay shut.
-    expect(text).not.toContain("plain files in storage you own");
+    expect(text).not.toContain("Plain files in storage you own");
   });
 });
 
 describe("what a reader is told", () => {
   test("the two words, and that neither of them is public", () => {
-    const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
-    expect(text).toContain("Restricted");
-    expect(text).toContain("Everyone");
-    expect(text).toContain("nothing here is indexed");
+    const host = panel({ role: "owner", kind: "personal" });
+    expect(host.textContent ?? "").toContain("Nothing here is public.");
+    // The explanation sits behind one small disclosure, closed by default.
+    expect(host.querySelector('[data-testid="privacy-explain"]')).toBeNull();
+    press(host, "privacy-explain-toggle");
+    const text = host.textContent ?? "";
+    expect(text).toContain("Only owners");
+    expect(text).toContain("Everyone here");
     /*
       AND THE RETIRED WORDS ARE GONE FROM THE WHOLE PANEL.
 
@@ -221,6 +228,7 @@ describe("what a reader is told", () => {
     // The one exception is named, because a panel that said "private or team"
     // and nothing else would be true and misleading at the same time.
     expect(text).toContain("One note at a time");
+    expect(text).not.toMatch(/\bcontext\b/i);
   });
 
   test("every folder the listing carried, with its own default", () => {
@@ -228,7 +236,7 @@ describe("what a reader is told", () => {
     expect(text).toContain("1-projects");
     expect(text).toContain("2-areas");
     // And what happens to something nobody has ruled on.
-    expect(text).toContain("Anything with no rule of its own");
+    expect(text).toContain("New folders");
   });
 
   test("the same fact is not said twice in two voices", () => {
@@ -240,13 +248,17 @@ describe("what a reader is told", () => {
       it to the members card. A panel that says a thing twice is a panel whose
       second sentence nobody reads.
     */
-    const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    const host = panel({ role: "owner", kind: "personal" });
+    press(host, "privacy-explain-toggle");
+    const text = host.textContent ?? "";
     expect(text).toContain("Yours alone");
     expect(text).not.toContain("Everybody here reads this context at team level");
   });
 
   test("the root row says what happens to something added tomorrow", () => {
-    const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    const host = panel({ role: "owner", kind: "personal" });
+    press(host, "privacy-explain-toggle");
+    const text = host.textContent ?? "";
     expect(text).toContain("including one added tomorrow");
     // And no empty exceptions line dangling off the end of the folder list,
     // where it would read as a claim about the whole context.
@@ -254,12 +266,19 @@ describe("what a reader is told", () => {
   });
 
   test("a shared workspace is told what private means there, which is not what it means in a personal one", () => {
-    const shared = panel({ role: "owner", kind: "shared" }).textContent ?? "";
+    const sharedHost = panel({ role: "owner", kind: "shared" });
+    press(sharedHost, "privacy-explain-toggle");
+    const shared = sharedHost.textContent ?? "";
     // Naming the roles it excludes, not merely "owners only" — see the same
     // check in `privacyMap.test.ts` for the mutation that got past the
     // weaker version of this.
     expect(shared).toContain("Not the members, not the editors");
-    const workspace = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    const personalHost = panel({ role: "owner", kind: "personal" });
+    const toggles = personalHost.querySelectorAll('[data-testid="privacy-explain-toggle"]');
+    act(() => {
+      (toggles[toggles.length - 1] as HTMLElement).click();
+    });
+    const workspace = personalHost.textContent ?? "";
     expect(workspace).toContain("Yours alone");
   });
 
@@ -283,7 +302,7 @@ describe("the control, and who is offered one", () => {
     // disabled — the same rule as Share and the tree's markers.
     const host = panel({ role: "member", kind: "personal" });
     expect(host.querySelector('[data-testid="privacy-set-1-projects"]')).toBeNull();
-    expect(host.textContent ?? "").not.toContain("Open to everyone");
+    expect(host.textContent ?? "").not.toContain("Press again");
   });
 
   test("an editor is not offered one either — writing is not deciding who reads", () => {
@@ -294,14 +313,13 @@ describe("the control, and who is offered one", () => {
     expect(host.querySelector('[data-testid="privacy-set-1-projects"]')).toBeNull();
   });
 
-  test("the buttons speak the pills' words, not a second vocabulary", () => {
-    // The pills say Everyone and Restricted; the buttons said "Share with
-    // team" and "Make private", and people asked what the difference was.
+  test("each folder is a two-way choice, and the press is the unlit side", () => {
     const host = panel({ role: "owner", kind: "personal", canSetVisibility: true });
     const label = (id: string) =>
       host.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
-    expect(label("privacy-set-1-projects")).toBe("Restrict");
-    expect(label("privacy-set-2-areas")).toBe("Open to everyone here");
+    // 1-projects is Everyone here, so the control offers "Only owners".
+    expect(label("privacy-set-1-projects")).toBe("Only owners");
+    expect(label("privacy-set-2-areas")).toBe("Everyone here");
     expect(host.textContent ?? "").not.toContain("Make private");
     expect(host.textContent ?? "").not.toContain("Share with team");
   });
@@ -318,6 +336,7 @@ describe("the control, and who is offered one", () => {
     expect(wrote).toEqual([]);
     // And it says what it is about to do, by name, in between.
     expect(host.textContent ?? "").toContain("Press again to open 2-areas");
+    expect(label2(host)).toBe("Press again to confirm");
     press(host, "privacy-set-2-areas");
     expect(wrote).toEqual(["folder 2-areas team"]);
   });
@@ -392,7 +411,9 @@ describe("a filtered view says so and does not fill in the gap", () => {
     // role that has not loaded gets the non-owner sentence: the wrong
     // direction for a copy default is claiming somebody's notes are yours
     // before anybody knows whose they are.
-    const text = panel({ role: "member", kind: "personal" }).textContent ?? "";
+    const host = panel({ role: "member", kind: "personal" });
+    press(host, "privacy-explain-toggle");
+    const text = host.textContent ?? "";
     expect(text).not.toContain("Yours alone");
     expect(text).toContain("Its owner's alone");
   });

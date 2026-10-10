@@ -113,6 +113,12 @@ function panel(data: ConsoleData): HTMLElement {
   return mount(() => createElement(SourcesPanel, { data }));
 }
 
+/** Press "Edit senders" (or "See senders"), which reveals the sender controls. */
+function openSenders(container: HTMLElement): void {
+  const button = container.querySelector('[data-testid="ingestion-edit"]') as HTMLElement;
+  act(() => button.click());
+}
+
 const CONNECTION: GoogleConnection = {
   connectionId: "google_1",
   email: "person@example.invalid",
@@ -137,15 +143,13 @@ describe("one list, not three panels", () => {
   test("the three headings that drew it three times are gone", () => {
     const container = panel(personal({ googleConnections: [CONNECTION] }));
     const text = container.textContent ?? "";
-    expect(text).toContain("Accounts we read");
-    expect(text).not.toContain("Accounts we read mail from");
-    expect(text).not.toContain("Accounts we read calendars from");
-    expect(text).not.toContain("Accounts we read Chat from");
+    expect(text).toContain("Mail and calendar");
+    expect(text).not.toContain("Accounts we read");
   });
 
   test("the forwarding address is on the same page, because it is the other way mail arrives", () => {
     const container = panel(personal());
-    expect(container.textContent ?? "").toContain("Forwarding address");
+    expect(container.textContent ?? "").toContain("Forward mail to");
   });
 });
 
@@ -190,11 +194,13 @@ describe("nothing here is a setting, except who may send", () => {
         },
       },
     } as ConsoleData);
+    openSenders(container);
     expect(container.textContent ?? "").toContain("never written to your bucket");
   });
 
   test("who may send stays, because it decides who can write into the bucket", () => {
     const container = panel(personal());
+    openSenders(container);
     expect(container.textContent ?? "").toContain("Who may send to it");
   });
 });
@@ -209,7 +215,7 @@ describe("a shared workspace is told why, not offered a control", () => {
 
   test("...and it is told it has no address of its own rather than shown an empty field", () => {
     const container = panel(shared());
-    expect(container.textContent ?? "").toContain("no address of its own");
+    expect(container.textContent ?? "").toContain("forwarding address of its own");
   });
 });
 

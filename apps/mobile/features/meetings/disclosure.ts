@@ -34,14 +34,17 @@ export const AUDIO_SENTENCE =
 export const MIC_ONLY_SENTENCE =
   "This records the room and your own side of the call. The far side of a call on headphones is not in the recording.";
 
+/** The settings pane's one line where a build hears only the microphone. */
+export const MIC_ONLY_LINE =
+  "Audio is never kept. On headphones, the far side of a call is not recorded.";
+
 /**
  * What a build that takes the machine's own audio records, always.
  *
  * There is no switch beside it: the call's audio is recorded wherever a build
  * can take it (owner's decision, 2026-10-01).
  */
-export const CALL_AUDIO_SENTENCE =
-  "Meetings record your microphone and everything this computer plays, so both sides of a call are in the note.";
+export const CALL_AUDIO_SENTENCE = "Audio is never kept. Both sides of a call are recorded.";
 
 /**
  * The same, in a browser, where the call's audio costs a share prompt.
@@ -50,6 +53,4 @@ export const CALL_AUDIO_SENTENCE =
  * audio"), because that is the screen somebody will be looking at.
  */
 export const CALL_AUDIO_PICKER_SENTENCE =
-  "Meetings record your microphone and everything this computer plays, so both sides of a call are in the note. " +
-  "When a meeting starts your browser asks what to share: choose Entire screen and turn on Also share system audio. " +
-  "The desktop app does this without asking.";
+  "Audio is never kept. Both sides of a call are recorded: in a browser, choose Entire screen and Also share system audio when asked.";

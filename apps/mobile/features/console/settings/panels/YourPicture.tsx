@@ -17,8 +17,8 @@ import { pickSquarePhoto } from "./pickSquarePhoto";
  * It is your personal workspace's icon unless you upload a photo, which then
  * wins and is saved with your account rather than in any bucket, so it shows
  * wherever your notes are stored (Dev2, 2026-09-28). With neither, you are the
- * Supa mark on your handle's colour. Shown on the personal workspace's
- * overview, beside the icon it defaults to.
+ * Supa mark on your handle's colour. It lives on Settings › Profile, because it
+ * is the person's, not the workspace's; the workspace picture is on General.
  */
 export function YourPicture() {
   const styles = useThemedStyles(makeStyles);
@@ -62,8 +62,8 @@ export function YourPicture() {
   const [title, detail] = mine.uploaded
     ? ["People see your photo", "Saved with your account, so it always shows, wherever your notes are stored."]
     : mine.face === undefined
-      ? ["People see the Supa face in your colour", "Choose an icon for this workspace above, or upload a photo."]
-      : ["People see your workspace icon", "Change it above, or upload a photo instead."];
+      ? ["People see the Supa face in your colour", "Pick your personal workspace's picture, or upload a photo."]
+      : ["People see your workspace picture", "Change it on your personal workspace's General page, or upload a photo."];
 
   return (
     <View testID="your-picture">
@@ -104,7 +104,7 @@ export function YourPicture() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    heading: { marginTop: space.x6, marginBottom: space.x2 },
+    heading: { marginTop: 0, marginBottom: space.x2 },
     card: {
       flexDirection: "row",
       flexWrap: "wrap",

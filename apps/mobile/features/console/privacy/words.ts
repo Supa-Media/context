@@ -88,21 +88,21 @@ export function visibilityWord(visibility: Visibility): string {
  */
 export function rootDefaultLine(visibility: Visibility): string {
   if (isGroupVisibility(visibility)) {
-    return `A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
+    return `A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
   }
   return visibility === "team"
-    ? "A note at the top of this context, and any folder nobody has given a rule, is readable by everyone on People."
-    : "A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is restricted.";
+    ? "A note at the top of this workspace, and any folder nobody has given a rule, is readable by everyone on People."
+    : "A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is restricted.";
 }
 
 /** What a folder's default does to the notes inside it. */
 export function folderDefaultLine(visibility: Visibility): string {
   if (isGroupVisibility(visibility)) {
-    return `Every note in here is readable by ${visibility}, and by nobody else in this context, unless it is named otherwise.`;
+    return `Every note in here is readable by ${visibility}, and by nobody else in this workspace, unless it is named otherwise.`;
   }
   return visibility === "team"
     ? "Every note in here is readable by everyone on People, unless it is held back by name."
-    : "Every note in here is restricted to this context's owners, unless it is shared by name.";
+    : "Every note in here is restricted to this workspace's owners, unless it is shared by name.";
 }
 
 /** What `private` reaches, which is not the same sentence in the two kinds. */
@@ -171,9 +171,9 @@ export function linkExceptionLine(): string {
  */
 export function manifestFootLine(): string {
   return (
-    "These rules are one file at the root of this context's storage — privacy.md — generated " +
+    "These rules are one file at the root of this workspace's storage — privacy.md — generated " +
     "from what is set here and readable in any editor. It travels with the notes it governs, " +
-    "and every AI client connected to this context reads through it."
+    "and every AI client connected to this workspace reads through it."
   );
 }
 
@@ -246,7 +246,7 @@ export function widenWarning(name: string): string {
 
 /** The state where nothing can be shared at all. */
 export const BROKEN_MANIFEST_HEADLINE =
-  "privacy.md cannot be read, so nothing in this context can be shared.";
+  "privacy.md cannot be read, so nothing in this workspace can be shared.";
 
 /**
  * Where the repair is, or why it is not being offered.
@@ -258,5 +258,5 @@ export const BROKEN_MANIFEST_HEADLINE =
 export function brokenManifestNext(canRepair: boolean): string {
   return canRepair
     ? "Every note reads private until it is repaired. Browse offers to write a fresh one, with every folder private."
-    : "Every note reads private until it is repaired, and only an owner of this context can do that.";
+    : "Every note reads private until it is repaired, and only an owner of this workspace can do that.";
 }

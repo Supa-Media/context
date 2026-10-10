@@ -204,7 +204,7 @@ describe("what reaches the glass", () => {
   test("the panel says whose bill it is, because that is the whole arrangement", () => {
     mockAnswers.set("functions/providers:listProviders", []);
     const screen = mount("owner");
-    expect(screen.textContent).toContain("billed to you");
+    expect(screen.textContent).toContain("You pay them directly.");
   });
 
   /**
@@ -226,10 +226,17 @@ describe("what reaches the glass", () => {
     }
   });
 
-  test("the panel says the key never lands on the device or in the bucket", () => {
+  test("the panel says the key is locked and never lands in a note", () => {
     mockAnswers.set("functions/providers:listProviders", []);
     const text = mount("owner").textContent ?? "";
-    expect(text).toContain("encrypted");
-    expect(text).toContain("never onto this device");
+    expect(text).toContain("Keys are stored locked and never written into your notes.");
+  });
+
+  test("every provider row says its state, and offers its action", () => {
+    mockAnswers.set("functions/providers:listProviders", []);
+    const screen = mount("owner");
+    expect(screen.textContent).toContain("Not connected");
+    expect(has(screen, "model-connect-anthropic")).toBe(true);
+    expect(has(screen, "model-connect-openai")).toBe(true);
   });
 });

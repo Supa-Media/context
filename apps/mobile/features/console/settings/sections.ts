@@ -41,7 +41,7 @@ import type { IconName } from "../../design/components/Icon";
  * the account/context split, which is a real difference in what a row acts on
  * rather than a category somebody has to learn.
  */
-export type SettingsGroup = "Your account";
+export type SettingsGroup = "You";
 
 /**
  * Which of the two things a section belongs to.
@@ -104,6 +104,19 @@ export interface SettingsSectionSpec {
    * that do change.
    */
   pendingOnly?: boolean;
+  /**
+   * Not a row of its own: reached from a row on another page, and by search.
+   *
+   * The settings cleanup of 2026-10-10 (the owner: "very cluttered … a lot of
+   * things that you probably don't need to expose") cut the list from fifteen
+   * rows to seven. The pages most people never open — Feedback, Activity,
+   * Meetings, AI model, Emoji — kept their panels and their keys, so an old
+   * `?settings=emoji` link and a typed "emoji" still land on them; what they
+   * lost is a permanent place in the list. Each is one row, switch or link on
+   * the page somebody would open first: Profile, People & sharing, Connected
+   * apps, General.
+   */
+  folded?: boolean;
 }
 
 export const SETTINGS_SECTIONS = [
@@ -121,7 +134,7 @@ export const SETTINGS_SECTIONS = [
       "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke dark mode light theme night appearance display colour color scheme sign out log out logout delete close account remove erase permanently brain",
     label: "Profile",
     scope: "account",
-    group: "Your account",
+    group: "You",
     icon: "person",
     personalOnly: false,
   },
@@ -132,7 +145,7 @@ export const SETTINGS_SECTIONS = [
     keywords: "invite invitation join accept pending asked workspace brain share",
     label: "Invitations",
     scope: "account",
-    group: "Your account",
+    group: "You",
     icon: "mailOpen",
     personalOnly: false,
     /*
@@ -157,9 +170,10 @@ export const SETTINGS_SECTIONS = [
       "privacy feedback report bug problem crash error telemetry analytics tracking data collect recording replay diagnostics beta opt out",
     label: "Feedback",
     scope: "account",
-    group: "Your account",
+    group: "You",
     icon: "chat",
     personalOnly: false,
+    folded: true,
   },
   /*
     From here the order is the settings artboard's (2026-09-29, approved by
@@ -312,24 +326,7 @@ export const SETTINGS_SECTIONS = [
     group: null,
     icon: "clock",
     personalOnly: false,
-  },
-  {
-    key: "storage",
-    /*
-      The index's words are here because the index is: Search was the row
-      below this one, asking the same question one level down — where are my
-      notes kept, and where is the thing that finds them. An index is a
-      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
-      this screen rather than a row beside it, and "rebuild index" has to land
-      here or it lands nowhere.
-    */
-    keywords:
-      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
-    scope: "context",
-    label: "Storage & search",
-    group: null,
-    icon: "drive",
-    personalOnly: false,
+    folded: true,
   },
   {
     key: "premium",
@@ -353,6 +350,24 @@ export const SETTINGS_SECTIONS = [
     */
     group: null,
     icon: "card",
+    personalOnly: false,
+  },
+  {
+    key: "storage",
+    /*
+      The index's words are here because the index is: Search was the row
+      below this one, asking the same question one level down — where are my
+      notes kept, and where is the thing that finds them. An index is a
+      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
+      this screen rather than a row beside it, and "rebuild index" has to land
+      here or it lands nowhere.
+    */
+    keywords:
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
+    scope: "context",
+    label: "Storage",
+    group: null,
+    icon: "drive",
     personalOnly: false,
   },
   {
@@ -393,6 +408,7 @@ export const SETTINGS_SECTIONS = [
     group: null,
     icon: "mic",
     personalOnly: false,
+    folded: true,
   },
   {
     key: "model",
@@ -416,6 +432,7 @@ export const SETTINGS_SECTIONS = [
     group: null,
     icon: "sparkle",
     personalOnly: false,
+    folded: true,
   },
   {
     /*
@@ -429,6 +446,7 @@ export const SETTINGS_SECTIONS = [
     group: null,
     icon: "smile",
     personalOnly: false,
+    folded: true,
   },
   {
     /*
@@ -475,6 +493,11 @@ export function isExperimentalSection(
   section: (typeof SETTINGS_SECTIONS)[number] | SettingsSectionSpec,
 ): boolean {
   return "experimental" in section && section.experimental === true;
+}
+
+/** Whether a section is reached from another page's row rather than listed. */
+export function isFoldedSection(section: SettingsSectionSpec): boolean {
+  return section.folded === true;
 }
 
 /** The section a URL with no `?settings=` value, or an unknown one, opens. */

@@ -16,9 +16,10 @@ import { DeleteAccountCard } from "../features/console/settings/DeleteAccountCar
  *     press only arms the button — the same shape as the rail's Leave. A
  *     refactor that collapses it to one press passes every other test and
  *     deletes an account on a slipped click.
- *  2. **The copy leads with what does NOT go.** Notes live in the person's
+ *  2. **The copy says what does NOT go first.** Notes live in the person's
  *     own storage and are not ours to delete; the sentence saying so is the
  *     difference between "reset my account" and "did I just lose my notes".
+ *     It sits behind "How this works" so the button is what the page shows.
  */
 
 function mount(deleteAccount: () => Promise<void>): { host: HTMLElement; root: Root } {
@@ -52,6 +53,8 @@ describe("deleting an account", () => {
       click(button);
       expect(calls).toBe(0);
       expect(button.textContent).toContain("Press again");
+      // Armed, the consequences show without asking: the next press is final.
+      expect(host.textContent).toContain("Any workspace you are the only owner of");
 
       click(button);
       expect(calls).toBe(1);
@@ -64,9 +67,11 @@ describe("deleting an account", () => {
     }
   });
 
-  test("says the person's notes stay where they are", () => {
+  test("says the person's notes stay where they are, behind How this works", () => {
     const { host, root } = mount(async () => {});
     try {
+      expect(host.textContent).not.toContain("stay exactly where they are");
+      click(host.querySelector('[data-testid="delete-account-explain"]')!);
       expect(host.textContent).toContain("stay exactly where they are");
     } finally {
       act(() => root.unmount());

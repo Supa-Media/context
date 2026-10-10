@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
-import { Button, PressRow } from "../../../design/components/Button";
-import { Card, Grow, Row } from "../../../design/components/Card";
+import { Pressable, StyleSheet, View } from "react-native";
+import { PressRow } from "../../../design/components/Button";
+import { Card, Row } from "../../../design/components/Card";
 import { Hint } from "../../../design/components/Field";
 import { Icon } from "../../../design/components/Icon";
 import { Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
-import { SubHead } from "./PanelHead";
+import { TextLink } from "../../../design/components/TextLink";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { capabilitiesForRole } from "../../capabilities";
@@ -25,7 +25,6 @@ import {
   contextKindOf,
   exceptionLine,
   filteredViewLine,
-  folderDefaultLine,
   linkExceptionLine,
   manifestFootLine,
   noExceptionsLine,
@@ -115,6 +114,7 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
    * or expanding anything.
    */
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const [explain, setExplain] = useState(false);
 
   /**
    * Which paths have already been asked for, per context.
@@ -207,42 +207,14 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
 
   return (
     <View>
-      <SubHead title="Privacy">
-        What is private by default, folder by folder. Two words decide it, and neither of
-        them is public — nothing here is on the internet, and nothing here is indexed.
-      </SubHead>
-
-      <Card>
-        <Row style={styles.meaningRow}>
-          <VisibilityPill visibility="private" />
-          <Grow>
-            <Text variant="rowSub">{privateMeans(kind, viewerIsOwner)}</Text>
-          </Grow>
-        </Row>
-        <Row style={StyleSheet.flatten([styles.meaningRow, styles.meaningRowLater])} divided>
-          <VisibilityPill visibility="team" />
-          <Grow>
-            <Text variant="rowSub">{teamMeans(kind, viewerIsOwner)}</Text>
-          </Grow>
-        </Row>
-        <Hint style={styles.hint}>
-          <Text variant="hint">{linkExceptionLine()}</Text>
-        </Hint>
-      </Card>
-
-      <Text variant="eyebrow" style={styles.sectionHeadLater}>
-        Folder by folder
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
-        {files.canSetVisibility
-          ? "A folder's default governs every note in it that is not named on its own line. Open one to see what is inside it."
-          : "A folder's default governs every note in it that is not named on its own line. Only an owner of this context can change one."}
+      <Text variant="noteTitle" style={styles.sectionHead}>
+        Who sees each folder
       </Text>
 
       <Card>
         {root.state === "loading" ? (
           <Text variant="rowSub" role="status">
-            Reading this context&apos;s rules…
+            Reading this workspace&apos;s rules…
           </Text>
         ) : root.state === "broken" ? (
           <Notice tone="warn" testID="privacy-manifest-broken">
@@ -253,24 +225,6 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
           </Notice>
         ) : (
           <>
-            {/*
-              The default nothing else names, drawn first because it is the
-              answer to "what happens to something I add tomorrow" — and drawn
-              as a fact, never a control: `default_visibility` is fixed where
-              the manifest is rendered.
-            */}
-            <Row style={styles.folderRow}>
-              <View style={styles.rowMain}>
-                <Text variant="rowTitle">Anything with no rule of its own</Text>
-                <Text variant="rowSub" style={styles.rowSub}>
-                  {rootDefaultLine(root.folderDefault)}
-                </Text>
-              </View>
-              <View style={styles.rowActions}>
-                <VisibilityPill visibility={root.folderDefault} />
-              </View>
-            </Row>
-
             {root.folders.map((row) => (
               <FolderBlock
                 key={row.path}
@@ -282,14 +236,17 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
               />
             ))}
 
-            {/*
-              Root-level notes the rules name — a workspace's `index.md: team`
-              is one — but **no empty state here**. Inside an opened folder,
-              "no note in here is held back by name" is about that folder and
-              is worth saying; at the root, hanging off the end of the folder
-              list, the same line reads as a claim about the whole context,
-              which it is not.
-            */}
+            {/* The default nothing else names: a fact, never a control. */}
+            <Row style={styles.folderRow} divided={root.folders.length > 0}>
+              <View style={styles.rowMain}>
+                <Text variant="rowSub">
+                  New folders
+                </Text>
+              </View>
+              <Choice visibility={root.folderDefault} />
+            </Row>
+
+            {/* No empty state at the root: it would read as a claim about the whole workspace. */}
             <Exceptions view={root} showEmpty={false} />
 
             {root.truncated ? (
@@ -301,14 +258,108 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
         )}
       </Card>
 
+      <Text variant="foot" style={styles.foot}>
+        Nothing here is public.{" "}
+        <TextLink
+          label={explain ? "Hide how privacy works" : "How privacy works"}
+          onPress={() => setExplain((open) => !open)}
+          style={styles.inlineLink}
+          testID="privacy-explain-toggle"
+        />
+      </Text>
+      {explain ? (
+        <View style={styles.explain} testID="privacy-explain">
+          <Text variant="rowSub">
+            <Text variant="check">Only owners. </Text>
+            {privateMeans(kind, viewerIsOwner)}
+          </Text>
+          <Text variant="rowSub">
+            <Text variant="check">Everyone here. </Text>
+            {teamMeans(kind, viewerIsOwner)}
+          </Text>
+          <Text variant="rowSub">
+            {files.canSetVisibility
+              ? "A folder's setting covers every note in it that is not named on its own line. Open a folder to see those."
+              : "A folder's setting covers every note in it that is not named on its own line. Only an owner of this workspace can change one."}
+          </Text>
+          {root.state === "ready" ? (
+            <Text variant="rowSub">{rootDefaultLine(root.folderDefault)}</Text>
+          ) : null}
+          <Text variant="rowSub">{linkExceptionLine()}</Text>
+          <Text variant="foot">{manifestFootLine()}</Text>
+        </View>
+      ) : null}
+
       {isFilteredView(role) ? (
         <Text variant="foot" style={styles.foot}>
           {filteredViewLine()}
         </Text>
       ) : null}
-      <Text variant="foot" style={styles.foot}>
-        {manifestFootLine()}
-      </Text>
+    </View>
+  );
+}
+
+/** Two words, one lit: the whole answer for a folder. */
+function Choice({
+  visibility,
+  onPress,
+  pressTestID,
+  pressLabel,
+  accessibilityLabel,
+}: {
+  visibility: Visibility;
+  /** Absent: the choice is a fact, not a control. */
+  onPress?: () => void;
+  pressTestID?: string;
+  /** What the unlit side says while it waits for a second press. */
+  pressLabel?: string;
+  accessibilityLabel?: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  /* A group is neither word: drawn as its own name, lit, with nothing to press. */
+  if (visibility !== "team" && visibility !== "private") {
+    return (
+      <View style={styles.choice}>
+        <View style={[styles.seg, styles.segOn]}>
+          <Text variant="rowSub" style={styles.segOnText}>
+            {visibility}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+  const owners = visibility === "private";
+  const sides = [
+    { key: "private", label: "Only owners", on: owners },
+    { key: "team", label: pressLabel && owners ? pressLabel : "Everyone here", on: !owners },
+  ] as const;
+  return (
+    <View style={styles.choice} role="radiogroup">
+      {sides.map((side) => {
+        const live = !side.on && onPress !== undefined;
+        const body = (
+          <Text variant="rowSub" style={side.on ? styles.segOnText : undefined}>
+            {side.label}
+          </Text>
+        );
+        return live ? (
+          <Pressable
+            key={side.key}
+            role="radio"
+            aria-checked={false}
+            accessibilityLabel={accessibilityLabel}
+            onPress={onPress}
+            style={styles.seg}
+            testID={pressTestID}
+          >
+            {body}
+          </Pressable>
+        ) : (
+          <View key={side.key} role="radio" aria-checked={side.on} style={[styles.seg, side.on ? styles.segOn : null]}>
+            {body}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -388,46 +439,23 @@ function FolderBlock({
         </PressRow>
         <View style={styles.rowMain}>
           <Text variant="rowTitle">{row.name}</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            {folderDefaultLine(row.visibility)}
-          </Text>
         </View>
-        <View style={styles.rowActions}>
-          <VisibilityPill visibility={row.visibility} />
-          {control === null ? null : (
-            <Button
-              label={
-                /*
-                  The pill beside this button says "Everyone" or "Restricted",
-                  so the button says the same words as an act. It used to say
-                  "Share with team" and "Make private", a second vocabulary for
-                  one question.
-                */
-                !control.arm
-                  ? "Restrict"
-                  : arming.stage === "armed"
-                    ? "Press again to open"
-                    : "Open to everyone here"
-              }
-              /*
-                The armed state is in the spoken label too, and that is not
-                decoration. The visible label changes on the first press and
-                the announced one used not to, so a screen reader heard the
-                same words before and after arming — which is the whole signal
-                that the press did something and that the next one publishes.
-              */
-              accessibilityLabel={
-                !control.arm
-                  ? `Restrict ${row.name}`
-                  : arming.stage === "armed"
-                    ? `Press again to open ${row.name} to everyone on People`
-                    : `Open ${row.name} to everyone on People`
-              }
-              onPress={control.arm ? arming.press : apply}
-              testID={`privacy-set-${row.path}`}
-            />
-          )}
-        </View>
+        <Choice
+          visibility={row.visibility}
+          onPress={control === null ? undefined : control.arm ? arming.press : apply}
+          pressTestID={`privacy-set-${row.path}`}
+          /* The armed state is in the spoken label too: it is the signal that the next press publishes. */
+          pressLabel={arming.stage === "armed" ? "Press again to confirm" : undefined}
+          accessibilityLabel={
+            control === null
+              ? undefined
+              : !control.arm
+                ? `Restrict ${row.name}`
+                : arming.stage === "armed"
+                  ? `Press again to open ${row.name} to everyone on People`
+                  : `Open ${row.name} to everyone on People`
+          }
+        />
       </Row>
       {control !== null && control.arm && arming.stage === "armed" ? (
         <Hint style={StyleSheet.flatten([styles.hint, depth > 0 ? styles.nested : null])}>
@@ -525,11 +553,7 @@ function Exceptions({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  sectionHead: { marginBottom: 4 },
-  sectionHeadLater: { marginTop: 30, marginBottom: 4 },
-  sectionSub: { marginBottom: 12, maxWidth: 546 },
-  meaningRow: { alignItems: "flex-start", flexWrap: "wrap" },
-  meaningRowLater: { marginTop: 10 },
+  sectionHead: { marginBottom: 10 },
   folderRow: { flexWrap: "wrap" },
   /**
    * The name and its sentence, with a floor under how narrow they may get.
@@ -558,4 +582,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   children: { borderLeftWidth: 1, borderLeftColor: colors.line, marginLeft: 11 },
   nested: { paddingLeft: 13 },
+  inlineLink: { paddingVertical: 0 },
+  explain: { marginTop: 8, gap: 8, maxWidth: 546 },
+  choice: {
+    flexDirection: "row",
+    padding: 2,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface3,
+  },
+  seg: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: radii.md - 2 },
+  segOn: { backgroundColor: colors.surface },
+  segOnText: { color: colors.text, fontWeight: "600" },
 });

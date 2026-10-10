@@ -29,7 +29,6 @@ const view = (over: Partial<FastSearchView> = {}): FastSearchView => ({
   status: { state: "off", canChange: true },
   loading: false,
   enable: async () => {},
-  disable: async () => {},
   ...over,
 });
 
@@ -75,20 +74,15 @@ describe("which control is offered", () => {
 
   test("an action the console does not hold is not drawn as one it does", () => {
     // The demo console on the landing page runs this same card with no
-    // mutations behind it. A control there would be a switch that does nothing.
+    // mutations behind it. A control there would be a button that does nothing.
     expect(fastSearchControl(view({ enable: undefined }))).toBe("none");
-    expect(
-      fastSearchControl(view({ status: { state: "on", canChange: true }, disable: undefined })),
-    ).toBe("none");
   });
 
-  test("on and preparing offer the way back out", () => {
-    // Preparing included, deliberately: somebody who pressed this by mistake
-    // must not have to wait for a provision to finish before undoing it.
+  test("on and preparing offer no control, because there is no way back to off", () => {
+    // Fast search is always on. The card states it and does not offer a switch
+    // to turn it off, so a press cannot delete the index by mistake.
     for (const state of ["on", "preparing"] as FastSearchState[]) {
-      expect(fastSearchControl(view({ status: { state, canChange: true } }))).toBe(
-        "disable",
-      );
+      expect(fastSearchControl(view({ status: { state, canChange: true } }))).toBe("none");
     }
   });
 
@@ -127,16 +121,19 @@ describe("what the copy has to say", () => {
     }
   });
 
-  test("on says the delete, off says the bucket keeps working", () => {
-    expect(describeFastSearch("on").blurb).toMatch(/deletes that database/);
+  test("on says its searches are answered from the copy, off says the bucket still works", () => {
     // The other half of the bargain, and it was missing from this file for as
     // long as it was missing from the product: an owner consents to a copy of
     // their private notes, and what they get for it is that their searches are
     // answered from it. Pinned so that removing the gateway's read path cannot
     // leave the card promising something nothing does.
     expect(describeFastSearch("on").blurb).toMatch(/searches are answered from/i);
-    expect(describeFastSearch("off").blurb).toMatch(/answers your searches from it/i);
+    expect(describeFastSearch("off").blurb).toMatch(/your searches are answered from a copy/i);
     expect(describeFastSearch("off").blurb).toMatch(/your own bucket/);
+  });
+
+  test("on is titled as on, so the card's one row says what is true", () => {
+    expect(describeFastSearch("on").title).toBe("Fast search is on");
   });
 
   test("no state describes search as broken while it is off", () => {

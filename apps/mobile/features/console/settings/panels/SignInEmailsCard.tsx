@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../../../design/components/Button";
@@ -8,7 +8,7 @@ import { TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
-import { useThemedStyles, type Colors } from "../../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "../../../auth/CodeBoxes";
 import { EMAILS_INTRO, confirmError, startError } from "./signInEmails";
 
@@ -20,8 +20,9 @@ import { EMAILS_INTRO, confirmError, startError } from "./signInEmails";
  */
 export function SignInEmailsCard() {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const { isAuthenticated } = useConvexAuth();
-  const emails = useQuery(api.functions.signInEmails.myEmails, isAuthenticated ? {} : "skip");
+  const emails =useQuery(api.functions.signInEmails.myEmails, isAuthenticated ? {} : "skip");
   const startAdd = useAction(api.functions.signInEmails.startAddEmail);
   const confirmAdd = useAction(api.functions.signInEmails.confirmAddEmail);
   const remove = useMutation(api.functions.signInEmails.removeEmail);
@@ -84,9 +85,7 @@ export function SignInEmailsCard() {
       <Card>
         {emails === undefined ? (
           <Row>
-            <Grow>
-              <Text variant="rowSub">Loading…</Text>
-            </Grow>
+            <ActivityIndicator color={colors.text2} size="small" />
           </Row>
         ) : (
           emails.map((row, index) => (

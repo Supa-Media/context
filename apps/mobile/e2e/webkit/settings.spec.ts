@@ -157,15 +157,9 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   */
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
   await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
-  /*
-    The identity block by its testID rather than by its words. Its second line
-    is "@seyi · personal workspace · you're the owner" — kind and role in one sentence,
-    because being the owner is a fact about you in this context rather than a
-    fourth row in a column of properties — so an exact-text match on the kind
-    alone no longer names a node, and a looser one would match the section
-    list once a row ever previews the same words.
-  */
-  await expect(page.getByTestId("overview-identity")).toContainText("personal workspace");
+  // The kind is a row in the facts card under the name, matched by testID
+  // so the section list's previews can never satisfy it.
+  await expect(page.getByTestId("overview-facts")).toContainText("Personal workspace");
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Back pops that level rather than closing the overlay.
@@ -176,7 +170,7 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   // And a row from the list draws its own section, which is the `onSelect`
   // wiring the fixture stands in for `router.setParams({ settings })` with.
   await page.getByTestId("settings-section-storage").tap();
-  await expect(page.getByText(/plain files in storage you own/)).toBeVisible();
+  await expect(page.getByText(/Plain files in storage you own/)).toBeVisible();
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Closing leaves the console exactly where it was — the note behind the
@@ -305,7 +299,7 @@ test.describe("at a pointer width", () => {
 
     // A section from the list swaps the panel and leaves the list standing.
     await page.getByTestId("settings-section-storage").click();
-    await expect(page.getByText(/plain files in storage you own/)).toBeVisible();
+    await expect(page.getByText(/Plain files in storage you own/)).toBeVisible();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
   });
 

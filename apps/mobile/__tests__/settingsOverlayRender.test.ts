@@ -145,7 +145,7 @@ describe("a phone reaches the settings, not just a menu", () => {
     // The regression: `sidebar ?? children` with a sidebar always supplied
     // meant no section content was reachable below 880pt at all.
     const text = overlay("storage").textContent ?? "";
-    expect(text).toContain("plain files in storage you own");
+    expect(text).toContain("Plain files in storage you own");
   });
 
   test("one section at a time — storage is not the people screen", () => {
@@ -166,7 +166,7 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("the workspace page answers which context this is before anything else", () => {
     const text = overlay("workspace").textContent ?? "";
     expect(text).toContain("General");
-    expect(text).toContain("personal workspace");
+    expect(text).toContain("Personal workspace");
   });
 
   test("one screen answers who can see it, in four blocks", () => {
@@ -180,15 +180,17 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).toContain("People");
     expect(text).toContain("Groups");
     expect(text).toContain("Links you've shared");
-    expect(text).toContain("Privacy");
+    expect(text).toContain("Who sees each folder");
     // The demo's own shared link, and the privacy block's live reading.
     expect(text).toContain("Board update");
-    expect(text).toContain("nothing here is indexed");
+    expect(text).toContain("Anyone with the link");
+    expect(text).toContain("Nothing here is public.");
+    expect(text).toContain("Who changed what");
   });
 
   test("and it is still the context's own settings, not an app-level pane", () => {
     const text = overlay("sharing").textContent ?? "";
-    expect(text).not.toContain("plain files in storage you own");
+    expect(text).not.toContain("Plain files in storage you own");
   });
 
   test("the demo console cannot pretend to revoke a link", () => {
@@ -213,11 +215,16 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(storage.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
   });
 
-  test("the binding's health is stated, since no storage chip exists here", () => {
-    // `PaneHead` is skipped when a section is given, and the top bar's chip is
-    // pointer-only — so without the overlay carrying this, a phone states the
-    // health of the bucket nowhere.
-    expect(overlay("storage").textContent ?? "").toContain("Connected");
+  test("the binding's health is stated on the list, not as a pill in the bar", () => {
+    // The bar's "Connected" pill went in the 2026-10-10 cleanup. A phone still
+    // states the bucket's health: the Storage row in the list says it.
+    const host = overlay("storage");
+    expect(host.querySelector('[data-testid="settings-health"]')).toBeNull();
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    const row = host.querySelector('[data-testid="settings-section-storage"]');
+    expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
   });
 });
 
@@ -232,9 +239,21 @@ describe("the account's own settings have a home", () => {
     */
     const text = overlay("integrations").textContent ?? "";
     expect(text).toContain("AI apps");
-    expect(text).toContain("every workspace");
+    expect(text).toContain("Connect an app");
+    expect(text).toContain("Your address for any other app");
     // And it is not the storage screen wearing another name.
-    expect(text).not.toContain("plain files in storage you own");
+    expect(text).not.toContain("Plain files in storage you own");
+  });
+
+  test("Connect an app opens every client's own setup, and the connected list is not a second grid", () => {
+    const host = overlay("integrations");
+    expect(host.querySelector('[data-testid="provider-cursor"]')).toBeNull();
+    act(() => {
+      (host.querySelector('[data-testid="connect-an-app"]') as HTMLElement).click();
+    });
+    for (const id of ["chatgpt", "claude", "claude-code", "codex", "cursor", "vscode", "notion", "gemini-cli"]) {
+      expect(host.querySelector(`[data-testid="provider-${id}"]`)).not.toBeNull();
+    }
   });
 
   /*
@@ -254,8 +273,8 @@ describe("the account's own settings have a home", () => {
   */
   test("...and the accounts and the forwarding address are the other half of it", () => {
     const text = overlay("integrations").textContent ?? "";
-    expect(text).toContain("Accounts we read");
-    expect(text).toContain("Forwarding address");
+    expect(text).toContain("Mail and calendar");
+    expect(text).toContain("Forward mail to");
   });
 
   /*
@@ -270,7 +289,12 @@ describe("the account's own settings have a home", () => {
     beside it, it needs no explanation at all.
   */
   test("the one control left on the page is the one that says who may write into the bucket", () => {
-    const text = overlay("integrations").textContent ?? "";
+    const host = overlay("integrations");
+    expect(host.textContent ?? "").toContain("See senders");
+    act(() => {
+      (host.querySelector('[data-testid="ingestion-edit"]') as HTMLElement).click();
+    });
+    const text = host.textContent ?? "";
     expect(text).toContain("Who may send to it");
     // Still a page with no folder picker and no schedule on it.
     expect(text).not.toContain("Target folder");
@@ -332,20 +356,36 @@ describe("the account's own settings have a home", () => {
     expect(tokens).toEqual(["invite-token"]);
   });
 
-  test("profile states that appearance follows the device", () => {
+  test("profile says in one row that look follows the device", () => {
     // The three-button picker and the stored choice behind it are gone. What
-    // is left has to say so on the screen the search box now lands on.
+    // is left is one quiet row saying so, on the screen the search box lands on.
     const text = overlay("profile").textContent ?? "";
-    expect(text).toContain("Appearance");
+    expect(text).toContain("Look");
     expect(text).toContain("Follows your device");
     expect(text).not.toContain("Follow device");
+    expect(text).not.toContain("Appearance");
   });
 
-  test("profile carries the machines, because their own row is gone", () => {
-    // The Revoke button for a lost Mac has to stay reachable from a phone.
-    // `useQuery` is stubbed to `undefined` here, which is the loading state —
-    // the block itself is what this asserts, not the list inside it.
-    expect(overlay("profile").textContent ?? "").toContain("Your Macs");
+  test("profile draws no Macs box while there are none to show", () => {
+    // `useQuery` is stubbed to `undefined` here, which is the loading state. A
+    // card reading "Loading…" or "none" is not drawn for it: the Macs card
+    // appears only once there is a Mac to revoke.
+    const text = overlay("profile").textContent ?? "";
+    expect(text).not.toContain("Your Macs");
+    expect(text).not.toContain("Loading…");
+  });
+
+  test("profile offers feedback as a row that opens its own page", () => {
+    const opened: string[] = [];
+    const host = overlay("profile", (next) => {
+      opened.push(next);
+    });
+    const choose = host.querySelector('[data-testid="profile-feedback-choose"]');
+    expect(choose).not.toBeNull();
+    act(() => {
+      (choose as HTMLElement).click();
+    });
+    expect(opened).toEqual(["feedback"]);
   });
 
   test("profile states the name and does not pretend it can be changed", () => {
@@ -388,15 +428,12 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of [
-      "General",
-      "Activity",
-      "People & sharing",
-      "Storage & search",
-      "Connected apps",
-      "Meetings",
-    ]) {
+    for (const label of ["Profile", "General", "People & sharing", "Connected apps", "Plan", "Storage", "Website"]) {
       expect(text).toContain(label);
+    }
+    // Folded pages are reached from a row on another page, not listed.
+    for (const key of ["activity", "meetings", "model", "emoji", "feedback"]) {
+      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
     }
   });
 
@@ -514,16 +551,16 @@ describe("a row says what it is set to", () => {
   });
 
   test("a row with nothing to say carries only its label", () => {
-    // Meetings has no persisted state to report, by design — so the row must
-    // not invent one. See `settingsPreview`'s header for the three absences
-    // this protects.
-    const host = overlay("workspace");
+    // General has no state to report, by design — so the row must not
+    // invent one. See `settingsPreview`'s header for the absences this
+    // protects. (It was Meetings until Meetings folded into Connected apps.)
+    const host = overlay("storage");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    const row = host.querySelector('[data-testid="settings-section-meetings"]');
+    const row = host.querySelector('[data-testid="settings-section-workspace"]');
     expect(row).not.toBeNull();
-    expect((row!.textContent ?? "").trim()).toBe("Meetings");
+    expect((row!.textContent ?? "").trim()).toBe("General");
   });
 });
 
@@ -542,7 +579,7 @@ describe("the workspace is one switcher, under This workspace", () => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
     const switcher = listed(host, '[data-testid="settings-workspace-switcher"]');
-    expect(listed(host, '[data-testid="settings-section-feedback"]')).toBeLessThan(switcher);
+    expect(listed(host, '[data-testid="settings-section-profile"]')).toBeLessThan(switcher);
     expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-workspace"]'));
   });
 
@@ -628,9 +665,12 @@ describe("the workspace page answers rather than listing properties", () => {
     const host = overlay("workspace");
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
-    const text = identity!.textContent ?? "";
-    expect(text).toContain("@seyi · personal workspace");
-    expect(text).toContain("you're the owner");
+    const facts = host.querySelector('[data-testid="overview-facts"]');
+    expect(facts).not.toBeNull();
+    const text = facts!.textContent ?? "";
+    expect(text).toContain("@seyi");
+    expect(text).toContain("Personal workspace");
+    expect(text).toContain("You're the owner");
     // `owner`, printed straight off the wire, is what this replaced.
     expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);
   });

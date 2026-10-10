@@ -229,8 +229,9 @@ describe("personal communications stay out of shared workspaces", () => {
 
     // The exact sentence a workspace is handed, in the panels that would
     // otherwise be offering somebody else's mailbox.
-    expect(text).toContain("Switch to a personal workspace");
-    expect(text).toContain("This workspace does not receive email");
+    // One sentence since the 2026-10-10 cleanup, in place of one per panel.
+    expect(text).toContain("Mail and calendar belong to a personal workspace");
+    expect(text).toContain("A shared workspace has no mailbox, calendar or forwarding address");
     expect(text).not.toContain("Google accounts");
     expect(text).not.toContain("Connect Google account");
   });
