@@ -233,6 +233,33 @@ function advertisesTeamConfirmation(name) {
 }
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
+/** `@name/rest` → `{ name: "@name", rest }`, or null for a plain path. */
+const BY_NAME = /^(@[a-z0-9][a-z0-9-]*)\/(.+)$/;
+
+/** The arguments that carry a path into the addressed context, and the context argument each pairs with. */
+const PATH_ARGUMENTS = [
+  ["path", "context"],
+  ["note", "context"],
+  ["prefix", "context"],
+  ["source", "source_context"],
+  ["destination", "destination_context"],
+];
+
+function addressByPath(tool, args) {
+  if (!args || typeof args !== "object") return;
+  for (const [field, into] of PATH_ARGUMENTS) {
+    // `move_note` names a context per side; every other tool names one for the call.
+    const target = tool === "move_note" ? into : "context";
+    if (args[target] !== undefined && args[target] !== null) continue;
+    const match = typeof args[field] === "string" ? BY_NAME.exec(args[field]) : null;
+    if (!match) continue;
+    // For a one-context tool two prefixed paths must agree; the first decides and a second that differs is left as it was.
+    if (tool !== "move_note" && args.context !== undefined && args.context !== match[1]) continue;
+    args[target] = match[1];
+    args[field] = match[2];
+  }
+}
+
 export async function callToolForSession(params, store, session) {
   const supplied = params?.arguments;
   const args =
@@ -253,6 +280,18 @@ export async function callToolForSession(params, store, session) {
    * addresses the call, it is not an input to any tool, and a tool that ever
    * grew an argument of that name would otherwise be handed a routing token.
    */
+  /*
+    THE `@name/path` SUGAR, in the same one place. A path that opens with a
+    workspace's name (`@band/gigs/show.md`), as a search across workspaces
+    writes it (`search.js`), addresses the call the way `context: "@band"`
+    with `gigs/show.md` does: the name goes to `context`, the rest stays the
+    path. Only when the call named no context itself; a call that names one
+    and also writes another's name into the path has said two things, and is
+    left to be refused as a path that does not exist there. Planned in
+    CLAUDE.md as sugar over the same routing; measured on 2026-10-10 when a
+    cheap model passed the prefixed path as-is 120 times in one round.
+  */
+  addressByPath(params?.name, args);
   const requested = args.context;
   delete args.context;
 

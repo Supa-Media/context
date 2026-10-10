@@ -41,6 +41,24 @@ export async function runCrossContextReachChecks(check, harness) {
   const listed = textOf(await callTool(env, TOKEN_OWNER, "list_notes", { context: "@theirs" }));
   check("a listing is the addressed context's", listed.includes("1-projects/shared-name.md"));
 
+  /* ------------- the @name/path sugar: the same routing, from the path ------------- */
+
+  const sugared = textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@theirs/1-projects/shared-name.md" }));
+  check("a path that opens with a context's name addresses that context", sugared.includes("THEIRS-MARKER"));
+  check("and it is that context's file, not the identically named one here (sugar)", !sugared.includes("MINE-MARKER"));
+  check(
+    "the sugar clamps exactly as context does: a member still cannot read the private note by naming it in the path",
+    !textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@theirs/2-areas/kept-private.md" })).includes("THEIRS-PRIVATE-MARKER")
+  );
+  check(
+    "a context this person is not in is refused through the path as through context",
+    !textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: "@stranger/1-projects/shared-name.md" })).includes("MARKER")
+  );
+  check(
+    "a listing by a prefixed prefix is the addressed context's",
+    textOf(await callTool(env, TOKEN_OWNER, "list_notes", { prefix: "@theirs/1-projects" })).includes("1-projects/shared-name.md")
+  );
+
   /* ------------------- permission, which did not widen with it ------------- */
 
   check(
