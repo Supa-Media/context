@@ -40,6 +40,7 @@
 import { noteHeading, noteProperties } from "../lists/properties.js";
 import { noteLede } from "../lists/lede.js";
 import { isEncryptedNote } from "../encryption/format.js";
+import { countLines } from "../chaos/rubric.js";
 import { TREE_STATEMENTS, readTreeState, setStateStatements } from "./table.js";
 
 /** The table. Created with the tree's, so an existing database needs no migration step. */
@@ -72,12 +73,18 @@ const IS_NOTE_SQL = "substr(t.path, -3) = '.md'";
  * paragraph, or `null` for an encrypted note.
  *
  * @param {string} text
- * @returns {{ properties: Record<string, unknown>, heading: string | null, lede: string | null } | null}
+ * @returns {{ properties: Record<string, unknown>, heading: string | null, lede: string | null, lines?: number } | null}
  */
 export function propsOf(text) {
-  if (typeof text !== "string") return { properties: {}, heading: null, lede: null };
+  if (typeof text !== "string") return { properties: {}, heading: null, lede: null, lines: 0 };
   if (isEncryptedNote(text)) return null;
-  return { properties: { ...noteProperties(text) }, heading: noteHeading(text), lede: noteLede(text) };
+  return {
+    properties: { ...noteProperties(text) },
+    heading: noteHeading(text),
+    lede: noteLede(text),
+    // The chaos score's long-note rule (`chaos/rubric.js`).
+    lines: countLines(text),
+  };
 }
 
 /** Record one note's props, parsed from `text`, at `version`. */
@@ -105,8 +112,10 @@ export const PRUNE_PROP_STATEMENTS = Object.freeze([
  * A tree row with no version cannot say it changed, so any parse counts.
  */
 const STALE_SQL = "(p.path IS NULL OR (t.etag IS NOT NULL AND t.etag IS NOT p.version))";
+/** A row parsed before notes' lengths were kept, read once more for the chaos score. */
+const NO_LINES_SQL = "(p.encrypted = 0 AND json_extract(p.props, '$.lines') IS NULL)";
 const UNPARSED_SQL = `FROM tree AS t LEFT JOIN tree_props AS p ON p.path = t.path
-  WHERE ${IS_NOTE_SQL} AND ${STALE_SQL}`;
+  WHERE ${IS_NOTE_SQL} AND (${STALE_SQL} OR ${NO_LINES_SQL})`;
 
 /** Notes the table has not parsed at their current version, in path order. */
 export async function unparsedProps(client, limit) {

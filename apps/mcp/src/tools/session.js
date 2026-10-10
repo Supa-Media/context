@@ -38,6 +38,8 @@ import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
 import { loadPrivacyState } from "../privacy/state.js";
+import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
+import { keepChaos } from "../tree/record.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -594,7 +596,7 @@ export async function callToolForSession(params, store, session) {
   // A move inside one context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`); everything else is capped.
   const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
-  const result = await answeringNoteCap(() =>
+  let result = await answeringNoteCap(() =>
     RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
   );
   // What the model now holds, for the egress ledger of a turn seen whole.
@@ -608,6 +610,7 @@ export async function callToolForSession(params, store, session) {
     });
   }
   noteAgentActivity(targetStore, params?.name, args, result);
+  result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would
@@ -657,4 +660,29 @@ function noteAgentActivity(store, name, args, result) {
   recordAgentActivity(store, [{ kind: done, path }]);
   // A read is also kept, for the trail and the replay (`live/readLog.js`).
   if (done === "read") recordAgentRead(store, { tool: name, path });
+}
+
+/**
+ * End a write's answer with what it did to the chaos score (`chaos/report.js`).
+ *
+ * The rescore was started by the change itself; a save of an existing note's
+ * text starts none (the editor saves on every pause), so for `write_note`
+ * one is started here, for that note alone. Never throws, and never holds
+ * an answer longer than `WAIT_MS`.
+ */
+async function reportingChaos(store, name, args, scope, result) {
+  const started = takeChaos(store);
+  if (!CHAOS_TOOLS.has(name) || !result || result.isError) return result;
+  // A comment or a website action changes no folder.
+  if (args?.comment !== undefined || args?.site !== undefined) return result;
+  try {
+    let report = started === undefined ? null : await within(started);
+    if (report === null && name === "write_note" && typeof args?.path === "string") {
+      const path = normalizePath(args.path);
+      if (path) report = await within(keepChaos(store, null, { files: [path] }));
+    }
+    return withChaosLines(result, chaosLines(report, scope === "private" ? "all" : "team"));
+  } catch {
+    return result;
+  }
 }
