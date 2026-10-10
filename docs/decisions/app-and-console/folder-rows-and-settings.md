@@ -341,6 +341,20 @@ those two destinations fails loudly. `consoleNav.test.ts` holds the aliases.
 `settingsOverlayRender.test.ts` sweeps every section for exactly one
 `role="heading"`, which is what stops a merged panel from growing a second one.
 
+**Seven again, 2026-10-10.** The list had grown back to fifteen rows, and the
+owner called it "very cluttered … a lot of wordiness … a lot of things that you
+probably don't need to expose". The approved boards cut it to Profile, then
+General, People & sharing, Connected apps, Plan, Storage and Website. Feedback,
+Activity, Meetings, AI model and Emoji kept their pages and keys but are
+`folded`: each is opened by a row, switch or link on the page a person would
+open first (Profile, People & sharing, Connected apps, Connected apps, General),
+and by a search for its name. Rule 2 above still holds: nothing went with its
+row. Every page opens with one line, not a paragraph, and explanations that
+still matter sit behind a "How this works" disclosure. The bar above a section
+carries no workspace chip or health pill; the Storage row says "Healthy".
+Test: "seven listed rows; five pages live behind a row on another page" in
+`settingsSections.test.ts`.
+
 ### A pasted image is a width in the note and a file in the bucket, and nothing else
 
 **Built, and this section was rewritten when it was.** It began as a design

@@ -325,9 +325,9 @@ export function noteworthySources(answer: BlendedAnswer | null): {
 
 /*
   Fast search is not part of Premium. Since 2026-10-08 it is on for every
-  workspace, free or paid, and its owner switches it under Storage & search. So
-  nothing in this section sells it: the only offer is "turn it on" for an owner
-  whose switch is off, and a context whose hosted index is unavailable is said
+  workspace, free or paid, and since 2026-10-10 the console has no off switch,
+  only "Turn on" on the Storage page for a workspace an owner turned off before.
+  So nothing in this section sells it: the only offer is "turn it on", and a context whose hosted index is unavailable is said
   to be searched from its own bucket, with no press at all.
 */
 
@@ -358,9 +358,9 @@ export interface UpsellRow {
 /**
  * Where an upsell row's press goes, by what is actually in the way.
  *
- * One destination: the switch under Storage & search, which is where an owner
- * turns fast search on or off. A context whose hosted index is `unavailable`
- * has no switch to offer, so it gets no press.
+ * One destination: the Storage page, where an owner turns fast search on. A
+ * context whose hosted index is `unavailable` has nothing to turn on, so it
+ * gets no press.
  */
 export type UpsellTarget = "storage";
 

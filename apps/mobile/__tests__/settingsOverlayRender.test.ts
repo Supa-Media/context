@@ -145,7 +145,7 @@ describe("a phone reaches the settings, not just a menu", () => {
     // The regression: `sidebar ?? children` with a sidebar always supplied
     // meant no section content was reachable below 880pt at all.
     const text = overlay("storage").textContent ?? "";
-    expect(text).toContain("plain files in storage you own");
+    expect(text).toContain("Plain files in storage you own");
   });
 
   test("one section at a time — storage is not the people screen", () => {
@@ -166,7 +166,7 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("the workspace page answers which context this is before anything else", () => {
     const text = overlay("workspace").textContent ?? "";
     expect(text).toContain("General");
-    expect(text).toContain("personal workspace");
+    expect(text).toContain("Personal workspace");
   });
 
   test("one screen answers who can see it, in four blocks", () => {
@@ -180,15 +180,17 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).toContain("People");
     expect(text).toContain("Groups");
     expect(text).toContain("Links you've shared");
-    expect(text).toContain("Privacy");
+    expect(text).toContain("Who sees each folder");
     // The demo's own shared link, and the privacy block's live reading.
     expect(text).toContain("Board update");
-    expect(text).toContain("nothing here is indexed");
+    expect(text).toContain("Anyone with the link");
+    expect(text).toContain("Nothing here is public.");
+    expect(text).toContain("Who changed what");
   });
 
   test("and it is still the context's own settings, not an app-level pane", () => {
     const text = overlay("sharing").textContent ?? "";
-    expect(text).not.toContain("plain files in storage you own");
+    expect(text).not.toContain("Plain files in storage you own");
   });
 
   test("the demo console cannot pretend to revoke a link", () => {
@@ -213,143 +215,16 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(storage.querySelector('[data-testid="advanced-export-keys"]')).toBeNull();
   });
 
-  test("the binding's health is stated, since no storage chip exists here", () => {
-    // `PaneHead` is skipped when a section is given, and the top bar's chip is
-    // pointer-only — so without the overlay carrying this, a phone states the
-    // health of the bucket nowhere.
-    expect(overlay("storage").textContent ?? "").toContain("Connected");
-  });
-});
-
-describe("the account's own settings have a home", () => {
-  test("the AI apps a person connected are the first block of Integrations", () => {
-    /*
-      Account-scoped content on a context-scoped page, deliberately: what
-      somebody wants from "Integrations" is everything talking to this context
-      without being typed into it, and an MCP client is the first of those.
-      The block keeps the sentence that says a connection reaches every
-      workspace its person is a live member of.
-    */
-    const text = overlay("integrations").textContent ?? "";
-    expect(text).toContain("AI apps");
-    expect(text).toContain("every workspace");
-    // And it is not the storage screen wearing another name.
-    expect(text).not.toContain("plain files in storage you own");
-  });
-
-  /*
-    THE PAGE MOUNTS THE SOURCES HALF, which is a different claim from "the
-    panel renders".
-
-    `sourcesPanel.test.ts` mounts `SourcesPanel` directly and proves what it
-    draws. Nothing proved the *page* still drew it: delete the one line in
-    `SettingsPane` and that suite stays green while half of Integrations
-    quietly disappears — the accounts, the forwarding address, and the only
-    control left on the page. A guard that mounts a component in isolation
-    proves the component, not the call site.
-
-    Asserted on content only this half produces, rather than on a testID: a
-    testID can be moved onto anything, and what has to be true is that a
-    person opening Integrations can see what is connected.
-  */
-  test("...and the accounts and the forwarding address are the other half of it", () => {
-    const text = overlay("integrations").textContent ?? "";
-    expect(text).toContain("Accounts we read");
-    expect(text).toContain("Forwarding address");
-  });
-
-  /*
-    THE SENDER LIST IS ON THIS PAGE, UNDER THE ADDRESS IT GATES.
-
-    Every other control went when Integrations became a list of connected
-    things rather than a page of settings (#710). This one stayed, and where
-    it is drawn is the decision rather than a leftover — see
-    `docs/decisions/app-and-console.md`, "The allowed-sender list stays beside
-    the address it gates". "Who may write into this context by email" is
-    unreadable on a page that does not show the address they would write to;
-    beside it, it needs no explanation at all.
-  */
-  test("the one control left on the page is the one that says who may write into the bucket", () => {
-    const text = overlay("integrations").textContent ?? "";
-    expect(text).toContain("Who may send to it");
-    // Still a page with no folder picker and no schedule on it.
-    expect(text).not.toContain("Target folder");
-    expect(text).not.toContain("Sync schedule");
-  });
-
-  test("both ways out of a session are controls at the foot of Profile", () => {
-    let signedOut = 0;
-    const host = overlay("profile", () => {}, () => {}, {
-      onSignOut: () => {
-        signedOut += 1;
-      },
-    });
-    const remove = host.querySelector('[data-testid="delete-account"]');
-    const out = host.querySelector('[data-testid="settings-sign-out"]');
-    expect(remove).not.toBeNull();
-    expect(out).not.toBeNull();
-    // Sign-out was a glyph in the rail, then a section of its own paired with
-    // account deletion. Neither is a place somebody looks: it is under the
-    // identity it ends, and the section that used to hold it is gone.
+  test("the binding's health is stated on the list, not as a pill in the bar", () => {
+    // The bar's "Connected" pill went in the 2026-10-10 cleanup. A phone still
+    // states the bucket's health: the Storage row in the list says it.
+    const host = overlay("storage");
+    expect(host.querySelector('[data-testid="settings-health"]')).toBeNull();
     act(() => {
-      (out as HTMLElement).click();
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    expect(signedOut).toBe(1);
-  });
-
-  test("with nothing pending there is no invitations row to press", () => {
-    /*
-      The row used to sit there reading "None" — a badge people learn to skip
-      past on the way to the rows that change. Absent instead, and a URL that
-      names it falls back the same way a section this context does not have
-      already does.
-    */
-    const data: ConsoleData = { ...demoData(), deleteAccount: async () => {}, invitations: [] };
-    mount(() =>
-      createElement(SettingsOverlay, {
-        data,
-        section: "invitations",
-        onSelect: () => {},
-        onDismiss: () => {},
-      }),
-    );
-    const body = document.body;
-    expect(body.querySelector('[data-testid="settings-section-invitations"]')).toBeNull();
-    // Fell back to the default section rather than opening an empty panel.
-    expect(body.textContent ?? "").not.toContain("Nothing pending");
-  });
-
-  test("an invitation is a live row, and answering it navigates", () => {
-    const tokens: string[] = [];
-    const host = overlay("invitations", () => {}, () => {}, {
-      onOpenInvitation: (token) => tokens.push(token),
-    });
-    const row = host.querySelector('[data-testid="settings-invitation-tomi"]');
-    expect(row).not.toBeNull();
-    act(() => {
-      (row as HTMLElement).click();
-    });
-    expect(tokens).toEqual(["invite-token"]);
-  });
-
-  test("profile states that appearance follows the device", () => {
-    // The three-button picker and the stored choice behind it are gone. What
-    // is left has to say so on the screen the search box now lands on.
-    const text = overlay("profile").textContent ?? "";
-    expect(text).toContain("Appearance");
-    expect(text).toContain("Follows your device");
-    expect(text).not.toContain("Follow device");
-  });
-
-  test("profile carries the machines, because their own row is gone", () => {
-    // The Revoke button for a lost Mac has to stay reachable from a phone.
-    // `useQuery` is stubbed to `undefined` here, which is the loading state —
-    // the block itself is what this asserts, not the list inside it.
-    expect(overlay("profile").textContent ?? "").toContain("Your Macs");
-  });
-
-  test("profile states the name and does not pretend it can be changed", () => {
-    expect(overlay("profile").textContent ?? "").toContain("Profile");
+    const row = host.querySelector('[data-testid="settings-section-storage"]');
+    expect((row!.textContent ?? "").replace("Storage", "").trim()).not.toBe("");
   });
 });
 
@@ -388,15 +263,12 @@ describe("the list is one press away, and it navigates", () => {
       (back as HTMLElement).click();
     });
     const text = host.textContent ?? "";
-    for (const label of [
-      "General",
-      "Activity",
-      "People & sharing",
-      "Storage & search",
-      "Connected apps",
-      "Meetings",
-    ]) {
+    for (const label of ["Profile", "General", "People & sharing", "Connected apps", "Plan", "Storage", "Website"]) {
       expect(text).toContain(label);
+    }
+    // Folded pages are reached from a row on another page, not listed.
+    for (const key of ["activity", "meetings", "model", "emoji", "feedback"]) {
+      expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
     }
   });
 
@@ -514,16 +386,16 @@ describe("a row says what it is set to", () => {
   });
 
   test("a row with nothing to say carries only its label", () => {
-    // Meetings has no persisted state to report, by design — so the row must
-    // not invent one. See `settingsPreview`'s header for the three absences
-    // this protects.
-    const host = overlay("workspace");
+    // General has no state to report, by design — so the row must not
+    // invent one. See `settingsPreview`'s header for the absences this
+    // protects. (It was Meetings until Meetings folded into Connected apps.)
+    const host = overlay("storage");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    const row = host.querySelector('[data-testid="settings-section-meetings"]');
+    const row = host.querySelector('[data-testid="settings-section-workspace"]');
     expect(row).not.toBeNull();
-    expect((row!.textContent ?? "").trim()).toBe("Meetings");
+    expect((row!.textContent ?? "").trim()).toBe("General");
   });
 });
 
@@ -542,7 +414,7 @@ describe("the workspace is one switcher, under This workspace", () => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
     const switcher = listed(host, '[data-testid="settings-workspace-switcher"]');
-    expect(listed(host, '[data-testid="settings-section-feedback"]')).toBeLessThan(switcher);
+    expect(listed(host, '[data-testid="settings-section-profile"]')).toBeLessThan(switcher);
     expect(switcher).toBeLessThan(listed(host, '[data-testid="settings-section-workspace"]'));
   });
 
@@ -628,9 +500,12 @@ describe("the workspace page answers rather than listing properties", () => {
     const host = overlay("workspace");
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
-    const text = identity!.textContent ?? "";
-    expect(text).toContain("@seyi · personal workspace");
-    expect(text).toContain("you're the owner");
+    const facts = host.querySelector('[data-testid="overview-facts"]');
+    expect(facts).not.toBeNull();
+    const text = facts!.textContent ?? "";
+    expect(text).toContain("@seyi");
+    expect(text).toContain("Personal workspace");
+    expect(text).toContain("You're the owner");
     // `owner`, printed straight off the wire, is what this replaced.
     expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);
   });

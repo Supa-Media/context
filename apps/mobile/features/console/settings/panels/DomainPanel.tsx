@@ -92,7 +92,7 @@ export function DomainSection({
   const websiteOverride = useContext(WebsiteViewOverride);
   const head = (
     <PanelHead section="website" sectioned={sectioned}>
-      Publish pages from the website folder in your workspace. Nothing else goes live.
+      Pages from your website folder.
     </PanelHead>
   );
   const fixed = override ?? (demo ? DEMO_DOMAIN_VIEW : client === undefined ? UNREADABLE_DOMAIN_VIEW : null);
@@ -124,7 +124,7 @@ function DomainIntro() {
   const styles = useThemedStyles(makeStyles);
   return (
     <Text variant="paneSub" style={styles.intro}>
-      Your site and short links can use your own domain.
+      Your website and shared links can use your own domain.
     </Text>
   );
 }
@@ -157,7 +157,7 @@ export function DomainPanel({
   onOpenPremium,
 }: {
   view: DomainPanelView;
-  /** The workspace's own handle, for the "same as context.lc/@…" sentence. */
+  /** The workspace's own handle, for the "Links … open at context.lc/@…" line. */
   handle: string;
   onOpenPremium?: () => void;
 }) {
@@ -189,7 +189,7 @@ export function DomainPanel({
   return (
     <View>
       {domain !== null ? (
-        <DomainCard domain={domain} actions={actions} view={view} handle={handle} onOpenPremium={onOpenPremium} />
+        <DomainCard domain={domain} actions={actions} view={view} onOpenPremium={onOpenPremium} />
       ) : !settings.paying ? (
         <Card testID="domain-upsell">
           <Row>
@@ -197,8 +197,8 @@ export function DomainPanel({
               <Text variant="rowTitle">Use your own domain</Text>
               <Text variant="rowSub" style={styles.sub}>
                 {actions !== undefined
-                  ? "With Premium, your short links can open at an address you own, like docs.acme.com/intake."
-                  : "With Premium, short links can open at an address you own. An owner can turn on Premium."}
+                  ? "With Premium, your shared links can open at an address you own, like docs.acme.com/intake."
+                  : "With Premium, shared links can open at an address you own. An owner can turn on Premium."}
               </Text>
             </Grow>
             {actions !== undefined && onOpenPremium !== undefined ? (
@@ -292,13 +292,11 @@ function DomainCard({
   domain,
   actions,
   view,
-  handle,
   onOpenPremium,
 }: {
   domain: DomainView;
   actions?: DomainActions;
   view: DomainPanelView;
-  handle: string;
   onOpenPremium?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -324,9 +322,8 @@ function DomainCard({
           {owner ? <HomepageRow domain={domain} choices={view.homepageChoices} actions={actions} /> : null}
           <Row divided>
             <Grow>
-              <Text variant="rowTitle">Short links</Text>
               <Text variant="rowSub" style={styles.sub}>
-                {`${domain.hostname}/intake opens the same note as context.lc/@${handle}/intake, for every short link anyone can open.`}
+                {`Links with a short name also open at ${domain.hostname}.`}
               </Text>
             </Grow>
           </Row>
@@ -458,7 +455,7 @@ function HomepageRow({
         <Menu<string>
           title="Homepage"
           titleDetail={
-            choices.length === 0 ? "Claim a short link on a note shared with anyone, and it appears here." : undefined
+            choices.length === 0 ? "Give a note shared with anyone a short name, and it appears here." : undefined
           }
           items={items}
           onSelect={(id) => void choose(id === "" ? null : id)}

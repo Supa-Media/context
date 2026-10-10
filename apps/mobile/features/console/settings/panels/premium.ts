@@ -408,12 +408,10 @@ export function describePremium(
       };
     case "free":
     default:
+      // The panel draws the heading as "Premium · <price>"; this is the line under it.
       return {
-        title: "This context is on the free plan",
-        blurb:
-          "Premium is priced per workspace, not per person — you are " +
-          "upgrading a bucket. One card per context, and every other context you " +
-          "can reach is unaffected.",
+        title: "Premium",
+        blurb: "Billed to this workspace, not to you.",
       };
   }
 }

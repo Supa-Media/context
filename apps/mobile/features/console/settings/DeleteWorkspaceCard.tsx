@@ -48,10 +48,17 @@ import {
 export function DeleteWorkspaceCard({
   deletion,
   people,
+  onDownload,
 }: {
   deletion: WorkspaceDeletion;
-  /** How many people are in it, for the one-line summary; absent while loading. */
+  /** How many people are in it, for the body; absent while loading. */
   people?: number;
+  /**
+   * The download of everything, beside Delete. Absent in the demo, where
+   * there is no bucket to download from. Non-negotiable #1: the exit is never
+   * gated, so it is drawn whether or not the delete is available.
+   */
+  onDownload?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -64,10 +71,9 @@ export function DeleteWorkspaceCard({
     people === undefined || people < 2 ? "Removes it" : `Removes it for all ${people} people`;
 
   /*
-    The artboard's shape: one red-washed line that says what the button does
-    and what survives, and "Delete…" to open the rest. The long explanation and
-    the typed name are what the press opens, so the page is not led by a
-    paragraph about deleting while somebody came to rename it.
+    One line that says to take a copy first, then the buttons. The long
+    explanation and the typed name are what "Delete…" opens, so the page is not
+    led by a paragraph about deleting while somebody came to rename it.
   */
   return (
     <View style={styles.card} testID="delete-workspace-card">
@@ -76,9 +82,18 @@ export function DeleteWorkspaceCard({
         <View style={styles.grow}>
           <Text variant="rowTitle">Delete this workspace</Text>
           <Text variant="rowSub" style={styles.line}>
-            {`${who}. The files stay in your storage.`}
+            Download a copy first. This can&apos;t be undone.
           </Text>
         </View>
+        {onDownload === undefined ? null : (
+          <Button
+            variant="mini"
+            label="Download everything"
+            accessibilityLabel="Download every note in this workspace, as a .zip"
+            onPress={onDownload}
+            testID="workspace-download-all"
+          />
+        )}
         {deletion.blocked === null && !open ? (
           <Button
             variant="mini"
@@ -97,7 +112,7 @@ export function DeleteWorkspaceCard({
       ) : open ? (
         <View style={styles.body}>
           <Text variant="rowSub" style={styles.sub}>
-            Notes in the bucket behind @{deletion.slug} stay exactly where they are —
+            {who}. Notes in the bucket behind @{deletion.slug} stay exactly where they are —
             they are not ours to delete. What goes is everything Context knows about
             this workspace: its storage connection, its members and their access, its
             invitations, grants, shared links and audit trail. Its name @

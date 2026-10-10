@@ -156,7 +156,7 @@ export function MembersSection({
         </Text>
         {actions !== undefined ? (
           <Button
-            label={inviting ? "Close" : "Invite someone"}
+            label={inviting ? "Close" : "+ Invite"}
             variant={inviting ? "mini" : "accent"}
             accessibilityLabel={inviting ? "Close the invite form" : "Invite someone to this workspace"}
             onPress={() => setInviting((open) => !open)}
@@ -358,7 +358,7 @@ function InvitationRow({
         <Grow>
           <Text variant="rowTitle">{invitation.invitee}</Text>
           <Text variant="rowSub" style={[styles.rowSub, styles.waiting]}>
-            {`${invitedLine(invitation.role)} · waiting · ${expiryLabel(invitation.expiresAt, now)}`}
+            {`${invitedLine(invitation.role)} · ${expiryLabel(invitation.expiresAt, now)}`}
           </Text>
         </Grow>
         {actions !== undefined ? (

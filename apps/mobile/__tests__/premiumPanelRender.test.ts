@@ -60,6 +60,7 @@ import { createRoot } from "react-dom/client";
 import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import {
   EARLY_TESTER_PRICE_NOTE,
+  EARLY_TESTER_PRICE_SHORT,
   EXPORT_PROMISE,
   demoPremiumView,
   unreadablePremiumView,
@@ -93,6 +94,19 @@ function mount(
     );
   });
   return container;
+}
+
+/**
+ * The exit as a person reads it on the plan page: the card's own line, and the
+ * full promise behind "How this works", which is opened first if it is shut.
+ */
+function exitWords(container: HTMLElement): string {
+  if (!(container.textContent ?? "").includes(EXPORT_PROMISE)) {
+    const how = container.querySelector<HTMLElement>('[data-testid="premium-exit-how"]');
+    expect(how).not.toBeNull();
+    act(() => how!.click());
+  }
+  return container.textContent ?? "";
 }
 
 const status = (over: Partial<PremiumStatus> = {}): PremiumStatus => ({
@@ -206,7 +220,7 @@ describe("the export promise is on every one of these screens", () => {
       '[data-testid="premium-export-promise"]',
     );
     expect(promise).not.toBeNull();
-    expect(host.textContent ?? "").toContain(EXPORT_PROMISE);
+    expect(exitWords(host)).toContain(EXPORT_PROMISE);
   });
 
   test("and it is the same sentence every time, not a shortened one", () => {
@@ -473,9 +487,12 @@ describe("what the section says about itself", () => {
     expect(mount(view()).textContent ?? "").toContain("$5 a month");
   });
 
-  test("per context, said out loud, because it is what people get wrong", () => {
+  test("whose plan it is is said out loud: this workspace, billed to it", () => {
+    // Said in the line under the heading and the card's own line, because
+    // billing per workspace is what people get wrong.
     const text = mount(view()).textContent ?? "";
-    expect(text).toMatch(/per context/i);
+    expect(text).toMatch(/this workspace/i);
+    expect(text).toMatch(/billed to this workspace/i);
   });
 
   test("the heading is the row's own label, not a literal", () => {
@@ -494,7 +511,7 @@ describe("what the section says about itself", () => {
       same bug wearing a different name.
     */
     const text = mount(view()).textContent ?? "";
-    expect(text).toContain(EARLY_TESTER_PRICE_NOTE);
+    expect(text).toContain(EARLY_TESTER_PRICE_SHORT);
   });
 
   test("...and a paying context is told the price it is holding", () => {
@@ -520,9 +537,10 @@ describe("what the section says about itself", () => {
       context" promises a rate nobody held — and reads as an inducement to
       come back, which is what makes it dishonest rather than just stale.
     */
-    const text =
-      mount(view({ status: status({ status: "canceled" }) })).textContent ?? "";
+    const container = mount(view({ status: status({ status: "canceled" }) }));
+    const text = exitWords(container);
     expect(text).not.toContain(EARLY_TESTER_PRICE_NOTE);
+    expect(text).not.toContain(EARLY_TESTER_PRICE_SHORT);
     expect(text).not.toMatch(/early tester/i);
     // The section still says what it is, and still says how to leave.
     expect(text).toContain("Premium has ended for this context");
@@ -587,7 +605,7 @@ describe("the return from Stripe", () => {
     const container = mount(view(), { returned: "cancelled" });
     const words = container.textContent ?? "";
     expect(words).toContain("No payment was taken");
-    expect(words).toContain("This context is on the free plan");
+    expect(words).toContain("This workspace is on the free plan");
   });
 
   test("still waiting: different words, same spinner, and a clear instruction to stay", () => {
@@ -645,7 +663,7 @@ describe("the return from Stripe", () => {
   test("and the export promise survives every one of them", () => {
     for (const returned of ["done", "cancelled", null] as const) {
       const container = mount(view(), { returned });
-      expect(container.textContent ?? "").toContain(EXPORT_PROMISE);
+      expect(exitWords(container)).toContain(EXPORT_PROMISE);
     }
   });
 });

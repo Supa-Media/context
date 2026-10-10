@@ -21,7 +21,7 @@
  *   fastSearch.status({ workspaceId })
  *     -> { state, canChange, notesIndexed?, notesPending?, error?, optedInAt? }
  *   fastSearch.enable({ workspaceId })   // owner-only
- *   fastSearch.disable({ workspaceId })  // owner-only
+ *   fastSearch.disable({ workspaceId })  // owner-only; no console control, search is always on
  *
  * and the two mutations are owner-only while the query is readable by any
  * member — knowing how a context's search is served is not privileged, and
@@ -40,9 +40,10 @@
  * notes included, in a database Supa Media owns** — that is the whole of what
  * an owner is consenting to, and `docs/decisions/search.md` is emphatic that
  * off-by-default exists because the alternative is making that choice on
- * somebody else's behalf. Turning it off deletes the database. Neither
- * sentence may be left out of the card, so both live here rather than inline
- * in JSX where an edit could quietly drop one.
+ * somebody else's behalf. The off-to-on sentence may not be left out of the
+ * card, so it lives here rather than inline in JSX where an edit could quietly
+ * drop it. Search is always on now, so the console no longer offers the way
+ * back to off; the server still has `disable` for the rare case it is needed.
  *
  * Nothing here claims the canonical notes move: they stay in the customer's
  * bucket either way (CLAUDE.md, non-negotiable 1), and the index is a
@@ -51,8 +52,8 @@
  * ## Off is a working state
  *
  * Every "off" sentence has to read as a working product rather than a missing
- * feature, because it is one: search falls back to the R2 index the instant
- * `optedIn` goes false. A card that draws `off` as a warning teaches people to
+ * feature, because it is one: search reads the bucket index while a context is
+ * off. A card that draws `off` as a warning teaches people to
  * turn on a copy of their private notes to clear a badge.
  *
  * Pure, and free of React, so the awkward cases — a state this build has never
@@ -125,14 +126,14 @@ export interface FastSearchStatus {
  * "off" tells an owner their index is gone every time the page reloads, which
  * is the same class of bug `ConsoleData.storage` keeps three values for.
  *
- * `enable` and `disable` are **absent** rather than disabled for anybody the
- * server would refuse — the rule `StorageActions` states and this follows.
+ * `enable` is **absent** rather than disabled for anybody the server would
+ * refuse — the rule `StorageActions` states and this follows.
  */
 export interface FastSearchView {
   status: FastSearchStatus | null;
   loading: boolean;
+  /** Absent for anybody the server would refuse. There is no turn-off: fast search is always on. */
   enable?: () => Promise<void>;
-  disable?: () => Promise<void>;
 }
 
 /**
@@ -161,13 +162,14 @@ export function fastSearchStateOf(raw: unknown): FastSearchState {
  *  - the action exists, which is how the demo console and a non-owner end up
  *    with a card that reads and a card that acts being the same component.
  *
+ * There is no way back to off from here. Fast search is always on; a context
+ * that was switched off before still gets "enable" so its owner can turn it on.
+ *
  * `failed` gets `retry` rather than `enable` because the row is already opted
  * in: pressing it re-runs the provision, and a button labelled "Turn on" over
  * a switch that is already on is a lie about what the press does.
  */
-export function fastSearchControl(
-  view: FastSearchView,
-): "none" | "enable" | "disable" | "retry" {
+export function fastSearchControl(view: FastSearchView): "none" | "enable" | "retry" {
   const status = view.status;
   if (status === null || !status.canChange) return "none";
   switch (status.state) {
@@ -177,7 +179,6 @@ export function fastSearchControl(
       return view.enable === undefined ? "none" : "retry";
     case "on":
     case "preparing":
-      return view.disable === undefined ? "none" : "disable";
     case "unavailable":
       return "none";
   }
@@ -200,7 +201,7 @@ export function describeFastSearch(state: FastSearchState): {
       return {
         title: "Fast search is off",
         blurb:
-          "Searches read your own bucket, which is slower. Turn it on for instant results: that keeps a searchable copy of every note's text, private notes included, in a database Supa Media runs, and answers your searches from it. Turn it off and the copy is deleted. Your notes stay in your own bucket either way.",
+          "Searches read your own bucket, which is slower. Turn it on and your searches are answered from a copy of every note's text, private notes included, in a database Supa Media runs. Your notes stay in your own bucket.",
       };
     case "preparing":
       return {
@@ -210,9 +211,9 @@ export function describeFastSearch(state: FastSearchState): {
       };
     case "on":
       return {
-        title: "Fast search",
+        title: "Fast search is on",
         blurb:
-          "Your searches are answered from a searchable copy of every note's text, private notes included, in a database Supa Media runs. Turning it off deletes that database, and search goes back to the index in your own bucket; your notes are untouched there either way.",
+          "Searches are answered from a copy of your notes, private notes included, in a database Supa Media runs.",
       };
     case "failed":
       return {

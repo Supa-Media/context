@@ -60,4 +60,5 @@ export function WorkspaceNameField({ workspaceId, name }: { workspaceId: string;
   );
 }
 
-const styles = StyleSheet.create({ field: { maxWidth: 386 } });
+// Fills the cell beside the picture rather than a fixed column.
+const styles = StyleSheet.create({ field: { width: "100%" } });

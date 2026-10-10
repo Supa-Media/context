@@ -65,9 +65,7 @@ export function ModelPanel({ data, sectioned }: { data: ConsoleData; sectioned: 
   return (
     <>
       <PanelHead section="model" sectioned={sectioned}>
-        The agent in this context answers with a model you connect. It is your own Anthropic
-        or OpenAI key on your own account, so what it does is billed to you and nothing here
-        marks it up.
+        Use your own Anthropic or OpenAI key. You pay them directly.
       </PanelHead>
 
       <Notice tone="neutral">
@@ -77,11 +75,7 @@ export function ModelPanel({ data, sectioned }: { data: ConsoleData; sectioned: 
           on the web, warns in this jsdom suite, and is a hard error on native.
           The render test found it.
         */}
-        <Text variant="rowSub">
-          Your key is encrypted before it is stored, and decrypted only inside the gateway for
-          the length of one request. It is never written into a note, never into your bucket,
-          never into a log or a URL, and never onto this device.
-        </Text>
+        <Text variant="rowSub">Keys are stored locked and never written into your notes.</Text>
       </Notice>
 
       {live ? (
@@ -97,9 +91,7 @@ export function ModelPanel({ data, sectioned }: { data: ConsoleData; sectioned: 
       )}
 
       <Text variant="foot" style={styles.foot}>
-        The agent reads your notes through its own grant, so every read passes this context's
-        privacy rules and lands in its audit trail — and it never edits a note. When it wants
-        to, it files a proposal for you to look at.
+        The assistant sees only what this workspace's privacy settings let it see.
       </Text>
     </>
   );
@@ -226,7 +218,14 @@ function ProviderCard({
             {connection === null ? models : `${models} · added ${whenAdded(connection.connectedAt)}`}
           </Text>
         </Grow>
-        {answered && connection !== null ? <Pill tone="ok">Connected</Pill> : null}
+        {/* The state, on every row once it is known: a row must say which it is. */}
+        {answered ? (
+          connection === null ? (
+            <Pill tone="neutral">Not connected</Pill>
+          ) : (
+            <Pill tone="ok">Connected</Pill>
+          )
+        ) : null}
       </Row>
 
       {connection === null ? null : (

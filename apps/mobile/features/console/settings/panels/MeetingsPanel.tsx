@@ -11,16 +11,15 @@ import { selectedContext, type ConsoleData } from "../../types";
   `DestinationSheet.tsx` are both free of it.
 */
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
-import {
-  AUDIO_SENTENCE,
-  CALL_AUDIO_PICKER_SENTENCE,
-  CALL_AUDIO_SENTENCE,
-  MIC_ONLY_SENTENCE,
-} from "../../../meetings/disclosure";
 import { useMeetingsSnapshot } from "../../../meetings/useMeetings";
 import { loadedFolders } from "../../files/browser";
 import { MeetingsDestination } from "./MeetingsDestination";
 import { PanelHead } from "./PanelHead";
+import {
+  CALL_AUDIO_PICKER_SENTENCE,
+  CALL_AUDIO_SENTENCE,
+  MIC_ONLY_LINE,
+} from "../../../meetings/disclosure";
 
 /**
  * Meetings: recording on this Mac, and where the notes land.
@@ -59,22 +58,13 @@ export function MeetingsPanel({
   data: ConsoleData;
   sectioned: boolean;
 }) {
-  const styles = useThemedStyles(makeStyles);
   const current = selectedContext(data);
   const personal = current?.kind === "personal";
 
   return (
     <>
       <PanelHead section="meetings" sectioned={sectioned}>
-        {/*
-          "in the desktop app", because the machine card below is absent in a
-          browser and on a phone — where this sentence would otherwise be
-          describing a card the reader cannot see. The second half is true in
-          every runtime: the destination question is asked wherever you record.
-        */}
-        {personal
-          ? "In the desktop app, your Mac records with no window open. New meeting starts recording straight away, and the note lands in the folder below."
-          : "Meetings are written into your own context, never into this one — a recording started while you are reading here still lands in your own inbox."}
+        Record on your Mac. The transcript becomes a note.
       </PanelHead>
 
       {personal ? <ThisMachineCard focus="meetings" /> : null}
@@ -99,41 +89,28 @@ export function MeetingsPanel({
         folders={loadedFolders(data.files.listings)}
       />
 
-      <CallAudio />
-
-      <Text variant="foot" style={styles.audio}>
-        {AUDIO_SENTENCE}
-      </Text>
+      <AudioLine />
     </>
   );
 }
 
 /**
- * What a recording takes, said once — and no longer a switch.
+ * What a recording keeps, said once, in one line.
  *
- * There was a "Record the whole call" switch here, on by default, kept so
- * somebody who never wanted a browser's picker could turn it off. People
- * turned it off and recorded one side of their calls, and the owner asked why
- * the option existed at all (2026-10-01). So every build that can take the
- * machine's own audio takes it, and this is the sentence that says so.
- *
- * In a browser it also says what the picker will ask, in the words the picker
- * uses: the picker is opened on Entire screen with system audio offered
- * (`capture/audioWeb/capabilities.ts`), so the instruction is one choice and
- * one toggle rather than "find the tab your call is in".
- *
- * Where a build cannot do it at all (a phone, a browser that shares no audio,
- * a shell macOS will not hand a loopback tap) the mic-only sentence is drawn
- * instead, which is the honest absence.
+ * The machine's own audio is always recorded where a build can take it (the
+ * owner's decision, 2026-10-01), so there is no switch to explain. The line
+ * says that audio is never kept, and names the one thing a reader could not
+ * guess: what a browser asks, or what is missing on headphones. The words
+ * live in `features/meetings/disclosure.ts`, where tests read them.
  */
-function CallAudio() {
+function AudioLine() {
   const styles = useThemedStyles(makeStyles);
   const capture = useMeetingsSnapshot().capture;
 
   if (!capture.systemAudio) {
     return (
       <Text variant="foot" style={styles.audio} testID="meetings-mic-only">
-        {MIC_ONLY_SENTENCE}
+        {MIC_ONLY_LINE}
       </Text>
     );
   }

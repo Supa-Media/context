@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
-import { CopyField } from "../../design/components/CopyField";
 import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
@@ -91,15 +90,19 @@ import { pointerType as t } from "../../design/tokens";
 export function IngestionCard({
   state,
   fallbackAddress,
+  startOpen = false,
 }: {
   state: IngestionState;
   fallbackAddress: string;
+  /** Draw the sender controls open, which tests and deep links want. */
+  startOpen?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const address = state.settings?.address ?? fallbackAddress;
   const copy = useCopy(address);
 
+  const [editing, setEditing] = useState(startOpen);
   const [draft, setDraft] = useState<IngestionDraft | null>(null);
   const [entry, setEntry] = useState("");
   const [entryProblem, setEntryProblem] = useState<string | null>(null);
@@ -146,37 +149,30 @@ export function IngestionCard({
 
   return (
     <Card>
-      <Row>
-        <Grow>
-          <Text variant="rowTitle">Address</Text>
-          {receiving ? (
+      <Row style={styles.top}>
+        <Grow style={styles.topText}>
+          <Row style={styles.titleRow}>
+            <Text variant="rowTitle">Forward mail to</Text>
+            <Text variant="mono" selectable style={styles.inlineMono}>
+              {address}
+            </Text>
+            {receiving ? null : (
+              <Pill tone="warn" testID="ingestion-not-receiving">
+                Not receiving yet
+              </Pill>
+            )}
+          </Row>
+          {shown !== null ? (
             <Text variant="rowSub" style={styles.rowSub}>
-              Forward any email here and it lands in{" "}
-              <Text variant="mono" style={styles.inlineMono}>
-                {shown?.targetFolder ?? "0-inbox/"}
-              </Text>
-              , filed under the day it was sent. Attachments are described in the note and
-              never written to your bucket.
+              {receiving ? `Lands in ${shown.targetFolder}. ` : ""}
+              {senderSummary(shown)}
             </Text>
-          ) : (
-            /*
-              One sentence, not a hedge. "Not yet" plus what it means for the
-              reader — mail sent today bounces — and nothing about folders,
-              senders or acceptance, none of which happen to a message that is
-              never delivered.
-            */
-            <Text variant="rowSub" style={styles.rowSub} testID="ingestion-not-receiving">
-              This address is reserved for you, but nothing is receiving mail at it yet —
-              anything sent to it today bounces.
-            </Text>
-          )}
+          ) : null}
         </Grow>
         {/*
-          No Copy button until there is somewhere for the copied address to be
-          pasted usefully. The address stays visible and selectable below, so
-          nothing is hidden; what is withheld is the affordance that says "take
-          this and go use it". Same rule as `StorageActions` and `save`: a
-          control that is never offered cannot mislead.
+          No Copy button until there is somewhere to paste the address
+          usefully; the address stays visible and selectable. A control never
+          offered cannot mislead.
         */}
         {receiving ? (
           <Button
@@ -185,8 +181,22 @@ export function IngestionCard({
             onPress={copy.copy}
           />
         ) : null}
+        {shown !== null ? (
+          <Button
+            label={editing ? "Done" : canEdit ? "Edit senders" : "See senders"}
+            onPress={() => setEditing((open) => !open)}
+            testID="ingestion-edit"
+          />
+        ) : null}
       </Row>
-      <CopyField value={address} copyable={false} style={styles.spaced} />
+
+      {/* A sender list filters mail; it does not prove who sent it. */}
+      <Text variant="foot" style={styles.spaced}>
+        {receiving ? "" : "Nothing is receiving mail at it yet — anything sent to it today bounces. "}
+        {shown?.allowAnySender
+          ? ""
+          : "A sender list filters mail; it does not prove who sent it."}
+      </Text>
 
       {state.loading ? (
         <View style={[styles.loadingRow, styles.spaced]}>
@@ -219,8 +229,16 @@ export function IngestionCard({
         </Notice>
       ) : null}
 
-      {shown !== null ? (
+      {shown !== null && editing ? (
         <View style={styles.settings}>
+          {receiving ? (
+            <Text variant="rowSub">
+              Mail lands in <Text variant="mono">{shown.targetFolder}</Text>, filed under the day
+              it was sent. Attachments are described in the note and never written to your
+              bucket.
+            </Text>
+          ) : null}
+
           {canEdit ? (
             <ChoiceGroup
               label="Who may send to it"
@@ -395,6 +413,16 @@ export function IngestionCard({
   );
 }
 
+/** "Only from a and b", for the second line of the forwarding row. */
+function senderSummary(draft: IngestionDraft): string {
+  if (draft.allowAnySender) return "Anyone can send to it.";
+  const labels = senderEntries(draft).map(senderLabel);
+  if (labels.length === 0) return "No senders allowed yet.";
+  const shown = labels.slice(0, 2).join(", ");
+  const more = labels.length - 2;
+  return `Only from ${shown}${more > 0 ? ` and ${more} more` : ""}.`;
+}
+
 /** One allowed address or domain, removable where the console may act. */
 function SenderChip({
   entry,
@@ -417,6 +445,9 @@ function SenderChip({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   rowSub: { marginTop: 2 },
+  top: { flexWrap: "wrap", gap: 10 },
+  topText: { flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 220 },
+  titleRow: { flexWrap: "wrap", alignItems: "center", gap: 8 },
   spaced: { marginTop: 11 },
   settings: { marginTop: 17, gap: 15 },
   readOnlyBlock: { gap: 2 },

@@ -11,6 +11,7 @@ import { selectedContext, type ConsoleContext, type ConsoleData } from "../types
 import { settingsPreview } from "./previews";
 import { LiveRowValueSource, type LiveRowValues } from "./liveRowValues";
 import {
+  isFoldedSection,
   matchSettingsSections,
   type SettingsSectionKey,
   type SettingsSectionSpec,
@@ -76,6 +77,12 @@ export function SettingsList({
   const current = selectedContext(data);
   const shown = matchSettingsSections(sections, query);
   const searching = query.trim() !== "";
+  /*
+    The list proper leaves out the pages that live behind a row on another
+    page (`folded`, 2026-10-10). A search still finds them: somebody typing
+    "emoji" is asking for that page by name, and the box is how they get there.
+  */
+  const listed = sections.filter((entry) => !isFoldedSection(entry));
   /*
     Plan and Website read subscriptions, so they come from a component mounted
     only where there is a client (see `PremiumPanel` for the same split). The
@@ -190,7 +197,7 @@ export function SettingsList({
       impossible by construction; this is that guarantee written down.
     */
     if (current === null) return null;
-    const context = sections.filter((entry) => entry.scope === "context");
+    const context = listed.filter((entry) => entry.scope === "context");
     const ungrouped = context.filter((entry) => entry.group === null);
     const named: SettingsSectionSpec["group"][] = [];
     for (const entry of context) {
@@ -256,8 +263,8 @@ export function SettingsList({
         ) : (
           <>
             {group(
-              heading("Your account"),
-              sections.filter((entry) => entry.scope === "account"),
+              heading("You"),
+              listed.filter((entry) => entry.scope === "account"),
               "account",
             )}
             {contextGroups()}

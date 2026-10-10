@@ -274,9 +274,12 @@ describe("the owner gate", () => {
     screen.unmount();
   });
 
-  test("an empty list still says what connecting one would do", () => {
+  test("an empty list offers Connect Google rather than a sentence about having none", () => {
     const screen = render(createElement(GoogleConnectionsCard, { connections: [], actions }));
-    expect(screen.text()).toContain("No Google account connected yet");
+    expect(screen.container.querySelector('[data-testid="connect-google"]')?.textContent).toContain(
+      "Connect Google",
+    );
+    expect(screen.text()).not.toContain("No Google account connected yet");
     screen.unmount();
   });
 

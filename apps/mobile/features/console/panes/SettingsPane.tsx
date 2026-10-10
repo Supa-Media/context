@@ -8,7 +8,7 @@ import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
-import { PanelHead, SubHead } from "../settings/panels/PanelHead";
+import { PanelHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { SourcesPanel } from "../settings/panels/SourcesPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
@@ -18,6 +18,7 @@ import { MeaningSearchCardView } from "../search/MeaningSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
+import { MoreCard } from "../settings/panels/MoreCard";
 import { ConnectedAppsCard } from "../settings/AccountSections";
 import { DomainSection } from "../settings/panels/DomainPanel";
 import { EmojiPanel } from "../settings/panels/EmojiPanel";
@@ -155,10 +156,10 @@ export function SettingsPane({
       */}
       <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.managed === true
-          ? "Context runs this bucket for you. You can take every file with you at any time, free, on any plan."
+          ? "Where your notes are kept. Context runs this bucket for you; take every file with you, free, any time."
           : storage?.provider === "dropbox"
-          ? "Your notes are plain files in your own Dropbox. Unlink Context in your Dropbox settings and we lose access right away; every file stays where it is."
-          : `Your notes are plain files in storage you own. Remove our key at ${
+          ? "Where your notes are kept. Plain files in your own Dropbox. Unlink Context in your Dropbox settings and we lose access right away."
+          : `Where your notes are kept. Plain files in storage you own. Remove our key at ${
               (storage && storageCompany(storage)) ?? "your provider"
             } and we lose access right away.`}
       </PanelHead>
@@ -354,18 +355,10 @@ export function SettingsPane({
       ) : null}
 
       {/*
-        The index, under the bucket it is built from.
-
-        Search was a row of its own, one below Storage, and the two rows asked
-        the same question at two depths: where are my notes kept, and where is
-        the thing that finds them. An index is a disposable derivative of the
-        files — `CLAUDE.md` #3, rebuildable and never the only copy of
-        anything — so it belongs under them rather than beside them.
-
-        What it switches is still per context, which is why it is here at all
-        and not at app level: two workspaces can be answered from two
-        different places, and a switch above the context picker would claim
-        there is one setting for all of them.
+        The index, under the bucket it is built from. It is always on now, so
+        this only says so; an owner whose context predates that can still turn
+        it on from the card. An index is a disposable derivative of the files
+        (CLAUDE.md #3), which is why it sits under them.
       */}
       <Text variant="noteTitle" style={styles.searchHead}>
         Search
@@ -395,17 +388,18 @@ export function SettingsPane({
         and deletion is here under a heading that says what it is.
       */}
       <PanelHead section="workspace" sectioned={section !== undefined}>
-        This workspace&apos;s name and picture, and deleting it.
+        Name and picture.
       </PanelHead>
       <OverviewPanel data={data} onSelect={onSelect} />
       {data.advanced.deletion === undefined || data.demo ? null : (
         <>
           <Text variant="eyebrow" style={styles.danger}>
-            Can&apos;t be undone
+            Delete workspace
           </Text>
           <DeleteWorkspaceCard
             deletion={data.advanced.deletion}
             people={data.members.loading ? undefined : data.members.members.length}
+            onDownload={() => data.files.download("", "folder")}
           />
         </>
       )}
@@ -422,17 +416,13 @@ export function SettingsPane({
 
       {show("premium") ? (
       <>
-      <PanelHead section="premium" sectioned={section !== undefined}>
-        What this workspace pays for. Premium is per workspace, so your other
-        workspaces stay as they are. Downloading everything is free on either plan
-        and still works after you cancel.
-      </PanelHead>
+      {/* The plan's own line and heading are drawn by the panel, which knows the plan. */}
       <PremiumPanel data={data} section={section} returned={returned} onSelect={onSelect} />
       </>
       ) : null}
 
       {show("sharing") ? (
-        <SharingSection data={data} sectioned={section !== undefined} />
+        <SharingSection data={data} sectioned={section !== undefined} onSelect={onSelect} />
       ) : null}
 
       {show("website") ? (
@@ -445,39 +435,15 @@ export function SettingsPane({
 
       {show("integrations") ? (
       <>
-      {/*
-        Everything that talks to this context without being typed into it.
-
-        It was five rows — AI apps, Email, Calendar, Chats — under a heading
-        nobody navigates by. The split was right about one thing and wrong
-        about the other: a person does ask "why isn't my mail here" rather than
-        "what does my Google account do", and that question is answered on one
-        page whatever number of mechanisms it takes. But five pages to ask five
-        versions of "what is plugged in" is the list Sayo called overwhelming.
-
-        AI apps leads, because an MCP client is the first thing most people
-        connect and the word they arrive with. It is account-scoped — a
-        connection reaches every workspace its person is a live member of — and
-        the block says so in its own sentence, which is what keeps an
-        account-wide fact on a context-scoped page from being a lie.
-
-        Meetings is deliberately *not* here. It is the one capture surface
-        people open on purpose rather than configure once, and Sayo asked for
-        it separately by name.
-      */}
       <PanelHead section="integrations" sectioned={section !== undefined}>
-        Everything that fills this context without being typed into it: the AI
-        apps holding a grant, the mailboxes and calendars we read, and the chats.
+        Apps and mail that add to your notes.
       </PanelHead>
 
-      <SubHead title="AI apps">
-        One address, added once per app. A connection reaches every workspace you
-        are a live member of, and each app can be cut off on its own without
-        touching the others.
-      </SubHead>
       <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
 
       <SourcesPanel data={data} />
+
+      <MoreCard onSelect={onSelect} />
       </>
       ) : null}
 

@@ -55,7 +55,10 @@ export function GroupsPanel({
   view,
   members,
   slug,
+  bare = false,
 }: {
+  /** Drop the heading and lede, for a caller that has already named the block. */
+  bare?: boolean;
   view: GroupsView;
   /** This context's people, for the add control. */
   members: readonly ConsoleMember[];
@@ -85,12 +88,14 @@ export function GroupsPanel({
         row per group — its name and who is in it — that opens to the names,
         the additions and Delete.
       */}
-      <Text variant="noteTitle">
-        Groups
-      </Text>
-      <Text variant="rowSub" style={styles.lede}>
-        Give a folder to a group instead of naming people one by one.
-      </Text>
+      {bare ? null : (
+        <>
+          <Text variant="noteTitle">Groups</Text>
+          <Text variant="rowSub" style={styles.lede}>
+            Give a folder to a group instead of naming people one by one.
+          </Text>
+        </>
+      )}
 
       <Card style={styles.list}>
         {view.groups.length === 0 ? (
