@@ -238,6 +238,90 @@ describe("a note whose title is its name", () => {
     expect(browser.titleEdit?.label ?? null).toBeNull();
   });
 
+  /*
+    Reported 2026-10-10 as renaming "bugging out": a title typed, Enter, and
+    straight on into the body. The rename is asked for the moment the caret
+    leaves the title, and the words typed while it was on its way were
+    autosaved to the name the file had just left — a second note at the old
+    name — and the editor then opened the renamed note without them.
+  */
+  describe("typing on while the rename is on its way", () => {
+    let release: ((ok: boolean) => void) | null = null;
+    beforeEach(() => {
+      release = null;
+      actions[fn("moveEntry")] = (args: never) =>
+        new Promise((resolve, reject) => {
+          const { from, to } = args as { from: string; to: string };
+          release = (ok) => {
+            if (!ok) return reject(new Error("refused"));
+            files.set(to, files.get(from)!);
+            files.delete(from);
+            resolve({ path: to });
+          };
+        });
+    });
+
+    async function renameThenType(body: string) {
+      unmount = mount();
+      await settle();
+      await open(ROADMAP);
+      await caret(true);
+      await type("# Q4 plan\n\nBody.\n");
+      await caret(false);
+      expect(moves()).toEqual([{ from: ROADMAP, to: `${FOLDER}/Q4 plan.md` }]);
+      await act(async () => {
+        browser.setDraft(body);
+      });
+      // Long enough for the autosave timer to have come due.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      });
+      await settle();
+    }
+
+    async function land(ok: boolean) {
+      await act(async () => {
+        release!(ok);
+      });
+      await settle();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      });
+      await settle();
+    }
+
+    test("what was typed goes with the note, and nothing is left at the old name", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      // Held: nothing written under the name the file is leaving.
+      expect(files.get(ROADMAP)).toBe("# Q4 plan\n\nBody.\n");
+
+      await land(true);
+      expect(browser.editor.path).toBe(`${FOLDER}/Q4 plan.md`);
+      expect(browser.editor.draft).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.get(`${FOLDER}/Q4 plan.md`)).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.has(ROADMAP)).toBe(false);
+    }, 15_000);
+
+    test("a refused rename saves what was typed where the note still is", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      await land(false);
+      expect(browser.editor.path).toBe(ROADMAP);
+      expect(files.get(ROADMAP)).toBe("# Q4 plan\n\nBody. And more\n");
+    }, 15_000);
+
+    test("somebody who went on to another note is not pulled back, and their words still land", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      await act(async () => {
+        browser.select(`${FOLDER}/Taken.md`);
+      });
+      await settle();
+      await land(true);
+      expect(browser.editor.path).toBe(`${FOLDER}/Taken.md`);
+      expect(files.get(`${FOLDER}/Q4 plan.md`)).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.has(ROADMAP)).toBe(false);
+    }, 15_000);
+  });
+
   test("a body edit alone never renames it", async () => {
     unmount = mount();
     await settle();
