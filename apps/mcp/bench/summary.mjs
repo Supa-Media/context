@@ -41,8 +41,11 @@ export function summaryMarkdown(raw) {
     .join(", ");
   const scored = section(raw, "Scored by", { last: true });
   const summary = section(raw, "Summary");
+  // A search result is scored by its own summary table and has no "Scored by"
+  // section, so its front matter saying `scored` is the whole of it.
+  const unscored = scored || pick("status") === "scored" ? "" : "_Not scored yet._";
   return (
-    [head ? `**${head}**` : "", "", scored || "_Not scored yet._", "", summary]
+    [head ? `**${head}**` : "", "", scored || unscored, "", summary]
       .filter((part, i, all) => part !== "" || (i > 0 && all[i - 1] !== ""))
       .join("\n")
       .trim() + "\n"
