@@ -57,7 +57,10 @@ const BUILTIN_IDENTITY = [
  * model it was).
  */
 const GROUND_RULES = [
-  "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation or that they told you. Never fill a gap with a guess; say you don't know.",
+  // "In this conversation" includes earlier texts whose lookups are not shown
+  // (`conversation.js`): read narrowly, this rule had the model take back its
+  // own checked answers one text later (staging, 2026-10-10).
+  "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
   "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
   "To list the workspaces they can reach, call scope_info with workspaces set to true.",
 ];
