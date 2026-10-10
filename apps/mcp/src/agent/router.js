@@ -61,11 +61,13 @@ const QUESTIONS = {
       "a change together with a message to someone, or a request that could mean two different things. " +
       "Pick think too when the shape of the question needs two facts put together: a date worked out from another date (a deadline, a notice period, how long is left, what comes first or next), " +
       "an order of events, a total or a comparison, or something that could be written in more than one of their notebooks. " +
+      "Pick think as well for a catch-up on where something stands (where are we with, what's left, what do I need to do before), " +
+      "and for a request to pull several items together from their notes (what's due this week, my to-dos before a trip): what matters and what to leave out is a judgement. " +
       "A short question can still need several notes. Pick lookup or change only when one search or one edit in one known note settles it.",
     criteria: {
-      lookup: "One fact, date, time or amount from their notes, answerable with one search in one place. Not attendance or feasibility, not a span of days, not a date that has to be worked out from another.",
+      lookup: "One fact, date, time or amount from their notes, answerable with one search in one place. Not attendance or feasibility, not a span of days, not a date that has to be worked out from another, not a catch-up or a list of several things.",
       change: "Add, change, tick off or move one thing in one note it is clear which; or a greeting, thanks or a quick reply with nothing to look up.",
-      think: "Compare notes or workspaces, look over a span of days, work out a deadline or how long is left, put events in order, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, or handle privacy carefully.",
+      think: "Compare notes or workspaces, look over a span of days, work out a deadline or how long is left, put events in order, catch the person up on where something stands, gather several items from their notes, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, or handle privacy carefully.",
     },
   },
 };
