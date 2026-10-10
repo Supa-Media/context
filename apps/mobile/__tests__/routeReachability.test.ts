@@ -577,6 +577,7 @@ describe("every route is reachable, or says why not", () => {
       "/preview/onboarding/[step]",
       "/s/[token]",
       "/texts/[token]",
+      "/vault/[token]",
     ]);
     for (const entry of exempt) {
       if (entry.reachable) continue;

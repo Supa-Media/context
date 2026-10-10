@@ -1,11 +1,14 @@
 import { useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View, type TextInput } from "react-native";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { FormError, TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
 import { leading } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import type { FormProblem, VaultPrefill } from "./vaultLink";
+
+type Field = TextInput;
 
 export interface VaultDraft {
   name: string;
@@ -43,9 +46,10 @@ export function VaultAddForm({
   const [username, setUsername] = useState(initialDraft?.username ?? "");
   const [password, setPassword] = useState(initialDraft?.password ?? "");
   const [shown, setShown] = useState(false);
-  const siteRef = useRef<TextInput>(null);
-  const userRef = useRef<TextInput>(null);
-  const passRef = useRef<TextInput>(null);
+  // The fields are `TextField`s, sized by `useFieldFont` there.
+  const siteRef = useRef<Field>(null);
+  const userRef = useRef<Field>(null);
+  const passRef = useRef<Field>(null);
 
   const ready = name.trim().length > 0 && site.trim().length > 0 && password.length > 0;
   const submit = () => {
@@ -114,9 +118,8 @@ export function VaultAddForm({
           style={styles.passwordInput}
           testID="vault-password"
         />
-        <Button
+        <TextLink
           label={shown ? "Hide" : "Show"}
-          variant="ghost"
           style={styles.reveal}
           accessibilityLabel={shown ? "Hide password" : "Show password"}
           onPress={() => setShown((value) => !value)}
@@ -155,8 +158,9 @@ const makeStyles = (colors: Colors) =>
       position: "absolute",
       right: 14,
       bottom: 0,
-      height: WELL_HEIGHT,
-      alignSelf: "auto",
+      lineHeight: WELL_HEIGHT,
+      paddingVertical: 0,
+      textDecorationLine: "none",
     },
     save: { alignSelf: "stretch", justifyContent: "center", marginTop: 4 },
     foot: { color: colors.muted, lineHeight: leading(12.5, 1.5), textAlign: "center" },
