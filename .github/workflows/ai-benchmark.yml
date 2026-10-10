@@ -174,8 +174,22 @@ jobs:
           echo "key=${result%.md} key.md" >> "$GITHUB_OUTPUT"
           echo "judging=${result}.judging.json" >> "$GITHUB_OUTPUT"
 
+      # The search benchmark (`bench/search.mjs`) is one `search_notes` call a
+      # query, scored against the notes the test expects: no judge, no model
+      # but the embedder, so it needs neither the judging nor the scoring below.
+      - name: Search benchmark
+        if: ${{ inputs.job == 'search' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: |
+          args=(--out "$RESULT")
+          [ -n "$BENCH_SETUPS" ] && args+=(--setups "$BENCH_SETUPS")
+          [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm ai search "${args[@]}"
+
       - name: Run every setup against every question
-        if: ${{ inputs.judge_run_id == '' }}
+        if: ${{ inputs.judge_run_id == '' && inputs.job != 'search' }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
@@ -201,7 +215,7 @@ jobs:
           pnpm --silent ai calibrate "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Judge every answer, blind
-        if: ${{ !inputs.calibrate }}
+        if: ${{ !inputs.calibrate && inputs.job != 'search' }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
@@ -211,7 +225,7 @@ jobs:
           pnpm ai judge "${args[@]}"
 
       - name: Score
-        if: ${{ !inputs.calibrate }}
+        if: ${{ !inputs.calibrate && inputs.job != 'search' }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: pnpm ai score "$RESULT"

@@ -13,6 +13,7 @@ import {
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { readProductionSetup } from "./production.js";
+import { searchSettingsOf } from "../search/settings.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
@@ -302,6 +303,10 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
+  // The setup's `search:` section, when it has one, over the deployment's
+  // settings for this turn's searches, in this context and any it addresses
+  // (`openContext` copies the store's settings at open time).
+  if (production?.search) store.searchSettings = searchSettingsOf(store, production.search);
   const productionModel =
     production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);

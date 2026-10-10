@@ -83,6 +83,10 @@ function readQuestion(sec) {
     mirror: null,
     // Allowed but never required: told to the judge, never graded.
     may: [],
+    // A search question (`tests/search.md`): the notes that should come back,
+    // as @workspace/path, and the one workspace the search is addressed to.
+    expect: [],
+    in: null,
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
@@ -97,6 +101,8 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- must:\s*(.*)$/))) q.must.push(m[1].trim());
     else if ((m = line.match(/^- judge:\s*(.*)$/))) q.judge.push(m[1].trim());
     else if ((m = line.match(/^- may:\s*(.*)$/))) q.may.push(m[1].trim());
+    else if ((m = line.match(/^- expect:\s*(.*)$/))) q.expect.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
+    else if ((m = line.match(/^- in:\s*(.*)$/))) q.in = m[1].trim() || null;
     else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
       if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
       q.mirror = Number(m[1].trim());

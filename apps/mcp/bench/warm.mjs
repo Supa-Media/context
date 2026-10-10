@@ -21,7 +21,12 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3B
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { DatabaseSync, createD1Backend } from "../test/searchProjection/fixtures.mjs";
 import { assertIsoDate, installClock, noonUtcMs, realNow } from "./clock.mjs";
-import { S3_ENDPOINT, placeWorkspaces, searchIndexFor } from "./world.mjs";
+import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
+import { ACCOUNT_ID as D1_ACCOUNT_ID } from "../test/searchProjection/fixtures.mjs";
+import { bindingEmbedder } from "../src/search/meaning/embed.js";
+import { createMeaningClient } from "../src/search/meaning/client.js";
+import { meaningChangeFor } from "../src/search/meaning/project.js";
+import { S3_ENDPOINT, fixtureVisibility, placeWorkspaces, searchIndexFor } from "./world.mjs";
 
 /** Searches one workspace may take to converge before the run is refused. */
 const MAX_WARM_PASSES = 2_000;
@@ -31,11 +36,16 @@ const PROGRESS_PATH = "/gateway/search-index/progress";
  * Warm every workspace and snapshot it.
  *
  * @param {object} bench what `readBenchFolder` (or `expandWorkspaces`) returned
- * @param {{ today?: string | null }} [options] the pinned day, as for `createWorld`
+ * @param {{ today?: string | null, ai?: object | null }} [options] the pinned
+ *   day, as for `createWorld`; and the Workers AI binding that embeds (the
+ *   run's `models.ai`). With one, every workspace's meaning index is filled too
+ *   (one passage per fingerprint, `src/search/meaning/project.js`) and
+ *   snapshotted, so a conversation searches by meaning as production does.
+ *   Without one the world has no meaning index, as before 2026-10-10.
  * @returns {Promise<{ buckets: Map<string, Map>, passes: Map<string, number>,
- *   openCopy: Function, close: Function }>}
+ *   vectors: Map | null, embedded: Map<string, number>, openCopy: Function, close: Function }>}
  */
-export async function prepareRun(bench, { today = null } = {}) {
+export async function prepareRun(bench, { today = null, ai = null } = {}) {
   if (today !== null) assertIsoDate(today);
   if (!DatabaseSync) throw new Error("node:sqlite is needed to warm the benchmark world (Node 22.5 or later)");
   const baseMs = today === null ? realNow() : noonUtcMs(today);
@@ -44,14 +54,16 @@ export async function prepareRun(bench, { today = null } = {}) {
   const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
   const controlPlane = createControlPlaneStub();
   const d1 = createD1Backend();
-  const restore = [s3.install(), controlPlane.install(), d1.install()];
+  const vectorize = ai ? createVectorizeBackend() : null;
+  const restore = [s3.install(), controlPlane.install(), d1.install(), ...(vectorize ? [vectorize.install()] : [])];
   if (today !== null) restore.push(installClock(today));
-  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SEARCH_SUBREQUEST_BUDGET: "600" };
+  const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SEARCH_SUBREQUEST_BUDGET: "600", ...(ai ? { AI: ai } : {}) };
 
   const buckets = new Map();
   const passes = new Map();
+  const embedded = new Map();
   try {
-    const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: "backfilling" });
+    const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: "backfilling", meaning: vectorize !== null });
     for (const [name, id] of ids) {
       const token = `cat_bench_warm_${name.replace(/[^a-z0-9]/g, "")}_${"0".repeat(24)}`;
       await controlPlane.addGrant({
@@ -75,6 +87,7 @@ export async function prepareRun(bench, { today = null } = {}) {
         }
       }
       passes.set(name, count);
+      if (vectorize) embedded.set(name, await fillMeaningIndex(bench, name, ai));
       buckets.set(name, new Map([...s3.bucketFor(`bench-${name}`)].map(([key, object]) => [key, { ...object }])));
       // The temp dir's name is ours (mkdtemp), so it holds nothing a quote could break.
       d1.dbFor(searchIndexFor(name, "ready").databaseId).exec(`VACUUM INTO '${join(dir, `${name}.db`)}'`);
@@ -89,6 +102,10 @@ export async function prepareRun(bench, { today = null } = {}) {
     today,
     buckets,
     passes,
+    /** Each workspace's meaning index, as `createVectorizeBackend` seeds one; null when the run has no embedder. */
+    vectors: vectorize ? vectorize.snapshotAll() : null,
+    /** Passages embedded per workspace. */
+    embedded,
     /** A fresh copy of a workspace's warmed database, for one conversation. */
     openCopy(databaseId, into = []) {
       const name = [...buckets.keys()].find((workspace) => searchIndexFor(workspace, "ready").databaseId === databaseId);
@@ -102,6 +119,32 @@ export async function prepareRun(bench, { today = null } = {}) {
       rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/** Notes embedded at once; the catch-up pass's own figure (`meaning/catchup.js`). */
+const EMBED_CONCURRENCY = 8;
+
+/**
+ * Put every note of one workspace in its meaning index, the way the control
+ * plane's catch-up pass does for a real workspace: each note cut into passages
+ * (`meaningChangeFor`), fingerprinted by the run's embedder, upserted under
+ * the tier its visibility gives it. Returns how many passages went in.
+ */
+async function fillMeaningIndex(bench, name, ai) {
+  const embed = bindingEmbedder(ai);
+  const client = createMeaningClient(meaningIndexFor(name, "ready", D1_ACCOUNT_ID));
+  const entries = Object.entries(bench.workspaces[name].files);
+  const vectors = [];
+  for (let start = 0; start < entries.length; start += EMBED_CONCURRENCY) {
+    const changes = await Promise.all(
+      entries.slice(start, start + EMBED_CONCURRENCY).map(([path, content]) =>
+        meaningChangeFor(path, { content, visibility: fixtureVisibility(bench, name, path) }, embed),
+      ),
+    );
+    for (const change of changes) vectors.push(...change.vectors);
+  }
+  if (vectors.length > 0) await client.upsert(vectors);
+  return vectors.length;
 }
 
 /** One `search_notes` through the gateway, deferred index work included. */

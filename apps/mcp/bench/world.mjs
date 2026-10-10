@@ -27,6 +27,8 @@ import { rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
+import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
+import { wireSearchSettings } from "../src/search/settings.js";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
@@ -61,7 +63,7 @@ export function searchIndexFor(name, state) {
   return { databaseId: `db-bench-${name}`, accountId: D1_ACCOUNT_ID, apiToken: D1_API_TOKEN, state };
 }
 
-export function binding(bucket, n, searchIndex = null) {
+export function binding(bucket, n, searchIndex = null, meaningIndex = null) {
   return {
     provider: "s3",
     endpoint: S3_ENDPOINT,
@@ -73,7 +75,19 @@ export function binding(bucket, n, searchIndex = null) {
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
     ...(searchIndex ? { searchIndex } : {}),
+    ...(meaningIndex ? { meaningIndex } : {}),
   };
+}
+
+/**
+ * The visibility a fixture note is written at, as `manifest` above declares it:
+ * a shared workspace's notes are team unless held back by name, a personal
+ * workspace's are private. The meaning index records the same tier.
+ */
+export function fixtureVisibility(bench, name, path) {
+  const shared = !bench.people.some((row) => row.workspace === name && row.personal);
+  if (!shared) return "private";
+  return (bench.workspaces[name].heldBack ?? []).includes(path) ? "private" : "team";
 }
 
 function bodyText(object) {
@@ -93,7 +107,7 @@ function snapshot(bucket) {
  * is a real leak. `search` is `null` (no search database: the cold world),
  * `"backfilling"` (a database to warm) or `"ready"` (a warmed clone).
  */
-export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null, prepared = null }) {
+export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null, meaning = false, prepared = null }) {
   const modified = (ms) => new Date(ms).toISOString();
   const ids = new Map();
   let n = 0;
@@ -101,7 +115,10 @@ export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null
     const id = workspaceId(name);
     const shared = !bench.people.some((row) => row.workspace === name && row.personal);
     const searchIndex = search ? searchIndexFor(name, search) : null;
-    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n, searchIndex), shared ? { kind: "shared" } : {});
+    // Search by meaning rides beside fast search, on the same state: a world
+    // with a meaning index is one whose warm pass filled it (`warm.mjs`).
+    const meaningIndex = meaning && search ? meaningIndexFor(name, search, D1_ACCOUNT_ID) : null;
+    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n, searchIndex, meaningIndex), shared ? { kind: "shared" } : {});
     const bucket = s3.bucketFor(`bench-${name}`);
     if (prepared) {
       // The warmed bucket, index shards included; each object copied so a turn's
@@ -152,7 +169,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // A warmed world answers searches from a copy of the snapshot's database.
   const copies = [];
   const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;
-  const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : [])];
+  // The warmed meaning index, copied: a turn's write-behind lands in this
+  // conversation's copy and never in the snapshot or the next conversation.
+  const vectorize = prepared?.vectors ? createVectorizeBackend({ seed: prepared.vectors }) : null;
+  const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : []), ...(vectorize ? [vectorize.install()] : [])];
   if (today !== null) restore.push(installClock(today));
 
   // Model calls are the only traffic that leaves the world.
@@ -161,14 +181,14 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
     if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
-    if (d1 && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
+    if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
     throw new Error("a benchmark turn tried to reach the network outside the model");
   };
   restore.push(() => {
     globalThis.fetch = below;
   });
 
-  const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, prepared });
+  const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, meaning: vectorize !== null, prepared });
 
   controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", 999), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
@@ -205,6 +225,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // The deployment's search settings (`src/search/settings.js`): what a
+    // search setup under test puts in the Worker's vars.
+    ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
   /** Files the gateway writes for itself on a save: never the model's change. */
@@ -319,6 +342,35 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         }
       }
       return out;
+    },
+
+    /**
+     * One `search_notes` as the person, through the MCP endpoint, the way an
+     * AI client calls it: for the search benchmark (`search.mjs`). `context`
+     * addresses another workspace, as a client would with `context: "@name"`.
+     */
+    async search(query, context = null) {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "search_notes", arguments: { query, ...(context ? { context } : {}) } },
+          }),
+        }),
+        env,
+        ctx,
+      );
+      await settle();
+      const ms = realNow() - started;
+      const body = await response.json().catch(() => null);
+      const text = (body?.result?.content ?? []).map((block) => block.text ?? "").join("\n");
+      return { ok: response.status === 200 && body?.result?.isError !== true, text, ms };
     },
 
     close() {

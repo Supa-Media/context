@@ -28,12 +28,13 @@ import { basename, join, resolve } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
 import { expandWorkspaces, readBenchFolder } from "./load.mjs";
-import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
+import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
+import { searchCommand } from "./search.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { realNow } from "./clock.mjs";
@@ -43,7 +44,10 @@ import { benchFolder } from "./folder.mjs";
 const MAX_PERSON_TEXTS = 4;
 
 function parseArgs(argv) {
-  const [command, job, ...rest] = argv;
+  // `pnpm ai search --fake` names no job: a first word that is a flag is one.
+  const [command, ...all] = argv;
+  const job = all.length > 0 && !all[0].startsWith("--") ? all.shift() : undefined;
+  const rest = all;
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
@@ -153,10 +157,12 @@ async function answerJobs(options, { bench, test }, jobs, label = "") {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
   const models = options.fake
-    ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
+    ? { gatewayFetch: fakeGateway(), ai: cachedEmbeddings(fakeAi()) }
     : {
         gatewayFetch: anthropicGateway(send),
-        ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null),
+        // Embeds too (`@cf/baai/bge-m3`), remembered by text so each passage
+        // and each query is paid for once a run.
+        ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
       };
   const person = { fake: options.fake === true, send, model: test.front.played_by };
@@ -164,8 +170,11 @@ async function answerJobs(options, { bench, test }, jobs, label = "") {
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
   // conversation a clone of it. --cold measures the scan a fresh import gets.
   const today = test.front.today ?? null;
-  const prepared = options.cold ? null : await prepareRun(bench, { today });
-  if (prepared) process.stderr.write(`${label}warmed ${prepared.buckets.size} workspaces\n`);
+  const prepared = options.cold ? null : await prepareRun(bench, { today, ai: models.ai });
+  if (prepared) {
+    const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
+    process.stderr.write(`${label}warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes\n`);
+  }
 
   const records = [];
   try {
@@ -318,6 +327,7 @@ const USAGE = [
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
+  "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -327,6 +337,7 @@ const COMMANDS = new Map([
   ["score", scoreCommand],
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
+  ["search", searchCommand],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

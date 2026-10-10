@@ -438,10 +438,13 @@ export function createControlPlaneStub(options = {}) {
 
         // `noteCap` is a fifth sibling — the free managed tier's cap — split
         // here for the reason above: a fixture may nest it, the wire never does.
-        const { searchIndex, encryptionKey, noteCap, ...storage } = binding;
+        // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
+        // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
+        const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
+          ...(meaningIndex ? { meaningIndex } : {}),
           ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
@@ -631,7 +634,7 @@ export function createControlPlaneStub(options = {}) {
         job.status = "running";
         const binding = bindings.get(job.workspaceId);
         if (!binding) return ok({ job: null });
-        const { searchIndex, encryptionKey, ...storage } = binding;
+        const { searchIndex, meaningIndex, encryptionKey, ...storage } = binding;
         return ok({
           job: {
             job: {
@@ -644,6 +647,7 @@ export function createControlPlaneStub(options = {}) {
             },
             binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
             ...(searchIndex ? { searchIndex } : {}),
+            ...(meaningIndex ? { meaningIndex } : {}),
             ...(encryptionKey ? { encryptionKey } : {}),
           },
         });

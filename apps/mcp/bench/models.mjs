@@ -18,6 +18,8 @@
  * checked with no key and no spend.
  */
 
+import { MEANING_DIMENSIONS, MEANING_MODEL } from "../src/search/meaning/embed.js";
+
 const realFetch = globalThis.fetch;
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -164,10 +166,62 @@ export function fakeGateway() {
   };
 }
 
+/**
+ * A scripted meaning fingerprint, for `--fake` and the tests: 1,024 numbers
+ * from the text's character trigrams, so two texts that share words sit close
+ * and two that share none sit far, the way the real model's do in the large.
+ * It knows no synonyms: a fake run proves the plumbing (the index fills, a
+ * search asks it, a match surfaces), never the quality, which only real
+ * embeddings measure.
+ */
+export function fakeEmbedding(text) {
+  const vector = new Float64Array(MEANING_DIMENSIONS);
+  const words = String(text).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  for (const word of words) {
+    const padded = ` ${word} `;
+    for (let i = 0; i + 3 <= padded.length; i += 1) {
+      let hash = 2166136261;
+      for (const ch of padded.slice(i, i + 3)) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0;
+      vector[hash % MEANING_DIMENSIONS] += 1;
+    }
+  }
+  let norm = 0;
+  for (const value of vector) norm += value * value;
+  norm = Math.sqrt(norm) || 1;
+  return Array.from(vector, (value) => value / norm);
+}
+
+/**
+ * The same `run` with the embedding model's answers remembered by text: the
+ * warm pass embeds every note once, and every conversation's searches embed
+ * the same few queries, so a round pays for each passage and each query once.
+ */
+export function cachedEmbeddings(ai) {
+  const known = new Map();
+  return {
+    async run(model, input, options) {
+      if (model !== MEANING_MODEL) return ai.run(model, input, options);
+      const texts = Array.isArray(input?.text) ? input.text : [];
+      const missing = [...new Set(texts.filter((text) => !known.has(text)))];
+      if (missing.length > 0) {
+        const answer = await ai.run(model, { text: missing }, options);
+        const data = Array.isArray(answer?.data) ? answer.data : [];
+        if (data.length !== missing.length) throw new Error("the embedding model answered with the wrong count");
+        missing.forEach((text, index) => known.set(text, data[index]));
+      }
+      return { shape: [texts.length, MEANING_DIMENSIONS], data: texts.map((text) => known.get(text)) };
+    },
+  };
+}
+
 /** The same script for an `@cf/` setup, in the Workers AI chat shape. */
 export function fakeAi() {
   return {
     async run(model, input) {
+      if (model === MEANING_MODEL) {
+        const texts = Array.isArray(input?.text) ? input.text : [];
+        return { shape: [texts.length, MEANING_DIMENSIONS], data: texts.map(fakeEmbedding) };
+      }
       // Clef, the router (`src/agent/router.js`): a text that asks for a plan or
       // a judgement is `think`; a text that edits is `change`; the rest `lookup`.
       if (model === "@cf/cloudflare/clef") {

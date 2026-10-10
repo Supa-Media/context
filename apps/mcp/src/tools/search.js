@@ -10,22 +10,104 @@ import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
 import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
-import { MEANING_ONLY_LABEL, searchBothWays } from "../search/meaning/serve.js";
+import { MEANING_ONLY_LABEL, meaningSearchable, searchBothWays } from "../search/meaning/serve.js";
+import { meaningEmbedderFor } from "../search/meaning/store.js";
+import { searchSettingsOf } from "../search/settings.js";
+import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
+
+/** Most hits a search across every workspace shows: a round of each list's best, bounded. */
+const EVERYWHERE_HITS = 12;
+
+/** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
+function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+  return searchBothWays(
+    store,
+    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+    // A folder, never the start of a sibling's name: see `folderPrefix`. The
+    // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
+    { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}) },
+  );
+}
+
+/**
+ * One query, one fingerprint: the embedder of the connection's own store,
+ * remembered after the first call, so a search across six workspaces embeds
+ * the query once. Undefined when this store has no meaning index, and each
+ * workspace then embeds on its own terms.
+ */
+function sharedEmbedder(store) {
+  if (!meaningSearchable(store)) return undefined;
+  let vector = null;
+  return async (texts) => {
+    if (vector === null) [vector] = await meaningEmbedderFor(store)(texts);
+    return [vector];
+  };
+}
+
+/**
+ * `search_notes` across every workspace the person can reach (the setting
+ * `everywhere`, `../search/settings.js`; asked for by the owner 2026-10-10 so
+ * an assistant need not guess which workspace an answer lives in).
+ *
+ * Each other workspace is opened the way a tool call addressed with
+ * `context: "@name"` opens it (`store.openContext`), so it is searched under
+ * the person's role *there* and its own `privacy.md`: a note held back from a
+ * member is as absent through this as through a direct search. A workspace
+ * that cannot be opened or read right now is left out, never guessed at. The
+ * lists are fused a rank at a time, this workspace first, and a hit from
+ * another workspace carries its name in front of the path.
+ */
+async function searchEverywhere(store, here, names, query, embed) {
+  const elsewhere = (
+    await Promise.all(
+      names.map(async (name) => {
+        try {
+          const { session: target, store: targetStore } = await store.openContext(name);
+          const privacy = await loadPrivacyState(targetStore);
+          if (privacy.error) return null;
+          const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
+          return { name, found };
+        } catch {
+          return null;
+        }
+      }),
+    )
+  ).filter(Boolean);
+  const lists = [here.hits, ...elsewhere.map(({ name, found }) => found.hits.map((hit) => ({ ...hit, key: `${name}/${hit.key}` })))];
+  const hits = [];
+  for (let rank = 0; hits.length < EVERYWHERE_HITS; rank += 1) {
+    let any = false;
+    for (const list of lists) {
+      if (list[rank] === undefined) continue;
+      any = true;
+      if (hits.length < EVERYWHERE_HITS) hits.push(list[rank]);
+    }
+    if (!any) break;
+  }
+  return {
+    ...here,
+    hits,
+    matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, here.matchCount),
+    matchCountIsFloor: here.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
+    crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
+  };
+}
 
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const found = await searchBothWays(
-    store,
-    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
-    // A folder, never the start of a sibling's name: see `folderPrefix`. The
-    // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
-    { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides) },
-  );
+  // A prefix names a folder in this workspace, so a search with one stays here.
+  const names =
+    searchSettingsOf(store).everywhere && !prefix && typeof store.openContext === "function"
+      ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
+      : [];
+  const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
+  const here = await searchOne(store, scope, rules, overrides, query, prefix, embed);
+  const found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : here;
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
@@ -93,6 +175,10 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
     out += `\n\n[note: scanned ${found.scannedCount} of ${found.totalCount}${
       found.totalIsFloor ? "+" : ""
     } notes — narrow with a prefix if needed]`;
+  }
+  if (found.crossWorkspace) {
+    out +=
+      '\n\nA path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note, or to any other tool, to reach it.';
   }
   return toolText(out);
 }
