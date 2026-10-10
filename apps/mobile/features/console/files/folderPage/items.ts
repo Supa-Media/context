@@ -7,7 +7,6 @@ import type { FolderItem } from "./model";
 import type { StatusGroup, StatusMenuSection } from "./statuses";
 import type { StatusTone } from "./StatusPill";
 import type { TaskControls } from "./tasks/useTaskActions";
-import type { TaskMenuModel } from "./tasks/useTaskMenu";
 
 /** A save older than this is drawn a step quieter (spec: staleness is only a date). */
 const STALE_AFTER = 14 * 24 * 60 * 60 * 1000;
@@ -50,8 +49,6 @@ export interface ItemActions {
    * set from the right-click menu or the side panel (`EstimateCell.tsx`).
    */
   sized?: boolean;
-  /** A row's menu, for a phone's ⋯, hold and swipe (`tasks/useTaskMenu.tsx`); absent for who may not write. */
-  taskMenu?: TaskMenuModel | null;
 }
 
 /** An owner picker's search, and the owners the folder already uses, most used first. */

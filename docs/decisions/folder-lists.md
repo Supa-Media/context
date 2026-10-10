@@ -119,13 +119,39 @@ byte or writes a value that reads back differently; `useFolderListsEdit.test.ts`
 fails if a member is offered the edit; `listEdit.test.ts` fails if
 `visibility`, in any case, is offered or written.
 
+## The List is the Notes rows, with three thin extras
+
+Decided by the owner on 2026-10-10, choosing board 11 after calling the List
+"pretty cluttered" and a calmer toolbar "still cluttered": "I almost want the
+list view to look exactly like the notes view, just with some thin extras".
+So a projects folder's List draws the very rows Notes draws, in the same
+order, through the same `FolderRow`, and adds three things to a row whose
+item has a status: a small dot before the name (a ring for Not started, half
+for In progress, full for Done, by the status's group), and after it a grey
+"2/3" when it has parts and up to two owners' faces ("+N" beyond). A finished
+row's name is grey. A row with no status gets nothing but keeps the dot's
+room, so names line up. A row opens what it names, exactly as in Notes.
+
+There is no search, filter bar, status groups, Backlog band, "+ Add" line or
+Notes section on the List any more, and nothing on it writes; statuses,
+owners, priority and the rest are set on the Board and in the side panel,
+which are unchanged. The extras reach the rows through a context
+(`folderPage/rowExtras.tsx`) rather than a second row component, so List and
+Notes cannot come to list different things. Reversing this means bringing a
+second row back; `__tests__/folderPageList.test.ts` fails first, on "is the
+Notes rows, in the Notes order, and nothing else". The sections below that
+describe the List's groups, filter bar, row cells and add lines record the
+List before this decision; where they describe the Board or the panel they
+still hold.
+
 ## A folder page shows its children by status
 
 A folder's own page is where projects are seen and set, with no block to write.
 Every projects folder page offers **Notes · List · Board** on its title's row:
 Notes is the listing as it always was (called Files until 2026-09-28: "files"
-is a word for the storage, not for what is in it), List draws the folder's
-tasks by `status` and then its plain notes, Board draws the tasks as columns.
+is a word for the storage, not for what is in it), List draws the same rows
+with a status dot, a count and faces (see above), Board draws the tasks as
+columns.
 A folder opens in List once anything in it has a status, and in Notes
 otherwise; what each viewer picks is remembered per folder in that browser's
 storage, never shared and never required. When two or more subfolders exist
@@ -409,48 +435,11 @@ several owners is offered as one choice.
 
 ## The filter bar, per viewer
 
-Decided by the owner on 2026-09-29 (the filter bar artboard, "Build as
-drawn"), replacing the Show bar's Everyone · Mine · No owner · Urgent ·
-Owner ▾. Above the List: a search over names, **Mine**, and a menu for each
-of **Owner** (Me, the people and AI helpers the tasks name, No owner),
-**Tag** (the tags in use, with counts; a tag nothing uses is not offered),
-**Priority** (Urgent to Low, No priority), **Estimate** (XS to XXL, No
-estimate) and **Due** (Overdue, This week, Next week, No due date; weeks run
-Monday to Sunday in the viewer's calendar). Each menu's choices are ticked
-as many as wanted.
-
-- **Any within a kind, every across kinds.** A task matches a kind when it
-  matches any of its ticks, and is drawn when it matches every kind with a
-  tick. A kind that is on is a chip that says so ("Tag is context or
-  portal"), reopens its menu, and clears with ×; Clear clears them all. The
-  bar says "3 of 7", and "· match every filter" once two kinds are on.
-- **Mine is Owner's Me in one press**, and is pressed whenever Me is ticked.
-  Me is the viewer's handle: the host hands the page the viewer's own name
-  and address, resolved the way any owner word written before handles is
-  (`owners.resolveOwners`), only on a projects folder; an owner line is the
-  viewer's when it names them or their own agent (`@seyi's Claude`). Where
-  the page does not know who is looking, neither Mine nor Me is offered.
-- **Counts are over every task, subtasks included.** Under a filter a
-  section says "1 of 12", a group with nothing left is dropped, notes (which
-  are not tasks) are left out, and a task that does not match but has a
-  subtask that does stays, dimmed and opened on that subtask. The search
-  works the same way: a subtask's name keeps its parent.
-- **It is a way of looking, not a record.** The ticks are remembered per
-  viewer, per workspace, per folder in the browser's storage, like the view
-  choice, and never written to a note; the search is not remembered. What
-  the old Show bar stored (`mine`, `no-owner`, `urgent`, `owner:<name>`)
-  reads back as the ticks it meant. A member has the bar too.
-- **On a phone** the bar is a search button, "Filter · N" and Mine; Filter
-  opens every menu at once as one sheet of 44pt choices, closed by "Show 3
-  of 7 projects".
-
-`folderPageTasks.test.ts` fails if kinds stop combining as every-of-any, if
-a count stops including subtasks, if a parent kept for its subtask is not
-dimmed or carries the others, if a week stops running Monday to Sunday, or
-if a stored filter (old words included) does not read back;
-`folderPageList.test.ts` fails if a filter writes, if Mine stops matching by
-handle or is not remembered, or if a tag nothing uses is offered;
-`folderPagePhone.test.ts` fails if the sheet's choices are under 44pt.
+Decided by the owner on 2026-09-29 (the filter bar artboard): a search over
+names, **Mine**, and Owner, Tag, Priority, Estimate and Due menus above the
+List, ticks remembered per viewer. Removed with the List's other furniture on
+2026-10-10 (see "The List is the Notes rows"): the owner asked for no search
+at all. Bringing filters back is a new decision, not a revert.
 
 ## Estimates
 
@@ -461,23 +450,12 @@ meaning wherever it is picked: XS an hour or so, S half a day, M a day or
 two, L about a week, XL two weeks, XXL a month or more. A project's estimate
 is set by hand like a subtask's, never summed from its subtasks.
 
-- A row draws it as a small outlined size between its tags and its due day,
-  a button for a writer that opens the six and "No estimate" (which clears
-  the line), written with an Undo ("“Sign the lease” is an M now"). Subtask
-  rows have it too, beside their priority mark. Board cards show it; the
-  side panel has an Estimate row; the right-click menu (and so the phone's
-  sheet) has Estimate › after Priority ›.
-- **The column appears once any task on the page has an estimate.** Before
-  then the room goes to the names: a column of empty "+" on every row took
-  the width a narrow page's names needed, and with the peek open the hover
-  tools covered a name whole. A first estimate is set from the right-click
-  menu or the side panel.
+Board cards show it and the side panel has an Estimate row, written with an
+Undo ("“Sign the lease” is an M now"). The List drew it as a column until
+2026-10-10; it no longer does (see "The List is the Notes rows").
 
 `folderPageTasks.test.ts` fails if anything but the six sizes becomes an
-estimate; `folderPageList.test.ts` fails if a subtask loses its estimate or a
-member can press one; `folderPageTaskWrites.test.ts` fails if the menu's
-Estimate write has no Undo; `projectsListRows.test.ts` fails if an unsized
-page draws the column.
+estimate.
 
 ## The side panel: any row opens beside the list
 

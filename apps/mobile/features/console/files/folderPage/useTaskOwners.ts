@@ -13,9 +13,17 @@
 import { useCallback, useMemo } from "react";
 import type { Face } from "./Glyphs";
 import { parseAgentOwner } from "./agents";
-import type { OwnerWho } from "./showFilter";
 
 const fold = (text: string) => text.trim().toLowerCase();
+
+/** Who an owner word is, for this viewer. */
+export interface OwnerWho {
+  /** The viewer, or the viewer's own agent (`@seyi's Claude`). */
+  isMe(owner: string): boolean;
+  isAgent(owner: string): boolean;
+  /** As shown: `@seyi` for an owner written as their address. */
+  label(owner: string): string;
+}
 
 export interface TaskOwners {
   readonly who: OwnerWho;

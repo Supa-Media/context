@@ -3,24 +3,23 @@
  *
  * A projects folder's page, and every page beneath it (`isProjectsFolder`),
  * can be seen three ways — **Notes**, the listing as it has always been;
- * **List**, its tasks by status and then its plain notes; **Board**, the
- * tasks as columns — switched by three words on the title's row and
- * remembered per viewer, per folder (`viewMemory.ts`). A folder opens in List
- * once anything in it has a status, and in Notes otherwise. Any other folder
- * is its listing with no switch, no nudge and no `Set status`.
+ * **List**, the very same rows with a status dot, a grey "2/3" and owners'
+ * faces (`rowExtras.tsx`; the owner, 2026-10-10: "exactly like the notes
+ * view, just with some thin extras"); **Board**, the tasks as columns —
+ * switched by three words on the title's row and remembered per viewer, per
+ * folder (`viewMemory.ts`). A folder opens in List once anything in it has a
+ * status, and in Notes otherwise. Any other folder is its listing with no
+ * switch, no nudge and no `Set status`.
  *
- * Anything with a status is a task; anything without is a plain note, drawn
- * below the tasks with "Make it a task" (`listLayout.ts`). A note's status
- * goes in its own frontmatter, a folder's in its front note, and a folder
- * with none gets an `about.md` holding just that. The page itself is one
- * too — a project folder is titled by its front note and says its status,
- * owner and first paragraph under the title (`Head.tsx`). Above the List,
- * the filter bar narrows it, per viewer (`ShowBar.tsx`). Somebody who
- * may write adds, nests, moves and changes tasks from the List — "+ Add
- * task", a right-click, a selection, a drag — each write undoable from its
- * toast (`tasks/useFolderTasks.tsx`). On a desktop page any row — a task, a
- * note, a project — opens beside the List or Board in the side panel
- * (`panel/`); on a phone, on its own page.
+ * Anything with a status is a task. A note's status goes in its own
+ * frontmatter, a folder's in its front note, and a folder with none gets an
+ * `about.md` holding just that. The page itself is one too — a project folder
+ * is titled by its front note and says its status, owner and first paragraph
+ * under the title (`Head.tsx`). The List writes nothing and a row opens what
+ * it names, as in Notes. Somebody who may write adds, moves and changes tasks
+ * on the Board — "+ Add", a right-click, a selection, a drag — each write
+ * undoable from its toast (`tasks/useFolderTasks.tsx`), and on a desktop page
+ * a card opens beside the Board in the side panel (`panel/`).
  *
  * Nothing new is stored and nothing is read that a list block could not read:
  * the notes are the device's copy at the role's clearance, and every change is
@@ -37,11 +36,10 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FileEntry } from "../types";
 import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
-import { boardWidth, dayOf } from "./pageMeasures";
-import { FolderGroups } from "./Groups";
-import { listLayout, makeItTaskStatus } from "./listLayout";
-import { ShowBar } from "./ShowBar";
-import { filterMatch, NO_FILTER, tasksWithSubtasks, type ShowFilter } from "./showFilter";
+import { boardWidth } from "./pageMeasures";
+import { makeItTaskStatus, tasksWithSubtasks } from "./taskBasics";
+import { rowExtras, RowExtrasProvider } from "./rowExtras";
+import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
 import { FolderHead, PropertyLine, ViewSwitch } from "./Head";
@@ -78,7 +76,7 @@ import {
 import { StatusesDialog } from "./StatusesDialog";
 import { useStatusEdits } from "./useStatusEdits";
 import { TrackNudge, TrackNudgeTurn } from "./Nudge";
-import { dismissNudge, nudgeDismissed, rememberFilter, rememberView, rememberedFilter, rememberedView } from "./viewMemory";
+import { dismissNudge, nudgeDismissed, rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
 import { TaskPanel } from "./panel/TaskPanel";
@@ -140,16 +138,12 @@ export function FolderPage({
   const [picked, setPicked] = useState<FolderPageView | null>(() =>
     host === undefined ? null : rememberedView(host.workspaceId, folder),
   );
-  const [filter, setFilter] = useState<ShowFilter>(() =>
-    host === undefined ? NO_FILTER : (rememberedFilter(host.workspaceId, folder) ?? NO_FILTER),
-  );
   const [pickedFor, setPickedFor] = useState(folder);
   const [, setDismissals] = useState(0);
   // The page is reconciled across folders without a key; a choice is per folder.
   if (pickedFor !== folder) {
     setPickedFor(folder);
     setPicked(host === undefined ? null : rememberedView(host.workspaceId, folder));
-    setFilter(host === undefined ? NO_FILTER : (rememberedFilter(host.workspaceId, folder) ?? NO_FILTER));
   }
 
   const now = Date.now();
@@ -209,16 +203,8 @@ export function FolderPage({
   );
   const taskOwners = useTaskOwners(me ?? NO_WORDS, label, agents.isAgent, agentList);
   const allTasks = useMemo(() => tasksWithSubtasks(items, notes ?? []), [items, notes]);
-  // A filter remembered from when there were tasks narrows nothing once there are none: its bar is gone.
-  const shown = allTasks.length === 0 ? NO_FILTER : filter;
   // A writer is always shown somewhere to park; a reader only what is parked.
   const writer = loaded.canEdit && host?.tasks !== undefined;
-  const layout = useMemo(
-    () => listLayout(items, list, notes ?? [], filterMatch(shown, taskOwners.who, now), { folder: parkedIn, always: writer }),
-    // `now` moves every render; the filter reads it only for Due, which is by the day.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, list, notes, shown, taskOwners.who, parkedIn, writer, dayOf(now)],
-  );
   const suggestAgents = useMemo(
     () => (suggestFor === undefined ? undefined : (path: string, prefer: readonly string[]) => suggestFor(path, prefer, agentList)),
     [suggestFor, agentList],
@@ -258,13 +244,15 @@ export function FolderPage({
     list,
     record: pending.record,
     owners,
-    label,
-    me,
-    onOpen: openItem,
-    makeTaskLabel,
-    compact,
     backlogFolder: parkedIn?.path ?? null,
   });
+
+  // The List: the Notes rows, each with its status dot, its "3/9" and its owners' faces (`rowExtras.tsx`).
+  const faceOf = taskOwners.faceOf;
+  const extras = useMemo(
+    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner)),
+    [items, toneOf, faceOf, owners],
+  );
 
   if (host === undefined) {
     return (
@@ -307,10 +295,6 @@ export function FolderPage({
     !nudgeDismissed(host.workspaceId, folder);
   // Every status in the folder's list is a column, empty or not: somewhere to drop a card.
   const bands = statusBands(groups, list);
-  const showFilter = (next: ShowFilter) => {
-    setFilter(next);
-    rememberFilter(host.workspaceId, folder, next);
-  };
   const columnCount = bands.reduce((sum, band) => sum + band.columns.length, 0);
   const onEditStatuses = edits.savesTo === null ? null : () => setEditing(true);
   const actions: ItemActions = {
@@ -339,7 +323,6 @@ export function FolderPage({
         : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates)),
     makeTaskLabel,
     tasks: tasks.controls,
-    taskMenu: tasks.menu,
     sized: allTasks.some((task) => estimateOf(task.properties) !== null),
   };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
@@ -372,7 +355,7 @@ export function FolderPage({
             {...(host.editing === undefined ? {} : { editing: host.editing })}
           />
         )
-      : view === "files" || waiting || peeking === null
+      : view !== "board" || waiting || peeking === null
       ? null
       : (width: number) => (
           <TaskPanel
@@ -473,7 +456,7 @@ export function FolderPage({
           files
         ) : waiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="folder-waiting" />
-        ) : items.length === 0 && (view === "board" || tasks.controls === null) ? (
+        ) : view === "board" && items.length === 0 ? (
           <Text variant="meta" style={styles.aside}>
             Nothing here to track yet. A note or folder added here can be given a status.
           </Text>
@@ -488,40 +471,14 @@ export function FolderPage({
             </View>
           )
         ) : (
-          <>
-            {allTasks.length === 0 ? (
-              tasks.addButton === null ? null : <View style={styles.addBar}>{tasks.addButton}</View>
-            ) : (
-              <ShowBar
-                filter={filter}
-                onChange={showFilter}
-                context={{ tasks: allTasks, who: taskOwners.who, me: taskOwners.myName, faceOf: taskOwners.faceOf, now }}
-                shown={layout.shown}
-                total={layout.total}
-                noun={rowsAreProjects(folder) ? { one: "project", many: "projects" } : { one: "task", many: "tasks" }}
-                compact={compact}
-                end={tasks.addButton ?? undefined}
-              />
-            )}
-            <FolderGroups layout={layout} compact={compact} now={now} actions={actions} />
-            {tasks.overlays}
-            {layout.filtered && layout.shown === 0 ? (
-              <Text variant="meta" style={styles.aside} testID="folder-filter-empty">
-                {`No ${rowsAreProjects(folder) ? "projects" : "tasks"} match. `}
-                <Text variant="meta" role="link" style={styles.link} onPress={() => showFilter(NO_FILTER)} testID="folder-filter-empty-clear">
-                  Clear filters
-                </Text>
-              </Text>
-            ) : null}
-            {tasks.phoneBar}
-          </>
+          <RowExtrasProvider extras={extras}>{files}</RowExtrasProvider>
         )}
         {view !== "files" && !waiting && !loaded.complete && notes !== null ? (
           <Text variant="treeMeta" style={styles.aside}>
             This device is still fetching some notes, so a status may be missing.
           </Text>
         ) : null}
-        {view !== "files" && skipped > 0 ? (
+        {view === "board" && skipped > 0 ? (
           <Text variant="treeMeta" style={styles.aside} onPress={() => choose("files")} role="link" testID="folder-skipped">
             {skipped === 1 ? "1 other file is in Notes" : `${skipped} other files are in Notes`}
           </Text>
