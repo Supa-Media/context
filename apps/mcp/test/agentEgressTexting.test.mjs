@@ -70,8 +70,9 @@ export async function runAgentEgressTextingChecks(check) {
         pending().length === 1,
     );
     check(
-      "the ask is in the gateway's own words, after the model's",
-      /Shall I\?\n\nBefore I do that, I need your OK: make 2-areas\/second\.md visible to the team\. Reply YES/.test(asked.body?.answer ?? ""),
+      "the ask is in the gateway's own words, after the model's, and the answer says one call waits",
+      /Shall I\?\n\nBefore I do that, I need your OK: make 2-areas\/second\.md visible to the team\. Reply YES/.test(asked.body?.answer ?? "") &&
+        asked.body?.asked === 1,
     );
     before = model.requests.length;
     const yes = await ask(env, TOKEN_TEXTS, "Yes!");
@@ -79,7 +80,7 @@ export async function runAgentEgressTextingChecks(check) {
       "a texted YES runs it without a model, and says so",
       yes.status === 200 &&
         model.requests.length === before &&
-        /^Done: make 2-areas\/second\.md visible to the team\. visibility changed: 2-areas\/second\.md/.test(yes.body?.answer ?? "") &&
+        /^Done: make 2-areas\/second\.md visible to the team\.$/.test(yes.body?.answer ?? "") &&
         teamVisible("2-areas/second.md") &&
         pending().length === 0,
     );

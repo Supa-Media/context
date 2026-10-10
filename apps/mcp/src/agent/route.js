@@ -477,6 +477,9 @@ export async function handleAgent(request, env, store, session, controlPlane) {
 
     return json({
       answer,
+      // How many held calls the answer's last line asks about, so a caller that
+      // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
+      asked: ledger.asked.length,
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
@@ -590,9 +593,12 @@ async function settleByText(store, session, verdict) {
     if (settled.status !== "approved") continue;
     const text = settled.result?.content?.[0]?.text;
     const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
-    replies.push(
-      settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}. ${said}`,
-    );
+    // A tool's own text is for a model: an etag, a visibility line. The person
+    // texted yes to a one-line summary and gets that summary back (the first
+    // Action round, 2026-10-10: "Done: write projects/x.md into @woodshop.
+    // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
+    // voice line the judge has). What went wrong still says what the tool said.
+    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
   }
   return replies.length === 0 ? null : replies.join("\n");
 }

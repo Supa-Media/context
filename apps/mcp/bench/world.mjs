@@ -240,6 +240,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
+        // Held calls the answer asks a YES for (`route.js`); the played person answers.
+        asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
         // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
         error:
