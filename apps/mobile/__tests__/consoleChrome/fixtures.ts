@@ -131,7 +131,22 @@ jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  // ⌘K's search of every workspace (`useBlendedSearch`): no workspaces listed,
+  // and a search that is never answered, so the palette keeps its own rows.
+  // One client for the whole file, as a provider gives: a fresh one per
+  // render would re-send the search on every render, forever.
+  useConvex: () => mockConvexClient,
+  useQueries: () => mockNoQueries,
 }));
+/** Every search ⌘K sent across workspaces, newest last. */
+export const everywhereAsked: { query: string; contexts?: string[] }[] = [];
+const mockConvexClient = {
+  action: (_fn: unknown, args: { query: string; contexts?: string[] }) => {
+    everywhereAsked.push(args);
+    return new Promise(() => {});
+  },
+};
+const mockNoQueries = {};
 
 jest.mock("../../features/console/useLiveConsoleData", () => ({
   useLiveConsoleData: () => mockConsoleData(),

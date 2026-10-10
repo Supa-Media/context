@@ -142,6 +142,7 @@ function baseView(over: Partial<BlendedSearchView> = {}): BlendedSearchView {
     retry: () => {},
     retrying: null,
     notice: null,
+    took: null,
     ...over,
   };
 }

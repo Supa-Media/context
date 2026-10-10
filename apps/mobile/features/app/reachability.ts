@@ -576,7 +576,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: CONSOLE_PALETTE,
-            contains: ["router.push(searchHref(query))"],
+            contains: ["router.push(searchHref("],
           },
         ],
         region: "screen",

@@ -67,6 +67,10 @@ export interface BlendedSource {
   state: "ok" | "indexing" | "failed";
   matchCount: number;
   matchCountIsFloor: boolean;
+  /** How long it took to answer, and how that split between words and meaning, in ms. */
+  ms?: number;
+  words?: number;
+  meaning?: number;
 }
 
 /** One page of the blended answer. */
