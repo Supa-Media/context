@@ -115,6 +115,45 @@ const SHARE_VALUES = new Set(["members", "anyone", "collect"]);
 /** A frontmatter line ingestion writes on content a stranger authored. */
 const UNTRUSTED_FRONTMATTER = /^trust:\s*"?untrusted"?\s*$/m;
 
+/**
+ * What one read handed the model from workspaces OTHER than the one the call
+ * was addressed to.
+ *
+ * `search_notes` with no `context` searches every workspace the person can
+ * reach and fuses one list (`tools/search.js`), so a single call hands over
+ * notes from several workspaces while `callToolForSession` knows only the one
+ * it routed to. The ledger is what `approvalRequired` reads to decide whether
+ * this turn may widen anything, and a read it never heard about is a read it
+ * cannot weigh: without this, a turn holding another workspace's notes looked
+ * exactly like a turn that had only read its own.
+ *
+ * Carried on the result under a Symbol, the way `live/activityHint.js` carries
+ * its own: invisible to `JSON.stringify` and to object spread, so it never
+ * reaches a client, and lost harmlessly by any wrapper that builds a new
+ * result — losing it can only make the gate hold more, never less.
+ */
+const READ_REACH = Symbol("context.readReach");
+
+/**
+ * Attach the workspaces a read reached, as `[{workspaceId, scope}]`.
+ *
+ * `scope` is this session's tier in that workspace, which is the widest
+ * anything from it could be — the same assumption `recordRead` makes for the
+ * workspace a call was addressed to.
+ */
+export function withReadReach(result, reached) {
+  if (result && typeof result === "object" && Array.isArray(reached)) {
+    Object.defineProperty(result, READ_REACH, { value: reached, enumerable: false });
+  }
+  return result;
+}
+
+/** The workspaces a read reached beyond the one it was addressed to. */
+export function readReachOf(result) {
+  const reached = result && typeof result === "object" ? result[READ_REACH] : undefined;
+  return Array.isArray(reached) ? reached : [];
+}
+
 /** A fresh ledger for one turn the gateway sees whole. */
 export function newLedger() {
   return { reads: new Map(), untrusted: false, asked: [] };
@@ -136,9 +175,15 @@ export function recordRead(ledger, { name, args, scope, workspaceId, result }) {
     if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = true;
     return;
   }
-  const label = scope === "private" ? "private" : "team";
-  const had = ledger.reads.get(workspaceId);
-  if (had === undefined || AUDIENCE_RANK[label] < AUDIENCE_RANK[had]) ledger.reads.set(workspaceId, label);
+  const mark = (id, tier) => {
+    if (typeof id !== "string" || id === "") return;
+    const label = tier === "private" ? "private" : "team";
+    const had = ledger.reads.get(id);
+    if (had === undefined || AUDIENCE_RANK[label] < AUDIENCE_RANK[had]) ledger.reads.set(id, label);
+  };
+  mark(workspaceId, scope);
+  // And every other workspace this one call read from (`readReachOf`).
+  for (const reached of readReachOf(result)) mark(reached?.workspaceId, reached?.scope);
   if (UNTRUSTED_READS.has(name) || readsCapturedContent(name, args) || carriesUntrustedFrontmatter(result)) {
     ledger.untrusted = true;
   }
