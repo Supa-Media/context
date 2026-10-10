@@ -330,6 +330,15 @@ prompt, with the result copied back by hand.
   (a cut-off at `max_tokens`, a missing answer id). The judge runs eight
   requests at once and the Action answers in twelve processes by default:
   both wait on models, not on the runner.
+- **A decision model is measured against the judge before it is trusted
+  with anything** (2026-10-10, the owner: Clef or Jev as the judge "just to
+  see the effect and the cost"). `pnpm ai calibrate` puts every answer of a
+  judged result to a decision model, one yes-or-no per check, and reports
+  agreement overall, by kind and by line, with the tokens read and the price;
+  the Action runs it with `calibrate` and `judge_run_id`. Nothing is written
+  to the result and nothing is scored by it. The judging of record stays
+  Haiku's until a calibration says a decision model agrees with it on a kind
+  of check, and then only for that kind.
 - A round's result and key still belong in `@context-lc ai/results/`, copied
   from the artifacts by whoever reads the round; a benchmark-runner OAuth
   client with a stored refresh token would close that last hop and is the
