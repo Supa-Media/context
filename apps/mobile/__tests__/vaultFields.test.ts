@@ -134,7 +134,7 @@ describe("reading a pasted .env", () => {
   });
 
   test("a double-quoted value may run over lines; CRLF and a BOM are fine", () => {
-    const text = '﻿KEY="-----BEGIN FAKE-----\r\nAAAA\r\n-----END FAKE-----"\r\nNEXT=1';
+    const text = '\uFEFFKEY="-----BEGIN FAKE-----\r\nAAAA\r\n-----END FAKE-----"\r\nNEXT=1';
     expect(parseDotenv(text).entries).toEqual([
       { name: "KEY", value: "-----BEGIN FAKE-----\nAAAA\n-----END FAKE-----" },
       { name: "NEXT", value: "1" },
