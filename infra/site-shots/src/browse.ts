@@ -156,6 +156,22 @@ function parseStep(item: unknown): Step | null {
   }
 }
 
+/**
+ * Pages no agent's browser may be on: Context's own vault screens, where a
+ * person adds or shares a saved login and presses the confirm themselves. A
+ * browser the agent drives never stays there, however it arrived.
+ */
+export function offLimits(href: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  const host = siteOf(url.hostname);
+  return (host === "context.lc" || host.endsWith(".context.lc")) && /^\/vault(\/|$)/i.test(url.pathname);
+}
+
 /** A host without a leading `www.`, lower case. */
 export function siteOf(host: string): string {
   return host.toLowerCase().replace(/\.+$/, "").replace(/^www\./, "");
@@ -282,7 +298,17 @@ export async function runSteps(
       break;
     }
     const before = (await where(page).catch(() => null))?.href ?? null;
-    const result = await runStep(page, step).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
+    const result =
+      step.do === "goto" && offLimits(step.url)
+        ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
+        : await runStep(page, step).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
+    // However it got there (a click, a redirect), it does not stay.
+    const landed = (await where(page).catch(() => null))?.href ?? null;
+    if (landed !== null && offLimits(landed)) {
+      await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: BROWSE_GOTO_TIMEOUT_MS }).catch(() => undefined);
+      ran.push({ do: step.do, ok: false, reason: "that page is off limits" });
+      break;
+    }
     ran.push(result);
     if (!result.ok) break;
     if (step.do === "goto" || step.do === "back") continue;

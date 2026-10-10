@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SNAPSHOT_SOURCE, onSite, parseBrowseRequest, runSteps, snapshot, type BrowsePage } from "./browse";
+import { SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, type BrowsePage } from "./browse";
 
 /**
  * A page with a few numbered elements. `navigate` maps a ref to the address a
@@ -149,5 +149,21 @@ describe("runSteps", () => {
     let t = 0;
     const result = await runSteps(page, [{ do: "read" }, { do: "read" }], { budgetMs: 5, now: () => (t += 10) });
     expect(result.ran.at(-1)).toEqual({ do: "read", ok: false, reason: "out of time; run it again" });
+  });
+
+  it("never stays on Context's vault screens, by address or by a click", async () => {
+    expect(offLimits("https://context.lc/vault/share/x")).toBe(true);
+    expect(offLimits("https://staging.context.lc/VAULT")).toBe(true);
+    expect(offLimits("https://context.lc/vaulted")).toBe(false);
+    expect(offLimits("https://context.lc.evil.test/vault")).toBe(false);
+    const byAddress = fakePage();
+    const refused = await runSteps(byAddress.page, [{ do: "goto", url: "https://context.lc/vault/share/x" }]);
+    expect(refused.ran).toEqual([{ do: "goto", ok: false, reason: "that page is off limits" }]);
+    expect(byAddress.state.href).toBe("https://shop.example.com/");
+    const byClick = fakePage();
+    byClick.state.navigate[3] = "https://context.lc/vault/confirm";
+    const clicked = await runSteps(byClick.page, [{ do: "click", ref: 3 }, { do: "click", ref: 3 }]);
+    expect(clicked.ran).toEqual([{ do: "click", ok: false, reason: "that page is off limits" }]);
+    expect(byClick.state.href).toBe("about:blank");
   });
 });
