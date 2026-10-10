@@ -19,19 +19,19 @@ export function vaultToolDefinitions() {
       description:
         "Get a private link where the person saves a login, or a secret such as API keys and environment variables, themselves, signed in to Context. " +
         "Use it whenever one is needed and is not in vault_list, and whenever someone tries to send you a password, key or token: never take one in a message. " +
-        "For a secret, name the fields you expect (e.g. STRIPE_SECRET_KEY); they are per environment (dev, staging, prod) unless perEnv is false. " +
+        "For a secret, name the fields you expect (e.g. OPENAI_API_KEY); they are per environment (dev, staging, prod) unless perEnv is false. " +
         "Send them the link and say it is private to them and lasts 30 minutes.",
       inputSchema: {
         type: "object",
         properties: {
           type: { type: "string", enum: ["login", "secret"], description: "login (username and password) or secret (named fields). Default login." },
-          name: { type: "string", description: "What to call it, e.g. Netflix or Stripe. Optional; they can change it." },
+          name: { type: "string", description: "What to call it, e.g. Netflix or OpenAI. Optional; they can change it." },
           site: { type: "string", description: "The site it fills on, e.g. netflix.com. Optional for a secret; they can change it." },
           fields: {
             type: "array",
             items: { type: "string" },
             maxItems: 30,
-            description: "Field names to start the form with, e.g. [\"STRIPE_SECRET_KEY\", \"STRIPE_WEBHOOK_SECRET\"]. Optional; they can add and remove fields.",
+            description: "Field names to start the form with, e.g. [\"OPENAI_API_KEY\", \"OPENAI_ORG_ID\"]. Optional; they can add and remove fields.",
           },
           perEnv: { type: "boolean", description: "Whether those fields hold one value each for dev, staging and prod. Default true for a secret." },
         },

@@ -7,7 +7,7 @@
  *
  * The values are sealed in the entry's `secret` part. Its `meta` part carries
  * each field's name, whether it is per environment, and which environments
- * hold a value, so an agent can say "STRIPE_KEY is saved for dev and prod"
+ * hold a value, so an agent can say "OPENAI_API_KEY is saved for dev and prod"
  * without ever opening one.
  */
 

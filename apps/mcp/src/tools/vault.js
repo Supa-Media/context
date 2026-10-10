@@ -15,7 +15,7 @@ import { toolError, toolText } from "./results.js";
 const NO_LINKS = "The vault is not available on this deployment.";
 const EMPTY = "Nothing saved here yet. vault_add_link gives the person a private link to save a login or a secret.";
 
-/** "STRIPE_KEY [dev, prod]", "Account number": names and where they are set, never values. */
+/** "OPENAI_API_KEY [dev, prod]", "Account number": names and where they are set, never values. */
 function describeFields(fields) {
   return (Array.isArray(fields) ? fields : [])
     .map((field) => {
@@ -75,7 +75,7 @@ export async function toolVaultAddLink(store, args) {
   if (type === null) return toolError('type is "login" or "secret".');
   const fields = Array.isArray(args?.fields) ? args.fields.map((name) => (typeof name === "string" ? name.trim() : "")) : [];
   if (fields.length > 30 || fields.some((name) => !isFieldName(name))) {
-    return toolError("fields are up to 30 names like STRIPE_SECRET_KEY or Account number.");
+    return toolError("fields are up to 30 names like OPENAI_API_KEY or Account number.");
   }
   const minted = await calls.request({
     kind: "add",
