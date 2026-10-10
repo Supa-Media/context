@@ -498,7 +498,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       below, because whoever opens it drives a browser the person may be
       signed in on. It ends itself within minutes either way.
     */
-    const handoff = opened?.browser?.handoffLink() ?? null;
+    const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
 
     if (conversation !== null && !turn.exhausted) {
