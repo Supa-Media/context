@@ -53,6 +53,13 @@ import type { FileEntry, FolderListing } from "./types";
  */
 export const MEANING_ONLY_LABEL = "Same topic, different words";
 
+/** Why a search result matched, as its tag reads (⌘K, Dev2 2026-10-09). */
+export const WHY_LABEL: Readonly<Record<"name" | "words" | "meaning", string>> = {
+  name: "In the name",
+  words: "Has your words",
+  meaning: MEANING_ONLY_LABEL,
+};
+
 export interface PaletteItem {
   id: string;
   /** What matched — the note's title, the command name, the folder path. */
@@ -75,7 +82,28 @@ export interface PaletteItem {
    * what people type. Ranked as well as `label`, never drawn.
    */
   name?: string;
+  /**
+   * The workspace a search result is in, when it came from searching every
+   * workspace (`layout/everywhereSearch.ts`). `current` is whether that is the
+   * workspace being browsed: a result elsewhere opens that workspace, and is a
+   * different row from a same-named path here.
+   */
+  workspace?: { slug: string; current: boolean };
+  /** Why a search result matched, drawn as a tag (`WHY_LABEL`). */
+  why?: "name" | "words" | "meaning";
   kind: "note" | "folder" | "command";
+}
+
+/**
+ * The one identity a row has across the loaded names and a search's answer:
+ * a note in the workspace being browsed is its path, whichever half found it;
+ * one in another workspace is its path there.
+ */
+export function paletteKey(item: PaletteItem): string {
+  const workspace = item.workspace;
+  return workspace !== undefined && !workspace.current
+    ? `${item.kind}:@${workspace.slug}:${item.id}`
+    : `${item.kind}:${item.id}`;
 }
 
 export interface Match {

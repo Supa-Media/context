@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { MEANING_ONLY_LABEL, type Match, type PaletteItem } from "../../console/files/palette";
+import { MEANING_ONLY_LABEL, WHY_LABEL, type Match, type PaletteItem } from "../../console/files/palette";
 import { space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Icon, type IconName } from "./Icon";
@@ -78,8 +78,11 @@ export function highlightRuns(
  * found by meaning alone says so between them, because its snippet will not
  * hold the words that were typed.
  */
-export function secondLine(item: PaletteItem): string {
-  return [item.detail, item.meaningOnly ? MEANING_ONLY_LABEL : undefined, item.snippet]
+export function secondLine(item: PaletteItem, tagged = false): string {
+  // A row that draws its own tag (`why`, on a pointer) says "Same topic,
+  // different words" there, and once is enough.
+  const meaning = item.meaningOnly && !(tagged && item.why !== undefined);
+  return [item.detail, meaning ? MEANING_ONLY_LABEL : undefined, item.snippet]
     .filter((part) => part !== undefined && part !== "")
     .join(" · ");
 }
@@ -110,7 +113,8 @@ export function PaletteRow({
   const [hovered, setHovered] = useState(false);
   const labelVariant = touch ? "treeTouch" : "tree";
   const runs = highlightRuns(match.item.label, match.ranges);
-  const second = secondLine(match.item);
+  const second = secondLine(match.item, !touch);
+  const why = match.item.why === undefined ? null : WHY_LABEL[match.item.why];
 
   return (
     <Pressable
@@ -171,6 +175,20 @@ export function PaletteRow({
           {second}
         </Text>
       ) : null}
+
+      {/* Why it is in the list (⌘K's search of every workspace). A phone row
+          is two lines already, and says "Same topic, different words" in its
+          second one instead. */}
+      {why !== null && !touch ? (
+        <Text
+          variant="treeMeta"
+          numberOfLines={1}
+          style={[styles.why, match.item.why === "meaning" ? styles.whyMeaning : null]}
+          testID="palette-why"
+        >
+          {why}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -193,4 +211,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: { color: colors.text, fontWeight: "600" },
   detailUnder: { marginTop: 1 },
   detailBeside: { maxWidth: "45%", marginLeft: "auto" },
+  why: {
+    flexShrink: 0,
+    paddingHorizontal: space.x2,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    color: colors.text2,
+  },
+  whyMeaning: { borderColor: colors.sharedBorder, color: colors.sharedText },
 });

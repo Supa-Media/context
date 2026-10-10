@@ -12,7 +12,9 @@ import {
   type NativeSyntheticEvent,
   type Role,
 } from "react-native";
-import { rank, type PaletteItem } from "../../console/files/palette";
+import { paletteKey, rank, type PaletteItem } from "../../console/files/palette";
+import { mergeRanked } from "./paletteMerge";
+import { ASK_ID, askItem, SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { layout } from "../tokens";
 import { useColors, useThemedStyles } from "../theme";
@@ -182,6 +184,14 @@ export interface PaletteSearch {
    * rest of this context".
    */
   emptyMessage?: string;
+  /**
+   * The search's answer is the ranking: once it has answered, its rows are
+   * drawn in its own order with the loaded name matches folded in
+   * (`mergeRanked`), rather than under them. ⌘K's search of every workspace.
+   */
+  ranked?: boolean;
+  /** What the strip says while the search runs, where "the rest of this workspace" is wrong. */
+  searchingText?: string;
 }
 
 export interface PaletteProps {
@@ -233,67 +243,13 @@ export interface PaletteProps {
   onDismiss: () => void;
   /** Under the field: what the search is narrowed to, and the way to widen it. */
   scopeBar?: ReactNode;
+  /** Beside the field on a pointer layout, above the scope bar on a phone: ⌘K's timing pill. */
+  fieldAccessory?: ReactNode;
   /** A phone's Look in chips and folder and tag results; ignored on a pointer layout. */
   lookIn?: PaletteLookIn;
 }
 
-/**
- * The id of the "See all results" row.
- *
- * A real `PaletteItem` so it lives in the one flat `matches` array the arrows,
- * the scroll arithmetic and Enter all walk — a row rendered outside that list
- * would be a row the keyboard cannot reach, which is the same defect as a
- * button drawn where a phone cannot see it. Prefixed so it cannot collide with
- * a note path or a command name.
- */
-export const SEE_ALL_ID = "\u0000see-all";
-
-/** The row, or `null` where there is nothing more to see. */
-export function seeAllItem(query: string, offered: boolean): PaletteItem | null {
-  const trimmed = query.trim();
-  if (!offered || trimmed === "") return null;
-  return {
-    id: SEE_ALL_ID,
-    label: `See all results for “${trimmed}”`,
-    detail: "Every workspace you can reach",
-    kind: "command",
-  };
-}
-
-/**
- * The other handoff: hand the query to the agent instead of to search.
- *
- * `SEE_ALL_ID`'s reasoning, for a second destination. The two are genuinely
- * different questions — "find the note called this" and "answer this" — and
- * the palette is where somebody has already typed the words for either.
- *
- * ## Why it is below `See all` and not above
- *
- * Because the palette is a navigator first. Somebody typing `pricing` almost
- * always wants the note, and a row that answers a question costs a model call
- * and several seconds, so it must never be what Enter reaches by accident. The
- * ordering is the whole guard: the cursor rests on the first row, and this is
- * the last one.
- *
- * The one case where it is a good default is the one where nothing matched —
- * and that case needs no special rule, because the two handoff rows are then
- * the only rows and `See all` is still the first of them. A person who wanted
- * an answer presses ↓ once, which is exactly the cost of the second-best
- * guess.
- */
-export const ASK_ID = "\u0000ask";
-
-/** The row, or `null` where there is nobody to ask. */
-export function askItem(query: string, offered: boolean): PaletteItem | null {
-  const trimmed = query.trim();
-  if (!offered || trimmed === "") return null;
-  return {
-    id: ASK_ID,
-    label: `Ask about “${trimmed}”`,
-    detail: "Answers from your notes, in the panel",
-    kind: "command",
-  };
-}
+export { ASK_ID, askItem, SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 
 /* -------------------------------------------------------------------------- */
 /*                                  palette                                   */
@@ -311,6 +267,7 @@ export function Palette({
   onChoose,
   onDismiss,
   scopeBar,
+  fieldAccessory,
   lookIn,
 }: PaletteProps) {
   const colors = useColors();
@@ -377,7 +334,13 @@ export function Palette({
    * what the *copy* is about. Keeping them separate is what lets the handoff
    * be a real row in the list without it counting as having found something.
    */
-  const found = local.length + remote.length;
+  const answeredInOrder =
+    search?.ranked === true && (search.state === "ready" || search.state === "indexing");
+  const merged = useMemo(
+    () => (answeredInOrder && search !== undefined ? mergeRanked(ranked, search.items) : null),
+    [answeredInOrder, ranked, search],
+  );
+  const found = merged === null ? local.length + remote.length : merged.length;
 
   /**
    * One list for the arrows and for Enter, so a keyboard walks into the search
@@ -395,7 +358,7 @@ export function Palette({
   );
   const ask = useMemo(() => askItem(query, onAsk !== undefined), [query, onAsk]);
   const matches = useMemo(() => {
-    const rows = [...local, ...remote];
+    const rows = merged ?? [...local, ...remote];
     /*
       Both handoffs at the end, search before ask, and the order is the guard
       rather than a preference — see `askItem`. A `filter(Boolean)` over a
@@ -408,7 +371,7 @@ export function Palette({
       ...rows,
       ...tail.map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] })),
     ];
-  }, [local, remote, handoff, ask]);
+  }, [merged, local, remote, handoff, ask]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -523,7 +486,7 @@ export function Palette({
    * and "nothing matches" would be worse than what it replaced.
    */
   const emptyText = (() => {
-    if (search?.state === "searching") return "Searching the rest of this workspace…";
+    if (search?.state === "searching") return search.searchingText ?? "Searching the rest of this workspace…";
     if (search?.state === "indexing") {
       return "This workspace is still being indexed. Try again in a moment.";
     }
@@ -535,7 +498,7 @@ export function Palette({
   })();
 
   /** The label above the search half, when there is a search half. */
-  const searchNote = remote.length > 0 ? (search?.heading ?? "In your notes") : null;
+  const searchNote = merged === null && remote.length > 0 ? (search?.heading ?? "In your notes") : null;
 
   /**
    * The shed-note caveat, fixed above the list rather than inside it.
@@ -600,7 +563,7 @@ export function Palette({
         </View>
       ) : null}
       {(notes ? matches : []).map((match, index) => (
-        <Fragment key={`${match.item.kind}:${match.item.id}`}>
+        <Fragment key={paletteKey(match.item)}>
           {/*
             The divider between what was already loaded and what searching the
             whole context found. Rendered at the boundary rather than as a
@@ -633,7 +596,7 @@ export function Palette({
       */}
       {found > 0 && search?.state === "searching" ? (
         <View style={styles.empty} testID="palette-searching">
-          <Text variant="rowSub">Searching the rest of this workspace…</Text>
+          <Text variant="rowSub">{search.searchingText ?? "Searching the rest of this workspace…"}</Text>
         </View>
       ) : null}
     </ScrollView>
@@ -652,6 +615,7 @@ export function Palette({
   if (touch) {
     return (
       <PaletteSheet field={field} onDismiss={onDismiss}>
+        {fieldAccessory}
         {scopeBar}
         {looked?.chips}
         {heading}
@@ -687,6 +651,7 @@ export function Palette({
           <View style={styles.panelHeader}>
             <Icon name="search" size={16} color={colors.muted} />
             {field}
+            {fieldAccessory}
           </View>
           {scopeBar}
           {heading}

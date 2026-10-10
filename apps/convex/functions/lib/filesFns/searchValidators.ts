@@ -38,6 +38,8 @@ export const searchResultsValidator = v.object({
   reducedRecallNotes: v.array(v.string()),
   /** Which index answered, for the search timing log. See `SearchResults.answeredBy`. */
   answeredBy: v.optional(v.union(v.literal("fast"), v.literal("index"), v.literal("none"))),
+  /** Milliseconds the words and the meaning lookup took. See `SearchResults.timing`. */
+  timing: v.optional(v.object({ words: v.number(), meaning: v.optional(v.number()) })),
 });
 
 /**
@@ -131,6 +133,15 @@ export const blendedResultsValidator = v.object({
       state: v.union(v.literal("ok"), v.literal("indexing"), v.literal("failed")),
       matchCount: v.number(),
       matchCountIsFloor: v.boolean(),
+      /**
+       * How long this context took to answer, in milliseconds, and how that
+       * split between the words and the meaning lookup (which run at once).
+       * A context that missed its deadline is timed at the deadline and has
+       * no split. Drawn in ⌘K's "where the time went" panel.
+       */
+      ms: v.optional(v.number()),
+      words: v.optional(v.number()),
+      meaning: v.optional(v.number()),
     }),
   ),
   /**

@@ -11,6 +11,7 @@ import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
 import { MEANING_ONLY_LABEL, searchBothWays } from "../search/meaning/serve.js";
+import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 
@@ -21,7 +22,9 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
   const found = await searchBothWays(
     store,
     () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
-    { query, scope, prefix, isVisible: (path) => canSee(path, scope, rules, overrides) },
+    // A folder, never the start of a sibling's name: see `folderPrefix`. The
+    // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
+    { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides) },
   );
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly

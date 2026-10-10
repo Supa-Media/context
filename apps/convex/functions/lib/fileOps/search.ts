@@ -14,6 +14,7 @@ import { type Clearance } from "../clearance";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
+import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
 import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
@@ -111,6 +112,14 @@ export interface SearchResults {
    * the person searching.
    */
   answeredBy?: "fast" | "index" | "none";
+  /**
+   * How long each half of the search took, in milliseconds from the start of
+   * `searchNotes`: the words (the projection or the bucket index) and the
+   * meaning lookup, which run at the same time. `meaning` is absent when
+   * meaning search is off for this workspace. Drawn in ⌘K's "where the time
+   * went" panel (Dev2, 2026-10-09: "show how long the query took").
+   */
+  timing?: { words: number; meaning?: number };
 }
 
 /**
@@ -288,6 +297,8 @@ export async function searchNotes(
   // Search by meaning, asked now so it runs while the words are searched, and
   // merged into whichever index answers (`search/meaning/serve.js`). It never
   // rejects: a failure is `null`, which leaves the word answer as it was.
+  const started = Date.now();
+  let meaningMs: number | undefined;
   const meaningPending = meaningSearchable(store)
     ? meaningMatches(store, {
         query,
@@ -295,13 +306,19 @@ export async function searchNotes(
         grantedGroups: options.clearance.names.size > 0,
         isVisible,
         prefix: underFolder,
+      }).then((matches: unknown) => {
+        meaningMs = Date.now() - started;
+        return matches;
       })
     : Promise.resolve(null);
+  const timed = (wordsMs: number): NonNullable<SearchResults["timing"]> =>
+    meaningMs === undefined ? { words: wordsMs } : { words: wordsMs, meaning: meaningMs };
   const merged = async (found: SearchResults): Promise<SearchResults> => {
+    const wordsMs = Date.now() - started;
     const { meaning: _meaning, ...results } = await withMeaning(store, found, await meaningPending, {
       keyField: "path",
     });
-    return results as SearchResults;
+    return { ...(results as SearchResults), timing: timed(wordsMs) };
   };
 
   if (projection !== null) {
@@ -354,7 +371,7 @@ export async function searchNotes(
 
   const found = await searchIndexedNotes(store as unknown as SearchStore, {
     isVisible,
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     query,
     prefix: underFolder,
     limit,
@@ -380,6 +397,7 @@ export async function searchNotes(
       reducedRecall: false,
       reducedRecallNotes: [],
       answeredBy: "none",
+      timing: timed(Date.now() - started),
     };
   }
 
@@ -431,7 +449,7 @@ export async function runIndexPass(
   return await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
     budget,
     reserve,
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     ...(shardByteCap === undefined ? {} : { shardByteCap }),
   });
 }
@@ -522,7 +540,7 @@ export async function indexChangedNotes(
   for (const path of change.written) only.set(path, { version: "", uploaded });
   const pass = await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
     budget: createSearchBudget(INDEX_NOTES_BUDGET),
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     only,
   });
   return {
