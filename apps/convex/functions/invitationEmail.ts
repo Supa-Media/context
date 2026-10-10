@@ -28,15 +28,13 @@
  * belong to somebody", is safe to make *here* and would not be safe to make
  * there.
  *
- * ## 2. A `@name` invitee gets nothing at all
+ * ## 2. A `@name` invitee is mailed at their account's verified address
  *
- * We do not know their address. Looking one up would mean resolving an
- * identifier to a person at invite time, which is precisely what
- * `inviteMember` refuses to do — see the invitation module's docstring. So the
- * scheduler is only invoked for an `email` invitee, and this action re-checks
- * the kind and returns early anyway. Two checks because the cost is a branch
- * and the failure mode is mailing somebody we were never given permission to
- * name.
+ * Resolved here, in the scheduled job, by `resolveAddressedUser` — the same
+ * authority accepting uses — so nothing about the lookup reaches the inviter.
+ * Only a verified address is mailed, no sign-in code is ever minted for a
+ * handle (it only names an existing account), and every refusal is silent.
+ * See `docs/decisions/identity-and-access/invitations-and-signin.md`.
  *
  * ## 3. The magic link is NOT the invitation token
  *
@@ -102,7 +100,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
-import { handleForUser } from "./lib/identities";
+import { handleForUser, resolveAddressedUser } from "./lib/identities";
 import { APP_ORIGIN_ENV_VAR, randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail } from "./lib/signInEmails";
@@ -234,7 +232,6 @@ async function recipientMailKey(address: string): Promise<string> {
 function logInvitationEmail(fields: {
   event: "sent" | "skipped" | "send_failed";
   reason?:
-    | "invitee_is_a_name"
     | "resend_unconfigured"
     // No `APP_ORIGIN`, or one that is not an https URL. Checked *before* the
     // row is claimed, so this refusal costs the invitation nothing: it is a
@@ -298,13 +295,9 @@ const PROVIDER_MISSING_MARKER = `Provider \`${SIGNIN_PROVIDER}\` is not configur
 /**
  * Why the mint failed, as a value an operator can act on.
  *
- * The expected answer is `provider_not_configured`, which is true of every
- * deployment until the framework release lands and means "nothing is wrong,
- * this is the documented degraded state". Anything else — a renamed argument,
- * a validator change in `auth:store`, an `expirationTime` the library rejects —
- * is a defect, and before this existed the two produced a byte-identical log
- * line, so an operator had no way to tell "still waiting on upstream" from
- * "the provider is registered and minting is broken".
+ * `provider_not_configured` means `auth.ts` lost the `magicLink` provider;
+ * anything else — a renamed argument, a validator change in `auth:store`, an
+ * `expirationTime` the library rejects — is a defect in the mint itself.
  *
  * Matching a library's prose is brittle on purpose-limited terms: it can only
  * ever mistake a real defect for the expected condition if that defect throws
@@ -422,6 +415,21 @@ export async function invalidateInvitationSignInCode(
   }
 }
 
+/** The mailbox an invitation goes to, or `null`. See section 2 above. */
+async function recipientFor(
+  ctx: MutationCtx,
+  invitation: Doc<"workspaceInvitations">,
+): Promise<{ kind: "email" | "name"; address: string } | null> {
+  if (invitation.inviteeKind === "email") {
+    return { kind: "email", address: invitation.invitee };
+  }
+  const userId = await resolveAddressedUser(ctx, { kind: "name", value: invitation.invitee });
+  if (userId === null) return null;
+  const user = await ctx.db.get(userId);
+  if (!user?.email || user.emailVerificationTime === undefined) return null;
+  return { kind: "name", address: user.email };
+}
+
 /**
  * Decide whether this invitation may be emailed, and claim the right to do it.
  *
@@ -468,9 +476,6 @@ export const claimInvitationEmail = internalMutation({
     const now = Date.now();
     const invitation = await ctx.db.get(args.invitationId);
     if (invitation === null) return null;
-    // Re-checked here as well as at the scheduler: we have no address for a
-    // handle, and inventing one is the enumeration leak `inviteMember` avoids.
-    if (invitation.inviteeKind !== "email") return null;
     // Revoked, answered, expired, or superseded between scheduling and running.
     if (invitation.status !== "pending" || invitation.expiresAt <= now) return null;
     // Already spent. One row, one message, no resend path.
@@ -485,8 +490,12 @@ export const claimInvitationEmail = internalMutation({
     const workspace = await ctx.db.get(invitation.workspaceId);
     if (workspace === null) return null;
 
+    const recipient = await recipientFor(ctx, invitation);
+    if (recipient === null) return null;
+
     const inviterHandle = await handleForUser(ctx, inviter._id);
-    const mintSignInCode = await shouldMintSignInCode(ctx, invitation.invitee);
+    const mintSignInCode =
+      recipient.kind === "email" && (await shouldMintSignInCode(ctx, recipient.address));
 
     /**
      * The per-recipient bound, spent last so that none of the refusals above
@@ -505,7 +514,7 @@ export const claimInvitationEmail = internalMutation({
      */
     try {
       await consumeRateLimit(ctx, {
-        key: await recipientMailKey(invitation.invitee),
+        key: await recipientMailKey(recipient.address),
         limit: RECIPIENT_MAIL_LIMIT,
         windowMs: RECIPIENT_MAIL_WINDOW_MS,
       });
@@ -516,7 +525,7 @@ export const claimInvitationEmail = internalMutation({
     await ctx.db.patch(invitation._id, { emailSentAt: now });
 
     return {
-      to: invitation.invitee,
+      to: recipient.address,
       token: invitation.token,
       workspaceName: workspace.displayName,
       workspaceKind: workspace.kind,
@@ -568,20 +577,11 @@ export const claimInvitationEmail = internalMutation({
 export const sendInvitationEmail = internalAction({
   args: {
     invitationId: v.id("workspaceInvitations"),
-    /**
-     * Passed through from the row rather than read back here, so the "a handle
-     * gets no email" rule is visible at the call site as well as enforced in
-     * `claimInvitationEmail`.
-     */
+    /** Informational; `claimInvitationEmail` reads the kind off the row. */
     inviteeKind: v.union(v.literal("name"), v.literal("email")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (args.inviteeKind !== "email") {
-      logInvitationEmail({ event: "skipped", reason: "invitee_is_a_name" });
-      return null;
-    }
-
     /**
      * Checked before anything is read or written, so a deployment with no key
      * — every test in this repository that is not about email, and every
