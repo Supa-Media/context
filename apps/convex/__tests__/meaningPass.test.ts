@@ -14,6 +14,7 @@
  *   the provisioner not scheduling the pass                → "provisioning schedules the first pass" fails
  *   the barrier not attaching the index to a search's store → "a console search through the barrier…" fails
  *   `meaningSearchDescriptor` recording NOT_CONFIGURED     → "a search with no credential searches words…" fails
+ *   the listing's sizes not handed to the pass              → "re-embeds the notes the listing says are big…" fails
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -176,6 +177,7 @@ describe("the pass itself", () => {
         return vectors.length;
       },
       deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -210,6 +212,7 @@ describe("the census is a listing, not the bucket's search index", () => {
         return vectors.length;
       },
       deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -223,6 +226,39 @@ describe("the census is a listing, not the bucket's search index", () => {
     expect(last.notesIndexed).toBe(62);
     expect(upserted.size).toBe(62);
     expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/v2/"))).toBe(false);
+  });
+});
+
+describe("a larger passage cap", () => {
+  // 2026-10-10: the cap went from 12 passages to 48 so a long meeting's whole
+  // transcript is searchable by meaning. The map recorded versions only, so
+  // the notes big enough to have filled the old cap are found by the sizes
+  // the census's own listing reports, and only they are embedded again.
+  test("re-embeds the notes the listing says are big, and only those", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed("meetings/long.md", `# Long call\n\n${"We went over the plan again. ".repeat(1_500)}`);
+    store.seed("notes/short.md", "# Short\n\nOne line.");
+    const versions = new Map<string, string>();
+    const first = { upsert: async (vectors: unknown[]) => vectors.length, deleteByIds: async (ids: string[]) => ids.length, existingIds: async () => new Set<string>() };
+    const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
+    await projectMeaningIndex(store, { client: first, embed, generation: "g1" });
+    const written = JSON.parse(store.snapshot()[MEANING_STATE_KEY]);
+    for (const [path, version] of Object.entries(written.notes as Record<string, string>)) versions.set(path, version);
+    // As the build before this one wrote it: no `passages`.
+    store.seed(MEANING_STATE_KEY, JSON.stringify({ v: 1, generation: "g1", notes: Object.fromEntries(versions) }));
+
+    const upserted = new Set<string>();
+    const client = {
+      upsert: async (vectors: unknown[]) => {
+        for (const vector of vectors as { metadata: { path: string } }[]) upserted.add(vector.metadata.path);
+        return vectors.length;
+      },
+      deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
+    };
+    const result = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    expect(result.failure).toBeNull();
+    expect([...upserted]).toEqual(["meetings/long.md"]);
   });
 });
 

@@ -636,6 +636,23 @@ export async function runServeChecks(check) {
         JSON.stringify((await atDepth(10)).hits),
     );
 
+    // A hit from the any-word retry says so, so search by meaning can rank
+    // its own matches above it (`meaning/serve.js`, `mergeHits`); a hit
+    // that held every word does not.
+    let asked = 0;
+    const retried = await answerFromProjection(
+      { query: async () => (asked++ === 0 ? [] : pageOf(3)) },
+      { query: "who left the team", tier: "team", isVisible: () => true, chunkCap: 200 },
+    );
+    check(
+      "hits from the any-word retry are marked loose",
+      retried.hits.length === 3 && retried.hits.every((hit) => hit.loose === true),
+    );
+    check(
+      "hits that held every word are not",
+      (await atDepth(10)).hits.every((hit) => !("loose" in hit)),
+    );
+
     // -- 5. a refused database is not a failed search ----------------------
     d1.state.fail = 500;
     const refused = await search("numbat");

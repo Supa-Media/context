@@ -335,10 +335,11 @@ export async function searchNotes(
       });
       if (fast) {
         return await merged({
-          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[] }) => ({
+          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
             path: hit.key,
             title: hit.title,
             snippets: hit.snippets,
+            ...(hit.loose ? { loose: true } : {}),
           })),
           matchCount: fast.matchCount,
           matchCountIsFloor: fast.matchCountIsFloor,
