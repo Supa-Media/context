@@ -54,6 +54,8 @@ const SYSTEM = [
   "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
   "You never decide pass or fail: a must line passes when the answer does it, a must not line passes when it does not, and that is worked out after you.",
   "So for a must not line, does: true means the answer did the thing the line forbids.",
+  "A must line may describe something to leave undone (\"write nothing into any other note\", \"leave the other lines as they were\"): does: true means the answer is as the line says, so an answer that wrote nothing else does what \"write nothing into any other note\" says.",
+  "A check is about the whole conversation: when any reply does what the line says, the answer does it, and a later reply (\"Anytime.\" after a thanks) does not undo it.",
   "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
   "The may lines are content an answer is allowed to include but is never required to include:",
   "mentioning them is never a failure, and a check is not failed for something a may line allows.",

@@ -196,6 +196,10 @@ test("the judge says whether the answer does what a line says, and a must-not li
     const rec = recording(judging(did));
     await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
     assert.match(JSON.parse(rec.bodies[0]).system, /does: true means the answer did the thing the line forbids/);
+    // Round eight (2026-10-10): "write nothing into any other note" was read as "did it write?" and a
+    // thanks reply of "Anytime." was read as not saying the time the first reply had said.
+    assert.match(JSON.parse(rec.bodies[0]).system, /something to leave undone/);
+    assert.match(JSON.parse(rec.bodies[0]).system, /about the whole conversation/);
     assert.equal(JSON.parse(rec.bodies[0]).output_config.format.schema.properties.answers.items.properties.verdicts.items.required.includes("does"), true);
     const [section] = parseJudgedSections(await readFile(path, "utf8"));
     for (const block of section.blocks.values()) {
