@@ -486,8 +486,29 @@ test("a routed setup gets a line saying how many answers went to the thinking mo
     ],
   };
   const md = resultMarkdown(routed);
-  assert.ok(md.includes("Routed: router-opus sent 1 of 2 answers to anthropic/claude-opus-5-5 ($4.0000 each); the rest ran on anthropic/claude-haiku-5-5."), md);
+  assert.ok(md.includes("Routed: router-opus sent 1 of 2 answers to anthropic/claude-opus-5-5 ($4.0000 each): questions 1; the rest ran on anthropic/claude-haiku-5-5."), md);
   assert.ok(md.includes("Tools: router: think"), "the pick is on the answer's tools line");
+  assert.ok(!md.includes("Said think but stayed"), "no near misses, no line about them");
+});
+
+test("the routed line names every routed question, and the think picks under the cutoff with their confidence", () => {
+  const run = (question, runN, tool, model = "anthropic/claude-haiku-5-5") => ({ setup: "wide", question, run: runN, model, tools: [{ tool, ok: true }], usage: { input: 1000, output: 0 }, ms: 1000, texts: 1, conversation: [] });
+  const routed = {
+    ...fixture,
+    setups: [{ name: "wide", version: "abc123abc123", model: "anthropic/claude-haiku-5-5", router: { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5", routeAt: 0.3 } }],
+    runs: [
+      run(16, 1, "router: think (0.80)", "anthropic/claude-opus-5-5"),
+      run(27, 1, "router: think (0.35)", "anthropic/claude-opus-5-5"),
+      run(5, 1, "router: think (0.90)", "anthropic/claude-opus-5-5"),
+      run(11, 1, "router: main (think 0.20)"),
+      run(11, 2, "router: main (think 0.25)"),
+      run(19, 1, "router: main (think 0.10)"),
+      run(2, 1, "router: main"),
+    ],
+  };
+  const md = resultMarkdown(routed);
+  assert.ok(md.includes("sent 3 of 7 answers to anthropic/claude-opus-5-5 ($0.0040 each): questions 5, 16 and 27; the rest ran on"), md);
+  assert.ok(md.includes("Said think but stayed on anthropic/claude-haiku-5-5, under the cutoff 0.3: questions 11 (0.20, 0.25), 19 (0.10)."), md);
 });
 
 test("a setup with a fallback gets a line saying how often it was used, and a retried round is counted", () => {

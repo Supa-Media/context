@@ -40,8 +40,13 @@ export const ROUTER_MODEL = "@cf/cloudflare/clef";
 /** The tiers the router may pick, in the order they are offered. */
 export const TIERS = ["lookup", "change", "think"];
 
-/** Below this, the pick is not trusted and the turn stays on `main`. */
-const MIN_CONFIDENCE = 0.5;
+/**
+ * Below this, a `think` pick is not trusted and the turn stays on `main`. A
+ * setup may set its own cutoff (`models.route_at`, `production.js`): lower
+ * sends more texts to the thinking model, higher fewer, and the benchmark
+ * says what each setting cost and won.
+ */
+export const DEFAULT_ROUTE_AT = 0.5;
 
 /** The most of a long text the router reads. */
 const MAX_TEXT_CHARS = 4_000;
@@ -54,11 +59,13 @@ const QUESTIONS = {
       "Pick think when answering well needs more than one place or one step: comparing commitments or checking whether the person can make an event, " +
       "several notes or several of their workspaces, a span of days, a plan, a judgement, an opinion, a conflict, a privacy decision, " +
       "a change together with a message to someone, or a request that could mean two different things. " +
+      "Pick think too when the shape of the question needs two facts put together: a date worked out from another date (a deadline, a notice period, how long is left, what comes first or next), " +
+      "an order of events, a total or a comparison, or something that could be written in more than one of their notebooks. " +
       "A short question can still need several notes. Pick lookup or change only when one search or one edit in one known note settles it.",
     criteria: {
-      lookup: "One fact, date, time or amount from their notes, answerable with one search in one place. Not attendance or feasibility, not a span of days.",
+      lookup: "One fact, date, time or amount from their notes, answerable with one search in one place. Not attendance or feasibility, not a span of days, not a date that has to be worked out from another.",
       change: "Add, change, tick off or move one thing in one note it is clear which; or a greeting, thanks or a quick reply with nothing to look up.",
-      think: "Compare notes or workspaces, look over a span of days, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, or handle privacy carefully.",
+      think: "Compare notes or workspaces, look over a span of days, work out a deadline or how long is left, put events in order, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, or handle privacy carefully.",
     },
   },
 };
@@ -72,10 +79,12 @@ const QUESTIONS = {
  * @param {string} options.text the person's message
  * @param {Array<{role: string, text: string}>} [options.history] earlier turns,
  *   so a follow-up ("yes, do that") is read with what it follows
+ * @param {number} [options.routeAt] the confidence a `think` pick needs to be
+ *   trusted, 0 to 1; the setup's `models.route_at`, else `DEFAULT_ROUTE_AT`
  * @returns {Promise<{tier: "main"|"think", pick: string|null, confidence: number|null, tokens: number}>}
  *   `tier` is where the turn runs; `pick` is the router's own word
  */
-export async function pickTier({ decide, text, history = [] }) {
+export async function pickTier({ decide, text, history = [], routeAt = DEFAULT_ROUTE_AT }) {
   if (typeof decide !== "function") return { tier: "main", pick: null, confidence: null, tokens: 0 };
   const recent = history
     .slice(-4)
@@ -93,6 +102,7 @@ export async function pickTier({ decide, text, history = [] }) {
     return { tier: "main", pick: null, confidence: null, tokens };
   }
   const confidence = typeof pick.confidence === "number" ? pick.confidence : null;
-  const trusted = confidence === null || confidence >= MIN_CONFIDENCE;
+  const cutoff = typeof routeAt === "number" && routeAt >= 0 && routeAt <= 1 ? routeAt : DEFAULT_ROUTE_AT;
+  const trusted = confidence === null || confidence >= cutoff;
   return { tier: pick.choice === "think" && trusted ? "think" : "main", pick: pick.choice, confidence, tokens };
 }

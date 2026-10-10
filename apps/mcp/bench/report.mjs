@@ -141,17 +141,46 @@ function summaryRow(setup, runs) {
 }
 
 // For each setup with a router (`src/agent/router.js`): how many answers it sent
-// to the thinking model, and what those cost, so the average price above can
-// be read as "cheap most of the time, expensive one time in ten".
+// to the thinking model, which questions those were, and what they cost, so the
+// average price above can be read as "cheap most of the time, expensive one
+// time in ten" and a round can see which questions the cutoff reached. The
+// think picks that fell under the setup's cutoff are named too, with the
+// confidence Clef gave each, so the next setup can set `route_at` from them.
+const ROUTER_CALL = /^router: (think|main)(?: \((?:think )?(\d(?:\.\d+)?)\))?$/;
+function routerOf(run) {
+  for (const call of run.tools ?? []) {
+    const m = typeof call === "string" ? null : ROUTER_CALL.exec(call.tool ?? "");
+    if (m) return { tier: m[1], confidence: m[2] === undefined ? null : Number(m[2]) };
+  }
+  return null;
+}
+function questionList(nums) {
+  const sorted = [...new Set(nums)].sort((a, b) => a - b);
+  if (sorted.length <= 1) return sorted.map(String).join("");
+  return `${sorted.slice(0, -1).join(", ")} and ${sorted.at(-1)}`;
+}
 function routedLines(setups, runs) {
   const lines = [];
   for (const setup of setups) {
     if (!setup.router) continue;
     const mine = runs.filter((r) => r.setup === setup.name && !r.error);
-    const thought = mine.filter((r) => (r.tools ?? []).some((call) => typeof call !== "string" && call.tool === "router: think"));
+    const thought = mine.filter((r) => routerOf(r)?.tier === "think");
     const prices = thought.map((r) => runPrice(r, setup)).filter((p) => p !== null);
     const price = prices.length ? fmtUsd(mean(prices)) : "n/a";
-    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each); the rest ran on ${setup.model}.`, "");
+    const which = thought.length ? `: questions ${questionList(thought.map((r) => r.question))}` : "";
+    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each)${which}; the rest ran on ${setup.model}.`);
+    const near = mine.filter((r) => routerOf(r)?.tier === "main" && routerOf(r)?.confidence !== null);
+    if (near.length) {
+      const byQuestion = new Map();
+      for (const r of near) byQuestion.set(r.question, [...(byQuestion.get(r.question) ?? []), routerOf(r).confidence]);
+      const named = [...byQuestion.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([q, cs]) => `${q} (${cs.map((c) => c.toFixed(2)).join(", ")})`)
+        .join(", ");
+      const cutoff = typeof setup.router.routeAt === "number" ? ` ${setup.router.routeAt}` : "";
+      lines.push(`Said think but stayed on ${setup.model}, under the cutoff${cutoff}: questions ${named}.`);
+    }
+    lines.push("");
   }
   return lines;
 }

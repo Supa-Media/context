@@ -389,7 +389,18 @@ test("parseSetup reads a router and its thinking model", async () => {
   const setup = await parseSetup(file(ROUTED_FRONT));
   assert.ok(setup);
   assert.equal(setup.model, "anthropic/claude-haiku-5-5");
-  assert.deepEqual(setup.router, { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5" });
+  assert.deepEqual(setup.router, { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5", routeAt: 0.5 });
+});
+
+test("parseSetup reads the router's cutoff, and refuses one outside 0 to 1 or without a router", async () => {
+  const wide = await parseSetup(file(`${ROUTED_FRONT}\n  route_at: 0.3`));
+  assert.equal(wide?.router?.routeAt, 0.3);
+  assert.equal((await parseSetup(file(`${ROUTED_FRONT}\n  route_at: 1`)))?.router?.routeAt, 1);
+  assert.equal((await parseSetup(file(`${ROUTED_FRONT}\n  route_at: 0`)))?.router?.routeAt, 0);
+  for (const bad of ["1.5", "-0.1", ".3", "half", "0.3333"]) {
+    assert.equal(await parseSetup(file(`${ROUTED_FRONT}\n  route_at: ${bad}`)), null, bad);
+  }
+  assert.equal(await parseSetup(file("models:\n  main: anthropic/claude-haiku-5-5\n  route_at: 0.3")), null, "a cutoff with no router routes nothing");
 });
 
 test("parseSetup reads no router when the file names none", async () => {
@@ -431,6 +442,36 @@ test("a text the router calls lookup stays on the main model", async () => {
   await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
   assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5");
   assert.equal(controlPlane.builtinReports.at(-1)?.model, "anthropic/claude-haiku-5-5");
+});
+
+test("a think pick under the default cutoff clears a setup's lower one, and the trace keeps the confidence", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(`${ROUTED_FRONT}\n  route_at: 0.3`), etag: "r2-wide" });
+  const ai = fakeAi([clefSays("think", 0.4)]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-opus-5-5", "0.4 clears a cutoff of 0.3");
+  const trace = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.deepEqual(trace[0] && { tier: trace[0].tier, confidence: trace[0].confidence }, { tier: "think", confidence: 0.4 });
+
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2-default" });
+  await ask({ ...base, ...gatewayVars, AI: fakeAi([clefSays("think", 0.4)]) }, TOKEN_FREE);
+  assert.equal(gatewayCalls.at(-1)?.body?.model, "claude-haiku-5-5", "0.4 does not clear the default 0.5");
+  const near = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.deepEqual(near[0] && { tier: near[0].tier, confidence: near[0].confidence }, { tier: "main", confidence: 0.4 }, "the near miss keeps its confidence");
+
+  await ask({ ...base, ...gatewayVars, AI: fakeAi([clefSays("lookup", 0.9)]) }, TOKEN_FREE);
+  const looked = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.equal(looked[0]?.confidence, undefined, "a lookup pick carries no think confidence");
+});
+
+test("router tells Clef that a date worked out from another, an order and a total are think questions", async () => {
+  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r2-shape" });
+  const ai = fakeAi([clefSays("think")]);
+  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_FREE);
+  const question = ai.calls[0]?.input?.questions?.tier;
+  assert.match(question?.instructions ?? "", /date worked out from another date/);
+  assert.match(question?.instructions ?? "", /more than one of their notebooks/);
+  assert.match(question?.criteria?.think ?? "", /deadline or how long is left/);
+  assert.match(question?.criteria?.lookup ?? "", /not a date that has to be worked out/);
 });
 
 test("router tells Clef that making an event requires checking commitments", async () => {

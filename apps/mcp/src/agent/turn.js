@@ -266,7 +266,7 @@ async function openBuiltin(controlPlane, session, env) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
- * @param {{decide: Function|null, think: string}} [options.router] the setup's
+ * @param {{decide: Function|null, think: string, routeAt?: number}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
  *   text, and the model a `think` text runs on; `route.js` checks it can be called
  * @param {() => number} [options.clock] milliseconds, for `timing`
@@ -317,10 +317,14 @@ export async function runTurn(options) {
   */
   if (builtin && router !== null) {
     const asked = clock();
-    const routed = await pickTier({ decide: router.decide, text: question, history });
+    const routed = await pickTier({ decide: router.decide, text: question, history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
-    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked });
+    // How sure the router was that this text needs thinking, kept whether or
+    // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
+    // near misses. Absent when it picked another tier or did not answer.
+    const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
+    trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
   }
   const systemFor = (answering) =>
     systemPrompt(place, {

@@ -111,7 +111,7 @@ describe("the turn log", () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);
     const trace = [
-      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40 },
+      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40, confidence: 0.8 },
       { kind: "model", ok: true, ms: 900, retried: true, status: 529 },
       { kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", ok: true, ms: 2_000, status: 529 },
       { kind: "model", ok: true, ms: 1_200 },
@@ -123,6 +123,7 @@ describe("the turn log", () => {
     for (const bad of [
       { kind: "router", model: "anthropic/claude-opus-5-5", ok: true, ms: 1 },
       { kind: "router", tier: "think", model: "a model\nwith a sentence", ok: true, ms: 1 },
+      { kind: "router", tier: "main", model: "anthropic/claude-haiku-5-5", ok: true, ms: 1, confidence: 7 },
       { kind: "fallback", ok: true, ms: 1 },
       { kind: "fallback", model: "@cf/x", tool: "read_note", ok: true, ms: 1 },
     ]) {
