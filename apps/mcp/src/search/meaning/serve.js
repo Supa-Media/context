@@ -39,6 +39,13 @@ export const MEANING_MIN_SCORE = 0.55;
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;
 
+/**
+ * The same, when no note held every word typed. Then meaning is the better
+ * half of the answer (a question asked in a person's own words, "who left
+ * the team"), so more of it is shown.
+ */
+export const MEANING_SNIPPET_READS_LOOSE = 6;
+
 /** The words a person reads beside a note found only by meaning. */
 export const MEANING_ONLY_LABEL = "Same topic, different words";
 
@@ -106,6 +113,13 @@ export async function meaningMatches(
  * meaning matches' order, so a note both find rises and a note only one finds
  * still places. Ties keep the word search's order.
  *
+ * **A loose word hit comes after every meaning match.** A loose hit is from
+ * the word search's any-word retry: no note held every word, so it holds
+ * some, and for a question in plain words that is mostly "the" and "team".
+ * Fused evenly, those buried the one note that was about the question (the
+ * owner, 2026-10-10, "who left the team": a page of emails that say "team",
+ * no meeting). A loose hit that meaning also found keeps its fused place.
+ *
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
 export function mergeHits(wordHits, matches, keyField = "key") {
@@ -129,8 +143,9 @@ export function mergeHits(wordHits, matches, keyField = "key") {
       });
     }
   });
+  const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
-    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
     .map(({ key, word, meaning }) => ({ key, word, meaning }));
 }
 
@@ -167,15 +182,22 @@ async function meaningSnippet(store, match) {
  * rather than after it, so the two cost one wait, not two.
  */
 export async function withMeaning(store, found, matches, { keyField = "key" } = {}) {
-  if (!matches || matches.length === 0) return { ...found, meaning: matches ? "none" : "off" };
+  if (!matches || matches.length === 0) {
+    // `loose` is a ranking signal, never part of the answer.
+    const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
+    return { ...found, hits, meaning: matches ? "none" : "off" };
+  }
   const out = [];
   let reads = 0;
+  // `every` of none is true: a word search that found nothing is the loosest.
+  const readCap = found.hits.every((hit) => hit.loose === true) ? MEANING_SNIPPET_READS_LOOSE : MEANING_SNIPPET_READS;
   for (const entry of mergeHits(found.hits, matches, keyField)) {
     if (entry.word) {
-      out.push({ ...entry.word, meaningOnly: false });
+      const { loose: _loose, ...word } = entry.word;
+      out.push({ ...word, meaningOnly: false });
       continue;
     }
-    if (reads >= MEANING_SNIPPET_READS) continue;
+    if (reads >= readCap) continue;
     reads += 1;
     const read = await meaningSnippet(store, entry.meaning);
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });

@@ -83,6 +83,17 @@ exists (one `get_by_ids` for twenty notes) instead of deleting every id past
 *n*, which keeps passes inside Cloudflare's 1,200-requests-in-five-minutes API
 budget.
 
+**A word hit that held only some of the words ranks below every meaning
+match.** When no note holds every word typed, word search retries with any of
+them (`toRelaxedMatchExpression`) and marks those hits `loose`. For a question
+in plain words ("who left the team") that retry matches "the" and "team", and
+fused evenly it buried the note the question was about (the owner,
+2026-10-10). `mergeHits` puts loose hits after every meaning match unless
+meaning found them too, and such a search reads up to six meaning-only notes
+for snippets instead of three. Hits that held every word still fuse evenly.
+`meaningServe.test.mjs` ("a loose word hit comes after every meaning match…")
+fails if this is reversed.
+
 The pass diffs a census (`[path, version]` for every note) against a map of
 what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
 is a **new file in the on-bucket layout**, and it is allowed for the reason

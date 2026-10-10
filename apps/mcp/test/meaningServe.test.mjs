@@ -12,6 +12,7 @@
  *   `MEANING_MIN_SCORE` check removed                → "a distant match is noise, not the same topic" fails
  *   the catch rethrowing                             → "a failing index leaves the word answer untouched" fails
  *   the `MEANING_SNIPPET_READS` cap removed          → "at most three notes are read for snippets" fails
+ *   loose hits fused evenly again                    → "a loose word hit comes after every meaning match…" fails
  *   `meaningPassages` dropping `indexableText`       → "an encrypted note found by meaning shows its title only" fails
  */
 
@@ -23,6 +24,7 @@ import { MARKER_KEY } from "../src/encryption/primitives.js";
 import {
   MEANING_MIN_SCORE,
   MEANING_SNIPPET_READS,
+  MEANING_SNIPPET_READS_LOOSE,
   meaningMatches,
   meaningSearchable,
   mergeHits,
@@ -205,10 +207,50 @@ test("at most three notes are read for snippets", async () => {
   const index = fakeIndex(paths.map((path, i) => match(path, 0.9 - i * 0.01)));
   const notes = Object.fromEntries(paths.map((path) => [path, `# ${path}\n\nbody\n`]));
   const { store, reads } = storeWith(notes);
-  const result = await withMeaning(store, { hits: [], matchCount: 0 }, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
+  const found = { hits: [{ key: "w.md", title: "W", snippets: [] }], matchCount: 1 };
+  const result = await withMeaning(store, found, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
   assert.equal(reads.length, MEANING_SNIPPET_READS);
-  assert.equal(result.hits.length, MEANING_SNIPPET_READS);
-  assert.equal(result.matchCount, MEANING_SNIPPET_READS);
+  assert.equal(result.hits.length, MEANING_SNIPPET_READS + 1);
+  assert.equal(result.matchCount, MEANING_SNIPPET_READS + 1);
+});
+
+test("when no note held every word, more of the meaning half is read, and nothing says loose", async () => {
+  const paths = Array.from({ length: 8 }, (_, i) => `m${i}.md`);
+  const index = fakeIndex(paths.map((path, i) => match(path, 0.9 - i * 0.01)));
+  const notes = Object.fromEntries(paths.map((path) => [path, `# ${path}\n\nbody\n`]));
+  for (const hits of [[], [{ key: "w.md", title: "W", snippets: [], loose: true }]]) {
+    const { store, reads } = storeWith(notes);
+    const result = await withMeaning(store, { hits, matchCount: hits.length }, await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed }));
+    assert.equal(reads.length, MEANING_SNIPPET_READS_LOOSE);
+    assert.ok(result.hits.every((hit) => !("loose" in hit)));
+  }
+});
+
+/**
+ * The owner, 2026-10-10: "who left the team" answered a page of emails that
+ * say "team" and nothing about anyone leaving. Those were the word search's
+ * any-word retry; the note about the question was a meaning match fused in
+ * below them.
+ */
+test("a loose word hit comes after every meaning match, unless meaning found it too", () => {
+  const words = [
+    { key: "email-1.md", loose: true },
+    { key: "email-2.md", loose: true },
+    { key: "both.md", loose: true },
+  ];
+  const merged = mergeHits(words, [{ path: "meeting.md", score: 0.7 }, { path: "both.md", score: 0.6 }]);
+  assert.deepEqual(merged.map((m) => m.key), ["both.md", "meeting.md", "email-1.md", "email-2.md"]);
+});
+
+test("a hit that had every word still fuses evenly with meaning", () => {
+  const merged = mergeHits([{ key: "a.md" }, { key: "b.md" }], [{ path: "m.md", score: 0.7 }]);
+  assert.deepEqual(merged.map((m) => m.key), ["a.md", "m.md", "b.md"]);
+});
+
+test("a loose hit is not shown as loose when meaning is off", async () => {
+  const { store } = storeWith();
+  const result = await withMeaning(store, { hits: [{ key: "w.md", title: "W", snippets: [], loose: true }], matchCount: 1 }, null);
+  assert.deepEqual(result.hits, [{ key: "w.md", title: "W", snippets: [] }]);
 });
 
 test("a note deleted since it was embedded is dropped, not shown blind", async () => {
