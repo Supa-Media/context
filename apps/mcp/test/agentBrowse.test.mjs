@@ -21,7 +21,7 @@ const S3_ENDPOINT = "https://s3.example-browse.test";
 const TOKEN_TEXTS = `cat_browse_texts_${"0".repeat(22)}`;
 
 /** A browser that records every call and serves one shop page. */
-function fakeComputer({ url = "https://shop.example.com/" } = {}) {
+function fakeComputer({ url = "https://shop.example.com/", links = [] } = {}) {
   const calls = [];
   const closed = [];
   const reading = (at) => ({
@@ -34,6 +34,7 @@ function fakeComputer({ url = "https://shop.example.com/" } = {}) {
       { ref: 2, kind: "input password", label: "Password", filled: false },
       { ref: 3, kind: "button", label: "Go" },
       { ref: 4, kind: "link", label: "Socks", href: "https://shop.example.com/socks" },
+      ...links.map((href, i) => ({ ref: 5 + i, kind: "link", label: "Offsite", href })),
     ],
   });
   let at = url;
@@ -170,6 +171,37 @@ export async function runAgentBrowseChecks(check) {
       "a handoff is texted the moment it exists, the model is told so without the link, and the reply adds nothing",
       said.length === 1 && said[0].endsWith("https://live.example/LIVE-SAY") && !textOf(handed).includes("LIVE-SAY") &&
         textOf(handed).includes("has just been texted a link") && web.browser.handoffLink() === null,
+    );
+  }
+
+  {
+    /*
+      WHERE the person is about to act is the whole of what they can judge.
+
+      A `goto` may follow a link the PAGE wrote — deliberately, and argued in
+      the decision note: where a click leads was written before the agent read
+      anything. A handoff is not a click, though: it is the assistant telling
+      the person to sign in, and by then the browser can be on a host the
+      person never named, reached from a page that asked for exactly that.
+      Found by reading, 2026-10-10. The line they are texted has to say where.
+    */
+    const computer = fakeComputer({ links: ["https://sign-in.elsewhere.example/"] });
+    computer.canHandOff = () => true;
+    const inner = computer.browse;
+    computer.browse = async (session, steps, options) => ({
+      ...(await inner(session, steps)),
+      ...(options?.handoff ? { liveUrl: "https://live.example/LIVE-WHERE" } : {}),
+    });
+    const said = [];
+    const web = webSession(computer, "shop.example.com", { say: async (text) => (said.push(text), true) });
+    await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.com/" }] });
+    await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://sign-in.elsewhere.example/" }] });
+    await web.call(BROWSE_TOOL, { steps: [{ do: "handoff" }] });
+    check(
+      "the line that hands the browser over names the site it is on, and still ends with the link",
+      said.length === 1 &&
+        said[0].includes("sign-in.elsewhere.example") &&
+        said[0].endsWith("https://live.example/LIVE-WHERE"),
     );
   }
 
@@ -310,6 +342,14 @@ async function runEndToEnd(check) {
       "a handoff's live link is added to the text by the gateway, and the model never sees it",
       handed.answer.endsWith("https://live.browserbase.example/view/LIVE-MARKER") && !modelSaw.includes("LIVE-MARKER") &&
         modelSaw.includes("A link to this browser will be added to your reply"),
+    );
+    check(
+      // The sentence around the link is the gateway's, and says where the
+      // browser is: on this path the rest of the reply was written by a model
+      // the page can talk to, so the only line the person can trust to name
+      // the site is this one.
+      "the appended line is the gateway's own and names the site the browser is on",
+      /take over the browser on shop\.example\.com/.test(handed.answer),
     );
     check(
       "a Browserbase browser is left for the person's next text, not closed with the question",

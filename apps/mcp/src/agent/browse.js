@@ -144,6 +144,28 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   // the turn can text mid-task (`say`), else added to the reply by the gateway.
   let handoffLink = null;
   let handoffSaid = false;
+  /** ` on example.com` for the page the browser is on, or nothing when it is not known. */
+  const hostLabel = () => {
+    try {
+      return origin === null ? "" : ` on ${new URL(origin).host}`;
+    } catch {
+      return "";
+    }
+  };
+  /**
+   * The one sentence that hands the browser over, the gateway's own, whether
+   * it is texted mid-task or appended to the reply.
+   *
+   * It names the host because a `goto` may follow a link the PAGE wrote —
+   * deliberate, and argued in the decision note — so by the time the model
+   * asks for a handoff the browser can be on a site the person never named,
+   * reached from a page that asked for exactly that. On the appended path the
+   * rest of the reply was written by a model that page can talk to, so this
+   * is the only line in it the person can trust to say where they are about
+   * to sign in.
+   */
+  const handoffLine = () =>
+    `Open this to take over the browser${hostLabel()}, then text me when you're done: ${handoffLink}`;
 
   async function run(planned, { handoff = false } = {}) {
     const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
@@ -228,7 +250,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       }
       if (done === null) return textResult("The browser couldn't do that. Try again, or answer without it.", true);
       if (handoff && handoffLink !== null && !handoffSaid && typeof say === "function") {
-        handoffSaid = (await say(`Open this to take over the browser, then text me when you're done: ${handoffLink}`).catch(() => false)) === true;
+        /*
+          The host, in the line itself. A `goto` may follow a link the PAGE
+          wrote — deliberate, and argued in the decision note — so by the time
+          the model asks for a handoff the browser can be on a site the person
+          never named, reached from a page that asked for exactly that. This
+          line is then the only thing between their own assistant's invitation
+          and a password typed on somebody else's sign-in form, so it says
+          where they are going before they open it.
+        */
+        handoffSaid = (await say(handoffLine()).catch(() => false)) === true;
       }
       const told =
         handoff && handoffSaid
@@ -243,6 +274,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** The live-view link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
+    /** The gateway's own sentence for a link it is about to append, or null. */
+    handoffLine: () => (handoffSaid || handoffLink === null ? null : handoffLine()),
 
     /** The origin of the page the browser is on, or null before it opens one. */
     currentOrigin: () => origin,
