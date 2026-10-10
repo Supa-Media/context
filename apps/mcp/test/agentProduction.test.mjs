@@ -458,6 +458,10 @@ test("a think pick under the default cutoff clears a setup's lower one, and the 
   const near = controlPlane.turnReports.at(-1)?.trace ?? [];
   assert.deepEqual(near[0] && { tier: near[0].tier, confidence: near[0].confidence }, { tier: "main", confidence: 0.4 }, "the near miss keeps its confidence");
 
+  await ask({ ...base, ...gatewayVars, AI: fakeAi([clefSays("think", 1.7)]) }, TOKEN_FREE);
+  const odd = controlPlane.turnReports.at(-1)?.trace ?? [];
+  assert.equal(odd[0]?.confidence, 1, "a confidence Clef got wrong is clamped, so the turn log still takes the turn");
+
   await ask({ ...base, ...gatewayVars, AI: fakeAi([clefSays("lookup", 0.9)]) }, TOKEN_FREE);
   const looked = controlPlane.turnReports.at(-1)?.trace ?? [];
   assert.equal(looked[0]?.confidence, undefined, "a lookup pick carries no think confidence");
