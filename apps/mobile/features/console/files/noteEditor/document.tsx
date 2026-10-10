@@ -389,10 +389,10 @@ export function noteDocument(view: NoteView) {
           onSuggest={onSuggest}
           onPickSuggestion={onPickSuggestion}
           /*
-            The two voice rows on the note's right-click menu. Absent where
-            there is nothing behind them — no voice host is no microphone,
-            and no `onAskAgent` is no right panel — and `editorMenuItems`
-            then draws no row rather than one that does nothing.
+            The voice row on the note's right-click menu. Absent where there
+            is nothing behind it — no voice host is no microphone — and
+            `editorMenuItems` then draws no row rather than one that does
+            nothing.
 
             The caret the menu was opened at is deliberately dropped: the
             dictation this starts inserts at the live caret, which the menu
@@ -401,7 +401,6 @@ export function noteDocument(view: NoteView) {
             is already settled.
           */
           onDictate={voice === null ? undefined : () => setDictateAsked(Date.now())}
-          onAsk={voice?.onAskAgent ?? undefined}
           onPreviewLinks={onPreviewLinks}
           onSubmitForm={onSubmitForm}
           onReadFormResponses={onReadFormResponses}

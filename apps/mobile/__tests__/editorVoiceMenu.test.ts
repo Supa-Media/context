@@ -3,25 +3,22 @@
  */
 
 /**
- * RIGHT-CLICK IN A NOTE, AND THE TWO ROWS THE OWNER ASKED FOR.
+ * RIGHT-CLICK IN A NOTE, AND THE ROW THE OWNER ASKED FOR.
  *
  * *"dictating inside of a note should also be a thing still doe, just have
  * people right click inside a note, and then have an option to dictate
- * notes."* — the owner, on the desktop design. The second row came with it,
- * because the caret is where both belong: one puts words in, the other asks
- * about the words already there.
+ * notes."* — the owner, on the desktop design. A second row, "Ask about this
+ * note", went with the in-app chat (2026-10-10).
  *
  * `editorMenu.test.ts` proves which rows exist under which conditions.
- * This is the wiring — that pressing them reaches the microphone and the
- * panel, and that the menu itself still stands down where it always did.
+ * This is the wiring — that pressing the row reaches the microphone, and that
+ * the menu itself still stands down where it always did.
  *
  * ## The two things a rendered editor can say that a pure function cannot
  *
- *  1. **The rows are absent when nothing is behind them.** The flags come from
- *     whether the *props* are supplied, read at menu time through a ref rather
- *     than from a closure captured when the view was created — a note going
- *     read-only, or a window narrowing out of the density that has a panel,
- *     both change the answer under a mounted editor.
+ *  1. **The row is absent when nothing is behind it.** The flag comes from
+ *     whether the *prop* is supplied, read at menu time through a ref rather
+ *     than from a closure captured when the view was created.
  *  2. **Shift-right-click still reaches the browser.** The editor's own menu
  *     is never the only menu; spelling suggestions live in the browser's and
  *     nowhere else. Adding rows must not quietly take that away.
@@ -30,29 +27,13 @@
  *
  * Applied, suite run, named test observed failing, reverted.
  *
- *  1. `canDictate`/`canAsk` read from the closure instead of through
- *     `handlers.current`, in the `contextmenu` listener.
- *     → **1 fails**: `a capability removed under a mounted editor stops
- *     suppressing the browser`.
- *
- *     It failed **nothing** on the first run, and the reason is the finding.
- *     The rows are computed at *render*, where the closure is current, so a
- *     stale listener is invisible everywhere except the one decision the
- *     listener alone makes: whether to `preventDefault` at all. The test above
- *     was added to reach it. A version of this file without it would have
- *     called the ref unnecessary and deleted it.
- *  2. The `ask` arm calling `current.focus()` like every other arm.
- *     → **0 fail**, and it is recorded because the check that would have
- *     caught it is about a keyboard covering a panel on a narrow window, which
- *     jsdom cannot see. The comment in `LiveEditor.web.tsx` is the whole guard
- *     there, and this record is the note that it is not a tested one.
- *  3. The `dictate` arm handing over a hard-coded `0` instead of the caret.
+ *  1. The `dictate` arm handing over a hard-coded `0` instead of the caret.
  *     → **1 fails**: `dictation is asked for at the caret, not at a constant`.
  *
- *     Also nothing, on the first run, and also because the test was too weak:
- *     it asserted `Number.isInteger`, which `0` satisfies. The caret is now
- *     moved to a known offset first, which is the strongest thing jsdom can
- *     say here — it performs no layout, so "wherever the click landed" is not
+ *     Nothing failed on the first run, because the test was too weak: it
+ *     asserted `Number.isInteger`, which `0` satisfies. The caret is now moved
+ *     to a known offset first, which is the strongest thing jsdom can say
+ *     here — it performs no layout, so "wherever the click landed" is not
  *     assertable at all.
  */
 
@@ -73,7 +54,6 @@ import { LiveEditor } from "../features/console/files/LiveEditor.web";
 interface Props {
   editable?: boolean;
   onDictate?: (at: number) => void;
-  onAsk?: () => void;
 }
 
 function mount(initial: Props = {}) {
@@ -92,7 +72,6 @@ function mount(initial: Props = {}) {
           onSave: () => {},
           accessibilityLabel: "note markdown",
           onDictate: props.onDictate,
-          onAsk: props.onAsk,
         }),
       );
     });
@@ -168,21 +147,20 @@ function mount(initial: Props = {}) {
 }
 
 describe("the rows are there when there is something behind them", () => {
-  test("a console editor offers both", () => {
-    const editor = mount({ onDictate: () => {}, onAsk: () => {} });
+  test("a console editor offers dictation, and nothing offers to ask", () => {
+    const editor = mount({ onDictate: () => {} });
     editor.rightClick();
     const labels = editor.rowLabels().join(" ");
     expect(labels).toContain("Dictate here");
-    expect(labels).toContain("Ask about this note");
+    expect(labels).not.toContain("Ask about this note");
     editor.unmount();
   });
 
-  test("an editor with neither offers neither", () => {
+  test("an editor with nothing behind the row does not offer it", () => {
     const editor = mount();
     editor.rightClick();
     const labels = editor.rowLabels().join(" ");
     expect(labels).not.toContain("Dictate here");
-    expect(labels).not.toContain("Ask about this note");
     // ...and the formatting rows it always had are untouched.
     expect(labels).toContain("Bold");
     editor.unmount();
@@ -195,15 +173,13 @@ describe("the rows are there when there is something behind them", () => {
    * offer Dictate on a note that had since become somebody else's to read.
    */
   test("a note that goes read-only under a mounted editor loses the row", () => {
-    const editor = mount({ onDictate: () => {}, onAsk: () => {} });
+    const editor = mount({ onDictate: () => {} });
     editor.rightClick();
     expect(editor.rowLabels().join(" ")).toContain("Dictate here");
 
     editor.update({ onDictate: undefined });
     editor.rightClick();
     expect(editor.rowLabels().join(" ")).not.toContain("Dictate here");
-    // Asking survives, because asking is not a write.
-    expect(editor.rowLabels().join(" ")).toContain("Ask about this note");
     editor.unmount();
   });
 });
@@ -222,23 +198,13 @@ describe("pressing them", () => {
    */
   test("dictation is asked for at the caret, not at a constant", () => {
     const at: number[] = [];
-    const editor = mount({ onDictate: (position) => at.push(position), onAsk: () => {} });
+    const editor = mount({ onDictate: (position) => at.push(position) });
 
     editor.moveCaretTo(12);
     editor.rightClick();
     editor.pressRow("Dictate here");
 
     expect(at).toEqual([12]);
-    editor.unmount();
-  });
-
-  test("asking reaches the panel and hands over no question", () => {
-    let asked = 0;
-    const editor = mount({ onDictate: () => {}, onAsk: () => (asked += 1) });
-    editor.rightClick();
-    editor.pressRow("Ask about this note");
-
-    expect(asked).toBe(1);
     editor.unmount();
   });
 });
@@ -250,7 +216,7 @@ describe("what adding rows must not take away", () => {
    * before these rows and has to survive them.
    */
   test("Shift-right-click still reaches the browser", () => {
-    const editor = mount({ onDictate: () => {}, onAsk: () => {} });
+    const editor = mount({ onDictate: () => {} });
     const event = editor.rightClick({ shiftKey: true });
 
     expect(event.defaultPrevented).toBe(false);
@@ -259,42 +225,13 @@ describe("what adding rows must not take away", () => {
   });
 
   /**
-   * A read-only note with nothing selected and nothing to ask has no verbs at
+   * A read-only note with nothing selected has no verbs at
    * all, and the right behaviour is to let the browser's menu open rather than
    * suppress it for an empty box. The rule predates these rows; this is the
    * check that they did not quietly make the list non-empty.
    */
   test("an empty menu is still no menu", () => {
-    const editor = mount({ editable: false });
-    const event = editor.rightClick();
-
-    expect(event.defaultPrevented).toBe(false);
-    expect(editor.rowLabels()).toHaveLength(0);
-    editor.unmount();
-  });
-
-  /**
-   * The case that catches a stale handler, and the only one that can.
-   *
-   * The `contextmenu` listener is attached once when the view is created, so
-   * its closure is a year old by the time somebody right-clicks — which is
-   * what `handlers.current` is for. Everywhere else a stale answer is
-   * invisible, because the *rows* are computed at render and only the
-   * `empty` decision comes from the listener.
-   *
-   * Here they disagree in the way that matters: a read-only note whose `onAsk`
-   * has gone has no verbs, so the browser's menu must open. A listener reading
-   * a closure from creation still thinks there is a row, suppresses the
-   * browser's menu, and opens an empty box — which is the rule
-   * `rowInteractions.web.ts` states for the tree, broken here.
-   */
-  test("a capability removed under a mounted editor stops suppressing the browser", () => {
-    const editor = mount({ editable: false, onAsk: () => {} });
-    // With something to offer, the editor's own menu opens.
-    expect(editor.rightClick().defaultPrevented).toBe(true);
-    expect(editor.rowLabels().join(" ")).toContain("Ask about this note");
-
-    editor.update({ onAsk: undefined });
+    const editor = mount({ editable: false, onDictate: () => {} });
     const event = editor.rightClick();
 
     expect(event.defaultPrevented).toBe(false);

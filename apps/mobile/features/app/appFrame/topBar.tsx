@@ -284,7 +284,7 @@ export function frameTopBar({
           */}
           {asideToggle ? (
             <FrameIconButton
-              label={regions.aside === "hidden" ? "Show chat and meetings" : "Hide chat and meetings"}
+              label={regions.aside === "hidden" ? "Show meetings" : "Hide meetings"}
               icon={regions.aside === "hidden" ? "panelRight" : "panelLeft"}
               onPress={toggleAside}
               testID="frame-aside-toggle"

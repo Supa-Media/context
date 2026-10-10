@@ -410,7 +410,6 @@ export function HomeShell() {
             <ConsoleFrame
               data={data}
               route={HOME_ROUTE}
-              pathname="/"
               router={visitorRouter}
               params={NO_PARAMS}
             >

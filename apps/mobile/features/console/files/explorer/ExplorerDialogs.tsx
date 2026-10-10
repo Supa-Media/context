@@ -69,14 +69,12 @@ export function ExplorerDialogs({
   /**
    * The rows of the `create` sheet that are not files.
    *
-   * Passed in because neither belongs to the file browser: a meeting is the
-   * meetings flow's and a conversation is the aside panel's, and this component
-   * is mounted by surfaces that have one, both or neither. Absent means the row
-   * is not drawn — see `CreatePrompt`.
+   * Passed in because they do not belong to the file browser: a meeting is the
+   * meetings flow's, and this component is mounted by surfaces that have one or
+   * not. Absent means the row is not drawn — see `CreatePrompt`.
    */
   create?: {
     onNewMeeting?: (() => void) | null;
-    onNewChat?: (() => void) | null;
     /** Carry on a meeting that already has a note. See `CreatePrompt`. */
     resume?: { detail: string; onResume: () => void } | null;
   };
@@ -160,7 +158,6 @@ export function ExplorerDialogs({
           folders={pickable}
           rootLabel={rootLabel}
           onNewMeeting={create?.onNewMeeting ?? null}
-          onNewChat={create?.onNewChat ?? null}
           onResumeMeeting={create?.resume ?? null}
         />
       );

@@ -330,7 +330,6 @@ function ConsoleBoard({ surface, noteOpen }: { surface: "menu" | "aside"; noteOp
           onCreateDrawing={() => {}}
           onCreateFolder={() => {}}
           onNewMeeting={() => {}}
-          onNewChat={() => {}}
           onResumeMeeting={resume}
         />
       ) : null}

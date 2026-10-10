@@ -210,7 +210,7 @@ export interface FrameState {
    */
   focus: boolean;
   /**
-   * Medium and wide: the right panel — chat and meetings — is open.
+   * Medium and wide: the right panel — meetings and approvals — is open.
    *
    * A **preference**, like `explorerHidden` and for the same reason: it is a
    * choice about how somebody likes the app, not a claim about what is on the
@@ -265,7 +265,7 @@ export interface Regions {
   /** The editor is always rendered — there is no density with nothing to read. */
   editor: true;
   /**
-   * The right panel: chat and meetings.
+   * The right panel: meetings and approvals.
    *
    * `column` sits beside the editor at `wide`; `overlay` comes in over it
    * behind a scrim at `medium`, where a third column would leave the note

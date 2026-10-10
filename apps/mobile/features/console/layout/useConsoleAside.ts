@@ -1,8 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import { WELCOME_ROUTE } from "../../onboarding/route";
-import { agentPage } from "../../agent/page";
-import { useOpenNote } from "../../agent/openNote";
-import { useAgentEngine } from "../../agent/useAgentEngine";
 import { useApprovals } from "../../approvals/useApprovals";
 import { useCarriesMeeting } from "../../meetings/carried";
 import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../meetings/resume";
@@ -17,12 +14,12 @@ import type { ConsoleContext, ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
 /**
- * The right panel, the + menu's meeting and chat rows, and the microphone's
- * host: everything the console layout builds for the agent and for meetings.
+ * The right panel, the + menu's meeting rows, and the microphone's host:
+ * everything the console layout builds for meetings and approvals.
  *
  * Lifted out whole and in order. It is one hook rather than three because its
- * callbacks reach state declared further down it — `showMeetings` and
- * `startNewChat` open the panel through `setOpenAsideAt` and `setAsked` — and
+ * callbacks reach state declared further down it — `showMeetings` opens the
+ * panel through `setOpenAsideAt` — and
  * the recently-visited places are read in the middle of it, so they are
  * returned from here too rather than moved and made to run in a different
  * position.
@@ -34,7 +31,6 @@ export function useConsoleAside({
   insideContext,
   current,
   selectedEntry,
-  pathname,
 }: {
   data: ConsoleData;
   router: ConsoleRouter;
@@ -42,7 +38,6 @@ export function useConsoleAside({
   insideContext: boolean;
   current: ConsoleContext | null;
   selectedEntry: ReturnType<typeof entryAt> | null;
-  pathname: string;
 }) {
   /**
    * When something last asked for the panel's Meetings tab.
@@ -52,16 +47,6 @@ export function useConsoleAside({
    * session is ordinary, and a boolean looks unchanged the second time.
    */
   const [meetingsAt, setMeetingsAt] = useState<number | null>(null);
-  /** When the + menu last asked for a fresh conversation. See `AsidePanel`. */
-  const [newChatAt, setNewChatAt] = useState<number | null>(null);
-  /**
-   * When a phone last asked for one, or `null` for "no card on screen".
-   *
-   * A timestamp rather than a boolean, for `asked`'s reason and `meetingsAt`'s:
-   * asking twice in a session is ordinary, and it is also the `key` that gives
-   * the card a fresh conversation each time rather than the last one reopened.
-   */
-  const [phoneChatAt, setPhoneChatAt] = useState<number | null>(null);
   /*
     Whether this console has a right panel at all. `regionsFor` answers
     `hidden` at compact, and `asideToggleFor` is the question asked in the one
@@ -118,51 +103,6 @@ export function useConsoleAside({
     onStarted: hasAside ? showMeetings : visitorMeetings?.showOnPhone,
   });
 
-  /**
-   * A FRESH CONVERSATION, OR `null` WHERE THERE IS NOWHERE FOR ONE TO GO.
-   *
-   * Defined once because two surfaces offer it now — the corner's menu and the
-   * phone's `+` sheet — and two copies of a gate is one copy that eventually
-   * disagrees with the other about when it is open.
-   *
-   * Three conditions, and the third is the owner's: a panel to answer in (so not
-   * a phone), an engine behind it (so not the demo console), and **a model key
-   * on this context** — *"new chat should be off if no LLM api key configured"*.
-   * `=== true` rather than truthiness, because `modelConnected` is `undefined`
-   * until the subscription answers and the row is better absent for that moment
-   * than offered and withdrawn.
-   */
-  const startNewChat = useMemo(
-    () =>
-      !data.demo && data.modelConnected === true
-        ? () => {
-            const at = Date.now();
-            /*
-              TWO SURFACES, ONE OFFER.
-
-              A pointer layout opens the panel beside the note. **A phone opens
-              `AgentPanel` over it**, which is what closed the gap this used to
-              have: `hasAside` was part of the condition above, so the Chat row
-              was simply absent from the phone's `+` while the corner's menu
-              offered it. That was never a decision — it was a fact about the
-              code, because the only thing that raised `AgentPanel` was the
-              floating microphone `NoteEditor` mounts, so the way to the agent on
-              a phone was to open a note, put the keyboard up until the bottom
-              row hid, and press the microphone that came back.
-
-              `AgentPanel` is a `Modal` and says in its own header that it is one
-              so it can "appear identically on a surface that has no console
-              around it at all". So this layout raises it, and neither density
-              has to be told about the other's furniture.
-            */
-            if (!hasAside) return setPhoneChatAt(at);
-            setOpenAsideAt(at);
-            setAsked(null);
-            setNewChatAt(at);
-          }
-        : null,
-    [data.demo, data.modelConnected, hasAside],
-  );
   /** Recording, or `null` on a console with no controller behind one. */
   const startMeeting = data.demo && visitorMeetings === undefined ? null : startMeetingFlow;
   /*
@@ -172,98 +112,22 @@ export function useConsoleAside({
   */
   const canCreate = canCreateAnything({
     canEdit: data.files.canEdit,
-    chat: startNewChat !== null,
     meeting: startMeeting !== null,
   });
 
   /**
-   * What the microphone over the note needs, which is only what this layout
-   * already knows.
+   * When something last asked for the panel to be opened.
    *
-   * `context` is the whole `ConsoleContext` rather than its slug: the dictation
-   * sheet has to say who can read the open note before the microphone opens,
-   * and that is a question about `kind` and `role` — see
-   * `features/voice/audience.ts` for why an unrecognised `kind` is never
-   * answered "only you".
-   *
-   * `writable` is the entry's own answer, not the membership's. `privacy.md`
-   * and an encrypted envelope are read-only inside a context you own outright,
-   * and `NoteEditor` narrows this again with its own `editable` — reading mode
-   * and a conflict both close the note to typing without changing either of
-   * these.
-   */
-  /*
-    The agent's own engine, built here and not in the editor.
-
-    It mints this app's gateway grant on demand — an ordinary, revocable OAuth
-    grant clamped to this person's role — and holds it in memory for the hour
-    it lives. `features/agent/useAgentEngine.ts` has the argument for why it is
-    never written to the device.
-  */
-  /*
-    Whether something is recording, for the panel's ambient place. Read here
-    rather than inside `AsidePanel` so that what the agent is told about the
-    room is assembled in one place — `agentPage` is that place's only builder,
-    and a second caller filling one field from a different source is how two
-    surfaces end up describing different rooms.
-  */
-  const meetingsSnapshot = useMeetingsSnapshot();
-  const liveMeeting = meetingsSnapshot.live;
-  const openNote = useOpenNote();
-  /**
-   * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
-   *
-   * Two surfaces answer a question now: the panel beside the note, and the card
-   * a phone raises over it. `agentPage`'s own comment asks for exactly this —
-   * *"the room is assembled in one place, and `agentPage` is that place's only
-   * builder"* — because the object is a set of **references** and a second copy
-   * is a second chance to put a note body in one.
-   *
-   * `meetingLive` is read from the store rather than passed `false` the way
-   * `NoteEditor` passes it, and that is not a disagreement: the editor's own
-   * control returns `null` for the whole of a meeting, so its conversation
-   * cannot be on screen while one runs, and these two can.
-   */
-  const agentPlace = agentPage({
-    context: insideContext ? current : null,
-    /*
-      What the editor published, rather than a reference rebuilt from
-      `selectedEntry`. A tree row carries a path and a visibility and knows
-      nothing about the etag, the encryption or the draft — so three of the five
-      fields would be claims, and `unsaved: false` on a note somebody is typing
-      into is the opposite of the honesty that field exists for.
-    */
-    editor: { reference: openNote },
-    route: pathname,
-    meetingLive: liveMeeting !== null,
-    query: null,
-  });
-  /**
-   * A question handed over from ⌘K, if one has been.
-   *
-   * The counter is the event rather than the text — see `AsidePanel`, which
-   * explains it where it is read. Held here rather than inside the panel
-   * because the palette is a sibling of it: both are children of the frame,
-   * and this layout is the one thing above both.
-   */
-  const [asked, setAsked] = useState<{ text: string; at: number } | null>(null);
-  /**
-   * When something last asked for the panel to be opened, without a question.
-   *
-   * The note's right-click menu is the caller. A counter rather than a
-   * boolean, for the reason `asked` carries one: asking twice is ordinary, and
-   * the second ask must not look like a re-render. `null` is "nobody has".
+   * `showMeetings` is the caller. A counter rather than a boolean: asking
+   * twice is ordinary, and the second ask must not look like a re-render.
+   * `null` is "nobody has".
    */
   const [openAsideAt, setOpenAsideAt] = useState<number | null>(null);
 
-  const agentEngine = useAgentEngine({
-    workspaceId: data.selectedContextId,
-    endpoint: data.endpoint,
-  });
+  const meetingsSnapshot = useMeetingsSnapshot();
   /*
     What the egress gate is holding for this person, in any of their contexts, for the right panel's
-    Approvals tab and its count. Read here, beside the engine, because it is the
-    same grant for the same workspace — and because the count has to be known
+    Approvals tab and its count. Read here because the count has to be known
     before anybody opens the tab. Off where there is no panel (a phone's
     console has none), on the demo, and with no context to ask about.
   */
@@ -330,6 +194,7 @@ export function useConsoleAside({
     resumeMeeting,
   ]);
 
+  /** What the microphone over the note needs, which is only what this layout already knows. */
   const voiceHost = useMemo<VoiceHost>(
     () => ({
       page: {
@@ -347,21 +212,6 @@ export function useConsoleAside({
       },
       onRecordMeeting: startMeetingFlow,
       /*
-        The note's right-click menu, reaching the right panel. Absent on the
-        demo console — there is no engine behind it — and the row is then gone
-        rather than pressable and inert. Whether the *density* has a panel is
-        `OpenAsideOn`'s to answer, because that is a frame question and this is
-        above the frame.
-      */
-      onAskAgent: data.demo ? undefined : () => setOpenAsideAt(Date.now()),
-      /*
-        The one place holding both halves the engine needs: the workspace the
-        grant is minted for, and the endpoint its `/agent` route is derived
-        from. `NoteEditor` has never seen either, and the surfaces that render
-        `BrowsePane` without this provider get the stub instead.
-      */
-      agent: agentEngine,
-      /*
         The corner is the `+` at every pointer density, so the editor draws no
         resting microphone there. Published rather than derived, because the
         fixture and the demo console are desktop-width consoles with no `+` —
@@ -369,26 +219,18 @@ export function useConsoleAside({
       */
       createButton: !phone,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone],
+    [insideContext, current, selectedEntry, startMeetingFlow, phone],
   );
   return {
     meetingsAt,
-    newChatAt,
-    phoneChatAt,
-    setPhoneChatAt,
     showMeetings,
     places,
     contextHrefFrom,
     startMeetingFlow,
     meetingSheet,
-    startNewChat,
     startMeeting,
     canCreate,
-    agentPlace,
-    asked,
-    setAsked,
     openAsideAt,
-    agentEngine,
     approvals,
     resumeRow,
     voiceHost,

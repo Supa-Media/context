@@ -74,7 +74,7 @@ import {
   consoleSyncSheet,
 } from "./layout/sheets";
 import { consoleBarDialogs } from "./layout/barDialogs";
-import { consoleCreateButton, consolePhoneChat } from "./layout/createButton";
+import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
@@ -107,7 +107,6 @@ import {
 export function ConsoleFrame({
   data,
   route,
-  pathname,
   router,
   params,
   children,
@@ -115,7 +114,6 @@ export function ConsoleFrame({
   data: ConsoleData;
   /** Which console page this is. The homepage is always a context's Browse. */
   route: ConsoleRoute;
-  pathname: string;
   router: ConsoleRouter;
   /** The query the console acts on — `useConsoleParams` on a real route. */
   params: {
@@ -328,10 +326,9 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, contextHrefFrom,
-    startMeetingFlow, meetingSheet, startNewChat, startMeeting, canCreate, agentPlace, asked,
-    setAsked, openAsideAt, agentEngine, approvals, resumeRow, voiceHost,
-  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, pathname });
+    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
+    canCreate, openAsideAt, approvals, resumeRow, voiceHost,
+  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry });
 
   /**
    * Where the control is and where a press takes it.
@@ -519,7 +516,7 @@ export function ConsoleFrame({
           no visible change at all.
         */
         aside={consoleAsidePanel({
-          data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router, approvals,
+          data, meetingsAt, router, approvals,
         })}
         explorer={consoleExplorer({
           browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
@@ -528,7 +525,7 @@ export function ConsoleFrame({
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
           browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
-          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel, ask: startNewChat } : null,
+          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel } : null,
         })}
       >
         <Shortcuts
@@ -609,7 +606,7 @@ export function ConsoleFrame({
         ) : null}
 
         {consoleBarDialogs({
-          data, barDialog, setBarDialog, startMeeting, startNewChat, resumeRow, current,
+          data, barDialog, setBarDialog, startMeeting, resumeRow, current,
           insideContext, router,
         })}
 
@@ -629,22 +626,18 @@ export function ConsoleFrame({
 
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog, startNewChat,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog,
         })}
 
         {/*
           The panel, opened by anything above the frame that cannot reach
-          `useFrame` — today the note's right-click menu. It renders nothing;
+          `useFrame` — today a meeting starting. It renders nothing;
           it exists to be *inside* `AppFrame`, which is where the command is.
         */}
         <OpenAsideOn at={openAsideAt} />
 
-        {consolePhoneChat({
-          phoneChatAt, agentEngine, agentPlace, phone, setPhoneChatAt,
-        })}
-
         {consolePalette({
-          paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}

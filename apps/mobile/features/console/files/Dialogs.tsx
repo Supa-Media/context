@@ -69,7 +69,6 @@ export function CreatePrompt({
   folders = [""],
   rootLabel = "Your workspace",
   onNewMeeting,
-  onNewChat,
   onResumeMeeting = null,
 }: {
   folder: string;
@@ -92,11 +91,9 @@ export function CreatePrompt({
   /**
    * `null` on a surface with no meeting flow behind it — the fixtures and the
    * landing page's demo console. Absent rather than pressable and inert, which
-   * is the contract `onNewChat` keeps below and `CreateButton` keeps for both.
+   * is the contract `CreateButton` keeps too.
    */
   onNewMeeting: (() => void) | null;
-  /** `null` with no engine behind it, or no model key connected. */
-  onNewChat: (() => void) | null;
   /**
    * Carry on a meeting that already has a note — `CreateButton`'s `resume`,
    * with the same detail under it. `null` when there is none to carry on, and
@@ -127,7 +124,6 @@ export function CreatePrompt({
       <View style={styles.choices}>
         {createRows({
           canEdit,
-          chat: onNewChat !== null,
           meeting: onNewMeeting !== null,
           resume: onResumeMeeting !== null,
         }).map((row) => (
@@ -147,7 +143,6 @@ export function CreatePrompt({
               onCancel();
               if (row === "new-note") onCreateNote();
               if (row === "new-drawing") onCreateDrawing();
-              if (row === "new-chat") onNewChat?.();
               if (row === "new-meeting") onNewMeeting?.();
               if (row === "resume-meeting") onResumeMeeting?.onResume();
             }}
@@ -182,7 +177,6 @@ const ROW_LABELS: Record<CreateRow, string> = {
   "new-note": "New note",
   "new-drawing": "New drawing",
   "new-folder": "New folder",
-  "new-chat": "New chat",
 };
 
 /** The word on the row. Shorter than the label: the sheet has a title. */
@@ -192,7 +186,6 @@ const ROW_TITLES: Record<CreateRow, string> = {
   "new-note": "Note",
   "new-drawing": "Drawing",
   "new-folder": "Folder",
-  "new-chat": "Chat",
 };
 
 /** What each row does. Resume's names the meeting, so it is passed in. */
@@ -202,7 +195,6 @@ const ROW_SUBS: Record<CreateRow, string> = {
   "new-note": "A markdown file you can write in.",
   "new-drawing": "An Excalidraw canvas. Opens in Obsidian too.",
   "new-folder": "A place to file notes. Nest them as deep as you like.",
-  "new-chat": "Ask about this note, or your whole context.",
 };
 
 /** Ask for a name. Validated as you type, with the reason next to the field. */

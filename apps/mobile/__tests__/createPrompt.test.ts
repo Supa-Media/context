@@ -63,14 +63,13 @@ interface Made {
   drawings: number;
   folders: string[];
   meetings: number;
-  chats: number;
 }
 
 function mount(
   folder: string,
-  options: { canEdit?: boolean; meeting?: boolean; chat?: boolean } = {},
+  options: { canEdit?: boolean; meeting?: boolean } = {},
 ): Made {
-  const made: Made = { notes: 0, drawings: 0, folders: [], meetings: 0, chats: 0 };
+  const made: Made = { notes: 0, drawings: 0, folders: [], meetings: 0 };
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -100,12 +99,6 @@ function mount(
               : () => {
                   made.meetings += 1;
                 },
-          onNewChat:
-            options.chat === true
-              ? () => {
-                  made.chats += 1;
-                }
-              : null,
         }),
       ),
     );
@@ -149,16 +142,12 @@ function name(text: string): void {
 
 describe("the phone's +", () => {
   test("every row is offered", () => {
-    mount("1-projects", { chat: true });
+    mount("1-projects");
     expect(labels()).toEqual(
-      expect.arrayContaining([
-        "New note",
-        "New drawing",
-        "New folder",
-        "New chat",
-        "New meeting",
-      ]),
+      expect.arrayContaining(["New note", "New drawing", "New folder", "New meeting"]),
     );
+    // Chat was removed entirely (2026-10-10).
+    expect(labels()).not.toContain("New chat");
   });
 
   test("it says where the thing is going", () => {
@@ -183,7 +172,7 @@ describe("the phone's +", () => {
   test("Note makes the note on the press, asking for no name", () => {
     const made = mount("1-projects");
     press("New note");
-    expect(made).toEqual({ notes: 1, drawings: 0, folders: [], meetings: 0, chats: 0 });
+    expect(made).toEqual({ notes: 1, drawings: 0, folders: [], meetings: 0 });
     expect(document.body.querySelector("input, textarea")).toBeNull();
   });
 
@@ -198,7 +187,7 @@ describe("the phone's +", () => {
     */
     const made = mount("1-projects");
     press("New drawing");
-    expect(made).toEqual({ notes: 0, drawings: 1, folders: [], meetings: 0, chats: 0 });
+    expect(made).toEqual({ notes: 0, drawings: 1, folders: [], meetings: 0 });
     expect(document.body.querySelector("input, textarea")).toBeNull();
   });
 
@@ -218,7 +207,6 @@ describe("the phone's +", () => {
       drawings: 0,
       folders: ["editor-polish"],
       meetings: 0,
-      chats: 0,
     });
   });
 
@@ -253,24 +241,17 @@ describe("the phone's +", () => {
   test("Meeting reaches the meeting flow and creates no file", () => {
     const made = mount("1-projects");
     press("New meeting");
-    expect(made).toEqual({ notes: 0, drawings: 0, folders: [], meetings: 1, chats: 0 });
-  });
-
-  test("Chat reaches the panel", () => {
-    const made = mount("1-projects", { chat: true });
-    press("New chat");
-    expect(made).toEqual({ notes: 0, drawings: 0, folders: [], meetings: 0, chats: 1 });
+    expect(made).toEqual({ notes: 0, drawings: 0, folders: [], meetings: 1 });
   });
 
   /**
-   * Absent, not inert. A phone has no panel for a conversation to open in, and a
-   * surface with no meeting flow behind it (the fixtures, the demo console) has
-   * nothing to record with — so neither row is drawn there rather than drawn and
-   * doing nothing. The same rule `CreateButton` keeps for both.
+   * Absent, not inert. A surface with no meeting flow behind it (the fixtures,
+   * the demo console) has nothing to record with — so the row is not drawn
+   * there rather than drawn and doing nothing. The same rule `CreateButton`
+   * keeps.
    */
-  test("no chat panel and no meeting flow means no row for either", () => {
-    mount("1-projects", { chat: false, meeting: false });
-    expect(labels()).not.toContain("New chat");
+  test("no meeting flow means no meeting row", () => {
+    mount("1-projects", { meeting: false });
     expect(labels()).not.toContain("New meeting");
   });
 
@@ -307,12 +288,11 @@ describe("the phone's +", () => {
   test("nothing is created by opening the sheet", () => {
     // A `+` that wrote a note the moment it was pressed is what this replaced:
     // the bar used to call `createNote(folder, "Untitled")` directly.
-    expect(mount("1-projects", { chat: true })).toEqual({
+    expect(mount("1-projects")).toEqual({
       notes: 0,
       drawings: 0,
       folders: [],
       meetings: 0,
-      chats: 0,
     });
   });
 });

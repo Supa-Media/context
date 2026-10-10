@@ -83,8 +83,8 @@ export function inboxTakesNotes(data: ConsoleData): boolean {
  * keyboard's microphone key, which is there the moment search opens. A
  * microphone that does not listen reads as a broken one.
  *
- * **In a note the field gives way to the note's own actions** — Share, Move,
- * Ask AI (`NoteQuickBar`) — beside the same compose button (owner, same
+ * **In a note the field gives way to the note's own actions** — Share, Move
+ * (`NoteQuickBar`) — beside the same compose button (owner, same
  * review): searching from inside a note means leaving it.
  *
  * The bar's room is `AppFrame`'s bottom slot, as it was; this draws what is in
