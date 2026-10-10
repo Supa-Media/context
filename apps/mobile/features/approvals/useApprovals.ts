@@ -72,6 +72,13 @@ const EMPTY: State = { phase: "idle", loading: false, items: [], error: null, bu
 export function useApprovals(options: {
   /** The workspace the console is showing, or `null` before one is chosen. */
   workspaceId: string | null;
+  /**
+   * Every workspace this person is in. An approval is held in the context of
+   * the connection that asked, which is usually their personal one, not the
+   * one the console is showing; listing only the shown one hid them (Dev2,
+   * 2026-10-10: "i dont see anything"). Absent: the shown one alone.
+   */
+  workspaceIds?: readonly string[];
   /** The MCP endpoint the console already shows. */
   endpoint: string | null;
   /** False where there is no panel to show this in, or nothing to ask about. */
@@ -81,6 +88,11 @@ export function useApprovals(options: {
   const route = options.endpoint === null ? null : approvalsEndpoint(options.endpoint);
   const workspaceId = options.workspaceId;
   const live = options.enabled && route !== null && workspaceId !== null;
+  // The shown workspace first, then the rest, each once.
+  const everyKey = workspaceId === null ? "" : [...new Set([workspaceId, ...(options.workspaceIds ?? [])])].join("\n");
+  const every = useMemo(() => (everyKey === "" ? [] : everyKey.split("\n")), [everyKey]);
+  /** Which workspace holds each listed approval, so its decision goes back to the same one. */
+  const heldIn = useRef(new Map<string, string>());
   const [state, setState] = useState<State>(EMPTY);
 
   const epoch = useRef(0);
@@ -100,10 +112,10 @@ export function useApprovals(options: {
    * drops it: a thrown error here can carry a URL or a code for an operator.
    */
   const send = useCallback(
-    async (method: "GET" | "POST", body?: unknown): Promise<{ status: number; body: unknown } | null> => {
-      if (route === null || workspaceId === null) return null;
+    async (method: "GET" | "POST", inWorkspace: string, body?: unknown): Promise<{ status: number; body: unknown } | null> => {
+      if (route === null) return null;
       const grant = (refresh: GrantRefresh) =>
-        mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh).then((minted) => minted.accessToken);
+        mint({ workspaceId: inWorkspace as Id<"workspaces"> }, refresh).then((minted) => minted.accessToken);
       const request = (accessToken: string) =>
         fetch(route, {
           method,
@@ -131,33 +143,58 @@ export function useApprovals(options: {
         return null;
       }
     },
-    [mint, route, workspaceId],
+    [mint, route],
   );
 
   const list = useCallback(async () => {
     const mark = epoch.current;
     const mine = ++listing.current;
     setState((s) => ({ ...s, loading: true }));
-    const answer = await send("GET");
+    const answers = await Promise.all(every.map((id) => send("GET", id)));
     // A listing that a newer one has overtaken, or that belongs to a context
     // already left, is not what the screen should show.
     if (mark !== epoch.current || mine !== listing.current) return;
-    const read =
+    const reads = answers.map((answer) =>
       answer === null
         ? { kind: "failed" as const, sentence: UNREACHABLE_SENTENCE }
-        : readListing(answer.status, answer.body);
+        : readListing(answer.status, answer.body),
+    );
+    // One workspace that cannot be read leaves the others' approvals showing;
+    // only when none can is the listing a failure.
+    const items: Approval[] = [];
+    const held = new Map<string, string>();
+    let listed = false;
+    reads.forEach((read, k) => {
+      if (read.kind !== "listed") return;
+      listed = true;
+      for (const item of read.approvals) {
+        if (held.has(item.id)) continue;
+        held.set(item.id, every[k]!);
+        items.push(item);
+      }
+    });
+    heldIn.current = held;
+    const failure = reads.find((read) => read.kind !== "listed");
     setState((s) =>
-      read.kind === "listed"
+      listed
         ? {
             ...s,
             phase: "listed",
             loading: false,
-            items: read.approvals.filter((item) => !settled.current.has(item.id)),
+            items: items
+              .filter((item) => !settled.current.has(item.id))
+              .sort((a, b) => b.createdAt - a.createdAt),
             error: null,
           }
-        : { ...s, phase: "failed", loading: false, items: [], error: read.sentence },
+        : {
+            ...s,
+            phase: "failed",
+            loading: false,
+            items: [],
+            error: failure && failure.kind === "failed" ? failure.sentence : UNREACHABLE_SENTENCE,
+          },
     );
-  }, [send]);
+  }, [send, every]);
 
   // The scope effect calls the latest `list` without re-running on every change
   // of the grant's identity, which would list again for no reason.
@@ -166,11 +203,12 @@ export function useApprovals(options: {
     listRef.current = list;
   }, [list]);
 
-  const scope = live ? `${workspaceId}\n${route}` : null;
+  const scope = live ? `${everyKey}\n${route}` : null;
   useEffect(() => {
     epoch.current += 1;
     busy.current = null;
     settled.current = new Set();
+    heldIn.current = new Map();
     setState(EMPTY);
     if (scope !== null) void listRef.current();
     return () => {
@@ -184,7 +222,7 @@ export function useApprovals(options: {
       busy.current = id;
       const mark = epoch.current;
       setState((s) => ({ ...s, busyId: id, notice: null }));
-      const answer = await send("POST", decisionRequest(id, action));
+      const answer = await send("POST", heldIn.current.get(id) ?? workspaceId ?? "", decisionRequest(id, action));
       if (mark !== epoch.current) return;
       busy.current = null;
       const read =
@@ -211,7 +249,7 @@ export function useApprovals(options: {
         setState((s) => ({ ...s, busyId: null, notice: { tone: "warn", text: read.sentence } }));
       }
     },
-    [send],
+    [send, workspaceId],
   );
 
   return useMemo<ApprovalsView>(
