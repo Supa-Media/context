@@ -85,3 +85,12 @@ test("an unscored result says so instead of showing nothing", () => {
   assert.match(md, /_Not scored yet\._/);
   assert.ok(md.includes("## Summary"));
 });
+
+test("a search result, scored by its own summary, is not called unscored", () => {
+  const raw = ["---", "job: search", "date: 2026-10-10", "status: scored", "---", "", "## Summary", "", "| Setup | Found |", "| --- | --- |", "| everywhere | 100% |", ""].join("\n");
+  const out = summaryMarkdown(raw);
+  assert.doesNotMatch(out, /Not scored yet/);
+  assert.match(out, /\| everywhere \| 100% \|/);
+  const unscored = raw.replace("status: scored", "status: not judged");
+  assert.match(summaryMarkdown(unscored), /Not scored yet/);
+});
