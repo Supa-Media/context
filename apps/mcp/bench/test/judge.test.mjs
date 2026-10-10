@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, estimateJudging, fakeJudge, judgeFile, sidecarPath, JUDGE_ATTEMPTS } from "../judge.mjs";
+import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -424,6 +424,30 @@ test("a reply that is not JSON is asked for again, and given up on after three t
       assert.equal(tries, JUDGE_ATTEMPTS, "three tries, then the error");
     } finally {
       await cleanup2();
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the judge's reply is held to a JSON schema by the API, and every object in it closes additionalProperties", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const rec = recording(judging(allPass));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    const body = JSON.parse(rec.bodies[0]);
+    assert.deepEqual(body.output_config, { format: { type: "json_schema", schema: JUDGE_SCHEMA } });
+    const objects = [];
+    const walk = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "object") objects.push(node);
+      for (const value of Object.values(node)) walk(value);
+    };
+    walk(JUDGE_SCHEMA);
+    assert.ok(objects.length >= 3, "the reply, an answer, a verdict");
+    for (const node of objects) {
+      assert.equal(node.additionalProperties, false);
+      assert.deepEqual(Object.keys(node.properties).sort(), [...node.required].sort(), "every property is required");
     }
   } finally {
     await cleanup();

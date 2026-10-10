@@ -43,9 +43,9 @@ on:
         required: false
         default: ""
       parallel:
-        description: "How many processes answer at once"
+        description: "How many processes answer at once; they wait on models, not the runner, so twelve is fine"
         required: false
-        default: "6"
+        default: "12"
       judge:
         description: "The judge model; empty uses the test's (Haiku)"
         required: false
@@ -96,7 +96,7 @@ jobs:
       # that way. The shapes are checked below as well, because a benchmark
       # argument that is not a number or a name is a mistake worth a clear
       # refusal rather than a stack trace twenty minutes in.
-      BENCH_PARALLEL: ${{ inputs.parallel || '6' }}
+      BENCH_PARALLEL: ${{ inputs.parallel || '12' }}
       BENCH_SETUPS: ${{ inputs.setups }}
       BENCH_QUESTIONS: ${{ inputs.questions }}
       BENCH_RUNS: ${{ inputs.runs }}

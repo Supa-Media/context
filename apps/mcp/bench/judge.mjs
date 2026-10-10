@@ -35,7 +35,9 @@ import { benchFolder } from "./folder.mjs";
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
 /** The most a judging may be estimated to cost without --max-usd raising it. */
 export const DEFAULT_MAX_USD = 1;
-const DEFAULT_CONCURRENCY = 4;
+// Requests in flight at once. Eight judges a 59-question round in about two
+// minutes; the gateway's rate limit, not the runner, is the ceiling.
+const DEFAULT_CONCURRENCY = 8;
 /** Output tokens one verdict is allowed, times checks times answers, bounded. */
 // A complete verdict averaged 102 output tokens in a twelve-answer live request.
 const TOKENS_PER_VERDICT = 200;
@@ -58,6 +60,43 @@ const SYSTEM = [
   '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "pass": true or false, "reason": "<one short line>"}]}]}',
   "Give one entry per answer id, and one verdict per check, in the order given.",
 ].join(" ");
+
+/**
+ * The shape the judge's reply is held to by the API itself (structured
+ * outputs, `output_config.format`), so a reply is JSON of this shape or the
+ * call fails as a call, never as a parse. Every object closes
+ * `additionalProperties`, which the API requires; string and number
+ * constraints are not allowed in it, so the verdict count per answer is
+ * still checked here. Decided 2026-10-10 after "judge reply for question 32
+ * is not JSON" stopped a round the Action had paid for.
+ */
+export const JUDGE_SCHEMA = {
+  type: "object",
+  properties: {
+    answers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          verdicts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { line: { type: "string" }, pass: { type: "boolean" }, reason: { type: "string" } },
+              required: ["line", "pass", "reason"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["id", "verdicts"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["answers"],
+  additionalProperties: false,
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -102,7 +141,13 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
   };
   const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>"].join("\n");
   const maxTokens = Math.min(MAX_TOKENS_CEILING, Math.max(MAX_TOKENS_FLOOR, checks.length * answers.length * TOKENS_PER_VERDICT));
-  const body = JSON.stringify({ model, max_tokens: maxTokens, system: SYSTEM, messages: [{ role: "user", content }] });
+  const body = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: SYSTEM,
+    messages: [{ role: "user", content }],
+    output_config: { format: { type: "json_schema", schema: JUDGE_SCHEMA } },
+  });
   return { checks, body, inputTokens: Math.ceil((SYSTEM.length + content.length) / CHARS_PER_TOKEN), outputTokens: maxTokens };
 }
 
