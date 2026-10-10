@@ -6,7 +6,8 @@
 # apps/mcp/bench/, against the folder committed at apps/mcp/bench/ai/: invented
 # people and workspaces, the tests, and the setups the round compares. No
 # customer note is anywhere near it. The result and the key go up as two
-# artifacts; the result and the key still belong in `@context-lc ai/results/`,
+# artifacts (plus the judging's sidecar when it stopped partway, which is
+# what `judge_run_id` resumes from); the result and the key still belong in `@context-lc ai/results/`,
 # and whoever reads the round copies them there (the key is a separate
 # artifact so a judge can be handed the result alone).
 #
@@ -57,9 +58,15 @@ on:
         description: "Scripted model, no keys, spends nothing: checks the workflow"
         type: boolean
         default: false
+      judge_run_id:
+        description: "Judge and score an earlier run's result instead of answering again: that run's id (the number in its URL). The answers are not paid for twice."
+        required: false
+        default: ""
 
 permissions:
   contents: read
+  # Reading another run's artifacts (judge_run_id) needs it; nothing here writes.
+  actions: read
 
 concurrency:
   group: ai-benchmark
@@ -95,6 +102,7 @@ jobs:
       BENCH_RUNS: ${{ inputs.runs }}
       BENCH_JUDGE: ${{ inputs.judge }}
       BENCH_MAX_USD: ${{ inputs.max_usd || '1' }}
+      BENCH_JUDGE_RUN_ID: ${{ inputs.judge_run_id }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -115,6 +123,7 @@ jobs:
           [[ "$BENCH_JUDGE" =~ ^[a-z0-9@/._-]{0,64}$ ]] || refuse "judge must be a model id."
           [[ "$BENCH_SETUPS" =~ ^[A-Za-z0-9,._-]{0,256}$ ]] || refuse "setups must be comma-separated setup names."
           [[ "$BENCH_QUESTIONS" =~ ^[0-9,]{0,256}$ ]] || refuse "questions must be comma-separated numbers."
+          [[ "$BENCH_JUDGE_RUN_ID" =~ ^[0-9]{0,20}$ ]] || refuse "judge_run_id must be a run id, or empty."
 
       - name: Refuse to run without the keys a real round needs
         if: ${{ !inputs.fake }}
@@ -123,14 +132,38 @@ jobs:
             if [ -z "${!var}" ]; then echo "::error::$var is empty in the production environment (scripts/secrets-allowlist.json says which sync fills it)."; exit 1; fi
           done
 
+      # A round whose judging died (a judge reply that was not JSON, a gateway
+      # outage, the runner lost) has answers that cost real money and are
+      # already an artifact. judge_run_id takes those artifacts, and the judging
+      # sidecar when that run saved one, and picks up where it stopped.
+      - name: Fetch an earlier run's answers instead of answering again
+        if: ${{ inputs.judge_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-*
+          merge-multiple: true
+          path: apps/mcp/bench/ai/results
+          run-id: ${{ inputs.judge_run_id }}
+          github-token: ${{ github.token }}
+
       - name: Name the result
         id: name
         run: |
-          stamp="$(date -u +%Y-%m-%d)"
-          echo "result=apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }}.md" >> "$GITHUB_OUTPUT"
-          echo "key=apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }} key.md" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -n "$BENCH_JUDGE_RUN_ID" ]; then
+            result="$(find apps/mcp/bench/ai/results -maxdepth 1 -name '*.md' ! -name '* key.md' | head -n 1)"
+            [ -n "$result" ] || { echo "::error::run $BENCH_JUDGE_RUN_ID has no benchmark-result artifact to judge."; exit 1; }
+            [ -f "${result%.md} key.md" ] || { echo "::error::run $BENCH_JUDGE_RUN_ID has no benchmark-key artifact beside its result."; exit 1; }
+          else
+            stamp="$(date -u +%Y-%m-%d)"
+            result="apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }}.md"
+          fi
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+          echo "key=${result%.md} key.md" >> "$GITHUB_OUTPUT"
+          echo "judging=${result}.judging.json" >> "$GITHUB_OUTPUT"
 
       - name: Run every setup against every question
+        if: ${{ inputs.judge_run_id == '' }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
@@ -181,5 +214,16 @@ jobs:
         with:
           name: benchmark-key
           path: ${{ steps.name.outputs.key }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # Only exists when the judging stopped partway: the verdicts it had, so a
+      # judge_run_id run of this run resumes instead of paying for them again.
+      - name: Upload the judging sidecar, when the judging stopped partway
+        if: ${{ always() && steps.name.outputs.judging != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-judging
+          path: ${{ steps.name.outputs.judging }}
           if-no-files-found: ignore
           retention-days: 90
