@@ -18,8 +18,8 @@ import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { getFunctionName } from "convex/server";
 import { setupView, showSetupWidget } from "../features/console/setupWidget/rules";
-import { SetupWidget, type SetupActions } from "../features/console/setupWidget/SetupWidget";
-import { SetupDone } from "../features/console/setupWidget/SetupDone";
+import { SetupWidget, widgetMaxHeight, type SetupActions } from "../features/console/setupWidget/SetupWidget";
+import { SetupDone, doneCardMaxHeight } from "../features/console/setupWidget/SetupDone";
 import { SetupWidgetHost } from "../features/console/setupWidget/SetupWidgetHost";
 import { setupRetired, setupWidgetRetiredKey } from "../features/console/setupWidget/useSetupWidget";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
@@ -216,6 +216,60 @@ describe("“You're set up.”", () => {
     await done.press("setup-done-close");
     expect(closed).toBe(1);
     done.unmount();
+  });
+});
+
+/*
+  Dev2, 2026-10-10: the card "bombards you and you couldn't even close it" —
+  on a short window its only way out, Close at the foot, was below the bottom
+  edge, and the only way to reach it was zooming the browser out. Every card
+  the app puts up on its own has to fit the window and close from its top.
+*/
+describe("it always fits the window and always closes", () => {
+  test("the card is never taller than the window, whatever its height", () => {
+    for (const height of [380, 560, 700, 900, 1400]) {
+      // The host draws it 60px from the top; it keeps a margin below too.
+      expect(60 + doneCardMaxHeight(height)).toBeLessThanOrEqual(height - 16);
+      expect(doneCardMaxHeight(height)).toBeGreaterThan(0);
+    }
+  });
+
+  test("the widget's header stays on screen above a long checklist", () => {
+    for (const height of [380, 560, 900]) {
+      // Anchored 24px from the bottom, it may not grow past the top edge.
+      expect(24 + widgetMaxHeight(height)).toBeLessThanOrEqual(height - 16);
+    }
+  });
+
+  test("a close mark sits in the card's corner, outside the part that scrolls", async () => {
+    let closed = 0;
+    const done = mount(createElement(SetupDone, { onClose: () => closed++, onCopyBootstrap: async () => true }));
+    const dismiss = done.byId("setup-done-dismiss");
+    expect(dismiss).not.toBeNull();
+    expect(dismiss?.getAttribute("aria-label")).toBe("Close");
+    expect(done.byId("setup-done-body")?.contains(dismiss!)).toBe(false);
+    await done.press("setup-done-dismiss");
+    expect(closed).toBe(1);
+    done.unmount();
+  });
+
+  test("Escape closes it, unless something is open over it", async () => {
+    let closed = 0;
+    const done = mount(createElement(SetupDone, { onClose: () => closed++, onCopyBootstrap: async () => true }));
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(closed).toBe(1);
+    done.unmount();
+
+    const covered = mount(
+      createElement(SetupDone, { onClose: () => closed++, onCopyBootstrap: async () => true, closeOnEscape: false }),
+    );
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(closed).toBe(1);
+    covered.unmount();
   });
 });
 
