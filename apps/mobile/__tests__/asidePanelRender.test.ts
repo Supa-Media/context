@@ -103,16 +103,20 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
-import { createStubEngine } from "../features/agent/engine";
-import type { AgentPage } from "../features/agent/page";
+import type { ApprovalsView } from "../features/approvals/useApprovals";
 
-const PLACE = {
-  context: { slug: "seyi", personal: true, role: "owner" },
-  note: { path: "1-projects/pricing.md", etag: "a1", visibility: "team", readable: true, unsaved: false },
-  route: "/console/@seyi",
-  meetingLive: false,
-  query: null,
-} as AgentPage;
+/** A console that can answer approvals, with nothing waiting. */
+const APPROVALS: ApprovalsView = {
+  available: true,
+  phase: "listed",
+  loading: false,
+  items: [],
+  error: null,
+  busyId: null,
+  notice: null,
+  refresh: () => {},
+  decide: () => {},
+};
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
@@ -213,7 +217,7 @@ afterEach(() => {
   mockCalls.length = 0;
 });
 
-/** Let the stub engine's promise resolve and React commit the answer. */
+/** Let pending promises resolve and React commit what they changed. */
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
@@ -224,9 +228,8 @@ async function settle(): Promise<void> {
 function mount(
   options: {
     onOpenNote?: ((href: string) => void) | null;
-    asked?: { text: string; at: number } | null;
     started?: number | null;
-    newChat?: number | null;
+    approvals?: ApprovalsView;
   } = {},
 ) {
   const container = document.createElement("div");
@@ -236,15 +239,11 @@ function mount(
     act(() => root.unmount());
     container.remove();
   });
-  const engine = createStubEngine();
   const render = () =>
     root.render(
       createElement(AsidePanel, {
-        engine,
-        place: PLACE,
-        asked: options.asked ?? null,
         started: options.started ?? null,
-        newChat: options.newChat ?? null,
+        approvals: options.approvals,
         onOpenNote: options.onOpenNote === undefined ? () => {} : options.onOpenNote,
       }),
     );
@@ -269,24 +268,33 @@ function mount(
   };
 }
 
-describe("the two tabs", () => {
-  test("a panel opens on chat, with somewhere to type", () => {
-    const panel = mount();
-    expect(panel.find("aside-chat")).not.toBeNull();
-    expect(panel.find("agent-input")).not.toBeNull();
-    expect(panel.find("aside-meetings")).toBeNull();
+describe("the tabs", () => {
+  /** Chat was removed from the panel entirely (2026-10-10); Meetings is where it opens. */
+  test("a panel opens on Meetings, and there is no Chat tab", () => {
+    const panel = mount({ approvals: APPROVALS });
+    expect(panel.find("aside-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-chat")).toBeNull();
+    expect(panel.find("aside-chat")).toBeNull();
+    expect(panel.text()).not.toContain("Chat");
   });
 
-  test("pressing Meetings shows meetings", () => {
-    const panel = mount();
+  test("pressing Approvals shows approvals, and Meetings brings meetings back", () => {
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
+    expect(panel.find("aside-approvals")).not.toBeNull();
+    expect(panel.find("aside-meetings")).toBeNull();
     panel.press("aside-tab-meetings");
     expect(panel.find("aside-meetings")).not.toBeNull();
-    expect(panel.find("aside-chat")).toBeNull();
+  });
+
+  test("a console that cannot answer approvals shows Meetings alone", () => {
+    const panel = mount();
+    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-approvals")).toBeNull();
   });
 
   test("an empty tab says what would put something in it", () => {
     const panel = mount();
-    panel.press("aside-tab-meetings");
     expect(panel.find("aside-no-meeting")).not.toBeNull();
     expect(panel.text()).toContain(NO_MEETING.slice(0, 24));
   });
@@ -295,19 +303,22 @@ describe("the two tabs", () => {
 describe("a meeting, while you are looking elsewhere", () => {
   /**
    * The decision this panel rests on. A meeting can start while somebody is
-   * halfway through typing, and a panel that swapped tabs would lose the
-   * question and answer one nobody asked.
+   * halfway through answering an approval, and a panel that swapped tabs
+   * under them would be a panel they stop trusting.
    */
-  test("a meeting does not move the tab out from under a question", () => {
+  test("a meeting does not move the tab out from under somebody", () => {
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
     mockLive = recording();
-    const panel = mount();
-    expect(panel.find("aside-chat")).not.toBeNull();
+    panel.rerender();
+    expect(panel.find("aside-approvals")).not.toBeNull();
     expect(panel.find("aside-meetings")).toBeNull();
   });
 
   test("the dot is what says a meeting is running", () => {
     mockLive = recording();
-    const panel = mount();
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
     expect(panel.find("aside-tab-meetings-dot")).not.toBeNull();
 
     // ...and it goes once you are reading that tab, because a mark on the
@@ -317,58 +328,22 @@ describe("a meeting, while you are looking elsewhere", () => {
   });
 
   test("and there is no dot with no meeting behind it", () => {
-    const panel = mount();
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
     expect(panel.find("aside-tab-meetings-dot")).toBeNull();
   });
 
   test("the mark is in the name as well as beside it", () => {
     mockLive = recording();
-    const panel = mount();
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
     const tab = panel.find("aside-tab-meetings");
     expect(tab?.getAttribute("aria-label")).toBe("Meetings, recording");
 
     mockLive = null;
-    const quiet = mount();
+    const quiet = mount({ approvals: APPROVALS });
+    quiet.press("aside-tab-approvals");
     expect(quiet.find("aside-tab-meetings")?.getAttribute("aria-label")).toBe("Meetings");
-  });
-});
-
-describe("a question handed over from ⌘K", () => {
-  /**
-   * The panel opens with the answer already arriving, which is the whole
-   * point of the palette row: somebody has already typed the words, and
-   * making them type them again is the reason nobody uses a second box.
-   */
-  test("it is asked, without anybody typing it again", async () => {
-    const panel = mount({ asked: { text: "what did we decide about pricing?", at: 1 } });
-    await settle();
-
-    expect(panel.text()).toContain("what did we decide about pricing?");
-    expect(panel.find("agent-turn-person")).not.toBeNull();
-    // The stub answers by describing the room, so a reply landed too.
-    expect(panel.find("agent-turn-agent")).not.toBeNull();
-  });
-
-  /**
-   * A question arriving takes the tab, where a meeting does not — and the two
-   * are not in tension. The meeting is refused because nobody asked for it;
-   * this *is* somebody asking, and landing them anywhere but the answer would
-   * be the same surprise pointed the other way.
-   */
-  test("and it takes the tab, even from a running meeting", async () => {
-    mockLive = recording();
-    const panel = mount({ asked: { text: "what is this?", at: 1 } });
-    await settle();
-
-    expect(panel.find("aside-chat")).not.toBeNull();
-    expect(panel.find("aside-meetings")).toBeNull();
-  });
-
-  test("a panel nobody asked through opens with an empty transcript", async () => {
-    const panel = mount();
-    await settle();
-    expect(panel.find("agent-turn-person")).toBeNull();
-    expect(panel.find("agent-empty")).not.toBeNull();
   });
 });
 
@@ -462,21 +437,27 @@ describe("what a running meeting shows", () => {
 describe("asking for a meeting is what takes the tab", () => {
   /**
    * `tabs.ts` refuses a *starting* meeting the tab, because a panel that swaps
-   * out from under a composer loses the question somebody was typing. Pressing
-   * New meeting is that person asking, in the menu's own words — the same trade
-   * the ⌘K handoff makes, pointed the other way.
+   * out from under somebody is a panel they stop trusting. Pressing New
+   * meeting is that person asking, in the menu's own words.
    */
   test("the + menu's New meeting opens the panel on Meetings", () => {
+    // `mount` reads its options at each render, so changing one and rendering again is the press.
+    const options: Parameters<typeof mount>[0] = { approvals: APPROVALS, started: null };
+    const panel = mount(options);
+    panel.press("aside-tab-approvals");
     mockLive = recording();
-    const panel = mount({ started: 1 });
+    options.started = 1;
+    panel.rerender();
     expect(panel.find("aside-meetings")).not.toBeNull();
-    expect(panel.find("aside-chat")).toBeNull();
+    expect(panel.find("aside-approvals")).toBeNull();
   });
 
   test("and a meeting that merely starts still only marks the tab", () => {
+    const panel = mount({ approvals: APPROVALS });
+    panel.press("aside-tab-approvals");
     mockLive = recording();
-    const panel = mount();
-    expect(panel.find("aside-chat")).not.toBeNull();
+    panel.rerender();
+    expect(panel.find("aside-approvals")).not.toBeNull();
     expect(panel.find("aside-tab-meetings-dot")).not.toBeNull();
   });
 });

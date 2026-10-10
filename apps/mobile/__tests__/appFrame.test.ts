@@ -325,7 +325,7 @@ describe("regions", () => {
   });
 
   /* ---------------------------------------------------------------------- */
-  /*  The right panel: chat and meetings, where the design put them.         */
+  /*  The right panel: meetings and approvals, where the design put them.   */
   /* ---------------------------------------------------------------------- */
 
   test("a desktop draws it as a column beside the note", () => {

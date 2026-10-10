@@ -5,16 +5,13 @@ import { PaletteSearchHost } from "./EverywhereBar";
 import { loadedInScope, parseScopedQuery } from "./everywhereSearch";
 import { scopeLabel, SearchScopeChips } from "./SearchScope";
 import type { ConsoleData } from "../types";
-import { PaletteWithAsk } from "./frameBridges";
 import type { ConsoleRouter } from "./types";
-import type { ConsoleAside } from "./useConsoleAside";
 import type { PaletteSearch } from "./usePaletteSearch";
 import { lookInFor } from "./SearchLookIn";
 import { showTagOnHome } from "../home/homeTag";
 
 /**
- * ⌘K, while it is open, with its two handoffs — to the search page and to the
- * agent.
+ * ⌘K, while it is open, with its handoff to the search page.
  *
  * A function returning the element rather than a component, so the tree the
  * console layout renders is exactly the one it rendered when this was inline:
@@ -22,7 +19,6 @@ import { showTagOnHome } from "../home/homeTag";
  */
 export function consolePalette({
   paletteOpen,
-  setAsked,
   paletteItems,
   recent = [],
   search,
@@ -34,7 +30,6 @@ export function consolePalette({
   places,
 }: {
   paletteOpen: boolean;
-  setAsked: ConsoleAside["setAsked"];
   paletteItems: PaletteSearch["paletteItems"];
   recent?: PaletteSearch["recent"];
   search: PaletteSearch["search"];
@@ -57,9 +52,6 @@ export function consolePalette({
   const current = data.contexts.find((context) => context.id === data.selectedContextId);
   return (
     paletteOpen ? (
-      <PaletteWithAsk
-        onAsked={(query) => setAsked({ text: query, at: Date.now() })}
-        render={(onAskAgent, askable) => (
       <PaletteSearchHost
         enabled={everywhereOn}
         fallback={search}
@@ -115,25 +107,6 @@ export function consolePalette({
                 router.push(searchHref(typed.query.trim(), slug === null ? [] : [slug]));
               }
         }
-        /*
-          The other handoff: hand the words to the agent instead of to
-          search, and open the panel they are answered in.
-
-          Offered only where there is a panel to answer in — a phone has
-          none (`asideToggleFor`), and the demo console has no engine — so
-          the row is absent there rather than pressable and inert. `at` is
-          a timestamp because it only has to be *different* each time; the
-          panel keys its send on the change, so asking the same thing
-          twice is two turns.
-        */
-        onAsk={
-          askable
-            ? (query) => {
-                setPaletteOpen(false);
-                onAskAgent(query);
-              }
-            : undefined
-        }
         onChoose={(item) => {
           setPaletteOpen(false);
           // A note in another workspace opens there; one here opens in place.
@@ -149,8 +122,6 @@ export function consolePalette({
             ? undefined
             : lookInFor({ ...places, scope, ...placeOpeners(data, () => setPaletteOpen(false)) })
         }
-      />
-        )}
       />
         )}
       />

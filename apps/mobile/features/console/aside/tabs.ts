@@ -1,51 +1,44 @@
 /**
- * The right panel's two tabs, as decisions rather than as JSX.
+ * The right panel's tabs, as decisions rather than as JSX.
  *
  * `features/console/capabilities.ts` states the rule this file exists for in
  * one line: every guard expressed inside a component in this app was held by
  * nothing. Which tab is showing, whether a meeting may take it, and what the
  * Meetings tab says when there is nothing to say are each decided here.
  *
- * ## Why the panel holds two things and not one
+ * ## What the panel holds
  *
- * They are the two things that happen *beside* a note rather than in it: a
- * conversation about what is written, and a recording of what is being said.
- * Both used to float — the agent over the corner of the editor, the meeting
- * over whatever you were reading — and both floated for the same reason, which
- * is that neither had anywhere to live. Giving them a home is the whole of this
- * feature, and it is why they share one panel instead of taking two.
+ * What happens *beside* a note rather than in it: a recording of what is being
+ * said, and what an AI client is waiting on a person's yes for. Meetings used
+ * to float over whatever you were reading because it had nowhere to live, and
+ * giving it a home is the whole of this panel.
  */
 
+/*
+  **No Chat tab** (Dev2, 2026-10-10: "remove chat from the sidebar entirely").
+  The panel used to open on a conversation with an in-app agent that ran on a
+  model key the person pasted into Settings; both are gone, and asking about a
+  context happens in the AI clients people connect to it.
+*/
 export const ASIDE_TABS = [
-  { key: "chat", label: "Chat" },
   { key: "meetings", label: "Meetings" },
   { key: "approvals", label: "Approvals" },
 ] as const;
 
 export type AsideTab = (typeof ASIDE_TABS)[number]["key"];
 
-export const DEFAULT_ASIDE_TAB: AsideTab = "chat";
+export const DEFAULT_ASIDE_TAB: AsideTab = "meetings";
 
 /**
  * The tabs a console shows, in order.
  *
- * Meetings is always there. Chat and Approvals are both about the context, so
- * both need a context to answer for: the homepage has none and shows Meetings
- * alone, as it always has. Approvals also needs this console to have an
- * approvals route to ask — `approvals` is false otherwise, and the tab is then
- * absent rather than an empty list that says nothing is waiting when nobody
- * has checked.
+ * Meetings is always there. Approvals needs this console to have an approvals
+ * route to ask — `approvals` is false otherwise (the homepage, the demo), and
+ * the tab is then absent rather than an empty list that says nothing is
+ * waiting when nobody has checked.
  */
-export function visibleAsideTabs({
-  chat,
-  approvals,
-}: {
-  chat: boolean;
-  approvals: boolean;
-}): AsideTab[] {
-  return ASIDE_TABS.map((tab) => tab.key).filter(
-    (key) => key === "meetings" || (chat && (key !== "approvals" || approvals)),
-  );
+export function visibleAsideTabs({ approvals }: { approvals: boolean }): AsideTab[] {
+  return ASIDE_TABS.map((tab) => tab.key).filter((key) => key === "meetings" || approvals);
 }
 
 /**
@@ -94,6 +87,3 @@ export function meetingNeedsAttention(showing: AsideTab, meetingLive: boolean): 
 export const NO_MEETING =
   "Nothing is recording. Start a meeting and its clock, its transcript and the note it becomes all land here.";
 
-/** What the Chat tab is for, said once, where somebody meets it. */
-export const CHAT_INTRO =
-  "Ask about this note, or anything in your context. Answers come from your notes, and nothing is edited without you.";

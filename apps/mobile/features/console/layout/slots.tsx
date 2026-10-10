@@ -98,20 +98,12 @@ export function consoleAccountSlot({
 
 export function consoleAsidePanel({
   data,
-  agentEngine,
-  agentPlace,
-  asked,
   meetingsAt,
-  newChatAt,
   router,
   approvals,
 }: {
   data: ConsoleData;
-  agentEngine: ConsoleAside["agentEngine"];
-  agentPlace: ConsoleAside["agentPlace"];
-  asked: ConsoleAside["asked"];
   meetingsAt: number | null;
-  newChatAt: number | null;
   router: ConsoleRouter;
   approvals: ConsoleAside["approvals"];
 }) {
@@ -122,24 +114,19 @@ export function consoleAsidePanel({
 
     **No `browsing` guard, deliberately**, where `explorer` has one. The
     tree is about a route — Map and Connections have none — and the panel
-    is about the context, so a question asked from the Map is a question
-    about the same notes. `regionsFor` says the same thing by taking no
+    is about the context, so a meeting recorded from the Map is a meeting
+    in the same workspace. `regionsFor` says the same thing by taking no
     `hasExplorer` term for it.
   */
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
-        /*
-          The homepage's visitor gets the Meetings tab alone: their demo
-          meeting runs here, and there is no agent behind a chat for them.
-        */
-        chat={!data.demo}
-        engine={agentEngine}
-        place={agentPlace}
-        asked={asked}
         started={meetingsAt}
-        newChat={newChatAt}
-        approvals={approvals}
+        /*
+          The homepage's visitor and the demo get the Meetings tab alone:
+          their demo meeting runs here, and no AI client acts for them.
+        */
+        approvals={data.demo ? undefined : approvals}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the
@@ -261,10 +248,9 @@ export function consoleBottomBar({
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
   /**
    * The note on screen, for the phone's note bar: its entry, the workspace's
-   * label its actions name, and a fresh AI conversation where there is one.
-   * `null` on Home, on a folder, and off a phone.
+   * label its actions name. `null` on Home, on a folder, and off a phone.
    */
-  note: { entry: FileEntry; contextLabel: string; ask: (() => void) | null } | null;
+  note: { entry: FileEntry; contextLabel: string } | null;
 }) {
   const quick =
     note === null
@@ -277,12 +263,9 @@ export function consoleBottomBar({
               canShare: data.files.canShare,
               visitor: data.visitor !== undefined,
             }).map((item) => item.id),
-            note.ask !== null,
           ),
-          onAction: (id: NoteQuickId) => {
-            if (id === "ask") note.ask?.();
-            else runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog });
-          },
+          onAction: (id: NoteQuickId) =>
+            runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog }),
         };
   return (
     browsing && !mapOpen ? (

@@ -329,7 +329,7 @@ export function AsideResizer({
         { right: width - layout.explorerSeamOverhang },
         active && styles.asideResizerActive,
       ]}
-      accessibilityLabel="Resize the chat panel"
+      accessibilityLabel="Resize the meetings panel"
       role="separator"
       testID="aside-resizer"
     />

@@ -22,8 +22,6 @@ import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
 import { CreateButton } from "../console/CreateButton";
 import { AsidePanel } from "../console/aside/AsidePanel";
-import { createStubEngine } from "../agent/engine";
-import { agentPage } from "../agent/page";
 import { meetings } from "../meetings/controller";
 import { fakeGateway } from "../meetings/fakeGateway";
 import { notesOnlyRecorder } from "../meetings/capture";
@@ -365,24 +363,11 @@ export function AppFrameVisualFixture({
           end it. `OpenAside` below is what opens it, for `OpenAsideOn`'s
           reason — the command is the frame's and `useFrame` only answers
           inside it.
-
-          The engine is the stub: this board has no account and no gateway
-          behind it, and the Chat tab's transcript is not what it is for.
         */
         aside={
           panel ? (
             <AsidePanel
-              engine={createStubEngine()}
-              place={agentPage({
-                context: null,
-                editor: { reference: null },
-                route: "/console/@seyi",
-                meetingLive: fakeMeeting,
-                query: null,
-              })}
-              asked={null}
               started={1}
-              newChat={null}
               onOpenNote={onOpenNote}
             />
           ) : undefined
@@ -412,7 +397,6 @@ export function AppFrameVisualFixture({
             product — does this context have a model key — has no answer here
             and the row is what a reviewer is looking at.
           */
-          onNewChat={() => {}}
         />
         {sharing ? (
           <ShareDialog

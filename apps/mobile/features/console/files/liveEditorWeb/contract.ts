@@ -117,14 +117,6 @@ export interface LiveEditorProps {
    * happened to be.
    */
   onDictate?: (at: number) => void;
-  /**
-   * Ask the agent about this note, from the same menu.
-   *
-   * Absent where there is no right panel for an answer to land in — which is
-   * every compact layout, whatever the microphone says, and is why this is a
-   * second prop rather than a second use of the first.
-   */
-  onAsk?: () => void;
   /** The authoritative text. Written into the editor only when it differs. */
   value: string;
   editable: boolean;
@@ -316,7 +308,6 @@ export interface EditorHandlers {
   onBlur: LiveEditorProps["onBlur"];
   onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
-  onAsk: LiveEditorProps["onAsk"];
   commenter?: LiveEditorProps["commenter"];
   commentModerator?: LiveEditorProps["commentModerator"];
   onSignInToComment?: LiveEditorProps["onSignInToComment"];

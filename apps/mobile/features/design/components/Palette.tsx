@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { paletteKey, rank, type PaletteItem } from "../../console/files/palette";
 import { mergeRanked } from "./paletteMerge";
-import { ASK_ID, askItem, SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
+import { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { layout } from "../tokens";
 import { useColors, useThemedStyles } from "../theme";
@@ -229,16 +229,6 @@ export interface PaletteProps {
    * keystroke exactly when the overlay has failed to answer.
    */
   onSeeAll?: (query: string) => void;
-  /**
-   * Hand the query to the agent, and open the panel it answers in.
-   *
-   * Absent on every surface with no panel to answer in — a phone, the landing
-   * page's picture of the console — and the row is absent with it, which is
-   * the same rule `onSeeAll` follows and the reason neither is a button in the
-   * chrome: a row that exists only where it works is a row the keyboard and
-   * the pointer agree about.
-   */
-  onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
   /** Under the field: what the search is narrowed to, and the way to widen it. */
@@ -249,7 +239,7 @@ export interface PaletteProps {
   lookIn?: PaletteLookIn;
 }
 
-export { ASK_ID, askItem, SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
+export { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 
 /* -------------------------------------------------------------------------- */
 /*                                  palette                                   */
@@ -263,7 +253,6 @@ export function Palette({
   noMatchMessage,
   search,
   onSeeAll,
-  onAsk,
   onChoose,
   onDismiss,
   scopeBar,
@@ -356,22 +345,12 @@ export function Palette({
     () => seeAllItem(query, onSeeAll !== undefined),
     [query, onSeeAll],
   );
-  const ask = useMemo(() => askItem(query, onAsk !== undefined), [query, onAsk]);
   const matches = useMemo(() => {
     const rows = merged ?? [...local, ...remote];
-    /*
-      Both handoffs at the end, search before ask, and the order is the guard
-      rather than a preference — see `askItem`. A `filter(Boolean)` over a
-      fixed pair rather than two conditionals, so adding a third destination
-      is one entry in the list rather than a branch.
-    */
-    const tail = [handoff, ask].filter((item): item is PaletteItem => item !== null);
-    if (tail.length === 0) return rows;
-    return [
-      ...rows,
-      ...tail.map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] })),
-    ];
-  }, [merged, local, remote, handoff, ask]);
+    // The handoff is last, so it is never what Enter reaches by accident.
+    if (handoff === null) return rows;
+    return [...rows, { item: handoff, score: 0, ranges: [] as readonly [number, number][] }];
+  }, [merged, local, remote, handoff]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -398,9 +377,8 @@ export function Palette({
     const match = matches[selected];
     if (match === undefined) return;
     if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-    else if (match.item.id === ASK_ID) onAsk?.(query);
     else onChoose(match.item);
-  }, [matches, selected, onChoose, onSeeAll, onAsk, query]);
+  }, [matches, selected, onChoose, onSeeAll, query]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -581,7 +559,6 @@ export function Palette({
             onPress={() => {
               setCursor(index);
               if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-              else if (match.item.id === ASK_ID) onAsk?.(query);
               else onChoose(match.item);
             }}
             testID={`palette-row-${index}`}

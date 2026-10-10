@@ -4,8 +4,8 @@ import { radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { NoteActionId } from "./layout/noteActions";
 
-/** What the note bar can offer: a note's own actions, and asking the AI. */
-export type NoteQuickId = Extract<NoteActionId, "share" | "moveTo" | "copyLink"> | "ask";
+/** What the note bar can offer: a note's own actions. */
+export type NoteQuickId = Extract<NoteActionId, "share" | "moveTo" | "copyLink">;
 
 export interface NoteQuick {
   id: NoteQuickId;
@@ -17,23 +17,21 @@ const QUICK: Record<NoteQuickId, Omit<NoteQuick, "id">> = {
   share: { label: "Share", icon: "share" },
   copyLink: { label: "Copy link", icon: "link" },
   moveTo: { label: "Move", icon: "folder" },
-  ask: { label: "Ask AI", icon: "sparkle" },
 };
 
 /**
  * Which quick actions a note gets, in order: the ones of its own actions this
  * person may use (`noteActionItems` decides, so the bar and the ••• sheet
- * cannot disagree), then Ask AI where there is an AI to ask.
+ * cannot disagree).
  *
  * Share and Copy link are one slot: whoever can share gets Share, whose sheet
  * has Copy link in it; a visitor gets Copy link.
  */
-export function noteQuickActions(available: readonly NoteActionId[], canAsk: boolean): NoteQuick[] {
+export function noteQuickActions(available: readonly NoteActionId[]): NoteQuick[] {
   const ids: NoteQuickId[] = [];
   if (available.includes("share")) ids.push("share");
   else if (available.includes("copyLink")) ids.push("copyLink");
   if (available.includes("moveTo")) ids.push("moveTo");
-  if (canAsk) ids.push("ask");
   return ids.map((id) => ({ id, ...QUICK[id] }));
 }
 
