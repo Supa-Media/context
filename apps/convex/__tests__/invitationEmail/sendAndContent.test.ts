@@ -26,7 +26,7 @@ import {
   linkFrom,
 } from "./fixtures.helpers";
 
-describe("the send is scheduled, and only for an address", () => {
+describe("the send is scheduled, for an address and for a @name", () => {
   test("an email invitee queues exactly one send", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
@@ -40,39 +40,59 @@ describe("the send is scheduled, and only for an address", () => {
     expect(captured[0].body.to).toBe("newcomer@example.invalid");
   });
 
-  test("a @name invitee queues nothing, because we have no address for them", async () => {
+  /**
+   * The bug this replaced: "@marilola invited @shyoh and no email arrived".
+   * A handle used to queue nothing at all, so being invited by name was
+   * invisible unless the invitee happened to open the app.
+   */
+  test("a @name invitee is mailed at their verified address", async () => {
     const { t, inviter, workspaceId } = await scenario();
-    await invite(t, inviter, workspaceId, "@somebody-else");
+    const grace = await createUser(t, "grace@example.invalid");
+    await createWorkspace(t, grace, "grace");
 
-    expect(await queuedSends(t)).toBe(0);
+    await invite(t, inviter, workspaceId, "@grace");
+
+    expect(await queuedSends(t)).toBe(1);
     await drainScheduled(t);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].body.to).toBe("grace@example.invalid");
+    expect(captured[0].body.subject).toContain("Atlas Team");
+
+    const row = await invitationRow(t, workspaceId);
+    const link = linkFrom(captured[0]);
+    expect(link.pathname).toBe(`/invite/${row.token}`);
+    // A handle only ever names an existing account: never a sign-in link.
+    expect(link.searchParams.get("code")).toBeNull();
+    expect(row.emailSentAt).toBeTypeOf("number");
+  });
+
+  test("a @name invitee whose address is unverified is mailed nothing", async () => {
+    const { t, inviter, workspaceId } = await scenario();
+    const grace = await createUser(t, "grace@example.invalid");
+    await createWorkspace(t, grace, "grace");
+    await t.run((ctx) => ctx.db.patch(grace, { emailVerificationTime: undefined }));
+
+    await invite(t, inviter, workspaceId, "@grace");
+    await drainScheduled(t);
+
     expect(captured).toEqual([]);
+    expect((await invitationRow(t, workspaceId)).emailSentAt).toBeUndefined();
   });
 
   /**
-   * The second half of the same rule, asserted on its own.
-   *
-   * `inviteMember` declines to schedule for a handle, and `claimInvitationEmail`
-   * declines to act on one — two checks, because the cost is a branch and the
-   * failure mode is mailing somebody we were never given an address for. Only
-   * the first is observable through the public mutation, so the second is
-   * driven directly: a handle row, handed to the sender with the kind lied
-   * about, still produces nothing.
+   * A handle that names nobody, and one that names a *shared* workspace, take
+   * the same path as a real one up to the job — one queued send, identical to
+   * the inviter — and the job silently finds no mailbox.
    */
-  test("the sender refuses a handle even when told it is an address", async () => {
+  test("a @name that resolves to no person queues the same job and mails nothing", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "@somebody-else");
-    const row = await invitationRow(t, workspaceId);
-    expect(row.inviteeKind).toBe("name");
+    expect(await queuedSends(t)).toBe(1);
+    await invite(t, inviter, workspaceId, "@atlas-team");
+    expect(await queuedSends(t)).toBe(2);
 
-    await t.action(internal.functions.invitationEmail.sendInvitationEmail, {
-      invitationId: row._id,
-      inviteeKind: "email",
-    });
-
+    await drainScheduled(t);
     expect(captured).toEqual([]);
-    const after = await invitationRow(t, workspaceId);
-    expect(after.emailSentAt).toBeUndefined();
   });
 
   /**
