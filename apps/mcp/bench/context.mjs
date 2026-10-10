@@ -381,7 +381,11 @@ export async function publishCommand(options) {
   process.stderr.write(`wrote ${path} in Context\n`);
 }
 
-/** `pnpm ai connect [--endpoint <url>]`: the one-time consent, by a person. */
+/**
+ * `pnpm ai connect [--endpoint <url>]`: the one-time consent, by a person.
+ * Written to stderr: `run.mjs` silences console.log unless `--verbose`, and
+ * the URL to open and the two values to keep are the whole point of this.
+ */
 export async function connectCommand(options) {
-  await connect({ endpoint: options.endpoint || DEFAULT_ENDPOINT });
+  await connect({ endpoint: options.endpoint || DEFAULT_ENDPOINT, log: (text) => process.stderr.write(`${text}\n`) });
 }

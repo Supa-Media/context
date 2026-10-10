@@ -109,9 +109,12 @@ jobs:
       BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
       BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
       BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
-      # The sign-in the steps below share: an access token for the hour and the
-      # rotated refresh token, in the runner's own temp, never an artifact.
-      BENCH_RUNNER_TOKEN_FILE: ${{ runner.temp }}/bench-runner.json
+      # The sign-in the steps below share (an access token for the hour and the
+      # rotated refresh token) is written to $RUNNER_TEMP/bench-runner.json,
+      # `runnerEnv`'s default (bench/context.mjs): the runner's own temp, never
+      # an artifact. `runner.temp` is not an expression a job-level `env` may
+      # use (GitHub refused the dispatch with "Unrecognized named-value:
+      # 'runner'"), and every step already has RUNNER_TEMP as a variable.
       BENCH_JOB: ${{ inputs.job || 'texting-assistant' }}
       BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
       # Every free-text input arrives here and nowhere else. GitHub pastes an
@@ -301,7 +304,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          [ -f "$BENCH_RUNNER_TOKEN_FILE" ] || exit 0
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
           next="$(pnpm --silent ai signin --show refresh-token)"
           echo "::add-mask::$next"
           gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
