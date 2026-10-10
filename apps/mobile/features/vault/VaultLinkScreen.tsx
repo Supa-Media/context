@@ -12,36 +12,41 @@ import { clamp, leading, pointerType as t } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { InvitePage, Title } from "../invite/InviteScreen";
 import { firstParam } from "../invite/invite";
-import { VaultAddForm, type VaultDraft } from "./VaultAddForm";
+import { VaultAddForm, type VaultDraft, type VaultInitialDraft } from "./VaultAddForm";
+import { VaultViewPage } from "./VaultViewPage";
 import {
+  PREFILL_KEYS,
   atHandle,
   resolveVaultLinkView,
   type Described,
+  type EntryType,
   type Outcome,
+  type RawPrefill,
   type VaultLinkView,
+  type VaultWorkspace,
 } from "./vaultLink";
 
 /**
- * `/vault/<token>`: the page Tex texts when it needs a login saved or shared.
+ * `/vault/<token>`: the page Tex texts when it needs a login or a secret
+ * saved, shared or seen.
  *
  * Owns its own sign-in gate, like `/texts/<token>`, so a signed-out visitor
  * goes to `/login?next=/vault/<token>?name=…` and comes straight back with the
  * agent's prefills intact. The request is described once per visit; nothing
- * is saved or shared until the person presses the button.
+ * is saved, shared or revealed until the person presses the button. Revealed
+ * values live in this screen's state while it is open, and nowhere else.
  */
 export function VaultLinkScreen() {
   const styles = useThemedStyles(makeStyles);
-  const params = useLocalSearchParams<{
-    token?: string | string[];
-    name?: string | string[];
-    site?: string | string[];
-  }>();
+  const params = useLocalSearchParams<Record<"token" | (typeof PREFILL_KEYS)[number], string | string[]>>();
   const token = firstParam(params.token);
-  const prefill = { name: firstParam(params.name) ?? "", site: firstParam(params.site) ?? "" };
+  const prefill: RawPrefill = {};
+  for (const key of PREFILL_KEYS) prefill[key] = firstParam(params[key]);
   const auth = useConvexAuth();
   const describe = useAction(api.functions.vault.describeVaultRequest);
   const save = useAction(api.functions.vault.saveVaultLogin);
   const share = useAction(api.functions.vault.confirmVaultShare);
+  const reveal = useAction(api.functions.vault.revealVaultEntry);
   const [described, setDescribed] = useState<Described>({ kind: "idle" });
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const asked = useRef(false);
@@ -63,7 +68,7 @@ export function VaultLinkScreen() {
       setOutcome({ kind: "busy" });
       try {
         const saved = await save({ token, ...draft });
-        setOutcome({ kind: "saved", ...saved });
+        setOutcome({ kind: "saved", ...saved, type: draft.type });
         return true;
       } catch (error: unknown) {
         setOutcome({ kind: "failed", error });
@@ -82,6 +87,16 @@ export function VaultLinkScreen() {
     );
   }, [share, token]);
 
+  // One call per press; the answer stays in this state and is never logged.
+  const onReveal = useCallback(() => {
+    if (token === null) return;
+    setOutcome({ kind: "busy" });
+    reveal({ token }).then(
+      (entry) => setOutcome({ kind: "revealed", entry }),
+      (error: unknown) => setOutcome({ kind: "failed", error }),
+    );
+  }, [reveal, token]);
+
   const view = resolveVaultLinkView({ token, auth, prefill, described, outcome });
   if (view.kind === "wait") return <View style={styles.ground} />;
   if (view.kind === "signIn") return <Redirect href={view.href} />;
@@ -92,6 +107,7 @@ export function VaultLinkScreen() {
         view={view}
         onSave={onSave}
         onShare={onShare}
+        onReveal={onReveal}
         onDecline={() => setOutcome({ kind: "declined" })}
       />
     </InvitePage>
@@ -103,15 +119,17 @@ export function VaultLinkBody({
   view,
   onSave,
   onShare,
+  onReveal,
   onDecline,
   initialDraft,
 }: {
   view: VaultLinkView;
   onSave: (draft: VaultDraft) => Promise<boolean>;
   onShare: () => void;
+  onReveal: () => void;
   onDecline: () => void;
   /** Previews only: a form already typed into. */
-  initialDraft?: Partial<VaultDraft>;
+  initialDraft?: Partial<VaultInitialDraft>;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -138,29 +156,15 @@ export function VaultLinkBody({
         </Ending>
       );
     case "add":
-      return (
-        <View testID="vault-link-add">
-          <Title size={titleSize}>{view.prefill.name ? `Save your ${view.prefill.name} login` : "Save a login"}</Title>
-          <Text variant="heroSub" style={styles.sub}>
-            {view.workspace.kind === "personal"
-              ? "So Tex can sign in for you. It goes in your personal vault."
-              : `So Tex can sign in for you. It goes in the ${view.workspace.name} vault, and only you can use it until you share it.`}
-          </Text>
-          <VaultAddForm
-            prefill={view.prefill}
-            initialDraft={initialDraft}
-            busy={view.busy}
-            problem={view.problem}
-            onSave={onSave}
-          />
-        </View>
-      );
+      return <AddPage view={view} titleSize={titleSize} onSave={onSave} initialDraft={initialDraft} />;
     case "saved":
       return (
         <Ending testID="vault-link-saved" titleSize={titleSize} title="Saved">
-          {`Tex can sign in to ${view.site} for you now. Go back to Messages.`}
+          {savedLine(view)}
         </Ending>
       );
+    case "view":
+      return <VaultViewPage view={view} titleSize={titleSize} onReveal={onReveal} />;
     case "share": {
       const who = atHandle(view.grantee);
       const sites = view.entry.sites.join(", ");
@@ -168,13 +172,15 @@ export function VaultLinkBody({
         <View testID="vault-link-share">
           <Title size={titleSize}>{`Share ${view.entry.name} with ${who}?`}</Title>
           <Text variant="heroSub" style={styles.sub}>
-            {`After this, Tex can sign ${who} and their assistants in${sites ? ` to ${sites}` : ""}. The password is filled in for them and never shown to their AI.`}
+            {view.entry.type === "secret"
+              ? `After this, ${who} can see and copy its values, and Tex can paste them for ${who}${sites ? ` on ${sites}` : ""}. The values are never shown to their AI.`
+              : `After this, Tex can sign ${who} and their assistants in${sites ? ` to ${sites}` : ""}. The password is filled in for them and never shown to their AI.`}
           </Text>
           <Card style={styles.facts}>
             <FieldList
               testIDPrefix="vault-share"
               fields={[
-                ...(sites ? [{ label: view.entry.sites.length > 1 ? "Sites" : "Site", value: sites }] : []),
+                ...(sites ? [{ label: view.entry.type === "secret" ? "Fills on" : view.entry.sites.length > 1 ? "Sites" : "Site", value: sites }] : []),
                 { label: "Workspace", value: view.workspace.name },
               ]}
             />
@@ -208,7 +214,9 @@ export function VaultLinkBody({
     case "shared":
       return (
         <Ending testID="vault-link-shared" titleSize={titleSize} title={`Shared with ${atHandle(view.grantee)}`}>
-          {`Tex can now sign them in with ${view.name}. Go back to Messages.`}
+          {view.type === "secret"
+            ? `${view.name} is theirs to use now. Go back to Messages.`
+            : `Tex can now sign them in with ${view.name}. Go back to Messages.`}
         </Ending>
       );
     case "declined":
@@ -218,6 +226,54 @@ export function VaultLinkBody({
         </Ending>
       );
   }
+}
+
+/** The add form under a heading that follows the Login / Secret switch. */
+function AddPage({
+  view,
+  titleSize,
+  onSave,
+  initialDraft,
+}: {
+  view: Extract<VaultLinkView, { kind: "add" }>;
+  titleSize: number;
+  onSave: (draft: VaultDraft) => Promise<boolean>;
+  initialDraft?: Partial<VaultInitialDraft>;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [type, setType] = useState<EntryType>(initialDraft?.type ?? view.prefill.type);
+  const name = view.prefill.name;
+  const title = type === "login" ? (name ? `Save your ${name} login` : "Save a login") : name ? `Save your ${name} keys` : "Save a secret";
+  return (
+    <View testID="vault-link-add">
+      <Title size={titleSize}>{title}</Title>
+      <Text variant="heroSub" style={styles.sub}>
+        {addLine(type, view.workspace)}
+      </Text>
+      <VaultAddForm
+        prefill={view.prefill}
+        initialDraft={initialDraft}
+        busy={view.busy}
+        problem={view.problem}
+        onSave={onSave}
+        onType={setType}
+      />
+    </View>
+  );
+}
+
+function addLine(type: EntryType, workspace: VaultWorkspace): string {
+  const vault = workspace.kind === "personal" ? "your personal vault" : `the ${workspace.name} vault`;
+  const yours = workspace.kind === "personal" ? "" : " Only you can use it until you share it.";
+  return type === "login"
+    ? `So Tex can sign in for you. It goes in ${vault}.${yours}`
+    : `API keys and environment variables, sealed in ${vault}. Tex sees their names, never their values.${yours}`;
+}
+
+function savedLine(view: Extract<VaultLinkView, { kind: "saved" }>): string {
+  if (view.type === "login") return `Tex can sign in to ${view.site} for you now. Go back to Messages.`;
+  if (view.site) return `Tex can paste ${view.name} into ${view.site} for you now, without seeing it. Go back to Messages.`;
+  return `${view.name} is in your vault. When you need a value, ask Tex for a link to see it. Go back to Messages.`;
 }
 
 /** A state with nothing left to do here: a heading and one line. */

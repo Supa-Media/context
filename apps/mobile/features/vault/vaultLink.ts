@@ -1,31 +1,76 @@
 /**
- * `/vault/<token>`: the private link Tex texts when it needs a login.
+ * `/vault/<token>`: the private link Tex texts when it needs a login or a
+ * secret.
  *
- * Two kinds of link, one page. An `add` link asks the person to type a login
- * into a workspace's vault; a `share` link asks them to give one login to one
- * named member. Either way the change is the person's own tap on this page:
- * nothing here submits by itself, and the agent that asked never sees the
- * password (`docs/decisions/texting-assistant/vault.md`).
+ * Three kinds of link, one page. An `add` link asks the person to type a login
+ * or a secret into a workspace's vault; a `share` link asks them to give one
+ * entry to one named member; a `view` link lets them see and copy an entry's
+ * values. Every change is the person's own tap on this page: nothing here
+ * submits by itself, and the agent that asked never sees a value
+ * (`docs/decisions/texting-assistant/vault.md`).
  *
  * Pure so the tests can walk every state without a Convex client.
  */
 
 import { errorCodeOf } from "../consent/state";
 import { loginHref } from "../auth/redirect";
+import { ENVS, MAX_FIELDS, isEnv, isFieldName, type Env, type RevealedField } from "./vaultFields";
 
 export const VAULT_ROUTE = "/vault";
+
+export type EntryType = "login" | "secret";
 
 /** What the agent suggested on the link's URL. Only ever a starting point. */
 export interface VaultPrefill {
   name: string;
   site: string;
+  type: EntryType;
+  /** Field names to start the form with. */
+  fields: string[];
+  /** Whether those fields start per environment. On for a secret unless the agent said otherwise. */
+  envs: boolean;
+  /** A view link's environment to open on. */
+  env: Env | null;
 }
 
-/** `/vault/<token>`, keeping the agent's prefills so they survive signing in. */
-export function vaultLinkHref(token: string, prefill?: Partial<VaultPrefill>): string {
+/** The query keys the agent may set, as strings off the URL. */
+export const PREFILL_KEYS = ["type", "name", "site", "fields", "envs", "env"] as const;
+export type RawPrefill = Partial<Record<(typeof PREFILL_KEYS)[number], string | null | undefined>>;
+
+/**
+ * The agent's prefills, read defensively: anything unknown falls back to the
+ * plain default, and field names that could never be saved are dropped.
+ */
+export function parseVaultPrefill(raw: RawPrefill): VaultPrefill {
+  const type: EntryType = raw.type?.trim().toLowerCase() === "secret" ? "secret" : "login";
+  const seen = new Set<string>();
+  const fields: string[] = [];
+  for (const part of (raw.fields ?? "").split(",")) {
+    const name = part.trim();
+    if (!isFieldName(name) || seen.has(name.toLowerCase()) || fields.length >= MAX_FIELDS) continue;
+    seen.add(name.toLowerCase());
+    fields.push(name);
+  }
+  const envsRaw = raw.envs?.trim();
+  const envs = envsRaw === "1" ? true : envsRaw === "0" ? false : type === "secret";
+  const envRaw = raw.env?.trim().toLowerCase();
+  return {
+    name: (raw.name ?? "").trim(),
+    site: (raw.site ?? "").trim(),
+    type,
+    fields,
+    envs,
+    env: isEnv(envRaw) ? envRaw : null,
+  };
+}
+
+/** `/vault/<token>`, keeping the agent's prefills as given so they survive signing in. */
+export function vaultLinkHref(token: string, prefill?: RawPrefill): string {
   const query = new URLSearchParams();
-  if (prefill?.name) query.set("name", prefill.name);
-  if (prefill?.site) query.set("site", prefill.site);
+  for (const key of PREFILL_KEYS) {
+    const value = prefill?.[key];
+    if (typeof value === "string" && value !== "") query.set(key, value);
+  }
   const search = query.toString();
   return `${VAULT_ROUTE}/${encodeURIComponent(token)}${search ? `?${search}` : ""}`;
 }
@@ -36,12 +81,40 @@ export interface VaultWorkspace {
   kind: "personal" | "shared";
 }
 
+/** One field as `describeVaultRequest` names it: never a value, only where one is set. */
+export interface FieldSummary {
+  name: string;
+  perEnv: boolean;
+  /** `dev`, `staging`, `prod` for a per-environment field; `_` for a single value. */
+  set: string[];
+}
+
+export interface VaultEntrySummary {
+  type: EntryType;
+  name: string;
+  sites: string[];
+  fields: FieldSummary[];
+}
+
+/**
+ * `revealVaultEntry`'s answer. Held in the page's memory while it is open and
+ * nowhere else: never storage, the URL, a log or an analytics event.
+ */
+export interface RevealedEntry {
+  type: EntryType;
+  name: string;
+  sites: string[];
+  username: string;
+  password: string;
+  fields: RevealedField[];
+}
+
 /** `describeVaultRequest`'s answer. */
 export interface VaultRequest {
-  kind: "add" | "share";
+  kind: "add" | "share" | "view";
   workspace: VaultWorkspace;
   grantee: string | null;
-  entry: { name: string; sites: string[] } | null;
+  entry: VaultEntrySummary | null;
   expiresAt: number;
 }
 
@@ -51,11 +124,15 @@ export type Described =
   | { kind: "shown"; request: VaultRequest }
   | { kind: "failed"; error: unknown };
 
-/** What happened to the person's tap. `declined` is "Not now", which calls nothing. */
+/**
+ * What happened to the person's tap. `declined` is "Not now", which calls
+ * nothing; `revealed` is a view link's Reveal, which spends nothing.
+ */
 export type Outcome =
   | { kind: "idle" }
+  | { kind: "revealed"; entry: RevealedEntry }
   | { kind: "busy" }
-  | { kind: "saved"; name: string; site: string }
+  | { kind: "saved"; name: string; site: string; type?: EntryType }
   | { kind: "shared"; name: string; grantee: string | null }
   | { kind: "declined" }
   | { kind: "failed"; error: unknown };
@@ -75,12 +152,21 @@ export type VaultLinkView =
       kind: "share";
       workspace: VaultWorkspace;
       grantee: string | null;
-      entry: { name: string; sites: string[] };
+      entry: VaultEntrySummary;
       busy: boolean;
       problem: FormProblem | null;
     }
-  | { kind: "saved"; name: string; site: string }
-  | { kind: "shared"; name: string; grantee: string | null }
+  | {
+      kind: "view";
+      workspace: VaultWorkspace;
+      entry: VaultEntrySummary;
+      env: Env;
+      revealed: RevealedEntry | null;
+      busy: boolean;
+      problem: FormProblem | null;
+    }
+  | { kind: "saved"; name: string; site: string; type: EntryType }
+  | { kind: "shared"; name: string; grantee: string | null; type: EntryType }
   | { kind: "declined" }
   | { kind: "dead"; reason: DeadReason; headline: string; detail: string };
 
@@ -89,7 +175,7 @@ export type DeadReason = "expired" | "notYours" | "storage" | "key" | "failed";
 export function resolveVaultLinkView(inputs: {
   token: string | null;
   auth: { isLoading: boolean; isAuthenticated: boolean };
-  prefill: Partial<VaultPrefill>;
+  prefill: RawPrefill;
   described: Described;
   outcome: Outcome;
 }): VaultLinkView {
@@ -98,8 +184,13 @@ export function resolveVaultLinkView(inputs: {
   if (token === null) return dead("expired");
   if (!auth.isAuthenticated) return { kind: "signIn", href: loginHref(vaultLinkHref(token, prefill)) };
 
-  if (outcome.kind === "saved") return { kind: "saved", name: outcome.name, site: outcome.site };
-  if (outcome.kind === "shared") return { kind: "shared", name: outcome.name, grantee: outcome.grantee };
+  if (outcome.kind === "saved") {
+    return { kind: "saved", name: outcome.name, site: outcome.site, type: outcome.type ?? "login" };
+  }
+  if (outcome.kind === "shared") {
+    const type = described.kind === "shown" ? (described.request.entry?.type ?? "login") : "login";
+    return { kind: "shared", name: outcome.name, grantee: outcome.grantee, type };
+  }
   if (outcome.kind === "declined") return { kind: "declined" };
 
   if (described.kind === "idle" || described.kind === "loading") return { kind: "loading" };
@@ -118,13 +209,30 @@ export function resolveVaultLinkView(inputs: {
     if (request.entry === null) return dead("expired");
     return { kind: "share", workspace: request.workspace, grantee: request.grantee, entry: request.entry, busy, problem };
   }
-  return {
-    kind: "add",
-    workspace: request.workspace,
-    prefill: { name: (prefill.name ?? "").trim(), site: (prefill.site ?? "").trim() },
-    busy,
-    problem,
-  };
+  const parsed = parseVaultPrefill(prefill);
+  if (request.kind === "view") {
+    if (request.entry === null) return dead("expired");
+    return {
+      kind: "view",
+      workspace: request.workspace,
+      entry: request.entry,
+      env: openingEnv(request.entry, parsed.env),
+      revealed: outcome.kind === "revealed" ? outcome.entry : null,
+      busy,
+      problem,
+    };
+  }
+  return { kind: "add", workspace: request.workspace, prefill: parsed, busy, problem };
+}
+
+/**
+ * The environment a view page opens on: the agent's when it names one, else
+ * the first that any per-environment field has a value in, else dev.
+ */
+export function openingEnv(entry: VaultEntrySummary, asked: Env | null): Env {
+  if (asked !== null) return asked;
+  const perEnv = entry.fields.filter((field) => field.perEnv);
+  return ENVS.find((env) => perEnv.some((field) => field.set.includes(env))) ?? "dev";
 }
 
 /** `@sayo`, or a plain fallback when the backend could not name them. */
@@ -176,7 +284,7 @@ function deadFor(error: unknown): VaultLinkView {
 const DEAD_COPY: Record<DeadReason, { headline: string; detail: string }> = {
   expired: {
     headline: "This link has expired",
-    detail: "Links work once, for 30 minutes. Ask Tex for a new one.",
+    detail: "Links last 30 minutes, and saving or sharing uses one up. Ask Tex for a new one.",
   },
   notYours: {
     headline: "This link is for someone else",
@@ -184,7 +292,7 @@ const DEAD_COPY: Record<DeadReason, { headline: string; detail: string }> = {
   },
   storage: {
     headline: "Connect storage first",
-    detail: "Logins are kept in your workspace's own storage, and this workspace has none connected yet.",
+    detail: "Logins and secrets are kept in your workspace's own storage, and this workspace has none connected yet.",
   },
   key: {
     headline: "Your vault can't be opened right now",
