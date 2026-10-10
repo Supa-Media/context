@@ -24,8 +24,7 @@ export function useConsoleOrganizer(
 }
 
 /**
- * Settings and What changed are query parameters: Show me closes Settings
- * and opens What changed on its Tidy up tab, and What changed rides beside
+ * Settings and What changed are query parameters: What changed rides beside
  * the open note as `?changes=1` so Back and a shared link both find it.
  */
 export function routeOrganizer(
@@ -35,11 +34,6 @@ export function routeOrganizer(
 ): OrganizerView {
   return {
     ...organizer,
-    // Every "look over the suggestions" is What changed, on its Tidy up tab.
-    openReview: () => {
-      organizer.openReview();
-      router.setParams({ changes: "1", settings: undefined, map: undefined });
-    },
     openSettings: () => router.setParams({ settings: "premium" }),
     pageOpen: changesOpen && changesCount(organizer.status) !== null,
     openPage: () => router.setParams({ changes: "1", settings: undefined, map: undefined }),

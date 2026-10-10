@@ -8,26 +8,10 @@
  * `organizerApi.ts`.
  */
 
-/** What a suggestion would do: mark a project done, archive it, or file an inbox note. */
+/** What an automatic change does: mark a project done, archive it, or file an inbox note. */
 export type OrganizerKind = "done" | "archive" | "file";
 
 export const ORGANIZER_KINDS: readonly OrganizerKind[] = ["done", "archive", "file"];
-
-export interface OrganizerSuggestion {
-  /** Stable per (kind, path, target). */
-  id: string;
-  kind: OrganizerKind;
-  /** The note or folder the suggestion is about. */
-  path: string;
-  /** How the tree names it: the project's name, or the note's. */
-  title: string;
-  /** One short clause about the workspace: "Its fix merged 2 days ago". */
-  reason: string;
-  /** Kind `file` only: where it would go. */
-  target?: { path: string; title: string };
-  /** Kind `done` only: the status it has now, e.g. "fix-in-review". */
-  status?: string;
-}
 
 export interface OrganizerSweep {
   state: "running" | "done" | "failed";

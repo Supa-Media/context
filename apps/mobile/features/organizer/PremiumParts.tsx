@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ActivityIndicator, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../app/frame";
 import { Button } from "../design/components/Button";
-import { Card, Row } from "../design/components/Card";
+import { Card } from "../design/components/Card";
 import { Hint } from "../design/components/Field";
 import { Icon } from "../design/components/Icon";
 import { Switch } from "../design/components/Switch";
@@ -11,21 +11,19 @@ import { useColors, useThemedStyles } from "../design/theme";
 import {
   KIND_LABELS,
   includedLine,
-  previewWhy,
   settingsCopy,
   sortCopy,
   sortDone,
   sortRunning,
   sweepCopy,
   sweepCount,
-  sweepFoundTitle,
   sweepReadingTitle,
 } from "./copy";
 import { useOrganizerView } from "./OrganizerContext";
 import { relativeTime } from "../console/format";
-import { type SortLine, previewSuggestions, settingsCard, shouldStartSweep, sortLine, sweepPhase, whatChangedPage } from "./rules";
+import { type SortLine, settingsCard, shouldStartSweep, sortLine, sweepPhase } from "./rules";
 import { makeStyles } from "./styles";
-import { ORGANIZER_KINDS, type OrganizerStatus, type OrganizerSuggestion } from "./types";
+import { ORGANIZER_KINDS, type OrganizerStatus } from "./types";
 import type { OrganizerView } from "./useOrganizer";
 
 /** 01 — the disclosure, at the foot of "What Premium includes". The upgrade is the consent. */
@@ -46,26 +44,11 @@ export function IncludedLine() {
   );
 }
 
-/** 02a/02b — the first sweep, above the plan card on the payment return. */
-export function SweepCard({
-  phase,
-  slug,
-  status,
-  preview,
-  onShow,
-  onLater,
-}: {
-  phase: "reading" | "found";
-  slug: string;
-  status: OrganizerStatus;
-  preview: readonly OrganizerSuggestion[];
-  /** Absent while the What changed page is switched off: no press to a page that is not there. */
-  onShow?: () => void;
-  onLater: () => void;
-}) {
+/** 02a — the first sweep, above the plan card while it is reading. */
+export function SweepCard({ slug, status }: { slug: string; status: OrganizerStatus }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  // A phone stacks each preview's reason under its title, and the progress under the words.
+  // A phone stacks the progress under the words.
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const sweep = status.sweep!;
   const progress = (
@@ -77,56 +60,22 @@ export function SweepCard({
     </View>
   );
   return (
-    <Card style={styles.above} testID={`organizer-sweep-${phase}`}>
+    <Card style={styles.above} testID="organizer-sweep-reading">
       <View style={styles.head}>
         <View style={styles.mark}>
           <Icon name="sparkle" size={16} color={colors.accent} />
         </View>
         <View style={styles.headText}>
           <Text variant="rowTitle" role="status">
-            {phase === "reading" ? sweepReadingTitle(slug) : sweepFoundTitle(sweep.found)}
+            {sweepReadingTitle(slug)}
           </Text>
           <Text variant="rowSub" style={styles.blurb}>
-            {phase === "reading" ? sweepCopy.readingBody : sweepCopy.foundBody}
+            {sweepCopy.readingBody}
           </Text>
-          {phase === "reading" && compact ? progress : null}
+          {compact ? progress : null}
         </View>
-        {phase === "reading" && !compact ? progress : null}
+        {!compact ? progress : null}
       </View>
-      {phase === "found" ? (
-        <>
-          {preview.length === 0 ? null : (
-            <View style={styles.preview}>
-              {preview.map((item) => (
-                <View key={item.id} style={[styles.previewRow, compact && styles.previewStack]}>
-                  <Text variant="rowSub" numberOfLines={1} style={styles.previewTitle}>
-                    {item.title}
-                  </Text>
-                  <Text
-                    variant="rowSub"
-                    numberOfLines={1}
-                    style={[styles.previewWhy, compact && styles.previewWhyStack]}
-                  >
-                    {previewWhy(item)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
-          <Row style={styles.actions}>
-            {onShow !== undefined ? (
-              <Button
-                label={sweepCopy.show}
-                variant="mini"
-                onPress={onShow}
-                testID="organizer-show-me"
-                style={styles.indent}
-              />
-            ) : null}
-            <Button label={sweepCopy.later} onPress={onLater} testID="organizer-later" />
-          </Row>
-        </>
-      ) : null}
     </Card>
   );
 }
@@ -140,13 +89,10 @@ export function SortStatus({
   line,
   now,
   onSortNow,
-  onReview,
 }: {
   line: SortLine;
   now: number;
   onSortNow: () => void;
-  /** Absent while the What changed page is switched off. */
-  onReview?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -157,16 +103,13 @@ export function SortStatus({
         ? sortCopy.never
         : line.kind === "failed"
           ? sortCopy.failed(relativeTime(line.at, now), line.why)
-          : sortDone(relativeTime(line.at, now), line.pending);
+          : sortDone(relativeTime(line.at, now));
   return (
     <View style={styles.sort} testID={`organizer-sort-${line.kind}`}>
       {line.kind === "running" ? <ActivityIndicator size="small" color={colors.muted} /> : null}
       <Text variant="rowSub" role="status" style={styles.sortText}>
         {text}
       </Text>
-      {line.kind === "done" && line.pending > 0 && onReview !== undefined ? (
-        <Button label={sortCopy.lookOver} variant="mini" onPress={onReview} testID="organizer-sort-review" />
-      ) : null}
       {line.kind === "running" ? null : (
         <Button
           label={line.kind === "failed" ? sortCopy.tryAgain : sortCopy.sortNow}
@@ -184,13 +127,11 @@ export function AutoOrganizeSettings({
   onEnabled,
   onAutopilot,
   onSortNow,
-  onReview,
 }: {
   status: OrganizerStatus;
   onEnabled: (on: boolean) => void;
   onAutopilot: (kind: (typeof ORGANIZER_KINDS)[number], on: boolean) => void;
   onSortNow?: () => void;
-  onReview?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const member = !status.isOwner;
@@ -220,7 +161,7 @@ export function AutoOrganizeSettings({
       ) : (
         <>
           {line !== null && onSortNow !== undefined ? (
-            <SortStatus line={line} now={now} onSortNow={onSortNow} onReview={onReview} />
+            <SortStatus line={line} now={now} onSortNow={onSortNow} />
           ) : null}
           {status.on ? (
             <View style={styles.section}>
@@ -270,10 +211,9 @@ export function usePremiumOrganizerSlots(returned: string | null): PremiumOrgani
 }
 
 export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returned: string | null): PremiumOrganizerSlots {
-  const [later, setLater] = useState(false);
   const asked = useRef(false);
   const status = organizer?.status ?? null;
-  const phase = sweepPhase(status, { returned, later });
+  const phase = sweepPhase(status);
 
   // The payment return asks for the first sweep, once.
   const start = shouldStartSweep(status, { returned, asked: asked.current, now: Date.now() });
@@ -283,28 +223,11 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
     organizer.sweepNow();
   }, [start, organizer]);
 
-  // What it found is shown as proof, so the preview is read once it has something to show.
-  const wantsPreview = phase === "found" && organizer !== undefined && organizer.suggestions.list === null;
-  useEffect(() => {
-    if (wantsPreview && !organizer.suggestions.loading && !organizer.suggestions.failed) organizer.loadSuggestions();
-  }, [wantsPreview, organizer]);
-
   if (organizer === undefined || status === null) return {};
   const card = settingsCard(status);
-  const review = whatChangedPage(status) ? () => organizer.openReview({ closeSettings: true }) : undefined;
   return {
     included: <IncludedLine />,
-    top:
-      phase === null ? undefined : (
-        <SweepCard
-          phase={phase}
-          slug={organizer.slug}
-          status={status}
-          preview={previewSuggestions(organizer.suggestions.list ?? [])}
-          onShow={review}
-          onLater={() => setLater(true)}
-        />
-      ),
+    top: phase === null ? undefined : <SweepCard slug={organizer.slug} status={status} />,
     afterIncludes:
       card === null ? undefined : (
         <AutoOrganizeSettings
@@ -312,7 +235,6 @@ export function usePremiumSlotsFor(organizer: OrganizerView | undefined, returne
           onEnabled={organizer.setEnabled}
           onAutopilot={organizer.setAutopilot}
           onSortNow={organizer.sweepNow}
-          onReview={review}
         />
       ),
   };
