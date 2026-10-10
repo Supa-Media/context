@@ -23,7 +23,8 @@
  */
 
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
-import { replyTo, type Message, type ReplyDeps } from "./reply";
+import { textsFromAnswer } from "./format";
+import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -86,7 +87,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   for (const [key, item] of pending) {
     const stored = item.reply;
-    const reply = stored === undefined ? await answering(item.message, deps) : [stored].flat();
+    const reply = stored === undefined ? await answering(item.message, deps, storage) : [stored].flat();
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
@@ -139,16 +140,62 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
 export const TYPING_REFRESH_MS = 55_000;
 
 /**
+ * How long a turn may run without a word before the person is told it is a
+ * longer one (`COPY.working`), once. A quick answer is back well before it; a
+ * task that is already texting its progress never sees it.
+ */
+export const WORKING_NUDGE_MS = 40_000;
+
+/**
  * Mark the text read and work out the reply with the typing bubble showing,
- * as a person would.
+ * as a person would, texting any progress the turn reports on the way
+ * (`apps/mcp/src/agent/progress.js`).
  *
  * The first bubble is awaited (it is quick, and bounded) so it cannot land
  * after a fast reply and hang in the chat; a renewal still in flight is
  * awaited before the reply goes out, for the same reason. The simulator draws
- * its own bubble from the queue, so it gets none.
+ * its own bubble from the queue, so it gets none; its progress goes to its log.
+ *
+ * Progress texts are sent once, as they happen, each with its own idempotency
+ * key, and are not retried with the answer: a line about where a task had got
+ * to is stale by the time a retry would send it.
  */
-async function answering(message: Message, deps: InboxDeps): Promise<string[]> {
-  if (message.channel === "simulator") return replyTo(message, deps);
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
+  const simulator = message.channel === "simulator";
+  let progressSent = 0;
+  let chain: Promise<void> = Promise.resolve();
+  const say = (text: string): Promise<void> => {
+    const index = progressSent;
+    progressSent += 1;
+    chain = chain.then(async () => {
+      try {
+        if (simulator) await record(storage, "in", text, deps.now());
+        else {
+          await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, message.chatId, text, `progress:${message.eventId}:${index}`);
+          // Sending a text clears the bubble; the task is still going.
+          await startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+        }
+      } catch {
+        // A progress line that failed costs the person a line, never the answer.
+      }
+    });
+    return chain;
+  };
+  const onProgress = async (text: string) => {
+    for (const part of textsFromAnswer(text).slice(0, 1)) await say(part);
+  };
+  const nudge = setTimeout(() => {
+    if (progressSent === 0) void say(COPY.working);
+  }, WORKING_NUDGE_MS);
+
+  if (simulator) {
+    try {
+      return await replyTo(message, { ...deps, onProgress });
+    } finally {
+      clearTimeout(nudge);
+      await chain;
+    }
+  }
   // Read first, then the bubble, as a person would: the text is seen, then
   // answered. Both are quick and never throw.
   await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
@@ -159,10 +206,12 @@ async function answering(message: Message, deps: InboxDeps): Promise<string[]> {
     renewal = typing();
   }, TYPING_REFRESH_MS);
   try {
-    return await replyTo(message, deps);
+    return await replyTo(message, { ...deps, onProgress });
   } finally {
+    clearTimeout(nudge);
     clearInterval(timer);
     await renewal;
+    await chain;
   }
 }
 

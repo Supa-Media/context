@@ -47,6 +47,7 @@ import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { pickTier } from "./router.js";
+import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -64,8 +65,8 @@ const MAX_ROUNDS = 8;
  * The round bound for one turn: a production setup's `max_steps` (`production.js`)
  * when it names one, clamped to 1..MAX_ROUNDS so a setup can only tighten it.
  */
-function roundsFor(maxRounds) {
-  return Number.isInteger(maxRounds) ? Math.min(MAX_ROUNDS, Math.max(1, maxRounds)) : MAX_ROUNDS;
+function roundsFor(maxRounds, cap = MAX_ROUNDS) {
+  return Number.isInteger(maxRounds) ? Math.min(cap, Math.max(1, maxRounds)) : cap;
 }
 
 /** The one write the agent may make, and it is not a write to the bucket. */
@@ -254,21 +255,33 @@ export async function runTurn(options) {
     builtinModelOverride = null,
     router = null,
     fallback = null,
-    maxRounds = MAX_ROUNDS,
+    maxRounds,
     clock = Date.now,
     toolTimeoutMs = TOOL_TIMEOUT_MS,
     toolBudgetMs = TURN_TOOL_BUDGET_MS,
+    roundCap = MAX_ROUNDS,
+    progress = null,
+    toolTimeouts = {},
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
   // dispatched to their own session, which carries the address guard.
   const webNames = new Set((web?.tools ?? []).map((tool) => tool.name));
-  const tools = [...(options.tools ?? []), ...(web?.tools ?? [])];
+  /*
+    A streamed texting turn (`progress.js`) can text the person a line while
+    it works. Dispatched here, like the web tools, never to the MCP: it reaches
+    only the person who asked, on the channel their answer goes to anyway.
+  */
+  const tools = [...(options.tools ?? []), ...(web?.tools ?? []), ...(progress ? [progress.tool] : [])];
+  // A tool that is slow by nature (a browser step) may name its own limit.
+  const timeoutFor = (name) =>
+    Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
 
   const provider = BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
   let model = builtinModelOverride ?? builtinModel(env);
-  const rounds = roundsFor(maxRounds);
+  // A streamed turn may raise the cap (`progress.js`); a setup only ever tightens it.
+  const rounds = roundsFor(maxRounds, Number.isInteger(roundCap) && roundCap > 0 ? roundCap : MAX_ROUNDS);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, decision: 0 };
   const trace = [];
   /*
@@ -298,7 +311,8 @@ export async function runTurn(options) {
       edits: tools.some((tool) => tool.name === "write_note"),
       continued: history.length > 0,
     }) +
-    webPrompt(webNames);
+    webPrompt(webNames) +
+    (progress ? PROGRESS_PROMPT : "");
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -432,8 +446,12 @@ export async function runTurn(options) {
       const called = clock();
       try {
         result = await withinTime(
-          webNames.has(call.name) ? web.call(call.name, call.args) : callTool(call.name, call.args),
-          toolTimeoutMs,
+          progress && call.name === PROGRESS_TOOL
+            ? progress.call(call.args)
+            : webNames.has(call.name)
+              ? web.call(call.name, call.args)
+              : callTool(call.name, call.args),
+          timeoutFor(call.name),
         );
       } catch (error) {
         /*

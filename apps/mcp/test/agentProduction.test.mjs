@@ -108,7 +108,7 @@ const REFUSED = [
   ["an empty body", file(OK_FRONT, "   ")],
   ["a body of more than 1,000 lines", file(OK_FRONT, Array.from({ length: 1001 }, (_, i) => `line ${i}`).join("\n"))],
   ["a body of more than 40,000 characters", file(OK_FRONT, "x".repeat(40_001))],
-  ["max_steps of 13", file(`${OK_FRONT}\nmax_steps: 13`)],
+  ["max_steps of 41", file(`${OK_FRONT}\nmax_steps: 41`)],
   ["max_steps of 0", file(`${OK_FRONT}\nmax_steps: 0`)],
   ["max_steps that is not an integer", file(`${OK_FRONT}\nmax_steps: eight`)],
   ["a tool name outside the grammar", file(`${OK_FRONT}\ntools: [Search-Notes]`)],
@@ -275,7 +275,7 @@ test("an app turn reads the app file, not the texting one", async () => {
   assert.ok(system.includes("Cite the note path"));
 });
 
-const BUILTIN = "You are Context, the assistant built into";
+const BUILTIN = "You are Tex, the assistant built into";
 
 test("a missing production file falls back to the built-in words", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);

@@ -38,6 +38,7 @@ import { createControlPlane } from "../controlPlane.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
@@ -552,7 +553,14 @@ export async function route(request, env, ctx) {
       // After `store.openContext` is attached, deliberately: a turn may address
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
-      if (path === "/agent") return await handleAgent(request, env, store, session, controlPlane);
+      if (path === "/agent") {
+        // The texting Worker asks for a long task as a stream of progress
+        // lines (`agent/progress.js`); everyone else gets the whole turn.
+        if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);
+        return streamTurn((progress) => handleAgent(request, env, store, session, controlPlane, { progress }), {
+          waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
+        });
+      }
       if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
