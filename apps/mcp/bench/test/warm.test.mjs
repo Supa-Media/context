@@ -197,12 +197,13 @@ test("without an embedder the warm pass makes no meaning index, as before", asyn
 
 /* ---------------- search everywhere: one search across the person's workspaces, under each one's own privacy ---------------- */
 
-test("with everywhere on, one search reaches the other workspaces, and a held-back note stays absent for a member", async () => {
+test("by default one search reaches the other workspaces, a held-back note stays absent for a member, and a setup may keep to one", async () => {
   const { fakeAi } = await import("../models.mjs");
   const ai = fakeAi();
   const prepared = await prepareRun(bench, { today: "2026-10-08", ai });
   try {
-    const models = { gatewayFetch: scripted([]), ai, searchSettings: { everywhere: true } };
+    // No search settings at all: the default (decided 2026-10-10) is every workspace.
+    const models = { gatewayFetch: scripted([]), ai };
     const maya = await createWorld(bench, "Maya", SETUP, models, "2026-10-08", prepared);
     try {
       const found = await maya.search("twill order");
@@ -223,8 +224,8 @@ test("with everywhere on, one search reaches the other workspaces, and a held-ba
     } finally {
       priya.close();
     }
-    // Off, the same search stays in the person's own workspace.
-    const alone = await createWorld(bench, "Maya", SETUP, { gatewayFetch: scripted([]), ai }, "2026-10-08", prepared);
+    // Restricted, the same search stays in the person's own workspace.
+    const alone = await createWorld(bench, "Maya", SETUP, { gatewayFetch: scripted([]), ai, searchSettings: { everywhere: false } }, "2026-10-08", prepared);
     try {
       const found = await alone.search("twill order");
       assert.ok(!found.text.includes("@brand/"), found.text);

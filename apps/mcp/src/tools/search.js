@@ -83,9 +83,12 @@ function sharedEmbedder(store) {
 }
 
 /**
- * `search_notes` across every workspace the person can reach (the setting
- * `everywhere`, `../search/settings.js`; asked for by the owner 2026-10-10 so
- * an assistant need not guess which workspace an answer lives in).
+ * `search_notes` across every workspace the person can reach: the default
+ * since 2026-10-10 (the setting `everywhere`, `../search/settings.js`; asked
+ * for by the owner so an assistant need not guess which workspace an answer
+ * lives in, and made the default by him once the benchmark showed it finds
+ * everything a one-workspace search finds and more). A call that names a
+ * workspace with `context:`, or narrows with `prefix`, searches that one.
  *
  * Each other workspace is opened the way a tool call addressed with
  * `context: "@name"` opens it (`store.openContext`), so it is searched under
