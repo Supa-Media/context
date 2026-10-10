@@ -28,8 +28,11 @@ export interface ChaosSource {
  *
  * Asked on the way in, on a workspace switch, and when the tree changes: a
  * loaded folder gained, lost or moved something (`treeChanged` — a folder
- * merely opened for the first time is not a change), a note was saved, or a
- * write landed from outside the console (`onBucketWrite`). Those come in
+ * merely opened for the first time is not a change), or a write landed from
+ * outside the console (`onBucketWrite`). A save of a note's text is not a
+ * change: the editor saves on every pause, the server only rescores a note's
+ * length when its properties are next read, and asking on each pause would
+ * open the bucket once a sentence. Those come in
  * bursts — a move is two folders refreshing — so the ask waits for the tree
  * to sit still for `CHAOS_REFRESH_MS`.
  *
@@ -39,11 +42,9 @@ export interface ChaosSource {
 export function useChaosScore({
   workspaceId,
   listings,
-  onSaved,
 }: {
   workspaceId: Id<"workspaces"> | null;
   listings: Readonly<Record<string, FolderListing | undefined>>;
-  onSaved?: (handler: (written: { path: string; etag: string }) => void) => () => void;
 }): ChaosSource | undefined {
   const chaosScore = useAction(api.functions.chaosScore.chaosScore);
   const [result, setResult] = useState<ChaosScore | null>(null);
@@ -101,7 +102,6 @@ export function useChaosScore({
       if (write.workspaceId === workspaceId) soon();
     });
   }, [workspaceId, soon]);
-  useEffect(() => onSaved?.(() => soon()), [onSaved, soon]);
 
   const folderScore = useCallback(
     async (folder: string) =>

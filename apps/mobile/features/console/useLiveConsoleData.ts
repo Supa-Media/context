@@ -396,7 +396,7 @@ export function useLiveConsoleData(): ConsoleData {
   const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
 
   // How organized it is, asked again when the tree changes (`features/chaos`).
-  const chaos = useChaosScore({ workspaceId: membershipContextId, listings: files.listings, onSaved: files.onSaved });
+  const chaos = useChaosScore({ workspaceId: membershipContextId, listings: files.listings });
 
   // The free plan's count, from nine tenths of its cap — see `noteLimit.ts`.
   const noteLimit = useNoteLimit(selectedContextId, isOwner);
