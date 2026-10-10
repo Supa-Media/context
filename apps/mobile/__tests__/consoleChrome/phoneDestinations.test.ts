@@ -127,11 +127,9 @@ describe("the phone reaches a destination with nothing opened first", () => {
 
   /**
    * Chat was removed from the console entirely (Dev2, 2026-10-10: "remove chat
-   * from the sidebar entirely"), so no row offers one — not even where a model
-   * key is connected, which is where the menu used to.
+   * from the sidebar entirely"), so no row offers one.
    */
-  test("no conversation is offered, even with a model key", () => {
-    mockConsoleState.modelConnected = true;
+  test("no conversation is offered", () => {
     const app = mountConsole(1280);
     app.press(app.find("console-create"));
 
@@ -261,8 +259,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
   });
 
   /** The phone's `+` sheet carries no chat row either, and no Ask AI on a note. */
-  test("no chat row on a phone, even with a model key", () => {
-    mockConsoleState.modelConnected = true;
+  test("no chat row on a phone", () => {
     const app = mountConsole(390);
     app.hold(app.find("notes-bar-compose"));
     expect(document.body.querySelector('[aria-label="New chat"]')).toBeNull();

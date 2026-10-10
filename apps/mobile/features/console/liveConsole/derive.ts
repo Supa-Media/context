@@ -62,16 +62,6 @@ export function perWorkspaceQueries(
       query: api.functions.googleConnect.listGoogleConnections,
       args: { workspaceId: workspace.workspaceId },
     };
-    /*
-      Whether a model key exists, for the one control that would otherwise
-      offer a conversation nothing can answer. It returns fingerprints and
-      connection times — never a key, and never a fragment of one — and this
-      projection keeps only whether the list is empty.
-    */
-    spec[`providers:${workspace.workspaceId}`] = {
-      query: api.functions.providers.listProviders,
-      args: { workspaceId: workspace.workspaceId },
-    };
   }
   return spec;
 }

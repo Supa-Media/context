@@ -33,8 +33,8 @@
  * uses the built-in words, exactly as if the file were missing. The front matter's grammar is the small subset below, so
  * no YAML dependency is needed; anything outside it is refused, not guessed at.
  *
- * A person's own connected account never takes the setup's model: their bill,
- * their model. `route.js` decides that; this file only reads the note.
+ * Whether this deployment can call the setup's model is `route.js`'s to
+ * decide; this file only reads the note.
  */
 
 import { loadPrivacyState } from "../privacy/state.js";

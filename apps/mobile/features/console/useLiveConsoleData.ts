@@ -331,22 +331,6 @@ export function useLiveConsoleData(): ConsoleData {
   */
   const membershipContextId: Id<"workspaces"> | null =
     selected?.pinned === true ? null : selectedContextId;
-  /**
-   * Whether the selected context has a model key. `undefined` until answered.
-   *
-   * `usable` answers `undefined` for a query that has not landed *and* for one
-   * that failed, which is the right reading for both here: a console that
-   * cannot ask offers no conversation rather than an offer that errors.
-   */
-  const modelConnected: boolean | undefined =
-    selectedContextId === null
-      ? undefined
-      : (() => {
-          const answer = usable<{ provider: string }[]>(
-            results[`providers:${selectedContextId}`],
-          );
-          return answer === undefined ? undefined : answer.length > 0;
-        })();
 
   const googleConnections: GoogleConnection[] = googleConnectionsFrom(selectedContextId, results);
 
@@ -438,7 +422,6 @@ export function useLiveConsoleData(): ConsoleData {
     storageActions,
     noteLimit,
     googleConnections,
-    modelConnected,
     googleActions:
       selectedContextId === null || !isOwner || selected?.kind !== "personal"
         ? undefined

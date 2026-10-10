@@ -5,7 +5,7 @@
  * model and the step cap; its body is the one prompt a texted turn is given.
  *
  * Asserted on the wire, like `agentInstructions.test.mjs`: the system prompt
- * and the model the fake provider was actually sent. Read through the caller's
+ * and the model the fake model was actually sent. Read through the caller's
  * own reach and `privacy.md`, and missing, malformed or held-back means the
  * built-in words, never an error.
  */
@@ -19,13 +19,13 @@ import { DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../src/agent/built
 import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-production-setup.test";
 const TOKEN_TEXTS = `cat_prod_texts_${"0".repeat(25)}`;
 const TOKEN_APP = `cat_prod_appcl_${"0".repeat(24)}`;
 const TOKEN_FREE = `cat_prod_free_${"0".repeat(25)}`;
 const TOKEN_STAFF = `cat_prod_staff_${"0".repeat(24)}`;
-const API_KEY = "zarquon-production-setup-not-a-real-key";
 const GATEWAY_ACCOUNT = "0123456789abcdef0123456789abcdef";
 
 const WHO = "WHO-NOTE-MARK: You are Context, as the app file describes.";
@@ -123,7 +123,6 @@ for (const [name, raw] of REFUSED) {
 
 /* ---------------- the wire: what a turn is told and which model it runs ---------------- */
 
-const anthropicCalls = [];
 const gatewayCalls = [];
 const base = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 const gatewayVars = {
@@ -197,10 +196,6 @@ before(async () => {
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://api.anthropic.com")) {
-      anthropicCalls.push({ url, body: JSON.parse(init.body) });
-      return answer();
-    }
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) {
       gatewayCalls.push({ url, headers: { ...init?.headers }, body: JSON.parse(init.body) });
       return answer();
@@ -214,8 +209,8 @@ before(async () => {
   controlPlane.addWorkspace("ws_mine", "mine", binding("prod-mine", "AA"));
   controlPlane.addWorkspace("ws_free", "free", binding("prod-free", "CC"));
   controlPlane.addWorkspace("ws_pinned", "context-lc", binding("prod-pinned", "BB"), { kind: "shared" });
-  controlPlane.connectProvider("ws_mine", "anthropic", API_KEY);
-  controlPlane.connectProvider("ws_pinned", "anthropic", API_KEY);
+  controlPlane.setBuiltinVerdict("ws_mine", BUILTIN_ALLOWED);
+  controlPlane.setBuiltinVerdict("ws_pinned", BUILTIN_ALLOWED);
   controlPlane.setBuiltinVerdict("ws_free", { allowed: true, remaining: 10 });
 
   for (const bucket of ["prod-mine", "prod-free"]) {
@@ -248,22 +243,24 @@ after(() => {
 });
 
 beforeEach(() => {
-  anthropicCalls.length = 0;
   gatewayCalls.length = 0;
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
   pinnedBucket.set(PRODUCTION_APP_PATH, { body: setupFile({ prompt: WHO }), etag: "a0" });
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile(), etag: "s0" });
 });
 
-/** The system prompt a turn sent to Anthropic on the person's own key. */
-function anthropicSystem() {
-  return String(anthropicCalls.at(-1)?.body?.system ?? "");
+/** A deployment with our AI gateway: the built-in model is Claude on it. */
+const onGateway = { ...base, ...gatewayVars };
+
+/** The system prompt the last turn sent through the gateway. */
+function gatewaySystem() {
+  return systemText(gatewayCalls.at(-1)?.body);
 }
 
 test("a texted turn is told the texting production prompt, and not the app one", async () => {
-  const response = await ask(base, TOKEN_TEXTS);
+  const response = await ask(onGateway, TOKEN_TEXTS);
   assert.equal(response.status, 200);
-  const system = anthropicSystem();
+  const system = gatewaySystem();
   assert.equal(system.split(PROMPT).length, 2, "the production prompt, exactly once");
   assert.ok(!system.includes(WHO), "the app file is not sent");
   assert.ok(!system.includes("No Markdown at all"), "the built-in texting style is not sent");
@@ -271,8 +268,8 @@ test("a texted turn is told the texting production prompt, and not the app one",
 });
 
 test("an app turn reads the app file, not the texting one", async () => {
-  await ask(base, TOKEN_APP);
-  const system = anthropicSystem();
+  await ask(onGateway, TOKEN_APP);
+  const system = gatewaySystem();
   assert.ok(system.includes(WHO));
   assert.ok(!system.includes(PROMPT));
   assert.ok(system.includes("Cite the note path"));
@@ -282,34 +279,34 @@ const BUILTIN = "You are Context, the assistant built into";
 
 test("a missing production file falls back to the built-in words", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
-  await ask(base, TOKEN_TEXTS);
-  const system = anthropicSystem();
+  await ask(onGateway, TOKEN_TEXTS);
+  const system = gatewaySystem();
   assert.ok(system.includes(BUILTIN) && system.includes("No Markdown at all"));
   assert.ok(!system.includes(PROMPT));
 });
 
 test("a malformed production file falls back to the built-in words", async () => {
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "evil/model-x" }), etag: "s1" });
-  await ask(base, TOKEN_TEXTS);
-  const system = anthropicSystem();
+  await ask(onGateway, TOKEN_TEXTS);
+  const system = gatewaySystem();
   assert.ok(system.includes(BUILTIN));
   assert.ok(!system.includes(PROMPT));
 });
 
 test("a production file privacy.md holds back from members falls back, and its owner still reads it", async () => {
   pinnedBucket.set("privacy.md", { body: manifest(`  ${PRODUCTION_TEXTING_PATH}: private\n`), etag: "p2" });
-  await ask(base, TOKEN_TEXTS);
-  const member = anthropicSystem();
+  await ask(onGateway, TOKEN_TEXTS);
+  const member = gatewaySystem();
   assert.ok(member.includes(BUILTIN), "the member gets the built-in words");
   assert.ok(!member.includes(PROMPT), "the member is not sent the held-back prompt");
-  await ask(base, TOKEN_STAFF);
-  assert.ok(anthropicSystem().includes(PROMPT), "staff inside @context-lc still read it");
+  await ask(onGateway, TOKEN_STAFF);
+  assert.ok(gatewaySystem().includes(PROMPT), "staff inside @context-lc still read it");
 });
 
 test("a production folder privacy.md keeps private inside a shared folder is not sent", async () => {
   pinnedBucket.set("privacy.md", { body: manifest("", false), etag: "p3" });
-  await ask(base, TOKEN_TEXTS);
-  const system = anthropicSystem();
+  await ask(onGateway, TOKEN_TEXTS);
+  const system = gatewaySystem();
   assert.ok(system.includes(BUILTIN));
   assert.ok(!system.includes(PROMPT), "a private subfolder of ai/ stays private");
 });
@@ -360,15 +357,6 @@ test("the gateway call is filed under the setup's version", async () => {
   await ask({ ...base, ...gatewayVars }, TOKEN_FREE);
   const labels = gatewayCalls.at(-1)?.headers?.["cf-aig-metadata"] ?? "";
   assert.ok(labels.includes(`"setup":"${version(raw)}"`), labels);
-});
-
-test("a person's own key never takes the production model", async () => {
-  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile({ model: "anthropic/claude-haiku-5-5" }), etag: "s7" });
-  const ai = fakeAi();
-  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_TEXTS);
-  assert.equal(anthropicCalls.at(-1)?.body?.model, "claude-sonnet-5", "their model, their bill");
-  assert.equal(gatewayCalls.length, 0);
-  assert.equal(ai.calls.length, 0);
 });
 
 test("max_steps caps the rounds a built-in turn may take", async () => {
@@ -463,14 +451,6 @@ test("a thinking model this deployment cannot call means no routing at all", asy
   const ai = fakeAi([clefSays("think")]);
   await ask({ ...base, AI: ai }, TOKEN_FREE);
   assert.equal(ai.calls[0]?.model, "@cf/acme/texting-model", "Clef is never asked; the main model answers");
-});
-
-test("a person's own key is never routed", async () => {
-  pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: file(ROUTED_FRONT), etag: "r5" });
-  const ai = fakeAi([clefSays("think")]);
-  await ask({ ...base, ...gatewayVars, AI: ai }, TOKEN_TEXTS);
-  assert.equal(ai.calls.length, 0);
-  assert.equal(anthropicCalls.at(-1)?.body?.model, "claude-sonnet-5");
 });
 
 /* ---------------- the fallback model: a second model the turn goes on with (`turn.js`) ---------------- */

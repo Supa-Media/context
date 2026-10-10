@@ -11,7 +11,10 @@ AI key in the note bar — answered through a
 model key the person pasted into Settings. All of it is gone, on web, desktop
 and phone, together with the client-side engine behind it
 (`features/agent/{AgentPanel,AgentConversation,engine,gateway,local,page,…}`).
-The model-key setting it depended on was removed from Settings the same day (#1465).
+The model-key setting it depended on was removed from Settings the same day (#1465),
+and the saved keys themselves were deleted after it, with `ConsoleData.modelConnected`
+and the `listProviders` query that fed it (see
+[texting-assistant](../texting-assistant.md#the-built-in-model-is-for-premium-capped-and-metered-like-jev)).
 
 What is left in the right panel is what happens *beside* a note and is not a
 conversation: Meetings, which it now opens on, and Approvals.
@@ -27,8 +30,8 @@ desktop" or "just where a key exists" is the same feature again; it needs a
 decision here first. The checks are `two tabs, Meetings first, and no Chat`
 (`asideTabs.test.ts`), `a panel opens on Meetings, and there is no Chat tab`
 (`asidePanelRender.test.ts`), `there is no chat row` (`createSheetRows.test.ts`),
-`no conversation is offered, even with a model key` and `no chat row on a
-phone, even with a model key` (`consoleChrome/phoneDestinations.test.ts`), and
+`no conversation is offered` and `no chat row on a phone`
+(`consoleChrome/phoneDestinations.test.ts`), and
 `there is no Ask row, whatever is typed` (`paletteRender/handoffs.test.ts`).
 
 The gateway's `/agent` route and the desktop shell's local-`claude` bridge are

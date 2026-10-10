@@ -39,6 +39,16 @@ import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
+/**
+ * What a turn that may not run says. Nothing in the app can change this any
+ * more (people's own model keys were deleted, the owner, 2026-10-10): the
+ * built-in model answers texts and routines on a Premium workspace, and every
+ * other `no_provider` — another client, another plan, the assistant switched
+ * off, a deployment with no built-in model, a request naming a provider — is
+ * the same sentence, so none of them is told apart from the outside.
+ */
+const NO_MODEL_HERE = "The assistant isn't available here. It answers texts on a Premium workspace.";
+
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
 /** The app's own client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
@@ -71,8 +81,7 @@ const CONSOLE_CLIENT_ID = "context_console";
  *
  * A provider that errored is `model_unavailable` with no detail. The reason
  * lives in this deployment's own logs, because a provider's error body quotes
- * the request that produced it — the customer's question, and on some shapes a
- * fragment of the key.
+ * the request that produced it — the customer's question and their notes.
  */
 export async function handleAgent(request, env, store, session, controlPlane) {
   const received = Date.now();
@@ -169,9 +178,8 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     await disarmTexting(store, { userId: session.actorUserId });
   }
 
-  let credential;
   try {
-    credential = await openProvider(controlPlane, session, body.provider, env);
+    await openProvider(controlPlane, session, body.provider, env);
   } catch (error) {
     if (runner) await keepRun(store, routine, runs, error instanceof AgentRefusal ? error.code : "failed", "");
     if (error instanceof AgentRefusal && error.code === "daily_limit") {
@@ -184,15 +192,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       return json(
         {
           error: error.code,
-          error_description:
-            "Connect an Anthropic or OpenAI account in the app, and ask me again.",
+          error_description: NO_MODEL_HERE,
         },
         409,
       );
     }
-    // A control plane that could not be reached is not a missing provider, and
-    // telling somebody to connect an account they already connected is worse
-    // than telling them nothing.
+    // A control plane that could not be reached is not a refusal, and telling
+    // somebody the assistant is not theirs when it is is worse than telling
+    // them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
 
@@ -239,7 +246,6 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     about texting), behind the address guard in `computer.js`. Widening it to
     the app's agent panel is one condition here.
   */
-  const builtin = credential.provider === BUILTIN_PROVIDER;
   // Decided by the grant, never by the request body: only the texting client's
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
@@ -251,7 +257,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
   const search = texting ? searcherFor(env) : null;
-  // Clef only on a built-in turn: that is the turn the meter covers.
+  // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
 
@@ -270,7 +276,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     computer === null && search === null
       ? null
       : webSession(computer, question, {
-          decide: builtin ? decisionEngine(env.AI) : null,
+          decide: decisionEngine(env.AI),
           search,
           addresses: vouched,
         });
@@ -291,13 +297,12 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
     turn, the app job's otherwise. Its prompt replaces the built-in words, and
-    its model is used for a
-    built-in turn only, and only when this deployment can call it: a person's
-    own connected account keeps their model, and an uncallable one falls back.
+    its model is used only when this deployment can call it: an uncallable one
+    falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
   const productionModel =
-    builtin && production !== null && canRunBuiltin(production.model, env) ? production.model : null;
+    production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);
   // The setup's router (`router.js`), when this deployment can run both the
   // decision model and the thinking model; otherwise every text runs on `main`.
@@ -316,7 +321,6 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     report, not the person their answer.
   */
   const meter = async (usage, failed, model = builtinUsed) => {
-    if (!builtin) return;
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
@@ -356,7 +360,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   */
   const logTurn = (outcome, model, timing, usage) => {
     const report = {
-      provider: credential.provider,
+      provider: BUILTIN_PROVIDER,
       model: typeof model === "string" ? model : "unknown",
       outcome,
       ms: Date.now() - received,
@@ -391,7 +395,6 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     const turn = await runTurn({
       question,
       place: body.place ?? null,
-      credential,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
       tools: [
@@ -410,21 +413,18 @@ export async function handleAgent(request, env, store, session, controlPlane) {
         textingWriting,
       ),
       env,
-      model: typeof body.model === "string" ? body.model : undefined,
-      providerOptions: builtin
-        ? {
-            ai: env.AI,
-            gateway: aiGatewayConfig(env),
-            // Ids only: what the AI costs tab files this call's spend under.
-            metadata: {
-              feature: "assistant",
-              workspace: String(session.workspaceId),
-              client: texting ? "texts" : "app",
-              // The setup that answered, when one did: which note a cost is for.
-              ...(production !== null ? { setup: production.version } : {}),
-            },
-          }
-        : undefined,
+      providerOptions: {
+        ai: env.AI,
+        gateway: aiGatewayConfig(env),
+        // Ids only: what the AI costs tab files this call's spend under.
+        metadata: {
+          feature: "assistant",
+          workspace: String(session.workspaceId),
+          client: texting ? "texts" : "app",
+          // The setup that answered, when one did: which note a cost is for.
+          ...(production !== null ? { setup: production.version } : {}),
+        },
+      },
       web,
       history,
       texting,
@@ -497,14 +497,14 @@ export async function handleAgent(request, env, store, session, controlPlane) {
     if (error instanceof ProviderError) {
       await afterAnswer(logTurn("failed", error.model, error.timing, null));
       // Logged for an operator, opaque to the caller. `reason` is a phrase this
-      // worker wrote and a status; `providers.js` never puts a response body in
-      // it, for the reason its `readJson` gives.
+      // worker wrote and a status; `builtin.js` and `aiGateway.js` never put a
+      // response body in it, because a provider's error body quotes the request.
       console.log(
         JSON.stringify({
           event: "agent_provider_error",
           workspace: session.workspaceId,
           grant: session.grantId,
-          provider: credential.provider,
+          provider: BUILTIN_PROVIDER,
           reason: error.reason,
           status: error.status,
         }),

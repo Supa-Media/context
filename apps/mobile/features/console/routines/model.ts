@@ -126,7 +126,7 @@ export function runWords(run: RoutineRun, send: RoutineRow["send"] = "text"): { 
     case "daily_limit":
       return { label: "Didn't run", detail: "Today's limit was reached." };
     case "no_provider":
-      return { label: "Didn't run", detail: "No AI is set up for this workspace." };
+      return { label: "Didn't run", detail: "The assistant isn't available on this workspace's plan." };
     case "no_chat":
       return { label: "Not texted", detail: "Nobody to text yet. Text the assistant first." };
     case "writer_gone":

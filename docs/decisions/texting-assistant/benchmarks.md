@@ -136,8 +136,7 @@ answered; pricing a routed run by the setup's main model would hide the whole
 point. Tests (`apps/mcp/test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
 `bench/test/report.test.mjs`): "a text the router calls think runs on the
 thinking model, and the meter says so", "a low-confidence think, a word the
-router does not know, or a failed router all stay on main", "a person's own key
-is never routed", "a routed setup records the tier first on the tools line and
+router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
 
 ### The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)

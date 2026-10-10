@@ -1,78 +1,26 @@
 /**
- * The two model APIs this build knows how to spend, behind one shape.
+ * The model wire formats, behind one shape, and the one error a model call
+ * throws.
  *
- * The customer connects their own Anthropic or OpenAI account; the control
- * plane hands the key over for the length of one request (`/gateway/provider`,
- * see `src/controlPlane.js`), and these functions are the only place in the
- * worker it is used. Zero npm dependencies, `fetch` and Web Crypto only, like
- * everything else here.
+ * This used to also spend a person's own Anthropic or OpenAI key, fetched for
+ * one request from the control plane. Those keys were deleted and are no
+ * longer used (decided by the owner, 2026-10-10): every turn runs on the
+ * built-in model (`builtin.js`, `aiGateway.js`), and what is left here is the
+ * translation both of those use.
  *
  * ## One shape, two wire formats
  *
- * The loop in `turn.js` must not know which provider answered, or every future
- * provider is a third branch in the loop as well as a new adapter. So both are
+ * The loop in `turn.js` must not know which wire format answered, so both are
  * normalized to:
  *
- *     request({ model, system, messages, tools, apiKey })
- *       → { text, toolCalls: [{ id, name, args }], stop }
+ *     { text, toolCalls: [{ id, name, args }], stop }
  *
  * and `messages` is this module's own format — `{ role, text }` for ordinary
  * turns, `{ role: "tool", id, name, text }` for a tool's answer — translated on
- * the way out. A caller never builds an Anthropic `content` block or an OpenAI
- * `tool_calls` entry.
- *
- * ## What is deliberately not here
- *
- * **Streaming.** The first cut answers whole turns, because a turn that
- * finishes is worth more than a turn that renders prettily, and adding SSE
- * later changes this module and not its callers.
- *
- * **A base URL.** An OpenAI-compatible endpoint needs one, and taking it from
- * the customer is how somebody who can write to a *shared* workspace points the
- * gateway at a host of theirs and receives the owner's key — plus the ordinary
- * SSRF of a fetch aimed at a loopback address. `apps/convex/functions/providers.ts`
- * refuses to store one for exactly this reason; this is the fetch it was
- * refusing on behalf of. Both endpoints below are constants.
+ * the way out: Anthropic's Messages shape for the AI gateway, the
+ * chat-completions shape for Workers AI. A caller never builds an Anthropic
+ * `content` block or an OpenAI `tool_calls` entry.
  */
-
-/** Where each provider lives. Constants, never configuration — see the header. */
-const ENDPOINTS = {
-  anthropic: "https://api.anthropic.com/v1/messages",
-  openai: "https://api.openai.com/v1/chat/completions",
-};
-
-/**
- * The default model per provider, and **the one thing in this file with a
- * shelf life.**
- *
- * Model names move faster than this repository does, so they are named once,
- * here, and overridable per deployment (`AGENT_ANTHROPIC_MODEL`,
- * `AGENT_OPENAI_MODEL` in the Worker's vars) without a code change. A
- * self-hoster whose account has different models available changes a var; they
- * do not fork the gateway.
- */
-export const DEFAULT_MODELS = {
-  anthropic: "claude-sonnet-5",
-  openai: "gpt-5",
-};
-
-/** The Anthropic API version this build is written against. */
-const ANTHROPIC_VERSION = "2023-06-01";
-
-/** How long one model call may take before it is abandoned. */
-const MODEL_TIMEOUT_MS = 60_000;
-
-/**
- * The largest model response this worker will read.
- *
- * A cap rather than trust: the body is parsed into memory on a Worker with a
- * fixed budget, and a provider having a bad day must fail this request rather
- * than the isolate.
- */
-const RESPONSE_BYTE_CAP = 2_000_000;
-
-/** How much of the model's answer one turn may produce. */
-const MAX_OUTPUT_TOKENS = 4096;
 
 export class ProviderError extends Error {
   /**
@@ -86,68 +34,6 @@ export class ProviderError extends Error {
     this.reason = reason;
     this.status = status;
   }
-}
-
-/**
- * Read a capped JSON body, or throw.
- *
- * Every failure here is a phrase and a status. **The response text is never
- * included**, because a provider's error body quotes the request that produced
- * it — which on these two APIs means the customer's question and, on some
- * error shapes, a fragment of the key.
- */
-async function readJson(response) {
-  const declared = Number(response.headers?.get?.("content-length"));
-  if (Number.isFinite(declared) && declared > RESPONSE_BYTE_CAP) {
-    throw new ProviderError("response too large", response.status);
-  }
-  let text;
-  try {
-    text = await response.text();
-  } catch {
-    throw new ProviderError("response unreadable", response.status);
-  }
-  if (text.length > RESPONSE_BYTE_CAP) {
-    throw new ProviderError("response too large", response.status);
-  }
-  try {
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("not an object");
-    }
-    return parsed;
-  } catch {
-    throw new ProviderError("response not json", response.status);
-  }
-}
-
-async function post(url, headers, body, fetchImpl) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
-  let response;
-  try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-      // "manual", for the reason `controlPlane.js` gives: a redirect followed
-      // is a credential replayed to a Location we did not choose. workerd does
-      // not implement `redirect: "error"`, so this is the form that works.
-      redirect: "manual",
-    });
-  } catch {
-    // The caught error may quote the request — headers included, and one of
-    // those headers is the key. Dropped on the floor rather than wrapped.
-    throw new ProviderError("request failed");
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response || response.status !== 200) {
-    throw new ProviderError(`status ${response?.status ?? "none"}`, response?.status ?? null);
-  }
-  return await readJson(response);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -192,50 +78,6 @@ export function anthropicMessages(messages) {
   // `pendingTools` is this function's own bookkeeping and is not part of the
   // API's shape; a stray key here is a 400 from Anthropic, not a silent ignore.
   return out.map(({ pendingTools, ...message }) => message);
-}
-
-async function anthropicRequest({ model, system, messages, tools, apiKey }, fetchImpl) {
-  const body = {
-    model,
-    max_tokens: MAX_OUTPUT_TOKENS,
-    messages: anthropicMessages(messages),
-    ...(system ? { system } : {}),
-    ...(tools.length > 0
-      ? {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            input_schema: tool.inputSchema || { type: "object" },
-          })),
-        }
-      : {}),
-  };
-
-  const parsed = await post(
-    ENDPOINTS.anthropic,
-    {
-      // The key appears here and nowhere else in this module.
-      "x-api-key": apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-    },
-    body,
-    fetchImpl,
-  );
-
-  const blocks = Array.isArray(parsed.content) ? parsed.content : [];
-  const text = blocks
-    .filter((block) => block?.type === "text" && typeof block.text === "string")
-    .map((block) => block.text)
-    .join("");
-  const toolCalls = blocks
-    .filter((block) => block?.type === "tool_use" && typeof block.name === "string")
-    .map((block) => ({
-      id: String(block.id ?? ""),
-      name: block.name,
-      args: block.input && typeof block.input === "object" ? block.input : {},
-    }));
-
-  return { text, toolCalls, stop: parsed.stop_reason ?? null };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -306,24 +148,6 @@ export function readChatCompletion(parsed) {
   };
 }
 
-async function openAiRequest({ model, system, messages, tools, apiKey }, fetchImpl) {
-  const body = {
-    model,
-    messages: openAiMessages(system, messages),
-    ...(tools.length > 0 ? { tools: openAiTools(tools) } : {}),
-  };
-
-  const parsed = await post(
-    ENDPOINTS.openai,
-    // The key appears here and nowhere else in this module.
-    { Authorization: `Bearer ${apiKey}` },
-    body,
-    fetchImpl,
-  );
-
-  return readChatCompletion(parsed);
-}
-
 export function parseArguments(raw) {
   // Workers AI hands some models' arguments over already parsed.
   if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
@@ -334,40 +158,4 @@ export function parseArguments(raw) {
   } catch {
     return {};
   }
-}
-
-/* -------------------------------------------------------------------------- */
-
-const ADAPTERS = {
-  anthropic: anthropicRequest,
-  openai: openAiRequest,
-};
-
-/** The providers this build can spend. A closed set, mirroring the control plane's. */
-export const AGENT_PROVIDERS = Object.freeze(Object.keys(ADAPTERS));
-
-/**
- * One model call.
- *
- * @param {string} provider "anthropic" | "openai"
- * @param {{model: string, system: string, messages: Array, tools: Array, apiKey: string}} call
- * @param {{fetchImpl?: Function}} [options]
- */
-export async function requestCompletion(provider, call, options = {}) {
-  const adapter = ADAPTERS[provider];
-  if (!adapter) throw new ProviderError("unknown provider");
-  const fetchImpl = options.fetchImpl || ((...args) => globalThis.fetch(...args));
-  return await adapter(call, fetchImpl);
-}
-
-/** The model this deployment uses for a provider, unless the caller named one. */
-export function modelFor(provider, env, requested) {
-  if (typeof requested === "string" && requested.length > 0 && requested.length <= 128) {
-    return requested;
-  }
-  const configured =
-    provider === "anthropic" ? env?.AGENT_ANTHROPIC_MODEL : env?.AGENT_OPENAI_MODEL;
-  return typeof configured === "string" && configured.length > 0
-    ? configured
-    : DEFAULT_MODELS[provider];
 }

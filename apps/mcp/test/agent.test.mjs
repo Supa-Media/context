@@ -1,8 +1,9 @@
 /**
  * The agent turn, end to end through the real worker.
  *
- * A question goes in at `/agent`, the worker opens the customer's model account
- * through `/gateway/provider`, calls a **fake model** that answers with tool
+ * A question goes in at `/agent`, the worker asks the control plane whether this
+ * turn may spend the built-in model, calls a **fake model** behind the AI
+ * gateway's address (`agentModelFixture.mjs`) that answers with tool
  * calls, and those calls run through the same `callToolForSession` an MCP
  * client's do — against a real `S3Store` over the in-memory backend, behind the
  * real privacy engine.
@@ -79,12 +80,18 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { agentTools, describePlace, systemPrompt } from "../src/agent/turn.js";
+import {
+  AI_GATEWAY_ENV,
+  AI_GATEWAY_ORIGIN,
+  BUILTIN_ALLOWED,
+  GATEWAY_WIRE_MODEL,
+  systemText,
+} from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
 const TOKEN_TEAM = `cat_agent_team_${"0".repeat(25)}`;
 const TOKEN_READONLY = `cat_agent_read_${"0".repeat(25)}`;
-const API_KEY = "zarquon-plumbago-agent-not-a-real-key-and-never-was";
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -119,7 +126,7 @@ function createFakeModel() {
         headers: { "Content-Type": "application/json" },
       });
     }
-    // Anthropic's Messages shape, which is the provider these tests drive.
+    // Anthropic's Messages shape, which is what the AI gateway answers in.
     const content = [];
     if (next.text) content.push({ type: "text", text: next.text });
     for (const call of next.toolCalls ?? []) {
@@ -139,7 +146,7 @@ function createFakeModel() {
     );
   }
 
-  return { requests, install, handle, origin: "https://api.anthropic.com" };
+  return { requests, install, handle, origin: AI_GATEWAY_ORIGIN };
 }
 
 async function ask(env, tokenValue, body) {
@@ -238,9 +245,9 @@ export async function runAgentChecks(check) {
       userId: "user_agent",
     });
 
-    controlPlane.connectProvider("ws_agent", "anthropic", API_KEY);
+    controlPlane.setBuiltinVerdict("ws_agent", BUILTIN_ALLOWED);
 
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
     // Seeded straight into the backend, the way the tenancy suite does it.
     // `4-archive` takes the manifest's `private` default; `1-projects` is
@@ -269,8 +276,8 @@ export async function runAgentChecks(check) {
       answered.body?.answer?.includes("12 September") === true,
     );
     check(
-      "the turn names the provider it spent",
-      answered.body?.provider === "anthropic",
+      "the turn names the model it spent: the built-in one",
+      answered.body?.provider === "builtin",
     );
     check(
       "the steps name the tools that ran, in order",
@@ -284,16 +291,18 @@ export async function runAgentChecks(check) {
       ),
     );
 
-    /* ---------------------- 2. the key, and where it goes ------------------ */
+    /* ---------------------- 2. the model, and whose it is ------------------ */
 
     check(
-      "the key reaches the model provider and nothing else",
+      "every round runs on the built-in model, through our gateway",
       model.requests.length > 0 &&
-        model.requests.every((request) => request.headers["x-api-key"] === API_KEY),
+        model.requests.every(
+          (request) => request.url.startsWith(AI_GATEWAY_ORIGIN) && request.body?.model === GATEWAY_WIRE_MODEL,
+        ),
     );
     check(
-      "no answer the route gives carries the key",
-      !JSON.stringify(answered.body).includes(API_KEY),
+      "no round carries a provider key: this deployment configured none",
+      model.requests.every((request) => request.headers["x-api-key"] === undefined),
     );
 
     /* ---------------------- 3. the tools it is offered --------------------- */
@@ -434,7 +443,7 @@ export async function runAgentChecks(check) {
         text: "PRIVATE-ONLY-MARKER",
       },
     });
-    const sentSystem = model.requests[model.requests.length - 1].body.system ?? "";
+    const sentSystem = systemText(model.requests[model.requests.length - 1].body);
     check(
       "the ambient place reaches the model",
       sentSystem.includes("1-projects/pricing.md") && sentSystem.includes("unsaved"),
@@ -453,10 +462,26 @@ export async function runAgentChecks(check) {
     const noQuestion = await ask(env, TOKEN_OWNER, { question: "   " });
     check("an empty question is refused", noQuestion.status === 400);
 
+    /*
+      People's own keys were deleted (the owner, 2026-10-10). A request that
+      still names a provider gets the refusal an unconnected one always got,
+      whichever provider it names, and is never quietly answered on ours.
+    */
+    const asked = model.requests.length;
     const noProvider = await ask(env, TOKEN_OWNER, { question: "hi", provider: "ollama" });
+    const namedAnthropic = await ask(env, TOKEN_OWNER, { question: "hi", provider: "anthropic" });
+    const namedOpenAi = await ask(env, TOKEN_OWNER, { question: "hi", provider: "openai" });
     check(
-      "a provider this build cannot spend is refused as an unconnected one",
-      noProvider.status === 409 && noProvider.body?.error === "no_provider",
+      "a request naming any provider is refused as no_provider, and no model is called",
+      [noProvider, namedAnthropic, namedOpenAi].every(
+        (refused) => refused.status === 409 && refused.body?.error === "no_provider",
+      ) && model.requests.length === asked,
+    );
+    check(
+      "...with the same words for every provider, none of them asking for an account",
+      noProvider.body?.error_description === namedAnthropic.body?.error_description &&
+        namedAnthropic.body?.error_description === namedOpenAi.body?.error_description &&
+        !/connect|account|anthropic|openai/i.test(noProvider.body?.error_description ?? "connect"),
     );
 
     model.install([{ status: 500 }]);
@@ -559,7 +584,7 @@ export async function runAgentChecks(check) {
       A length bound, not a trust boundary: the app that builds the place is the
       person's own client. What it buys is that a client bug which puts a whole
       document where a path goes costs one confused answer rather than a bill,
-      on a request the customer pays for by the token.
+      on a request somebody pays for by the token.
     */
     check(
       "an absurdly long place field is dropped rather than sent",

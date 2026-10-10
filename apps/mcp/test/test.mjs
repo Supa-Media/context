@@ -59,7 +59,6 @@ import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
 import { runReferenceRewriteAuditChecks } from "./auditReferenceRewrite.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
-import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
 import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runMeetingSummaryChecks } from "./meetingSummary.test.mjs";
@@ -139,7 +138,6 @@ await suite("runOrientationChecks", () => runOrientationChecks(check));
 // The model account the agent spends, across the control-plane wire. Its own
 // control plane, for the same reason the tenancy suite has one: it swaps
 // globalThis.fetch and restores it.
-await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(check));
 
 // The agent turn, end to end: a question in, tool calls through the same
 // dispatcher a client's go through, an answer out. Its own control plane, S3

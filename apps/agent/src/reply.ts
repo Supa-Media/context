@@ -60,9 +60,9 @@ export const COPY = {
   unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
   unlinkNothing: "This phone isn't connected to any account.",
   noModel:
-    "I can't answer yet because no AI model is connected to your Context. Connect one in Settings, then text me again.",
+    "I can't answer here yet. Texting me comes with Premium: turn it on for your workspace in Context, then text me again.",
   dailyLimit:
-    "That's all the questions I can answer for you today. Text me again tomorrow, or connect your own AI account in Context under Settings for no limit.",
+    "That's all the questions I can answer for you today. Text me again tomorrow.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
 };
 
