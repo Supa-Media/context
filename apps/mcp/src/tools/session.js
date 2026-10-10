@@ -187,15 +187,20 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   const because = reasonFor(session.egress);
-  return toolError(
-    texting
-      ? `Not done yet: this would ${widening.summary}. It needs the person's OK first, because ${because}. ` +
-          "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
-          "Don't call this again in this turn."
-      : `Not done: this would ${widening.summary}. It needs the person's approval first, because ${because}. ` +
-          "They can approve it in the Context app. " +
-          "Once they have, call this tool again with exactly the same arguments and it will run.",
-  );
+  // `held` tells the turn (and so the turn log and the bench) that this call
+  // was not refused but is waiting for the person; it runs when they say yes.
+  return {
+    ...toolError(
+      texting
+        ? `Not done yet: this would ${widening.summary}. It needs the person's OK first, because ${because}. ` +
+            "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
+            "Don't call this again in this turn."
+        : `Not done: this would ${widening.summary}. It needs the person's approval first, because ${because}. ` +
+            "They can approve it in the Context app. " +
+            "Once they have, call this tool again with exactly the same arguments and it will run.",
+    ),
+    held: true,
+  };
 }
 
 let knownTools = null;

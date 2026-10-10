@@ -42,6 +42,8 @@ export const agentTurnTables = {
         // status that caused it. A number, never a provider's words.
         status: v.optional(v.number()),
         retried: v.optional(v.boolean()),
+        // tool: the egress gate held the call for the person's yes; it ran later or not at all.
+        held: v.optional(v.boolean()),
         ok: v.boolean(),
         ms: v.number(),
       }),

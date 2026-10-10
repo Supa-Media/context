@@ -10,6 +10,7 @@ type TraceEntry = {
   model?: string;
   status?: number;
   retried?: boolean;
+  held?: boolean;
   ok: boolean;
   ms: number;
 };
@@ -25,7 +26,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
   const trace: TraceEntry[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { kind, tool, tier, model, status, retried, ok, ms } = entry as Record<string, unknown>;
+    const { kind, tool, tier, model, status, retried, held, ok, ms } = entry as Record<string, unknown>;
     if (kind !== "model" && kind !== "tool" && kind !== "router" && kind !== "fallback") return null;
     if (typeof ok !== "boolean" || typeof ms !== "number") return null;
     if (tool !== undefined && typeof tool !== "string") return null;
@@ -33,6 +34,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
     if (model !== undefined && typeof model !== "string") return null;
     if (status !== undefined && typeof status !== "number") return null;
     if (retried !== undefined && typeof retried !== "boolean") return null;
+    if (held !== undefined && typeof held !== "boolean") return null;
     trace.push({
       kind,
       ok,
@@ -42,6 +44,7 @@ function traceOf(value: unknown): TraceEntry[] | null {
       ...(model === undefined ? {} : { model }),
       ...(status === undefined ? {} : { status }),
       ...(retried === undefined ? {} : { retried }),
+      ...(held === undefined ? {} : { held }),
     });
   }
   return trace;

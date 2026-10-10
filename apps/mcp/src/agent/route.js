@@ -523,7 +523,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
  */
 function wireTraceEntry(entry) {
   const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool };
+  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(entry.held ? { held: true } : {}) };
   if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model };
   if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
   return {

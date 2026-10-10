@@ -115,6 +115,7 @@ describe("the turn log", () => {
       { kind: "model", ok: true, ms: 900, retried: true, status: 529 },
       { kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", ok: true, ms: 2_000, status: 529 },
       { kind: "model", ok: true, ms: 1_200 },
+      { kind: "tool", tool: "write_note", ok: false, ms: 5, held: true },
     ];
     expect((await report(t, accessToken, { trace })).recorded).toBe(true);
     const [row] = await turns(t, workspaceId);
