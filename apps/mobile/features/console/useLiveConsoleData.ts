@@ -25,6 +25,7 @@ import {
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 import { setObservabilityUser } from "../observability/client";
 import { useOrganizer } from "../organizer/useOrganizer";
+import { useChaosScore } from "../chaos/useChaosScore";
 import { useFacesSync } from "./faces/useFacesSync";
 import {
   memberOf,
@@ -394,6 +395,9 @@ export function useLiveConsoleData(): ConsoleData {
   // Auto-organize for this workspace — status, suggestions, and the presses on them.
   const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
 
+  // How organized it is, asked again when the tree changes (`features/chaos`).
+  const chaos = useChaosScore({ workspaceId: membershipContextId, listings: files.listings, onSaved: files.onSaved });
+
   // The free plan's count, from nine tenths of its cap — see `noteLimit.ts`.
   const noteLimit = useNoteLimit(selectedContextId, isOwner);
 
@@ -413,6 +417,7 @@ export function useLiveConsoleData(): ConsoleData {
     activity,
     agents,
     organizer,
+    chaos,
     searchableContexts,
     graph,
     ...accountActionsFor({ leaveWorkspace, deleteAccountMutation, authActions }),

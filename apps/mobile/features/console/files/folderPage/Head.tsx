@@ -25,6 +25,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
+import { FolderChaosChip } from "../../../chaos/FolderChaosChip";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -97,8 +98,11 @@ export function FolderHead({
   actions,
   children,
   large = false,
+  folder,
 }: {
   title: string;
+  /** The folder this page is, for its chaos chip (`features/chaos`); absent draws none. */
+  folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
   /** A phone's page: Home's big title, so a folder reads as a place (board 07). */
@@ -151,6 +155,7 @@ export function FolderHead({
         {switcher}
         {actions}
       </View>
+      {folder === undefined ? null : <FolderChaosChip folder={folder} />}
       {children}
     </>
   );

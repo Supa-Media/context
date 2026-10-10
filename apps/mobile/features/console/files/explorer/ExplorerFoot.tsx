@@ -13,6 +13,8 @@ import { makeStyles } from "./styles";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
 import { changesCount, footCount } from "../../../organizer/rules";
 import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
+import { useChaosView } from "../../../chaos/ChaosContext";
+import { ChaosFootLine } from "../../../chaos/ChaosFootLine";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -51,6 +53,7 @@ export function ExplorerFoot({
   const organizer = useOrganizerView();
   const suggestions = footCount(organizer?.status ?? null);
   const changes = changesCount(organizer?.status ?? null);
+  const chaos = useChaosView();
   return (
     <>
       {/*
@@ -108,6 +111,7 @@ export function ExplorerFoot({
           accessibilityLabel={`${agentsLabel}. Show who`}
           onPress={() => {
             setActivityOpen(null);
+            chaos?.closePanel();
             setAgentsOpen((open) => (open === null ? Date.now() : null));
           }}
           ariaExpanded={agentsOpen !== null}
@@ -144,6 +148,17 @@ export function ExplorerFoot({
         />
       ) : null}
 
+      {/*
+        How organized this workspace is, as one quiet line above the counts
+        (`features/chaos`): there once it has been scored, and its panel opens
+        over the tree like the lines above it.
+      */}
+      <ChaosFootLine
+        onOpening={() => {
+          setActivityOpen(null);
+          setAgentsOpen(null);
+        }}
+      />
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
@@ -151,6 +166,7 @@ export function ExplorerFoot({
           onPress={() => {
             const opening = activityOpen === null;
             setAgentsOpen(null);
+            chaos?.closePanel();
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this
