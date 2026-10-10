@@ -42,12 +42,13 @@ import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPendi
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
- * built-in model answers texts and routines on a Premium workspace, and every
+ * built-in model answers texts and routines where the control plane allows
+ * it, and every
  * other `no_provider` — another client, another plan, the assistant switched
  * off, a deployment with no built-in model, a request naming a provider — is
  * the same sentence, so none of them is told apart from the outside.
  */
-const NO_MODEL_HERE = "The assistant isn't available here. It answers texts on a Premium workspace.";
+const NO_MODEL_HERE = "The assistant isn't available here yet.";
 
 /** The texting assistant's first-party client (`apps/convex/functions/textLinks.ts`). */
 const TEXTS_CLIENT_ID = "context_texts";
