@@ -1,4 +1,4 @@
-import type { MapClock, MapEvent, MapScope, MapView, WorkspaceGraph } from "../types";
+import type { MapClock, MapEvent, MapHub, MapScope, MapView, WorkspaceGraph } from "../types";
 import { buildLayout, createLayoutCache, type Layout, type LayoutCache } from "./layout";
 import type { MapPalette } from "./palette";
 import type { Model } from "./scene";
@@ -23,6 +23,8 @@ export type MapData = {
   clock: MapClock;
   palette: MapPalette;
   selfId: string | null;
+  /** The all-workspaces view's middle; absent, the view has none. */
+  hub?: MapHub | null;
 };
 
 export type LiveMemory = {
@@ -116,6 +118,7 @@ export function buildModel(
     live,
     speed: data.clock.kind === "replay" ? data.clock.speed : 1,
     selfId: data.selfId,
+    hub: data.hub ?? null,
     liveReads,
     idleMs: data.clock.kind === "replay" && data.clock.idleMs !== undefined ? data.clock.idleMs : options.idleMs,
     reducedMotion: options.reducedMotion,

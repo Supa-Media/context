@@ -298,44 +298,42 @@ function buildIsland(
   return island;
 }
 
+/** The clear round space in the middle of "all workspaces", where you stand. */
+export const HUB_R = SPACING * 14;
+
 /**
- * Islands in a grid, read left to right then down, in the order the graphs
- * came (the caller decides: their own workspace first). Each row and column
- * is as wide as its biggest island, so neighbours never touch.
+ * Workspaces in a ring round you, in the order the graphs came (the caller
+ * decides: their own workspace first, top left), each far enough out to
+ * leave the middle clear and never touch its neighbours. One workspace sits
+ * in the middle on its own.
  */
 function placeIslands(islands: IslandPlace[]): void {
   const n = islands.length;
   if (n === 0) return;
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
-  const gap = Math.max(...islands.map((i) => i.r)) * 0.45 + SPACING * 6;
-  const colW = new Array<number>(cols).fill(0);
-  const rowH = new Array<number>(rows).fill(0);
-  islands.forEach((island, i) => {
-    colW[i % cols] = Math.max(colW[i % cols]!, island.r * 2);
-    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)]!, island.r * 2);
-  });
-  const totalW = colW.reduce((a, b) => a + b, 0) + gap * (cols - 1);
-  const totalH = rowH.reduce((a, b) => a + b, 0) + gap * (rows - 1);
-  islands.forEach((island, i) => {
-    const c = i % cols;
-    const r = Math.floor(i / cols);
-    let x = -totalW / 2;
-    for (let k = 0; k < c; k += 1) x += colW[k]! + gap;
-    let y = -totalH / 2;
-    for (let k = 0; k < r; k += 1) y += rowH[k]! + gap;
-    island.x = x + colW[c]! / 2;
-    island.y = y + rowH[r]! / 2;
-  });
-  // A short last row sits centred under the others.
-  const lastRow = rows - 1;
-  const inLast = islands.filter((_, i) => Math.floor(i / cols) === lastRow);
-  if (rows > 1 && inLast.length < cols) {
-    let used = 0;
-    inLast.forEach((_, k) => (used += colW[k]! + (k > 0 ? gap : 0)));
-    const shift = (totalW - used) / 2;
-    inLast.forEach((island) => (island.x += shift));
+  if (n === 1) {
+    islands[0]!.x = 0;
+    islands[0]!.y = 0;
+    return;
   }
+  const gap = SPACING * 8;
+  const step = (Math.PI * 2) / n;
+  // Two face each other across you; more start top left and go round.
+  const start = n === 2 ? Math.PI : (-3 * Math.PI) / 4;
+  // The middle grows with the workspaces, so it still reads as a clearing
+  // (with room for the agents) once the ring is framed whole.
+  const biggest = Math.max(...islands.map((i) => i.r));
+  let R = biggest + Math.max(HUB_R, biggest * 1.1) + gap;
+  for (let i = 0; i < n; i += 1) {
+    const a = islands[i]!.r;
+    const b = islands[(i + 1) % n]!.r;
+    // Neighbours on the ring are 2R·sin(π/n) apart, centre to centre.
+    R = Math.max(R, (a + b + gap) / (2 * Math.sin(Math.PI / n)));
+  }
+  islands.forEach((island, i) => {
+    const ang = start + i * step;
+    island.x = Math.cos(ang) * R;
+    island.y = Math.sin(ang) * R;
+  });
 }
 
 /** The note keys a folder or subfolder holds, for counts and hit tests. */

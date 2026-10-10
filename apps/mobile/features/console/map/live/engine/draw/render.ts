@@ -10,6 +10,7 @@ import { drawGround, drawLinks, drawNotes } from "./base";
 import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
+import { drawHubFaces, drawHubLines } from "./hub";
 import { drawActors, drawReading, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
@@ -62,6 +63,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),
   };
   drawGround(env);
+  const hub = drawHubLines(env);
   drawLinks(env);
   drawNotes(env);
   // Names of containers claim their space first and are drawn over the dots.
@@ -73,6 +75,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   drawReading(env, groups);
   drawContainerLabels(env, labels, env.pills);
   drawFlights(env, captions);
+  drawHubFaces(env, hub);
   drawActors(env, groups, flags);
   if (mini) drawMinimap(env, mini);
   ctx.restore();

@@ -24,6 +24,7 @@ import { DAY_MS, replayIdleMs, replayReducer, rollingWindow, startOfDay, type Re
 import type { MapClock, MapEvent, MapView } from "../types";
 import { useCrossMovesSince, useReplayHistory } from "./useHistory";
 import { useLiveActivity } from "./useLiveActivity";
+import { useMapHub } from "./useMapHub";
 import { useMapGraphs, type MapWorkspace } from "./useMapGraphs";
 
 /** Live, the past 24 hours, the past week, or a custom stretch picked from the history. */
@@ -179,6 +180,7 @@ export function useMapPage(data: ConsoleData) {
   const clock: MapClock = replaying
     ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed, idleMs: replayIdleMs(replay.to - replay.from) }
     : { kind: "live" };
+  const hub = useMapHub(data, scope === "all" && many && remote);
   const palette = useMemo(() => mapPalette(colors, scheme === "dark" ? darkMapColors : lightMapColors), [colors, scheme]);
 
   const mapData: MapData = useMemo(
@@ -191,10 +193,11 @@ export function useMapPage(data: ConsoleData) {
       clock,
       palette,
       selfId,
+      hub,
     }),
     // `clock` is rebuilt from its parts each render; these are what change it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, replay?.range, palette, selfId],
+    [present, actors, events, scope, many, selected?.id, view, replaying, replay?.from, replay?.to, replay?.seek, replay?.speed, replay?.range, palette, selfId, hub],
   );
 
   const book = useMemo(() => nameBook(present), [present]);
