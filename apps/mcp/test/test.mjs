@@ -64,6 +64,7 @@ import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runMeetingSummaryChecks } from "./meetingSummary.test.mjs";
 import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
+import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
@@ -148,6 +149,7 @@ await suite("runAgentBuiltinChecks", () => runAgentBuiltinChecks(check));
 await suite("runMeetingSummaryChecks", () => runMeetingSummaryChecks(check));
 await suite("runAgentGatewayChecks", () => runAgentGatewayChecks(check));
 await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
+await suite("runAgentBrowseChecks", () => runAgentBrowseChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));

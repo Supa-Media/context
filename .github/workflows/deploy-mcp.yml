@@ -237,6 +237,27 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Tex's Browserbase browser (src/browserbase.ts there): optional, both or
+      # neither, and with neither Tex drives Cloudflare's browser. After the
+      # deploy, for the reason the gateway's own secrets step gives.
+      - name: Sync the screenshot Worker's Browserbase secrets
+        if: steps.config.outputs.found == 'true'
+        working-directory: infra/site-shots
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+          BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
+            printf '%s' "$BROWSERBASE_API_KEY" | pnpm exec wrangler secret put BROWSERBASE_API_KEY --env=""
+            printf '%s' "$BROWSERBASE_PROJECT_ID" | pnpm exec wrangler secret put BROWSERBASE_PROJECT_ID --env=""
+            echo "OK — Browserbase is configured for Tex."
+          else
+            echo "OK — no Browserbase key; Tex drives Cloudflare's browser."
+          fi
+
       # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and
       # `deploy-email-worker.yml` fixed for the same reason (#302).
       # `wrangler secret put` acts on whatever version of the script is

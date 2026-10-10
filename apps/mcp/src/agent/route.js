@@ -18,6 +18,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
+import { browserOwner } from "./browserProviders.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
@@ -256,7 +257,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
-  const computer = texting ? computerFor(env) : null;
+  // The person's browser tag lets a later text carry on in the same browser
+  // (`browserProviders.js`); it is made from their id, never from the request.
+  const computer = texting ? computerFor(env, { owner: await browserOwner(env, session.actorUserId) }) : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
   const search = texting ? searcherFor(env) : null;
@@ -447,8 +450,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       router,
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
+      // A browser call can open a page and settle it (`infra/site-shots`
+      // budgets 17 s); the default would cut a slow one short and lose it.
+      toolTimeouts: { browse: 30_000 },
       ...(channel !== null ? { progress: channel, roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
+    // The question's browser, if it opened one, is not left running.
+    if (opened !== null) await afterAnswer(opened.close());
     await afterAnswer(meter(turn.usage, false, turn.model));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
@@ -480,6 +488,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
     const answer = ledger.asked.length === 0 ? turn.answer : `${turn.answer}\n\n${askLine(ledger.asked)}`;
+    /*
+      A browser handed to the person goes out as a link the gateway adds, so
+      the model never holds it; and it stays out of the saved conversation
+      below, because whoever opens it drives a browser the person may be
+      signed in on. It ends itself within minutes either way.
+    */
+    const handoff = opened?.browser?.handoffLink() ?? null;
+    const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
 
     if (conversation !== null && !turn.exhausted) {
       try {
@@ -491,7 +507,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     }
 
     return json({
-      answer,
+      answer: sent,
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
@@ -501,6 +517,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ...(turn.exhausted ? { exhausted: true } : {}),
     });
   } catch (error) {
+    if (opened !== null) await afterAnswer(opened.close());
     await meter(null, true);
     /*
       An ask the person was never told about (the turn failed before its ask

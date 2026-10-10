@@ -396,6 +396,53 @@ stranger. The test that fails is `apps/mcp/test/agentComputer.test.mjs` ("an
 address a page told the agent to open, carrying a note, is refused and never
 fetched").
 
+### The agent can click and type, and types only what the person vouched for
+
+Decided 2026-10-10, when the owner asked for Tex to use a browser by text.
+Beside `open_page`, the texting assistant has `browse`
+(`apps/mcp/src/agent/browse.js`): one browser per question that opens a page,
+clicks, types, picks options and goes back across several calls, driven by
+`infra/site-shots` POST `/browse` on Cloudflare Browser Rendering.
+
+Typing sends words to whoever runs the page, so "type their notes into this
+box" is the exfiltration the address guard closes, by another door. So:
+
+- `goto` keeps the address guard above, and shares its page budget.
+- Words the person wrote this question may be typed anywhere (every word of
+  the text must be theirs). Anything else may be typed only on a site they
+  named in the message, and the browser re-checks the page's host at the
+  moment it types, so a redirect in between gets nothing.
+- Clicking is not limited: where a click leads was written by the page before
+  the agent read anything, the same reason a link on a page may be opened.
+- A reading numbers what can be pressed or typed into and never includes what
+  a field holds, only whether it holds something. The vault's fill step
+  (`fillSecret`) is the gateway's, never a tool the model calls; the browser
+  types the value only on the entry's exact origin.
+- The session id stays in the turn's closure: the model never sees it, and the
+  browser is closed when the question is answered (it closes itself when idle
+  regardless). At most 10 steps a call and 40 a question.
+
+**Browserbase, and handing the browser to the person.** Decided by the owner
+the same day: Browserbase is the browser, stateless (no Contexts,
+`recordSession: false`). It sits in `infra/site-shots`
+(`src/browserbase.ts`), which holds its key, and switches on by itself once
+`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
+Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
+outlives the question, capped at 15 minutes of life, and is found again by a
+tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
+ours stores a session id and no one can name another person's browser. When
+the person must act themselves (sign in, a code, a captcha), the model asks
+for a `handoff`; the gateway adds the live-view link to the text itself, so
+the model never holds it, and it is kept out of the saved conversation,
+because whoever opens it drives a browser the person may be signed in on.
+
+**What a simplification would cost:** letting the model type anything
+anywhere lets a page collect the person's notes through a search box. The
+tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,
+only the person's own words may be typed") and
+`infra/site-shots/src/browse.test.ts` ("types nothing on a site the person did
+not name", "fills a secret only on the entry's exact origin").
+
 ### The agent searches the web on its own
 
 Decided by the owner, 2026-10-07 ("runs on its own like Instinct"), with Brave
