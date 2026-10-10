@@ -31,6 +31,7 @@ type SavingDeps =
     | "collaborationPaths"
     | "dispatch"
     | "editorRef"
+    | "renamingRef"
     | "saveRuns"
     | "saveTimers"
     | "setNotice"
@@ -41,7 +42,7 @@ type SavingDeps =
 export function useSaving(deps: SavingDeps) {
   const {
     announceSaved, autosave, autosaveNowRef, collaborationPaths, dispatch, editorRef, offlineRef,
-    refresh, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote,
+    refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote,
   } = deps;
 
   /**
@@ -254,6 +255,7 @@ export function useSaving(deps: SavingDeps) {
   const save = useCallback(() => {
     const current = editorRef.current;
     if (current.path === null || current.readOnly || collaborationPaths.current.has(current.path)) return;
+    if (renamingRef.current?.path === current.path) return;
     performSave(current.path, current.draft, current.etag);
   }, [performSave]);
 
@@ -282,6 +284,8 @@ export function useSaving(deps: SavingDeps) {
       const current = editorRef.current;
       if (current.path !== path) return;
       if (collaborationPaths.current.has(path)) return;
+      // Its file is moving; the draft follows it there (`renamingRef`).
+      if (renamingRef.current?.path === path) return;
       if (!autosaves(current)) return;
       performSave(path, current.draft, current.etag);
     },
