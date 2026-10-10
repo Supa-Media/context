@@ -10,6 +10,9 @@
  *   goes out as a text of its own, because iMessage draws a link card only for
  *   a message that is nothing but the link.
  * - From a linked phone, the gateway answers with that person's own grant.
+ *
+ * The assistant introduces itself as Tex (the owner, 2026-10-10): Context is
+ * the product and the notes, Tex the assistant people text.
  */
 
 import {
@@ -36,6 +39,11 @@ export type ReplyDeps = {
   controlPlaneOrigin: string;
   workerSecret: string;
   gatewayOrigin: string;
+  /**
+   * Texts the person a progress line while a long task runs (`inbox.ts`).
+   * Absent, the turn is asked for whole, as before.
+   */
+  onProgress?: (text: string) => Promise<void>;
 };
 
 /**
@@ -48,16 +56,18 @@ const UNLINK_COMMAND = /^\s*unlink\s*[.!]?\s*$/i;
 
 export const COPY = {
   linked: (handle: string) =>
-    `You're connected to @${handle}'s Context. Text me anything and I'll answer from your notes. If that isn't your account, text UNLINK.`,
+    `I'm Tex, and you're connected to @${handle}'s Context. Text me anything: questions about your notes, or things to do. If that isn't your account, text UNLINK.`,
   linkRefused:
     "That code didn't work. Codes expire after 10 minutes, so open the link again for a fresh one, or text me anything for a new link.",
   unlinked: (url: string) => [
-    "Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you.",
+    "Hi, I'm Tex, your Context assistant. Tap the link below to connect your account, then text me the code it shows you.",
     url,
   ],
   unlinkedNoLink:
-    "Hi, I'm your Context. Text me again in a little while and I'll send you a link to connect your account.",
+    "Hi, I'm Tex, your Context assistant. Text me again in a little while and I'll send you a link to connect your account.",
   unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
+  /** Sent once when a task has run a while without a word, so silence never reads as broken. */
+  working: "On it. This one takes a few steps, so I'll text you when it's done.",
   unlinkNothing: "This phone isn't connected to any account.",
   noModel:
     "I can't answer here yet. Texting me comes with Premium: turn it on for your workspace in Context, then text me again.",
@@ -115,7 +125,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return invite.status === "issued" ? COPY.unlinked(invite.url) : COPY.unlinkedNoLink;
     }
 
-    const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text);
+    const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text, deps.onProgress);
     if (answer.kind === "answer") return textsFromAnswer(answer.text);
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
