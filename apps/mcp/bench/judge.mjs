@@ -120,8 +120,33 @@ export function estimateJudging(requests, model) {
   return { requests: requests.length, inputTokens, outputTokens, usd: priceOf(model, { input: inputTokens, output: outputTokens }) };
 }
 
+/**
+ * How many times one question is put to the judge before its reply is given
+ * up on. A model asked for JSON answers with prose, a stray character or a
+ * cut-off object now and then (round three stopped twice on "not JSON", the
+ * first Action round once); the same request asked again almost always comes
+ * back whole, and a judging that dies on it throws away the run's money.
+ */
+export const JUDGE_ATTEMPTS = 3;
+
+/** A reply the judge got wrong in a way asking again can fix. */
+class MalformedReply extends Error {}
+
 /** The verdicts for every answer in one request, or an error naming only the question. */
 async function judgeQuestion({ send, body, checks, answers, n }) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= JUDGE_ATTEMPTS; attempt += 1) {
+    try {
+      return await judgeOnce({ send, body, checks, answers, n });
+    } catch (error) {
+      if (!(error instanceof MalformedReply)) throw error;
+      lastError = error;
+    }
+  }
+  throw new Error(`${lastError.message} (${JUDGE_ATTEMPTS} attempts)`);
+}
+
+async function judgeOnce({ send, body, checks, answers, n }) {
   const response = await send(body);
   if (!response.ok) {
     const reply = await response.json().catch(() => ({}));
@@ -134,16 +159,17 @@ async function judgeQuestion({ send, body, checks, answers, n }) {
   try {
     parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
-    throw new Error(`judge reply for question ${n} is not JSON`);
+    const why = reply.stop_reason === "max_tokens" ? "was cut off at max_tokens" : "is not JSON";
+    throw new MalformedReply(`judge reply for question ${n} ${why}`);
   }
   const entries = new Map((Array.isArray(parsed?.answers) ? parsed.answers : []).map((entry) => [entry?.id, entry]));
   const blocks = answers.map((answer) => {
     const entry = entries.get(answer.id);
-    if (!entry) throw new Error(`judge gave no verdicts for answer ${answer.id} (question ${n})`);
+    if (!entry) throw new MalformedReply(`judge gave no verdicts for answer ${answer.id} (question ${n})`);
     if (!Array.isArray(entry.verdicts) || entry.verdicts.length !== checks.length) {
-      throw new Error(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
+      throw new MalformedReply(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
     }
-    if (entry.verdicts.some((v) => typeof v?.pass !== "boolean")) throw new Error(`judge verdict for answer ${answer.id} has no pass: true or false`);
+    if (entry.verdicts.some((v) => typeof v?.pass !== "boolean")) throw new MalformedReply(`judge verdict for answer ${answer.id} has no pass: true or false`);
     // The gate is not the judge's opinion (decided 2026-10-09): it follows from
     // the must-not lines in the score, so a gate failure can always be pointed
     // at. The judge grades lines, which it does well; Haiku's separate yes or
