@@ -88,7 +88,10 @@ describe("the text", () => {
     expect(sent.path).toBe("/2010-04-01/Accounts/AC_test_not_real/Messages.json");
     expect(sent.body.get("To")).toBe(PHONE);
     expect(sent.body.get("MessagingServiceSid")).toBe("MG_test_not_real");
-    expect(sent.body.get("Body")).toMatch(/^\d{6} is your Context code\. It expires in 10 minutes\.\n\n@context\.test #\d{6}$/);
+    // No `@host #code` line: iOS offers a domain-bound code only to that
+    // site or an app associated with it, and the app has no associated
+    // domains, so the line kept the code out of autofill (Dev2, 2026-10-10).
+    expect(sent.body.get("Body")).toMatch(/^\d{6} is your Context code\. It expires in 10 minutes\.$/);
     expect(sent.body.get("Body")).not.toMatch(/togather/i);
     expect(calls.some((call) => call.host === "verify.twilio.com")).toBe(false);
   });
@@ -103,10 +106,10 @@ describe("the text", () => {
     expect(JSON.stringify(rows)).not.toContain(code);
   });
 
-  test("codes are six digits and the autofill line names the app's own host", () => {
+  test("codes are six digits, and the text is the code and nothing iOS would bind to a domain", () => {
     for (let i = 0; i < 200; i++) expect(newCode()).toMatch(/^\d{6}$/);
-    expect(codeText("123456", "https://context.lc")).toBe("123456 is your Context code. It expires in 10 minutes.\n\n@context.lc #123456");
-    expect(codeText("123456", "")).toBe("123456 is your Context code. It expires in 10 minutes.");
+    expect(codeText("123456")).toBe("123456 is your Context code. It expires in 10 minutes.");
+    expect(codeText("123456")).not.toMatch(/[@#]/);
   });
 });
 
