@@ -40,16 +40,17 @@ export async function hashCode(phone: string, code: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** The text: the code first, so a lock screen shows it, then the web's autofill line. */
-export function codeText(code: string, appOrigin: string | undefined = process.env.APP_ORIGIN): string {
-  let host: string | null = null;
-  try {
-    host = appOrigin ? new URL(appOrigin).host : null;
-  } catch {
-    host = null;
-  }
-  const text = `${code} is your Context code. It expires in 10 minutes.`;
-  return host ? `${text}\n\n@${host} #${code}` : text;
+/**
+ * The text: the code first, so a lock screen shows it, and nothing after it.
+ *
+ * No WebOTP `@host #code` line. iOS treats a text carrying one as a
+ * domain-bound code and offers it only on that site or in an app associated
+ * with it; the app has no associated domains, so the line kept the code out of
+ * autofill everywhere it is typed (Dev2, 2026-10-10). A plain code is offered
+ * in any one-time-code field.
+ */
+export function codeText(code: string): string {
+  return `${code} is your Context code. It expires in 10 minutes.`;
 }
 
 /** Whether a code can be texted at all, by either route. */
