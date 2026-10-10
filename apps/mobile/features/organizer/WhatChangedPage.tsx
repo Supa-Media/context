@@ -27,7 +27,7 @@ import type { OrganizerView } from "./useOrganizer";
  * In a personal workspace, notes for the owner's teams follow as one list to
  * tick and add (board 9); Edit the note opens a note as the team would read
  * it, in place of the page.
-
+ *
  * It once had a second tab, "Tidy up", for suggestions about notes the owner
  * already had; the owner took it out (2026-10-10), so this is one list with
  * nothing to switch.

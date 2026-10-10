@@ -17,7 +17,7 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 export const includedLine = {
   title: "Auto-organize",
   tag: "Included",
-  body: "Context reads your notes and suggests what to file, mark done and archive. It starts when Premium does, and you can turn it off anytime.",
+  body: "Context reads what lands in your inbox and works it into your notes. Each change shows in What changed with an Undo, and you can turn it off anytime.",
 };
 
 export const sweepCopy = {
@@ -45,11 +45,11 @@ export const undoFailed = "That could not be undone just now.";
 
 export const settingsCopy = {
   title: "Auto-organize",
-  body: "Suggests what to file, mark done and archive in this workspace. Nothing moves until you say so.",
+  body: "Works what lands in your inbox into this workspace’s notes. Each change shows in What changed with an Undo.",
   withoutAsking: "Without asking",
   withoutAskingHint: "Things you’ve told Context to just do. Each one shows in Activity with an Undo.",
   offNote:
-    "Turning it off stops it right away and clears waiting suggestions. What you accepted or dismissed stays in your storage with your notes.",
+    "Turning it off stops it right away. What it already changed stays in your notes, and Activity keeps an Undo for each.",
   memberNote: "Only the owner can turn auto-organize on or off.",
   on: "On",
   off: "Off",
@@ -94,7 +94,7 @@ export const KIND_LABELS: Record<OrganizerKind, string> = {
 };
 
 export const existingCopy = {
-  body: "Premium now includes auto-organize. From tomorrow, Context reads your notes and suggests what to file and mark done. Nothing moves without you.",
+  body: "Premium now includes auto-organize. From tomorrow, Context works what lands in your inbox into your notes, and shows each change in What changed with an Undo.",
   off: "Turn off",
   ok: "Got it",
 };

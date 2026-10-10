@@ -283,7 +283,7 @@ function Premium({ view, returned }: { view: OrganizerView; returned: "done" | n
 describe("Settings › Premium", () => {
   test("the disclosure sits in what Premium includes, before the upgrade too", () => {
     const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, available: false } }), returned: null }));
-    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads your notes");
+    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads what lands in your inbox");
     // No switches before there is anything to switch.
     expect(byId(container, "organizer-settings")).toBeNull();
   });
