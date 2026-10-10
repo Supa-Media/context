@@ -294,6 +294,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           addresses: vouched,
           // A browser handed to the person is texted the moment it exists.
           say: channel !== null ? (text) => channel.say(text) : null,
+          // The vault this turn's grant opens, for `fill_login`.
+          store,
         });
   // A page or a search result is text from outside the workspace: once one
   // is read, every widening in this turn asks (`privacy/egress.js`).
@@ -454,7 +456,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       maxRounds: production?.maxSteps ?? undefined,
       // A browser call can open a page and settle it (`infra/site-shots`
       // budgets 17 s); the default would cut a slow one short and lose it.
-      toolTimeouts: { browse: 30_000 },
+      toolTimeouts: { browse: 30_000, fill_login: 30_000 },
       ...(channel !== null ? { progress: channel, roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser, if it opened one, is not left running.

@@ -24,8 +24,9 @@
  * opened. What remains is the choice *between* things to click, which the
  * guard on `open_page` already accepts.
  *
- * The vault fills passwords through `fillSecret`, never through a tool the
- * model calls: the value goes from the gateway to the browser, which checks
+ * The vault fills passwords through `fillSecret`, never through a step the
+ * model writes (`fill_login`, in `fillLogin.js`, names an entry and the boxes
+ * and never holds a value): the value goes from the gateway to the browser, which checks
  * the page's exact origin first, and a reading never shows what a field holds.
  *
  * The browser lives for one question. Its session id stays in this closure:
@@ -247,15 +248,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
     currentOrigin: () => origin,
 
     /**
-     * Type a secret into one field, for the vault. `origin` is the entry's
-     * own; the browser refuses unless the page is exactly there. The value is
+     * Type a secret into one field, for the vault (`fillLogin.js`). The
+     * browser refuses unless the page is exactly at `origin` and the field is
+     * the `field` ("username" or "password") kind of box. The value is
      * never returned, and the result names no more than whether it worked.
      */
-    async fillSecret({ ref, value, origin: entryOrigin }) {
+    async fillSecret({ ref, value, origin: entryOrigin, field }) {
       if (session === null) return { ok: false, reason: "no browser open" };
       let result;
       try {
-        result = await computer.browse(session, [{ do: "fill", ref, value, origin: entryOrigin }]);
+        result = await computer.browse(session, [{ do: "fill", ref, value, origin: entryOrigin, field }]);
       } catch {
         return { ok: false, reason: "the browser could not do that" };
       }

@@ -13,6 +13,7 @@ function fakePage(start = "https://shop.example.com/") {
     clicks: [] as number[],
     navigate: {} as Record<number, string>,
     refs: new Set([1, 2, 3, 4]),
+    types: { 1: "text", 2: "password" } as Record<number, string>,
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -36,6 +37,11 @@ function fakePage(start = "https://shop.example.com/") {
       if (source.includes("location.hostname")) return { href: state.href, host: url().hostname, origin: url().origin } as T;
       const exists = source.match(/^!!document\.querySelector\('\[data-tex-ref="(\d+)"\]'\)$/);
       if (exists) return state.refs.has(Number(exists[1])) as T;
+      const kind = source.match(/data-tex-ref="(\d+)"[\s\S]*getAttribute\("type"\)[\s\S]*return (.*);/);
+      if (kind) {
+        const type = state.types[Number(kind[1])] ?? "";
+        return (kind[2].includes('"password"') && !kind[2].includes("includes") ? type === "password" : ["text", "email", "tel"].includes(type)) as T;
+      }
       const cleared = source.match(/data-tex-ref="(\d+)"[\s\S]*dispatchEvent\(new Event\("input"/);
       if (cleared) state.typed[Number(cleared[1])] = "";
       return undefined as T;
@@ -92,7 +98,7 @@ describe("runSteps", () => {
     const { page, state } = fakePage();
     const result = await runSteps(page, [
       { do: "type", ref: 1, text: "wool socks", enter: false, onlyOn: null },
-      { do: "fill", ref: 2, value: "hunter2-secret", origin: "https://shop.example.com" },
+      { do: "fill", ref: 2, value: "hunter2-secret", origin: "https://shop.example.com", field: "password" },
       { do: "click", ref: 3 },
     ]);
     expect(result.ran.every((r) => r.ok)).toBe(true);
@@ -117,9 +123,24 @@ describe("runSteps", () => {
 
   it("fills a secret only on the entry's exact origin", async () => {
     const { page, state } = fakePage("https://login.shop.example.com/");
-    const result = await runSteps(page, [{ do: "fill", ref: 2, value: "hunter2-secret", origin: "https://shop.example.com" }]);
+    const result = await runSteps(page, [{ do: "fill", ref: 2, value: "hunter2-secret", origin: "https://shop.example.com", field: "password" }]);
     expect(result.ran).toEqual([{ do: "fill", ok: false, reason: "origin mismatch" }]);
     expect(state.typed).toEqual({});
+  });
+
+  it("puts a password only in a password box, never a search box that would print it", async () => {
+    const { page, state } = fakePage();
+    const wrongBox = await runSteps(page, [{ do: "fill", ref: 1, value: "hunter2-secret", origin: "https://shop.example.com", field: "password" }]);
+    expect(wrongBox.ran).toEqual([{ do: "fill", ok: false, reason: "that is not a password box" }]);
+    const userInPassword = await runSteps(page, [{ do: "fill", ref: 2, value: "ada@example.com", origin: "https://shop.example.com", field: "username" }]);
+    expect(userInPassword.ran).toEqual([{ do: "fill", ok: false, reason: "that is not a username box" }]);
+    expect(state.typed).toEqual({});
+    const user = await runSteps(page, [{ do: "fill", ref: 1, value: "ada@example.com", origin: "https://shop.example.com", field: "username" }]);
+    expect(user.ran[0]).toEqual({ do: "fill", ok: true });
+  });
+
+  it("refuses a fill that does not say which box it is for", () => {
+    expect(parseBrowseRequest({ steps: [{ do: "fill", ref: 2, value: "x", origin: "https://shop.example.com" }] })).toBeNull();
   });
 
   it("stops when a click lands somewhere new, because the later numbers were the old page's", async () => {

@@ -11,8 +11,11 @@
  * - A `type` step may carry `onlyOn`, the sites the person named. The page's
  *   host is checked against it right before the keys go in, in the same
  *   connection, so a page that redirected in between gets nothing.
- * - A `fill` step (the vault's, never the model's) carries one exact origin
- *   and a value. Its value is never returned, logged or shown in a reading.
+ * - A `fill` step (the vault's, never the model's) carries one exact origin,
+ *   a value and the kind of field it is for. A password goes only into a
+ *   password box, which no page echoes back as text, and a username only into
+ *   a text, email or phone box. Its value is never returned, logged or shown
+ *   in a reading.
  *
  * A reading numbers the things on the page a person could press or type into
  * (`data-tex-ref`), and never includes what is typed in a field: only whether
@@ -47,7 +50,7 @@ export type Step =
   | { do: "goto"; url: string }
   | { do: "click"; ref: number }
   | { do: "type"; ref: number; text: string; enter: boolean; onlyOn: string[] | null }
-  | { do: "fill"; ref: number; value: string; origin: string }
+  | { do: "fill"; ref: number; value: string; origin: string; field: "username" | "password" }
   | { do: "select"; ref: number; option: string }
   | { do: "press"; key: "Enter" | "Tab" | "Escape" }
   | { do: "back" }
@@ -139,7 +142,8 @@ function parseStep(item: unknown): Step | null {
     case "fill": {
       if (ref === null || typeof s.value !== "string" || s.value.length === 0 || s.value.length > 2_000) return null;
       const origin = publicHttpsUrl(s.origin);
-      return origin === null ? null : { do: "fill", ref, value: s.value, origin: new URL(origin).origin };
+      if (s.field !== "username" && s.field !== "password") return null;
+      return origin === null ? null : { do: "fill", ref, value: s.value, origin: new URL(origin).origin, field: s.field };
     }
     case "select":
       return ref === null || typeof s.option !== "string" || s.option.length > 200 ? null : { do: "select", ref, option: s.option };
@@ -233,6 +237,20 @@ async function settle(page: BrowsePage): Promise<void> {
 
 async function exists(page: BrowsePage, ref: number): Promise<boolean> {
   return await page.evaluate<boolean>(`!!document.querySelector('${selector(ref)}')`);
+}
+
+/**
+ * Is the element a box for this part of a login? A password only goes where
+ * the page shows dots, so a search box that prints what is typed into it,
+ * where a reading would show it, never receives one.
+ */
+async function fieldIs(page: BrowsePage, ref: number, field: "username" | "password"): Promise<boolean> {
+  return await page.evaluate<boolean>(`(() => {
+    const el = document.querySelector('${selector(ref)}');
+    if (!el || el.tagName !== "INPUT") return false;
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    return ${field === "password" ? `type === "password"` : `["text", "email", "tel"].includes(type)`};
+  })()`);
 }
 
 /** Empty a field the way a person selecting all and deleting would. */
@@ -375,6 +393,7 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
     case "fill": {
       if (!(await exists(page, step.ref))) return missing;
       if ((await where(page)).origin !== step.origin) return { do: "fill", ok: false, reason: "origin mismatch" };
+      if (!(await fieldIs(page, step.ref, step.field))) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
       await clear(page, step.ref);
       await page.type(selector(step.ref), step.value);
       return ok;
