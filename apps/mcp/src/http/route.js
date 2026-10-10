@@ -214,6 +214,11 @@ export async function route(request, env, ctx) {
           : unauthorizedResponse(origin, slug, error);
       }
 
+      // The owner switched the approval gate off for now (2026-10-10, until
+      // orient leans less on the personal context and asks smarter). Unset
+      // keeps it on, so a self-hosted gateway is held as before.
+      if (env.EGRESS_APPROVALS === "off") session.egressOff = true;
+
       // A meeting write is a write, and it is checked here — before a store
       // exists and before any lookup — so the refusal is decided without
       // reading anything and therefore discloses nothing about what this

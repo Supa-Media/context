@@ -110,7 +110,9 @@ breaking one, stop and say so rather than working around it.
    — a link, a publish, a visibility change, a move into a wider folder or
    another workspace, an image fetched from an address the model chose — waits
    for the person's yes, checked by the gateway and never by the model
-   (decided by the owner, 2026-10-09;
+   (decided by the owner, 2026-10-09; switched off on our deployment by the
+   owner on 2026-10-10 with `EGRESS_APPROVALS = "off"` until orient asks
+   smarter, see
    [agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture

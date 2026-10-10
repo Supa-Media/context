@@ -120,7 +120,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
       };
     },
   });
-  if (!approvalRequired(session.egress, widening, target.workspaceId)) {
+  if (session.egressOff === true || !approvalRequired(session.egress, widening, target.workspaceId)) {
     /*
       A widening the gate lets through carries the person's yes into the
       tool. `confirm_team_publish` was the tools' own earlier answer to "did

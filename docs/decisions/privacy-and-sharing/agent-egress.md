@@ -4,6 +4,18 @@ _See `docs/decisions/README.md` for the index._
 
 ### An AI client never widens who can see something without a person saying yes (decided by the owner, 2026-10-09)
 
+**Switched off on our deployment for now (decided by the owner, 2026-10-10).**
+"It's causing more friction than we need right now, and needs to be properly
+configured. I will enable it later when we make orient less reliant on
+personal contexts and smarter based on the task." Most holds were ordinary
+writes from a personal connection into a shared workspace, which nobody had
+to approve before. The gate is kept whole and switched by
+`EGRESS_APPROVALS = "off"` in `apps/mcp/wrangler.toml` (production and
+staging); unset, as on a self-hosted gateway, it holds exactly as below.
+Turning it back on is deleting those two lines. The check
+`with the gate switched off, a write into another workspace runs at once`
+and `unset, the gate holds it again` in `agentEgress.test.mjs` pin both.
+
 The owner's ask, verbatim in spirit: be able to say "that's just never going
 to happen" about private content leaving through an AI client, and know what
 it costs in productivity. Prompted by Wajo's Fo trust pitch and Archestra's
