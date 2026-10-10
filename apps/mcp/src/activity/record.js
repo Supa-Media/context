@@ -23,6 +23,7 @@ import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
 import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { rememberChaos } from "../chaos/report.js";
 import { keepHistoryActivityLater } from "../history/record.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
@@ -134,8 +135,11 @@ function announceTreeChange(store, action, paths, details) {
   const touch = treeTouchOf(action, paths, details);
   const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
   if (touch === null && !reports) return;
+  // Started now, so the tool's answer can report the chaos score (`chaos/report.js`).
+  const kept = keepTreeTable(store, touch).catch(() => null);
+  rememberChaos(store, kept);
   const work = (async () => {
-    await keepTreeTable(store, touch);
+    await kept;
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);

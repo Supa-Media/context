@@ -135,11 +135,14 @@ test("an AI client's create, edit and move reach the tree table", async () => {
 test("a body save is recorded without listing the bucket", () => {
   assert.equal(treeTouchOf("update_note", ["a.md"], {}), null);
   assert.deepEqual(treeTouchOf("update_note", ["a.md"], { front_matter_changed: true }), { paths: ["a.md"] });
-  assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], {}), { paths: ["a.md", "b/a.md"] });
+  // A move also pairs old and new, so the chaos score carries what it knew of the note (`chaos/table.js`).
+  assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], {}), { paths: ["a.md", "b/a.md"], moves: [["a.md", "b/a.md"]] });
   assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], { source_visibility: "private" }), {
     paths: ["a.md", "b/a.md"],
     left: [{ path: "a.md", audiences: ["private"] }],
+    moves: [["a.md", "b/a.md"]],
   });
+  assert.equal(treeTouchOf("move_notes", ["a.md", "b/a.md", "c.md"], { partial: true }).moves, undefined);
   assert.deepEqual(treeTouchOf("archive_note", ["a.md", "4-archive/a.md"], { source_visibility: "team" }).left, [
     { path: "a.md", audiences: ["private", "team"] },
   ]);

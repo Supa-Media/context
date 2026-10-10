@@ -23,6 +23,7 @@ import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
+import type * as functions_chaosScore from "../functions/chaosScore.js";
 import type * as functions_chatProduct from "../functions/chatProduct.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
 import type * as functions_collect from "../functions/collect.js";
@@ -166,6 +167,7 @@ declare const fullApi: ApiFromModules<{
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;
   "functions/cardRender": typeof functions_cardRender;
+  "functions/chaosScore": typeof functions_chaosScore;
   "functions/chatProduct": typeof functions_chatProduct;
   "functions/collect": typeof functions_collect;
   "functions/cloudflare": typeof functions_cloudflare;

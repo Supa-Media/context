@@ -32,6 +32,7 @@ import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
 import { toolError, toolText } from "../tools/results.js";
+import { chaosSection } from "../chaos/orient.js";
 
 async function surveyOtherContexts(store) {
   const others = (store.contexts || []).filter((entry) => !entry.current);
@@ -102,7 +103,7 @@ async function surveyOtherContexts(store) {
 }
 
 export async function toolOrient(store, scope, rules, overrides) {
-  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes, globalNote] =
+  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes, globalNote, chaos] =
     await Promise.all([
       readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
       readSaveProcedure(store, scope, rules, overrides),
@@ -120,6 +121,7 @@ export async function toolOrient(store, scope, rules, overrides) {
         openPinned: store.openPinnedContext,
         here: { store, scope, rules, overrides },
       }),
+      chaosSection(store, scope, rules, overrides).catch(() => null),
     ]);
 
   const total = `${survey.total}${survey.truncated ? "+" : ""}`;
@@ -189,6 +191,8 @@ export async function toolOrient(store, scope, rules, overrides) {
       "is not written down — a topic that is missing from this map is usually filed under a " +
       "name you did not guess."
   );
+
+  if (chaos) parts.push(chaos);
 
   if (reducedRecallNotes.length) {
     // Named, then counted — a shed mailbox sheds by the day, so this list is
