@@ -464,6 +464,9 @@ test("router tells Clef that a date worked out from another, an order and a tota
   assert.match(question?.instructions ?? "", /more than one of their notebooks/);
   assert.match(question?.criteria?.think ?? "", /deadline or how long is left/);
   assert.match(question?.criteria?.lookup ?? "", /not a date that has to be worked out/);
+  assert.match(question?.instructions ?? "", /catch-up on where something stands/, "a status question is a judgement of what matters");
+  assert.match(question?.instructions ?? "", /several items together/, "so is a list pulled from several notes");
+  assert.match(question?.criteria?.think ?? "", /catch the person up|gather several items/);
 });
 
 test("router tells Clef that making an event requires checking commitments", async () => {
