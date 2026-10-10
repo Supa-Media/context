@@ -97,6 +97,43 @@ either palette`, which names all eight by value; `muted clears AA on every dark
 surface, the old exception retired`; and the contrast and hierarchy suites that
 hold every text token to AA on every ground it is drawn on.
 
+### Dark mode is Things, and light mode stays Paper (2026-10-10)
+
+The owner asked for the dark palette to be the dark half of **Things**, the
+Obsidian theme by Colin Eckert
+([colineckert/obsidian-things](https://github.com/colineckert/obsidian-things),
+MIT, built on Stephan Ango's Minimal), and for light mode to stay exactly as it
+was. Graphite is retired; Paper is not touched.
+
+It arrived through the tokens, not through the screens. `darkColors`,
+`darkGraphColors` and `darkMapColors` in `features/design/tokens/colors.ts`
+took Things' values and no component changed: slate grounds (`#181C20` chrome,
+`#1C2127` page, `#282C34` raised), its text ramp (`#DADADA`, `#BEC6CF`,
+`#92A0AF`), its cornflower accent `hsl(215 75% 70%)` (`#79A9EC`), and its
+green, amber, red and purple for `ok`, `warn`, `crit` and `shared`. The web
+shell's dark ground in `public/index.html` moved with `ground`, so the first
+paint is the same colour the app mounts on.
+
+Two things deliberately did **not** move:
+
+- **The hue budget.** Each hue still has exactly one job; only its dark value
+  changed. So Things' coloured headings and pink bold were not carried over:
+  yellow and red headings would be spending `warn` and `crit` on decoration,
+  which is what the section above forbids.
+- **The `app*` tokens.** They are the landing page's picture of the app,
+  identical in both palettes because the landing page draws them on paper too.
+  Moving them would change light mode, which the owner ruled out.
+
+The accent's job is shared between the palettes and its colour is not —
+petrol on paper, Things blue in the dark. That is a change from "two palettes,
+one hue family" and it was the owner's call, not drift.
+
+*What a "simplification" costs:* re-deriving the dark palette from the light
+one (or the other way round) undoes the owner's choice in whichever half moved.
+*The tests that fail if it is reversed:* `theme.test.ts`'s dark contrast,
+hierarchy and frame-surface suites hold the new values to AA and to "the page
+is lighter than its chrome".
+
 ### Nine sizes, two densities, and no literal font size anywhere
 
 `tokens.ts` tokenised colour, radii, spacing and shadows and did not tokenise

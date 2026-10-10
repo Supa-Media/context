@@ -285,7 +285,7 @@ async function shoot(frame: (typeof FRAMES)[number], density: Density, scheme: S
       document.body.innerHTML,
       `${StyleSheet.getSheet().textContent}\n${injected}`,
       size,
-      scheme === "dark" ? "#100F0E" : "#FFFDF9",
+      scheme === "dark" ? "#14181C" : "#FFFDF9",
       frame.scroll === true,
     ),
     "utf8",

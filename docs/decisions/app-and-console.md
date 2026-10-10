@@ -34,6 +34,10 @@ Moved to [The web shell is `public/index.html`, because `+html.tsx` is a static-
 
 Moved to [Hue is meaning in this product, so the palette rations it](./app-and-console/design-tokens-and-interaction.md#hue-is-meaning-in-this-product-so-the-palette-rations-it).
 
+### Dark mode is Things, and light mode stays Paper (2026-10-10)
+
+Moved to [Dark mode is Things, and light mode stays Paper (2026-10-10)](./app-and-console/design-tokens-and-interaction.md#dark-mode-is-things-and-light-mode-stays-paper-2026-10-10).
+
 ### Nine sizes, two densities, and no literal font size anywhere
 
 Moved to [Nine sizes, two densities, and no literal font size anywhere](./app-and-console/design-tokens-and-interaction.md#nine-sizes-two-densities-and-no-literal-font-size-anywhere).

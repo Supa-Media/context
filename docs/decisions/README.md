@@ -319,6 +319,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - There are two palettes, and a screen may not hold either one
 - The web shell is `public/index.html`, because `+html.tsx` is a static-rendering file
 - Hue is meaning in this product, so the palette rations it
+- Dark mode is Things, and light mode stays Paper (2026-10-10)
 - Nine sizes, two densities, and no literal font size anywhere
 - One interface face, and `display` kept as a role with no face of its own
 - A long press has two signals, because the platform is watching the finger too

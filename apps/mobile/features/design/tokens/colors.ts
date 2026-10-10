@@ -29,6 +29,20 @@
  * at all, which is why the neutral ramp has to do real work and has four steps
  * in each palette rather than two near-identical ones.
  *
+ * ## Things, in the dark (decided by the owner, 2026-10-10)
+ *
+ * The dark palette is no longer Graphite. It is the dark half of **Things**,
+ * the Obsidian theme by Colin Eckert (github.com/colineckert/obsidian-things,
+ * MIT, itself built on Stephan Ango's Minimal), carried through these tokens
+ * rather than restyled screen by screen: slate blue-grey grounds (`#181C20`
+ * for chrome, `#1C2127` for the page, `#282C34` for the raised tint), Things'
+ * text ramp (`#DADADA` ink, `#BEC6CF` second voice, `#92A0AF` labels), its
+ * cornflower accent `hsl(215 75% 70%)`, and its green, amber, red and purple
+ * for the four status jobs below. Light mode is untouched — Paper stays Paper —
+ * so the two palettes now differ in hue as well as in value, and the accent's
+ * *job* is what they share, not its colour: petrol on paper, Things blue in
+ * the dark. The hue budget below is unchanged; only the dark values moved.
+ *
  * Both palettes are a **design**, not an inversion of one another — see
  * `lightColors` for where they deliberately diverge and why. Every colour is
  * painted explicitly so nothing borrows a host background.
@@ -40,9 +54,10 @@
  * that closes over one is a screen that can never change appearance, and that
  * is exactly the bug this file used to guarantee.
  */
+/** Things' dark palette, mapped onto Context's tokens. See the header. */
 export const darkColors = {
-  ground: "#100F0E",
-  surface: "#191715",
+  ground: "#14181C",
+  surface: "#181C20",
   /**
    * `surface` at zero alpha, for the one thing that needs to fade *to* it.
    *
@@ -54,9 +69,9 @@ export const darkColors = {
    * file and adding some for one token is a worse trade than two literals a
    * test can compare.
    */
-  surfaceClear: "rgba(25,23,21,0)",
-  surface2: "#201E1B",
-  surface3: "#2B2825",
+  surfaceClear: "rgba(24,28,32,0)",
+  surface2: "#1C2127",
+  surface3: "#282C34",
 
   /**
    * The resting fill of a small control sitting on chrome.
@@ -68,7 +83,7 @@ export const darkColors = {
    * so it works on both `chromeSurface` and `pageSurface` without either
    * having to know what is drawn on it.
    */
-  chipFill: "rgba(237,232,224,0.05)",
+  chipFill: "rgba(205,214,224,0.05)",
 
   /**
    * Chrome's grey, which is one step quieter than a label's.
@@ -78,10 +93,10 @@ export const darkColors = {
    * eyebrow, a status segment, the ✕ on a tab. The canvas uses two greys and
    * collapsing them to one is what made the earlier chrome read as loud.
    */
-  chromeMuted: "#8D857B",
+  chromeMuted: "#7F8A97",
 
   /** A selected row in the file tree, under its accent bar. */
-  rowSelected: "#2B2825",
+  rowSelected: "#2C313C",
 
   /**
    * THE APPLICATION, AS DEPICTED INSIDE A PAGE THAT IS NOT IT.
@@ -142,51 +157,51 @@ export const darkColors = {
    * this is keyed by *visibility*, and a shared import would tie two meanings
    * together that are free to move apart.
    */
-  markTeam: "#B9A3F2",
+  markTeam: "#A882FF",
 
   /** Hairline separators. RN has no `currentColor`, so these are literal rgba. */
-  line: "rgba(237,232,224,0.07)",
-  lineStrong: "rgba(237,232,224,0.14)",
+  line: "rgba(205,214,224,0.09)",
+  lineStrong: "rgba(205,214,224,0.16)",
 
-  text: "#EDE8E0",
-  text2: "#C3BCB2",
-  muted: "#A79F95",
+  text: "#DADADA",
+  text2: "#BEC6CF",
+  muted: "#92A0AF",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#7A736A",
+  heroDim: "#6A7584",
 
-  accent: "#6BC8C1",
-  accentDim: "rgba(107,200,193,0.13)",
-  accentText: "#A9DEDA",
+  accent: "#79A9EC",
+  accentDim: "rgba(121,169,236,0.14)",
+  accentText: "#AFCBF4",
 
-  ok: "#82C98E",
-  okText: "#A6DBAE",
-  okWash: "rgba(130,201,142,0.10)",
-  okBorder: "rgba(130,201,142,0.22)",
+  ok: "#44CF6E",
+  okText: "#86DFA1",
+  okWash: "rgba(68,207,110,0.10)",
+  okBorder: "rgba(68,207,110,0.24)",
 
-  warn: "#DFAC52",
-  warnText: "#E9C47E",
-  warnWash: "rgba(223,172,82,0.10)",
-  warnBorder: "rgba(223,172,82,0.22)",
+  warn: "#E5B567",
+  warnText: "#EDCB8F",
+  warnWash: "rgba(229,181,103,0.10)",
+  warnBorder: "rgba(229,181,103,0.24)",
   /**
    * Words somebody commented on (\`files/comments/\`): the warn hue as a
    * highlighter, the convention every document editor uses, and a stronger
    * wash for the thread that is open. Deeper than \`warnWash\` because it sits
    * under running text and has to read as a mark, not as a tint.
    */
-  commentWash: "rgba(223,172,82,0.20)",
-  commentWashActive: "rgba(223,172,82,0.40)",
+  commentWash: "rgba(229,181,103,0.20)",
+  commentWashActive: "rgba(229,181,103,0.40)",
   /**
    * `==highlighted==` words in a note: a lemon marker pen. Deliberately not
    * the amber of \`commentWash\` — a highlight is the author's own emphasis
    * and a comment is somebody's thread, and one has to be told from the other
    * at a glance (the comment also carries an underline, this does not).
    */
-  markWash: "rgba(255,226,64,0.26)",
+  markWash: "rgba(255,208,0,0.28)",
 
-  crit: "#F08C7C",
-  critText: "#F5B0A4",
-  critBorder: "rgba(240,140,124,0.24)",
-  critWash: "rgba(240,140,124,0.09)",
+  crit: "#FB464C",
+  critText: "#F98A82",
+  critBorder: "rgba(251,70,76,0.28)",
+  critWash: "rgba(251,70,76,0.10)",
 
   /**
    * Iris — "somebody else's access" — `graphColors.shared`'s family, as a
@@ -199,8 +214,8 @@ export const darkColors = {
    * invisible on the other, and a colour with no token is a colour no palette
    * can answer for.
    */
-  sharedWash: "rgba(185,163,242,0.13)",
-  sharedText: "#CEBCF7",
+  sharedWash: "rgba(168,130,255,0.14)",
+  sharedText: "#C9B3FF",
   /**
    * The edge of that wash, for the one place the wash alone cannot carry it:
    * the pinned context's pill on the phone strip, which takes the lit pill's
@@ -210,7 +225,7 @@ export const darkColors = {
    * Same alpha relationship the `ok`/`warn`/`crit` families use between their
    * own wash and border, so it sits in the palette rather than beside it.
    */
-  sharedBorder: "rgba(185,163,242,0.30)",
+  sharedBorder: "rgba(168,130,255,0.32)",
 
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
   /**
@@ -229,32 +244,32 @@ export const darkColors = {
    * paper is lighter than the desk. Naming the roles rather than the tints is
    * what lets one assignment be right in both themes.
    */
-  chromeSurface: "#191715",
-  pageSurface: "#201E1B",
+  chromeSurface: "#181C20",
+  pageSurface: "#1C2127",
   /**
    * The desk a cast's chat scene sets its two apps on: the chat app and
    * Context, each its own window, so neither reads as a panel of the other.
    */
-  castDesk: "#0C0B0A",
+  castDesk: "#0F1215",
   /** Behind the apps while a cast on a phone switches between them, like an iPhone's app switcher. */
-  castSwitcher: "#1F1D1B",
+  castSwitcher: "#1F242B",
 
-  ink: "#100F0E",
-  white: "#EDE8E0",
+  ink: "#14181C",
+  white: "#DADADA",
 
   /** The near-black used for insets: code blocks, the map field, field values. */
-  well: "#0A0908",
+  well: "#171B20",
 
   /** Warm accent for the first floating tile's mark. */
-  warm: "#DFAC52",
+  warm: "#E5B567",
 
-  hintWash: "rgba(107,200,193,0.06)",
-  hintBorder: "rgba(107,200,193,0.16)",
-  hintText: "#A9DEDA",
-  hintStrong: "#CCEBE8",
+  hintWash: "rgba(121,169,236,0.07)",
+  hintBorder: "rgba(121,169,236,0.18)",
+  hintText: "#AFCBF4",
+  hintStrong: "#CFDFF8",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#8FD3CE",
+  codeKey: "#79A9EC",
 
   /* ------------------------------------------------------------------ *
    * Floating chrome.
@@ -267,8 +282,8 @@ export const darkColors = {
    * its own ground to carry an edge on its own; these two are a step further
    * out, and the shadow underneath does the rest.
    * ------------------------------------------------------------------ */
-  chrome: "#262421",
-  chromePressed: "#322E2A",
+  chrome: "#262B33",
+  chromePressed: "#323843",
 
   /**
    * The wash over the editor while a panel is out.
@@ -281,7 +296,7 @@ export const darkColors = {
    * white sheet, which is a modal dialog's weight for a file tree you flick in
    * and out of a dozen times an hour. Obsidian barely tints it.
    */
-  scrim: "rgba(10,9,8,0.60)",
+  scrim: "rgba(10,12,15,0.60)",
 
   /**
    * The avatar for somebody with no name yet — a homepage visitor. A flat,
@@ -497,11 +512,11 @@ export const lightColors: Colors = {
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
 export const darkGraphColors = {
-  own: "#6BC8C1",
-  team: "#A79F95",
-  shared: "#B9A3F2",
-  client: "#82C98E",
-  you: "#EDE8E0",
+  own: "#79A9EC",
+  team: "#92A0AF",
+  shared: "#A882FF",
+  client: "#44CF6E",
+  you: "#DADADA",
 } as const;
 
 export type GraphKind = keyof typeof darkGraphColors;
@@ -554,20 +569,22 @@ export const lightMapColors = {
 export type MapColors = Readonly<Record<keyof typeof lightMapColors, string>>;
 
 export const darkMapColors: MapColors = {
-  island: "#24221F",
-  dot: "#8A8277",
-  edge: "#47423C",
-  zone: "#2B2825",
-  zoneLine: "#504A43",
-  ink: "#D8D2C9",
+  island: "#22272E",
+  dot: "#7F8A97",
+  edge: "#3A414B",
+  zone: "#282C34",
+  zoneLine: "#454C57",
+  ink: "#C9CED6",
   agentClaude: "#e8894a",
   agentCodex: "#a58be8",
   agentChatgpt: "#8fc46a",
-  agentContext: "#6BC8C1",
-  agentBlue: "#6FA3F2",
+  agentContext: "#79A9EC",
+  // Things' cyan, not a blue: in the dark the app's own accent
+  // (`agentContext`) is already Things blue, and two blues on one map are one.
+  agentBlue: "#53DFDD",
   agentPink: "#F27DB5",
   agentAmber: "#D9A25C",
-  agentGlyph: "#1B1815",
+  agentGlyph: "#14181C",
 };
 
 /**

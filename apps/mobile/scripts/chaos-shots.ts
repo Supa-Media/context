@@ -163,7 +163,7 @@ function write(stem: string, size: { width: number; height: number }, scheme: "l
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(
     file,
-    page(stem, document.body.innerHTML, `${StyleSheet.getSheet().textContent}\n${injected}`, size, scheme === "dark" ? "#100F0E" : "#FFFDF9", scroll),
+    page(stem, document.body.innerHTML, `${StyleSheet.getSheet().textContent}\n${injected}`, size, scheme === "dark" ? "#14181C" : "#FFFDF9", scroll),
     "utf8",
   );
 }
