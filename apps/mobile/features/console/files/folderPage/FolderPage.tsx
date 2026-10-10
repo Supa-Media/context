@@ -3,24 +3,23 @@
  *
  * A projects folder's page, and every page beneath it (`isProjectsFolder`),
  * can be seen three ways — **Notes**, the listing as it has always been;
- * **List**, its tasks by status and then its plain notes; **Board**, the
- * tasks as columns — switched by three words on the title's row and
- * remembered per viewer, per folder (`viewMemory.ts`). A folder opens in List
- * once anything in it has a status, and in Notes otherwise. Any other folder
- * is its listing with no switch, no nudge and no `Set status`.
+ * **List**, the very same rows with a status dot, a grey "2/3" and owners'
+ * faces (`rowExtras.tsx`; the owner, 2026-10-10: "exactly like the notes
+ * view, just with some thin extras"); **Board**, the tasks as columns —
+ * switched by three words on the title's row and remembered per viewer, per
+ * folder (`viewMemory.ts`). A folder opens in List once anything in it has a
+ * status, and in Notes otherwise. Any other folder is its listing with no
+ * switch, no nudge and no `Set status`.
  *
- * Anything with a status is a task; anything without is a plain note, drawn
- * below the tasks with "Make it a task" (`listLayout.ts`). A note's status
- * goes in its own frontmatter, a folder's in its front note, and a folder
- * with none gets an `about.md` holding just that. The page itself is one
- * too — a project folder is titled by its front note and says its status,
- * owner and first paragraph under the title (`Head.tsx`). Above the List,
- * the filter bar narrows it, per viewer (`ShowBar.tsx`). Somebody who
- * may write adds, nests, moves and changes tasks from the List — "+ Add
- * task", a right-click, a selection, a drag — each write undoable from its
- * toast (`tasks/useFolderTasks.tsx`). On a desktop page any row — a task, a
- * note, a project — opens beside the List or Board in the side panel
- * (`panel/`); on a phone, on its own page.
+ * Anything with a status is a task. A note's status goes in its own
+ * frontmatter, a folder's in its front note, and a folder with none gets an
+ * `about.md` holding just that. The page itself is one too — a project folder
+ * is titled by its front note and says its status, owner and first paragraph
+ * under the title (`Head.tsx`). The List writes nothing and a row opens what
+ * it names, as in Notes. Somebody who may write adds, moves and changes tasks
+ * on the Board — "+ Add", a right-click, a selection, a drag — each write
+ * undoable from its toast (`tasks/useFolderTasks.tsx`), and on a desktop page
+ * a card opens beside the Board in the side panel (`panel/`).
  *
  * Nothing new is stored and nothing is read that a list block could not read:
  * the notes are the device's copy at the role's clearance, and every change is
@@ -38,8 +37,7 @@ import type { FileEntry } from "../types";
 import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
 import { boardWidth } from "./pageMeasures";
-import { makeItTaskStatus } from "./listLayout";
-import { tasksWithSubtasks } from "./showFilter";
+import { makeItTaskStatus, tasksWithSubtasks } from "./taskBasics";
 import { rowExtras, RowExtrasProvider } from "./rowExtras";
 import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
@@ -246,11 +244,6 @@ export function FolderPage({
     list,
     record: pending.record,
     owners,
-    label,
-    me,
-    onOpen: openItem,
-    makeTaskLabel,
-    compact,
     backlogFolder: parkedIn?.path ?? null,
   });
 
@@ -330,7 +323,6 @@ export function FolderPage({
         : (item) => void edit(item.target, "status", makeItTaskStatus(folderStatuses(governingFolder(item.target), notes ?? []).list), item.creates)),
     makeTaskLabel,
     tasks: tasks.controls,
-    taskMenu: tasks.menu,
     sized: allTasks.some((task) => estimateOf(task.properties) !== null),
   };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.

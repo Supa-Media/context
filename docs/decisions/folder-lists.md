@@ -119,13 +119,39 @@ byte or writes a value that reads back differently; `useFolderListsEdit.test.ts`
 fails if a member is offered the edit; `listEdit.test.ts` fails if
 `visibility`, in any case, is offered or written.
 
+## The List is the Notes rows, with three thin extras
+
+Decided by the owner on 2026-10-10, choosing board 11 after calling the List
+"pretty cluttered" and a calmer toolbar "still cluttered": "I almost want the
+list view to look exactly like the notes view, just with some thin extras".
+So a projects folder's List draws the very rows Notes draws, in the same
+order, through the same `FolderRow`, and adds three things to a row whose
+item has a status: a small dot before the name (a ring for Not started, half
+for In progress, full for Done, by the status's group), and after it a grey
+"2/3" when it has parts and up to two owners' faces ("+N" beyond). A finished
+row's name is grey. A row with no status gets nothing but keeps the dot's
+room, so names line up. A row opens what it names, exactly as in Notes.
+
+There is no search, filter bar, status groups, Backlog band, "+ Add" line or
+Notes section on the List any more, and nothing on it writes; statuses,
+owners, priority and the rest are set on the Board and in the side panel,
+which are unchanged. The extras reach the rows through a context
+(`folderPage/rowExtras.tsx`) rather than a second row component, so List and
+Notes cannot come to list different things. Reversing this means bringing a
+second row back; `__tests__/folderPageList.test.ts` fails first, on "is the
+Notes rows, in the Notes order, and nothing else". The sections below that
+describe the List's groups, filter bar, row cells and add lines record the
+List before this decision; where they describe the Board or the panel they
+still hold.
+
 ## A folder page shows its children by status
 
 A folder's own page is where projects are seen and set, with no block to write.
 Every projects folder page offers **Notes · List · Board** on its title's row:
 Notes is the listing as it always was (called Files until 2026-09-28: "files"
-is a word for the storage, not for what is in it), List draws the folder's
-tasks by `status` and then its plain notes, Board draws the tasks as columns.
+is a word for the storage, not for what is in it), List draws the same rows
+with a status dot, a count and faces (see above), Board draws the tasks as
+columns.
 A folder opens in List once anything in it has a status, and in Notes
 otherwise; what each viewer picks is remembered per folder in that browser's
 storage, never shared and never required. When two or more subfolders exist
@@ -408,6 +434,9 @@ or if a member can press it; `folderPageList.test.ts` fails if
 several owners is offered as one choice.
 
 ## The filter bar, per viewer
+
+Removed with the List's other furniture on 2026-10-10 (see "The List is the
+Notes rows"); kept here as the record of what it was.
 
 Decided by the owner on 2026-09-29 (the filter bar artboard, "Build as
 drawn"), replacing the Show bar's Everyone · Mine · No owner · Urgent ·

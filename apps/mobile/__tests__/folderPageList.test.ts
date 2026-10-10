@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+import { rowExtras } from "../features/console/files/folderPage/rowExtras";
+import type { FolderItem } from "../features/console/files/folderPage/model";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
 import { CAFE, all, host, mount, one, press, strip, unmountAll, windowOf, type Write } from "./projectPage/fixtures";
 
@@ -101,5 +103,23 @@ describe("the List", () => {
     expect(dotOf(row("kitchen"))).toBe("status-dot-in-progress");
     expect(strip(within(row("kitchen"), "folder-row-progress")[0]?.textContent)).toBe("2/3");
     expect(all("folder-add-bar")).toHaveLength(0);
+  });
+});
+
+describe("rowExtras", () => {
+  const item = (path: string, status: string, progress: FolderItem["progress"], owner?: string) =>
+    ({ path, status, progress, properties: owner === undefined ? {} : { owner } }) as unknown as FolderItem;
+  const face = (owner: string) => ({ kind: "person", initials: owner.slice(0, 1) }) as never;
+
+  test("a folder with no parts yet shows no 0/0, and a note shows nothing", () => {
+    const extras = rowExtras(
+      [item("p/empty", "to do", { done: 0, total: 0 }), item("p/note.md", "", null), item("p/one", "active", { done: 1, total: 4 }, "@sayo")],
+      () => "not-started",
+      face,
+    );
+    expect(extras.get("p/empty")).toEqual({ tone: "not-started", progress: null, faces: [] });
+    expect(extras.get("p/note.md")).toEqual({ tone: null, progress: null, faces: [] });
+    expect(extras.get("p/one")!.progress).toEqual({ done: 1, total: 4 });
+    expect(extras.get("p/one")!.faces).toHaveLength(1);
   });
 });

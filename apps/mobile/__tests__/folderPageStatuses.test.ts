@@ -7,7 +7,6 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { folderItems, groupFolderItems } from "../features/console/files/folderPage/model";
-import { listLayout } from "../features/console/files/folderPage/listLayout";
 import {
   folderStatuses,
   governingFolder,
@@ -74,13 +73,6 @@ describe("a folder with nothing declared", () => {
       ["Done", [["finished", 0]]],
       ["No group yet", [["exploration", 1]]],
     ]);
-  });
-
-  test("the List leaves empty statuses out", () => {
-    const layout = listLayout(items, list, PROJECTS, null);
-    expect(layout.sections.map((section) => section.label)).toEqual(["In progress", "No group yet"]);
-    // `idea.md` has no status: a note below the tasks, not an empty Not started.
-    expect(layout.notes.map((item) => item.path)).toEqual(["1-projects/idea.md"]);
   });
 
   test("says which words the list does not hold, with what merging would do", () => {
