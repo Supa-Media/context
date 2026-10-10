@@ -32,7 +32,9 @@
  *                  the deployment's (`search/settings.js`): everywhere,
  *                  min_score, extra_notes, snippet_chars
  *   tools          names the setup was proved with (recorded; not yet offered)
- *   max_steps      1-12, the most rounds a turn may take
+ *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
+ *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
+ *                  (`progress.js`) may go past it
  *   body           the whole prompt a texted turn is given
  *
  * Validated on read. A file that does not validate is `null`, and the turn
@@ -54,7 +56,7 @@ export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
-const MAX_STEPS = 12;
+const MAX_STEPS = 40;
 const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
 const ROUTE_AT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;

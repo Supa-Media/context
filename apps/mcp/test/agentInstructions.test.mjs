@@ -153,7 +153,7 @@ test("a texted turn is told the texting file's words, in place of the built-in o
   const system = await systemFor(TOKEN_TEXTS);
   assert.ok(system.includes(WHO) && system.includes(STYLE), "the texting file's prompt");
   assert.ok(!system.includes("updated: 2026-10-08"), "front matter is not sent");
-  assert.ok(!system.includes("You are Context, the assistant built into"), "built-in identity replaced");
+  assert.ok(!system.includes("You are Tex, the assistant built into"), "built-in identity replaced");
   assert.ok(!system.includes("No Markdown at all"), "built-in texting style replaced");
   assert.ok(!system.includes("NOT-THE-PINNED-ONE"), "only the pinned workspace's file counts");
   assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
@@ -183,7 +183,7 @@ test("a missing file means the built-in words for that job only", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const texted = await systemFor(TOKEN_TEXTS);
   assert.ok(!texted.includes(WHO));
-  assert.ok(texted.includes("You are Context, the assistant built into"), "built-in identity");
+  assert.ok(texted.includes("You are Tex, the assistant built into"), "built-in identity");
   assert.ok(texted.includes("No Markdown at all"), "built-in texting style");
   assert.ok((await systemFor(TOKEN_APP)).includes(WHO), "the app job still reads its own file");
 });
@@ -199,7 +199,7 @@ test("a file privacy.md holds back from members is not sent to their model", asy
   pinnedBucket.set("privacy.md", { body: manifest(`  ${PRODUCTION_TEXTING_PATH}: private\n`), etag: "p2" });
   const member = await systemFor(TOKEN_TEXTS);
   assert.ok(!member.includes(WHO));
-  assert.ok(member.includes("You are Context, the assistant built into"));
+  assert.ok(member.includes("You are Tex, the assistant built into"));
   // Its owner's turn still reads it: the rule is the privacy engine's.
   assert.ok((await systemFor(TOKEN_STAFF)).includes(WHO));
 });
