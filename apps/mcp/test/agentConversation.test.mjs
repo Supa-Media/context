@@ -127,3 +127,8 @@ test("the next turn is told which tools each earlier answer used, and that a ret
   assert.match(prompt, /that text was the mistake/);
   assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true }), /What you did for those earlier texts/);
 });
+
+test("the rule against unread facts counts an earlier answer's lookups, so it is not a reason to retract", () => {
+  const prompt = systemPrompt(null, { texting: true, continued: true });
+  assert.match(prompt, /an earlier answer of yours counts: its lookups happened/);
+});
