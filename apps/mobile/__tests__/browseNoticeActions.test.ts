@@ -171,11 +171,60 @@ describe("Connect a bucket", () => {
   });
 });
 
+/**
+ * ONE NOTICE FOR NO BUCKET, NOT TWO.
+ *
+ * A context with no bucket drew two warn cards stacked: one from the binding
+ * being `null` ("No bucket is connected… Connect a bucket"), and one from the
+ * server's STORAGE_NOT_CONNECTED refusal on `files.notice` with a Dismiss under
+ * it. Same fact twice, and the second card's only control deferred it rather
+ * than fixing it. Merged: the refusal's sentence, the fix as its button.
+ *
+ * SABOTAGE: dropping the `!isNoBucketNotice` guard on the generic card fails
+ * "draws it once"; dropping `isNoBucketNotice` from the merged card's condition
+ * fails "the refusal alone".
+ */
+describe("No bucket", () => {
+  const SENTENCE =
+    "This context has no bucket connected yet. Connect storage before browsing files.";
+
+  function count(text: string, needle: string): number {
+    return text.split(needle).length - 1;
+  }
+
+  test("draws it once, with the fix and no Dismiss", () => {
+    const { container, unmount } = mount(noBucketConsole(), () => {});
+    const text = container.textContent ?? "";
+    expect(count(text, SENTENCE)).toBe(1);
+    expect(text).not.toContain("nowhere to keep notes");
+    expect(container.querySelectorAll('[data-testid="browse-no-bucket"]')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="browse-connect-storage"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="browse-dismiss-notice"]')).toBeNull();
+    unmount();
+  });
+
+  test("the refusal alone, before the binding answers, is the same one notice", () => {
+    const data = noBucketConsole();
+    const { container, unmount } = mount({ ...data, storage: undefined } as ConsoleData, () => {});
+    expect(count(container.textContent ?? "", SENTENCE)).toBe(1);
+    expect(container.querySelector('[data-testid="browse-connect-storage"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="browse-dismiss-notice"]')).toBeNull();
+    unmount();
+  });
+
+  test("and with no refusal yet, the binding alone still says it", () => {
+    const { container, unmount } = mount(noBucketConsole({ notice: null }), () => {});
+    expect(count(container.textContent ?? "", SENTENCE)).toBe(1);
+    unmount();
+  });
+});
+
 describe("Dismiss", () => {
   test("clears the notice, and is called with nothing", () => {
     const calls: unknown[][] = [];
     const { container, unmount } = mount(
       noBucketConsole({
+        notice: "That note could not be saved.",
         dismissNotice: ((...args: unknown[]) => {
           calls.push(args);
         }) as unknown as FileBrowser["dismissNotice"],

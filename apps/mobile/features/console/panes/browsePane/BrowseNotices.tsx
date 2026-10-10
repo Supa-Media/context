@@ -18,6 +18,7 @@ import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
 import { DROPBOX_ENDING } from "../../storage/handoff/copy";
 import { MainFoldersNotice } from "./MainFoldersNotice";
+import { NO_BUCKET_NOTICE, isNoBucketNotice } from "./noBucketNotice";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -144,12 +145,21 @@ export function BrowseNotices({
         </View>
       ) : null}
 
-      {noBucket ? (
-        <View style={[styles.notice, styles.noticeWarn]}>
+      {noBucket || isNoBucketNotice(files.notice) ? (
+        /*
+          ONE notice for a context with no bucket, whichever way we learned it.
+
+          There used to be two, stacked: this card, from the binding being
+          `null`, and the generic notice below carrying the server's
+          STORAGE_NOT_CONNECTED refusal with a "Dismiss" under it. Same fact,
+          said twice, and the second one's only control put the fact aside
+          rather than fixing it. So the refusal's sentence is the one shown,
+          and the control is the fix. `browseNoticeActions.test.ts` pins that
+          exactly one is drawn.
+        */
+        <View style={[styles.notice, styles.noticeWarn]} testID="browse-no-bucket">
           <Text variant="hint" style={styles.noticeWarnText}>
-            No bucket is connected to this context yet, so there is nowhere to keep notes.
-            Point it at an S3-compatible bucket you own and everything here starts working
-            — your name and your capture address are already yours.
+            {NO_BUCKET_NOTICE}
           </Text>
           {onOpenSettings ? (
             <Button
@@ -273,7 +283,7 @@ export function BrowseNotices({
         </View>
       ))}
 
-      {files.notice !== null ? (
+      {files.notice !== null && !isNoBucketNotice(files.notice) ? (
         <View style={[styles.notice, styles.noticeWarn]}>
           <Text variant="hint" style={styles.noticeWarnText}>
             {files.notice}
