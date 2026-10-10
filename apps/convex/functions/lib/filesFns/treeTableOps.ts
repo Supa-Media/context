@@ -38,6 +38,7 @@ import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
 import { folderNotesFromTable } from "./folderNotes";
+import { chaosAfterFill, chaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
 import { treeChanges } from "./treeChanges";
@@ -52,7 +53,7 @@ export const TREE_SWEEP_CHAIN = 50;
 
 export type TreeOperation = Extract<
   FileOperation,
-  { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" | "folderNotes" }
+  { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" | "folderNotes" | "chaosScore" }
 >;
 
 export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
@@ -61,7 +62,8 @@ export function isTreeOperation(operation: { kind: string }): operation is TreeO
     operation.kind === "touchTree" ||
     operation.kind === "treeState" ||
     operation.kind === "treeChanges" ||
-    operation.kind === "folderNotes"
+    operation.kind === "folderNotes" ||
+    operation.kind === "chaosScore"
   );
 }
 
@@ -73,6 +75,7 @@ export function noTreeTable(operation: TreeOperation): OperationResult {
   if (operation.kind === "folderNotes") {
     return { kind: "folderNotes", available: false, notes: [], cursor: null, missing: [], fill: false };
   }
+  if (operation.kind === "chaosScore") return NO_CHAOS;
   if (operation.kind !== "treeChanges") return { kind: "treeKept", complete: false };
   return {
     kind: "treeChanges",
@@ -301,9 +304,14 @@ export async function runTreeOperation(
     if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
     return answer;
   }
+  if (operation.kind === "chaosScore") {
+    return await chaosScoreOf(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+  }
   if (operation.kind === "touchTree") {
     try {
       await touchTree(store, client, { paths: operation.paths, files: operation.files, left: operation.left ?? [] });
+      // The chaos score moves with the change, before the open trees are told.
+      await rescoreTouched(store, client, { paths: operation.paths, files: operation.files });
     } finally {
       await markChanged(ctx, args.workspaceId, operation.audiences);
     }
@@ -328,6 +336,8 @@ export async function runTreeOperation(
   if (state !== null && state.ready && !state.unsupported && state.cursor === null && !sweepDue(state, Date.now())) {
     const links = await linkFillPass(store, client).catch(() => null);
     const props = links?.remaining === 0 ? await propFillPass(store, client).catch(() => null) : null;
+    // Lengths come from the properties fill, so the chaos score follows it.
+    await chaosAfterFill(store, client, props);
     const more =
       (links !== null && links.read > 0 && links.remaining > 0) || (props !== null && props.read > 0 && props.remaining > 0);
     if (more && passes < TREE_SWEEP_CHAIN) {

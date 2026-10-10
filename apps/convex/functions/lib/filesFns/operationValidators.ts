@@ -28,6 +28,7 @@ import {
   manifestValidator,
   treeChangesValidator,
   folderNotesValidator,
+  chaosScoreValidator,
   movedValidator,
   notesValidator,
   privacyResetValidator,
@@ -74,6 +75,7 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
   treeChangesValidator,
   folderNotesValidator,
+  chaosScoreValidator,
   v.object({
     kind: v.literal("treeState"),
     status: v.union(
@@ -279,6 +281,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("treeChanges"), since: v.number(), after: v.optional(v.string()), privacy: v.optional(v.string()) }),
   /** A folder List's notes from the tree's properties table (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
+  /** The chaos score for this reader (`chaosOps.ts`). */
+  v.object({ kind: v.literal("chaosScore"), folder: v.optional(v.string()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by

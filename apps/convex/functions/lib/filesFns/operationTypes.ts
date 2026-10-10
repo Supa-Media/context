@@ -7,6 +7,7 @@
  */
 
 import type { FolderNotesResult } from "./folderNotes";
+import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
 import type {
   ContextMoveExport,
@@ -116,6 +117,8 @@ export type FileOperation =
   | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
   /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
   | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
+  /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */
+  | { kind: "chaosScore"; folder?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -372,6 +375,7 @@ export type OperationResult =
   | { kind: "treeKept"; complete: boolean }
   | TreeChangesResult
   | FolderNotesResult
+  | ChaosScoreResult
   | {
       kind: "treeState";
       status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";

@@ -109,6 +109,8 @@ describe("folder notes from the properties table", () => {
       properties: { status: "doing", owner: "@seyi" },
       heading: "Alpha",
       lede: "Ship the alpha.",
+      // The note's length, for the chaos score's long-note rule (`chaos/rubric.js`).
+      lines: 8,
     });
     // privacy.md only: no note was opened.
     expect(gets).toEqual([PRIVACY_KEY]);

@@ -439,3 +439,16 @@ export const durableMoveValidator = v.object({
   progressPerMinute: v.optional(v.number()),
   updatedAt: v.number(),
 });
+
+/** The chaos score for one reader. See `chaosOps.ts`. */
+const chaosFolderValidator = v.object({ folder: v.string(), items: v.number(), chaos: v.number() });
+export const chaosScoreValidator = v.object({
+  kind: v.literal("chaosScore"),
+  available: v.boolean(),
+  score: v.union(v.number(), v.null()),
+  word: v.union(v.string(), v.null()),
+  weekAgo: v.union(v.number(), v.null()),
+  folders: v.array(chaosFolderValidator),
+  longNotes: v.array(v.object({ path: v.string(), lines: v.number() })),
+  folder: v.union(chaosFolderValidator, v.null()),
+});
