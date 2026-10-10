@@ -2,7 +2,7 @@ import type { Rect } from "../labels";
 import { folderLabelAlpha, islandLabelAlpha, subLabelAlpha } from "../lod";
 import { clamp } from "../math";
 import type { DrawEnv } from "./env";
-import { fillText, fontOf, haloText, roundRect } from "./primitives";
+import { drawFace, FACE_R, fillText, fontOf, haloText, roundRect } from "./primitives";
 
 /**
  * The names of containers — a workspace's title and total, "PROJECTS"
@@ -17,9 +17,18 @@ import { fillText, fontOf, haloText, roundRect } from "./primitives";
  * beside it, and is dropped if those are taken too.
  */
 
-type Line = { text: string; size: number; weight: number; color: string; dy: number };
+type Line = { text: string; size: number; weight: number; color: string; dy: number; dx?: number };
 
-export type ContainerLabel = { x: number; baseline: number; alpha: number; halo: string; lines: Line[]; rect: Rect };
+/** A member's face beside a workspace's "N people", by name. */
+type MemberFace = { name: string; x: number; y: number };
+
+export type ContainerLabel = { x: number; baseline: number; alpha: number; halo: string; lines: Line[]; rect: Rect; faces?: MemberFace[] };
+
+/** At most this many member faces beside a workspace's "N people"; their size and overlap. */
+const MEMBER_FACES = 4;
+const MEMBER_SCALE = 0.55;
+const MEMBER_R = FACE_R * MEMBER_SCALE;
+const FACE_STEP = MEMBER_R * 1.5;
 
 export type Pill = { x: number; y: number; w: number; text: string; bump: number; alpha: number };
 
@@ -45,11 +54,19 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
       const pr = island.r * s;
       const a = islandLabelAlpha(pr);
       if (a <= 0 || !env.onScreen(p, pr)) continue;
+      // With the hub drawn, who is in it; otherwise how much is in it.
+      const people = model.hub?.workspaces[island.workspaceId];
       const total = env.counts.get(island.workspaceId) ?? 0;
-      const count = `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`;
+      const count = people
+        ? people.people <= 1
+          ? "Just you"
+          : `${people.people.toLocaleString("en-US")} people`
+        : `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`;
+      const faces = people ? people.faces.slice(0, MEMBER_FACES) : [];
       // Over its highest note: there is no rim to sit on.
       const baseline = env.screen({ x: island.x, y: island.top }).y - 34;
-      const w = Math.max(measure(island.name, 15, 700), measure(count, 12, 500)) + 8;
+      const facesW = faces.length > 0 ? 6 + FACE_STEP * (faces.length - 1) + MEMBER_R * 2 : 0;
+      const w = Math.max(measure(island.name, 15, 700), measure(count, 12, 500) + facesW) + 8;
       const rect = { x: p.x - w / 2, y: baseline - 15, w, h: 36 };
       env.occ.claim(pad(rect, PAD + 2));
       out.push({
@@ -60,8 +77,13 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
         rect,
         lines: [
           { text: island.name, size: 15, weight: 700, color: C.text, dy: 0 },
-          { text: count, size: 12, weight: 500, color: C.dim, dy: 16 },
+          { text: count, size: 12, weight: 500, color: C.dim, dy: 16, ...(faces.length > 0 ? { dx: -facesW / 2 } : {}) },
         ],
+        faces: faces.map((name, k) => ({
+          name,
+          x: p.x + (measure(count, 12, 500) - facesW) / 2 + 6 + MEMBER_R + k * FACE_STEP,
+          y: baseline + 12,
+        })),
       });
     }
   }
@@ -167,7 +189,8 @@ export function drawContainerLabels(env: DrawEnv, labels: readonly ContainerLabe
   }
   for (const l of labels) {
     ctx.globalAlpha = l.alpha;
-    for (const line of l.lines) haloText(ctx, style, line.text, l.x, l.baseline + line.dy, line.size, line.weight, line.color, l.halo);
+    for (const line of l.lines) haloText(ctx, style, line.text, l.x + (line.dx ?? 0), l.baseline + line.dy, line.size, line.weight, line.color, l.halo);
+    for (const f of l.faces ?? []) drawFace(ctx, { kind: "person", id: f.name, name: f.name }, f.x, f.y, MEMBER_SCALE, style);
   }
   ctx.globalAlpha = 1;
 }
