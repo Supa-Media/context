@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
 import { pointerType as t, radii, space } from "../../design/tokens";
@@ -27,6 +27,10 @@ export interface SetupActions {
  * line at the foot. It sits over the note rather than in
  * the page so a person can read and write around it; collapsed, it is one line
  * high.
+ *
+ * Capped at the window's height (`widgetMaxHeight`) with its body scrolling,
+ * so on a short window the header that collapses it stays on screen rather
+ * than growing up past the top edge.
  */
 export function SetupWidget({
   slug,
@@ -43,10 +47,11 @@ export function SetupWidget({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(true);
+  const { height } = useWindowDimensions();
   const toolsDone = view.rows.find((row) => row.key === "tools")?.state === "done";
 
   return (
-    <View style={styles.card} testID="setup-widget">
+    <View style={[styles.card, { maxHeight: widgetMaxHeight(height) }]} testID="setup-widget">
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
@@ -62,7 +67,7 @@ export function SetupWidget({
       </Pressable>
 
       {open ? (
-        <>
+        <ScrollView style={styles.scroll}>
           {view.rows.map((row) => (
             <Row key={row.key} row={row} action={actionFor(row, actions)} />
           ))}
@@ -92,10 +97,18 @@ export function SetupWidget({
               testID="setup-widget-hide"
             />
           </View>
-        </>
+        </ScrollView>
       ) : null}
     </View>
   );
+}
+
+/** The host anchors the widget this far from the bottom, and keeps the same above it. */
+const WIDGET_MARGIN = 24;
+
+/** The tallest the widget may be in a window this high; the rest scrolls. */
+export function widgetMaxHeight(windowHeight: number): number {
+  return Math.max(0, windowHeight - 2 * WIDGET_MARGIN);
 }
 
 function actionFor(row: SetupRow, actions: SetupActions): { label: string; onPress?: () => void } {
@@ -162,6 +175,7 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
       boxShadow: "0 8px 24px rgba(26,23,20,.10)",
     },
+    scroll: { flexGrow: 0, flexShrink: 1 },
     head: {
       flexDirection: "row",
       alignItems: "center",
