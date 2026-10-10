@@ -136,9 +136,48 @@ answered; pricing a routed run by the setup's main model would hide the whole
 point. Tests (`apps/mcp/test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
 `bench/test/report.test.mjs`): "a text the router calls think runs on the
 thinking model, and the meter says so", "a low-confidence think, a word the
-router does not know, or a failed router all stay on main", "a person's own key
-is never routed", "a routed setup records the tier first on the tools line and
+router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
+
+### The router is tuned by shape and by a cutoff the setup sets, never by question (2026-10-10)
+
+**Decided by the owner (2026-10-10):** after five rounds the cheap model's
+misses were mostly one kind: it found one fact and stopped, where the answer
+needed two put together (a deadline from a date, an order of events, a total,
+something written in more than one notebook). The owner's direction was
+"change the harness or routing to smarter models for some of these things",
+and explicitly not prompt lines written for the test's questions: "we want a
+general sense of intelligence here". So the two knobs are general:
+
+- **Clef is told the shape.** The `think` criteria name a date worked out
+  from another date, an order, a total or a comparison, and something that
+  could sit in more than one notebook, as reasons to route; `lookup` says it
+  is not a date that has to be worked out. No question's words appear.
+- **The cutoff is the setup's.** `models.route_at` (0 to 1, three decimals at
+  most, default 0.5, refused without a router) is the confidence a `think`
+  pick needs; lower routes more texts to the thinking model. The router's
+  confidence in a think pick rides the trace (`confidence`, a number) into the
+  turn log whether or not it cleared the cutoff, so a benchmark's result note
+  can say which questions a setup routed ("Routed: … questions 16, 27, 40 and
+  53") and which think picks fell under its cutoff and at what confidence
+  ("Said think but stayed on …"). The next setup's `route_at` is set from
+  those near misses, not guessed. Two setups that differ only in `route_at`
+  (`guide-haiku-opus`, `guide-haiku-opus-wide`) run side by side, and the price
+  line says what the extra routed texts cost.
+
+**What a simplification would cost:** a lower cutoff hard-coded in `router.js`
+would change production with no round behind it, and a cutoff nobody can see
+the near misses of is tuned blind. Prompt lines for the failing questions would
+lift the score and nothing else. Tests (`apps/mcp/test/agentProduction.test.mjs`,
+`bench/test/world.test.mjs`, `bench/test/report.test.mjs`,
+`apps/convex/__tests__/agentTurns.test.ts`): "parseSetup reads the router's
+cutoff, and refuses one outside 0 to 1 or without a router", "a think pick
+under the default cutoff clears a setup's lower one, and the trace keeps the
+confidence", "router tells Clef that a date worked out from another, an order
+and a total are think questions", "a routed setup shows the router's
+confidence, and a think pick under the cutoff as a near miss", "the routed
+line names every routed question, and the think picks under the cutoff with
+their confidence".
 
 ### The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
 

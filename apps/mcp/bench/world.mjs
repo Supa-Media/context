@@ -211,6 +211,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
   const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
 
+  const routerSaid = (entry) =>
+    typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
   /** The status the failed round got, from the turn log's trace; null when none. */
   const failedStatus = (trace) => {
     const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
@@ -260,7 +262,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
           .map((entry) =>
             entry.kind === "router"
-              ? { tool: `router: ${entry.tier}`, ok: true }
+              ? // `router: think (0.8)`; a think pick under the setup's cutoff is
+                // `router: main (think 0.4)`, so a result shows the near misses.
+                { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
               : entry.kind === "fallback"
                 ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
                 : entry.kind === "model"

@@ -1,21 +1,21 @@
 /**
- * The built-in model: a cheap open model on Workers AI, for a texting grant on
- * a Premium workspace that connected no model account of its own ("Premium,
- * capped", decided by the owner, 2026-10-06).
+ * The built-in model: the only model a turn runs on, for a texting or routine
+ * grant on a Premium workspace ("Premium, capped", decided by the owner,
+ * 2026-10-06; people's own keys were deleted on 2026-10-10).
  *
  * This file only makes the call. Whether a turn may make it is the control
  * plane's (`apps/convex/functions/builtinModel.ts`), through the same switches
  * and meter as every other paid inference feature, and it is asked before the
- * first round. A self-hosted gateway with no `AI` binding has no built-in model,
- * and the turn is refused exactly as "no account connected".
+ * first round. A self-hosted gateway with neither an `AI` binding nor an AI
+ * gateway has no built-in model, and every turn is refused as `no_provider`.
  *
  * ## The model is ours to pick, never the caller's
  *
- * `/agent` takes a `model` for a person's own key, because it is their bill.
- * Here it is ours, so a named model is ignored: otherwise a caller could point
- * a capped cheap turn at the most expensive model on the account. The default
- * can be changed per deployment with `AGENT_BUILTIN_MODEL`, which is how the
- * brain is swapped without a code change.
+ * It is our bill, so `/agent` takes no `model` from a request: otherwise a
+ * caller could point a capped cheap turn at the most expensive model on the
+ * account. The default can be changed per deployment with
+ * `AGENT_BUILTIN_MODEL`, which is how the brain is swapped without a code
+ * change.
  */
 
 import { ProviderError, openAiMessages, openAiTools, readChatCompletion, parseArguments } from "./providers.js";
@@ -99,7 +99,7 @@ function count(value) {
 }
 
 /**
- * One round on Workers AI, in the same shape as `requestCompletion`, plus the
+ * One round on Workers AI, in the shape `providers.js` describes, plus the
  * model's own token counts for the meter.
  *
  * Reads the chat-completions shape, and the older Workers AI one

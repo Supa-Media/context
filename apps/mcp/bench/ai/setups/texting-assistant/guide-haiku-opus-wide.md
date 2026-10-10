@@ -1,11 +1,14 @@
 ---
 job: texting-assistant
 models:
-  main: anthropic/claude-sonnet-5-5
+  main: anthropic/claude-haiku-5-5
+  router: "@cf/cloudflare/clef"
+  think: anthropic/claude-opus-5-5
+  route_at: 0.3
   fallback: "@cf/zai-org/glm-4.7-flash"
 max_steps: 8
-came_from: guide-sonnet of round five (2026-10-10), revised after its scores
-why: Round six tests routing more than words. The router is told that a question whose answer needs two facts put together (a date worked out from another, an order, a total, more than one notebook) is a think question, and a setup may set the confidence a think pick needs (route_at). The prompt gains two general habits only: a question that needs two facts is not answered with one, and a search or read that is already settled is not repeated. No line is written for one question.
+came_from: guide-haiku-opus of round six (2026-10-10), with the router's cutoff lowered
+why: The same words and models as guide-haiku-opus, with the confidence a think pick needs lowered from 0.5 to 0.3, so round six can see what the texts between the two cutoffs cost and win. The result note names the questions each cutoff routed and the think picks that fell under it.
 ---
 
 You are Context, the assistant built into Context.LC (context.lc). This message came by text, so you answer by text.

@@ -298,12 +298,7 @@ export const gatewaySessionsByGrant = gatewayRoute(
 
 export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
 
-/* -------------------------------------------------------------------------- */
-/* 2a. POST /gateway/provider — the model account the agent spends            */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
-/** The built-in model's gate and meter, for a texting grant with no account connected. */
+/** The built-in model's gate and meter: the only model the assistant runs on. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
 export const gatewayBuiltinUsage = gatewayRoute(builtinModel.gatewayBuiltinUsageHandler);
 /** Meeting summaries' gate and meter, for any live grant. */
@@ -866,7 +861,6 @@ export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTiming
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/sessions/by-grant", method: "POST", handler: gatewaySessionsByGrant });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
-http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
 http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
 http.route({ path: "/gateway/meeting-summary", method: "POST", handler: gatewayMeetingSummary });

@@ -37,7 +37,6 @@ describe("the gateway secret is necessary", () => {
       "/gateway/session",
       "/gateway/sessions/by-grant",
       "/gateway/binding",
-      "/gateway/provider",
       "/gateway/clients/register",
       "/gateway/clients/get",
       "/gateway/authorize/start",
