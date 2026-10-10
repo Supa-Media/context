@@ -12,6 +12,7 @@
  *   `MEANING_MIN_SCORE` check removed                → "a distant match is noise, not the same topic" fails
  *   the catch rethrowing                             → "a failing index leaves the word answer untouched" fails
  *   the `MEANING_SNIPPET_READS` cap removed          → "at most three notes are read for snippets" fails
+ *   `MEANING_MIN_SCORE` back at 0.55                 → "a match at the closeness real questions reach…" fails
  *   loose hits fused evenly again                    → "a loose word hit comes after every meaning match…" fails
  *   `meaningPassages` dropping `indexableText`       → "an encrypted note found by meaning shows its title only" fails
  */
@@ -119,6 +120,19 @@ test("a distant match is noise, not the same topic", async () => {
   const { store } = storeWith();
   const found = await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed });
   assert.deepEqual(found.map((m) => m.path), ["near.md"]);
+});
+
+/**
+ * Measured on production indexes, 2026-10-10: what a person meant by a plain
+ * question scored 0.40 to 0.63, and a query about nothing in the workspace
+ * topped out at 0.31 to 0.34. At the old 0.55 nearly every real match was
+ * dropped, which is why "leaving the team" found nothing by meaning.
+ */
+test("a match at the closeness real questions reach counts; one at the noise floor does not", async () => {
+  const index = fakeIndex([match("meant.md", 0.43), match("unrelated.md", 0.34)]);
+  const { store } = storeWith();
+  const found = await meaningMatches(store, { query: "q", scope: "private", isVisible: everyone, fetchImpl: index.impl, embed });
+  assert.deepEqual(found.map((m) => m.path), ["meant.md"]);
 });
 
 test("a note's passages count once, at its best", async () => {

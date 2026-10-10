@@ -31,10 +31,21 @@ import { meaningEmbedderFor } from "./store.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
- * bge-m3 cosine; unrelated English sits well under this. Tunable, and the
- * only number here a search quality review should need to touch.
+ * bge-m3 cosine of a short query against a ~1,500-character passage, which
+ * sits far lower than two sentences compared with each other.
+ *
+ * It was 0.55 until 2026-10-10, and that dropped nearly everything: measured
+ * on two production indexes (one of ~37,000 passages) with plain questions,
+ * the passages a person meant scored 0.40 to 0.63 ("leaving the team" against
+ * a conversation where someone says they cannot keep doing their role: 0.43
+ * to 0.52), while queries about nothing in the workspace ("banana bread
+ * recipe with walnuts") topped out at 0.31 to 0.34. A loosely related match
+ * ("beach vacation" against a meeting that talks about a party venue) can
+ * reach 0.44, which is the price of the recall; it is labelled as found by
+ * meaning, never as having the words. Tunable, and the only number here a
+ * search quality review should need to touch.
  */
-export const MEANING_MIN_SCORE = 0.55;
+export const MEANING_MIN_SCORE = 0.4;
 
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;

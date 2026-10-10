@@ -135,7 +135,7 @@ hits. **Every word hit stays**; meaning adds at most three notes the words
 missed, each marked "Same topic, different words" and shown with a snippet read
 from the bucket at answer time. A note that cannot be read now (moved, deleted,
 or outside what this connection's store will open) is dropped rather than
-listed blind. Matches below a closeness of 0.55 are noise and dropped.
+listed blind. Matches below a closeness of 0.40 are noise and dropped (0.55 until 2026-10-10, which dropped nearly every real match: measured on production indexes, what a person meant scored 0.40–0.63 and queries about nothing in the workspace topped out at 0.31–0.34; `MEANING_MIN_SCORE` records the measurements).
 
 A failing model or index costs nothing but the merge: the word answer comes
 back unchanged, the miss text says it searched words only, and one log line
