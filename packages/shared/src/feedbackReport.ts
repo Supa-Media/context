@@ -58,6 +58,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "settings",
   "terms",
   "texts",
+  "vault",
   "welcome",
   "workspace",
 ]);

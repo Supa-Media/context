@@ -787,6 +787,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link the texting assistant sends a phone nobody has",
   },
   {
+    route: "/vault/[token]",
+    file: "app/vault/[token].tsx",
+    reachable: false,
+    reason:
+      "The private link Tex texts when it needs a login saved or shared. The " +
+      "token exists in that one text message, and the page opens only for the " +
+      "signed-in person who asked for it.",
+    marker: "the private link Tex texts when it needs a login",
+  },
+  {
     route: "/[handle]",
     file: "app/[handle]/index.tsx",
     reachable: false,

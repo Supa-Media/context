@@ -31,6 +31,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A vault link (`tools/vault.js`): a page where the person saves or shares
+  // a login themselves, signed in. The control plane builds the URL.
+  Object.defineProperty(store, "vaultLinks", {
+    value: {
+      request: (request) => controlPlane.vaultRequest(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

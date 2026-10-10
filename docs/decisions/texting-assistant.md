@@ -219,9 +219,8 @@ exception to two rules, bounded as follows:
   moment it fills a form, and its plaintext is never put in a model's context,
   a tool result, a log or a message.
 
-The vault is not built yet. When it is, the tests must prove both bounds: a
-bucket read never yields plaintext, and no model request ever carries a vault
-value.
+Built 2026-10-10, with personal and shared vaults and sharing as a person's
+own action: [the vault](./texting-assistant/vault.md).
 
 ### The built-in model is for Premium, capped, and metered like Jev
 

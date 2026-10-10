@@ -15,6 +15,7 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
+import { toolVaultAddLink, toolVaultList, toolVaultShareLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
@@ -213,6 +214,12 @@ export async function callTool(name, args, store, scope) {
       return toolMigrateStorageLayout(store, scope, args);
     case "create_link":
       return toolCreateLink(store, scope, args);
+    case "vault_list":
+      return toolVaultList(store);
+    case "vault_add_link":
+      return toolVaultAddLink(store, args);
+    case "vault_share_link":
+      return toolVaultShareLink(store, args);
     case "report_problem":
       return toolReportProblem(store, args);
     case "list_links":

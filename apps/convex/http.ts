@@ -123,6 +123,7 @@ import * as signals from "./functions/lib/gatewayRoutes/signals";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
+import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
@@ -893,6 +894,11 @@ http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIng
 export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
 http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+
+// A page where the person saves or shares a vault login themselves.
+export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
+
+http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
 
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 

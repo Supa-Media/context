@@ -123,6 +123,9 @@ describe("no public function can reach a storage secret", () => {
         // Re-encrypts every binding during a key rotation. Reads plaintext by
         // definition; internal, batched, never client-reachable.
         "functions.storage.rekeyStorageBindings",
+        // The vault's barrier: seals or opens one login's name, sites and
+        // people for the signed-in save and share pages. Never a secret part.
+        "functions.vault.runVaultOperation",
         // Builds a real S3Store to probe the bucket a user just connected.
         // Reached only by a schedule edge from bindStorage.
         "functions.provisioning.verifyStorageBinding",

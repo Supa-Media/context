@@ -610,6 +610,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
+- [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)
+- [Personal logins stay personal; a shared workspace's vault is shared login by login](./texting-assistant/vault.md)
+- [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - The built-in model is for Premium, capped, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
