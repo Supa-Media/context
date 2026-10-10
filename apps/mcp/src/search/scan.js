@@ -3,6 +3,7 @@
  * the visible notes, and the fast answer from the projection.
  */
 
+import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
 import { BUDGET_EXHAUSTED, budgetedStore } from "./budget.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
@@ -174,7 +175,7 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
     const client = createD1Client(descriptor);
     answer = await answerFromProjection(client, {
       query,
-      prefix,
+      prefix: folderPrefix(prefix),
       tier: scope,
       // The gateway's own privacy engine, bound to this caller. Injected for
       // the reason `searchIndexedNotes` takes `isVisible`: the console has its

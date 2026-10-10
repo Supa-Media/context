@@ -1,8 +1,8 @@
 /** `searchVisibleNotes` — a search over the notes a caller can see, within its budget. */
 
-import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
+import { folderPrefix, isIndexableNote } from "./indexable.js";
 import { BUDGET_EXHAUSTED } from "./budget.js";
-import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
+import { canSee, effectiveVisibility } from "../privacy/engine.js";
 import { createSearchBudget } from "./maintain.js";
 import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
 import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
@@ -111,8 +111,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     point at. The file is still a note the owner can read, and `read_activity`
     is how it is queried.
   */
-  const isIndexable = (key) =>
-    key.endsWith(".md") && !isPlumbing(key) && key !== ACTIVITY_PATH;
+  const isIndexable = isIndexableNote;
   /**
    * Which of the two FTS tables a note's text may be copied into, for the
    * workspaces that have opted into the D1 projection.
@@ -290,7 +289,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     isVisible: (path) => canSee(path, scope, rules, overrides),
     isIndexable,
     query,
-    prefix,
+    prefix: folderPrefix(prefix),
     budget,
     // A person asking a question is the one caller allowed to buy a listing,
     // and only when the answer came back empty over an index that believes it

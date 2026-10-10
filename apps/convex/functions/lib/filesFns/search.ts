@@ -366,13 +366,15 @@ export async function searchContextsHandler(
       // One row per workspace asked: a blended page is as slow as its slowest
       // source, and the log should be able to say which one that was. A source
       // that missed its deadline is timed at the deadline.
+      const ms = Date.now() - started;
       await recordSearchTiming(ctx, {
         workspaceId: context.workspaceId as Id<"workspaces">,
         surface: "page",
         ...timingOf(settled === null ? null : settled.answer),
-        ms: Date.now() - started,
+        ms,
       });
       return {
+        ms,
         context,
         offset,
         asked,
@@ -386,7 +388,7 @@ export async function searchContextsHandler(
   const rows: BlendedAnswer["sources"] = [];
   let matchCount = 0;
   let matchCountIsFloor = false;
-  for (const { context, offset, asked, settled } of answered) {
+  for (const { context, offset, asked, settled, ms } of answered) {
     if (settled === null) {
       // A refusal, a timeout and a thrown storage error are one state on
       // screen, and deliberately: what a person can do about each is press
@@ -409,6 +411,7 @@ export async function searchContextsHandler(
         state: "failed",
         matchCount: 0,
         matchCountIsFloor: false,
+        ms,
       });
       continue;
     }
@@ -431,6 +434,8 @@ export async function searchContextsHandler(
       state: settled.indexMissing || settled.indexIncomplete ? "indexing" : "ok",
       matchCount: settled.matchCount,
       matchCountIsFloor: settled.matchCountIsFloor,
+      ms,
+      ...(settled.timing === undefined ? {} : settled.timing),
     });
   }
 
