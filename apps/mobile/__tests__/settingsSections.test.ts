@@ -68,10 +68,10 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("seven listed rows; five pages live behind a row on another page", () => {
+  test("seven listed rows; four pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
-      Activity, Meetings, AI model and Emoji keep their pages and their keys —
+      Activity, Meetings and Emoji keep their pages and their keys —
       an old `?settings=emoji` link and a typed "emoji" still reach them — but
       are `folded`: a row on Profile, People & sharing, Connected apps or
       General opens each. `plugins` is deprecated behind `shown` and
@@ -88,11 +88,11 @@ describe("the order and the grouping", () => {
       "website",
     ]);
     expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
-      ["activity", "emoji", "feedback", "meetings", "model"],
+      ["activity", "emoji", "feedback", "meetings"],
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(13);
+    ).toHaveLength(12);
   });
 
   test("every section sits under a heading somebody can answer", () => {

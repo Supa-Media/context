@@ -33,6 +33,11 @@
  *  5. The settled-ids filter removed, so a listing that raced a decision
  *     brings the settled approval back.
  *     → **1 fails**: `a listing that was in flight when a decision settled does not bring it back`.
+ *  6. Listing the shown workspace only (Dev2, 2026-10-10: an approval held in
+ *     the personal workspace never showed while another was open).
+ *     → **fails**: `approvals held in any of the person's workspaces are listed`.
+ *  7. A decision sent with the shown workspace's grant.
+ *     → **fails**: `a decision goes back to the workspace that holds the approval`.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -117,7 +122,7 @@ async function flush() {
   }
 }
 
-function harness(initial: { workspaceId: string | null; endpoint: string | null; enabled: boolean }) {
+function harness(initial: { workspaceId: string | null; endpoint: string | null; enabled: boolean; workspaceIds?: string[] }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root: Root = createRoot(container);
@@ -339,5 +344,49 @@ describe("deciding", () => {
     expect(mockFetchCalls.filter((call) => call.method === "POST")).toHaveLength(1);
     await act(async () => answerFirst({ status: 200, body: { status: "denied", summary: null } }));
     await flush();
+  });
+});
+
+describe("every workspace", () => {
+  test("approvals held in any of the person's workspaces are listed", async () => {
+    mockAnswers = [
+      { status: 200, body: { approvals: [] } },
+      { status: 200, body: { approvals: [RECORD("held-in-personal")] } },
+    ];
+    const h = harness({ workspaceId: "ws_supa", workspaceIds: ["ws_supa", "ws_personal"], endpoint: MCP, enabled: true });
+    await flush();
+
+    expect(mockMintCalls.map((call) => (call as { workspaceId: string }).workspaceId)).toEqual(["ws_supa", "ws_personal"]);
+    expect(h.view().phase).toBe("listed");
+    expect(h.view().items.map((item) => item.id)).toEqual(["held-in-personal"]);
+  });
+
+  test("one workspace that cannot be read leaves the others' approvals showing", async () => {
+    mockAnswers = ["throw", { status: 200, body: { approvals: [RECORD("a")] } }];
+    const h = harness({ workspaceId: "ws_supa", workspaceIds: ["ws_personal"], endpoint: MCP, enabled: true });
+    await flush();
+
+    expect(h.view().phase).toBe("listed");
+    expect(h.view().items.map((item) => item.id)).toEqual(["a"]);
+  });
+
+  test("a decision goes back to the workspace that holds the approval", async () => {
+    mockAnswers = [
+      { status: 200, body: { approvals: [] } },
+      { status: 200, body: { approvals: [RECORD("a")] } },
+      { status: 200, body: { status: "approved", summary: "share a", result: "Shared.", ok: true } },
+    ];
+    const h = harness({ workspaceId: "ws_supa", workspaceIds: ["ws_supa", "ws_personal"], endpoint: MCP, enabled: true });
+    await flush();
+
+    // The listing minted grant-1 for ws_supa and grant-2 for ws_personal.
+    const personalGrant = mockFetchCalls[mockMintCalls.findIndex((call) => (call as { workspaceId: string }).workspaceId === "ws_personal")]!.auth;
+    await act(async () => h.view().decide("a", "approve"));
+    await flush();
+
+    const post = mockFetchCalls.find((call) => call.method === "POST")!;
+    expect(post.auth).toBe(personalGrant);
+    expect(mockFetchCalls.filter((call) => call.auth === personalGrant)).toHaveLength(2);
+    expect(h.view().items).toEqual([]);
   });
 });

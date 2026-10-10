@@ -33,6 +33,7 @@ import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
+import { calibrateCommand } from "./calibrate.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { realNow } from "./clock.mjs";
@@ -316,6 +317,7 @@ const USAGE = [
   "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]",
   "       pnpm ai score <result file> --dir <benchmarks folder>",
   "       pnpm ai summary <result file>",
+  "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -324,6 +326,7 @@ const COMMANDS = new Map([
   ["judge", judgeCommand],
   ["score", scoreCommand],
   ["summary", summaryCommand],
+  ["calibrate", calibrateCommand],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

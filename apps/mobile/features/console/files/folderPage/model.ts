@@ -15,8 +15,8 @@
  *   none last), then newest.
  *
  * Every folder and every note in the folder is an item. One with a status is
- * a **task**; one without is a plain **note**, which the List draws in its own
- * section below the tasks and the Board leaves out (`listLayout.ts`). A task
+ * a **task**; one without is a plain **note**, which the List draws with no
+ * status dot and the Board leaves out (`rowExtras.tsx`). A task
  * that is a folder holds **subtasks** — the items directly in it with a
  * status — and may hold plain notes too (`taskChildren`), one level down and
  * no deeper. See "A folder page shows its children by status" and "Tasks and

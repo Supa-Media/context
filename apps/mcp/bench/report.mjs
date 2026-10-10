@@ -62,6 +62,9 @@ const PRICES = {
   // The thinking tier a router may send a text to (`src/agent/router.js`).
   "anthropic/claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  // Decision models (`src/agent/decide.js`): input only, they write nothing.
+  "@cf/cloudflare/clef": { input: 0.24, output: 0 },
+  "@cf/cloudflare/clef-flash": { input: 0.09, output: 0 },
   // The judge the first judging used, priced so an estimate can refuse it.
   "anthropic/claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },

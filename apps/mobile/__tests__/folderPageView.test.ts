@@ -8,10 +8,12 @@
  * Reported from staging: somebody opened `projects/do this`, an empty folder,
  * and asked how to see the projects view and how to set a status. The answer
  * was "insert a list block into a note", which nobody finds. So the folder
- * page itself offers Files · List · Board, groups its children by status, and
- * gives anybody who may write a `Set status` on every folder and note —
- * writing the status into the note's own frontmatter, or a folder's front
- * note, or a new `about.md` where a folder has none.
+ * page itself offers Notes · List · Board — List the Notes rows with a status
+ * dot on each task (the owner, 2026-10-10; `folderPageList.test.ts`), Board
+ * a column per status — and gives anybody who may write a `Set status` on the
+ * folder and on every card, writing the status into the note's own
+ * frontmatter, or a folder's front note, or a new `about.md` where a folder
+ * has none.
  *
  * The properties with teeth: a member is never shown a control (the server
  * refuses the write anyway), and a folder's status goes to the front note by
@@ -154,50 +156,32 @@ async function press(node: HTMLElement) {
   });
 }
 
+const dotOf = (node: Element) => node.querySelector('[data-testid^="status-dot-"]')?.getAttribute("data-testid") ?? null;
+const dots = () => document.querySelectorAll('[data-testid^="status-dot-"]');
+const rowNamed = (name: string) => all("folder-row").find((node) => strip(node.getAttribute("aria-label")).startsWith(name))!;
+
 describe("a folder whose children have statuses", () => {
-  test("opens with its tasks by status, and the children with no status as notes below them", async () => {
+  test("opens in List: the Notes rows, a dot on each task and none on a note", async () => {
     await mount(entry("folder", "1-projects"), PROJECTS, host([]));
-    const groups = all("folder-group").map((group) => strip(group.firstElementChild?.textContent));
-    expect(groups).toEqual(["In progress2"]);
-    // A group holding two statuses names each; nothing declared, so active and paused are In progress words.
-    expect(all("folder-status").map((node) => strip(node.firstElementChild?.textContent))).toContain("Active1");
-    // Named by its front note's heading.
-    expect(strip(all("folder-group")[0].textContent)).toContain("Website folder");
+    expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
+    expect(all("folder-row").map((node) => strip(node.textContent))).toEqual(["app", "do this", "web", "loose"]);
+    // Nothing declared, so active and paused are In progress words.
+    expect(dotOf(rowNamed("web"))).toBe("status-dot-in-progress");
+    expect(dotOf(rowNamed("app"))).toBe("status-dot-in-progress");
     // A folder with nothing but its placeholder and a plain note are notes, not "No status" tasks.
-    expect(strip(all("folder-group")[0].textContent)).not.toMatch(/do this|loose|No status/);
-    expect(all("folder-note").map((row) => strip(row.textContent))).toEqual([
-      expect.stringContaining("do this"),
-      expect.stringContaining("loose"),
-    ]);
-    expect(strip(one("folder-notes").firstElementChild?.textContent)).toBe("Notes2· no status, so not tasks");
+    expect(dotOf(rowNamed("do this"))).toBeNull();
+    expect(dotOf(rowNamed("loose"))).toBeNull();
+    expect(strip(document.body.textContent)).not.toContain("No status");
   });
 
-  test("a writer makes a note a project in one press, into the note that speaks for it", async () => {
+  test("a card's status menu offers the folder's statuses in their groups", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
-    const make = all("folder-make-task");
-    // The rows of the projects folder are projects.
-    expect(make.map((node) => strip(node.textContent))).toEqual(["Make it a project", "Make it a project"]);
-    const doThis = all("folder-note").find((row) => strip(row.textContent).includes("do this"))!;
-    const button = doThis.querySelector<HTMLElement>('[data-testid="folder-make-task"]')!;
-    // Said before anything is pressed: this writes a file that is not there yet.
-    expect(button.getAttribute("aria-label")).toBe("Make it a project, saves to about.md");
-    await press(button);
-    // `do this` has only its untouched placeholder, so its first status creates about.md — To do, not Backlog.
-    expect(writes).toEqual([["1-projects/do this/about.md", "status", "to do", { create: true }]]);
-  });
-
-  test("a task's status menu offers the folder's statuses in their groups, and a note's goes in the note itself", async () => {
-    const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
-    const loose = all("folder-note").find((row) => strip(row.textContent).includes("loose"))!;
-    await press(loose.querySelector<HTMLElement>('[data-testid="folder-make-task"]')!);
-    expect(writes).toEqual([["1-projects/loose.md", "status", "to do", undefined]]);
-    const web = all("folder-item").find((row) => strip(row.textContent).includes("Website folder"))!;
-    await press(web.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
+    await press(one("folder-view-board"));
+    await press(statusOf(cardNamed("Website folder")));
     expect(strip(one("menu-root").textContent)).toMatch(/Not started.*No status.*backlog.*to do.*In progress.*in progress.*Done.*finished/);
     await press(one("menu-item-choice:4"));
-    expect(writes[1]).toEqual(["1-projects/web/overview.md", "status", "finished", undefined]);
+    expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
   });
 
   test("a choice shows at once, and a refused one is taken back with the reason", async () => {
@@ -210,26 +194,25 @@ describe("a folder whose children have statuses", () => {
       },
     };
     await mount(entry("folder", "1-projects"), PROJECTS, refusing);
-    const loose = () => all("folder-note").find((row) => strip(row.textContent).includes("loose"))!;
-    await press(loose().querySelector<HTMLElement>('[data-testid="folder-make-task"]')!);
-    // A task under To do before the write answers, and no longer a note.
-    expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["To do1", "In progress2"]);
-    expect(all("folder-note")).toHaveLength(1);
+    await press(one("folder-view-board"));
+    await press(statusOf(cardNamed("Website folder")));
+    await press(one("menu-item-choice:4"));
+    // Under Finished before the write answers, and no longer Active.
+    expect(strip(boardColumn("Finished").textContent)).toContain("Website folder");
+    expect(boardColumn("Active")).toBeUndefined();
     await act(async () => settle("That note is changing right now. Try again in a moment."));
-    expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["In progress2"]);
-    expect(all("folder-note")).toHaveLength(2);
+    expect(strip(boardColumn("Active").textContent)).toContain("Website folder");
+    expect(strip(boardColumn("Finished").textContent)).not.toContain("Website folder");
     expect(strip(one("folder-problem").textContent)).toBe("That note is changing right now. Try again in a moment.");
   });
 
-  test("a member reads the same groups with no control on them", async () => {
+  test("a member reads the same List with no control on it", async () => {
     const view = await mount(entry("folder", "1-projects"), PROJECTS, host(null));
-    expect(all("folder-group")).toHaveLength(1);
-    expect(all("folder-note")).toHaveLength(2);
-    expect(all("folder-make-task")).toHaveLength(0);
+    expect(dotOf(rowNamed("web"))).toBe("status-dot-in-progress");
+    expect(dots()).toHaveLength(2);
     expect(strip(view.container.textContent)).not.toContain("Set status");
     // Placing the folder's words is not theirs either.
     expect(all("folder-choose-group")).toHaveLength(0);
-    expect(all("folder-item-status")).toHaveLength(0);
   });
 });
 
@@ -251,11 +234,12 @@ describe("the switch", () => {
     ]);
     await press(one("folder-view-files"));
     expect(all("folder-row").length).toBeGreaterThan(0);
-    expect(all("folder-groups")).toHaveLength(0);
+    expect(dots()).toHaveLength(0);
 
     roots.pop()!();
     await mount(entry("folder", "1-projects"), PROJECTS, host([]));
-    expect(all("folder-groups")).toHaveLength(0);
+    expect(one("folder-view-files").getAttribute("aria-selected")).toBe("true");
+    expect(dots()).toHaveLength(0);
     expect(all("folder-row").length).toBeGreaterThan(0);
   });
 });
@@ -313,21 +297,16 @@ describe("a plain folder", () => {
 });
 
 describe("on a phone", () => {
-  test("the same choice comes from a sheet, and the owner moves under the name", async () => {
+  test("the same choice comes from a sheet", async () => {
     windowOf(390, 844);
     const writes: Write[] = [];
-    const view = await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
-    const web = all("folder-item").find((row) => strip(row.textContent).includes("Website folder"))!;
-    expect(strip(web.textContent)).toContain("Seyi");
-    expect(web.querySelector('[data-testid="folder-item-owner"]')).toBeNull();
+    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
     expect(all("folder-view-switch")).toHaveLength(1);
-    await press(web.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
+    await press(one("folder-view-board"));
+    await press(statusOf(cardNamed("Website folder")));
     expect(all("menu-sheet")).toHaveLength(1);
     await press(one("menu-item-choice:4"));
     expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
-    // With no pointer to reveal it, Make it a project is drawn on every note.
-    expect(all("folder-make-task")).toHaveLength(2);
-    expect(view.container.textContent).toBeTruthy();
   });
 });
 
@@ -346,7 +325,7 @@ describe("a folder outside projects", () => {
     await mount(entry("folder", "2-areas"), AREAS, areas());
     expect(all("folder-view-switch")).toHaveLength(0);
     expect(all("folder-nudge")).toHaveLength(0);
-    expect(all("folder-groups")).toHaveLength(0);
+    expect(dots()).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(3);
   });
 
@@ -381,17 +360,23 @@ describe("a folder of folders nobody has tracked yet", () => {
     { path: "1-projects/rhythm/overview.md", updatedAt: 6, properties: { priority: "high" } },
   ];
   const LIST = listing("1-projects", [entry("folder", "1-projects/trip"), entry("folder", "1-projects/rhythm")]);
-  const untracked = (): FolderPageHost => ({ ...host([]), source: { load: async () => ({ notes: UNTRACKED, complete: true }), setProperty: async () => null } });
+  const untracked = (writes: Write[] = []): FolderPageHost => ({
+    ...host(writes),
+    source: { ...host(writes).source, load: async () => ({ notes: UNTRACKED, complete: true }) },
+  });
 
   test("opens as files, with one line offering the list, which only switches the view", async () => {
-    await mount(entry("folder", "1-projects"), LIST, untracked());
+    const writes: Write[] = [];
+    await mount(entry("folder", "1-projects"), LIST, untracked(writes));
     expect(all("folder-row")).toHaveLength(2);
     expect(strip(one("folder-nudge").textContent)).toContain("Track these folders by status?");
     await press(one("folder-nudge-show"));
-    // Nothing has a status yet, so both are notes, each one press from being a project.
-    expect(all("folder-group")).toHaveLength(0);
-    expect(all("folder-make-task").map((node) => strip(node.textContent))).toEqual(["Make it a project", "Make it a project"]);
+    expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
+    // Nothing has a status yet, so both are notes: the same two rows, with no dot.
+    expect(all("folder-row")).toHaveLength(2);
+    expect(dots()).toHaveLength(0);
     expect(all("folder-nudge")).toHaveLength(0);
+    expect(writes).toEqual([]);
   });
 
   test("is not offered to a member, who could set nothing in the list it opens", async () => {
@@ -410,6 +395,10 @@ describe("a folder of folders nobody has tracked yet", () => {
   });
 });
 
+const boardColumn = (label: string) => all("folder-board-column").find((node) => node.getAttribute("aria-label")?.startsWith(`${label},`))!;
+const cardNamed = (name: string) => all("folder-card-drag").find((node) => strip(node.textContent).includes(name))!;
+const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-testid="folder-card-status"]')!;
+
 /** A drag event carrying a card, as jsdom has no DataTransfer of its own. */
 function drag(type: string, data: Map<string, string>): Event {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -426,9 +415,8 @@ function drag(type: string, data: Map<string, string>): Event {
 }
 
 describe("the board", () => {
-  const column = (label: string) => all("folder-board-column").find((node) => node.getAttribute("aria-label")?.startsWith(`${label},`))!;
+  const column = boardColumn;
   const cardIn = (label: string) => strip(column(label).textContent);
-  const cardNamed = (name: string) => all("folder-card-drag").find((node) => strip(node.textContent).includes(name))!;
 
   async function dragOnto(name: string, label: string) {
     const data = new Map<string, string>();
@@ -535,25 +523,14 @@ describe("the board", () => {
   });
 });
 
-describe("a quiet status in the list", () => {
-  test("is hidden beside its group heading, and shown when a keyboard reaches it", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
-    const web = all("folder-item").find((row) => strip(row.textContent).includes("Website folder"))!;
-    const button = web.querySelector<HTMLElement>('[data-testid="folder-item-status"]')!;
-    const word = button.firstElementChild as HTMLElement;
-    expect(getComputedStyle(word).opacity).toBe("0");
-    await act(async () => button.focus());
-    expect(getComputedStyle(word).opacity).not.toBe("0");
-  });
-});
-
 /**
  * Dev2, on the first cut: a sentence per word, stacked between the header and
  * the list ("is on 1 item here but isn’t one of this folder’s statuses…"),
  * "should never ever look like this". So a word the folder's list does not
  * hold asks nothing of the page: an ordinary word sits in its group, a word
- * nobody placed sits last under No group yet with one Choose group on its own
- * heading, and tidying (add, merge) is in "Edit statuses…".
+ * nobody placed is the Board's last column with one Choose group on its own
+ * head, and tidying (add, merge) is in "Edit statuses…". (The List once drew
+ * it last under No group yet; the List no longer groups, 2026-10-10.)
  */
 describe("a word nobody placed", () => {
   const UNPLACED: ListNote[] = [...NOTES, { path: "1-projects/research.md", updatedAt: 10, properties: { status: "exploration" } }];
@@ -578,12 +555,14 @@ describe("a word nobody placed", () => {
     };
   }
 
-  test("sits last under No group yet, asked about on its own heading and nowhere above the list", async () => {
+  test("on the board, it is the last column, with Choose group in its own head and nowhere else", async () => {
     const view = await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
-    const groups = all("folder-group");
-    expect(groups.map((group) => strip(group.firstElementChild?.textContent))).toEqual(["In progress2", "No group yet1Choose group"]);
+    await press(one("folder-view-board"));
+    // Its column comes after Done.
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
+    const column = all("folder-board-column").find((node) => node.getAttribute("aria-label") === "Exploration, 1")!;
     expect(all("folder-choose-group")).toHaveLength(1);
-    expect(groups[1].contains(one("folder-choose-group"))).toBe(true);
+    expect(column.contains(one("folder-choose-group"))).toBe(true);
     // Neither word is a sentence anywhere on the page.
     expect(strip(view.container.textContent)).not.toMatch(/isn’t one of this folder’s statuses|reads as|Merge into|Keep as a status/);
   });
@@ -592,6 +571,7 @@ describe("a word nobody placed", () => {
     const writes: Write[] = [];
     const lists: ListWrite[] = [];
     await mount(entry("folder", "1-projects"), RESEARCH, placing(writes, lists));
+    await press(one("folder-view-board"));
     await press(one("folder-choose-group"));
     await press(one("menu-item-to:not-started"));
     expect(lists).toHaveLength(1);
@@ -600,24 +580,17 @@ describe("a word nobody placed", () => {
     expect(writes).toEqual([]);
   });
 
-  test("on the board, Choose group is in the word's own column head", async () => {
-    await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
-    await press(one("folder-view-board"));
-    // Its column comes after Done, the way No group yet ends the List.
-    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
-    const column = all("folder-board-column").find((node) => node.getAttribute("aria-label") === "Exploration, 1")!;
-    expect(column.contains(one("folder-choose-group"))).toBe(true);
-  });
-
-  test("a member sees No group yet with nothing to press", async () => {
+  test("a member sees its column with nothing to press", async () => {
     await mount(entry("folder", "1-projects"), RESEARCH, placing(null));
-    expect(strip(all("folder-group").at(-1)?.firstElementChild?.textContent)).toBe("No group yet1");
+    await press(one("folder-view-board"));
+    expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
     expect(all("folder-choose-group")).toHaveLength(0);
   });
 
   test("Edit statuses lists the words in use, and merging one asks with the count first", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects"), RESEARCH, placing(writes));
+    await press(one("folder-view-board"));
     await press(one("folder-choose-group"));
     await press(one("menu-item-edit"));
     const rows = all("statuses-in-use-row").map((row) => strip(row.textContent));

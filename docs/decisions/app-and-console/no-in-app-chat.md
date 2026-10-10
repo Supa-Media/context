@@ -11,7 +11,7 @@ AI key in the note bar — answered through a
 model key the person pasted into Settings. All of it is gone, on web, desktop
 and phone, together with the client-side engine behind it
 (`features/agent/{AgentPanel,AgentConversation,engine,gateway,local,page,…}`).
-The model-key setting it depended on goes in the same pass on the Settings side.
+The model-key setting it depended on was removed from Settings the same day (#1465).
 
 What is left in the right panel is what happens *beside* a note and is not a
 conversation: Meetings, which it now opens on, and Approvals.

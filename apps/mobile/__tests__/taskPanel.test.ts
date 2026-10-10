@@ -3,16 +3,20 @@
  */
 
 /**
- * A TASK OPENS BESIDE THE LIST, NOT INSTEAD OF IT.
+ * A TASK OPENS BESIDE THE BOARD, NOT INSTEAD OF IT.
  *
  * The approved side panel (owner, 2026-09-28): on a desktop page, pressing a
- * task — a List row or a Board card — opens it on the right: where it is,
+ * task's Board card opens it on the right: where it is,
  * its name, Status, Priority, Owners, Tags and Due as one-click values, its
  * subtasks with dots that tick them off, and the notes in it, with "+ Add
  * subtask" and "+ Add a note". Expand goes where pressing used to; ✕ and
  * Escape close it. On a phone pressing still opens the page. A member reads
  * every value and has nothing to press that would write. Notes, projects and
  * the body are `sidePeek.test.ts`'s.
+ *
+ * The List no longer opens the panel (the owner, 2026-10-10): its rows are
+ * the Notes rows and pressing one opens the page, as `folderPageList.test.ts`
+ * proves. The Board is the panel's way in.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -41,21 +45,26 @@ beforeEach(() => {
 });
 afterEach(unmountAll);
 
-const row = (name: string) => all("folder-item").find((node) => strip(node.textContent).includes(name))!;
+const card = (name: string) => all("folder-card").find((node) => strip(node.textContent).includes(name))!;
 const panel = () => one("task-panel");
 const value = (name: string) => strip(one(`task-panel-${name}`).textContent);
 
 async function openTask(name: string, writes: Write[] | null = [], files: string[] = []) {
   const mounted = await mount(host(writes, { files }));
-  await press(row(name));
+  await showBoard();
+  await press(card(name));
   return mounted;
 }
 
+async function showBoard() {
+  await press(one("folder-view-board"));
+}
+
 describe("the side panel", () => {
-  test("a task opens beside the list, with where it is, its name and its values in words", async () => {
+  test("a task opens beside the board, with where it is, its name and its values in words", async () => {
     const { selected } = await openTask("Get the kitchen ready");
     expect(selected).toEqual([]);
-    expect(all("folder-groups")).toHaveLength(1);
+    expect(all("folder-card").length).toBeGreaterThan(0);
     expect(strip(one("task-panel-crumb").textContent)).toContain("Café opening");
     expect(strip(one("task-panel-title").textContent)).toBe("Get the kitchen ready");
     expect(value("status")).toContain("in progress");
@@ -64,17 +73,17 @@ describe("the side panel", () => {
     expect(value("tags")).toMatch(/Kitchen.*Suppliers/);
     expect(value("due")).toContain("No due date");
     expect(strip(panel().textContent)).not.toMatch(/\bp[0-3]\b|frontmatter|markdown/i);
-    // The row it came from is marked while it is open.
-    expect(row("Get the kitchen ready").getAttribute("aria-current")).toBe("true");
+    // The card it came from is marked while it is open.
+    expect(card("Get the kitchen ready").getAttribute("aria-current")).toBe("true");
   });
 
-  test("Expand goes where pressing the row used to; ✕ and Escape close it", async () => {
+  test("Expand goes where pressing the card used to; ✕ and Escape close it", async () => {
     const { selected } = await openTask("Get the kitchen ready");
     await press(one("task-panel-expand"));
     expect(selected).toEqual([`${CAFE}/kitchen`]);
     await press(one("task-panel-close"));
     expect(all("task-panel")).toHaveLength(0);
-    await press(row("Sign the lease"));
+    await press(card("Sign the lease"));
     expect(strip(one("task-panel-title").textContent)).toBe("Sign the lease");
     await key(document, "Escape");
     expect(all("task-panel")).toHaveLength(0);
@@ -169,17 +178,18 @@ describe("the side panel", () => {
     expect(files[2]).toBe(`create ${CAFE}/lease/Get the keys.md\n---\nstatus: to do\n---\n\n# Get the keys\n`);
   });
 
-  test("a subtask added here is drawn at once, in the List too, and one Undo takes it and the folder back", async () => {
+  test("a subtask added here is drawn at once, on its card too, and one Undo takes it and the folder back", async () => {
     const files: string[] = [];
     const toasts: Toast[] = [];
     await mount(host([], { files, toasts }));
-    await press(row("Sign the lease"));
+    await showBoard();
+    await press(card("Sign the lease"));
     await press(one("task-panel-add-subtask"));
     await type(one("quick-add-title"), "Read the small print");
     await key(one("quick-add-title"), "Enter");
-    // The same road as the List's own "+ Subtask": drawn before any reload, and said with an Undo.
+    // Drawn before any reload, and said with an Undo.
     expect(all("task-panel-subtask").map((node) => strip(node.textContent))).toEqual([expect.stringContaining("Read the small print")]);
-    expect(strip(row("Sign the lease").textContent)).toContain("0/1");
+    expect(strip(card("Sign the lease").textContent)).toContain("0/1");
     expect(toasts.at(-1)?.undo).toBeDefined();
     await act(async () => toasts.at(-1)!.undo!());
     await act(async () => undefined);
@@ -207,13 +217,9 @@ describe("the side panel", () => {
     expect(all("task-panel-subtask")).toHaveLength(3);
   });
 
-  test("a plain note opens in the panel too, and so does a Board card", async () => {
-    const { selected } = await mount(host([]));
-    await press(all("folder-note").find((node) => strip(node.textContent).includes("Opening budget"))!);
+  test("a task with no owner opens from its card and says so", async () => {
+    const { selected } = await openTask("Take photos");
     expect(selected).toEqual([]);
-    expect(strip(one("task-panel-title").textContent)).toBe("Opening budget");
-    await press(one("folder-view-board"));
-    await press(all("folder-card").find((node) => strip(node.textContent).includes("Take photos"))!);
     expect(strip(one("task-panel-title").textContent)).toBe("Take photos for the menu");
     expect(value("owners")).toContain("No owner");
   });
@@ -226,7 +232,8 @@ describe("the side panel", () => {
       ...page,
       source: { ...page.source, load: async () => ({ notes, complete: true }), subscribe: (listener: () => void) => (listeners.push(listener), () => {}) },
     });
-    await press(row("Get the kitchen ready"));
+    await showBoard();
+    await press(card("Get the kitchen ready"));
     expect(all("task-panel")).toHaveLength(1);
     notes = NOTES.filter((each) => !each.path.startsWith(`${CAFE}/kitchen/`));
     await act(async () => listeners.forEach((listener) => listener()));
@@ -237,7 +244,8 @@ describe("the side panel", () => {
   test("on a phone, pressing a task opens its page as it always has", async () => {
     windowOf(390, 844);
     const { selected } = await mount(host([]));
-    await press(row("Get the kitchen ready"));
+    await showBoard();
+    await press(card("Get the kitchen ready"));
     expect(all("task-panel")).toHaveLength(0);
     expect(selected).toEqual([`${CAFE}/kitchen`]);
   });

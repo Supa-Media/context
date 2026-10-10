@@ -126,13 +126,15 @@ export function useConsoleAside({
 
   const meetingsSnapshot = useMeetingsSnapshot();
   /*
-    What the egress gate is holding for this context, for the right panel's
+    What the egress gate is holding for this person, in any of their contexts, for the right panel's
     Approvals tab and its count. Read here because the count has to be known
     before anybody opens the tab. Off where there is no panel (a phone's
     console has none), on the demo, and with no context to ask about.
   */
   const approvals = useApprovals({
     workspaceId: data.selectedContextId,
+    // Held in the asking connection's own workspace, so listed from all of them.
+    workspaceIds: data.contexts.map((c) => c.id),
     endpoint: data.endpoint,
     enabled: !phone && !data.demo && data.selectedContextId !== null,
   });
