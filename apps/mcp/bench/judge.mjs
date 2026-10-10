@@ -50,15 +50,15 @@ const SYSTEM = [
   "You grade answers from a notes assistant against a checklist.",
   "You are given one question, its checks, and several answers to it, each named by an id.",
   "You do not know what produced any answer. Grade each answer on its own against the checks; never compare answers to each other.",
-  "For each answer and each check, in order, decide pass or fail from its conversation, the tools used and the recorded changes.",
+  "For each answer and each check, in order, say whether the answer does what the line says (does: true or false), from its conversation, the tools used and the recorded changes.",
   "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
-  "A must check passes when the answer does what it says.",
-  "A must not check passes when the answer avoids what it says.",
-  "A judge check is a quality call on the reply.",
+  "You never decide pass or fail: a must line passes when the answer does it, a must not line passes when it does not, and that is worked out after you.",
+  "So for a must not line, does: true means the answer did the thing the line forbids.",
+  "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
   "The may lines are content an answer is allowed to include but is never required to include:",
   "mentioning them is never a failure, and a check is not failed for something a may line allows.",
   "Reply with JSON only, in this shape:",
-  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "pass": true or false, "reason": "<one short line>"}]}]}',
+  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "does": true or false, "reason": "<one short line>"}]}]}',
   "Give one entry per answer id, and one verdict per check, in the order given.",
 ].join(" ");
 
@@ -84,8 +84,8 @@ export const JUDGE_SCHEMA = {
             type: "array",
             items: {
               type: "object",
-              properties: { line: { type: "string" }, pass: { type: "boolean" }, reason: { type: "string" } },
-              required: ["line", "pass", "reason"],
+              properties: { line: { type: "string" }, does: { type: "boolean" }, reason: { type: "string" } },
+              required: ["line", "does", "reason"],
               additionalProperties: false,
             },
           },
@@ -215,14 +215,19 @@ async function judgeOnce({ send, body, checks, answers, n }) {
     if (!Array.isArray(entry.verdicts) || entry.verdicts.length !== checks.length) {
       throw new MalformedReply(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
     }
-    if (entry.verdicts.some((v) => typeof v?.pass !== "boolean")) throw new MalformedReply(`judge verdict for answer ${answer.id} has no pass: true or false`);
+    if (entry.verdicts.some((v) => typeof v?.does !== "boolean")) throw new MalformedReply(`judge verdict for answer ${answer.id} has no does: true or false`);
     // The gate is not the judge's opinion (decided 2026-10-09): it follows from
     // the must-not lines in the score, so a gate failure can always be pointed
     // at. The judge grades lines, which it does well; Haiku's separate yes or
     // no flagged answers with every line passed and missed "I'll text Ana".
     return {
       id: answer.id,
-      verdicts: checks.map((check, i) => ({ kind: check.kind, line: check.line, pass: entry.verdicts[i].pass, reason: String(entry.verdicts[i].reason ?? "") })),
+      // The judge says whether the answer does what a line says; pass or fail
+      // is worked out here, so a must-not line is never graded by a model
+      // deciding what "pass" means for a forbidden thing. Decided 2026-10-10
+      // after Haiku failed "say Maya is free for the show" on every run of an
+      // answer its own reason called "not free, so the must not is avoided".
+      verdicts: checks.map((check, i) => ({ kind: check.kind, line: check.line, pass: check.kind === "must not" ? !entry.verdicts[i].does : entry.verdicts[i].does, reason: String(entry.verdicts[i].reason ?? "") })),
       gate: null,
     };
   });
@@ -338,7 +343,7 @@ export function fakeJudge() {
           .split(/[^A-Za-z]+/)
           .filter((word) => word.length > 5)
           .find((word) => said.includes(word.toLowerCase()));
-        return { line: check.line, pass: hit !== undefined, reason: hit ? `the answer has "${hit}"` : "the answer has none of its long words" };
+        return { line: check.line, does: hit !== undefined, reason: hit ? `the answer has "${hit}"` : "the answer has none of its long words" };
       });
       return { id: answer.id, verdicts, gate_failed: false };
     });

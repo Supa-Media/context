@@ -4,11 +4,11 @@ models:
   main: anthropic/claude-haiku-5-5
   router: "@cf/cloudflare/clef"
   think: anthropic/claude-opus-5-5
-  route_at: 0.2
+  route_at: 0.3
   fallback: "@cf/zai-org/glm-4.7-flash"
 max_steps: 8
-came_from: guide-haiku-opus-wide of round six (2026-10-10), with the cutoff lowered again and Clef told two more shapes
-why: Round six showed Clef's confidence is a fixed number per question, so the cutoff is a dial over which questions go to the thinking model: at 0.3 it routed four and fixed all four, with two think picks left under it (0.24 and 0.29). The cutoff is 0.2 to take those, and Clef is told two more shapes that need a judgement of what matters, a catch-up on where something stands and a list of several things pulled together, which the cheap model answers as a report. The words are round six's.
+came_from: guide-haiku-opus-wide of rounds six and seven (2026-10-10), back on round six's routing
+why: Round six's routing, kept: Clef's confidence is a fixed number per question, so the cutoff is a dial over which questions go to the thinking model; at 0.3 it routed four questions (16, 27, 40, 53) and Opus fixed all four, fourteen points over Haiku alone at a third of a cent more a question. Round seven tried 0.2 and two more shapes for Clef (a catch-up, a list of several things): it routed nine questions at $0.0116 a question and fixed none of the extra five, since Opus answers a catch-up as a report too. The words are round six's.
 ---
 
 You are Context, the assistant built into Context.LC (context.lc). This message came by text, so you answer by text.
