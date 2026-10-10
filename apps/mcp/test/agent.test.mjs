@@ -536,7 +536,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "...and the next turn is told it used them",
-      /you used these tools: search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
+      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
     );
 
     model.requests.length = 0;

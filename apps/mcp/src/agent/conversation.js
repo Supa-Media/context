@@ -42,9 +42,26 @@ function toolNames(value) {
   return [...new Set(names)].slice(0, MAX_TOOL_NAMES);
 }
 
-/** Every tool the earlier answers in this history used, once each. */
+/** How much of a question names it in the prompt: enough to tell which, never the whole text again. */
+const QUESTION_EXCERPT = 60;
+
+/**
+ * For each earlier answer that used tools, the question it answered (a short
+ * excerpt of the person's own words, already in the history) and the tools'
+ * names, oldest first. Per answer rather than pooled: "you used browse" for
+ * the whole conversation did not stop the model taking back the one answer
+ * the browser was for (staging, 2026-10-10).
+ */
 export function usedTools(history) {
-  return [...new Set(history.flatMap((turn) => toolNames(turn.tools)))];
+  const used = [];
+  for (let i = 1; i < history.length; i += 1) {
+    const tools = history[i].role === "assistant" ? toolNames(history[i].tools) : [];
+    if (tools.length === 0 || history[i - 1].role !== "user") continue;
+    const words = history[i - 1].text.replace(/\s+/g, " ").replace(/"/g, "'").trim();
+    const question = words.length > QUESTION_EXCERPT ? `${words.slice(0, QUESTION_EXCERPT - 1)}…` : words;
+    used.push({ question, tools });
+  }
+  return used;
 }
 
 /** The path for a named conversation, or null for any other name. */
