@@ -23,8 +23,8 @@ would type, not the words the note uses, so the two halves of search are both
 measured: the ones that share a word with the note are the word search's, and
 the ones that share none ("tooth cleaning", "fabric mill") are the meaning
 search's. Questions with no `in:` are asked from the person's own workspace,
-which is where an assistant starts; whether the note in another workspace comes
-back is what the `everywhere` setting decides.
+which is where an assistant starts; a search reaches every workspace the person
+can by default, and a setup with `everywhere: false` keeps it to that one.
 
 ## 1. dentist appointment
 

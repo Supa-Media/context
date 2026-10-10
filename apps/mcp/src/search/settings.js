@@ -7,8 +7,14 @@
  * knobs, each with the constant it used to be as its default:
  *
  *   everywhere     `search_notes` with no `context` searches every workspace
- *                  the person can reach and fuses one list (`tools/search.js`),
- *                  instead of the one the connection is on. Default off.
+ *                  the person can reach and fuses one list (`tools/search.js`).
+ *                  Default on (decided by the owner 2026-10-10, after the
+ *                  search benchmark found 100% that way against 59% one
+ *                  workspace at a time, with no held-back note leaking): a
+ *                  person's answer lives wherever it lives, and a call that
+ *                  wants one workspace names it with `context:` or narrows
+ *                  with `prefix`. `false` restricts a deployment or a setup
+ *                  to the workspace each call addresses.
  *   min_score      the closeness under which a meaning match is noise
  *                  (`MEANING_MIN_SCORE`, 0.40).
  *   extra_notes    how many notes found only by meaning one search may add
@@ -25,7 +31,7 @@
  */
 
 export const DEFAULT_SEARCH_SETTINGS = Object.freeze({
-  everywhere: false,
+  everywhere: true,
   minScore: 0.4,
   extraNotes: 3,
   snippetChars: 200,

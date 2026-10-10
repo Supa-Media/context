@@ -43,9 +43,19 @@ test("a value out of bounds, a key it does not know, or a shape that is not a ma
   }
 });
 
+test("searching every workspace is the default, and a deployment or a setup may restrict it", () => {
+  // Decided by the owner 2026-10-10: a call with no `context` covers every
+  // workspace the person can reach; `everywhere: false` is the restriction.
+  assert.equal(DEFAULT_SEARCH_SETTINGS.everywhere, true);
+  assert.equal(searchSettingsFor({}).everywhere, true);
+  assert.equal(searchSettingsFor({ SEARCH_SETTINGS: '{"everywhere": false}' }).everywhere, false);
+  assert.equal(searchSettingsOf({ searchSettings: { everywhere: false } }).everywhere, false);
+  assert.equal(searchSettingsOf({}, { everywhere: false }).everywhere, false);
+});
+
 test("the deployment's var lays over the defaults; a var that does not parse is the defaults", () => {
   assert.deepEqual(searchSettingsFor({}), DEFAULT_SEARCH_SETTINGS);
-  assert.deepEqual(searchSettingsFor({ SEARCH_SETTINGS: '{"everywhere": true, "min_score": 0.3}' }), { ...DEFAULT_SEARCH_SETTINGS, everywhere: true, minScore: 0.3 });
+  assert.deepEqual(searchSettingsFor({ SEARCH_SETTINGS: '{"everywhere": false, "min_score": 0.3}' }), { ...DEFAULT_SEARCH_SETTINGS, everywhere: false, minScore: 0.3 });
   const quiet = console.error;
   console.error = () => {};
   try {
@@ -59,7 +69,7 @@ test("the deployment's var lays over the defaults; a var that does not parse is 
 test("a setup's section lays over the store's, which lays over the defaults", () => {
   const store = { searchSettings: { ...DEFAULT_SEARCH_SETTINGS, minScore: 0.3 } };
   assert.deepEqual(searchSettingsOf(store), { ...DEFAULT_SEARCH_SETTINGS, minScore: 0.3 });
-  assert.deepEqual(searchSettingsOf(store, { everywhere: true }), { ...DEFAULT_SEARCH_SETTINGS, minScore: 0.3, everywhere: true });
+  assert.deepEqual(searchSettingsOf(store, { everywhere: false }), { ...DEFAULT_SEARCH_SETTINGS, minScore: 0.3, everywhere: false });
   assert.deepEqual(searchSettingsOf({}), DEFAULT_SEARCH_SETTINGS);
 });
 

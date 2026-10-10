@@ -174,6 +174,20 @@ thing until the cutoff fix of PR #1475.
   that cannot be opened is left out, never guessed at. The repository's
   standing note that cross-context search *ranking* is not built still holds:
   this fuses by rank, it does not rank across workspaces by score.
+- **Everywhere is the default** (decided by the owner, 2026-10-10, later the
+  same day: "by default, we should be searching all workspaces"). It began as
+  a setting that was off so it could be measured against the old one-workspace
+  search; the search benchmark found everything the old way found and more
+  (100% against 59%, 90% in the first three, no held-back note through the
+  fan-out), and the owner asked why a flag at all. So `search_notes` with no
+  `context` covers every workspace the person can reach, the tool's own
+  description says so to every AI client, and the way to search one workspace
+  is to name it: `context: "@name"` for another, `prefix` for a subtree of
+  this one. `everywhere: false` remains as a restriction a deployment's var or
+  a setup may set (the search job's `words-and-meaning` baseline uses it); it
+  is no longer the way the feature is reached. The texting assistant's
+  production prompt still describes search as one workspace at a time: a
+  prompt change is a promotion, and the owner's.
 - **The search job** (`bench/search.mjs`, `tests/search.md`,
   `setups/search/*.md`, `pnpm ai search`, the Action with `job: search`) is
   one `search_notes` call a query as the person named, through the MCP
@@ -186,11 +200,14 @@ thing until the cutoff fix of PR #1475.
 **What a simplification would cost:** tuning the meaning cutoff on production
 indexes by hand (as PR #1475 had to) is one afternoon's measurement that
 nobody can repeat; a benchmark that still searched words only would keep
-understating what people get. Tests: `bench/test/warm.test.mjs` ("with an
-embedder, the warm pass fills a meaning index per workspace, and a
-conversation's search asks it", "with everywhere on, one search reaches the
-other workspaces, and a held-back note stays absent for a member"),
-`test/searchSettings.test.mjs`, `bench/test/search.test.mjs`.
+understating what people get; an everywhere that is off by default is a
+feature every assistant has to know to ask for, which is the guessing the
+benchmark measured. Tests: `bench/test/warm.test.mjs` ("with an embedder,
+the warm pass fills a meaning index per workspace, and a conversation's
+search asks it", "by default one search reaches the other workspaces, a
+held-back note stays absent for a member, and a setup may keep to one"),
+`test/searchSettings.test.mjs` ("searching every workspace is the default,
+and a deployment or a setup may restrict it"), `bench/test/search.test.mjs`.
 
 ### The judge says what an answer does; pass or fail is worked out by the harness (2026-10-10)
 

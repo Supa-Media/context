@@ -239,17 +239,23 @@ export async function runUsageReportingChecks(check) {
   {
     await call("search_notes", { query: "my private diagnosis and the password hunter2" });
     const timings = controlPlane.calls.filter((c) => c.path === "/gateway/search-timing").map((c) => c.body);
-    check("a search reports one timing", timings.length === 1);
-    const [timing] = timings;
+    // A search covers every workspace the person can reach (the default since
+    // 2026-10-10), and each workspace's index reports its own timing: one
+    // for this workspace, and one per other workspace the session reaches.
+    const own = timings.filter((timing) => timing?.workspaceId === WS);
+    check("a search reports one timing for the workspace it was asked in", own.length === 1);
+    check("every timing is one workspace's, never two in one", new Set(timings.map((timing) => timing?.workspaceId)).size === timings.length);
+    const [timing] = own;
     check(
       "a timing carries a workspace, which index answered, whether it found anything and a time, and nothing else",
-      timing !== undefined &&
-        Object.keys(timing).sort().join(",") === "answeredBy,found,ms,workspaceId" &&
-        timing.workspaceId === WS &&
-        ["fast", "index", "scan"].includes(timing.answeredBy) &&
-        typeof timing.found === "boolean" &&
-        typeof timing.ms === "number" &&
-        timing.ms >= 0,
+      timings.every(
+        (entry) =>
+          Object.keys(entry).sort().join(",") === "answeredBy,found,ms,workspaceId" &&
+          ["fast", "index", "scan"].includes(entry.answeredBy) &&
+          typeof entry.found === "boolean" &&
+          typeof entry.ms === "number" &&
+          entry.ms >= 0,
+      ) && timing !== undefined,
     );
     const serialized = JSON.stringify(timings);
     check(
