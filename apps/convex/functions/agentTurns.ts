@@ -39,6 +39,7 @@ export const traceEntryValidator = v.object({
   model: v.optional(v.string()),
   status: v.optional(v.number()),
   retried: v.optional(v.boolean()),
+  held: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });
@@ -74,7 +75,7 @@ export const recordAgentTurn = internalMutation({
       const ms = count(entry.ms, MAX_MS);
       if (entry.kind === "tool") {
         if (entry.tool === undefined || !TOOL_NAME.test(entry.tool)) return false;
-        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms });
+        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms, ...(entry.held ? { held: true } : {}) });
       } else if (entry.kind === "router") {
         // The router's pick (`src/agent/router.js`): which tier, and so which model, answered.
         if (entry.tool !== undefined || entry.tier === undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;

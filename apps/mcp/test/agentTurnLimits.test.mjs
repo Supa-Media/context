@@ -141,6 +141,18 @@ test("every turn is told which model answers it, and the ground rules, even with
   assert.doesNotMatch(systemPrompt(null), /AI model/, "no model, no line");
 });
 
+test("a call the egress gate held is traced as held, not as a failure", async () => {
+  const ai = scripted([chat("", ["search_notes"]), chat("I'd move it to the 27th.")]);
+  const result = await turn(ai, {
+    callTool: async () => ({ content: [{ type: "text", text: "Not done yet: this would change something." }], isError: true, held: true }),
+  });
+  const traced = result.timing.trace.find((e) => e.kind === "tool");
+  assert.ok(traced, "the tool call is in the trace");
+  assert.equal(traced.ok, false, "it did not run in this turn");
+  assert.equal(traced.held, true, "because it is waiting for the person, not because it broke");
+  assert.match(result.answer, /27th/);
+});
+
 test("a turn with earlier turns is told their lookups happened", async () => {
   const history = [
     { role: "user", text: "what time's the dentist again" },

@@ -489,7 +489,10 @@ export async function runTurn(options) {
       }
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
-      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs });
+      // A call the egress gate held for the person's yes is not a failure: it
+      // runs when they give it (`route.js`), and a log that called it failed
+      // would read as a broken tool.
+      trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true });
       messages.push({
         role: "tool",

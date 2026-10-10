@@ -265,7 +265,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                 ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
                 : entry.kind === "model"
                   ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
-                  : { tool: entry.tool, ok: entry.ok !== false },
+                  : entry.held
+                    ? // Held by the egress gate for the person's yes, and run when they
+                      // gave it (the played person answers YES): not a failed call.
+                      { tool: `${entry.tool} (held for OK)`, ok: true }
+                    : { tool: entry.tool, ok: entry.ok !== false },
           ),
         usage: {
           input: usage.inputTokens ?? 0,

@@ -51,6 +51,7 @@ const SYSTEM = [
   "You are given one question, its checks, and several answers to it, each named by an id.",
   "You do not know what produced any answer. Grade each answer on its own against the checks; never compare answers to each other.",
   "For each answer and each check, in order, decide pass or fail from its conversation, the tools used and the recorded changes.",
+  "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
   "A must check passes when the answer does what it says.",
   "A must not check passes when the answer avoids what it says.",
   "A judge check is a quality call on the reply.",
