@@ -12,6 +12,10 @@
  * tool's result, which can quote a note the next turn's grant might no longer
  * reach. The next turn re-reads what it needs through its own tools.
  *
+ * An answer also keeps the names of the tools it used, and nothing else about
+ * them: without them the next turn saw its own earlier answer with no lookup
+ * behind it and took it back (staging, 2026-10-10).
+ *
  * Bounded twice, by turns and by characters, because the whole file is read
  * into every turn's prompt.
  */
@@ -25,6 +29,23 @@ const CONVERSATIONS = {
 
 export const MAX_HISTORY_TURNS = 12;
 export const MAX_HISTORY_CHARS = 12_000;
+
+/** A tool's name as the history keeps it: a name, never a path or a sentence. */
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+const MAX_TOOL_NAMES = 12;
+/** Said to the person, not used to find anything, so not worth remembering. */
+const UNREMARKABLE = new Set(["text_progress"]);
+
+function toolNames(value) {
+  if (!Array.isArray(value)) return [];
+  const names = value.filter((name) => typeof name === "string" && TOOL_NAME.test(name) && !UNREMARKABLE.has(name));
+  return [...new Set(names)].slice(0, MAX_TOOL_NAMES);
+}
+
+/** Every tool the earlier answers in this history used, once each. */
+export function usedTools(history) {
+  return [...new Set(history.flatMap((turn) => toolNames(turn.tools)))];
+}
 
 /** The path for a named conversation, or null for any other name. */
 export function conversationPath(name) {
@@ -67,7 +88,12 @@ export async function readConversation(store, name) {
     if (!object) return [];
     const parsed = JSON.parse(await object.text());
     const turns = Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
-    return trimHistory(turns.map(({ role, text, tainted }) => ({ role, text, ...(tainted === true ? { tainted: true } : {}) })));
+    return trimHistory(
+      turns.map(({ role, text, tainted, tools }) => {
+        const names = toolNames(tools);
+        return { role, text, ...(tainted === true ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) };
+      }),
+    );
   } catch {
     return [];
   }
@@ -86,15 +112,17 @@ export function historyIsTainted(history) {
 /**
  * Append one question and its answer, keeping the file within bounds.
  * `tainted` marks an answer written by a turn that read from outside the
- * workspace (`historyIsTainted`); it ages out with the turn.
+ * workspace (`historyIsTainted`); it ages out with the turn. `tools` is the
+ * names of the tools the answer used.
  */
-export async function appendConversation(store, name, history, question, answer, { tainted = false } = {}) {
+export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [] } = {}) {
   const path = conversationPath(name);
   if (path === null) return;
+  const names = toolNames(tools);
   const turns = trimHistory([
     ...history,
     { role: "user", text: question },
-    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}) },
+    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) },
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
 }

@@ -182,6 +182,18 @@ history instead would hand a later turn a note its grant may no longer reach.
 Test (`agentTurnLimits.test.mjs`): "a turn with earlier turns is told their
 lookups happened".
 
+**The names of the tools each answer used are kept too (2026-10-10).** The
+line alone was not enough: live on staging, Haiku opened two later answers
+with "I need to correct my last reply: I didn't open Wikipedia in this
+conversation" after a turn that had driven the browser to the article. An
+answer in the history now carries the names of the tools it called
+successfully, and nothing else about them (no arguments, no results, so the
+grant reason above still holds), and the next turn is told "to write those
+earlier answers you used these tools: browse, open_page". Tests
+(`agentConversation.test.mjs`, `agent.test.mjs`): "an answer keeps the names
+of the tools it used, and nothing else about them", "a texted answer keeps the
+names of the tools it used, never their arguments".
+
 ### Every agent turn is logged by name and duration, never by text
 
 The owner, 2026-10-07: "make sure that we are logging these things so that

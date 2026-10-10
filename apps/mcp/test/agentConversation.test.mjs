@@ -7,7 +7,9 @@ import {
   MAX_HISTORY_TURNS,
   readConversation,
   trimHistory,
+  usedTools,
 } from "../src/agent/conversation.js";
+import { systemPrompt } from "../src/agent/prompt.js";
 
 function memoryStore() {
   const objects = new Map();
@@ -82,4 +84,34 @@ test("a corrupt or odd file reads as an empty conversation, and odd entries are 
     { role: "user", text: "hi" },
     { role: "assistant", text: "hello" },
   ]);
+});
+
+/*
+  The history is words only, so a model reading its own earlier answer saw no
+  lookup behind it and took the answer back ("I didn't open Wikipedia in this
+  conversation"), live on staging, 2026-10-10. Which tools a turn used is kept
+  by name, never their arguments or results, and the next turn is told.
+*/
+test("an answer keeps the names of the tools it used, and nothing else about them", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "When was Ada Lovelace born?", "1815.", {
+    tools: ["browse", "browse", "search_web", "text_progress", "../privacy.md", 7, "x".repeat(80)],
+  });
+  const turns = await readConversation(store, "texts");
+  assert.deepEqual(turns[1], { role: "assistant", text: "1815.", tools: ["browse", "search_web"] });
+  assert.deepEqual(usedTools(turns), ["browse", "search_web"]);
+});
+
+test("a history written before tools were kept reads as it did", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "Hi", "Hey.");
+  const turns = await readConversation(store, "texts");
+  assert.equal(Object.hasOwn(turns[1], "tools"), false);
+  assert.deepEqual(usedTools(turns), []);
+});
+
+test("the next turn is told which tools its earlier answers used", () => {
+  const prompt = systemPrompt(null, { texting: true, continued: true, used: ["browse", "open_page"] });
+  assert.match(prompt, /you used these tools: browse, open_page/);
+  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true }), /you used these tools/);
 });

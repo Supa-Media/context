@@ -48,6 +48,7 @@ import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
+import { usedTools } from "./conversation.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -310,6 +311,7 @@ export async function runTurn(options) {
       model: answering,
       edits: tools.some((tool) => tool.name === "write_note"),
       continued: history.length > 0,
+      used: usedTools(history),
     }) +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "");
