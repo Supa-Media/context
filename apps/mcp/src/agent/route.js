@@ -37,6 +37,7 @@ import {
   stopRoutine,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
@@ -85,7 +86,7 @@ const CONSOLE_CLIENT_ID = "context_console";
  * lives in this deployment's own logs, because a provider's error body quotes
  * the request that produced it — the customer's question and their notes.
  */
-export async function handleAgent(request, env, store, session, controlPlane) {
+export async function handleAgent(request, env, store, session, controlPlane, { progress = null } = {}) {
   const received = Date.now();
   let body;
   try {
@@ -259,6 +260,13 @@ export async function handleAgent(request, env, store, session, controlPlane) {
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
   const search = texting ? searcherFor(env) : null;
+  /*
+    A long task texts its progress (`progress.js`): only a person's own texted
+    turn, asked for as a stream by the texting Worker. A routine runs
+    unattended and texts once, so it never gets one.
+  */
+  const channel =
+    typeof progress === "function" && session.actorClientId === TEXTS_CLIENT_ID ? progressChannel(progress) : null;
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -439,6 +447,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       router,
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
+      ...(channel !== null ? { progress: channel, roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     await afterAnswer(meter(turn.usage, false, turn.model));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));

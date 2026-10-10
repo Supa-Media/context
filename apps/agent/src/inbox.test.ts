@@ -26,6 +26,7 @@ function deps(opts: {
   cards?: string[];
   cardStatus?: number;
   readStatus?: number;
+  progress?: string[];
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -53,6 +54,12 @@ function deps(opts: {
     }
     if (path === "/agent") {
       opts.asks?.push(body.question);
+      if (opts.progress) {
+        const lines = [...opts.progress.map((progress) => ({ progress })), { status: 200, body: { answer: `answer to ${body.question}` } }];
+        return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", {
+          headers: { "content-type": "application/x-ndjson" },
+        });
+      }
       return Response.json({ answer: `answer to ${body.question}` });
     }
     if (path.endsWith("/messages")) {
@@ -250,5 +257,28 @@ describe("inbox", () => {
     status = 200;
     await drain(storage, deps({ events, linqStatus: () => status }));
     expect(events.filter((e) => e === "read")).toHaveLength(1);
+  });
+
+  it("texts a long task's progress as it happens, before the answer, each once", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "connect my chatgpt"), 1_000);
+    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now.", "Signed in."] }));
+    expect(sent).toEqual([
+      { text: "Opening ChatGPT now.", idempotency: "progress:e1:0" },
+      { text: "Signed in.", idempotency: "progress:e1:1" },
+      { text: "answer to connect my chatgpt", idempotency: "reply:e1" },
+    ]);
+  });
+
+  it("writes a simulated task's progress to the simulator's log, not to Linq", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, { ...msg("e1", "connect my chatgpt"), channel: "simulator" }, 1_000);
+    await drain(storage, deps({ sent, progress: ["Opening ChatGPT now."] }));
+    expect(sent).toEqual([]);
+    const log = [...(await storage.list<{ text: string }>({ prefix: "sim:log:" })).values()].map((entry) => JSON.stringify(entry));
+    expect(log.join(" ")).toContain("Opening ChatGPT now.");
+    expect(log.join(" ")).toContain("answer to connect my chatgpt");
   });
 });

@@ -350,6 +350,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // claimed it first. They stay, and `names.test.ts` holds them.
   "brain",
   "brains",
+  // The texting assistant's name (decided by the owner, 2026-10-10): `@tex`
+  // and `tex@context.lc` would read as the assistant itself.
+  "tex",
   // On-bucket layout words, so a name can never be confused for a folder.
   //
   // The numbered forms are the ones that actually exist on a bucket
