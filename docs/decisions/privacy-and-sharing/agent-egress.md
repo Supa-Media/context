@@ -102,6 +102,21 @@ for the released result on any call that could have been held
 really say so", is now written by the gate when it lets a widening through
 and ignored otherwise, because a model passes it as easily as not.
 
+**What the person reads (2026-10-10).** The first benchmark round after the
+gate (the texting assistant, four setups) showed the two texted lines the gate
+writes: the ask after the model's own words, and the reply to YES. The ask
+stays as it is, in the gateway's words with the one-line summary, because a
+person can allow only what they were told. The reply to YES is now that
+summary and nothing else ("Done: write projects/x.md into @woodshop."): it
+had carried the tool's own text, an etag and a visibility line, which is for a
+model, and failed every voice line the judge grades. What went wrong still
+says what the tool said. The `/agent` answer also carries `asked`, how many
+held calls its last line asks about, so a caller that plays the person (the
+bench) answers YES the way a person who asked for the change does. Test:
+`agentEgressTexting.test.mjs`, "a texted YES runs it without a model, and
+says so"; `bench/test/run.test.mjs`, "the played person answers YES when the
+gateway held a call for their OK".
+
 **What it costs, measured rather than guessed.** Nothing on reads and
 ordinary writes: the gate is one classification per call and touches storage
 only for a widening. For the texting assistant, one extra text on a widening

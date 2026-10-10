@@ -105,3 +105,11 @@ test("shards cover every conversation exactly once, and the shard count has a ce
   assert.equal(parallelFor({ parallel: "4" }, 708), 4);
   assert.equal(parallelFor({ parallel: "12" }, 5), 5, "never more shards than conversations");
 });
+
+test("the played person answers YES when the gateway held a call for their OK, and is otherwise played", async () => {
+  const { personAnswers } = await import("../run.mjs");
+  assert.equal(personAnswers({ asked: 1, answer: "Shall I?\n\nBefore I do that, I need your OK: write x into @y. Reply YES to go ahead, or NO to drop it." }), "YES");
+  assert.equal(personAnswers({ asked: 2, answer: "…" }), "YES", "one yes answers every held call the ask named");
+  assert.equal(personAnswers({ asked: 0, answer: "Done." }), null, "a clean turn is for the played person or nobody");
+  assert.equal(personAnswers({ answer: "an older gateway with no asked field" }), null);
+});

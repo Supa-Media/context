@@ -79,6 +79,17 @@ async function readSetups(dir, job, only) {
   return setups;
 }
 
+/**
+ * What the person texts back without being played: a YES when the gateway
+ * held a write for their OK (the egress gate, `src/agent/route.js`), the way a
+ * person who asked for the change answers. Every question gets it, a one-text
+ * change included, because production asks on exactly these turns and the
+ * round measures what the person gets: the extra text, its time, its words.
+ */
+export function personAnswers(turn) {
+  return turn.asked > 0 ? "YES" : null;
+}
+
 /** One conversation: the person's opening text, then as many turns as they take. */
 async function converse(world, question, person) {
   const conversation = [];
@@ -99,7 +110,7 @@ async function converse(world, question, person) {
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
-    message = question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null;
+    message = personAnswers(turn) ?? (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
