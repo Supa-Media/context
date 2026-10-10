@@ -11,7 +11,7 @@ import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { changesCount, footCount } from "../../../organizer/rules";
+import { changesCount } from "../../../organizer/rules";
 import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
 import { useChaosView } from "../../../chaos/ChaosContext";
 import { ChaosFootLine } from "../../../chaos/ChaosFootLine";
@@ -45,13 +45,11 @@ export function ExplorerFoot({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /*
-    Auto-organize's one line, "What changed" with everything waiting: what
-    came in and what could be tidied. It was two lines, "What changed" and
-    "11 suggestions", which read as two helpers (Dev2, 2026-10-07); the
-    second is now the page's Tidy up tab.
+    Auto-organize's one line, "What changed" with the cards waiting. It
+    once had a second count for tidy-up suggestions; Tidy up is gone (owner,
+    2026-10-10), and so is that count.
   */
   const organizer = useOrganizerView();
-  const suggestions = footCount(organizer?.status ?? null);
   const changes = changesCount(organizer?.status ?? null);
   const chaos = useChaosView();
   return (
@@ -133,17 +131,13 @@ export function ExplorerFoot({
 
       {organizer !== undefined && changes !== null ? (
         <WhatChangedLine
-          count={changes + (suggestions ?? 0)}
+          count={changes}
           open={organizer.pageOpen}
           onPress={() => {
             setActivityOpen(null);
             setAgentsOpen(null);
             if (organizer.pageOpen) organizer.closePage();
-            else {
-              // Opens where something is waiting: what came in first.
-              organizer.setTab(changes === 0 && suggestions !== null ? "tidy" : "inbox");
-              organizer.openPage();
-            }
+            else organizer.openPage();
           }}
         />
       ) : null}

@@ -216,6 +216,15 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
 
+## [The chaos score](./chaos-score.md)
+
+- It is one opinion, on purpose
+- It reports; it never tidies
+- Every write answers with the change
+- Kept incrementally, proven equal to a full pass
+- Two audiences, and a member learns nothing held back
+- A derivative, like every index
+
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)

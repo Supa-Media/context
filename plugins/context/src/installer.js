@@ -45,7 +45,7 @@ import { workspaceUrl } from "./settings.js";
 export const PLUGIN_ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const DEFAULT_SOURCE = "Supa-Media/context";
 const PLUGIN_ID = "context@context";
-const SKILLS = ["context", "context-save"];
+const SKILLS = ["context", "context-save", "how-we-define-chaos"];
 
 /** Agents the MCP-entry path covers, as `add-mcp` names them. */
 export const MCP_AGENTS = {

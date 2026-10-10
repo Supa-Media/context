@@ -13,7 +13,7 @@
  *   is not an item; neither are pictures, attachments or dot files.
  * - **The curve.** 4 or 5 items is calm. Each item past 5 adds 5 up to the
  *   average mark at 10 (25), then 4 each to 20 (65), then steeply to 100 at
- *   35. Below 4 is thin: 3 items 5, 2 items 20 (combine them), 1 item 40
+ *   35. Below 4 is thin: three items cost 5, two cost 20 (combine them), one costs 40
  *   (move it out), and a folder holding nothing but its about note 60.
  * - **Runs.** Notes that are one sequence count as one item: the same name
  *   with a number after it (Kings 1 to Kings 30), notes named by date, or
