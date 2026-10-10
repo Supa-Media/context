@@ -98,7 +98,10 @@ const median = (values) => {
 /** One row per setup, from its records. */
 export function scoreSearch(records, setups, bars) {
   return setups.map((setup) => {
-    const mine = records.filter((record) => record.setup === setup.name);
+    const all = records.filter((record) => record.setup === setup.name);
+    // A privacy question (forbid lines, nothing expected) is a gate, not a score.
+    const leaks = all.filter((record) => (record.forbid ?? []).some((path) => record.hits.includes(path)));
+    const mine = all.filter((record) => record.expected.length > 0);
     const found = mine.filter((record) => record.rank !== null).length;
     const top3 = mine.filter((record) => record.rank !== null && record.rank <= 3).length;
     const complete = mine.filter((record) => record.expected.every((path) => record.hits.includes(path))).length;
@@ -114,7 +117,8 @@ export function scoreSearch(records, setups, bars) {
       mrr,
       medianMs: median(mine.map((record) => record.ms)),
       hitsShown: mine.length === 0 ? 0 : mine.reduce((total, record) => total + record.hits.length, 0) / mine.length,
-      goodEnough: (bars.found === null || foundPct >= bars.found) && (bars.top3 === null || top3Pct >= bars.top3),
+      leaks: leaks.map((record) => `q${record.question}`),
+      goodEnough: leaks.length === 0 && (bars.found === null || foundPct >= bars.found) && (bars.top3 === null || top3Pct >= bars.top3),
     };
   });
 }
@@ -154,14 +158,14 @@ export function searchResultMarkdown({ testVersion, date, codeCommit, setups, qu
     "",
     `This run asked ${questions.length} quer${questions.length === 1 ? "y" : "ies"} against ${setups.length} search setup${setups.length === 1 ? "" : "s"}, each one \`search_notes\` call as the person named, in a warm world with both indexes filled.`,
     "",
-    "| Setup | Settings | Found | In top 3 | MRR | Complete | Median time | Hits shown | Good enough |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Setup | Settings | Found | In top 3 | MRR | Complete | Privacy | Median time | Hits shown | Good enough |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => {
       const setup = setups.find((entry) => entry.name === row.setup);
       const settings = Object.entries(setup.search)
         .map(([key, value]) => `${key} ${value}`)
         .join(", ");
-      return `| ${row.setup} | ${settings || "defaults"} | ${pct(row.found, row.queries)} | ${pct(row.top3, row.queries)} | ${row.mrr.toFixed(3)} | ${pct(row.complete, row.queries)} | ${(row.medianMs / 1000).toFixed(2)} s | ${row.hitsShown.toFixed(1)} | ${row.goodEnough ? "yes" : "no"} |`;
+      return `| ${row.setup} | ${settings || "defaults"} | ${pct(row.found, row.queries)} | ${pct(row.top3, row.queries)} | ${row.mrr.toFixed(3)} | ${pct(row.complete, row.queries)} | ${row.leaks.length === 0 ? "passed" : `failed (${row.leaks.join(", ")})`} | ${(row.medianMs / 1000).toFixed(2)} s | ${row.hitsShown.toFixed(1)} | ${row.goodEnough ? "yes" : "no"} |`;
     }),
     "",
     `Bars: found ${bars.found === null ? "none" : `${bars.found}%`}, in top 3 ${bars.top3 === null ? "none" : `${bars.top3}%`}.${best ? ` Best: ${best.setup}.` : ""}`,
@@ -170,7 +174,7 @@ export function searchResultMarkdown({ testVersion, date, codeCommit, setups, qu
     "",
   ];
   for (const setup of setups) {
-    const missed = records.filter((record) => record.setup === setup.name && record.rank === null);
+    const missed = records.filter((record) => record.setup === setup.name && record.expected.length > 0 && record.rank === null);
     out.push(`### ${setup.name}: ${missed.length} missed`, "");
     for (const record of missed) {
       out.push(`- q${record.question} "${record.text}" (${record.as}${record.in ? `, in ${record.in}` : ""}): wanted ${record.expected.join(", ")}; got ${record.hits.slice(0, 3).join(", ") || "nothing"}${record.error ? ` (error: ${record.error})` : ""}`);
@@ -180,9 +184,12 @@ export function searchResultMarkdown({ testVersion, date, codeCommit, setups, qu
   out.push("## Answers", "");
   for (const question of questions) {
     const mine = records.filter((record) => record.question === question.n);
-    out.push(`### ${question.n}. ${question.text}`, "", `Asked by ${mine[0]?.as ?? "?"}${question.in ? `, in ${question.in}` : ""}. Expected: ${question.expect.join(", ")}.`, "");
+    const wants = [question.expect.length ? `Expected: ${question.expect.join(", ")}.` : "", question.forbid.length ? `Must not show: ${question.forbid.join(", ")}.` : ""].filter(Boolean).join(" ");
+    out.push(`### ${question.n}. ${question.text}`, "", `Asked by ${mine[0]?.as ?? "?"}${question.in ? `, in ${question.in}` : ""}. ${wants}`, "");
     for (const record of mine) {
-      out.push(`- ${record.setup}: ${record.rank === null ? "not found" : `rank ${record.rank}`}, ${(record.ms / 1000).toFixed(2)} s, ${record.hits.length} hits: ${record.hits.slice(0, 6).join(", ")}${record.hits.length > 6 ? ", …" : ""}`);
+      const leaked = (record.forbid ?? []).some((path) => record.hits.includes(path));
+      const verdict = question.expect.length === 0 ? (leaked ? "LEAKED" : "nothing leaked") : record.rank === null ? "not found" : `rank ${record.rank}`;
+      out.push(`- ${record.setup}: ${verdict}${leaked && question.expect.length ? ", LEAKED" : ""}, ${(record.ms / 1000).toFixed(2)} s, ${record.hits.length} hits: ${record.hits.slice(0, 6).join(", ")}${record.hits.length > 6 ? ", …" : ""}`);
     }
     out.push("");
   }
@@ -202,7 +209,7 @@ export async function searchCommand(options) {
   const only = list(options.questions)?.map(Number);
   const questions = test.questions.filter((question) => !only || only.includes(question.n));
   for (const question of questions) {
-    if (question.expect.length === 0) throw new Error(`question ${question.n} names no expected note (- expect: @workspace/path)`);
+    if (question.expect.length === 0 && question.forbid.length === 0) throw new Error(`question ${question.n} names no expected or forbidden note (- expect: @workspace/path)`);
   }
   const bars = searchBars(test.front.good_enough);
   const fake = options.fake === true;
@@ -227,7 +234,7 @@ export async function searchCommand(options) {
           const started = realNow();
           const answer = await world.search(question.text, question.in);
           const hits = answer.ok ? hitsOf(answer.text, home) : [];
-          rank = rankOf(hits, question.expect);
+          rank = question.expect.length ? rankOf(hits, question.expect) : null;
           records.push({
             setup: setup.name,
             question: question.n,
@@ -235,6 +242,7 @@ export async function searchCommand(options) {
             as,
             in: question.in,
             expected: question.expect,
+            forbid: question.forbid,
             hits,
             rank,
             ms: realNow() - started,
@@ -243,7 +251,7 @@ export async function searchCommand(options) {
         } finally {
           world.close();
         }
-        process.stderr.write(`${setup.name} q${question.n}: ${rank === null ? "miss" : `rank ${rank}`}\n`);
+        process.stderr.write(`${setup.name} q${question.n}: ${question.expect.length === 0 ? "privacy" : rank === null ? "miss" : `rank ${rank}`}\n`);
       }
     }
   } finally {

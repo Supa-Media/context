@@ -18,8 +18,43 @@ import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
 
-/** Most hits a search across every workspace shows: a round of each list's best, bounded. */
+/** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
+
+/** Reciprocal-rank constant, the usual 60. */
+const RRF_K = 60;
+
+/** How far down a loose (any-word) hit is counted, so a note that merely shares "team" with the query never outranks a real match. */
+const LOOSE_PENALTY = 10;
+
+/**
+ * One list from every workspace's, ranked by evidence rather than by
+ * workspace: each hit scores its word rank in its own workspace (a loose
+ * any-word hit counts as ten places lower) plus its rank among every
+ * workspace's meaning matches put together, which are comparable because one
+ * model scored them all. A note strong both ways rises; a workspace's first
+ * word hit for a query that has nothing to do with it does not outrank
+ * another workspace's note the query was about. Ties keep the lists' order,
+ * this workspace first.
+ *
+ * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
+ *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
+ */
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
+  const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
+  const byMeaning = all
+    .filter(({ hit }) => typeof hit.meaningScore === "number")
+    .sort((a, b) => b.hit.meaningScore - a.hit.meaningScore);
+  const meaningRank = new Map(byMeaning.map((entry, rank) => [entry, rank]));
+  const scored = all.map((entry) => {
+    const { hit } = entry;
+    const word = typeof hit.wordRank === "number" ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
+    const meaning = meaningRank.has(entry) ? 1 / (RRF_K + meaningRank.get(entry) + 1) : 0;
+    return { ...entry, score: word + meaning };
+  });
+  scored.sort((a, b) => b.score - a.score || a.list - b.list || a.order - b.order);
+  return scored.slice(0, most).map(({ hit }) => hit);
+}
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
 function searchOne(store, scope, rules, overrides, query, prefix, embed) {
@@ -57,8 +92,8 @@ function sharedEmbedder(store) {
  * the person's role *there* and its own `privacy.md`: a note held back from a
  * member is as absent through this as through a direct search. A workspace
  * that cannot be opened or read right now is left out, never guessed at. The
- * lists are fused a rank at a time, this workspace first, and a hit from
- * another workspace carries its name in front of the path.
+ * lists are fused by evidence (`fuseEverywhere`), and a hit from another
+ * workspace carries its name in front of the path.
  */
 async function searchEverywhere(store, here, names, query, embed) {
   const elsewhere = (
@@ -76,17 +111,9 @@ async function searchEverywhere(store, here, names, query, embed) {
       }),
     )
   ).filter(Boolean);
-  const lists = [here.hits, ...elsewhere.map(({ name, found }) => found.hits.map((hit) => ({ ...hit, key: `${name}/${hit.key}` })))];
-  const hits = [];
-  for (let rank = 0; hits.length < EVERYWHERE_HITS; rank += 1) {
-    let any = false;
-    for (const list of lists) {
-      if (list[rank] === undefined) continue;
-      any = true;
-      if (hits.length < EVERYWHERE_HITS) hits.push(list[rank]);
-    }
-    if (!any) break;
-  }
+  const annotated = (found, name = null) =>
+    found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
+  const hits = fuseEverywhere([annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))]);
   return {
     ...here,
     hits,

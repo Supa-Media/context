@@ -206,15 +206,28 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
   if (!matches || matches.length === 0) {
-    // `loose` is a ranking signal, never part of the answer.
+    // `loose` is a ranking signal, never part of the answer; it and the word
+    // rank ride beside the hits as `evidence`, for a search across
+    // workspaces (`tools/search.js`) to rank by.
     const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
-    return { ...found, hits, meaning: matches ? "none" : "off" };
+    const evidence = Object.fromEntries(found.hits.map((hit, rank) => [hit[keyField], { wordRank: rank, loose: hit.loose === true, meaningScore: null }]));
+    return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
   }
   const out = [];
   let reads = 0;
   // `every` of none is true: a word search that found nothing is the loosest.
   const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
+  const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
+  // The evidence behind each hit, beside the hits rather than on them: a
+  // search across workspaces (`tools/search.js`) ranks by it, since one
+  // workspace's first word hit and another's are not the same strength.
+  const evidence = {};
   for (const entry of mergeHits(found.hits, matches, keyField)) {
+    evidence[entry.key] = {
+      wordRank: wordRanks.get(entry.key) ?? null,
+      loose: entry.word?.loose === true,
+      meaningScore: entry.meaning ? entry.meaning.score : null,
+    };
     if (entry.word) {
       const { loose: _loose, ...word } = entry.word;
       out.push({ ...word, meaningOnly: false });
@@ -226,7 +239,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;
-  return { ...found, hits: out, matchCount: found.matchCount + added, meaning: "on" };
+  return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning: "on" };
 }
 
 /** Word search and search by meaning, asked together and merged. */

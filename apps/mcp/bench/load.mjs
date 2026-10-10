@@ -86,6 +86,10 @@ function readQuestion(sec) {
     // A search question (`tests/search.md`): the notes that should come back,
     // as @workspace/path, and the one workspace the search is addressed to.
     expect: [],
+    // The notes that must not come back for this person: a held-back note
+    // asked for by someone it is held back from. One in the answer fails the
+    // setup's privacy, whatever its other scores.
+    forbid: [],
     in: null,
     body: sec.lines.join("\n").trim(),
   };
@@ -103,6 +107,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- may:\s*(.*)$/))) q.may.push(m[1].trim());
     else if ((m = line.match(/^- expect:\s*(.*)$/))) q.expect.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
     else if ((m = line.match(/^- in:\s*(.*)$/))) q.in = m[1].trim() || null;
+    else if ((m = line.match(/^- forbid:\s*(.*)$/))) q.forbid.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
     else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
       if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
       q.mirror = Number(m[1].trim());

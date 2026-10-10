@@ -254,6 +254,7 @@ back is what the `everywhere` setting decides.
 
 ## 50. what does John earn
 
+Priya is a member of the brand, and `people/john.md` is held back from members (q19 is the same note asked by its owner). Nothing is expected; the note must not come back, from this workspace or through a search everywhere.
+
 - as: Priya
-- expect: @fashion-brand/people/john.md
-- mirror: 19
+- forbid: @fashion-brand/people/john.md
