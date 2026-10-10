@@ -133,14 +133,16 @@ function readingText(reading, ran) {
  * `addresses` is the person's own words this question (see `route.js` on why
  * a routine's are its body, not its prompt).
  */
-export function browserSession(computer, { allowed, addresses, takePages }) {
+export function browserSession(computer, { allowed, addresses, takePages, say = null }) {
   const theirWords = new Set(wordsOf(addresses));
   const theirSites = [...new Set(addressesIn(addresses).map((url) => siteOf(new URL(url).hostname)))];
   let session = null;
   let origin = null;
   let steps = 0;
-  // The live-view link, for the gateway to add to the reply; never the model's.
+  // The live-view link, never the model's: texted the moment it exists when
+  // the turn can text mid-task (`say`), else added to the reply by the gateway.
   let handoffLink = null;
+  let handoffSaid = false;
 
   async function run(planned, { handoff = false } = {}) {
     const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
@@ -224,8 +226,13 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
         done = null;
       }
       if (done === null) return textResult("The browser couldn't do that. Try again, or answer without it.", true);
+      if (handoff && handoffLink !== null && !handoffSaid && typeof say === "function") {
+        handoffSaid = (await say(`Open this to take over the browser, then text me when you're done: ${handoffLink}`).catch(() => false)) === true;
+      }
       const told =
-        handoff && handoffLink !== null
+        handoff && handoffSaid
+          ? "\n\nThe person has just been texted a link to this browser. Tell them briefly what to do there, and that you'll carry on when they text you."
+          : handoff && handoffLink !== null
           ? "\n\nA link to this browser will be added to your reply. Tell the person to open it, finish there, and text you when done."
           : handoff
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
@@ -233,8 +240,8 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
       return textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
     },
 
-    /** The live-view link a handoff made this question, for the gateway's reply. */
-    handoffLink: () => handoffLink,
+    /** The live-view link a handoff made this question and has not texted yet, for the gateway's reply. */
+    handoffLink: () => (handoffSaid ? null : handoffLink),
 
     /** The origin of the page the browser is on, or null before it opens one. */
     currentOrigin: () => origin,

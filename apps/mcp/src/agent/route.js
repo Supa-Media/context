@@ -292,6 +292,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           decide: decisionEngine(env.AI),
           search,
           addresses: vouched,
+          // A browser handed to the person is texted the moment it exists.
+          say: channel !== null ? (text) => channel.say(text) : null,
         });
   // A page or a search result is text from outside the workspace: once one
   // is read, every widening in this turn asks (`privacy/egress.js`).

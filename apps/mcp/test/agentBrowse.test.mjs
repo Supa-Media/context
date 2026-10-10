@@ -157,6 +157,22 @@ export async function runAgentBrowseChecks(check) {
     check("a browser that cannot be handed over says so, and runs nothing", handoff.isError === true && computer.calls.length === 0);
   }
 
+  {
+    // A turn that can text mid-task sends the live link at once, itself.
+    const computer = fakeComputer();
+    computer.canHandOff = () => true;
+    const inner = computer.browse;
+    computer.browse = async (session, steps, options) => ({ ...(await inner(session, steps)), ...(options?.handoff ? { liveUrl: "https://live.example/LIVE-SAY" } : {}) });
+    const said = [];
+    const web = webSession(computer, "log me in to shop.example.com", { say: async (text) => (said.push(text), true) });
+    const handed = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.com/" }, { do: "handoff" }] });
+    check(
+      "a handoff is texted the moment it exists, the model is told so without the link, and the reply adds nothing",
+      said.length === 1 && said[0].endsWith("https://live.example/LIVE-SAY") && !textOf(handed).includes("LIVE-SAY") &&
+        textOf(handed).includes("has just been texted a link") && web.browser.handoffLink() === null,
+    );
+  }
+
   check(
     "a computer that cannot drive a browser offers no browse tool",
     !webSession({ async readPage() { return null; } }, "x").tools.some((t) => t.name === BROWSE_TOOL),

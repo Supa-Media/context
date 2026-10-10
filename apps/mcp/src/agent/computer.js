@@ -226,7 +226,7 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, say = null } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
@@ -243,6 +243,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       ? browserSession(computer, {
           allowed,
           addresses,
+          say,
           takePages(n) {
             if (opened + n > MAX_PAGES_PER_TURN) return false;
             opened += n;
