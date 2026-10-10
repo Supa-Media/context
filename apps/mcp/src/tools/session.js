@@ -245,19 +245,65 @@ const PATH_ARGUMENTS = [
   ["destination", "destination_context"],
 ];
 
+/**
+ * Route a call from a path that opens with a workspace's name.
+ *
+ * Returns a refusal when the call's paths name more than one place, and
+ * nothing when they agree.
+ *
+ * **A call names one place.** `move_note` is the exception that proves it: it
+ * carries a context per side, so each path addresses its own end. Every other
+ * tool routes the whole call, so the first path argument that speaks decides
+ * where the call runs, and the rest are read there. A later path naming a
+ * *different* workspace — including the plain path of a caller who named the
+ * other side and not this one — has asked for two places at once, and is
+ * refused rather than quietly collapsed into one of them. Routing
+ * `{ source: "5-notes", destination: "@band/4-archive/5-notes" }` to `@band`
+ * moved @band's folder and left the caller's where it was (found by reading,
+ * 2026-10-10).
+ */
 function addressByPath(tool, args) {
   if (!args || typeof args !== "object") return;
-  for (const [field, into] of PATH_ARGUMENTS) {
-    // `move_note` names a context per side; every other tool names one for the call.
-    const target = tool === "move_note" ? into : "context";
-    if (args[target] !== undefined && args[target] !== null) continue;
-    const match = typeof args[field] === "string" ? BY_NAME.exec(args[field]) : null;
-    if (!match) continue;
-    // For a one-context tool two prefixed paths must agree; the first decides and a second that differs is left as it was.
-    if (tool !== "move_note" && args.context !== undefined && args.context !== match[1]) continue;
-    args[target] = match[1];
-    args[field] = match[2];
+  if (tool === "move_note") {
+    for (const [field, into] of PATH_ARGUMENTS) {
+      if (args[into] !== undefined && args[into] !== null) continue;
+      const match = typeof args[field] === "string" ? BY_NAME.exec(args[field]) : null;
+      if (!match) continue;
+      args[into] = match[1];
+      args[field] = match[2];
+    }
+    return;
   }
+  // A call that addressed itself has already said where it is going; a name
+  // inside a path is then part of the path, and fails as one.
+  if (args.context !== undefined && args.context !== null) return;
+  /** The workspace the first path argument named, `null` for "here". */
+  let named = null;
+  /** The argument that named it, and so the one a disagreement is measured against. */
+  let decidedBy = null;
+  for (const [field] of PATH_ARGUMENTS) {
+    if (typeof args[field] !== "string") continue;
+    const match = BY_NAME.exec(args[field]);
+    if (decidedBy === null) {
+      decidedBy = field;
+      named = match ? match[1] : null;
+      if (match) args[field] = match[2];
+      continue;
+    }
+    // Plain, and so read in the place already named — which is how
+    // `{ source: "@band/gigs", destination: "4-archive/gigs" }` moves inside @band.
+    if (!match) continue;
+    if (match[1] === named) {
+      args[field] = match[2];
+      continue;
+    }
+    return (
+      "that call names more than one workspace: " +
+      `${decidedBy} is ${named ? `in ${named}` : "in this context"} and ${field} opens with ${match[1]}. ` +
+      "A path that names a workspace has to be the only workspace the call names."
+    );
+  }
+  if (named !== null) args.context = named;
 }
 
 export async function callToolForSession(params, store, session) {
@@ -291,7 +337,8 @@ export async function callToolForSession(params, store, session) {
     CLAUDE.md as sugar over the same routing; measured on 2026-10-10 when a
     cheap model passed the prefixed path as-is 120 times in one round.
   */
-  addressByPath(params?.name, args);
+  const crossed = addressByPath(params?.name, args);
+  if (crossed) return toolError(crossed);
   const requested = args.context;
   delete args.context;
 
