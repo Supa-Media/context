@@ -92,8 +92,49 @@ the person who asked can spend it, and only once", "a request row holds ids
 and times, nothing of a login", "a share names a member of a shared workspace,
 never a stranger or a personal login").
 
+### A vault holds secrets too: named fields, most with a value for dev, staging and prod
+
+Decided by the owner, 2026-10-10: "make sure the vault works for api keys and
+secrets and env variables as well, it should support custom fields but for
+most they will need dev, staging and prod environment variables."
+
+- **Two types.** An entry is a `login` (username, password, optional custom
+  fields) or a `secret` (fields only). An entry saved before types existed is
+  a login. `apps/mcp/src/vault/fields.js` holds the rules.
+- **Fields.** Up to 30, each a name (`STRIPE_SECRET_KEY`, `Account number`)
+  that is unique ignoring case, and either one value or one each for `dev`,
+  `staging` and `prod`, any of which may be blank. Values live in the sealed
+  `secret` part. The `meta` part says which environments hold a value, so
+  `vault_list` can say "STRIPE_SECRET_KEY [dev, prod]" without opening one.
+- **The fill step can type one field.** `openForFill` with `field` (and `env`
+  for a per-environment field) answers that one value, under the same rules:
+  the person on the people list, the page on the entry's sites. A secret saved
+  with no site never fills anywhere.
+- **A person sees values on a page an agent asks for.** `vault_view_link`
+  mints a `view` request; `/vault/<token>` names the fields, and
+  `revealVaultEntry` shows values only to the signed-in person who asked,
+  only while they are on the entry's people list, and records
+  `vault.viewed` each time. A view link is not spent by a look, so the person
+  can reveal, copy and come back to it for its 30 minutes. The page can copy
+  one environment as a `.env` file.
+- **The barrier's one door.** `runVaultOperation`'s `reveal` is the only
+  operation that opens a secret part for anything but the fill step, and
+  `revealVaultEntry` is its only caller. No gateway route reaches it.
+
+**What a simplification would cost:** putting values, or field names, in
+`meta` would hand them to every `vault_list`; spending a view link on first
+open breaks reveal-then-copy on a phone; letting the view page answer any
+member turns "given to" into "visible to the workspace". Tests:
+`apps/convex/__tests__/vaultSecrets.test.ts` ("a view page names fields
+without values, and only a reveal by the person who asked shows them", "a
+member it was never given cannot have a view link made for it"),
+`apps/mcp/test/vault.test.mjs` ("the fill step types one field for one
+environment, on the entry's site only").
+
 ### Later, not now
 
-TOTP secrets, email codes, a sealed cookie jar and cards. Each needs its own
-section here before it is built. A Passwords list in Settings comes with the
-first edit or delete.
+Editing and deleting an entry, and a Vault list in Settings, come together;
+until then a changed key is saved as a new entry. Handing a coding agent an
+environment's values to run with (the way `op run` does) needs its own
+section here: today no model ever sees a value. TOTP secrets, email codes, a
+sealed cookie jar and cards each need their own section before they are built.

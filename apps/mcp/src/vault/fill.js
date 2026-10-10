@@ -14,6 +14,7 @@
  */
 
 import { mayUse, readMeta, readSecret, siteMatches } from "./entries.js";
+import { entryType, fieldValue } from "./fields.js";
 
 export class VaultRefused extends Error {
   constructor(code) {
@@ -23,8 +24,15 @@ export class VaultRefused extends Error {
   }
 }
 
-/** @returns {Promise<{username: string, password: string, name: string}>} */
-export async function openForFill(store, _scope, { entryId, origin }) {
+/**
+ * With no `field`, a login's username and password. With `field` (and `env`
+ * for a per-environment field), that one value, for typing an API key into a
+ * dashboard: `{value, name}`. Either way the page must be one of the entry's
+ * sites, so an entry saved with no site never fills anywhere.
+ *
+ * @returns {Promise<{username: string, password: string, name: string} | {value: string, name: string}>}
+ */
+export async function openForFill(store, _scope, { entryId, origin, field, env }) {
   const keys = store?.encryptionKey;
   const workspaceId = store?.actor?.workspaceId;
   const userId = store?.actor?.userId;
@@ -35,15 +43,22 @@ export async function openForFill(store, _scope, { entryId, origin }) {
   // caller is the fill step, which already holds an id from vault_list.
   if (!mayUse(meta, userId)) throw new VaultRefused("not_yours");
   if (!siteMatches(meta.sites, origin)) throw new VaultRefused("wrong_site");
+  if (field === undefined && entryType(meta) !== "login") throw new VaultRefused("no_field");
   let secret;
   try {
     secret = await readSecret(store, keys, workspaceId, entryId);
   } catch {
     throw new VaultRefused("not_found");
   }
+  const name = typeof meta.name === "string" ? meta.name : "";
+  if (field !== undefined) {
+    const value = fieldValue(secret, field, env);
+    if (value === null) throw new VaultRefused("no_field");
+    return { value, name };
+  }
   return {
     username: typeof secret?.username === "string" ? secret.username : "",
     password: typeof secret?.password === "string" ? secret.password : "",
-    name: typeof meta.name === "string" ? meta.name : "",
+    name,
   };
 }

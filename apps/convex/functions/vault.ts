@@ -1,5 +1,6 @@
 /**
- * The vault's human half: saving and sharing logins, on signed-in pages.
+ * The vault's human half: saving, sharing and seeing logins and secrets, on
+ * signed-in pages.
  *
  * An agent can ask for a link (`/gateway/vault/request`) and nothing else.
  * Every change to a vault happens here, in an action a signed-in person
@@ -19,8 +20,12 @@
  * `runVaultOperation` is the vault's barrier, pinned in
  * `__tests__/structure/analyzer/pins.helpers.ts`. It opens the bucket
  * credential and the data key, does one operation, and returns only what
- * that operation shows a person: an entry's name, sites and people. It never
- * returns a secret part, and there is no operation that reads one.
+ * that operation shows a person: an entry's name, sites, people and field
+ * names. The one operation that opens a secret part is `reveal`, and its only
+ * caller is `revealVaultEntry`, which answers the signed-in person on the
+ * entry's people list who asked for that page; no gateway route and no tool
+ * reaches it (decided by the owner, 2026-10-10: API keys and env variables a
+ * person can see and copy).
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -41,16 +46,24 @@ import {
   newEntryId,
   isEntryId,
   readMeta,
+  readSecret,
   siteHost,
   writeEntry,
   writeMeta,
 } from "../../mcp/src/vault/entries.js";
+import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 
 export const VAULT_LINK_TTL_MS = 30 * 60 * 1000;
 const REQUEST_LIMIT = 20;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 
+type FieldSummary = { name: string; perEnv: boolean; set: string[] };
+type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
+type EntryKind = "login" | "secret";
+
 type VaultMeta = {
+  type?: EntryKind;
+  fields?: FieldSummary[];
   name: string;
   sites: string[];
   people: string[];
@@ -64,14 +77,21 @@ type RequestLabels = {
   grantee: string | null;
 };
 type SpentRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
-type Shown = { entryId: string; meta: { name: string; sites: string[]; people: string[] } };
+type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[] };
+type Revealed = { username: string; password: string; fields: FieldValues[] };
+type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
+type RequestKind = "add" | "share" | "view";
 type Described = {
-  kind: "add" | "share";
+  kind: RequestKind;
   workspace: { handle: string; name: string; kind: "personal" | "shared" };
   grantee: string | null;
-  entry: { name: string; sites: string[] } | null;
+  entry: { type: EntryKind; name: string; sites: string[]; fields: FieldSummary[] } | null;
   expiresAt: number;
 };
+
+const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
+const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
+const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
 function fail(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
@@ -91,7 +111,7 @@ export const issueVaultRequest = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
-    kind: v.union(v.literal("add"), v.literal("share")),
+    kind: kindValidator,
     entryId: v.optional(v.string()),
     handle: v.optional(v.string()),
     hashedToken: v.string(),
@@ -116,12 +136,14 @@ export const issueVaultRequest = internalMutation({
       if ((await getMembership(ctx, args.workspaceId, name.userId)) === null) return "refused";
       granteeUserId = name.userId;
     }
+    if (args.kind === "view" && !isEntryId(args.entryId)) return "refused";
     await ctx.db.insert("vaultRequests", {
       hashedToken: args.hashedToken,
       workspaceId: args.workspaceId,
       userId: args.userId,
       kind: args.kind,
       ...(args.kind === "share" ? { entryId: args.entryId, granteeUserId } : {}),
+      ...(args.kind === "view" ? { entryId: args.entryId } : {}),
       expiresAt: Date.now() + VAULT_LINK_TTL_MS,
     });
     return "issued";
@@ -182,11 +204,29 @@ export const consumeVaultRequest = internalMutation({
   },
 });
 
+/**
+ * A view link is not spent: the person may reveal, copy and come back to it
+ * while it lives. It must be live and theirs, and they must still be a member.
+ */
+export const liveViewRequest = internalQuery({
+  args: { hashedToken: v.string(), userId: v.id("users") },
+  handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces">; entryId: string }> => {
+    const row = await ctx.db
+      .query("vaultRequests")
+      .withIndex("by_hashed_token", (q) => q.eq("hashedToken", args.hashedToken))
+      .unique();
+    if (row === null || row.kind !== "view" || row.expiresAt <= Date.now() || row.entryId === undefined) throw dead();
+    if (row.userId !== args.userId) throw notYours();
+    if ((await getMembership(ctx, row.workspaceId, args.userId)) === null) throw dead();
+    return { workspaceId: row.workspaceId, entryId: row.entryId };
+  },
+});
+
 export const recordVaultAudit = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    action: v.union(v.literal("vault.saved"), v.literal("vault.shared")),
+    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed")),
     entryId: v.string(),
   },
   returns: v.null(),
@@ -221,25 +261,35 @@ const operationValidator = v.union(
   v.object({
     kind: v.literal("add"),
     userId: v.string(),
+    type: v.union(v.literal("login"), v.literal("secret")),
     name: v.string(),
-    site: v.string(),
+    sites: v.array(v.string()),
     username: v.string(),
     password: v.string(),
+    fields: v.array(fieldValuesValidator),
   }),
   v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
+  v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
 );
 
-const metaValidator = v.object({ name: v.string(), sites: v.array(v.string()), people: v.array(v.string()) });
+const metaValidator = v.object({
+  type: v.union(v.literal("login"), v.literal("secret")),
+  name: v.string(),
+  sites: v.array(v.string()),
+  people: v.array(v.string()),
+  fields: v.array(fieldSummaryValidator),
+});
+const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
 /**
  * CREDENTIAL BARRIER. Opens one workspace's bucket and data key, does one
- * vault operation, and returns at most an entry's id, name, sites and people.
- * INTERNAL: reached only from the public actions below, after they checked
- * the person.
+ * vault operation, and returns an entry's id, name, sites, people and field
+ * names, and for `reveal` alone its values. INTERNAL: reached only from the
+ * public actions below, after they checked the person.
  */
 export const runVaultOperation = internalAction({
   args: { workspaceId: v.id("workspaces"), operation: operationValidator },
-  returns: v.union(v.null(), v.object({ entryId: v.string(), meta: metaValidator })),
+  returns: v.union(v.null(), v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) })),
   handler: async (ctx, args): Promise<Shown | null> => {
     const credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
       workspaceId: args.workspaceId,
@@ -253,9 +303,15 @@ export const runVaultOperation = internalAction({
     });
     if (keys === null) return null;
     const workspaceId = String(args.workspaceId);
-    const shown = (entryId: string, meta: VaultMeta) => ({
+    const shown = (entryId: string, meta: VaultMeta): Shown => ({
       entryId,
-      meta: { name: meta.name, sites: meta.sites, people: meta.people },
+      meta: {
+        type: entryType(meta) as EntryKind,
+        name: meta.name,
+        sites: meta.sites ?? [],
+        people: meta.people,
+        fields: Array.isArray(meta.fields) ? meta.fields : [],
+      },
     });
     const op = args.operation;
     if (op.kind === "meta") {
@@ -266,19 +322,31 @@ export const runVaultOperation = internalAction({
       const id = newEntryId();
       const now = Date.now();
       const meta: VaultMeta = {
+        type: op.type,
         name: op.name,
-        sites: [op.site],
+        sites: op.sites,
+        fields: fieldSummaries(op.fields) as FieldSummary[],
         people: [op.userId],
         createdBy: op.userId,
         createdAt: now,
         updatedAt: now,
       };
-      await writeEntry(store, keys, workspaceId, {
-        id,
-        meta,
-        secret: { username: op.username, password: op.password },
-      });
+      const secret = op.type === "login" ? { username: op.username, password: op.password, fields: op.fields } : { fields: op.fields };
+      await writeEntry(store, keys, workspaceId, { id, meta, secret });
       return shown(id, meta);
+    }
+    if (op.kind === "reveal") {
+      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
+      if (meta === null || !mayUse(meta, op.userId)) return null;
+      const secret = (await readSecret(store, keys, workspaceId, op.entryId)) as Partial<Revealed> | null;
+      return {
+        ...shown(op.entryId, meta),
+        revealed: {
+          username: typeof secret?.username === "string" ? secret.username : "",
+          password: typeof secret?.password === "string" ? secret.password : "",
+          fields: Array.isArray(secret?.fields) ? secret.fields : [],
+        },
+      };
     }
     const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
     if (meta === null || !mayUse(meta, op.userId)) return null;
@@ -303,14 +371,22 @@ function checkToken(token: string): void {
   if (typeof token !== "string" || token.length === 0 || token.length > 128) throw dead();
 }
 
-/** What `/vault/<token>` shows before the person does anything. */
+/** What `/vault/<token>` shows before the person does anything. Never a value. */
 export const describeVaultRequest = action({
   args: { token: v.string() },
   returns: v.object({
-    kind: v.union(v.literal("add"), v.literal("share")),
+    kind: kindValidator,
     workspace: v.object({ handle: v.string(), name: v.string(), kind: v.union(v.literal("personal"), v.literal("shared")) }),
     grantee: v.union(v.null(), v.string()),
-    entry: v.union(v.null(), v.object({ name: v.string(), sites: v.array(v.string()) })),
+    entry: v.union(
+      v.null(),
+      v.object({
+        type: v.union(v.literal("login"), v.literal("secret")),
+        name: v.string(),
+        sites: v.array(v.string()),
+        fields: v.array(fieldSummaryValidator),
+      }),
+    ),
     expiresAt: v.number(),
   }),
   handler: async (ctx, args): Promise<Described> => {
@@ -324,32 +400,53 @@ export const describeVaultRequest = action({
       ...(row.granteeUserId === undefined ? {} : { granteeUserId: row.granteeUserId }),
     });
     if (labels.workspace === null) throw dead();
-    let entry: { name: string; sites: string[] } | null = null;
-    if (row.kind === "share") {
+    let entry: Described["entry"] = null;
+    if (row.kind !== "add") {
       const opened = await ctx.runAction(internal.functions.vault.runVaultOperation, {
         workspaceId: row.workspaceId,
         operation: { kind: "meta", entryId: row.entryId ?? "" },
       });
       if (opened === null || !mayUse(opened.meta, userId)) throw dead();
-      entry = { name: opened.meta.name, sites: opened.meta.sites };
+      entry = { type: opened.meta.type, name: opened.meta.name, sites: opened.meta.sites, fields: opened.meta.fields };
     }
     return { kind: row.kind, workspace: labels.workspace, grantee: labels.grantee, entry, expiresAt: row.expiresAt };
   },
 });
 
-/** Save a login the person typed. Never logged, never stored outside the bucket. */
+/**
+ * Save a login or a secret the person typed. Never logged, never stored
+ * outside the bucket. `type` and `fields` are optional so a page from before
+ * secrets existed still saves a plain login.
+ */
 export const saveVaultLogin = action({
-  args: { token: v.string(), name: v.string(), site: v.string(), username: v.string(), password: v.string() },
+  args: {
+    token: v.string(),
+    type: v.optional(v.union(v.literal("login"), v.literal("secret"))),
+    name: v.string(),
+    site: v.string(),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+    fields: v.optional(v.array(fieldValuesValidator)),
+  },
   returns: v.object({ name: v.string(), site: v.string() }),
   handler: async (ctx, args): Promise<{ name: string; site: string }> => {
     const userId = await signedIn(ctx);
     checkToken(args.token);
+    const type: EntryKind = args.type ?? "login";
     const name = args.name.trim();
-    const site = siteHost(args.site);
+    const username = args.username ?? "";
+    const password = args.password ?? "";
+    const site = args.site.trim() === "" && type === "secret" ? "" : siteHost(args.site);
     if (name.length === 0 || name.length > MAX_NAME) throw fail("INVALID_ARGUMENT", "Give it a short name.");
     if (site === null) throw fail("INVALID_ARGUMENT", "Enter the site's address, like netflix.com.");
-    if (args.password.length === 0) throw fail("INVALID_ARGUMENT", "Enter the password.");
-    if (args.username.length > MAX_SECRET || args.password.length > MAX_SECRET) {
+    const normalized = normalizeFields(args.fields);
+    if (normalized.error !== null) throw fail("INVALID_ARGUMENT", `Check the fields: ${normalized.error}.`);
+    const fields = normalized.fields as FieldValues[];
+    if (type === "login" && password.length === 0) throw fail("INVALID_ARGUMENT", "Enter the password.");
+    if (type === "secret" && !fields.some((field) => Object.keys(field.values).length > 0)) {
+      throw fail("INVALID_ARGUMENT", "Add at least one value.");
+    }
+    if (username.length > MAX_SECRET || password.length > MAX_SECRET) {
       throw fail("INVALID_ARGUMENT", "That is longer than a login can be.");
     }
     const spent = await ctx.runMutation(internal.functions.vault.consumeVaultRequest, {
@@ -359,7 +456,7 @@ export const saveVaultLogin = action({
     });
     const saved = await ctx.runAction(internal.functions.vault.runVaultOperation, {
       workspaceId: spent.workspaceId,
-      operation: { kind: "add", userId, name, site, username: args.username, password: args.password },
+      operation: { kind: "add", userId, type, name, sites: site ? [site] : [], username, password, fields },
     });
     if (saved === null) throw fail("KEY_UNAVAILABLE", "This workspace's vault can't be opened right now.");
     await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
@@ -369,6 +466,43 @@ export const saveVaultLogin = action({
       entryId: saved.entryId,
     });
     return { name, site };
+  },
+});
+
+/**
+ * Show the person one entry's values: the only door from a sealed secret part
+ * to a person's eyes. The signed-in person who asked, on the entry's people
+ * list, while the link lives. Each look is audited.
+ */
+export const revealVaultEntry = action({
+  args: { token: v.string() },
+  returns: v.object({
+    type: v.union(v.literal("login"), v.literal("secret")),
+    name: v.string(),
+    sites: v.array(v.string()),
+    username: v.string(),
+    password: v.string(),
+    fields: v.array(fieldValuesValidator),
+  }),
+  handler: async (ctx, args): Promise<{ type: EntryKind; name: string; sites: string[] } & Revealed> => {
+    const userId = await signedIn(ctx);
+    checkToken(args.token);
+    const live = await ctx.runQuery(internal.functions.vault.liveViewRequest, {
+      hashedToken: await hashToken(args.token),
+      userId,
+    });
+    const opened = await ctx.runAction(internal.functions.vault.runVaultOperation, {
+      workspaceId: live.workspaceId,
+      operation: { kind: "reveal", entryId: live.entryId, userId },
+    });
+    if (opened === null || opened.revealed === undefined) throw dead();
+    await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
+      workspaceId: live.workspaceId,
+      actorUserId: userId,
+      action: "vault.viewed",
+      entryId: live.entryId,
+    });
+    return { type: opened.meta.type, name: opened.meta.name, sites: opened.meta.sites, ...opened.revealed };
   },
 });
 

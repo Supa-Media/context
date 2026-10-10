@@ -1,10 +1,13 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   atHandle,
+  openingEnv,
+  parseVaultPrefill,
   resolveVaultLinkView,
   vaultLinkHref,
   type Described,
   type Outcome,
+  type RevealedEntry,
   type VaultRequest,
 } from "../features/vault/vaultLink";
 
@@ -20,9 +23,20 @@ const shareRequest: VaultRequest = {
   kind: "share",
   workspace: team,
   grantee: "sayo",
-  entry: { name: "Netflix", sites: ["netflix.com"] },
+  entry: { type: "login", name: "Netflix", sites: ["netflix.com"], fields: [] },
   expiresAt: 1,
 };
+const stripe = {
+  type: "secret" as const,
+  name: "Stripe",
+  sites: [],
+  fields: [
+    { name: "STRIPE_SECRET_KEY", perEnv: true, set: ["staging", "prod"] },
+    { name: "Account id", perEnv: false, set: ["_"] },
+  ],
+};
+const viewRequest: VaultRequest = { kind: "view", workspace: personal, grantee: null, entry: stripe, expiresAt: 1 };
+const loginDefaults = { type: "login", fields: [], envs: false, env: null };
 const shown = (request: VaultRequest): Described => ({ kind: "shown", request });
 
 function view(described: Described, outcome: Outcome = idle, prefill = {}) {
@@ -53,7 +67,7 @@ describe("the vault link", () => {
     expect(view(shown(addRequest), idle, { name: " Netflix ", site: "netflix.com" })).toEqual({
       kind: "add",
       workspace: personal,
-      prefill: { name: "Netflix", site: "netflix.com" },
+      prefill: { name: "Netflix", site: "netflix.com", ...loginDefaults },
       busy: false,
       problem: null,
     });
@@ -70,7 +84,7 @@ describe("the vault link", () => {
       kind: "share",
       workspace: team,
       grantee: "sayo",
-      entry: { name: "Netflix", sites: ["netflix.com"] },
+      entry: shareRequest.entry,
       busy: false,
       problem: null,
     });
@@ -83,11 +97,14 @@ describe("the vault link", () => {
       kind: "saved",
       name: "Netflix",
       site: "netflix.com",
+      type: "login",
     });
+    expect(view(shown(addRequest), { kind: "saved", name: "Stripe", site: "", type: "secret" })).toMatchObject({ type: "secret" });
     expect(view(shown(shareRequest), { kind: "shared", name: "Netflix", grantee: "sayo" })).toEqual({
       kind: "shared",
       name: "Netflix",
       grantee: "sayo",
+      type: "login",
     });
     expect(view(shown(shareRequest), { kind: "declined" })).toEqual({ kind: "declined" });
   });
@@ -124,6 +141,7 @@ describe("the vault link", () => {
 
   test("storage and key failures, and anything unknown, end the page", () => {
     expect(view({ kind: "failed", error: err("VAULT_NO_STORAGE") })).toMatchObject({ reason: "storage" });
+    expect(view(shown(addRequest), { kind: "failed", error: err("VAULT_NO_STORAGE") })).toMatchObject({ reason: "storage" });
     expect(view(shown(addRequest), { kind: "failed", error: err("KEY_UNAVAILABLE") })).toMatchObject({ reason: "key" });
     expect(view({ kind: "failed", error: err("SOMETHING_NEW") })).toMatchObject({ reason: "failed" });
     expect(view({ kind: "failed", error: new Error("offline") })).toMatchObject({ reason: "failed" });
@@ -132,5 +150,103 @@ describe("the vault link", () => {
   test("a grantee is named by handle, with a plain fallback", () => {
     expect(atHandle("sayo")).toBe("@sayo");
     expect(atHandle(null)).toBe("them");
+  });
+
+  test("a dead link's copy does not claim a view link is spent by a look", () => {
+    const expired = view({ kind: "failed", error: err("VAULT_LINK_DEAD") });
+    expect(expired.kind === "dead" && expired.detail).not.toMatch(/work once/);
+  });
+});
+
+describe("the agent's prefills", () => {
+  test("a secret link starts per environment unless the agent says otherwise", () => {
+    expect(parseVaultPrefill({ type: "secret", name: " Stripe ", fields: "STRIPE_KEY, WEBHOOK_SECRET" })).toEqual({
+      name: "Stripe",
+      site: "",
+      type: "secret",
+      fields: ["STRIPE_KEY", "WEBHOOK_SECRET"],
+      envs: true,
+      env: null,
+    });
+    expect(parseVaultPrefill({ type: "secret", envs: "0" }).envs).toBe(false);
+    expect(parseVaultPrefill({ type: "SECRET" }).type).toBe("secret");
+  });
+
+  test("a login link's fields start single-valued, and per environment only when asked", () => {
+    expect(parseVaultPrefill({ fields: "PIN" })).toMatchObject({ type: "login", fields: ["PIN"], envs: false });
+    expect(parseVaultPrefill({ fields: "PIN", envs: "1" }).envs).toBe(true);
+  });
+
+  test("anything unknown falls back, and unsaveable or repeated names are dropped", () => {
+    expect(parseVaultPrefill({ type: "card", env: "qa", envs: "yes" })).toEqual({
+      name: "",
+      site: "",
+      type: "login",
+      fields: [],
+      envs: false,
+      env: null,
+    });
+    expect(parseVaultPrefill({ fields: "A,,a, B ,<script>,-x,C" }).fields).toEqual(["A", "B", "C"]);
+    expect(parseVaultPrefill({ fields: Array.from({ length: 40 }, (_, i) => `K${i}`).join(",") }).fields).toHaveLength(30);
+    expect(parseVaultPrefill({ env: "PROD" }).env).toBe("prod");
+  });
+
+  test("every prefill survives signing in, as the agent wrote it", () => {
+    const raw = { type: "secret", name: "Stripe", site: "dashboard.stripe.com", fields: "A,B", envs: "1", env: "prod" };
+    const href = vaultLinkHref("tok", raw);
+    expect(href).toBe("/vault/tok?type=secret&name=Stripe&site=dashboard.stripe.com&fields=A%2CB&envs=1&env=prod");
+    const back = Object.fromEntries(new URL(href, "https://x.test").searchParams);
+    expect(parseVaultPrefill(back)).toEqual(parseVaultPrefill(raw));
+    expect(resolveVaultLinkView({ token: "tok", auth: signedOut, prefill: raw, described: { kind: "idle" }, outcome: idle })).toEqual({
+      kind: "signIn",
+      href: `/login?next=${encodeURIComponent(href)}`,
+    });
+  });
+});
+
+describe("a view link", () => {
+  const revealed: RevealedEntry = {
+    type: "secret",
+    name: "Stripe",
+    sites: [],
+    username: "",
+    password: "",
+    fields: [{ name: "STRIPE_SECRET_KEY", perEnv: true, values: { prod: "sk_test_fake_prod" } }],
+  };
+
+  test("names the entry and its fields, with no values until Reveal", () => {
+    expect(view(shown(viewRequest))).toEqual({
+      kind: "view",
+      workspace: personal,
+      entry: stripe,
+      env: "staging",
+      revealed: null,
+      busy: false,
+      problem: null,
+    });
+  });
+
+  test("opens on the agent's environment, else the first with a value, else dev", () => {
+    expect(view(shown(viewRequest), idle, { env: "prod" })).toMatchObject({ env: "prod" });
+    expect(openingEnv(stripe, null)).toBe("staging");
+    expect(openingEnv({ ...stripe, fields: [{ name: "A", perEnv: false, set: ["_"] }] }, null)).toBe("dev");
+  });
+
+  test("Reveal is busy, then holds the answer; nothing spends the link", () => {
+    expect(view(shown(viewRequest), { kind: "busy" })).toMatchObject({ kind: "view", busy: true, revealed: null });
+    expect(view(shown(viewRequest), { kind: "revealed", entry: revealed })).toMatchObject({ kind: "view", busy: false, revealed });
+  });
+
+  test("a Reveal with no answer can be tried again; an expired one ends the page", () => {
+    expect(view(shown(viewRequest), { kind: "failed", error: new Error("offline") })).toMatchObject({
+      kind: "view",
+      problem: { headline: "That didn't go through." },
+    });
+    expect(view(shown(viewRequest), { kind: "failed", error: err("VAULT_LINK_DEAD") })).toMatchObject({ kind: "dead", reason: "expired" });
+    expect(view(shown(viewRequest), { kind: "failed", error: err("VAULT_LINK_NOT_YOURS") })).toMatchObject({ reason: "notYours" });
+  });
+
+  test("a view link whose entry is gone is expired", () => {
+    expect(view(shown({ ...viewRequest, entry: null }))).toMatchObject({ kind: "dead", reason: "expired" });
   });
 });
