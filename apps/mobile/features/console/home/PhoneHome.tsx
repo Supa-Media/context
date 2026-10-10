@@ -15,6 +15,7 @@ import {
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
 import { AddFolderLine, Card, FolderLine, MapPlace, NoteRow, Section, Tile } from "./homeRows";
+import { ChaosHomeLine } from "../../chaos/ChaosHomeLine";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -247,6 +248,9 @@ export function PhoneHome({
           </Card>
         </Section>
       )}
+
+      {/* How organized the workspace is, quietly, last (`features/chaos`); nothing until it is scored. */}
+      <ChaosHomeLine />
 
       {foot === undefined ? null : (
         <Text variant="treeMeta" style={styles.foot} testID="context-foot">

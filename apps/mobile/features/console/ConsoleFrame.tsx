@@ -77,6 +77,8 @@ import { consoleBarDialogs } from "./layout/barDialogs";
 import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
+import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
+import { ChaosSheet } from "../chaos/ChaosPopover";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import {
@@ -291,6 +293,8 @@ export function ConsoleFrame({
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.
   useLeavePageOnOpen(organizer, data.files.selectedPath);
+  // The chaos score, for the surfaces that draw it; absent-as-nothing everywhere else.
+  const chaos = useConsoleChaos(data.chaos, data.files.select);
   // The live map (`?map=1`), over Browse in the same slot; leaves the same way.
   const mapRoute = useConsoleMapRoute(router, params.mapOpen === true, {
     available: !data.demo && visitor === undefined,
@@ -422,6 +426,7 @@ export function ConsoleFrame({
   return (
     <ConsoleDataProvider value={data}>
       <OrganizerProvider value={organizer}>
+      <ChaosProvider value={chaos}>
       <MapRouteProvider value={mapRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
@@ -648,11 +653,14 @@ export function ConsoleFrame({
           not the key.
         */}
         {meetingSheet}
+        {/* The chaos panel from a folder page's chip or the phone's Home; the tree's foot draws its own. */}
+        <ChaosSheet />
       </AppFrame>
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
       </MapRouteProvider>
+      </ChaosProvider>
       </OrganizerProvider>
     </ConsoleDataProvider>
   );

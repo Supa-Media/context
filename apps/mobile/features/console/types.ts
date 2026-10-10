@@ -25,6 +25,7 @@ import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
+import type { ChaosSource } from "../chaos/useChaosScore";
 import type { ConnectFormValues } from "./storage/connect";
 import type { NoteLimit } from "./noteLimit";
 
@@ -462,6 +463,11 @@ export interface ConsoleData {
    * the demo console; every surface treats absence as drawing nothing.
    */
   organizer?: OrganizerView;
+  /**
+   * The chaos score for the selected workspace (`features/chaos`). Absent on
+   * the demo console; every surface treats absence as drawing nothing.
+   */
+  chaos?: ChaosSource;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.
