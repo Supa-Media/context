@@ -429,7 +429,8 @@ prompt, with the result copied back by hand.
   from running it.
 - **The fixtures moved into the repository**, at `apps/mcp/bench/ai/`
   (workspaces, tests, setups), which reverses the 2026-10-08 decision that
-  they stay in `@context-lc`. A runner has no account, and the gateway has no
+  they stay in `@context-lc`. (The setups moved back on 2026-10-10: see the
+  next section. The workspaces and tests stay.) A runner has no account, and the gateway has no
   machine credential by design (`oauth.js`: every connection is somebody's
   consent), so the folder the Action reads has to be one it can read without
   one. What stays in `@context-lc ai/` is what needs the product: the process
@@ -477,7 +478,72 @@ would need a credential the gateway deliberately does not mint; writing
 answers to the summary page would put a judge's input where a judge might
 read it. Tests (`bench/test/folder.test.mjs`, `summary.test.mjs`): "--dir
 wins, then AI_BENCH_DIR, then the repository's bench/ai", "the repository's
-folder exists, loads, and holds the texting-assistant test and setups", "the
-summary carries the latest scores and the run's summary lines, and nothing
-else"; and `scripts/check-workflow-triggers.mjs` and
+folder exists, loads, and holds the tests; the setups are pulled from
+Context", "the summary carries the latest scores and the run's summary lines,
+and nothing else"; and `scripts/check-workflow-triggers.mjs` and
 `check-secrets-allowlist.mjs` on every pull request.
+
+### The setups and the scores live in Context; the fixtures stay in the repository (2026-10-10)
+
+**Decided by the owner (2026-10-10)**, a day after the fixtures moved to the
+repository: "I'd love to be able to see it within context." Asked what is
+logically better, the split is by who changes a thing and when:
+
+- **A setup is what a person edits and promotes**, and the production file
+  the gateway reads already lives in `@context-lc ai/production/`. With the
+  setups beside it, in `ai/setups/<job>/`, writing a setup is writing a note
+  in the app, running it is dispatching the Action, and promoting it is a copy
+  within one folder. `pnpm ai pull <job>` fetches them into the bench folder's
+  `setups/<job>/` before a run (every note directly under the folder but its
+  `about.md`; the folder is emptied first, so a setup retired in Context is
+  not still run from a stale file), and git ignores that folder. The
+  one-folder promise is real for the two assistants; **search has no
+  production file yet**: its production settings are the Worker's
+  `SEARCH_SETTINGS` var or a texting setup's `search:` section, and a
+  `production/search.md` the gateway reads is the owner's call, not made here.
+- **The workspaces and the question lists are fixtures**: they change in the
+  same commit as the harness and the code they exercise, and a question that
+  names a note has to match the note. They stay at `apps/mcp/bench/ai/`.
+- **A round's scores are something a person reads and compares**, so the
+  Action writes them to `ai/results/<result name> scores.md` itself
+  (`pnpm ai publish`): the front matter, the run's summary and latest scores
+  (a search result's misses too), and the run's address, never an answer and
+  never an id. The answers and the key stay the run's artifacts: big, and the
+  key never sits beside the result.
+
+**How the runner is somebody's consent.** The gateway mints no machine
+credential (`oauth.js`), and that line holds: the runner is an ordinary OAuth
+grant of a test account that is an editor of `@context-lc`, registered as its
+own public client ("Benchmark runner (GitHub Actions)", scope
+`context:read context:write`, never the private tier) and approved once by a
+person with `pnpm ai connect` over a loopback redirect
+(`bench/context.mjs`). What makes it a runner rather than a laptop is where
+the refresh token lives: in 1Password as a seed (`BENCH_RUNNER_CLIENT_ID`,
+`BENCH_RUNNER_REFRESH_TOKEN`, synced to the production environment like any
+secret), and then in `BENCH_RUNNER_REFRESH_TOKEN_LIVE`, which the workflow
+writes itself with the sync's own admin token the moment a sign-in rotates
+it, before anything else runs and again at the end. The sentry worker keeps
+its pair in a Durable Object for the same reason; an Action has no store but
+its secrets. **Rotation and reuse detection are untouched**: the first
+version of this reached for a confidential client whose refresh token does
+not rotate, and that is a weakening of the one check that notices a leaked
+token, so it was not done. The cost is the hazard the allowlist comment
+states: the live secret must never be synced from the vault, because the
+vault holds the retired seed and presenting it revokes the grant; a lost
+write-back (a run cancelled between the refresh and the secret write) is
+`pnpm ai connect` again.
+
+**What a simplification would cost:** a committed `setups/` folder is a
+mirror somebody forgets, and the owner's own words were that he cannot see
+it; a non-rotating refresh token for the runner turns reuse detection off
+for the one grant that lives in a CI secret store; syncing the live token
+from the vault revokes the grant on the next run; publishing the whole
+result to Context would put the answers beside the key, where a judge might
+read them. Tests (`bench/test/context.test.mjs`): "signIn refreshes once,
+writes the rotated pair down first, and reuses it while it lasts",
+"pullSetups replaces setups/<job>/ with the notes in Context, skipping the
+folder's about note", "the scores note carries the summary, the scores and
+the run, never an answer or an id", "connect registers a public client for
+the runner's scope, checks the state, and prints the two values once";
+`folder.test.mjs` ("the setups are pulled from Context"); and
+`check-secrets-allowlist.mjs`, which names the live token as not synced.

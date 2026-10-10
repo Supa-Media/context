@@ -90,3 +90,5 @@ apps/mobile/public/drawing-assets/
 
 # Benchmark results are written to @context-lc ai/results/, never committed.
 apps/mcp/bench/ai/results/
+# Benchmark setups live in @context-lc ai/setups/<job>/ and are pulled before a run (pnpm ai pull).
+apps/mcp/bench/ai/setups/
