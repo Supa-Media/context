@@ -22,6 +22,9 @@
  *   models.router  optional, with `models.think`: the decision model that picks
  *                  a tier for each text (`router.js`; only Clef, for now)
  *   models.think   the model a `think` text runs on instead of `models.main`
+ *   models.route_at optional, with the router: the confidence (0 to 1) a
+ *                  `think` pick needs before the text goes to `models.think`;
+ *                  `router.js`'s default when absent. Lower routes more.
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -40,7 +43,7 @@
 import { loadPrivacyState } from "../privacy/state.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
-import { ROUTER_MODEL } from "./router.js";
+import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -49,6 +52,7 @@ const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
 const MAX_STEPS = 12;
 const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
+const ROUTE_AT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const TOP_KEY = /^([a-z][a-z0-9_]*):(?: +(.*))?$/;
 const SUB_KEY = /^ {2}([a-z][a-z0-9_]*):(?: +(.*))?$/;
@@ -84,8 +88,13 @@ async function parse(raw) {
   if (models.router !== undefined || models.think !== undefined) {
     if (models.router !== ROUTER_MODEL) return null;
     if (typeof models.think !== "string" || !isBuiltinModelName(models.think)) return null;
-    router = { model: models.router, think: models.think };
-  }
+    let routeAt = DEFAULT_ROUTE_AT;
+    if (models.route_at !== undefined) {
+      if (typeof models.route_at !== "string" || !ROUTE_AT.test(models.route_at)) return null;
+      routeAt = Number(models.route_at);
+    }
+    router = { model: models.router, think: models.think, routeAt };
+  } else if (models.route_at !== undefined) return null;
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;

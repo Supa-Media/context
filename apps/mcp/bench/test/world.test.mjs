@@ -292,6 +292,29 @@ test("a write records the note written, never the privacy manifest or activity l
 const ROUTED_SETUP =
   "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n  router: \"@cf/cloudflare/clef\"\n  think: anthropic/claude-opus-5-5\n---\n\nYou are a test assistant.\n";
 
+test("a routed setup shows the router's confidence, and a think pick under the cutoff as a near miss", async () => {
+  const sure = (confidence) => ({ calls: [], async run() { return { answers: { tier: { choice: "think", confidence } } }; } });
+  const under = await createWorld(bench, "Maya", ROUTED_SETUP, { gatewayFetch: readsOnce({ path: "health/dentist.md" }), ai: sure(0.42) });
+  try {
+    const answer = await under.text("When is my dentist appointment?");
+    assert.equal(answer.tools[0]?.tool, "router: main (think 0.42)", JSON.stringify(answer.tools));
+    assert.equal(answer.model, "anthropic/claude-haiku-5-5");
+  } finally {
+    under.close();
+  }
+  const wide = await createWorld(bench, "Maya", ROUTED_SETUP.replace("think: anthropic/claude-opus-5-5", "think: anthropic/claude-opus-5-5\n  route_at: 0.3"), {
+    gatewayFetch: readsOnce({ path: "health/dentist.md" }),
+    ai: sure(0.42),
+  });
+  try {
+    const answer = await wide.text("When is my dentist appointment?");
+    assert.equal(answer.tools[0]?.tool, "router: think (0.42)", JSON.stringify(answer.tools));
+    assert.equal(answer.model, "anthropic/claude-opus-5-5");
+  } finally {
+    wide.close();
+  }
+});
+
 test("a routed setup records the tier first on the tools line and reports the model that answered", async () => {
   const { fakeAi } = await import("../models.mjs");
   const seen = [];
@@ -302,11 +325,11 @@ test("a routed setup records the tier first on the tools line and reports the mo
   const world = await createWorld(bench, "Maya", ROUTED_SETUP, { gatewayFetch, ai: fakeAi() });
   try {
     const thought = await world.text("Should I move the trip, given the dentist clash?");
-    assert.equal(thought.tools[0]?.tool, "router: think", JSON.stringify(thought.tools));
+    assert.equal(thought.tools[0]?.tool, "router: think (0.90)", JSON.stringify(thought.tools));
     assert.equal(thought.model, "anthropic/claude-opus-5-5", "priced as the model that answered");
     assert.equal(seen.at(-1), "claude-opus-5-5");
     const looked = await world.text("When is my dentist appointment?");
-    assert.equal(looked.tools[0]?.tool, "router: main");
+    assert.equal(looked.tools[0]?.tool, "router: main", "a lookup pick shows no think confidence");
     assert.equal(looked.model, "anthropic/claude-haiku-5-5");
     assert.equal(seen.at(-1), "claude-haiku-5-5");
   } finally {
