@@ -44,7 +44,7 @@ export const MAX_STEPS_PER_TURN = 40;
 const MAX_ELEMENTS_SHOWN = 80;
 const MAX_TEXT_SHOWN = 8_000;
 
-const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read"]);
+const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "handoff"]);
 
 export const BROWSE_DEFINITION = {
   name: BROWSE_TOOL,
@@ -54,6 +54,8 @@ export const BROWSE_DEFINITION = {
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
     "goto follows the same rule as open_page: an address the person wrote, a search result, or a link you saw. " +
     "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. " +
+    "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
+    "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
     "Use open_page instead when you only need to read.",
   inputSchema: {
     type: "object",
@@ -137,9 +139,12 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
   let session = null;
   let origin = null;
   let steps = 0;
+  // The live-view link, for the gateway to add to the reply; never the model's.
+  let handoffLink = null;
 
-  async function run(planned) {
-    const result = await computer.browse(session, planned);
+  async function run(planned, { handoff = false } = {}) {
+    const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
+    if (typeof result?.liveUrl === "string" && result.liveUrl.startsWith("https://")) handoffLink = result.liveUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
     if (!reading) return null;
@@ -170,9 +175,15 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
       }
       const planned = [];
       let gotos = 0;
+      let handoff = false;
       for (const step of asked) {
         if (!MODEL_STEPS.has(step?.do)) return textResult(`There is no "${String(step?.do).slice(0, 20)}" step.`, true);
-        if (step.do === "goto") {
+        if (step.do === "handoff") {
+          if (computer.canHandOff?.() !== true) {
+            return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);
+          }
+          handoff = true;
+        } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
             return textResult("You can only open an address the person wrote, a search result, or a link you saw. Ask them for the address.", true);
@@ -196,7 +207,10 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
           planned.push(step);
         }
       }
-      if (session === null && planned[0].do !== "goto") {
+      if (planned.length === 0) planned.push({ do: "read" });
+      // A browser that outlives a question (Browserbase) may be carried on
+      // from without opening a page first.
+      if (session === null && planned[0].do !== "goto" && computer.mayResume?.() !== true) {
         return textResult("The browser is not open yet: start with a goto step.", true);
       }
       if (gotos > 0 && !takePages(gotos)) {
@@ -205,13 +219,22 @@ export function browserSession(computer, { allowed, addresses, takePages }) {
       steps += planned.length;
       let done;
       try {
-        done = await run(planned);
+        done = await run(planned, { handoff });
       } catch {
         done = null;
       }
       if (done === null) return textResult("The browser couldn't do that. Try again, or answer without it.", true);
-      return textResult(readingText(done.reading, done.ran), done.ran.some((r) => !r.ok));
+      const told =
+        handoff && handoffLink !== null
+          ? "\n\nA link to this browser will be added to your reply. Tell the person to open it, finish there, and text you when done."
+          : handoff
+            ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
+            : "";
+      return textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
     },
+
+    /** The live-view link a handoff made this question, for the gateway's reply. */
+    handoffLink: () => handoffLink,
 
     /** The origin of the page the browser is on, or null before it opens one. */
     currentOrigin: () => origin,

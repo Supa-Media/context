@@ -215,6 +215,8 @@ jobs:
       LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
       LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
       AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
       AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
       AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
@@ -287,6 +289,14 @@ jobs:
                 printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm --dir apps/mcp exec wrangler secret put BRAVE_SEARCH_API_KEY --env staging
               else
                 echo "::warning::BRAVE_SEARCH_API_KEY is not set; the texting assistant has no web search until it is."
+              fi
+              # Tex's Browserbase browser lives in the screenshot Worker:
+              # both or neither, and with neither Tex drives Cloudflare's.
+              if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
+                printf '%s' "$BROWSERBASE_API_KEY" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_API_KEY --env staging
+                printf '%s' "$BROWSERBASE_PROJECT_ID" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_PROJECT_ID --env staging
+              else
+                echo "::notice::Browserbase is not configured in staging; Tex drives Cloudflare's browser."
               fi
               # Model routing through Cloudflare AI Gateway: optional, and with
               # any of the first three missing the gateway keeps Workers AI.

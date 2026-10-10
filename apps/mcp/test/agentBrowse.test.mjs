@@ -15,6 +15,7 @@ import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { webSession } from "../src/agent/computer.js";
 import { BROWSE_TOOL, MAX_STEPS_PER_TURN, onlyTheirWords } from "../src/agent/browse.js";
+import { browserOwner, resetBrowserbaseProbe } from "../src/agent/browserProviders.js";
 
 const S3_ENDPOINT = "https://s3.example-browse.test";
 const TOKEN_TEXTS = `cat_browse_texts_${"0".repeat(22)}`;
@@ -149,6 +150,13 @@ export async function runAgentBrowseChecks(check) {
     onlyTheirWords("Wool  SOCKS!", new Set(["wool", "socks"])) && !onlyTheirWords("wool socks 180k", new Set(["wool", "socks"])),
   );
 
+  {
+    const computer = fakeComputer();
+    const web = webSession(computer, "shop.example.com");
+    const handoff = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.com/" }, { do: "handoff" }] });
+    check("a browser that cannot be handed over says so, and runs nothing", handoff.isError === true && computer.calls.length === 0);
+  }
+
   check(
     "a computer that cannot drive a browser offers no browse tool",
     !webSession({ async readPage() { return null; } }, "x").tools.some((t) => t.name === BROWSE_TOOL),
@@ -187,10 +195,21 @@ async function runEndToEnd(check) {
     controlPlane.setBuiltinVerdict("ws_browse", { allowed: true, remaining: 50 });
 
     const requests = [];
+    const browserbase = { on: false };
+    resetBrowserbaseProbe();
     const SITE_SHOTS = {
       async fetch(url, init) {
         const body = JSON.parse(init.body);
         requests.push({ path: new URL(url).pathname, body });
+        if (body.provider === "browserbase") {
+          if (!browserbase.on) return Response.json({ error: "browserbase is not configured" }, { status: 501 });
+          return Response.json({
+            session: "bb-session-1",
+            ran: body.steps.map((s) => ({ do: s.do, ok: true })),
+            page: { url: "https://shop.example.com/login", title: "Sign in", text: "Sign in", truncated: false, elements: [] },
+            ...(body.handoff ? { liveUrl: "https://live.browserbase.example/view/LIVE-MARKER" } : {}),
+          });
+        }
         if (new URL(url).pathname === "/browse/close") return Response.json({ closed: true });
         return Response.json({
           session: "sess-e2e-0001",
@@ -239,6 +258,48 @@ async function runEndToEnd(check) {
       "the browser is closed once the question is answered",
       requests.some((r) => r.path === "/browse/close" && r.body.session === "sess-e2e-0001"),
     );
+    check(
+      "with no Browserbase key, Browserbase is asked once and Cloudflare's browser does the work",
+      requests.filter((r) => r.body.provider === "browserbase").length === 1 && requests[1]?.path === "/browse" && requests[1].body.provider === undefined,
+    );
+    const owner = requests[0]?.body?.owner ?? "";
+    check(
+      "the browser tag is a keyed hash that names nobody",
+      /^[a-f0-9]{64}$/.test(owner) && !owner.includes("user_browse") && owner === (await browserOwner({ GATEWAY_SECRET }, "user_browse")) &&
+        owner !== (await browserOwner({ GATEWAY_SECRET }, "user_other")),
+    );
+
+    /* ---------------- Browserbase: a sign-in handed to the person ---------------- */
+
+    resetBrowserbaseProbe();
+    browserbase.on = true;
+    requests.length = 0;
+    calls.length = 0;
+    script.push(
+      { name: BROWSE_TOOL, args: { steps: [{ do: "goto", url: "https://shop.example.com/" }, { do: "handoff" }] } },
+      null,
+    );
+    const second = await worker.fetch(
+      new Request("https://mcp.context.test/agent", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN_TEXTS}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ question: "Log me in to shop.example.com" }),
+      }),
+      env,
+      createWorkerCtx().ctx,
+    );
+    const handed = await second.json();
+    const modelSaw = JSON.stringify(calls);
+    check(
+      "a handoff's live link is added to the text by the gateway, and the model never sees it",
+      handed.answer.endsWith("https://live.browserbase.example/view/LIVE-MARKER") && !modelSaw.includes("LIVE-MARKER") &&
+        modelSaw.includes("A link to this browser will be added to your reply"),
+    );
+    check(
+      "a Browserbase browser is left for the person's next text, not closed with the question",
+      requests.every((r) => r.path !== "/browse/close") && requests.every((r) => r.body.provider === "browserbase"),
+    );
+    resetBrowserbaseProbe();
   } finally {
     restoreControlPlane();
     restoreS3();

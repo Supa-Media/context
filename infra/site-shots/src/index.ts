@@ -29,17 +29,22 @@
  *                 gateway's turn and nowhere else; the browser closes itself
  *                 when idle, and nothing in it is kept.
  *   POST /browse/close `{ session }` → closes that browser now.
+ *   Either with `provider: "browserbase"` drives the person's Browserbase
+ *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
+ *   one secret, the Browserbase key, which never leaves this Worker.
  *   anything else 404
  */
 
 import puppeteer from "@cloudflare/puppeteer";
 import { fetchPage } from "./fetchText";
 import { parseReadRequest, read } from "./read";
+import type { BrowserbaseEnv } from "./browserbase";
+import { browseOnBrowserbase } from "./browserbaseRoute";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
 
-interface Env {
+interface Env extends BrowserbaseEnv {
   BROWSER: Parameters<typeof puppeteer.launch>[0];
 }
 
@@ -50,7 +55,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close")) {
-      return await browse(env, url.pathname, await request.json().catch(() => null));
+      const body = await request.json().catch(() => null);
+      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body);
+      return await browse(env, url.pathname, body);
     }
     if (request.method !== "POST" || (url.pathname !== "/shoot" && url.pathname !== "/read")) {
       return new Response(null, { status: 404 });

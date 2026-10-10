@@ -37,6 +37,7 @@
  */
 
 import { BROWSE_TOOL, browserSession } from "./browse.js";
+import { siteShotsComputer } from "./browserProviders.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
 
@@ -59,55 +60,22 @@ const MAX_PAGE_CHARS = 12_000;
 const MAX_LINKS_SHOWN = 40;
 
 const PROVIDERS = {
-  cloudflare: cloudflareComputer,
+  // Cloudflare's browser, and Browserbase for `browse` once its key is set.
+  cloudflare: (env, options) => siteShotsComputer(env, options),
+  // Cloudflare's browser only, even when Browserbase is configured.
+  "cloudflare-only": (env) => siteShotsComputer(env, {}),
 };
 
 /**
  * The computer this deployment gives the agent, or null when it has none (a
  * self-hosted gateway without Browser Rendering, or an unknown provider name).
+ * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
+ * find their Browserbase browser again in a later question.
  */
-export function computerFor(env) {
+export function computerFor(env, { owner = null } = {}) {
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env) : null;
-}
-
-function cloudflareComputer(env) {
-  const browser = env?.SITE_SHOTS;
-  if (typeof browser?.fetch !== "function") return null;
-  return {
-    provider: "cloudflare",
-    async readPage(url) {
-      const response = await browser.fetch("https://site-shots/read", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.page || typeof body.page.text !== "string") {
-        throw new Error("page unreadable");
-      }
-      return body.page;
-    },
-    async browse(session, steps) {
-      const response = await browser.fetch("https://site-shots/browse", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(session === null ? { steps } : { session, steps }),
-      });
-      const body = await response.json().catch(() => null);
-      // A failed call still names its browser, so the turn can close it.
-      if (typeof body?.session === "string") return response.ok ? body : { session: body.session, ran: [], page: null };
-      throw new Error("browser unavailable");
-    },
-    async closeBrowser(session) {
-      await browser.fetch("https://site-shots/browse/close", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session }),
-      });
-    },
-  };
+  return make ? make(env, { owner }) : null;
 }
 
 /**

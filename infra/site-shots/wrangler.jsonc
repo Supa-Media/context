@@ -6,8 +6,10 @@
   //
   // `workers_dev` is false and there are no routes, so this Worker has no
   // address at all. The gateway (apps/mcp/wrangler.toml) reaches it through a
-  // service binding, which is why it holds no secret: there is nothing to
-  // authenticate against when nobody else can call it.
+  // service binding, which is why it holds no secret of ours: there is nothing
+  // to authenticate against when nobody else can call it. Its one secret is a
+  // vendor's, optional: BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID, set by
+  // the deploy workflows after the deploy (src/browserbase.ts).
   //
   // ── DEPLOY THIS BEFORE THE GATEWAY ────────────────────────────────────────
   //

@@ -420,6 +420,20 @@ box" is the exfiltration the address guard closes, by another door. So:
   browser is closed when the question is answered (it closes itself when idle
   regardless). At most 10 steps a call and 40 a question.
 
+**Browserbase, and handing the browser to the person.** Decided by the owner
+the same day: Browserbase is the browser, stateless (no Contexts,
+`recordSession: false`). It sits in `infra/site-shots`
+(`src/browserbase.ts`), which holds its key, and switches on by itself once
+`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
+Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
+outlives the question, capped at 15 minutes of life, and is found again by a
+tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
+ours stores a session id and no one can name another person's browser. When
+the person must act themselves (sign in, a code, a captcha), the model asks
+for a `handoff`; the gateway adds the live-view link to the text itself, so
+the model never holds it, and it is kept out of the saved conversation,
+because whoever opens it drives a browser the person may be signed in on.
+
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
 tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,
