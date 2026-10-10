@@ -27,13 +27,25 @@ Decided by the owner, 2026-10-06. Built 2026-10-10.
   never plain http). The value goes straight into the page.
 - **What a model sees.** `vault_list` gives ids, names and sites. No tool
   result, log or message carries a username or password.
+- **How a model uses one.** `fill_login` (`apps/mcp/src/agent/fillLogin.js`)
+  names an entry and the boxes on the page; the gateway reads the origin from
+  the browser's last reading, opens the entry with `openForFill`, and sends
+  each part to the browser's fill step, which checks the exact origin and the
+  kind of box again as it types. A password goes only into an
+  `<input type="password">`, so a search box that prints what is typed into
+  it, where the next reading would show it, never receives one. Another
+  workspace's login is opened through the grant's own `openContext`, so a
+  membership the grant lacks is a login that does not exist.
 
 **What a simplification would cost:** sealing the whole entry as one part makes
 every listing open passwords; binding nothing but the workspace lets anyone
 with bucket write swap a secret onto an entry with a friendlier site. Tests:
 `apps/mcp/test/vault.test.mjs` ("a bucket read of a vault entry never yields
 the login, its name or its site", "a sealed part opens only as itself", "no
-vault tool result ever carries a username or password").
+vault tool result ever carries a username or password"),
+`apps/mcp/test/agentFillLogin.test.mjs` ("the site is where the browser is")
+and `infra/site-shots/src/browse.test.ts` ("puts a password only in a password
+box").
 
 ### Personal logins stay personal; a shared workspace's vault is shared login by login
 
