@@ -30,24 +30,11 @@
  *
  * ## 2. A `@name` invitee is mailed at their account's verified address
  *
- * This section used to say a handle got nothing, on the reasoning that finding
- * an address would be "resolving an identifier to a person at invite time".
- * That reasoning was wrong about *where* it ran. Section 1 is the whole
- * answer: this is a scheduled job with no channel back to the inviter, and
- * `inviteMember` already resolves the addressee anyway, for the one permitted
- * existing-member no-op. What the rule cost was the common case — somebody
- * invites `@shyoh` by name, and `@shyoh` hears nothing unless they happen to
- * open the app.
- *
- * So `claimInvitationEmail` resolves the handle with `resolveAddressedUser`,
- * the same authority accepting uses, and mails the account's own **verified**
- * address. The inviter never sees that address: it is not in the row, the
- * audit detail, the return value, or a log line. Every refusal — no such
- * handle, a handle naming a shared workspace, an ambiguous owner, an
- * unverified address — is the same silent `null` as every other refusal here.
- * No sign-in code is ever minted for a handle: a name only resolves to an
- * account that already exists, which is exactly the account the magic link
- * stays away from.
+ * Resolved here, in the scheduled job, by `resolveAddressedUser` — the same
+ * authority accepting uses — so nothing about the lookup reaches the inviter.
+ * Only a verified address is mailed, no sign-in code is ever minted for a
+ * handle (it only names an existing account), and every refusal is silent.
+ * See `docs/decisions/identity-and-access/invitations-and-signin.md`.
  *
  * ## 3. The magic link is NOT the invitation token
  *
@@ -308,13 +295,9 @@ const PROVIDER_MISSING_MARKER = `Provider \`${SIGNIN_PROVIDER}\` is not configur
 /**
  * Why the mint failed, as a value an operator can act on.
  *
- * The expected answer is `provider_not_configured`, which is true of every
- * deployment until the framework release lands and means "nothing is wrong,
- * this is the documented degraded state". Anything else — a renamed argument,
- * a validator change in `auth:store`, an `expirationTime` the library rejects —
- * is a defect, and before this existed the two produced a byte-identical log
- * line, so an operator had no way to tell "still waiting on upstream" from
- * "the provider is registered and minting is broken".
+ * `provider_not_configured` means `auth.ts` lost the `magicLink` provider;
+ * anything else — a renamed argument, a validator change in `auth:store`, an
+ * `expirationTime` the library rejects — is a defect in the mint itself.
  *
  * Matching a library's prose is brittle on purpose-limited terms: it can only
  * ever mistake a real defect for the expected condition if that defect throws
@@ -432,18 +415,7 @@ export async function invalidateInvitationSignInCode(
   }
 }
 
-/**
- * The mailbox an invitation goes to, or `null` when there is none we may use.
- *
- * An `email` invitee is its own address. A `@name` invitee is resolved through
- * `resolveAddressedUser` — the function accepting uses, so the person mailed is
- * exactly the person who could answer — and mailed at that account's primary
- * address only when it is verified. An unverified address proves nothing about
- * who holds the mailbox, and this mail names somebody else's context.
- *
- * Runs only inside `claimInvitationEmail`, in a scheduled job, so whether the
- * handle resolved is never visible to the inviter. See section 2 above.
- */
+/** The mailbox an invitation goes to, or `null`. See section 2 above. */
 async function recipientFor(
   ctx: MutationCtx,
   invitation: Doc<"workspaceInvitations">,
@@ -451,20 +423,10 @@ async function recipientFor(
   if (invitation.inviteeKind === "email") {
     return { kind: "email", address: invitation.invitee };
   }
-  const userId = await resolveAddressedUser(ctx, {
-    kind: "name",
-    value: invitation.invitee,
-  });
+  const userId = await resolveAddressedUser(ctx, { kind: "name", value: invitation.invitee });
   if (userId === null) return null;
   const user = await ctx.db.get(userId);
-  if (
-    user === null ||
-    typeof user.email !== "string" ||
-    user.email.length === 0 ||
-    user.emailVerificationTime === undefined
-  ) {
-    return null;
-  }
+  if (!user?.email || user.emailVerificationTime === undefined) return null;
   return { kind: "name", address: user.email };
 }
 
@@ -615,11 +577,7 @@ export const claimInvitationEmail = internalMutation({
 export const sendInvitationEmail = internalAction({
   args: {
     invitationId: v.id("workspaceInvitations"),
-    /**
-     * Informational only, and kept so jobs already queued by an older
-     * deployment still validate. `claimInvitationEmail` reads the kind off the
-     * row, which is the authority.
-     */
+    /** Informational; `claimInvitationEmail` reads the kind off the row. */
     inviteeKind: v.union(v.literal("name"), v.literal("email")),
   },
   returns: v.null(),
