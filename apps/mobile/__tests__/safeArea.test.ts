@@ -162,8 +162,6 @@ const { InviteScreen } =
   require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
 const { TextsLinkScreen } =
   require("../features/texts/TextsLinkScreen") as typeof import("../features/texts/TextsLinkScreen");
-const { VaultLinkScreen } =
-  require("../features/vault/VaultLinkScreen") as typeof import("../features/vault/VaultLinkScreen");
 const { InviteListScreen } =
   require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
@@ -292,7 +290,7 @@ const ROUTES: Record<string, Coverage> = {
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(TextsLinkScreen) },
-  "vault/[token].tsx": { kind: "screen", mount: () => createElement(VaultLinkScreen) },
+  "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
