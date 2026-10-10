@@ -35,6 +35,10 @@ export const MAX_PROGRESS_TEXTS = 8;
 /** One progress text is a line, not an answer. */
 export const MAX_PROGRESS_CHARS = 280;
 
+/** Lines the gateway itself may text in one turn (`say`), and how long each may be. */
+export const MAX_GATEWAY_TEXTS = 4;
+export const MAX_GATEWAY_CHARS = 1000;
+
 /** The most model rounds a streamed (long) turn may take. */
 export const LONG_MAX_ROUNDS = 30;
 /**
@@ -79,11 +83,25 @@ export const PROGRESS_PROMPT =
  */
 export function progressChannel(send, { max = MAX_PROGRESS_TEXTS } = {}) {
   let sent = 0;
+  let said = 0;
   let last = "";
   return {
     tool: PROGRESS_TOOL_DEFINITION,
     get sent() {
       return sent;
+    },
+    /**
+     * Text the person a line the gateway wrote, not the model: a browser's
+     * live sign-in link the moment it exists, so they can act while the task
+     * waits. The model never sees what is said here, and the model's own
+     * allowance is untouched; this has its own small cap.
+     */
+    async say(text) {
+      const line = typeof text === "string" ? text.trim() : "";
+      if (!line || said >= MAX_GATEWAY_TEXTS) return false;
+      said += 1;
+      await send(line.length > MAX_GATEWAY_CHARS ? line.slice(0, MAX_GATEWAY_CHARS) : line);
+      return true;
     },
     async call(args) {
       const text = typeof args?.text === "string" ? args.text.replace(/\s+/g, " ").trim() : "";

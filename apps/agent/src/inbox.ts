@@ -181,8 +181,10 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     });
     return chain;
   };
+  // A link in a progress line (a live sign-in page) goes as a text of its
+  // own, as in an answer, so iMessage draws it as a card.
   const onProgress = async (text: string) => {
-    for (const part of textsFromAnswer(text).slice(0, 1)) await say(part);
+    for (const part of textsFromAnswer(text)) await say(part);
   };
   const nudge = setTimeout(() => {
     if (progressSent === 0) void say(COPY.working);
