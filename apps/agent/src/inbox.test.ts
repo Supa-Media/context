@@ -281,4 +281,16 @@ describe("inbox", () => {
     expect(log.join(" ")).toContain("Opening ChatGPT now.");
     expect(log.join(" ")).toContain("answer to connect my chatgpt");
   });
+
+  it("sends a link in a progress line as a text of its own", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "log in to chatgpt for me"), 1_000);
+    await drain(storage, deps({ sent, progress: ["Sign in here and I'll take it from there:\n\nhttps://live.example/s/abc"] }));
+    expect(sent.map((entry) => entry.text)).toEqual([
+      "Sign in here and I'll take it from there:",
+      "https://live.example/s/abc",
+      "answer to log in to chatgpt for me",
+    ]);
+  });
 });

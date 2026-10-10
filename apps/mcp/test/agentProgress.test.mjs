@@ -13,6 +13,7 @@ import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 import {
   LONG_MAX_ROUNDS,
+  MAX_GATEWAY_TEXTS,
   MAX_PROGRESS_CHARS,
   MAX_PROGRESS_TEXTS,
   PROGRESS_TOOL,
@@ -192,4 +193,16 @@ test("only an ndjson Accept asks for a stream", () => {
   assert.equal(wantsProgress(new Request("https://x/agent", { headers: { accept: "application/x-ndjson" } })), true);
   assert.equal(wantsProgress(new Request("https://x/agent", { headers: { accept: "application/json" } })), false);
   assert.equal(wantsProgress(new Request("https://x/agent")), false);
+});
+
+test("the gateway can text a line of its own, outside the model's allowance, with its own cap", async () => {
+  const said = [];
+  const channel = progressChannel(async (text) => said.push(text), { max: 1 });
+  assert.equal(await channel.say("Sign in here: https://live.example/abc"), true);
+  await channel.call({ text: "Opening the site." });
+  for (let i = 0; i < MAX_GATEWAY_TEXTS + 2; i += 1) await channel.say(`line ${i}`);
+  assert.equal(await channel.say(""), false);
+  assert.equal(said[0], "Sign in here: https://live.example/abc");
+  assert.ok(said.includes("Opening the site."), "the model's own line still goes");
+  assert.equal(said.length, MAX_GATEWAY_TEXTS + 1);
 });
