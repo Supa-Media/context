@@ -123,7 +123,7 @@ describe("the vault link", () => {
   });
 
   test("storage and key failures, and anything unknown, end the page", () => {
-    expect(view({ kind: "failed", error: err("STORAGE_NOT_CONNECTED") })).toMatchObject({ reason: "storage" });
+    expect(view({ kind: "failed", error: err("VAULT_NO_STORAGE") })).toMatchObject({ reason: "storage" });
     expect(view(shown(addRequest), { kind: "failed", error: err("KEY_UNAVAILABLE") })).toMatchObject({ reason: "key" });
     expect(view({ kind: "failed", error: err("SOMETHING_NEW") })).toMatchObject({ reason: "failed" });
     expect(view({ kind: "failed", error: new Error("offline") })).toMatchObject({ reason: "failed" });

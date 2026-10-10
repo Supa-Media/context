@@ -164,7 +164,7 @@ function deadFor(error: unknown): VaultLinkView {
       return dead("expired");
     case "VAULT_LINK_NOT_YOURS":
       return dead("notYours");
-    case "STORAGE_NOT_CONNECTED":
+    case "VAULT_NO_STORAGE":
       return dead("storage");
     case "KEY_UNAVAILABLE":
       return dead("key");

@@ -244,7 +244,7 @@ export const runVaultOperation = internalAction({
     const credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
       workspaceId: args.workspaceId,
     });
-    if (credential === null) throw fail("STORAGE_NOT_CONNECTED", "This workspace has no storage connected yet.");
+    if (credential === null) throw fail("VAULT_NO_STORAGE", "This workspace has no storage connected yet.");
     const managedEncryption = await managedEncryptionOption(ctx, args.workspaceId);
     const store = storeForBinding(credential, undefined, { managedEncryption });
     const keys = await ctx.runAction(internal.functions.encryptionKeys.openWorkspaceDataKey, {
