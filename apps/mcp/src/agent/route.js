@@ -450,6 +450,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       router,
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
+      // A browser call can open a page and settle it (`infra/site-shots`
+      // budgets 17 s); the default would cut a slow one short and lose it.
+      toolTimeouts: { browse: 30_000 },
       ...(channel !== null ? { progress: channel, roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser, if it opened one, is not left running.
