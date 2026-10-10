@@ -125,22 +125,4 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
   "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
-  // THE FOURTH, AND THE ONLY ONE ADDED RATHER THAN AVOIDED.
-  //
-  // `searchIndex`, `encryptionKey` and `rotation` all became *siblings* on
-  // `/gateway/binding` specifically so this set would stay at three, and that
-  // remains the default answer for a new gateway-facing credential. The model
-  // key is the exception, for a reason that is about #661 rather than about
-  // convenience: `openStorageBinding`'s returns validator already carries
-  // `secretAccessKey`, and `v.object` is exact, so any drift in that shape
-  // serializes everything in it into a log. Folding a customer's provider key
-  // in would make one accident spill two credentials.
-  //
-  // What makes the door cost little: it is built by the same `gatewayRoute`
-  // factory, spends the same two proofs, applies the same
-  // compared-never-looked-up rule to `expectedWorkspaceId`, and answers `null`
-  // for everything that is not a hit — all of which the tests below enforce on
-  // it exactly as they do on the other three. What it does not share is the
-  // validator, which is the entire point: two flat fields, nothing nested.
-  "http.gatewayProvider",
 ]);

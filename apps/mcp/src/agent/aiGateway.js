@@ -14,10 +14,10 @@
  *    precedence is the gateway's documented order: a key on the request wins,
  *    and no key means Unified Billing.
  *
- * Neither is the customer's key. A person's own connected account never comes
- * here (`providers.js` spends it directly), and nothing in this file can be
- * pointed elsewhere by a caller: the address is built from two configured ids
- * that are checked against a strict shape, never from a request.
+ * Neither is the customer's key: people's own keys were deleted (the owner,
+ * 2026-10-10). Nothing in this file can be pointed elsewhere by a caller: the
+ * address is built from two configured ids that are checked against a strict
+ * shape, never from a request.
  *
  * ## Notes never stay in Cloudflare's logs
  *
@@ -30,8 +30,8 @@
  *
  * ## Errors are phrases
  *
- * As in `providers.js`: what a provider sends back on an error can quote the
- * request, so no body text ever reaches an error, a log line or the caller.
+ * What a provider sends back on an error can quote the request, so no body
+ * text ever reaches an error, a log line or the caller.
  * The one thing read from an error body is whether it says the credit balance
  * is too low, and that is reduced to a boolean before anything else happens.
  *
@@ -53,7 +53,7 @@ const MAX_CALLER_OUTPUT_TOKENS = 8192;
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
-/** The largest answer this worker will read, as in `providers.js`. */
+/** The largest answer this worker will read. */
 const RESPONSE_BYTE_CAP = 2_000_000;
 
 /**
@@ -258,7 +258,7 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
 }
 
 /**
- * One round through the gateway, in the shape `requestCompletion` returns,
+ * One round through the gateway, in the shape `providers.js` describes,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
  *
  * @param {{model: string, system: string, messages: Array, tools: Array}} call

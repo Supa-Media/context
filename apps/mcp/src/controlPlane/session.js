@@ -1,6 +1,7 @@
 /**
  * Session and binding resolution: turning a presented access token into a
- * session, a storage binding, or a model provider credential.
+ * session or a storage binding, and asking whether a turn may spend the
+ * built-in model.
  */
 import { ControlPlaneError } from "./client.js";
 
@@ -102,44 +103,6 @@ export function createSessionMethods({ post, required }) {
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
       };
-    },
-
-    /**
-     * Fetch the model account for the workspace **the user's token names**.
-     *
-     * A route of its own rather than a fifth sibling on `/gateway/binding`, and
-     * `apps/convex/http.ts`'s own header for `/gateway/provider` carries the
-     * argument: folding a model key into `openStorageBinding`'s return would
-     * put it inside the same `v.object` as `secretAccessKey`, where #661 showed
-     * that one drifted field serializes everything beside it into a log. Two
-     * flat fields behind their own door is the smaller blast radius, and the
-     * door spends the identical two proofs this file's contract already
-     * describes — the gateway secret, and the user's access token, with
-     * `expectedWorkspaceId` selecting inside the token's own set and never
-     * outside it.
-     *
-     * It also means the key is opened only by the request about to spend it,
-     * rather than decrypted on every `list_notes` in the product.
-     *
-     * `credential` keeps `required`'s null-vs-missing discipline: an explicit
-     * `null` is "nothing connected, or nothing you may reach", and a *missing*
-     * key is a control plane answering some other contract, which must not be
-     * read as "no credential" — for the reason `required` gives.
-     *
-     * @param {string} accessToken the bearer token exactly as presented
-     * @param {string|null} expectedWorkspaceId the gateway's own conclusion
-     * @param {string} provider "anthropic" or "openai"; the closed set is the
-     *   control plane's, and an unknown one comes back `null` rather than as a
-     *   distinguishable error
-     * @returns {Promise<{provider: string, apiKey: string}|null>}
-     */
-    async getProviderCredential(accessToken, expectedWorkspaceId, provider) {
-      const parsed = await post("/gateway/provider", {
-        accessToken,
-        expectedWorkspaceId,
-        provider,
-      });
-      return required(parsed, "credential");
     },
 
     /**

@@ -1,6 +1,6 @@
 /**
- * One agent turn: a question, the tools this connection already holds, and a
- * model account the customer connected.
+ * One agent turn: a question, the tools this connection already holds, and the
+ * built-in model (`builtin.js`).
  *
  * ## What this is, in one line
  *
@@ -43,7 +43,7 @@
  */
 
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
-import { AGENT_PROVIDERS, ProviderError, modelFor, requestCompletion } from "./providers.js";
+import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { pickTier } from "./router.js";
@@ -53,8 +53,8 @@ export { describePlace, systemPrompt } from "./prompt.js";
 /**
  * How many times the model may call tools before the turn ends.
  *
- * A bound on somebody's bill as much as on latency: each round is a model call
- * they pay for. Eight is enough for orient → search → read a few notes →
+ * A bound on the bill as much as on latency: each round is a model call
+ * somebody pays for. Eight is enough for orient → search → read a few notes →
  * answer, which is the shape of almost every real question, and a turn that
  * needs more is one the person is better off steering.
  */
@@ -95,7 +95,7 @@ export const MAX_QUESTION_LENGTH = 8000;
  *
  * A long note is a legitimate answer, so this is generous — but it is a bound,
  * because without one a single `read_note` on a large file decides how many
- * tokens the customer is billed for, and the model gets a worse prompt out of
+ * tokens a turn is billed for, and the model gets a worse prompt out of
  * it than a truncated one with a line saying so.
  */
 const MAX_TOOL_RESULT_CHARS = 60_000;
@@ -181,66 +181,34 @@ export function toolResultText(result) {
   return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[truncated: the full result was ${text.length} characters]`;
 }
 
-/**
- * Open the model account this turn will spend.
- *
- * With a provider named, that one or nothing. With none named, the providers
- * are tried in a fixed order and the first that opens wins — there is
- * deliberately no `selected` column on the control plane's table, because two
- * rows could both claim it, so "which provider" is a question the caller
- * answers and this is only the default for a caller that did not.
- */
-export async function openProvider(controlPlane, session, requested, env = {}) {
-  if (requested !== undefined && requested !== null) {
-    if (!AGENT_PROVIDERS.includes(requested)) {
-      // The same refusal as "connected nothing". A distinguishable answer would
-      // let a caller enumerate which providers this build can spend, which is
-      // not a secret worth much — but the control plane already refuses to
-      // distinguish them and two halves of one route disagreeing is how the
-      // interesting version of that bug arrives.
-      throw new AgentRefusal("no_provider", "No model account is connected to this context.");
-    }
-    const opened = await controlPlane.getProviderCredential(
-      session.accessToken,
-      session.workspaceId,
-      requested,
-    );
-    if (opened === null) {
-      throw new AgentRefusal("no_provider", "No model account is connected to this context.");
-    }
-    return opened;
-  }
-
-  // Asked together, kept in order: the first connected one still wins, and a
-  // turn waits for one round trip to the control plane rather than one each.
-  const opened = await Promise.all(
-    AGENT_PROVIDERS.map((provider) =>
-      controlPlane.getProviderCredential(session.accessToken, session.workspaceId, provider),
-    ),
-  );
-  const first = opened.find((credential) => credential !== null);
-  if (first !== undefined) return first;
-  return await openBuiltin(controlPlane, session, env);
+/** The one refusal for "there is no model this turn may spend". */
+function noModel() {
+  return new AgentRefusal("no_provider", "No model is available for this turn.");
 }
 
 /**
- * The built-in model, when nothing of the person's own is connected.
+ * Open the model this turn will spend: the built-in one, always.
  *
- * Only after every account of theirs came back empty, so a connected key always
- * wins, and only when the control plane says this grant may (a texting grant on
+ * People's own Anthropic and OpenAI keys were deleted and are no longer used
+ * (decided by the owner, 2026-10-10), so there is nothing of theirs to look
+ * up. A request that still names a provider gets the refusal it got when that
+ * provider was not connected, rather than being quietly answered by a model it
+ * did not ask for: an older client that asked for "anthropic" learns it has
+ * none, and its person is not billed against a cap they did not choose.
+ *
+ * The control plane says whether this grant may (a texting or routine grant on
  * a Premium workspace under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
-async function openBuiltin(controlPlane, session, env) {
-  if (!hasBuiltinModel(env)) {
-    throw new AgentRefusal("no_provider", "No model account is connected to this context.");
-  }
+export async function openProvider(controlPlane, session, requested, env = {}) {
+  if (requested !== undefined && requested !== null) throw noModel();
+  if (!hasBuiltinModel(env)) throw noModel();
   const verdict = await controlPlane.startBuiltinTurn(session.accessToken, session.workspaceId);
-  if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER, apiKey: null };
+  if (verdict?.allowed === true) return { provider: BUILTIN_PROVIDER };
   if (verdict?.reason === "daily_cap") {
     throw new AgentRefusal("daily_limit", "Today's questions are used up.");
   }
-  throw new AgentRefusal("no_provider", "No model account is connected to this context.");
+  throw noModel();
 }
 
 /**
@@ -249,15 +217,15 @@ async function openBuiltin(controlPlane, session, env) {
  * @param {object} options
  * @param {string} options.question what the person asked
  * @param {object|null} options.place the ambient context; references only
- * @param {{provider: string, apiKey: string}} options.credential
  * @param {Array} options.tools the offered tool definitions, already clamped
  * @param {(name: string, args: object) => Promise<object>} options.callTool
  * @param {object} options.env the Worker environment, for the model default
- * @param {string} [options.model] a model this call names instead of the default
  * @param {Array<{role: "user"|"assistant", text: string}>} [options.history]
  *   earlier turns of the same conversation, oldest first — words only, never
  *   a tool's result (see `conversation.js`)
- * @param {{fetchImpl?: Function}} [options.providerOptions]
+ * @param {{ai?: object, gateway?: object, metadata?: object, fetchImpl?: Function}} [options.providerOptions]
+ *   what `requestBuiltin` needs: the Workers AI binding, the AI gateway, and
+ *   the labels its cost is filed under
  * @param {boolean} [options.texting] the answer goes out as a text message
  * @param {{prompt: ?string}} [options.notes]
  *   the production setup's prompt from `@context-lc` (`production.js`), or
@@ -276,10 +244,8 @@ export async function runTurn(options) {
   const {
     question,
     place = null,
-    credential,
     callTool,
     env,
-    model: requestedModel,
     providerOptions = {},
     history = [],
     web = null,
@@ -299,23 +265,21 @@ export async function runTurn(options) {
   const webNames = new Set((web?.tools ?? []).map((tool) => tool.name));
   const tools = [...(options.tools ?? []), ...(web?.tools ?? [])];
 
-  const provider = credential.provider;
-  const builtin = provider === BUILTIN_PROVIDER;
+  const provider = BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.
-  let model = builtin ? builtinModelOverride ?? builtinModel(env) : modelFor(provider, env, requestedModel);
+  let model = builtinModelOverride ?? builtinModel(env);
   const rounds = roundsFor(maxRounds);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, decision: 0 };
   const trace = [];
   /*
     THE ROUTER PICKS THE MODEL BEFORE THE FIRST ROUND (`router.js`).
 
-    Only a built-in turn routes (a person's own account keeps their model), and
-    the whole turn then runs on the model picked, so the tool rounds are
+    The whole turn runs on the model picked, so the tool rounds are
     coherent. The pick, the router's own word and what it cost are recorded:
     a benchmark prices the model that answered, and a person watching the
     turn log sees which tier a slow or wrong answer came from.
   */
-  if (builtin && router !== null) {
+  if (router !== null) {
     const asked = clock();
     const routed = await pickTier({ decide: router.decide, text: question, history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
@@ -383,13 +347,7 @@ export async function runTurn(options) {
     const asked = clock();
     let answer;
     try {
-      answer = builtin
-        ? await requestBuiltin({ model, system, messages, tools }, providerOptions.ai, providerOptions)
-        : await requestCompletion(
-            provider,
-            { model, system, messages, tools, apiKey: credential.apiKey },
-            providerOptions,
-          );
+      answer = await requestBuiltin({ model, system, messages, tools }, providerOptions.ai, providerOptions);
     } catch (error) {
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
@@ -399,7 +357,7 @@ export async function runTurn(options) {
         told the model that answered, and a benchmark counts how often it
         happened, because this is what production does too.
       */
-      if (error instanceof ProviderError && builtin && fallback !== null && model !== fallback) {
+      if (error instanceof ProviderError && fallback !== null && model !== fallback) {
         const ms = clock() - asked;
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });

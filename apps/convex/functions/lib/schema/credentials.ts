@@ -2,8 +2,9 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * Sealed secrets with their own lifetimes: a model provider key, a managed
- * storage move's destination, and the workspace data keys and their rotation.
+ * Sealed secrets with their own lifetimes: a managed storage move's
+ * destination, and the workspace data keys and their rotation — plus the
+ * emptied table that once held people's model keys.
  *
  * One slice of the control-plane schema, spread into `defineSchema` by
  * `apps/convex/schema.ts` in declaration order. Metadata only — see that
@@ -11,29 +12,17 @@ import { v } from "convex/values";
  */
 export const credentialTables = {
   /**
-   * The model account the agent spends, one row per provider per workspace.
+   * EMPTY SINCE 2026-10-10, AND KEPT ONLY SO A DEPLOY DOES NOT FAIL ON ROWS
+   * THAT STILL EXIST.
    *
-   * The customer's own Anthropic or OpenAI key, so the bill is theirs and we
-   * add nothing to it. It is a credential in exactly the sense non-negotiable
-   * #1 means, and it is held the way `storageBindings` holds an S3 secret:
-   * an envelope from `encryptSecret`, bound by AAD to this workspace, never
-   * returned by a client-callable function and never logged.
-   *
-   * **`fingerprint` is a hash and not a prefix.** `appSecrets` settled that
-   * already — "what appears in a screenshot is not a fragment of the real
-   * value" — and it matters more here, because this key was issued by somebody
-   * else's console and a leaked fragment is a clue to a credential we do not
-   * control. The console shows which provider is connected and when; it never
-   * shows part of the key.
-   *
-   * There is no base URL either, and no `compatible` provider yet: a URL the
-   * gateway attaches a key to needs the loopback and private-network refusals
-   * `storage.ts` already applies to a bucket endpoint, and the request it
-   * would feed does not exist yet. See `functions/providers.ts`.
-   *
-   * There is no `selected` column. Which provider answers is a question about
-   * the agent, not about the credential, and a boolean here would let two rows
-   * both claim it.
+   * This held the Anthropic or OpenAI key a person saved for the assistant to
+   * spend ("bring your own key"), sealed with `encryptSecret` and bound by AAD
+   * to its workspace. The owner removed that on 2026-10-10: nothing writes or
+   * reads a key here any more, the assistant runs only on the built-in model,
+   * and `functions/providers.ts`'s `deleteSavedKeys` empties the table. Convex
+   * refuses a deploy whose schema drops a table that still has rows, so the
+   * definition stays until production has run that to the end; then it, its
+   * branch of the account-deletion cascade and its rekey candidates can go.
    */
   providerCredentials: defineTable({
     workspaceId: v.id("workspaces"),

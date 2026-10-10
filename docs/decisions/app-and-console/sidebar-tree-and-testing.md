@@ -207,7 +207,7 @@ do: a note and a drawing are made on the press and take their name from what is
 typed into them, and only the folder still asks. See *Nothing is named before it
 is written* below.
 
-_Superseded 2026-10-10: there is no chat in the console any more; see [no-in-app-chat](./no-in-app-chat.md)._
+_Superseded 2026-10-10: there is no chat in the console any more; see [no-in-app-chat](./no-in-app-chat.md). Saved model keys, `listProviders` and `ConsoleData.modelConnected` were removed the same day._
 
 **New chat is drawn only where the context has a model key.** The agent answers
 through a key configured on the workspace, so without one the row opens a

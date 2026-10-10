@@ -41,14 +41,6 @@ const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
  */
 export const mockConsoleState: {
   pathname: string;
-  /**
-   * Whether this context has a model key, as `ConsoleData.modelConnected` says.
-   *
-   * Three values, and each is a state the console really has: `true` once the
-   * subscription answers with a key, `false` once it answers with none, and
-   * `undefined` for the moment before it answers at all.
-   */
-  modelConnected: boolean | undefined;
   /** The page on screen, as `ConsoleData.files.selectedPath`: `null` is Home. */
   selectedPath: string | null;
   /** The bucket's search, where a test wants one; none by default, as before. */
@@ -57,7 +49,6 @@ export const mockConsoleState: {
   selectedContextId?: string;
 } = {
   pathname: "/console/@seyi",
-  modelConnected: true,
   selectedPath: null,
 };
 
@@ -220,7 +211,6 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
-    modelConnected: mockConsoleState.modelConnected,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     /*
       Two, not one, and the second is the point of the pair.
@@ -312,7 +302,6 @@ afterEach(() => {
     the Map route, and nothing to do with the defect being injected.
   */
   mockConsoleState.pathname = "/console/@seyi";
-  mockConsoleState.modelConnected = true;
   mockConsoleState.selectedPath = null;
   delete mockConsoleState.search;
   delete mockConsoleState.selectedContextId;

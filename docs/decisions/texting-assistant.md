@@ -223,27 +223,43 @@ value.
 
 ### The built-in model is for Premium, capped, and metered like Jev
 
-Decided by the owner, 2026-10-06 ("Premium, capped"). When a texter has
-connected no Anthropic or OpenAI account of their own, a Premium workspace's
+Decided by the owner, 2026-10-06 ("Premium, capped"). A Premium workspace's
 texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
 Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
-to swap it), up to 100 questions a day. Anyone
-else is told to connect an account.
+to swap it), up to 100 questions a day. Anyone else is told the assistant is
+not available to them.
 
-- A connected key always wins: the built-in model is asked for only after
-  every account of the person's own came back empty.
+**Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
+assistant uses only the built-in model.** People could once save their own
+Anthropic or OpenAI key, and a saved key was used before ours. The Settings
+page went first (#1465); then the control plane's connect, list and disconnect
+functions, `/gateway/provider` and the gateway's own provider calls were
+removed, and `providerCredentials` is emptied by one run of the internal
+mutation `functions/providers:deleteSavedKeys` (`npx convex run --prod
+functions/providers:deleteSavedKeys '{}'`, which deletes in batches and
+reschedules itself until the table is empty, logging counts only). The table
+stays in the schema until production has run it, so the deploy does not fail
+on existing rows; then it can be dropped. A request to `/agent` that still
+names a provider gets `no_provider`, the refusal an unconnected one always
+got, and is never answered on ours. Tests: `apps/convex/__tests__/
+providerKeysDeletion.test.ts` (every row, across workspaces and batches, and
+no other table) and `apps/mcp/test/agent.test.mjs` ("a request naming any
+provider is refused as no_provider, and no model is called").
+
 - The gateway makes the call, because the turn's tools run there, but the
   control plane decides whether it may (`functions/builtinModel.ts`), through
   the same switches and `jevUsage` meter as every other paid inference
   feature. The kill switch is `admin.setJevSwitch({ feature: "assistant",
   off: true })`. The turn is counted when it is allowed, before anything is
   spent, and its token counts are reported afterwards; never its text.
-- Only a grant for the texting client may start one. The app's agent panel
-  still needs a connected account until the owner says otherwise.
+- Only a grant for the texting client or the routine runner may start one.
+  The app's agent panel has no model since keys were removed; widening the
+  set to it is the owner's call.
 - The model is ours to pick on our bill: a `model` named in the request is
-  ignored for a built-in turn.
-- A gateway with no `AI` binding (self-hosting without Workers AI) has no
-  built-in model and refuses the turn as "no account connected".
+  ignored.
+- A gateway with neither an `AI` binding nor an AI gateway (self-hosting
+  without either) has no built-in model and refuses every turn as
+  `no_provider`.
 
 Note text read by tools reaches the model in flight and is kept nowhere, the
 same seam as [inference](./storage-and-credentials/inference.md).
@@ -363,8 +379,8 @@ So the model never chooses an address:
   does; a pick it is at least 60% sure of opens in the same call, saving the
   writing model a round. It chooses only among links the guard already
   allows, counts toward the 5 pages, and is re-checked by the guard. What it
-  reads is metered as `decisionTokens` at Clef's rate. A turn on the person's
-  own key never uses it, because nothing would meter it.
+  reads is metered as `decisionTokens` at Clef's rate. Every turn is a
+  built-in one since 2026-10-10, so every turn may use it.
 - Saved runs replayed later are deliberately not used: a page can plant
   instructions in that memory. Any cache added later is per workspace and
   holds no page or note text.
@@ -468,18 +484,15 @@ invented data.
   texting turn that this is a text).
 - A file that is missing, does not validate, or is held back means the
   built-in words for that job. Never an error.
-- Its model is used for a built-in turn only, and only when this deployment can
-  call it (`canRunBuiltin`). A person's own connected account keeps their model:
-  their bill, their model. The gateway call is filed under the file's version,
-  and the meter reports the model that answered.
+- Its model is used only when this deployment can call it (`canRunBuiltin`).
+  (Until 2026-10-10 a person's own connected key kept its own model; those keys
+  are gone.) The gateway call is filed under the file's version, and the meter
+  reports the model that answered.
 
-**What a simplification would cost:** letting the setup's model reach a person's
-own key would spend their account on a model they did not choose; using it
-without checking the deployment can call it turns every texted answer into an
+**What a simplification would cost:** using the setup's model without checking the deployment can call it turns every texted answer into an
 error on a self-hosted or gateway-less deployment; reading it with the gateway's
 own authority would hand members text `privacy.md` holds back from them. The
-tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a person's own
-key never takes the production model", "a production model this deployment
+tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a production model this deployment
 cannot call falls back to the Workers AI default", "a production file privacy.md
 holds back from members falls back, and its owner still reads it").
 

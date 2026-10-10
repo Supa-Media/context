@@ -305,49 +305,6 @@
  * never cached.** See `session.js` for why.
  *
  * ----------------------------------------------------------------------------
- * 2c. POST /gateway/provider — fetch a workspace's model account
- * ----------------------------------------------------------------------------
- * request:
- *   { "accessToken":         "<the same bearer token, verbatim>",
- *     "expectedWorkspaceId": "<id the gateway believes this is>" | null,
- *     "provider":            "anthropic" | "openai" }
- *
- * response 200:
- *   { "credential": { "provider": "anthropic", "apiKey": "<the key>" } }
- *   { "credential": null }
- *
- * The customer connects their own Anthropic or OpenAI account and the agent
- * spends it — their bill, no markup, nothing a cancellation of ours could
- * strand. So this response carries a credential, and every rule route 2 states
- * applies here word for word: the gateway secret first, an independent
- * resolution of `accessToken` to a live grant second, the workspace derived
- * from *that grant*, and `expectedWorkspaceId` selecting only within the set
- * that grant covers. There must be no code path in which it selects a row.
- *
- * **Everything that is not a hit is `{ "credential": null }`** — an unknown
- * token, an expired or revoked grant, a workspace outside the set, a provider
- * this build does not know, a provider nobody connected, and a decrypt that
- * failed. A caller must not be able to tell those apart; in particular the
- * provider set must not be enumerable by asking.
- *
- * **Two flat fields, and nothing beside them.** No workspace id, no
- * fingerprint, no grant id. That is not tidiness: #661 was a `v.object` whose
- * shape drifted, and the validation error serialized everything the object
- * carried — including a live storage secret — into the production logs. A
- * response shape with nothing in it but the credential is one that cannot
- * spill a second thing.
- *
- * It is a route rather than another sibling on route 2 for the same reason.
- * `searchIndex`, `encryptionKey` and `rotation` all became siblings there to
- * avoid opening a new door; a model key folded in would share a returns
- * validator with `secretAccessKey`, so one drift could spill both. It also
- * means the key is opened only by the request that is about to spend it, not
- * on every ordinary MCP call.
- *
- * **This response contains a decrypted secret. It is fetched per request and
- * never cached.**
- *
- * ----------------------------------------------------------------------------
  * 3. POST /gateway/clients/register — RFC 7591 dynamic client registration
  * ----------------------------------------------------------------------------
  * request:
