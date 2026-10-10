@@ -440,6 +440,8 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
     });
+    // The question's browser, if it opened one, is not left running.
+    if (opened !== null) await afterAnswer(opened.close());
     await afterAnswer(meter(turn.usage, false, turn.model));
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
@@ -492,6 +494,7 @@ export async function handleAgent(request, env, store, session, controlPlane) {
       ...(turn.exhausted ? { exhausted: true } : {}),
     });
   } catch (error) {
+    if (opened !== null) await afterAnswer(opened.close());
     await meter(null, true);
     /*
       An ask the person was never told about (the turn failed before its ask
