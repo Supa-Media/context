@@ -109,9 +109,12 @@ jobs:
       BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
       BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
       BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
-      # The sign-in the steps below share: an access token for the hour and the
-      # rotated refresh token, in the runner's own temp, never an artifact.
-      BENCH_RUNNER_TOKEN_FILE: ${{ runner.temp }}/bench-runner.json
+      # The sign-in the steps below share is a file in the runner's own temp,
+      # never an artifact: `$RUNNER_TEMP/bench-runner.json`, which is what
+      # `runnerEnv` (apps/mcp/bench/context.mjs) uses when nothing names one.
+      # It is NOT set here: `runner` is a context a step may read and a job may
+      # not, and naming it in a job's `env:` is a file GitHub refuses whole —
+      # no jobs, no failing check (scripts/check-workflow-yaml.mjs now says so).
       BENCH_JOB: ${{ inputs.job || 'texting-assistant' }}
       BENCH_FAKE: ${{ inputs.fake && '--fake' || '' }}
       # Every free-text input arrives here and nowhere else. GitHub pastes an
@@ -301,7 +304,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          [ -f "$BENCH_RUNNER_TOKEN_FILE" ] || exit 0
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
           next="$(pnpm --silent ai signin --show refresh-token)"
           echo "::add-mask::$next"
           gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
