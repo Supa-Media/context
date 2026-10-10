@@ -1,49 +1,35 @@
 /**
  * AUTO-ORGANIZE'S WORDS AND RULES — `features/organizer/{copy,rules}.ts`.
  *
- * Everything auto-organize decides outside a component: what each line says,
- * when each surface is drawn, which toast follows a press. The rules that
- * carry weight are the ones that would put a suggestion in front of somebody
- * who must never see one — a member, a workspace that switched it off, one
- * that is not paying — so each of those has its own case.
+ * Everything auto-organize decides outside a component: what each line says
+ * and when each surface is drawn. The rules that carry weight are the ones
+ * that would put a count or a card in front of somebody who must never see
+ * one — a member, a workspace that switched it off, one that is not paying —
+ * so each of those has its own case.
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { handled, moveTo, TIDY_GROUPS, tidyCopy } from "../features/organizer/tidyCopy";
 import {
   ORGANIZER_ACTOR,
-  acceptLabel,
-  acceptedToast,
-  offerToast,
   phoneLine,
-  previewWhy,
-  reviewMeta,
   sortCopy,
-  actionLine,
-  whereLine,
-  acceptButton,
-  placeName,
-  suggestionsLine,
+  sortDone,
   sweepCount,
-  sweepFoundTitle,
   sweepReadingTitle,
 } from "../features/organizer/copy";
 import {
   changesCount,
   existingNoticeVisible,
-  footCount,
   isOrganizerEntry,
   organizerState,
-  phoneEntryCount,
-  previewSuggestions,
-  resolveToast,
+  phoneChangesCount,
   settingsCard,
   shouldStartSweep,
   sortLine,
   sweepPhase,
   whatChangedPage,
 } from "../features/organizer/rules";
-import type { OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
+import type { OrganizerStatus } from "../features/organizer/types";
 import { rowText, type ActivityEntry } from "../features/console/activity/activity";
 
 const STATUS: OrganizerStatus = {
@@ -59,36 +45,14 @@ const STATUS: OrganizerStatus = {
 
 const with_ = (over: Partial<OrganizerStatus>): OrganizerStatus => ({ ...STATUS, ...over });
 
-const DONE: OrganizerSuggestion = {
-  id: "d1",
-  kind: "done",
-  path: "1-projects/code-decomposition/overview.md",
-  title: "Code decomposition",
-  reason: "Every step is ticked off",
-  status: "active",
-};
-const ARCHIVE: OrganizerSuggestion = {
-  id: "a1",
-  kind: "archive",
-  path: "1-projects/old-site",
-  title: "Old site",
-  reason: "Quiet for 3 weeks",
-};
-const FILE: OrganizerSuggestion = {
-  id: "f1",
-  kind: "file",
-  path: "0-inbox/sayo-dns-questions.md",
-  title: "sayo-dns-questions",
-  reason: "Sayo's DNS questions",
-  target: { path: "1-projects/custom-domains", title: "Custom domains" },
-};
-
 describe("copy", () => {
-  test("the foot line and the phone line count, in the singular too", () => {
-    expect(suggestionsLine(11)).toBe("11 suggestions");
-    expect(suggestionsLine(1)).toBe("1 suggestion");
-    expect(phoneLine(11)).toBe("11 suggestions to look over");
-    expect(phoneLine(1)).toBe("1 suggestion to look over");
+  test("the phone line counts, in the singular too", () => {
+    expect(phoneLine(11)).toBe("11 changes to look over");
+    expect(phoneLine(1)).toBe("1 change to look over");
+  });
+
+  test("a finished sort says when, and nothing about suggestions: there is no list to send anyone to", () => {
+    expect(sortDone("3 hours ago")).toBe("Sorted 3 hours ago.");
   });
 
   test("the sweep names the workspace and how far it has read", () => {
@@ -99,67 +63,8 @@ describe("copy", () => {
     expect(sweepCount({ read: 460, total: 450 })).toBe("450 of 450 notes");
   });
 
-  test("what the sweep found reads as one sentence, only naming what it found", () => {
-    expect(sweepFoundTitle({ done: 4, archive: 0, file: 7 })).toBe(
-      "Found 4 projects that look done and 7 inbox notes to file",
-    );
-    expect(sweepFoundTitle({ done: 1, archive: 0, file: 0 })).toBe("Found 1 project that looks done");
-    expect(sweepFoundTitle({ done: 2, archive: 1, file: 1 })).toBe(
-      "Found 2 projects that look done, 1 finished project to archive and 1 inbox note to file",
-    );
-  });
-
-  test("a row's second line asks the question; filing names the folder", () => {
-    expect(reviewMeta(DONE)).toBe("Mark done? Every step is ticked off");
-    expect(reviewMeta(ARCHIVE)).toBe("Archive? Quiet for 3 weeks");
-    expect(reviewMeta(FILE)).toBe("File in Custom domains?");
-    expect(reviewMeta({ ...FILE, target: undefined })).toBe("Sayo's DNS questions");
-  });
-
-  test("a review row says what it will do and from where to where, in folder names", () => {
-    expect(actionLine(FILE)).toBe("Move to Custom domains");
-    expect(whereLine(FILE)).toBe("From Inbox to Projects › Custom domains");
-    expect(actionLine(DONE)).toBe("Mark as done");
-    expect(whereLine(DONE)).toBe("Every step is ticked off");
-    expect(actionLine(ARCHIVE)).toBe("Move to Archive");
-    expect(whereLine(ARCHIVE)).toBe("Quiet for 3 weeks. Nothing is deleted.");
-    expect(acceptButton(FILE)).toBe("Move");
-    expect(placeName("0-inbox/meetings/standup.md")).toBe("Inbox › Meetings");
-    expect(placeName("index.md")).toBe("the top level");
-  });
-
-  test("the sweep's preview states the finding rather than asking", () => {
-    expect(previewWhy(DONE)).toBe("Looks done. Every step is ticked off");
-    expect(previewWhy(FILE)).toBe("File in Custom domains?");
-  });
-
-  test("the accept button names what it does to what", () => {
-    expect(acceptLabel(DONE)).toBe("Mark done: Code decomposition");
-    expect(acceptLabel(ARCHIVE)).toBe("Archive: Old site");
-    expect(acceptLabel(FILE)).toBe("File sayo-dns-questions in Custom domains");
-  });
-
-  test("the toast after an accept says what happened", () => {
-    expect(acceptedToast(DONE)).toBe("Marked Code decomposition done.");
-    expect(acceptedToast(ARCHIVE)).toBe("Archived Old site.");
-    expect(acceptedToast(FILE)).toBe("Filed sayo-dns-questions in Custom domains.");
-  });
-
-  test("the offer gives the reason for asking, per kind", () => {
-    expect(offerToast("done")).toBe(
-      "You’ve marked 3 projects done. Do this automatically from now on?",
-    );
-    expect(offerToast("archive")).toContain("archived 3 finished projects");
-    expect(offerToast("file")).toContain("filed 3 inbox notes");
-  });
-
   test("no copy names the machinery", () => {
-    const every = [
-      suggestionsLine(2),
-      sweepFoundTitle({ done: 1, archive: 1, file: 1 }),
-      offerToast("done"),
-      acceptedToast(DONE),
-    ].join(" ");
+    const every = [phoneLine(2), sweepReadingTitle("seyi"), sortDone("just now")].join(" ");
     expect(every).not.toMatch(/\b(model|inference|AI|brain)\b/i);
   });
 });
@@ -176,27 +81,10 @@ describe("rules", () => {
     const off = with_({ whatChanged: false, changes: 4 });
     expect(whatChangedPage(off)).toBe(false);
     expect(changesCount(off)).toBeNull();
-    expect(footCount(off)).toBeNull();
-    expect(phoneEntryCount(off, { compact: true, atRoot: true })).toBeNull();
+    expect(phoneChangesCount(off, { compact: true, atRoot: true })).toBeNull();
     // A server older than the switch sends no field: the page stays as it was.
     expect(whatChangedPage(STATUS)).toBe(true);
     expect(changesCount(with_({ whatChanged: true, changes: 4 }))).toBe(4);
-  });
-
-  test("the foot line is for a paying owner with it switched on and something waiting", () => {
-    expect(footCount(STATUS)).toBe(11);
-    expect(footCount(with_({ isOwner: false }))).toBeNull();
-    expect(footCount(with_({ on: false }))).toBeNull();
-    expect(footCount(with_({ available: false }))).toBeNull();
-    expect(footCount(with_({ pending: 0 }))).toBeNull();
-    expect(footCount(null)).toBeNull();
-  });
-
-  test("the phone's entry is the foot line's twin, on the workspace page only", () => {
-    expect(phoneEntryCount(STATUS, { compact: true, atRoot: true })).toBe(11);
-    expect(phoneEntryCount(STATUS, { compact: false, atRoot: true })).toBeNull();
-    expect(phoneEntryCount(STATUS, { compact: true, atRoot: false })).toBeNull();
-    expect(phoneEntryCount(with_({ isOwner: false }), { compact: true, atRoot: true })).toBeNull();
   });
 
   test("the one-time notice is the owner's, and only while it is needed", () => {
@@ -213,24 +101,16 @@ describe("rules", () => {
     expect(settingsCard(null)).toBeNull();
   });
 
-  test("the sweep card: running always, found only on the payment return", () => {
+  test("the sweep card: only while a sweep is running", () => {
     const running = with_({
       sweep: { state: "running", startedAt: 1, finishedAt: null, read: 212, total: 450, found: { done: 0, archive: 0, file: 0 } },
     });
-    const found = with_({
-      sweep: { state: "done", startedAt: 1, finishedAt: 2, read: 450, total: 450, found: { done: 4, archive: 0, file: 7 } },
-    });
-    const nothing = with_({
-      sweep: { state: "done", startedAt: 1, finishedAt: 2, read: 450, total: 450, found: { done: 0, archive: 0, file: 0 } },
-    });
-    expect(sweepPhase(running, { returned: null, later: false })).toBe("reading");
-    expect(sweepPhase(found, { returned: "done", later: false })).toBe("found");
-    expect(sweepPhase(found, { returned: null, later: false })).toBeNull();
-    expect(sweepPhase(found, { returned: "done", later: true })).toBeNull();
-    expect(sweepPhase(nothing, { returned: "done", later: false })).toBeNull();
-    expect(sweepPhase(with_({ ...running, isOwner: false }), { returned: "done", later: false })).toBeNull();
-    expect(sweepPhase(with_({ ...running, on: false }), { returned: "done", later: false })).toBeNull();
-    expect(sweepPhase(STATUS, { returned: "done", later: false })).toBeNull();
+    expect(sweepPhase(running)).toBe("reading");
+    // A finished sweep leaves no card: what it found is What changed's.
+    expect(sweepPhase(with_({ sweep: { ...running.sweep!, state: "done", finishedAt: 2 } }))).toBeNull();
+    expect(sweepPhase(with_({ ...running, isOwner: false }))).toBeNull();
+    expect(sweepPhase(with_({ ...running, on: false }))).toBeNull();
+    expect(sweepPhase(STATUS)).toBeNull();
   });
 
   test("a sweep is asked for once, on the payment return, and never over a running one", () => {
@@ -249,68 +129,13 @@ describe("rules", () => {
     ).toBe(false);
   });
 
-  test("Tidy up names a move by its folders, and says what an answered row did", () => {
-    const plain = (text: string) => text.replace(/[\u2066-\u2069]/g, "");
-    expect(TIDY_GROUPS.map((group) => group.kind)).toEqual(["done", "file", "archive"]);
-    expect(plain(moveTo({ ...FILE, target: { path: "1-projects/custom-domains", title: "Custom domains" } }) ?? "")).toBe("Projects › Custom domains");
-    expect(moveTo(DONE)).toBeNull();
-    expect(plain(handled(DONE))).toBe(`${DONE.title} marked done`);
-    expect(plain(handled(ARCHIVE))).toBe(`${ARCHIVE.title} archived`);
-    expect(tidyCopy.didMany([DONE, { ...DONE, id: "d2" }])).toBe("Marked 2 projects done. Each one has an Undo here.");
-    expect(TIDY_GROUPS[0].all(2)).toBe("Mark both done");
-    expect(TIDY_GROUPS[1].all(5)).toBe("Move all 5");
-  });
-
-  test("the preview is two projects and an inbox note, then whatever there is", () => {
-    const d2 = { ...DONE, id: "d2" };
-    const d3 = { ...DONE, id: "d3" };
-    const f2 = { ...FILE, id: "f2" };
-    expect(previewSuggestions([d2, d3, DONE, FILE, f2]).map((s) => s.id)).toEqual(["d2", "d3", "f1"]);
-    expect(previewSuggestions([FILE, f2, { ...FILE, id: "f3" }, DONE]).map((s) => s.id)).toEqual(["d1", "f1", "f2"]);
-    expect(previewSuggestions([FILE]).map((s) => s.id)).toEqual(["f1"]);
-  });
-
   test("the organizer's rows are recognised whichever field carries the name", () => {
     expect(isOrganizerEntry({ by: ORGANIZER_ACTOR, via: null })).toBe(true);
     expect(isOrganizerEntry({ by: null, via: ORGANIZER_ACTOR })).toBe(true);
     expect(isOrganizerEntry({ by: "@seyi", via: "Claude" })).toBe(false);
   });
 
-  describe("which toast follows a press", () => {
-    const undo = () => {};
-    test("an accept says what happened, with Undo when there is a way back", () => {
-      expect(resolveToast(DONE, "accept", { applied: true, offer: null, undo: "t" }, { undo })).toEqual({
-        message: "Marked Code decomposition done.",
-        tone: "neutral",
-        undo,
-      });
-      expect(resolveToast(DONE, "accept", { applied: true, offer: null, undo: null }, { undo })).toEqual({
-        message: "Marked Code decomposition done.",
-        tone: "neutral",
-      });
-    });
-
-    test("the third in a row asks instead, and keeps the way back", () => {
-      const spec = resolveToast(DONE, "accept", { applied: true, offer: "done", undo: "t" }, { undo });
-      expect(spec).toEqual({ message: offerToast("done"), tone: "neutral", offer: "done", undo });
-    });
-
-    test("a dismiss is silent", () => {
-      expect(resolveToast(DONE, "dismiss", { applied: true, offer: null, undo: null }, { undo })).toBeNull();
-    });
-
-    test("a refusal says so in our words, never the server's", () => {
-      const spec = resolveToast(
-        DONE,
-        "accept",
-        { applied: false, offer: null, undo: null, error: "ETAG_MISMATCH at functions/organizer:resolve" },
-        { undo },
-      );
-      expect(spec?.tone).toBe("warn");
-      expect(spec?.message).not.toContain("functions/");
-    });
   });
-});
 
 describe("auto-organize's rows in Activity", () => {
   const entry = (over: Partial<ActivityEntry>): ActivityEntry => ({
@@ -366,8 +191,8 @@ describe("the sort line", () => {
     expect(sortLine(with_({ sweep: dead }), NOW)).toEqual({ kind: "failed", at: NOW - 31 * 60_000 });
   });
 
-  test("a finished sweep says when, and what is waiting", () => {
-    expect(sortLine(with_({ sweep: sweep({}), pending: 4 }), NOW)).toEqual({ kind: "done", at: NOW - 30_000, pending: 4 });
+  test("a finished sweep says when", () => {
+    expect(sortLine(with_({ sweep: sweep({}), pending: 4 }), NOW)).toEqual({ kind: "done", at: NOW - 30_000 });
     expect(sortLine(with_({ sweep: sweep({ state: "failed" }) }), NOW)).toEqual({ kind: "failed", at: NOW - 30_000 });
   });
 

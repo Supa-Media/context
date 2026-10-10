@@ -13,6 +13,7 @@ import type { ChangeCard, ChangeStep } from "./types";
 
 export const changesCopy = {
   heading: "What changed",
+  lede: "Read from the meetings, email and chats that land in your inbox. Nothing changes until you say so.",
   checkNow: "Check now",
   checking: "Checking…",
   lastChecked: (when: string) => `Last checked ${when}.`,

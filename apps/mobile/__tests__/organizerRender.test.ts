@@ -6,8 +6,8 @@
  * AUTO-ORGANIZE, ON THE GLASS.
  *
  * `organizer.test.ts` proves the rules; this proves the surfaces obey them and
- * that each press reaches the view: the explorer's foot line and its popover,
- * ✓ and ✕, the Premium slots, the one-time notice, the toast's offered action
+ * that each press reaches the view: the explorer's foot line, What changed's
+ * cards, the Premium slots, the one-time notice, the toast's offered action
  * and Activity's Undo. And the claim that matters most for everybody who is
  * not the owner of a paying workspace: with no view, or a member's, nothing
  * is added to the screen at all.
@@ -33,7 +33,7 @@ import { WhatChangedPage } from "../features/organizer/WhatChangedPage";
 import { OrganizerNotices } from "../features/organizer/Notices";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
-import type { ChangeCard, OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
+import type { ChangeCard, OrganizerStatus } from "../features/organizer/types";
 import type { OrganizerView } from "../features/organizer/useOrganizer";
 
 const PEOPLE: ChangeCard = {
@@ -66,34 +66,13 @@ const STATUS: OrganizerStatus = {
   autopilot: { done: false, archive: false, file: false },
 };
 
-const DONE: OrganizerSuggestion = {
-  id: "d1",
-  kind: "done",
-  path: "1-projects/code-decomposition/overview.md",
-  title: "Code decomposition",
-  reason: "Every step is ticked off",
-};
-const FILE: OrganizerSuggestion = {
-  id: "f1",
-  kind: "file",
-  path: "0-inbox/sayo-dns-questions.md",
-  title: "sayo-dns-questions",
-  reason: "DNS questions",
-  target: { path: "1-projects/custom-domains", title: "Custom domains" },
-};
-
 interface Calls {
-  opened: unknown[];
-  resolved: [string, string][];
   changed: [string, string, readonly string[]][];
   autopilot: [string, boolean][];
   enabled: boolean[];
   acknowledged: boolean[];
-  undone: number;
   swept: number;
   pages: number;
-  tabs: string[];
-  many: [string[], string][];
 }
 
 function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | null } = {}, calls?: Calls): OrganizerView {
@@ -102,23 +81,8 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     state: status === null ? { kind: "unavailable" } : { kind: "ready", status },
     status,
     slug: "seyi",
-    suggestions: { list: [DONE, FILE], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
+    suggestions: { changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
     loadSuggestions: () => {},
-    tab: "inbox",
-    setTab: (tab) => calls?.tabs.push(tab),
-    openReview: (options) => calls?.opened.push(options ?? {}),
-    resolve: async (s, decision) => {
-      calls?.resolved.push([s.id, decision]);
-      return { applied: true, offer: null, undo: `undo-${s.id}` };
-    },
-    resolveMany: async (list, decision) => {
-      calls?.many.push([list.map((s) => s.id), decision]);
-      return new Map(list.map((s) => [s.id, { applied: true, offer: null, undo: `undo-${s.id}` }]));
-    },
-    undo: async () => {
-      if (calls) calls.undone += 1;
-      return true;
-    },
     resolveChange: (card, decision, steps) => calls?.changed.push([card.id, decision, steps]),
     sendRoute: async () => false,
     sendRoutes: async () => 0,
@@ -145,7 +109,7 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
   };
 }
 
-const fresh = (): Calls => ({ opened: [], resolved: [], changed: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0, pages: 0, tabs: [], many: [] });
+const fresh = (): Calls => ({ changed: [], autopilot: [], enabled: [], acknowledged: [], swept: 0, pages: 0 });
 
 function browser(): FileBrowser {
   return {
@@ -202,15 +166,15 @@ describe("the explorer's foot", () => {
     expect(byId(mount(explorer(), organizer({ status: { ...STATUS, on: false } })), "explorer-what-changed")).toBeNull();
   });
 
-  test("one line, not two: What changed counts the tidy-ups too, and opens on them when nothing came in", () => {
+  test("one line, not two: What changed counts the cards, and the press opens the page", () => {
     const calls = fresh();
-    const container = mount(explorer(), organizer({}, calls));
+    const container = mount(explorer(), organizer({ status: { ...STATUS, pending: 2, changes: 1 } }, calls));
     // "11 suggestions" was a second line beside What changed, and read as a second helper (Dev2, 2026-10-07).
     expect(byId(container, "explorer-suggestions")).toBeNull();
     const line = byId(container, "explorer-what-changed");
-    expect(line?.textContent).toContain("2");
+    // Tidy up is gone (owner, 2026-10-10): pending suggestions add nothing to the count.
+    expect(line?.textContent).toBe("What changed1");
     press(line);
-    expect(calls.tabs).toEqual(["tidy"]);
     expect(calls.pages).toBe(1);
   });
 });
@@ -222,7 +186,7 @@ describe("What changed", () => {
       {
         status: WAITING,
         pageOpen: true,
-        suggestions: { list: [DONE, FILE], changes: [PEOPLE], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
+        suggestions: { changes: [PEOPLE], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
         ...over,
       },
       calls,
@@ -237,10 +201,8 @@ describe("What changed", () => {
     expect(line?.textContent).toContain("What changed");
     press(line);
     expect(calls.pages).toBe(1);
-    // What came in comes first.
-    expect(calls.tabs).toEqual(["inbox"]);
-    // One count for both: 1 that came in, 2 to tidy.
-    expect(line?.textContent).toContain("3");
+    // The cards waiting, and no other count: 3 pending, 1 of them a card.
+    expect(line?.textContent).toBe("What changed1");
   });
 
   test("the line is there before anything has arrived, and not for a member", () => {
@@ -286,24 +248,18 @@ describe("What changed", () => {
 
   test("nothing waiting says so, and Check now asks for a sort", () => {
     const calls = fresh();
-    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } })));
+    const container = mount(page(withCards(calls, { suggestions: { changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } })));
     expect(byId(container, "what-changed-empty")?.textContent).toContain("Nothing waiting");
     press(byId(container, "what-changed-check"));
     expect(calls.swept).toBe(1);
   });
 
-  test("two tabs, each with what waits behind it; Tidy up holds the suggestions, not the cards", () => {
-    const calls = fresh();
-    const inbox = mount(page(withCards(calls)));
-    expect(byId(inbox, "what-changed-tab-inbox")?.textContent).toBe("From your inbox1");
-    expect(byId(inbox, "what-changed-tab-tidy")?.textContent).toBe("Tidy up2");
-    expect(byId(inbox, "what-changed-tab-inbox")?.getAttribute("aria-selected")).toBe("true");
-    expect(byId(inbox, "tidy-up")).toBeNull();
-    press(byId(inbox, "what-changed-tab-tidy"));
-    expect(calls.tabs).toEqual(["tidy"]);
-    const tidy = mount(page(withCards(fresh(), { tab: "tidy" })));
-    expect(byId(tidy, "tidy-up")).not.toBeNull();
-    expect(byId(tidy, "organizer-change-c1")).toBeNull();
+  test("one list, no tabs: the cards are the page", () => {
+    const container = mount(page(withCards(fresh())));
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('[data-testid^="what-changed-tab-"]')).toBeNull();
+    expect(byId(container, "tidy-up")).toBeNull();
+    expect(byId(container, "organizer-change-c1")).not.toBeNull();
   });
 
   test("a source's name comes out of somebody's bucket, so it is contained", () => {
@@ -319,96 +275,6 @@ describe("What changed", () => {
   });
 });
 
-describe("Tidy up", () => {
-  const ARCHIVE: OrganizerSuggestion = { id: "a1", kind: "archive", path: "0-inbox/voice-memo.md", title: "Voice memo", reason: "Not opened since September" };
-  const D2: OrganizerSuggestion = { ...DONE, id: "d2", title: "Members-only pages" };
-  const tidy = (calls: Calls, list: OrganizerSuggestion[] = [DONE, D2, FILE, ARCHIVE], opened: string[] = []) =>
-    mount(
-      createElement(WhatChangedPage, {
-        organizer: organizer({ tab: "tidy", pageOpen: true, suggestions: { list, changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } }, calls),
-        compact: false,
-        now: 0,
-        onOpenSource: (path: string) => opened.push(path),
-      }),
-    );
-
-  test("grouped by what they would do, each row the note, why, and one button that says what it does", () => {
-    const opened: string[] = [];
-    const container = tidy(fresh(), undefined, opened);
-    expect(byId(container, "tidy-group-done")?.textContent).toContain("Looks finished · 2");
-    expect(byId(container, "tidy-group-file")?.textContent).toContain("Belongs somewhere else · 1");
-    expect(byId(container, "tidy-group-archive")?.textContent).toContain("Nothing is deleted");
-    expect(byId(container, "tidy-row-f1")?.textContent).toContain("Move to");
-    expect(byId(container, "tidy-row-f1")?.textContent).toContain("Projects › Custom domains");
-    expect(byId(container, "tidy-row-d1")?.textContent).toContain("Every step is ticked off");
-    expect(byId(container, "tidy-do-d1")?.textContent).toBe("Done");
-    expect(byId(container, "tidy-do-f1")?.textContent).toBe("Move");
-    expect(byId(container, "tidy-do-a1")?.textContent).toBe("Archive");
-    expect(byId(container, "tidy-do-d1")?.getAttribute("aria-label")).toBe("Done: Code decomposition");
-    // A group of one has no "all" button; a group of two does.
-    expect(byId(container, "tidy-all-file")).toBeNull();
-    expect(byId(container, "tidy-all-done")?.textContent).toBe("Mark both done");
-    expect(byId(container, "tidy-progress")?.textContent).toContain("0 of 4 done");
-    // The note's name opens the note.
-    press(byId(container, "tidy-open-d1"));
-    expect(opened).toEqual([DONE.path]);
-  });
-
-  test("an answered row stays as one line with its Undo, and the bar counts it", async () => {
-    const calls = fresh();
-    const container = tidy(calls);
-    press(byId(container, "tidy-do-d1"));
-    await act(async () => {});
-    expect(calls.resolved).toEqual([["d1", "accept"]]);
-    expect(byId(container, "tidy-row-d1")).toBeNull();
-    expect(byId(container, "tidy-answered-d1")?.textContent).toContain("Code decomposition marked done");
-    expect(byId(container, "tidy-progress")?.textContent).toContain("1 of 4 done");
-    expect(byId(container, "tidy-group-done")?.textContent).toContain("Looks finished · 1");
-    press(byId(container, "tidy-undo-d1"));
-    await act(async () => {});
-    expect(calls.undone).toBe(1);
-    // Back as a row to answer again, and the bar gives the step back.
-    expect(byId(container, "tidy-row-d1")).not.toBeNull();
-    expect(byId(container, "tidy-answered-d1")).toBeNull();
-    expect(byId(container, "tidy-progress")?.textContent).toContain("0 of 4 done");
-  });
-
-  test("Skip answers one row and offers no Undo; the group button answers the whole group at once", async () => {
-    const calls = fresh();
-    const container = tidy(calls);
-    press(byId(container, "tidy-skip-f1"));
-    await act(async () => {});
-    expect(calls.resolved).toEqual([["f1", "dismiss"]]);
-    expect(byId(container, "tidy-answered-f1")?.textContent).toContain("skipped");
-    expect(byId(container, "tidy-undo-f1")).toBeNull();
-    press(byId(container, "tidy-all-done"));
-    await act(async () => {});
-    expect(calls.many).toEqual([[["d1", "d2"], "accept"]]);
-    expect(byId(container, "tidy-answered-d2")).not.toBeNull();
-    expect(byId(container, "tidy-progress")?.textContent).toContain("3 of 4 done");
-  });
-
-  test("a long group shows three and the rest behind a link", () => {
-    const many = [1, 2, 3, 4, 5].map((n) => ({ ...FILE, id: `f${n}`, title: `Note ${n}` }));
-    const container = tidy(fresh(), many);
-    expect(byId(container, "tidy-row-f4")).toBeNull();
-    expect(byId(container, "tidy-more-file")?.textContent).toBe("2 more");
-    press(byId(container, "tidy-more-file"));
-    expect(byId(container, "tidy-row-f5")).not.toBeNull();
-  });
-
-  test("when the last one goes, it says All tidy; with nothing ever waiting, the same", async () => {
-    const calls = fresh();
-    const container = tidy(calls, [DONE]);
-    press(byId(container, "tidy-do-d1"));
-    await act(async () => {});
-    expect(byId(container, "tidy-all-tidy")?.textContent).toContain("All tidy");
-    expect(byId(container, "tidy-progress")?.textContent).toContain("1 of 1 done");
-    const empty = tidy(fresh(), []);
-    expect(byId(empty, "tidy-all-tidy")?.textContent).toContain("Nothing to tidy right now");
-  });
-});
-
 function Premium({ view, returned }: { view: OrganizerView; returned: "done" | null }) {
   const slots = usePremiumSlotsFor(view, returned);
   return createElement(PremiumBody, { view: demoPremiumView(), section: "premium", returned, autoOrganize: slots });
@@ -417,7 +283,7 @@ function Premium({ view, returned }: { view: OrganizerView; returned: "done" | n
 describe("Settings › Premium", () => {
   test("the disclosure sits in what Premium includes, before the upgrade too", () => {
     const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, available: false } }), returned: null }));
-    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads your notes");
+    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads what lands in your inbox");
     // No switches before there is anything to switch.
     expect(byId(container, "organizer-settings")).toBeNull();
   });
@@ -448,9 +314,10 @@ describe("Settings › Premium", () => {
 
     const done = { ...running, state: "done" as const, finishedAt: now - 3 * 3_600_000, read: 40 };
     const sorted = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done, pending: 2 } }, calls), returned: null }));
-    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago. 2 suggestions waiting.");
-    press(byId(sorted, "organizer-sort-review"));
-    expect(calls.opened).toEqual([{ closeSettings: true }]);
+    // Said as a time only: there is no suggestions list to count or to look over.
+    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago.");
+    expect(byId(sorted, "organizer-sort-done")?.textContent).not.toContain("suggestion");
+    expect(byId(sorted, "organizer-sort-review")).toBeNull();
 
     const failed = { ...done, state: "failed" as const };
     const broke = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: failed } }, calls), returned: null }));
@@ -465,18 +332,13 @@ describe("Settings › Premium", () => {
     expect(container.querySelector('[data-testid^="organizer-sort-"]')).toBeNull();
   });
 
-  test("What changed switched off: Sort now stays, nothing offers to open a page that is not there", () => {
+  test("a finished sweep leaves no card, even on the payment return: nothing is left to show", () => {
     const now = Date.now();
     const done = { state: "done" as const, startedAt: now - 60_000, finishedAt: now - 3_600_000, read: 40, total: 40, found: { done: 1, archive: 0, file: 1 } };
-    const status = { ...STATUS, sweep: done, pending: 2, whatChanged: false };
-    const sorted = mount(createElement(Premium, { view: organizer({ status }), returned: null }));
-    expect(byId(sorted, "organizer-sort-done")).not.toBeNull();
-    expect(byId(sorted, "organizer-sort-now")).not.toBeNull();
-    expect(byId(sorted, "organizer-sort-review")).toBeNull();
-    const found = mount(createElement(Premium, { view: organizer({ status }), returned: "done" }));
-    expect(byId(found, "organizer-sweep-found")).not.toBeNull();
+    const found = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done } }), returned: "done" }));
+    expect(byId(found, "organizer-sweep-found")).toBeNull();
     expect(byId(found, "organizer-show-me")).toBeNull();
-    expect(byId(found, "organizer-later")).not.toBeNull();
+    expect(byId(found, "organizer-sort-now")).not.toBeNull();
   });
 
   test("a member reads it and is offered nothing to press", () => {
@@ -486,22 +348,11 @@ describe("Settings › Premium", () => {
     expect(byId(container, "organizer-autopilot-done")).toBeNull();
   });
 
-  test("the sweep reads, then shows what it found; Show me opens the list over closed settings", () => {
+  test("the sweep card reads while it runs", () => {
     const sweep = { state: "running" as const, startedAt: 1, finishedAt: null, read: 212, total: 450, found: { done: 0, archive: 0, file: 0 } };
     const reading = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep } }), returned: "done" }));
     expect(byId(reading, "organizer-sweep-reading")?.textContent).toContain("Tidying up @seyi");
     expect(byId(reading, "organizer-sweep-reading")?.textContent).toContain("212 of 450 notes");
-
-    const calls = fresh();
-    const done = { ...sweep, state: "done" as const, finishedAt: 2, read: 450, found: { done: 1, archive: 0, file: 1 } };
-    const found = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done } }, calls), returned: "done" }));
-    const card = byId(found, "organizer-sweep-found");
-    expect(card?.textContent).toContain("Found 1 project that looks done and 1 inbox note to file");
-    expect(card?.textContent).toContain("Looks done. Every step is ticked off");
-    press(byId(found, "organizer-show-me"));
-    expect(calls.opened).toEqual([{ closeSettings: true }]);
-    press(byId(found, "organizer-later"));
-    expect(byId(found, "organizer-sweep-found")).toBeNull();
   });
 });
 
@@ -518,13 +369,18 @@ describe("the notices band", () => {
 
   test("the phone's entry is on the workspace page only", () => {
     const calls = fresh();
-    const view = organizer({}, calls);
+    const view = organizer({ status: { ...STATUS, changes: 2 } }, calls);
     const onNote = mount(createElement(OrganizerNotices, { compact: true, atRoot: false }), view);
     expect(byId(onNote, "organizer-phone-entry")).toBeNull();
     const atRoot = mount(createElement(OrganizerNotices, { compact: true, atRoot: true }), view);
-    expect(byId(atRoot, "organizer-phone-entry")?.textContent).toContain("2 suggestions to look over");
+    expect(byId(atRoot, "organizer-phone-entry")?.textContent).toContain("2 changes to look over");
     press(byId(atRoot, "organizer-look-over"));
-    expect(calls.opened).toHaveLength(1);
+    expect(calls.pages).toBe(1);
+  });
+
+  test("pending suggestions alone draw no phone entry: only cards do", () => {
+    const view = organizer({ status: { ...STATUS, pending: 5, changes: 0 } });
+    expect(byId(mount(createElement(OrganizerNotices, { compact: true, atRoot: true }), view), "organizer-phone-entry")).toBeNull();
   });
 });
 
