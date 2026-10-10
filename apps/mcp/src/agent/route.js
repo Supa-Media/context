@@ -503,7 +503,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        await appendConversation(store, conversation, history, question, answer, { tainted: ledger.untrusted });
+        await appendConversation(store, conversation, history, question, answer, {
+          tainted: ledger.untrusted,
+          tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
+        });
       } catch {
         // The answer is still owed. A history that failed to save costs the
         // next turn some context, not this one its reply.

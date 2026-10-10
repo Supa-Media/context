@@ -519,6 +519,26 @@ export async function runAgentChecks(check) {
       bucket.has(".context/agent/conversations/texts.json"),
     );
 
+    // A turn that looked something up says so to the next one, by tool name
+    // only: words-only history had the model take back answers it had checked.
+    model.requests.length = 0;
+    model.install([
+      { toolCalls: [{ name: "search_notes", args: { query: "launch venue" } }] },
+      { text: "At the hall." },
+      { text: "Yes, the hall." },
+    ]);
+    await ask(env, TOKEN_OWNER, { question: "Where is the launch?", conversation: "texts" });
+    await ask(env, TOKEN_OWNER, { question: "Are you sure?", conversation: "texts" });
+    const saved = bucket.get(".context/agent/conversations/texts.json")?.body ?? "";
+    check(
+      "a texted answer keeps the names of the tools it used, never their arguments",
+      saved.includes('"tools":["search_notes"]') && !saved.includes("launch venue"),
+    );
+    check(
+      "...and the next turn is told it used them",
+      /you used these tools: search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
+    );
+
     model.requests.length = 0;
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_OWNER, { question: "Fresh question", conversation: "../../privacy.md" });

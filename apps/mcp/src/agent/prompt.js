@@ -102,7 +102,19 @@ const CONTINUED =
   "them are not shown here, but you did use them. Never take back or doubt an earlier answer because its lookups " +
   "are not shown; if something needs checking, read the notes again.";
 
-export function systemPrompt(place, { texting = false, notes = null, model = null, edits = false, continued = false } = {}) {
+/**
+ * Which tools the earlier answers used, by name (`conversation.js`), so "I
+ * didn't open that page" has something to be checked against.
+ */
+function usedLine(used) {
+  const names = Array.isArray(used) ? used.filter((name) => typeof name === "string" && name.length > 0) : [];
+  return names.length > 0 ? `To write those earlier answers you used these tools: ${names.join(", ")}.` : "";
+}
+
+export function systemPrompt(
+  place,
+  { texting = false, notes = null, model = null, edits = false, continued = false, used = [] } = {},
+) {
   // A production setup's prompt (`production.js`) is the whole of who the
   // assistant is and how it writes: it stands in for the identity and the
   // texting style alike, so it is said once and nothing else follows it.
@@ -123,6 +135,8 @@ export function systemPrompt(place, { texting = false, notes = null, model = nul
         ...GROUND_RULES,
       ];
   if (continued) lines.push(CONTINUED);
+  const usedBefore = continued ? usedLine(used) : "";
+  if (usedBefore) lines.push(usedBefore);
   const which = modelLine(model);
   if (which) lines.push(which);
 

@@ -4,9 +4,10 @@
  * Proves what a person texting Tex gets, on the deployed Workers rather than
  * fakes: the seeded alpha@supa.media persona links a fictional 555-01XX number
  * (the simulator's only numbers) with a code from the app's own action, then
- * texts a quick question, a long task and a browser task, and the run reads
- * the replies the way the simulator page does. The long task must come back with more than one
- * text (progress, then the result) and never "Something went wrong".
+ * texts a quick question, a long task, a browser task and a vault request,
+ * and the run reads the replies the way the simulator page does. The long
+ * task must come back with more than one text (progress, then the result) and
+ * never "Something went wrong".
  *
  * The transcript is printed: it is a staging persona's fixture notes and a
  * public web page, nothing real. The phone is unlinked at the end, whatever
@@ -34,6 +35,8 @@ const key = randomBytes(32).toString("hex");
 const phone = `+1415555${String(100 + randomInt(100)).padStart(4, "0")}`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pass = (label) => console.log(`PASS  ${label}`);
+/** A vault or sign-in link is a live one-time token; the Actions log is public, so print only that it was there. */
+const redact = (line) => line.replace(/\/(vault|link|setup)\/[^\s]+/g, "/$1/…");
 
 async function sim(action, body) {
   const url =
@@ -60,7 +63,7 @@ async function text(message, { timeoutMs = 3 * 60_000 } = {}) {
     await pause(2000);
     const thread = await sim("thread");
     for (const entry of thread.messages.slice(printed)) {
-      console.log(`< [${Math.round((entry.at - sent) / 1000)}s] ${entry.text}`);
+      console.log(`< [${Math.round((entry.at - sent) / 1000)}s] ${redact(entry.text)}`);
     }
     printed = Math.max(printed, thread.messages.length);
     if (!thread.typing && thread.messages.length > before + 1) {
@@ -104,6 +107,15 @@ try {
   );
   assert.ok(browsed.some((reply) => /1815/.test(reply)), `browsing reply: ${browsed.join(" | ")}`);
   pass("Tex drives a browser: types into a site's search and reads the result");
+
+  // The vault (docs/decisions/texting-assistant/vault.md): a login is saved
+  // by the person on a signed-in page, never by text, so asking Tex to keep
+  // one must come back with that page's link. Nothing is saved here.
+  const vault = await text("Can you save my login for news.ycombinator.com so you can sign in for me later?", {
+    timeoutMs: 3 * 60_000,
+  });
+  assert.ok(vault.some((reply) => /\/vault\/\S+/.test(reply)), `vault reply: ${redact(vault.join(" | "))}`);
+  pass("asking Tex to keep a login texts the save page's link, not a request for the password");
 } catch (error) {
   failed = error;
 } finally {
