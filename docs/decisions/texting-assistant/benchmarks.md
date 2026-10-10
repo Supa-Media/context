@@ -139,6 +139,59 @@ thinking model, and the meter says so", "a low-confidence think, a word the
 router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
 
+### The benchmark world searches by meaning, and search has a benchmark of its own (2026-10-10)
+
+**Decided by the owner (2026-10-10):** "we need to build a testing pipeline
+for search, ideally the same pipeline we were using to evaluate prompts", with
+embeddings for the test workspaces, settings to tune "until it's returning the
+best items in a good rank", and then the winner under the texting assistant.
+Until this day the benchmark world had no meaning index at all: every round
+measured the assistant on word search, and production was close to the same
+thing until the cutoff fix of PR #1475.
+
+- **The world has both indexes.** A Vectorize stand-in (`test/vectorizeStub.mjs`,
+  one in-memory index per name in the URL, brute-force cosine, installed in
+  front of the D1 stub) answers the gateway's own client; the warm pass
+  (`bench/warm.mjs`) embeds every note of every workspace through the run's
+  Workers AI runner (`@cf/baai/bge-m3`, real in a round, trigram fingerprints
+  under `--fake`), under the tier its fixture visibility gives it, and
+  snapshots the vectors; each conversation starts from a copy. Embeddings are
+  remembered by text for the run, so each passage and each query is paid for
+  once.
+- **Search has settings, in two places** (`src/search/settings.js`): the
+  Worker's `SEARCH_SETTINGS` var is the deployment's choice, and a texting
+  setup's `search:` section lays over it for that turn, in the context the
+  turn is on and any it addresses. Four knobs, bounded: `everywhere`,
+  `min_score`, `extra_notes`, `snippet_chars`. A value out of bounds refuses
+  the setup whole, as any other bad line does, and an unreadable var is the
+  defaults with one log line.
+- **`everywhere`** makes `search_notes` with no `context` search every
+  workspace the person can reach, each opened the way an addressed call opens
+  it (`store.openContext`, so under the person's role there and that
+  workspace's own `privacy.md`), the query embedded once, the lists fused a
+  rank at a time with this workspace first, and a hit from elsewhere carrying
+  `@name/` in front of its path with a line saying how to read it. A workspace
+  that cannot be opened is left out, never guessed at. The repository's
+  standing note that cross-context search *ranking* is not built still holds:
+  this fuses by rank, it does not rank across workspaces by score.
+- **The search job** (`bench/search.mjs`, `tests/search.md`,
+  `setups/search/*.md`, `pnpm ai search`, the Action with `job: search`) is
+  one `search_notes` call a query as the person named, through the MCP
+  endpoint, scored against the notes the test expects: found at all, in the
+  first three, mean reciprocal rank, complete. No judge; a round costs the
+  embeddings and seconds. The queries are the texting assistant's own
+  questions in the words a person would type, half sharing a word with the
+  note and half not, so both halves of search are measured.
+
+**What a simplification would cost:** tuning the meaning cutoff on production
+indexes by hand (as PR #1475 had to) is one afternoon's measurement that
+nobody can repeat; a benchmark that still searched words only would keep
+understating what people get. Tests: `bench/test/warm.test.mjs` ("with an
+embedder, the warm pass fills a meaning index per workspace, and a
+conversation's search asks it", "with everywhere on, one search reaches the
+other workspaces, and a held-back note stays absent for a member"),
+`test/searchSettings.test.mjs`, `bench/test/search.test.mjs`.
+
 ### The judge says what an answer does; pass or fail is worked out by the harness (2026-10-10)
 
 **Decided 2026-10-10, from round seven:** the judge is no longer asked for

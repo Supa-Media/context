@@ -14,9 +14,14 @@ this folder: it is public, like the rest of the repository.
   which. A `fluff.md` in a folder describes filler notes the run generates
   from `workspaces/_bank/`.
 - `tests/<job>.md`: the questions, who asks them, what a good answer does, and
-  the `every_answer` lines graded on every answer.
+  the `every_answer` lines graded on every answer. `tests/search.md` is the
+  search job: each question is one `search_notes` call and names the notes
+  that should come back (`expect:`), scored with no judge (`pnpm ai search`).
 - `setups/<job>/`: the complete packages (model, settings, prompt) the next run
-  compares. Retired setups stay in `@context-lc ai/setups/retired/`.
+  compares. Retired setups stay in `@context-lc ai/setups/retired/`. A
+  `setups/search/` file is a search setup: `job: search` and a `search:`
+  section (`everywhere`, `min_score`, `extra_notes`, `snippet_chars`), the
+  same section a texting setup may carry to search its way.
 - `results/`: written by a run and ignored by git. A run's result and key go
   to `@context-lc ai/results/`.
 

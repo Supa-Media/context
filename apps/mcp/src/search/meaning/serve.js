@@ -28,6 +28,7 @@ import { noteTitle } from "../resultText.js";
 import { createMeaningClient } from "./client.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
+import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -45,7 +46,7 @@ import { meaningEmbedderFor } from "./store.js";
  * meaning, never as having the words. Tunable, and the only number here a
  * search quality review should need to touch.
  */
-export const MEANING_MIN_SCORE = 0.4;
+export const MEANING_MIN_SCORE = DEFAULT_SEARCH_SETTINGS.minScore;
 
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;
@@ -77,13 +78,16 @@ export function meaningSearchable(store) {
  * @param {object} store
  * @param {{query: string, scope: string, isVisible: (path: string) => boolean,
  *   prefix?: string, grantedGroups?: boolean, fetchImpl?: Function,
- *   embed?: (texts: string[]) => Promise<number[][]>}} options
+ *   embed?: (texts: string[]) => Promise<number[][]>, minScore?: number}} options
+ *   `minScore` is the closeness under which a match is dropped: the store's
+ *   setting (`../settings.js`) unless given.
  * @returns {Promise<Array<{path: string, score: number, chunk: number}> | null>}
  */
 export async function meaningMatches(
   store,
-  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed },
+  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed, minScore },
 ) {
+  const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
   if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
   try {
     const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
@@ -96,7 +100,7 @@ export async function meaningMatches(
     const raw = await client.query(vector, { tiers });
     return rankMeaningMatches(raw).filter(
       (match) =>
-        match.score >= MEANING_MIN_SCORE &&
+        match.score >= floor &&
         match.path.endsWith(".md") &&
         match.path !== ACTIVITY_PATH &&
         !isPlumbing(match.path) &&
@@ -161,7 +165,7 @@ export function mergeHits(wordHits, matches, keyField = "key") {
 }
 
 /** A snippet for a note found only by meaning: the start of the passage that matched. */
-async function meaningSnippet(store, match) {
+async function meaningSnippet(store, match, chars = 200) {
   let text;
   try {
     const object = await store.get(match.path);
@@ -178,7 +182,7 @@ async function meaningSnippet(store, match) {
   // (`meaningPassages`), so the snippet is what follows that title.
   const indexedTitle = String(extractFields(match.path, text).title ?? "").trim();
   const body = passage.startsWith(indexedTitle) ? passage.slice(indexedTitle.length) : passage;
-  const line = body.replace(/\s+/g, " ").trim().slice(0, 200);
+  const line = body.replace(/\s+/g, " ").trim().slice(0, chars);
   return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
 }
 
@@ -191,8 +195,16 @@ async function meaningSnippet(store, match) {
  *
  * `matches` is `meaningMatches`'s answer, asked for alongside the word search
  * rather than after it, so the two cost one wait, not two.
+ *
+ * `extraNotes` (how many meaning-only notes may be added) and `snippetChars`
+ * (how much of the matching passage each shows) are the store's settings
+ * unless given (`../settings.js`); a word search that found only loose
+ * any-word hits may add twice as many, never fewer than the loose cap.
  */
-export async function withMeaning(store, found, matches, { keyField = "key" } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars } = {}) {
+  const settings = searchSettingsOf(store);
+  const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
+  const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
   if (!matches || matches.length === 0) {
     // `loose` is a ranking signal, never part of the answer.
     const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
@@ -201,7 +213,7 @@ export async function withMeaning(store, found, matches, { keyField = "key" } = 
   const out = [];
   let reads = 0;
   // `every` of none is true: a word search that found nothing is the loosest.
-  const readCap = found.hits.every((hit) => hit.loose === true) ? MEANING_SNIPPET_READS_LOOSE : MEANING_SNIPPET_READS;
+  const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
   for (const entry of mergeHits(found.hits, matches, keyField)) {
     if (entry.word) {
       const { loose: _loose, ...word } = entry.word;
@@ -210,7 +222,7 @@ export async function withMeaning(store, found, matches, { keyField = "key" } = 
     }
     if (reads >= readCap) continue;
     reads += 1;
-    const read = await meaningSnippet(store, entry.meaning);
+    const read = await meaningSnippet(store, entry.meaning, chars);
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;

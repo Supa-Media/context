@@ -55,6 +55,7 @@ import { localIngestionStore } from "../ingestion/inbox.js";
 import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summarize.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
+import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
@@ -281,6 +282,9 @@ export async function route(request, env, ctx) {
       // `store.actor` does: the tool layer never sees `env`, and the store dies
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
+      // And the deployment's search settings (`search/settings.js`), on the
+      // same terms; a texting setup may lay its own over them for one turn.
+      store.searchSettings = searchSettingsFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
       // The one way anything in this worker gets to keep working after the
@@ -496,6 +500,8 @@ export async function route(request, env, ctx) {
         if (target === session) return { session, store };
         const targetStore = await storeForSession(target, env, controlPlane);
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
+        // Read at open time, so a turn's setup settings reach the contexts it addresses.
+        targetStore.searchSettings = store.searchSettings;
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
         targetStore.defer = store.defer;

@@ -28,6 +28,9 @@
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
+ *   search         optional: the search settings this setup's turns use over
+ *                  the deployment's (`search/settings.js`): everywhere,
+ *                  min_score, extra_notes, snippet_chars
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-12, the most rounds a turn may take
  *   body           the whole prompt a texted turn is given
@@ -44,6 +47,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
+import { readSearchSettings } from "../search/settings.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -104,6 +108,13 @@ async function parse(raw) {
   const tools = front.tools === undefined ? [] : front.tools;
   if (!Array.isArray(tools) || !tools.every((tool) => typeof tool === "string" && TOOL.test(tool))) return null;
 
+  let search = null;
+  if (front.search !== undefined) {
+    if (!isMap(front.search)) return null;
+    search = readSearchSettings(front.search);
+    if (search === null) return null;
+  }
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -120,11 +131,34 @@ async function parse(raw) {
     model: models.main,
     router,
     fallback,
+    search,
     tools,
     maxSteps,
     prompt,
     version: await versionOf(raw),
   };
+}
+
+/**
+ * A search setup (`bench/ai/setups/search/*.md`): front matter with
+ * `job: search` and a `search:` section, and a body saying why. Nothing in it
+ * names a model; the benchmark puts its settings in the world's
+ * `SEARCH_SETTINGS` var and measures what `search_notes` returns.
+ * `{ search, version }`, or `null`. Never throws.
+ */
+export async function parseSearchSetup(raw) {
+  try {
+    if (typeof raw !== "string") return null;
+    const match = FRONT_MATTER.exec(raw);
+    if (!match) return null;
+    const front = readFront(match[1]);
+    if (front === null || front.job !== "search" || !isMap(front.search)) return null;
+    const search = readSearchSettings(front.search);
+    if (search === null) return null;
+    return { job: "search", search, version: await versionOf(raw) };
+  } catch {
+    return null;
+  }
 }
 
 /**

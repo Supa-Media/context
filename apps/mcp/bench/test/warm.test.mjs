@@ -147,3 +147,91 @@ test("close() removes every database copy and the snapshot", async () => {
   assert.ok(!existsSync(copies[0]));
   assert.equal(prepared.openCopy("db-not-a-workspace"), undefined);
 });
+
+/* ---------------- search by meaning: the warm pass fills an index, and a conversation searches it ---------------- */
+
+test("with an embedder, the warm pass fills a meaning index per workspace, and a conversation's search asks it", async () => {
+  const { fakeAi, fakeEmbedding } = await import("../models.mjs");
+  const { createVectorizeBackend } = await import("../../test/vectorizeStub.mjs");
+  const ai = fakeAi();
+  const prepared = await prepareRun(bench, { today: "2026-10-08", ai });
+  try {
+    assert.ok(prepared.vectors instanceof Map, "the warmed vectors come back as a seed");
+    assert.equal(prepared.embedded.get("maya"), 31, "one passage per short note: the dentist note and thirty fillers");
+    assert.equal(prepared.embedded.get("brand"), 2);
+    // The index answers by closeness: a query about the dentist lands on the dentist note.
+    const backend = createVectorizeBackend({ seed: prepared.vectors });
+    const reply = await backend.handle("https://api.cloudflare.com/client/v4/accounts/x/vectorize/v2/indexes/meaning-maya/query", {
+      body: JSON.stringify({ vector: fakeEmbedding("Dentist appointment Tuesday"), topK: 3, returnMetadata: "all" }),
+    });
+    const { result } = await reply.json();
+    assert.equal(result.matches[0]?.metadata?.path, "health/dentist.md", JSON.stringify(result.matches.map((m) => m.metadata.path)));
+    // A held-back note is indexed at the private tier, so a team caller's query never spends a candidate on it.
+    const brand = prepared.vectors.get("meaning-brand");
+    const tiers = new Map([...brand.values()].map((entry) => [entry.metadata.path, entry.metadata.tier]));
+    assert.deepEqual(Object.fromEntries(tiers), { "people/john.md": "private", "todo.md": "team" });
+
+    // In a conversation's world the gateway searches both ways: the result is not marked words-only.
+    const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: scripted([]), ai }, "2026-10-08", prepared);
+    try {
+      const found = await world.search("tooth doctor visit");
+      assert.ok(found.ok, found.text);
+      assert.ok(!found.text.includes("not their meaning"), "meaning search is on in a warmed world");
+    } finally {
+      world.close();
+    }
+  } finally {
+    prepared.close();
+  }
+});
+
+test("without an embedder the warm pass makes no meaning index, as before", async () => {
+  const prepared = await prepareRun(bench, { today: "2026-10-08" });
+  try {
+    assert.equal(prepared.vectors, null);
+    assert.equal(prepared.embedded.size, 0);
+  } finally {
+    prepared.close();
+  }
+});
+
+/* ---------------- search everywhere: one search across the person's workspaces, under each one's own privacy ---------------- */
+
+test("with everywhere on, one search reaches the other workspaces, and a held-back note stays absent for a member", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const ai = fakeAi();
+  const prepared = await prepareRun(bench, { today: "2026-10-08", ai });
+  try {
+    const models = { gatewayFetch: scripted([]), ai, searchSettings: { everywhere: true } };
+    const maya = await createWorld(bench, "Maya", SETUP, models, "2026-10-08", prepared);
+    try {
+      const found = await maya.search("twill order");
+      assert.ok(found.ok, found.text);
+      assert.ok(found.text.includes("@brand/todo.md"), `the brand's to-do list is found from Maya's own workspace:\n${found.text}`);
+      assert.match(found.text, /pass context: "@name"/, "the result says how to reach a path from another workspace");
+      const pay = await maya.search("John's pay");
+      assert.ok(pay.text.includes("@brand/people/john.md"), `the owner sees the held-back note:\n${pay.text}`);
+    } finally {
+      maya.close();
+    }
+    const priya = await createWorld(bench, "Priya", SETUP, models, "2026-10-08", prepared);
+    try {
+      const pay = await priya.search("John's pay");
+      assert.ok(pay.ok, pay.text);
+      assert.ok(!pay.text.includes("john.md"), `a member never sees the held-back note through the fan-out:\n${pay.text}`);
+      assert.ok(!pay.text.includes("PAY-MARK"), "nor its words");
+    } finally {
+      priya.close();
+    }
+    // Off, the same search stays in the person's own workspace.
+    const alone = await createWorld(bench, "Maya", SETUP, { gatewayFetch: scripted([]), ai }, "2026-10-08", prepared);
+    try {
+      const found = await alone.search("twill order");
+      assert.ok(!found.text.includes("@brand/"), found.text);
+    } finally {
+      alone.close();
+    }
+  } finally {
+    prepared.close();
+  }
+});
