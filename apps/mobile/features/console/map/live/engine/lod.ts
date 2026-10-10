@@ -26,8 +26,19 @@ export const subRimAlpha = (pr: number): number => clamp((pr - 16) / 20, 0, 1);
 /** A subfolder's name. */
 export const subLabelAlpha = (pr: number): number => band(pr, 34, 56, 300, 460);
 
-/** Links between notes. */
-export const edgeAlpha = (s: number): number => clamp((notePx(s) - 8) / 7, 0, 1);
+/**
+ * How strongly links are drawn far out, where notes sit closer than 8 pixels
+ * apart. Never zero: a big workspace framed whole, or the all-workspaces view,
+ * with no lines at all reads as a broken map. Drawn as one path, overlapping
+ * links stay one even haze rather than darkening into a blot.
+ */
+export const EDGE_HAZE = 0.55;
+
+/** Links between notes: a faint haze far out, full strength once notes are apart. */
+export const edgeAlpha = (s: number): number => EDGE_HAZE + (1 - EDGE_HAZE) * clamp((notePx(s) - 8) / 7, 0, 1);
+
+/** Their width in pixels: hairlines far out, so a dense haze stays light. */
+export const edgeWidth = (s: number): number => 0.6 + 0.4 * clamp((notePx(s) - 8) / 7, 0, 1);
 
 /** Note names (still subject to collisions). */
 export const noteLabelAlpha = (s: number): number => clamp((notePx(s) - 17) / 5, 0, 1);

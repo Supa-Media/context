@@ -1,7 +1,7 @@
 import { toWorld } from "../camera";
 import { LAYER } from "../hit";
 import type { IslandPlace } from "../layout";
-import { dotRadius, edgeAlpha, highwayAlpha, subRimAlpha } from "../lod";
+import { dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import type { DrawEnv } from "./env";
@@ -133,7 +133,7 @@ export function drawLinks(env: DrawEnv): void {
     const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
     const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
-    ctx.lineWidth = 1;
+    ctx.lineWidth = edgeWidth(s);
     ctx.strokeStyle = C.edge;
     ctx.globalAlpha = ea * (env.dim ? 0.55 : 1);
     ctx.beginPath();
