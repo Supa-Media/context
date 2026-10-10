@@ -322,6 +322,14 @@ prompt, with the result copied back by hand.
   judging stopped partway, its sidecar of verdicts, and judges and scores
   without answering again. The sidecar is uploaded as `benchmark-judging`
   only when a judging stopped, so the resume never pays for a verdict twice.
+- **The judge's reply is typed by the API, not parsed from prose**
+  (2026-10-10, the owner: "that wouldn't happen if we were using a type-safe
+  AI"). The judge request carries `output_config.format` with a JSON schema
+  (`JUDGE_SCHEMA`), so the model's reply is that shape or the call fails as a
+  call; the three attempts remain for the failures a schema cannot rule out
+  (a cut-off at `max_tokens`, a missing answer id). The judge runs eight
+  requests at once and the Action answers in twelve processes by default:
+  both wait on models, not on the runner.
 - A round's result and key still belong in `@context-lc ai/results/`, copied
   from the artifacts by whoever reads the round; a benchmark-runner OAuth
   client with a stored refresh token would close that last hop and is the
