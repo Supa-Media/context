@@ -167,7 +167,7 @@ export const darkColors = {
   text2: "#BEC6CF",
   muted: "#92A0AF",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#6A7584",
+  heroDim: "#6C7583",
 
   accent: "#79A9EC",
   accentDim: "rgba(121,169,236,0.14)",

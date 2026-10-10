@@ -36,7 +36,7 @@
  * on a dark one it is a lit page. Graphite sits within a few percent of every
  * dark bubble and would dissolve into it, leaving a title floating on nothing.
  * Paper is also the palette that reads as a page rather than an app, and it
- * keeps a site's card visibly apart from our own Graphite share card.
+ * keeps a site's card visibly apart from our own share card.
  *
  * ## The home page draws one name, not two
  *

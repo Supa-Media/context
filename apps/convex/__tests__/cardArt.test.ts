@@ -110,7 +110,7 @@ describe("the card wears the app's palette", () => {
     tokens.indexOf("export const lightColors"),
   );
 
-  /** `ground: "#100F0E",` → `#100F0E`, out of the dark palette only. */
+  /** `ground: "#14181C",` → `#14181C`, out of the dark palette only. */
   function darkToken(name: string): string | null {
     const match = new RegExp(`\\b${name}:\\s*"([^"]+)"`).exec(darkBlock);
     return match?.[1] ?? null;
@@ -124,14 +124,14 @@ describe("the card wears the app's palette", () => {
   });
 
   test.each([
-    ["ground", "#100F0E"],
-    ["surface", "#191715"],
-    ["text", "#EDE8E0"],
-    ["text2", "#C3BCB2"],
-    ["heroDim", "#7A736A"],
-    ["accent", "#6BC8C1"],
-    ["line", "rgba(237,232,224,0.07)"],
-    ["lineStrong", "rgba(237,232,224,0.14)"],
+    ["ground", "#14181C"],
+    ["surface", "#181C20"],
+    ["text", "#DADADA"],
+    ["text2", "#BEC6CF"],
+    ["heroDim", "#6C7583"],
+    ["accent", "#79A9EC"],
+    ["line", "rgba(205,214,224,0.09)"],
+    ["lineStrong", "rgba(205,214,224,0.16)"],
   ])("%s matches the app's token", (name, drawn) => {
     expect(darkToken(name)).toBe(drawn);
     expect(JSON.stringify(cardElement(facts({ handle: "@seyi" })))).toContain(drawn);
@@ -149,7 +149,7 @@ describe("the card wears the app's palette", () => {
       const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
       return Math.max(r, g, b) - Math.min(r, g, b) > 24;
     });
-    expect([...new Set(chromatic)]).toEqual(["#6BC8C1"]);
+    expect([...new Set(chromatic)]).toEqual(["#79A9EC"]);
   });
 });
 

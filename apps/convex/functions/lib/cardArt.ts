@@ -11,7 +11,10 @@
  * reason: the interesting decisions are in the shape, and the shape should not
  * need a renderer to check.
  *
- * ## Graphite, because the app is Graphite
+ * ## The app's dark palette, because the card is the app's
+ *
+ * (Graphite until 2026-10-10; the dark palette is Things now, and the card
+ * follows it. The history below is why the card copies the app at all.)
  *
  * This card used to be `#050506` and `#3B82F6` — the old blue-black world and a
  * Tailwind default blue. `apps/mobile/features/design/tokens.ts` replaced both
@@ -21,12 +24,12 @@
  * every link this product minted unfurled in a palette the product itself no
  * longer used anywhere.
  *
- * The values below are Graphite's, copied rather than imported: `apps/convex`
+ * The values below are the dark palette's, copied rather than imported: `apps/convex`
  * cannot reach into `apps/mobile`, and `__tests__/cardArt.test.ts` compares
  * them against the token file so the copy cannot drift silently.
  *
- * **Petrol (`ACCENT`) is the only hue this card spends**, which is that file's
- * rationing rule applied here: petrol means "here, active, yours" and is never
+ * **The accent (`ACCENT`) is the only hue this card spends**, which is that file's
+ * rationing rule applied here: the accent means "here, active, yours" and is never
  * a status. A card has no statuses to report, so it has no other hue.
  *
  * ## satori is not a browser
@@ -43,18 +46,18 @@ export const CARD_WIDTH = 1200;
 export const CARD_HEIGHT = 630;
 
 /*
-  Graphite, from `apps/mobile/features/design/tokens.ts`. Kept in step by
+  The dark palette (Things), from `apps/mobile/features/design/tokens.ts`. Kept in step by
   `__tests__/cardArt.test.ts`, which reads that file and compares — a comment
   claiming two files agree is the thing this repo keeps finding untrue.
 */
-const GROUND = "#100F0E";
-const SURFACE = "#191715";
-const LINE = "rgba(237,232,224,0.07)";
-const LINE_STRONG = "rgba(237,232,224,0.14)";
-const TEXT = "#EDE8E0";
-const TEXT_2 = "#C3BCB2";
-const HERO_DIM = "#7A736A";
-const ACCENT = "#6BC8C1";
+const GROUND = "#14181C";
+const SURFACE = "#181C20";
+const LINE = "rgba(205,214,224,0.09)";
+const LINE_STRONG = "rgba(205,214,224,0.16)";
+const TEXT = "#DADADA";
+const TEXT_2 = "#BEC6CF";
+const HERO_DIM = "#6C7583";
+const ACCENT = "#79A9EC";
 
 /**
  * What kind of thing the link opens, as the chip in the corner.
