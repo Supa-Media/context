@@ -120,7 +120,13 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
       };
     },
   });
-  if (session.egressOff === true || !approvalRequired(session.egress, widening, target.workspaceId)) {
+  /*
+    The deployment switch, which is not a decision about this call: it says
+    this gateway is not asking anybody. So it lets the call through and
+    nothing else — in particular it does not stand in for a person below.
+  */
+  const switchedOff = session.egressOff === true;
+  if (switchedOff || !approvalRequired(session.egress, widening, target.workspaceId)) {
     /*
       A widening the gate lets through carries the person's yes into the
       tool. `confirm_team_publish` was the tools' own earlier answer to "did
@@ -129,8 +135,18 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
       the turn was their own words with nothing read — so it says yes here on
       their behalf. A call the gate holds never reaches a tool, so the flag a
       model wrote is never the thing that lets one through.
+
+      **Never while the gate is switched off.** There the gate has no yes to
+      carry: nobody was asked and nobody will be. Writing the flag then would
+      not leave the gateway as it was before the gate — it would take the
+      *older* check away too, and a private note would go team-visible with no
+      approval anywhere in the chain, past a tool whose own refusal says "only
+      after explicit user approval". Switched off, a model must pass the flag
+      itself, exactly as it had to before any of this existed.
     */
-    if (widening?.publishes === true && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    if (!switchedOff && widening?.publishes === true && advertisesTeamConfirmation(name)) {
+      args.confirm_team_publish = true;
+    }
     /*
       A call that no longer widens can still be one a person released. The
       release ran the change, so the same call asked again is now a no-op
