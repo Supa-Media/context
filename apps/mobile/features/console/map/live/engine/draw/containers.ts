@@ -5,16 +5,16 @@ import type { DrawEnv } from "./env";
 import { fillText, fontOf, haloText, roundRect } from "./primitives";
 
 /**
- * The names of containers — a workspace's title and total, "PROJECTS 312"
- * over a folder, a subfolder's name — and the "N moved today" pills on the
+ * The names of containers — a workspace's title and total, "PROJECTS"
+ * under a folder (a name, never a count), a subfolder's name — and the "N moved today" pills on the
  * paths between workspaces.
  *
  * Placed early, drawn late. They claim their space in the occupancy pass
  * before faces' flags and note names, so nothing is put on top of them; and
  * they are drawn after the reading dots, so a stream of dots running past a
  * name passes *under* it (and fades as it goes, see `quietAt`). A folder
- * label that would collide with a bigger folder's tries below its bubble,
- * and is dropped if that is taken too.
+ * label goes under its group; if that would collide it tries above, then
+ * beside it, and is dropped if those are taken too.
  */
 
 type Line = { text: string; size: number; weight: number; color: string; dy: number };
@@ -47,7 +47,8 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
       if (a <= 0 || !env.onScreen(p, pr)) continue;
       const total = env.counts.get(island.workspaceId) ?? 0;
       const count = `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`;
-      const baseline = p.y - pr - 22;
+      // Over its highest note: there is no rim to sit on.
+      const baseline = env.screen({ x: island.x, y: island.top }).y - 34;
       const w = Math.max(measure(island.name, 15, 700), measure(count, 12, 500)) + 8;
       const rect = { x: p.x - w / 2, y: baseline - 15, w, h: 36 };
       env.occ.claim(pad(rect, PAD + 2));
@@ -69,7 +70,7 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
   type Cand = { x: number; y: number; rr: number; top: number; bottom: number; size: number; weight: number; text: string; color: string; halo: string; alpha: number; r: number };
   const cands: Cand[] = [];
   for (const island of model.layout.islands) {
-    const halo = all ? C.island : C.ground;
+    const halo = C.ground;
     for (const f of island.folders) {
       const q = env.screen(f);
       const fr = f.r * s;
@@ -81,11 +82,11 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
           x: q.x,
           y: q.y,
           rr: fr,
-          top: q.y - fr - 7,
-          bottom: q.y + fr + size + 5,
+          top: env.screen({ x: f.x, y: f.top }).y - 9,
+          bottom: env.screen({ x: f.x, y: f.bottom }).y + size + 8,
           size,
           weight: 700,
-          text: `${f.label.toUpperCase()}  ${env.counts.get(f.key) ?? 0}`,
+          text: f.label.toUpperCase(),
           color: C.muted,
           halo,
           alpha: a,
@@ -108,7 +109,7 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
           weight: 700,
           text: sub.label,
           color: C.text2,
-          halo: C.zone,
+          halo: C.ground,
           alpha: sa,
           r: sr,
         });
@@ -118,11 +119,11 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
   cands.sort((a, b) => b.r - a.r);
   for (const c of cands) {
     const w = measure(c.text, c.size, c.weight) + 6;
-    // Above the bubble, else below it, else beside it on either side.
+    // Under its group, else over it, else beside it on either side.
     const mid = c.y + c.size * 0.35;
     const spots: Array<[number, number]> = [
-      [c.x, c.top],
       [c.x, c.bottom],
+      [c.x, c.top],
       [c.x - c.rr - 8 - w / 2, mid],
       [c.x + c.rr + 8 + w / 2, mid],
     ];

@@ -50,6 +50,9 @@ export type FolderPlace = {
   subs: SubPlace[];
   /** Every note the layout holds here, including ones only in the history. */
   size: number;
+  /** The highest and lowest note, in world units: where its name goes, with no rim to hang it on. */
+  top: number;
+  bottom: number;
 };
 
 export type IslandPlace = {
@@ -61,6 +64,9 @@ export type IslandPlace = {
   r: number;
   folders: FolderPlace[];
   size: number;
+  /** The highest and lowest note, in world units. */
+  top: number;
+  bottom: number;
 };
 
 export type Layout = {
@@ -90,6 +96,9 @@ const PARA_ANGLE: Record<number, number> = {
   3: (35 * Math.PI) / 180,
   4: (145 * Math.PI) / 180,
 };
+
+/** Empty space between neighbouring root folders, in world units. */
+export const ROOT_GAP = SPACING * 5;
 
 type Raw = { workspaceId: string; path: string; title: string; deg: number };
 
@@ -127,17 +136,26 @@ export function buildLayout(
   placeIslands(islands);
   // Islands are placed: turn every local coordinate into a world one.
   for (const island of islands) {
+    island.top = island.y;
+    island.bottom = island.y;
     for (const folder of island.folders) {
       folder.x += island.x;
       folder.y += island.y;
+      folder.top = Infinity;
+      folder.bottom = -Infinity;
       for (const sub of folder.subs) {
         sub.x += folder.x;
         sub.y += folder.y;
         for (const note of sub.notes) {
           note.x += sub.x;
           note.y += sub.y;
+          folder.top = Math.min(folder.top, note.y);
+          folder.bottom = Math.max(folder.bottom, note.y);
         }
       }
+      if (folder.top > folder.bottom) folder.top = folder.bottom = folder.y;
+      island.top = Math.min(island.top, folder.top);
+      island.bottom = Math.max(island.bottom, folder.bottom);
     }
   }
   let radius = 0;
@@ -162,6 +180,8 @@ function buildIsland(
     r: discRadius(1),
     folders: [],
     size: raws.length,
+    top: 0,
+    bottom: 0,
   };
   const byRoot = new Map<string, Map<string, Raw[]>>();
   for (const raw of raws) {
@@ -188,6 +208,8 @@ function buildIsland(
       island,
       subs: [],
       size: 0,
+      top: 0,
+      bottom: 0,
     };
     const subNames = [...bySub.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a < b ? -1 : a > b ? 1 : 0));
     const bubbles: Bubble[] = [];
@@ -233,7 +255,7 @@ function buildIsland(
       // A folder with no subfolders is just its notes, with a little more rim.
       folder.r = folder.subs[0]!.r * 1.08;
     } else {
-      const packed = packBubbles(bubbles, SPACING * 0.8);
+      const packed = packBubbles(bubbles, SPACING * 1.1);
       packed.items.forEach((p, i) => {
         folder.subs[i]!.x = p.x;
         folder.subs[i]!.y = p.y;
@@ -263,7 +285,9 @@ function buildIsland(
     const angle = PARA_ANGLE[rank] ?? (Math.PI / 2 + ((i - 1) / Math.max(1, others)) * Math.PI * 2);
     return { id: f.key, r: f.r, angle };
   });
-  const packed = packBubbles(bubbles, SPACING * 2.5);
+  // Folders are told apart by space alone (no rims), so the gap between them
+  // is wide enough to read as a gap at any zoom.
+  const packed = packBubbles(bubbles, ROOT_GAP);
   const byKey = new Map(packed.items.map((p) => [p.id, p]));
   for (const folder of island.folders) {
     const p = byKey.get(folder.key)!;

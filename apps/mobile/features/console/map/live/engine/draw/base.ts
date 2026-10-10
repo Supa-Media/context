@@ -7,58 +7,39 @@ import { DUR } from "../scene";
 import type { DrawEnv } from "./env";
 import { circle, fontOf } from "./primitives";
 
+/** How strongly a link between two folders is drawn, against one inside a folder. */
+export const CROSS_FOLDER_LINK = 0.35;
+
 /**
  * The map's ground layers, back to front: workspaces, the paths between
- * them, folder and subfolder bubbles, links, trails, and the notes themselves
+ * them, the clickable (undrawn) folder areas, links, trails, and the notes themselves
  * with their live marks (teal for writing, ink for reading).
  */
 
 export function drawGround(env: DrawEnv): void {
-  const { ctx, style, model, s } = env;
-  const C = style.palette;
+  const { model, s } = env;
+  // Nothing is drawn round a workspace, a folder or a subfolder: they are
+  // told apart by the space between them (Dev2, 2026-10-10). Their areas are
+  // still there to click, to go into them.
   if (model.scope.kind === "all") {
     for (const island of model.layout.islands) {
       const p = env.screen(island);
       if (!env.onScreen(p, island.r * s)) continue;
-      circle(ctx, p.x, p.y, island.r * s);
-      ctx.fillStyle = C.island;
-      ctx.fill();
-      ctx.strokeStyle = C.line;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
       env.hit.circle(p.x, p.y, island.r * s, { kind: "workspace", workspaceId: island.workspaceId }, LAYER.workspace);
     }
     drawHighways(env);
   }
-  ctx.lineWidth = 1;
   for (const island of model.layout.islands) {
     for (const f of island.folders) {
       const p = env.screen(f);
       const pr = f.r * s;
       if (!env.onScreen(p, pr)) continue;
-      circle(ctx, p.x, p.y, pr);
-      ctx.fillStyle = C.zone;
-      ctx.fill();
-      ctx.setLineDash([3, 5]);
-      ctx.strokeStyle = C.zoneLine;
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.setLineDash([]);
       if (f.name !== "") env.hit.circle(p.x, p.y, pr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
       for (const sub of f.subs) {
         if (sub.name === "") continue;
         const q = env.screen(sub);
         const sr = sub.r * s;
-        const a = subRimAlpha(sr);
-        if (a <= 0 || !env.onScreen(q, sr)) continue;
-        ctx.globalAlpha = a;
-        circle(ctx, q.x, q.y, sr);
-        ctx.setLineDash([2, 4]);
-        ctx.strokeStyle = C.zoneLine;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
+        if (subRimAlpha(sr) <= 0 || !env.onScreen(q, sr)) continue;
         env.hit.circle(q.x, q.y, sr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/${sub.name}/` }, LAYER.sub);
       }
     }
@@ -135,28 +116,36 @@ export function drawLinks(env: DrawEnv): void {
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
     ctx.lineWidth = edgeWidth(s);
     ctx.strokeStyle = C.edge;
-    ctx.globalAlpha = ea * (env.dim ? 0.55 : 1);
-    ctx.beginPath();
-    for (const [ka, kb] of model.layout.edges) {
-      if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
-      if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
-      // A note moving within its workspace takes its links with it.
-      const fa = env.flyingAt.get(ka);
-      const fb = env.flyingAt.get(kb);
-      if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
-      const wa = fa ?? notes.get(ka)!;
-      const wb = fb ?? notes.get(kb)!;
-      // Off screen in the world's own units first: tens of thousands of
-      // links are tested every frame, and most go nowhere near the view.
-      if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
-      if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
-      const a = env.screen(wa);
-      const b = env.screen(wb);
-      if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+    const base = ea * (env.dim ? 0.55 : 1);
+    // Links inside a folder at full strength, links between folders faint:
+    // the groups read, and the long cross-links do not become the picture.
+    for (const across of [true, false]) {
+      ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      ctx.beginPath();
+      for (const [ka, kb] of model.layout.edges) {
+        if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
+        if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
+        const na = notes.get(ka)!;
+        const nb = notes.get(kb)!;
+        if ((na.sub.folder !== nb.sub.folder) !== across) continue;
+        // A note moving within its workspace takes its links with it.
+        const fa = env.flyingAt.get(ka);
+        const fb = env.flyingAt.get(kb);
+        if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
+        const wa = fa ?? na;
+        const wb = fb ?? nb;
+        // Off screen in the world's own units first: tens of thousands of
+        // links are tested every frame, and most go nowhere near the view.
+        if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
+        if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
+        const a = env.screen(wa);
+        const b = env.screen(wb);
+        if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.globalAlpha = 1;
   }
   // A new note's links, drawn out one after another in teal.
