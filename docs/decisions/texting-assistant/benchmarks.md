@@ -139,6 +139,39 @@ thinking model, and the meter says so", "a low-confidence think, a word the
 router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
 
+### The judge says what an answer does; pass or fail is worked out by the harness (2026-10-10)
+
+**Decided 2026-10-10, from round seven:** the judge is no longer asked for
+`pass` on each line. It is asked whether the answer *does* what the line says
+(`does: true|false`), and the harness turns that into pass or fail: a must line
+passes when the answer does it, a must-not line when it does not. Round seven's
+judging failed "must not: say Maya is free for the show" on every run of an
+answer whose own reason read "says she is not free, so the must not is
+avoided", and the same on q18: a model deciding what "pass" means for a
+forbidden thing flips a coin. A gate question's whole result rests on those
+lines, so the ambiguity is removed from the model's side rather than prompted
+around.
+
+**What a simplification would cost:** asking for `pass` again is one word
+shorter and brings the flip back at the gate, where it fails a setup outright.
+Tests (`bench/test/judge.test.mjs`): "the judge says whether the answer does
+what a line says, and a must-not line passes when it does not".
+
+### Routing only helps where the thinking model would answer differently (2026-10-10)
+
+Round six (run 38032708745, five runs an arm) and round seven (38033864255):
+Clef's confidence is a fixed number per question text, so `route_at` is a
+switch over which questions reach the thinking model, and the result's
+near-miss line shows the ladder. At 0.3 the wide setup routed four questions
+(16, 27, 40, 53) and Opus fixed all four, fourteen points over Haiku alone at
+a third of a cent more a question. Round seven told Clef two more shapes (a
+catch-up on where something stands, a list of several things) and routed at
+0.2: nine questions, $0.0116 a question, and none of the five extra ones
+fixed, because Opus answers "where are we with the wedding" as a report too.
+Those shapes were taken back the same day. A shape is worth routing only when
+the thinking model has been seen to answer it differently; the price of a
+guess is a full round.
+
 ### The router is tuned by shape and by a cutoff the setup sets, never by question (2026-10-10)
 
 **Decided by the owner (2026-10-10):** after five rounds the cheap model's

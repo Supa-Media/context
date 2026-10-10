@@ -112,7 +112,8 @@ function judging(verdictFor) {
   return send;
 }
 
-const allPass = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, pass: true, reason: "fine" })), gate_failed: false });
+/** A judge that finds every answer does what each must and judge line says, and nothing a must-not line forbids. */
+const allPass = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, does: c.kind !== "must not", reason: "fine" })), gate_failed: false });
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -188,6 +189,23 @@ test("the judge never needs the key: judging works with the key file removed", a
   }
 });
 
+test("the judge says whether the answer does what a line says, and a must-not line passes when it does not", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const did = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, does: true, reason: "it did" })) });
+    const rec = recording(judging(did));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    assert.match(JSON.parse(rec.bodies[0]).system, /does: true means the answer did the thing the line forbids/);
+    assert.equal(JSON.parse(rec.bodies[0]).output_config.format.schema.properties.answers.items.properties.verdicts.items.required.includes("does"), true);
+    const [section] = parseJudgedSections(await readFile(path, "utf8"));
+    for (const block of section.blocks.values()) {
+      for (const v of block.verdicts) assert.equal(v.pass, v.kind !== "must not", `${v.kind}: ${v.line}`);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test("the judged section parses back: a passing answer passes, a wrong one fails", async () => {
   const { dir, path, cleanup } = await folder();
   try {
@@ -199,8 +217,10 @@ test("the judged section parses back: a passing answer passes, a wrong one fails
     const tuesday = ids.find((r) => r.setup === "zebra-setup" && r.run === 1).id;
     const monday = ids.find((r) => r.setup === "zebra-setup" && r.run === 2).id;
     const verdictsOf = (id) => section.blocks.get(id).verdicts;
-    assert.deepEqual(verdictsOf(tuesday).map((v) => [v.kind, v.pass]), [["must", true], ["must not", false], ["judge", false]]);
-    assert.deepEqual(verdictsOf(monday).map((v) => [v.kind, v.pass]), [["must", false], ["must not", false], ["judge", false]]);
+    // The scripted judge finds a line's long words in the answer: neither answer
+    // "invent"s a "different" day, so the must-not line passes for both.
+    assert.deepEqual(verdictsOf(tuesday).map((v) => [v.kind, v.pass]), [["must", true], ["must not", true], ["judge", false]]);
+    assert.deepEqual(verdictsOf(monday).map((v) => [v.kind, v.pass]), [["must", false], ["must not", true], ["judge", false]]);
     assert.equal(verdictsOf(monday)[0].line, "say the dentist visit is on Tuesday at 9am");
     assert.ok(verdictsOf(monday)[0].reason.length > 0);
     // The gate is derived from the must-not lines in the score, never written here.
