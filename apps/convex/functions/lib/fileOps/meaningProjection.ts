@@ -42,6 +42,7 @@ const MEANING_LISTING_BUDGET = 1_000;
 export interface MeaningPassClient {
   upsert(vectors: unknown[]): Promise<number>;
   deleteByIds(ids: string[]): Promise<number>;
+  existingIds(ids: string[]): Promise<Set<string>>;
 }
 
 export interface MeaningPassResult {
@@ -78,7 +79,7 @@ export async function projectMeaningIndex(
   options: { budget?: number; noteCap?: number } = {},
 ): Promise<MeaningPassResult> {
   const budget = createSearchBudget(options.budget ?? MEANING_LISTING_BUDGET);
-  let listing: { entries: Map<string, { version: string }>; regionComplete: (path: string) => boolean; truncated: boolean };
+  let listing: { entries: Map<string, { version: string; size?: number | null }>; regionComplete: (path: string) => boolean; truncated: boolean };
   try {
     listing = await listNoteObjects(store, budget, 0, (key: string) => key.endsWith(".md") && !isPlumbing(key));
   } catch {
@@ -96,7 +97,11 @@ export async function projectMeaningIndex(
     };
   }
   const census = new Map<string, string>();
-  for (const [path, entry] of listing.entries) census.set(path, entry.version);
+  const sizes = new Map<string, number | null>();
+  for (const [path, entry] of listing.entries) {
+    census.set(path, entry.version);
+    sizes.set(path, entry.size ?? null);
+  }
   const state = await loadPrivacyState(store);
   const pass = await meaningPass(store as unknown as Parameters<typeof meaningPass>[0], {
     client: meaning.client,
@@ -106,6 +111,7 @@ export async function projectMeaningIndex(
     generation: meaning.generation,
     indexPending: listing.truncated ? 1 : 0,
     regionComplete: listing.regionComplete,
+    sizeOf: (path: string) => sizes.get(path) ?? null,
     ...(options.noteCap === undefined ? {} : { noteCap: options.noteCap }),
   } as unknown as Parameters<typeof meaningPass>[1]);
   return pass;

@@ -16,6 +16,14 @@
  * enumerable: a note's ids are the same fixed list every time, so deleting a
  * note, or the old half of a move, needs no record of how many passages it had.
  *
+ * It was 12 (about 16,000 characters) until 2026-10-10, which cut a recorded
+ * meeting off a little past its half-hour mark: the owner searched "leaving
+ * the team" for a 51-minute call where someone talks about not doing their
+ * role anymore, and that part of the transcript was never in the index. 48
+ * covers about 65,000 characters, a call of an hour and a half. Raising it
+ * again is safe the same way: the catch-up pass re-embeds the notes that
+ * filled the old cap (`catchup.js`, `passages` in its map).
+ *
  * ## Ids carry no path
  *
  * An id is a hash of the path plus the passage number. The path itself rides as
@@ -38,7 +46,7 @@ import { indexableText } from "../../encryption.js";
 
 export const MEANING_PASSAGE_CHARS = 1_500;
 export const MEANING_PASSAGE_OVERLAP = 150;
-export const MEANING_MAX_PASSAGES = 12;
+export const MEANING_MAX_PASSAGES = 48;
 
 /** The tier one visibility's passages are written at, or `undefined`. */
 export function meaningTierFor(visibility) {
@@ -119,4 +127,44 @@ export function rankMeaningMatches(matches) {
   return [...best.values()].sort(
     (a, b) => b.score - a.score || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
   );
+}
+
+/**
+ * Delete the passages past each rewritten note's new end, where it has any.
+ * `tails` are `meaningChangeFor`'s non-empty `deleteIds`, one list a note.
+ *
+ * A note's passages in the index are always a run from 0: every write upserts
+ * passages 0 to n-1 and then deletes from n on, and a removal deletes them
+ * all. So whether passage n exists says whether anything past it does, and
+ * one `get_by_ids` of 20 such ids answers for 20 notes. Deleting every id a
+ * note could have instead costs two or three requests a note, and Cloudflare's
+ * API answers 1,200 requests in five minutes for everything this token does.
+ *
+ * The one way to break the run is a delete refused part-way (its groups go in
+ * parallel): what it left past a gap stays until that note is next written by
+ * an AI client, or removed, both of which delete every id. That is a note
+ * ranking for words it no longer has, never one shown to somebody who could
+ * not open it: `canSee` runs on every hit.
+ */
+export async function deleteStaleTails(client, tails) {
+  if (tails.length === 0) return;
+  const present = await client.existingIds(tails.map((ids) => ids[0]));
+  const stale = tails.filter((ids) => present.has(ids[0])).flat();
+  if (stale.length > 0) await client.deleteByIds(stale);
+}
+
+/** Passages of a removed note deleted without asking first: the old cap's worth. */
+const REMOVE_HEAD = 12;
+
+/**
+ * Take every passage of `paths` out of the index. The first `REMOVE_HEAD` of
+ * each go unasked, which is all most notes have; the rest only where the
+ * note has any (`deleteStaleTails`), so removing a moved folder of short
+ * notes costs what it did before the cap grew. Tails go first, so a delete
+ * refused part-way leaves each note's passages a run from 0.
+ */
+export async function removePassages(client, paths) {
+  const all = await Promise.all(paths.map((path) => meaningIdsFor(path)));
+  await deleteStaleTails(client, all.map((ids) => ids.slice(REMOVE_HEAD)).filter((tail) => tail.length > 0));
+  await client.deleteByIds(all.flatMap((ids) => ids.slice(0, REMOVE_HEAD)));
 }

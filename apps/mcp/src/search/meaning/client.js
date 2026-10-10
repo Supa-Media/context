@@ -118,7 +118,7 @@ export function createMeaningClient(descriptor, options = {}) {
     } finally {
       clearTimeout(timer);
     }
-    const operation = path === "/upsert" ? "upsert" : path === "/delete_by_ids" ? "delete_by_ids" : "query";
+    const operation = path === "/query" ? "query" : path.slice(1);
     const envelope = await readEnvelope(response, MEANING_RESPONSE_BYTE_CAP, operation);
     return envelope.result;
   }
@@ -166,6 +166,32 @@ export function createMeaningClient(descriptor, options = {}) {
   }
 
   /**
+   * Which of `ids` the index holds. Only ids come back: `get_by_ids` answers
+   * with each vector's numbers too, and nothing here needs them.
+   */
+  async function existingIds(ids) {
+    const list = (Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && id);
+    const groups = [];
+    for (let start = 0; start < list.length; start += DELETE_BATCH) {
+      groups.push(list.slice(start, start + DELETE_BATCH));
+    }
+    const found = new Set();
+    for (let start = 0; start < groups.length; start += DELETE_CONCURRENCY) {
+      const answers = await Promise.all(
+        groups
+          .slice(start, start + DELETE_CONCURRENCY)
+          .map((group) => post("/get_by_ids", JSON.stringify({ ids: group }))),
+      );
+      for (const answer of answers) {
+        for (const vector of Array.isArray(answer) ? answer : []) {
+          if (vector && typeof vector.id === "string") found.add(vector.id);
+        }
+      }
+    }
+    return found;
+  }
+
+  /**
    * The passages nearest `vector`, as `{id, score, path, chunk, tier}`.
    *
    * `tiers`, when given, narrows to passages written at those visibility tiers
@@ -201,5 +227,5 @@ export function createMeaningClient(descriptor, options = {}) {
     return out;
   }
 
-  return { upsert, deleteByIds, query, indexName: config.indexName, state: config.state };
+  return { upsert, deleteByIds, existingIds, query, indexName: config.indexName, state: config.state };
 }

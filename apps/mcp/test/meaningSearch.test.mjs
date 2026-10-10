@@ -350,7 +350,7 @@ test("a note's ids are a fixed list that carries no path", async () => {
 });
 
 test("passages carry the title, overlap, and stop at the cap", () => {
-  const body = "word ".repeat(10_000);
+  const body = "word ".repeat(20_000);
   const passages = meaningPassages("notes/long.md", `# Rent\n\n${body}`);
   assert.equal(passages.length, MEANING_MAX_PASSAGES);
   for (const passage of passages) assert.ok(passage.startsWith("Rent"));
