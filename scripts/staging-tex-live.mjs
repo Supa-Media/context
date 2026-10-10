@@ -4,8 +4,8 @@
  * Proves what a person texting Tex gets, on the deployed Workers rather than
  * fakes: the seeded alpha@supa.media persona links a fictional 555-01XX number
  * (the simulator's only numbers) with a code from the app's own action, then
- * texts a quick question and a long task, and the run reads the replies the
- * way the simulator page does. The long task must come back with more than one
+ * texts a quick question, a long task and a browser task, and the run reads
+ * the replies the way the simulator page does. The long task must come back with more than one
  * text (progress, then the result) and never "Something went wrong".
  *
  * The transcript is printed: it is a staging persona's fixture notes and a
@@ -95,6 +95,15 @@ try {
   assert.ok(!long.some((reply) => /Something went wrong/.test(reply)), `long task failed: ${long.join(" | ")}`);
   assert.ok(long.length >= 2, `a long task should text progress before its result, got: ${long.join(" | ")}`);
   pass("a long task texts progress and then its result");
+
+  // The browser (apps/mcp/src/agent/browse.js): a site's own search box,
+  // typed with the person's words, then the answer read off the result.
+  const browsed = await text(
+    "Go to wikipedia.org, type Ada Lovelace into its search box and open her article, then tell me the year she was born.",
+    { timeoutMs: 6 * 60_000 },
+  );
+  assert.ok(browsed.some((reply) => /1815/.test(reply)), `browsing reply: ${browsed.join(" | ")}`);
+  pass("Tex drives a browser: types into a site's search and reads the result");
 } catch (error) {
   failed = error;
 } finally {
