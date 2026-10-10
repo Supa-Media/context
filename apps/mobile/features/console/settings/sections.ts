@@ -110,7 +110,7 @@ export interface SettingsSectionSpec {
    * The settings cleanup of 2026-10-10 (the owner: "very cluttered … a lot of
    * things that you probably don't need to expose") cut the list from fifteen
    * rows to seven. The pages most people never open — Feedback, Activity,
-   * Meetings, AI model, Emoji — kept their panels and their keys, so an old
+   * Meetings, Emoji — kept their panels and their keys, so an old
    * `?settings=emoji` link and a typed "emoji" still land on them; what they
    * lost is a permanent place in the list. Each is one row, switch or link on
    * the page somebody would open first: Profile, People & sharing, Connected
@@ -407,30 +407,6 @@ export const SETTINGS_SECTIONS = [
     */
     group: null,
     icon: "mic",
-    personalOnly: false,
-    folded: true,
-  },
-  {
-    key: "model",
-    /*
-      Nobody types "model" looking for this either. They type the brand they
-      have an account with, or the thing they are trying to do — "ai", "agent",
-      "ask", "chat" — and the API-key words for the person who arrived here
-      from the connect screen with a key already on their clipboard.
-    */
-    keywords:
-      "model models ai agent assistant ask chat claude anthropic openai gpt chatgpt api key apikey token credential provider byok bring your own key llm ollama local",
-    scope: "context",
-    label: "AI model",
-    /*
-      Its own row rather than a card under Integrations, and the difference is
-      what the row acts on: everything in Integrations is something reading
-      *into* this context, and this is the one thing that spends money on the
-      person's own account. A credential that bills somebody is not an
-      integration card.
-    */
-    group: null,
-    icon: "sparkle",
     personalOnly: false,
     folded: true,
   },

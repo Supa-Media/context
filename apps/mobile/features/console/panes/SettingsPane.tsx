@@ -12,7 +12,6 @@ import { PanelHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { SourcesPanel } from "../settings/panels/SourcesPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
-import { ModelPanel } from "../settings/panels/ModelPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
 import { MeaningSearchCardView } from "../search/MeaningSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
@@ -447,7 +446,6 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("model") ? <ModelPanel data={data} sectioned={section !== undefined} /> : null}
 
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 

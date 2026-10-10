@@ -267,7 +267,7 @@ describe("the list is one press away, and it navigates", () => {
       expect(text).toContain(label);
     }
     // Folded pages are reached from a row on another page, not listed.
-    for (const key of ["activity", "meetings", "model", "emoji", "feedback"]) {
+    for (const key of ["activity", "meetings", "emoji", "feedback"]) {
       expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
     }
   });

@@ -7,8 +7,8 @@ import { StyleSheet } from "react-native";
 import type { SettingsSectionKey } from "../sections";
 
 /**
- * Two optional pages, reached from here rather than listed: meetings on this
- * Mac and the person's own AI key. Absent `onSelect` (the landing-page demo)
+ * An optional page reached from here rather than listed: meetings on this
+ * Mac. The AI key row was removed (owner, 2026-10-10). Absent `onSelect` (the landing-page demo)
  * draws nothing, since there is nowhere to go.
  */
 export function MoreCard({ onSelect }: { onSelect?: (key: SettingsSectionKey) => void }) {
@@ -25,13 +25,6 @@ export function MoreCard({ onSelect }: { onSelect?: (key: SettingsSectionKey) =>
           onPress={() => onSelect("meetings")}
           testID="settings-more-meetings"
         />
-        <MoreRow
-          title="Your own AI key"
-          sub="Optional. Anthropic or OpenAI"
-          onPress={() => onSelect("model")}
-          testID="settings-more-model"
-          divided
-        />
       </Card>
     </>
   );
@@ -42,17 +35,15 @@ function MoreRow({
   sub,
   onPress,
   testID,
-  divided = false,
 }: {
   title: string;
   sub: string;
   onPress: () => void;
   testID: string;
-  divided?: boolean;
 }) {
   return (
     <PressRow onPress={onPress} accessibilityLabel={`${title}. ${sub}`} testID={testID}>
-      <Row divided={divided}>
+      <Row>
         <Grow>
           <Text variant="rowTitle">{title}</Text>
           <Text variant="rowSub">{sub}</Text>
