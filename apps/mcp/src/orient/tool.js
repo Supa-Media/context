@@ -34,6 +34,7 @@ import { describeFolders } from "./folderAbout.js";
 import { toolError, toolText } from "../tools/results.js";
 import { chaosSection } from "../chaos/orient.js";
 import { within } from "../chaos/report.js";
+import { withReadReach } from "../privacy/egress.js";
 
 /**
  * How long one other workspace's front page may hold up `orient`. The
@@ -67,13 +68,23 @@ function openOnce(store) {
   };
 }
 
-/** One other workspace's section of orient. Never throws. */
+/**
+ * One other workspace's section of orient. Never throws.
+ *
+ * Answers `reached` as well as the section: the workspace and the tier this
+ * call read its front page at, for the egress ledger, and `null` when it
+ * handed the model no note text — a workspace that could not be opened, whose
+ * manifest is torn, or that shows this caller no front page was not read, and
+ * recording it would make the gate ask about a read that never happened
+ * (`tools/search.js`'s `reachOf`, for the same fan-out one tool call wide).
+ */
 async function frontPageOf(entry, openContext) {
+  const head = `### ${entry.name} — ${accessSentence(entry)}\n`;
   try {
     const opened = await openContext(entry.name);
     const privacy = await loadPrivacyState(opened.store);
     if (privacy.error) {
-      return `### ${entry.name} — ${accessSentence(entry)}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.`;
+      return { section: `${head}Its privacy manifest could not be read, so nothing there is readable until its owner repairs it.`, reached: null };
     }
     const page = await readFrontPage(
       opened.store,
@@ -82,22 +93,29 @@ async function frontPageOf(entry, openContext) {
       privacy.overrides,
       ORIENT_SIBLING_INDEX_CHAR_CAP
     );
-    return (
-      `### ${entry.name} — ${accessSentence(entry)}\n` +
-      (page ||
-        "No front page visible to you there yet. `list_notes` with " +
-          `\`context: "${entry.name}"\` is the way in.`)
-    );
+    return {
+      section:
+        head +
+        (page ||
+          "No front page visible to you there yet. `list_notes` with " +
+            `\`context: "${entry.name}"\` is the way in.`),
+      reached: page ? { workspaceId: opened.session?.workspaceId, scope: opened.session?.scope } : null,
+    };
   } catch {
     // Named, and honest about why it is thin. Dropping the row would make
     // a context that exists look like one that does not.
-    return `### ${entry.name} — ${accessSentence(entry)}\nCould not be opened just now; its storage may be disconnected.`;
+    return { section: `${head}Could not be opened just now; its storage may be disconnected.`, reached: null };
   }
 }
 
-async function surveyOtherContexts(store, openContext) {
+/**
+ * The "other contexts" section, and `reached`: every workspace whose front
+ * page this one call put in front of the model, for the egress ledger.
+ * Exported for the test that holds that reporting in place.
+ */
+export async function surveyOtherContexts(store, openContext) {
   const others = (store.contexts || []).filter((entry) => !entry.current);
-  if (!others.length) return null;
+  if (!others.length) return { section: null, reached: [] };
 
   const readable = typeof openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
   // The tail names what the CAP left out, so it is empty when nothing was
@@ -113,11 +131,15 @@ async function surveyOtherContexts(store, openContext) {
       const page = await within(frontPageOf(entry, openContext), ORIENT_OTHER_WORKSPACE_WAIT_MS);
       // `frontPageOf` answers every failure itself, so null here is only ever
       // late. Named with the call that finishes the job, never dropped: a
-      // workspace that exists must not read as one that does not.
+      // workspace that exists must not read as one that does not. Late is also
+      // nothing read, so it reports no reach.
       return (
-        page ??
-        `### ${entry.name} — ${accessSentence(entry)}\n` +
-          `Map not loaded in time. Call orient with context: "${entry.name}" to see it.`
+        page ?? {
+          section:
+            `### ${entry.name} — ${accessSentence(entry)}\n` +
+            `Map not loaded in time. Call orient with context: "${entry.name}" to see it.`,
+          reached: null,
+        }
       );
     })
   );
@@ -132,10 +154,10 @@ async function surveyOtherContexts(store, openContext) {
     ? "## Other contexts you can reach, and their front pages\n\n"
     : "## Other contexts you can reach\n\n";
   const body = readable.length
-    ? pages.join("\n\n")
+    ? pages.map(({ section }) => section).join("\n\n")
     : others.map((entry) => `- ${entry.name} — ${accessSentence(entry)}`).join("\n");
 
-  return (
+  const section =
     heading +
     body +
     tail +
@@ -144,8 +166,14 @@ async function surveyOtherContexts(store, openContext) {
     "of them is one call and needs no reconnection. Orient again with that argument before " +
     "working in it: the map above, and every search and listing, is for this context only. " +
     "Each line above already says what this connection may do in that context, so take it from " +
-    "there rather than assuming a reach you have not been given — or holding back one you have."
-  );
+    "there rather than assuming a reach you have not been given — or holding back one you have.";
+
+  return {
+    section,
+    reached: pages
+      .map(({ reached }) => reached)
+      .filter((reached) => typeof reached?.workspaceId === "string" && reached.workspaceId !== ""),
+  };
 }
 
 export async function toolOrient(store, scope, rules, overrides) {
@@ -266,7 +294,7 @@ export async function toolOrient(store, scope, rules, overrides) {
   const websiteGuide = websiteGuideFor(survey);
   if (websiteGuide) parts.push(websiteGuide);
 
-  if (otherContexts) parts.push(otherContexts);
+  if (otherContexts.section) parts.push(otherContexts.section);
 
   if (scope === "private" && pendingProposals.length) {
     parts.push(
@@ -290,7 +318,10 @@ export async function toolOrient(store, scope, rules, overrides) {
 
   parts.push(ORIENT_OPERATING_CONTRACT);
   parts.push(scopeInfoText(scope, rules, currentReach(store)));
-  return toolText(parts.join("\n\n---\n\n"));
+  // The ledger has to hear every workspace this one call read from, the way
+  // `search_notes` reports its own fan-out: it is what `approvalRequired`
+  // weighs before letting this turn widen anything (`privacy/egress.js`).
+  return withReadReach(toolText(parts.join("\n\n---\n\n")), otherContexts.reached);
 }
 
 export async function toolScopeInfo(store, scope, rules, overrides, pathArg, listWorkspaces = false) {
