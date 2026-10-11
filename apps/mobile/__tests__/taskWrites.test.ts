@@ -2,7 +2,7 @@
  * A PROJECT'S TASKS ARE FILES, AND EVERY WRITE IS PLANNED BEFORE IT IS SENT.
  *
  * Adding a task writes one note; a subtask of a one-note task first moves it
- * to `task/overview.md`; nesting and un-nesting are moves; parking is one
+ * to `task/about.md`; nesting and un-nesting are moves; parking is one
  * frontmatter line. These pin what is planned (names, text, refusals) and
  * what running a plan does when a step fails and when it is undone.
  */
@@ -199,7 +199,7 @@ describe("adding a subtask", () => {
   test("to a one-note task: it becomes a folder first, then the subtask goes in", () => {
     const planned = planAddSubtask(LEASE, { title: "Read the small print", status: "to do" }, SNAPSHOT);
     expect(planned.ok && planned.plan.steps.map((step) => (step.kind === "move" ? `move ${step.from} -> ${step.to}` : `${step.kind} ${"path" in step ? step.path : ""}`))).toEqual([
-      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/overview.md`,
+      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/about.md`,
       `create ${P}/Sign the lease/Read the small print.md`,
     ]);
   });
@@ -235,14 +235,14 @@ describe("adding a note to a task", () => {
 
   test("turns a one-note task into a folder first, the same way a first subtask does", () => {
     expect(steps(planAddNote(LEASE, "Questions for the landlord", SNAPSHOT))).toEqual([
-      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/overview.md`,
+      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/about.md`,
       `create ${P}/Sign the lease/Questions for the landlord.md\n# Questions for the landlord\n`,
     ]);
   });
 
   test("a subtask may hold notes too, one level down and no deeper", () => {
     expect(steps(planAddNote(OVEN, "Temperatures", SNAPSHOT))).toEqual([
-      `move ${P}/Kitchen/Test the oven.md -> ${P}/Kitchen/Test the oven/overview.md`,
+      `move ${P}/Kitchen/Test the oven.md -> ${P}/Kitchen/Test the oven/about.md`,
       `create ${P}/Kitchen/Test the oven/Temperatures.md\n# Temperatures\n`,
     ]);
     const deeper = task(`${P}/Kitchen/Checklist/Wipe.md`, "note", "Wipe");
@@ -269,7 +269,7 @@ describe("adding a note to a task", () => {
     const { io, calls } = recorder();
     const run = await runPlanned(io, planAddNote(LEASE, "Keys", SNAPSHOT));
     expect(run.ok && (await run.undo!())).toBeNull();
-    expect(calls.slice(2)).toEqual([`remove ${P}/Sign the lease/Keys.md`, `move ${P}/Sign the lease/overview.md -> ${P}/Sign the lease.md`]);
+    expect(calls.slice(2)).toEqual([`remove ${P}/Sign the lease/Keys.md`, `move ${P}/Sign the lease/about.md -> ${P}/Sign the lease.md`]);
   });
 });
 
@@ -283,7 +283,7 @@ describe("nesting a task under another", () => {
   test("onto a one-note task converts it first", () => {
     const planned = planNest(PHOTOS, LEASE, SNAPSHOT);
     expect(planned.ok && planned.plan.steps).toEqual([
-      { kind: "move", from: `${P}/Sign the lease.md`, to: `${P}/Sign the lease/overview.md` },
+      { kind: "move", from: `${P}/Sign the lease.md`, to: `${P}/Sign the lease/about.md` },
       { kind: "move", from: `${P}/Photos`, to: `${P}/Sign the lease/Photos` },
     ]);
   });
@@ -342,18 +342,18 @@ describe("running a plan", () => {
     expect(run.path).toBe(`${P}/Sign the lease/Read it.md`);
     expect(run.touched).toEqual([P, `${P}/Sign the lease`]);
     expect(calls.map((call) => call.split("\n")[0])).toEqual([
-      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/overview.md`,
+      `move ${P}/Sign the lease.md -> ${P}/Sign the lease/about.md`,
       `create ${P}/Sign the lease/Read it.md`,
     ]);
     expect(await run.undo!()).toBeNull();
-    expect(calls.slice(2)).toEqual([`remove ${P}/Sign the lease/Read it.md`, `move ${P}/Sign the lease/overview.md -> ${P}/Sign the lease.md`]);
+    expect(calls.slice(2)).toEqual([`remove ${P}/Sign the lease/Read it.md`, `move ${P}/Sign the lease/about.md -> ${P}/Sign the lease.md`]);
   });
 
   test("a step that fails takes back the ones before it and says why", async () => {
     const { io, calls } = recorder((call) => call.startsWith("create"));
     const run = await runPlanned(io, planAddSubtask(LEASE, { title: "Read it", status: "to do" }, SNAPSHOT));
     expect(run).toEqual({ ok: false, problem: "That did not work. Try again." });
-    expect(calls.at(-1)).toBe(`move ${P}/Sign the lease/overview.md -> ${P}/Sign the lease.md`);
+    expect(calls.at(-1)).toBe(`move ${P}/Sign the lease/about.md -> ${P}/Sign the lease.md`);
   });
 
   test("a refusal is returned without a single write", async () => {
@@ -401,10 +401,10 @@ describe("running a plan", () => {
     const run = await runPlanned(io, planAddSubtask(LEASE, { title: "Read it", status: "to do" }, SNAPSHOT));
     expect(run.ok && (await run.undo!())).toBeNull();
     expect(sent).toEqual([
-      ["move", { workspaceId: "ws_test", from: `${P}/Sign the lease.md`, to: `${P}/Sign the lease/overview.md` }],
+      ["move", { workspaceId: "ws_test", from: `${P}/Sign the lease.md`, to: `${P}/Sign the lease/about.md` }],
       ["write", { workspaceId: "ws_test", path: `${P}/Sign the lease/Read it.md`, text: "---\nstatus: to do\n---\n\n# Read it\n" }],
       ["trash", { workspaceId: "ws_test", path: `${P}/Sign the lease/Read it.md` }],
-      ["move", { workspaceId: "ws_test", from: `${P}/Sign the lease/overview.md`, to: `${P}/Sign the lease.md` }],
+      ["move", { workspaceId: "ws_test", from: `${P}/Sign the lease/about.md`, to: `${P}/Sign the lease.md` }],
     ]);
     expect(taskWriteIO({ workspaceId: "ws_test", writeNote: async () => null, moveEntry: async () => null, setProperties: undefined })).toBeNull();
   });

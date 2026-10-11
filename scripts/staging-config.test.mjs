@@ -74,6 +74,26 @@ test('staging deployment syncs its own custom domain identifiers', () => {
   }
 });
 
+test('Twilio credentials sync in both deployments and phone check only in staging', () => {
+  const staging = read('.github/workflows/deploy-staging.yml');
+  const production = read('.github/workflows/deploy-convex.yml');
+  const productionSync = production.split('node scripts/convex-env-sync.mjs')[1]?.split('\n\n')[0];
+  assert.ok(productionSync);
+  for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_API_KEY_SID', 'TWILIO_API_KEY_SECRET', 'TWILIO_VERIFY_SERVICE_SID', 'TWILIO_MESSAGING_SERVICE_SID']) {
+    assert.ok(backendKeys.includes(name));
+    assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(productionSync.includes(name));
+  }
+  assert.ok(backendKeys.includes('PHONE_CHECK'));
+  assert.ok(staging.includes('PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK }}'));
+  // On in production since 2026-10-09 (Dev2 chose it with phone sign-in),
+  // with the GitHub secret as the switch back off.
+  assert.ok(production.includes("PHONE_CHECK: \u0024{{ secrets.PHONE_CHECK || 'required' }}"));
+  assert.ok(productionSync.includes('PHONE_CHECK'));
+  assert.doesNotMatch(staging + production, /TWILIO_AUTH_TOKEN/);
+});
+
 test('the pinned homepage seed repairs privacy through the dedicated operation', async () => {
   const { stagingContextLcNotes } = await import('./fixtures/staging-context-lc.mjs');
   assert.equal(stagingContextLcNotes['privacy.md'], undefined);

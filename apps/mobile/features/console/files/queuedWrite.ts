@@ -176,7 +176,7 @@ export function queuedOpSender(actions: OpActions): QueuedOpSender {
       const failure = toFileError(error);
       /*
         A folder that is already there is the folder somebody asked for. The
-        server refuses only when the folder's README exists, and writes nothing
+        server refuses only when the folder's about note exists, and writes nothing
         in that case, so "done" here overwrites nothing and claims nothing
         untrue — which a parked "that folder already exists" would, as a thing
         needing somebody's attention.

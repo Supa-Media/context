@@ -105,6 +105,20 @@ export function useBrowserState() {
   editorRef.current = editor;
   /** Paths whose prose is owned by the durable collaboration controller. */
   const collaborationPaths = useRef(new Set<string>());
+  /*
+    The open note while a rename of it is on its way to the bucket. Its file
+    is about to stop being at `path`, so nothing may be written there in the
+    meantime — the autosave holds, and what is typed stays in the editor until
+    the rename lands and the draft follows the note to its new name
+    (`useRowCommands`' `rename`). Writing to the old name instead put the words
+    typed straight after a title back under the old name, as a second note,
+    and the editor then reopened the renamed note without them.
+
+    `held` is the last text typed there meanwhile, for the one case the editor
+    cannot carry it: somebody who went on to another note before the rename
+    landed. It is then written to wherever the note ended up.
+  */
+  const renamingRef = useRef<{ path: string; held: string | null } | null>(null);
 
   /*
     The selection, readable from a callback that outlives the render that made
@@ -229,7 +243,7 @@ export function useBrowserState() {
     opening, setOpening,
     settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, toasts,
     setToasts,
-    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, selectedPathRef,
+    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, renamingRef, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,
     autosave,
   };

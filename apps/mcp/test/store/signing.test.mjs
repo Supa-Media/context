@@ -51,6 +51,45 @@ export async function runStoreSigningChecks(check) {
     })()
   );
 
+  // A store derives its SigV4 signing key once per secret and day and reuses
+  // it. A reused key must sign exactly what a fresh derivation would: after
+  // another request, across midnight UTC, and after the secret changes.
+  const fresh = async (key, overrides) => {
+    const store = s3(() => new Response("x", { headers: { etag: '"v1"' } }), overrides);
+    await store.get(key);
+    return store.fetchImpl.calls[0].headers.Authorization;
+  };
+  let clock = new Date("2026-08-25T12:00:00.000Z");
+  const reusing = s3(() => new Response("x", { headers: { etag: '"v1"' } }), { now: () => clock });
+  await reusing.get("1-projects/first.md");
+  await reusing.get("1-projects/second.md");
+  check(
+    "a reused signing key signs a second request exactly as a fresh store would",
+    reusing.fetchImpl.calls[1].headers.Authorization === (await fresh("1-projects/second.md"))
+  );
+  clock = new Date("2026-08-26T00:00:01.000Z");
+  await reusing.get("1-projects/second.md");
+  const nextDay = reusing.fetchImpl.calls[2].headers.Authorization;
+  check(
+    "a new UTC day derives a new signing key rather than reusing yesterday's",
+    nextDay.includes("/20260826/us-east-1/s3/aws4_request") &&
+      nextDay === (await fresh("1-projects/second.md", { now: () => clock }))
+  );
+  reusing.secretAccessKey = "AnotherFakeSecretAnotherFakeSecretAnother0";
+  await reusing.get("1-projects/second.md");
+  check(
+    "a changed secret derives a new signing key rather than signing with the old one",
+    reusing.fetchImpl.calls[3].headers.Authorization ===
+      (await fresh("1-projects/second.md", {
+        now: () => clock,
+        secretAccessKey: "AnotherFakeSecretAnotherFakeSecretAnother0",
+      }))
+  );
+  check(
+    "the derived signing key is hidden from serialization like the secret",
+    !Object.keys(reusing).includes("signingKeys") && !JSON.stringify(reusing).includes("signingKeys")
+  );
+
   const spacedStore = s3(() => new Response("x", { headers: { etag: '"v1"' } }));
   await spacedStore.get("1-projects/a note (draft).md");
   check(

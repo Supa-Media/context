@@ -39,6 +39,8 @@ export async function listDurableMovesHandler(
       ...(row.progressPhase === undefined ? {} : { phase: row.progressPhase }),
       ...(row.progressCompleted === undefined ? {} : { completed: row.progressCompleted }),
       ...(row.progressTotal === undefined ? {} : { total: row.progressTotal }),
+      ...(row.progressChangedAt === undefined ? {} : { progressChangedAt: row.progressChangedAt }),
+      ...(row.progressPerMinute === undefined ? {} : { progressPerMinute: row.progressPerMinute }),
       updatedAt: row.updatedAt,
     }));
 }

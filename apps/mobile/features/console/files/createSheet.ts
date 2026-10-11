@@ -7,10 +7,9 @@
  * the grouping argument in its own comments.
  *
  * The phone's is the bottom row's one key, and **its list varies**: a read-only
- * context has no files to make, a surface with no meetings controller has
- * nothing to record with, and a context with no model key has nothing to answer
- * a conversation. That is three conditions, and the key itself has to ask a
- * fourth question before it is drawn — *is there anything here at all?* A `+`
+ * context has no files to make, and a surface with no meetings controller has
+ * nothing to record with. That is two conditions, and the key itself has to ask
+ * a third question before it is drawn — *is there anything here at all?* A `+`
  * that opens a sheet containing nothing but Cancel is worse than no `+`.
  *
  * So the varying list is a function, asked by the sheet that draws the rows and
@@ -18,9 +17,8 @@
  * places is how a `+` that offers nothing gets drawn.
  *
  * The order is `CreateButton`'s, so the two surfaces teach the same thing: a
- * meeting first, because it starts a *recording* rather than a file; the three
- * files together, because they share a destination; the conversation last,
- * because it makes nothing at all.
+ * meeting first, because it starts a *recording* rather than a file; then the
+ * three files together, because they share a destination.
  */
 
 /** One row of the phone's `+`. */
@@ -29,8 +27,7 @@ export type CreateRow =
   | "new-meeting"
   | "new-note"
   | "new-drawing"
-  | "new-folder"
-  | "new-chat";
+  | "new-folder";
 
 export interface CreateOffer {
   /**
@@ -42,15 +39,6 @@ export interface CreateOffer {
    * not present and refusing.
    */
   canEdit: boolean;
-  /**
-   * Somewhere for the answer to appear, an engine behind it, and a model key on
-   * this context.
-   *
-   * "Somewhere" is the panel at a pointer density and a `Modal` on a phone —
-   * `startNewChat` in the console layout picks between them, so this flag is the
-   * same question on both and is no longer false just for being a phone.
-   */
-  chat: boolean;
   /** A meetings controller behind the microphone. */
   meeting: boolean;
   /**
@@ -67,7 +55,6 @@ export function createRows(offer: CreateOffer): CreateRow[] {
   if (offer.meeting && offer.resume === true) rows.push("resume-meeting");
   if (offer.meeting) rows.push("new-meeting");
   if (offer.canEdit) rows.push("new-note", "new-drawing", "new-folder");
-  if (offer.chat) rows.push("new-chat");
   return rows;
 }
 

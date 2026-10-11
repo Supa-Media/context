@@ -175,6 +175,8 @@ function card(state: IngestionState): Rendered {
     createElement(IngestionCard, {
       state,
       fallbackAddress: "seyi@context.lc",
+      // The sender controls sit behind "Edit senders"; the claims are about them.
+      startOpen: true,
     }),
   );
 }
@@ -568,7 +570,7 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
       loading: false,
       availability: "available",
     });
-    expect(rendered.text).toMatch(/Forward any email here and it lands in/);
+    expect(rendered.text).toMatch(/Lands in 0-inbox\//);
     expect(rendered.html).toMatch(/Copy your ingestion address/i);
     expect(rendered.text).not.toMatch(/nothing is receiving mail at it yet/i);
 

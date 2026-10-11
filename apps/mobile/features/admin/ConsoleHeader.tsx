@@ -15,9 +15,9 @@ import { pointerType, touchType } from "../design/tokens";
 import { useCompact } from "./AdminKit";
 import { ADMIN_TABS, WINDOW_CHOICES, type AdminTab } from "./report";
 
-/** Only these two tabs are read over a window; the others are snapshots. */
+/** Only these tabs are read over a window; the others are snapshots. */
 export function isWindowed(tab: AdminTab): boolean {
-  return tab === "growth" || tab === "activity";
+  return tab === "growth" || tab === "activity" || tab === "aiCosts";
 }
 
 export function ConsoleHeader({

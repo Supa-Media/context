@@ -250,8 +250,12 @@ export const ADMIN_TABS = [
   { key: "growth", label: "Growth" },
   { key: "estate", label: "Estate" },
   { key: "activity", label: "Activity" },
+  { key: "agent", label: "Agent" },
+  { key: "aiCosts", label: "AI costs" },
+  { key: "search", label: "Search" },
   { key: "credentials", label: "Credentials" },
   { key: "waitlist", label: "Waitlist" },
+  { key: "people", label: "People" },
 ] as const;
 
 export type AdminTab = (typeof ADMIN_TABS)[number]["key"];

@@ -20,8 +20,11 @@ import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing } from "../privacy
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
-import { TREE_ACTIONS, treeHintOf } from "./changes.js";
+import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
+import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { rememberChaos } from "../chaos/report.js";
+import { keepHistoryActivityLater } from "../history/record.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
@@ -39,6 +42,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
   announceWebsiteChange(store, paths);
+  announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
 }
 
@@ -124,10 +128,19 @@ function treeAudiencesOf(paths, known, rules, overrides) {
  * Tell the consoles showing this context that its tree changed — deferred,
  * best-effort, and never able to fail the change, exactly as `reportActivity`
  * is. Only a session-bound store has a reporter; see `reportTreeChange`.
+ * The tree table is re-checked first (`tree/record.js`), on any store.
  */
 function announceTreeChange(store, action, paths, details) {
-  if (!TREE_ACTIONS.has(action) || typeof store.reportTreeChange !== "function") return;
+  // The tree table first, so a console told to look again reads the change.
+  const touch = treeTouchOf(action, paths, details);
+  const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
+  if (touch === null && !reports) return;
+  // Started now, so the tool's answer can report the chaos score (`chaos/report.js`).
+  const kept = keepTreeTable(store, touch).catch(() => null);
+  rememberChaos(store, kept);
   const work = (async () => {
+    await kept;
+    if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);
     if (state.error) return;
@@ -183,6 +196,38 @@ function announceWebsiteChange(store, paths) {
   if (typeof store.reportWebsiteChange !== "function") return;
   if (!Array.isArray(paths) || !paths.some(touchesWebsite)) return;
   const work = Promise.resolve(store.reportWebsiteChange()).catch(() => {});
+  if (typeof store.defer !== "function") return;
+  try {
+    store.defer(work);
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not report.
+  }
+}
+
+/** The schedule folder (`packages/shared/src/routines.cjs`). */
+const ROUTINES_ROOT = "routines";
+
+/** At most this many paths go in one report; the control plane re-lists anyway. */
+export const MAX_ROUTINE_PATHS = 50;
+
+/**
+ * Tell the control plane a routine may have been added, changed, moved or
+ * deleted, and who did it: a routine runs as the person who last wrote it.
+ *
+ * Paths and the acting user, never text. The control plane re-reads the
+ * `routines/` folder itself before it schedules anything, so a report is a
+ * nudge and a writer, not a fact it trusts about the file. Deferred and
+ * best-effort like its neighbours; a missed one costs the freshness the
+ * control plane's periodic re-read restores.
+ */
+export function announceRoutineChange(store, paths) {
+  if (typeof store.reportRoutineChange !== "function" || !Array.isArray(paths)) return;
+  const touched = paths
+    .map((path) => String(path).replace(/^\/+|\/+$/g, ""))
+    .filter((path) => path === ROUTINES_ROOT || path.startsWith(`${ROUTINES_ROOT}/`))
+    .slice(0, MAX_ROUTINE_PATHS);
+  if (touched.length === 0) return;
+  const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);
@@ -281,6 +326,8 @@ async function recordActivity(store, change) {
         continue;
       }
       if (put === null) continue;
+      // The replay's index of these lines, behind the response (`history/record.js`).
+      keepHistoryActivityLater(store, next.entries, typeof put?.etag === "string" ? put.etag : null);
       /*
         THE FILE IS PRIVATE, AND THAT IS CHECKED RATHER THAN ASSUMED.
 

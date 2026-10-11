@@ -20,6 +20,7 @@ import {
   type UpsellRow,
   type UpsellTarget,
 } from "./results";
+import { MEANING_ONLY_LABEL } from "../files/palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "./useBlendedSearch";
 import { useFieldFont } from "../../design/fieldFont";
 
@@ -33,9 +34,8 @@ import { useFieldFont } from "../../design/fieldFont";
  * context that is merely `preparing`), and a row that is not a control must
  * not look like one.
  *
- * The label comes off the row rather than being fixed here, because the two
- * destinations are different offers — "See Premium" and "Turn it on" — and a
- * single "Open settings" over both is how a paywall gets mistaken for a switch.
+ * The label comes off the row rather than being fixed here, so the press says
+ * what it does ("Turn it on") rather than a generic "Open settings".
  */
 function UpsellRowView({ row, onOpen }: { row: UpsellRow; onOpen: (href: string) => void }) {
   const styles = useThemedStyles(makeStyles);
@@ -148,11 +148,9 @@ export function SearchPane({
   /*
     The upsell's rows, built once from the contexts that answered the slow way.
 
-    `settingsHref` with the section the offer is actually about — Premium where
-    there is no entitlement, Search where there is and the switch is off. Two
-    destinations rather than one, because `lib/fastSearch.ts` keeps entitlement
-    and opt-in apart and this is the surface where sending "you have not paid"
-    to a switch they cannot throw would waste the one press they give us.
+    `settingsHref` to the Storage & search section, where the owner's switch is.
+    Fast search is on for every workspace unless its owner turned it off, so
+    there is no other place this offer could send somebody.
   */
   const upsell = useMemo(
     () => upsellRows(contexts, (slug, target: UpsellTarget) => settingsHref(slug, target)),
@@ -327,6 +325,11 @@ export function SearchPane({
                 <Text variant="tree" numberOfLines={1} style={styles.rowTitle}>
                   {row.title}
                 </Text>
+                {row.meaningOnly ? (
+                  <Text variant="treeMeta" numberOfLines={1} style={styles.meaningOnly} testID="search-meaning-only">
+                    {MEANING_ONLY_LABEL}
+                  </Text>
+                ) : null}
               </View>
               <Text variant="treeMeta" numberOfLines={1}>
                 {folderOf(row.path) || row.path}
@@ -436,6 +439,7 @@ const makeStyles = (colors: Colors) =>
     row: { gap: space.x1, paddingVertical: space.x2, paddingHorizontal: space.x2 },
     rowHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     rowTitle: { flexShrink: 1 },
+    meaningOnly: { marginLeft: "auto", color: colors.text2 },
     snippet: { color: colors.text2 },
     upsell: {
       gap: space.x1,

@@ -80,6 +80,20 @@ export type MapEvent =
 
 export type ActorRef = { id: string; kind: "person" | "agent"; name: string };
 
+/**
+ * The middle of the all-workspaces view: you, how many people are in each
+ * workspace (with a few of their faces), and your own AI tools with the
+ * workspaces each one is connected to. Only the viewer's own tools: a
+ * workspace's other members' tools are theirs to show (`listGrants`).
+ */
+export type MapHub = {
+  /** The viewer's name, for their face. */
+  you: string;
+  /** By workspace id. A workspace missing here is labelled by its note count instead. */
+  workspaces: Record<string, { people: number; faces: string[] }>;
+  agents: Array<{ id: string; name: string; workspaceIds: string[] }>;
+};
+
 /** Which notes and workspaces are on the map. */
 export type MapScope = { kind: "one"; workspaceId: string } | { kind: "all" };
 
@@ -89,7 +103,20 @@ export type MapView = "map" | "folders";
 /** Live, or a replay of a time range at a playhead. */
 export type MapClock =
   | { kind: "live" }
-  | { kind: "replay"; from: number; to: number; at: number; speed: 1 | 10 | 60 };
+  | {
+      kind: "replay";
+      from: number;
+      to: number;
+      at: number;
+      /** Recorded milliseconds per real one: 60 plays an hour in a minute. */
+      speed: number;
+      /**
+       * How long somebody stays on the replayed map after their last step. A
+       * week played at 600x needs longer than a day at 60x, or the swarm is
+       * empty between steps. Absent means the engine's own default.
+       */
+      idleMs?: number;
+    };
 
 /** Semantic zoom levels, far to near. */
 export type ZoomLevel = "all" | "workspace" | "folders" | "notes";

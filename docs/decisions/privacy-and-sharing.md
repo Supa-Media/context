@@ -161,3 +161,7 @@ non-team folder gets through, if a card sends to a team it wasn't written for,
 or if a scheduled sweep can send anything;
 `organizerRoutesTeams.test.ts` fails if a member, a viewer of a personal
 workspace, or a non-owner can route at all.
+
+### An AI client never widens who can see something without a person saying yes
+
+Moved to [An AI client never widens who can see something without a person saying yes](./privacy-and-sharing/agent-egress.md#an-ai-client-never-widens-who-can-see-something-without-a-person-saying-yes-decided-by-the-owner-2026-10-09).

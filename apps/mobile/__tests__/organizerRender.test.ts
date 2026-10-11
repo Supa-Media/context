@@ -6,8 +6,8 @@
  * AUTO-ORGANIZE, ON THE GLASS.
  *
  * `organizer.test.ts` proves the rules; this proves the surfaces obey them and
- * that each press reaches the view: the explorer's foot line and its popover,
- * ✓ and ✕, the Premium slots, the one-time notice, the toast's offered action
+ * that each press reaches the view: the explorer's foot line, What changed's
+ * cards, the Premium slots, the one-time notice, the toast's offered action
  * and Activity's Undo. And the claim that matters most for everybody who is
  * not the owner of a paying workspace: with no view, or a member's, nothing
  * is added to the screen at all.
@@ -33,7 +33,7 @@ import { WhatChangedPage } from "../features/organizer/WhatChangedPage";
 import { OrganizerNotices } from "../features/organizer/Notices";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
-import type { ChangeCard, OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
+import type { ChangeCard, OrganizerStatus } from "../features/organizer/types";
 import type { OrganizerView } from "../features/organizer/useOrganizer";
 
 const PEOPLE: ChangeCard = {
@@ -66,30 +66,11 @@ const STATUS: OrganizerStatus = {
   autopilot: { done: false, archive: false, file: false },
 };
 
-const DONE: OrganizerSuggestion = {
-  id: "d1",
-  kind: "done",
-  path: "1-projects/code-decomposition/overview.md",
-  title: "Code decomposition",
-  reason: "Every step is ticked off",
-};
-const FILE: OrganizerSuggestion = {
-  id: "f1",
-  kind: "file",
-  path: "0-inbox/sayo-dns-questions.md",
-  title: "sayo-dns-questions",
-  reason: "DNS questions",
-  target: { path: "1-projects/custom-domains", title: "Custom domains" },
-};
-
 interface Calls {
-  opened: unknown[];
-  resolved: [string, string][];
   changed: [string, string, readonly string[]][];
   autopilot: [string, boolean][];
   enabled: boolean[];
   acknowledged: boolean[];
-  undone: number;
   swept: number;
   pages: number;
 }
@@ -100,12 +81,8 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
     state: status === null ? { kind: "unavailable" } : { kind: "ready", status },
     status,
     slug: "seyi",
-    suggestions: { list: [DONE, FILE], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
+    suggestions: { changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
     loadSuggestions: () => {},
-    reviewOpen: false,
-    openReview: (options) => calls?.opened.push(options ?? {}),
-    closeReview: () => {},
-    resolve: (s, decision) => calls?.resolved.push([s.id, decision]),
     resolveChange: (card, decision, steps) => calls?.changed.push([card.id, decision, steps]),
     sendRoute: async () => false,
     sendRoutes: async () => 0,
@@ -132,7 +109,7 @@ function organizer(over: Partial<OrganizerView> & { status?: OrganizerStatus | n
   };
 }
 
-const fresh = (): Calls => ({ opened: [], resolved: [], changed: [], autopilot: [], enabled: [], acknowledged: [], undone: 0, swept: 0, pages: 0 });
+const fresh = (): Calls => ({ changed: [], autopilot: [], enabled: [], acknowledged: [], swept: 0, pages: 0 });
 
 function browser(): FileBrowser {
   return {
@@ -183,42 +160,22 @@ const press = (element: Element | null) => {
 };
 
 describe("the explorer's foot", () => {
-  test("no view, a member, or nothing waiting: the column is the one it always was", () => {
-    expect(byId(mount(explorer()), "explorer-suggestions")).toBeNull();
-    expect(byId(mount(explorer(), organizer({ status: { ...STATUS, isOwner: false } })), "explorer-suggestions")).toBeNull();
-    expect(byId(mount(explorer(), organizer({ status: { ...STATUS, pending: 0 } })), "explorer-suggestions")).toBeNull();
-    expect(byId(mount(explorer(), organizer({ status: { ...STATUS, on: false } })), "explorer-suggestions")).toBeNull();
+  test("no view, a member, or switched off: the column is the one it always was", () => {
+    expect(byId(mount(explorer()), "explorer-what-changed")).toBeNull();
+    expect(byId(mount(explorer(), organizer({ status: { ...STATUS, isOwner: false } })), "explorer-what-changed")).toBeNull();
+    expect(byId(mount(explorer(), organizer({ status: { ...STATUS, on: false } })), "explorer-what-changed")).toBeNull();
   });
 
-  test("the owner's line counts what is waiting and opens the list", () => {
+  test("one line, not two: What changed counts the cards, and the press opens the page", () => {
     const calls = fresh();
-    const container = mount(explorer(), organizer({}, calls));
-    const line = byId(container, "explorer-suggestions");
-    expect(line?.textContent).toContain("2 suggestions");
+    const container = mount(explorer(), organizer({ status: { ...STATUS, pending: 2, changes: 1 } }, calls));
+    // "11 suggestions" was a second line beside What changed, and read as a second helper (Dev2, 2026-10-07).
+    expect(byId(container, "explorer-suggestions")).toBeNull();
+    const line = byId(container, "explorer-what-changed");
+    // Tidy up is gone (owner, 2026-10-10): pending suggestions add nothing to the count.
+    expect(line?.textContent).toBe("What changed1");
     press(line);
-    expect(calls.opened).toHaveLength(1);
-  });
-
-  test("the popover says what each row will do, to which note, and answers one row each", () => {
-    const calls = fresh();
-    const container = mount(explorer(), organizer({ reviewOpen: true }, calls));
-    const list = byId(container, "explorer-suggestions-list");
-    expect(list?.textContent).toContain("Projects · 1");
-    expect(list?.textContent).toContain("Inbox · 1");
-    expect(list?.textContent).toContain("Mark as done");
-    expect(list?.textContent).toContain("Every step is ticked off");
-    expect(list?.textContent).toContain("Move to Custom domains");
-    expect(list?.textContent).toContain("From Inbox to Projects › Custom domains");
-    // The answers are words on the row, not icons that light up on hover.
-    expect(byId(container, "organizer-accept-f1")?.textContent).toBe("Move");
-    expect(byId(container, "organizer-dismiss-f1")?.textContent).toBe("Skip");
-    press(byId(container, "organizer-accept-d1"));
-    press(byId(container, "organizer-dismiss-f1"));
-    expect(calls.resolved).toEqual([
-      ["d1", "accept"],
-      ["f1", "dismiss"],
-    ]);
-    expect(byId(container, "organizer-accept-d1")?.getAttribute("aria-label")).toBe("Mark done: Code decomposition");
+    expect(calls.pages).toBe(1);
   });
 });
 
@@ -229,7 +186,7 @@ describe("What changed", () => {
       {
         status: WAITING,
         pageOpen: true,
-        suggestions: { list: [DONE, FILE], changes: [PEOPLE], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
+        suggestions: { changes: [PEOPLE], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() },
         ...over,
       },
       calls,
@@ -242,15 +199,14 @@ describe("What changed", () => {
     const container = mount(explorer(), withCards(calls, { pageOpen: false }));
     const line = byId(container, "explorer-what-changed");
     expect(line?.textContent).toContain("What changed");
-    expect(line?.textContent).toContain("1");
     press(line);
     expect(calls.pages).toBe(1);
-    // The suggestions line counts organizing suggestions only.
-    expect(byId(container, "explorer-suggestions")?.textContent).toContain("2 suggestions");
+    // The cards waiting, and no other count: 3 pending, 1 of them a card.
+    expect(line?.textContent).toBe("What changed1");
   });
 
   test("the line is there before anything has arrived, and not for a member", () => {
-    const none = mount(explorer(), organizer({ status: { ...STATUS, changes: 0 } }));
+    const none = mount(explorer(), organizer({ status: { ...STATUS, pending: 0, changes: 0 } }));
     expect(byId(none, "explorer-what-changed")?.textContent).toBe("What changed");
     expect(byId(mount(explorer(), organizer({ status: { ...WAITING, isOwner: false } })), "explorer-what-changed")).toBeNull();
   });
@@ -292,16 +248,18 @@ describe("What changed", () => {
 
   test("nothing waiting says so, and Check now asks for a sort", () => {
     const calls = fresh();
-    const container = mount(page(withCards(calls, { suggestions: { list: [], changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } })));
+    const container = mount(page(withCards(calls, { suggestions: { changes: [], routes: [], teams: [], keep: "", loading: false, failed: false, busy: new Set() } })));
     expect(byId(container, "what-changed-empty")?.textContent).toContain("Nothing waiting");
     press(byId(container, "what-changed-check"));
     expect(calls.swept).toBe(1);
   });
 
-  test("the suggestions popover no longer carries the cards", () => {
-    const container = mount(explorer(), withCards(fresh(), { pageOpen: false, reviewOpen: true }));
-    expect(byId(container, "explorer-suggestions-list")).not.toBeNull();
-    expect(byId(container, "organizer-changes")).toBeNull();
+  test("one list, no tabs: the cards are the page", () => {
+    const container = mount(page(withCards(fresh())));
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('[data-testid^="what-changed-tab-"]')).toBeNull();
+    expect(byId(container, "tidy-up")).toBeNull();
+    expect(byId(container, "organizer-change-c1")).not.toBeNull();
   });
 
   test("a source's name comes out of somebody's bucket, so it is contained", () => {
@@ -325,7 +283,7 @@ function Premium({ view, returned }: { view: OrganizerView; returned: "done" | n
 describe("Settings › Premium", () => {
   test("the disclosure sits in what Premium includes, before the upgrade too", () => {
     const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, available: false } }), returned: null }));
-    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads your notes");
+    expect(byId(container, "organizer-included")?.textContent).toContain("Context reads what lands in your inbox");
     // No switches before there is anything to switch.
     expect(byId(container, "organizer-settings")).toBeNull();
   });
@@ -356,9 +314,10 @@ describe("Settings › Premium", () => {
 
     const done = { ...running, state: "done" as const, finishedAt: now - 3 * 3_600_000, read: 40 };
     const sorted = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done, pending: 2 } }, calls), returned: null }));
-    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago. 2 suggestions waiting.");
-    press(byId(sorted, "organizer-sort-review"));
-    expect(calls.opened).toEqual([{ closeSettings: true }]);
+    // Said as a time only: there is no suggestions list to count or to look over.
+    expect(byId(sorted, "organizer-sort-done")?.textContent).toContain("Sorted 3 hours ago.");
+    expect(byId(sorted, "organizer-sort-done")?.textContent).not.toContain("suggestion");
+    expect(byId(sorted, "organizer-sort-review")).toBeNull();
 
     const failed = { ...done, state: "failed" as const };
     const broke = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: failed } }, calls), returned: null }));
@@ -373,6 +332,15 @@ describe("Settings › Premium", () => {
     expect(container.querySelector('[data-testid^="organizer-sort-"]')).toBeNull();
   });
 
+  test("a finished sweep leaves no card, even on the payment return: nothing is left to show", () => {
+    const now = Date.now();
+    const done = { state: "done" as const, startedAt: now - 60_000, finishedAt: now - 3_600_000, read: 40, total: 40, found: { done: 1, archive: 0, file: 1 } };
+    const found = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done } }), returned: "done" }));
+    expect(byId(found, "organizer-sweep-found")).toBeNull();
+    expect(byId(found, "organizer-show-me")).toBeNull();
+    expect(byId(found, "organizer-sort-now")).not.toBeNull();
+  });
+
   test("a member reads it and is offered nothing to press", () => {
     const container = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, isOwner: false } }), returned: null }));
     expect(byId(container, "organizer-settings")?.textContent).toContain("Only the owner can turn auto-organize on or off.");
@@ -380,22 +348,11 @@ describe("Settings › Premium", () => {
     expect(byId(container, "organizer-autopilot-done")).toBeNull();
   });
 
-  test("the sweep reads, then shows what it found; Show me opens the list over closed settings", () => {
+  test("the sweep card reads while it runs", () => {
     const sweep = { state: "running" as const, startedAt: 1, finishedAt: null, read: 212, total: 450, found: { done: 0, archive: 0, file: 0 } };
     const reading = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep } }), returned: "done" }));
     expect(byId(reading, "organizer-sweep-reading")?.textContent).toContain("Tidying up @seyi");
     expect(byId(reading, "organizer-sweep-reading")?.textContent).toContain("212 of 450 notes");
-
-    const calls = fresh();
-    const done = { ...sweep, state: "done" as const, finishedAt: 2, read: 450, found: { done: 1, archive: 0, file: 1 } };
-    const found = mount(createElement(Premium, { view: organizer({ status: { ...STATUS, sweep: done } }, calls), returned: "done" }));
-    const card = byId(found, "organizer-sweep-found");
-    expect(card?.textContent).toContain("Found 1 project that looks done and 1 inbox note to file");
-    expect(card?.textContent).toContain("Looks done. Every step is ticked off");
-    press(byId(found, "organizer-show-me"));
-    expect(calls.opened).toEqual([{ closeSettings: true }]);
-    press(byId(found, "organizer-later"));
-    expect(byId(found, "organizer-sweep-found")).toBeNull();
   });
 });
 
@@ -412,13 +369,18 @@ describe("the notices band", () => {
 
   test("the phone's entry is on the workspace page only", () => {
     const calls = fresh();
-    const view = organizer({}, calls);
+    const view = organizer({ status: { ...STATUS, changes: 2 } }, calls);
     const onNote = mount(createElement(OrganizerNotices, { compact: true, atRoot: false }), view);
     expect(byId(onNote, "organizer-phone-entry")).toBeNull();
     const atRoot = mount(createElement(OrganizerNotices, { compact: true, atRoot: true }), view);
-    expect(byId(atRoot, "organizer-phone-entry")?.textContent).toContain("2 suggestions to look over");
+    expect(byId(atRoot, "organizer-phone-entry")?.textContent).toContain("2 changes to look over");
     press(byId(atRoot, "organizer-look-over"));
-    expect(calls.opened).toHaveLength(1);
+    expect(calls.pages).toBe(1);
+  });
+
+  test("pending suggestions alone draw no phone entry: only cards do", () => {
+    const view = organizer({ status: { ...STATUS, pending: 5, changes: 0 } });
+    expect(byId(mount(createElement(OrganizerNotices, { compact: true, atRoot: true }), view), "organizer-phone-entry")).toBeNull();
   });
 });
 

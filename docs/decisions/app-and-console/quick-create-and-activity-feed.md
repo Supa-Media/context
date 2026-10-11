@@ -111,6 +111,8 @@ the three files, and Note writes one without asking`.
 
 ### A phone can ask its context a question, and could not before (2026-09-19)
 
+_Superseded 2026-10-10: there is no chat in the console any more; see [no-in-app-chat](./no-in-app-chat.md)._
+
 Both `+`s offer a Chat row, and on a phone that row raises `AgentPanel` directly
 rather than the right panel it has none of.
 

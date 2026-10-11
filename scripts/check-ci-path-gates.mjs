@@ -17,16 +17,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**"];
 
-/** What the collaboration browser run mounts and drives; see collaboration.yml. */
-const COLLABORATION_ENTRIES = [
-  "apps/mobile/app/_layout.tsx",
-  "apps/mobile/features/e2e/collaboration/Fixture.tsx",
-  "apps/mcp/test/browser/verifyEditor.mjs",
-  "apps/mcp/test/browser/editor-worker.ts",
-];
-
 /** Where the editor bundle records the sources it was built from. */
 const BUNDLE = "apps/mobile/features/console/files/webview/bundle.generated.ts";
+/** The phone map's engine, built and checked by the same job. */
+const MAP_BUNDLE = "apps/mobile/features/console/map/live/webview/bundle.generated.ts";
 
 /**
  * Does one changed file fall under one watched pattern?
@@ -92,6 +86,22 @@ function jobBlock(yaml, job) {
   const rest = yaml.slice(start);
   const next = rest.slice(rest.indexOf("\n") + 1).search(/^  [A-Za-z0-9_-]+:$/m);
   return next === -1 ? rest : rest.slice(0, rest.indexOf("\n") + 1 + next);
+}
+
+/** One named list from ci.yml's `change-filters: |` block. */
+export function changeFilter(yaml, name) {
+  const block = /\n {6}change-filters: \|\n((?: {8}.*\n)+)/.exec(yaml);
+  if (!block) throw new Error("ci.yml passes no change-filters");
+  const paths = new Set();
+  let current = null;
+  for (const line of block[1].split("\n")) {
+    const key = /^ {8}([a-z0-9-]+):$/.exec(line);
+    if (key) { current = key[1]; continue; }
+    const item = /^ {10}- '([^']+)'$/.exec(line);
+    if (item && current === name) paths.add(item[1]);
+  }
+  if (paths.size === 0) throw new Error(`ci.yml's change-filters has no ${name} list`);
+  return paths;
 }
 
 export function filterPaths(yaml, job, filter) {
@@ -182,19 +192,52 @@ export function unwatchedSources(sources, watched) {
  * So the list is checked against the bundle's own record of what it was built
  * from, here, in the lane that runs on every pull request.
  */
-export function assertBundleSourcesWatched(root = ROOT) {
-  const generated = readFileSync(join(root, BUNDLE), "utf8");
+export function assertBundleSourcesWatched(root = ROOT, bundle = BUNDLE, minimum = 50) {
+  const generated = readFileSync(join(root, bundle), "utf8");
   const sources = [...generated.matchAll(/^ {2}"([^"]+)": "[0-9a-f]{64}",$/gm)].map((match) => match[1]);
   // A reader that silently matches nothing would pass every repository it is
   // pointed at, which is this file's own most-repeated failure shape.
-  if (sources.length < 50) {
-    throw new Error(`read only ${sources.length} sources from ${BUNDLE}; the reader is wrong`);
+  if (sources.length < minimum) {
+    throw new Error(`read only ${sources.length} sources from ${bundle}; the reader is wrong`);
   }
   const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
   const unwatched = unwatchedSources(sources, watched);
   if (unwatched.length > 0) {
     throw new Error(
       `editor-bundle does not run when these bundle sources change: ${unwatched.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * AND THE BUNDLE ITSELF MUST BE WATCHED, NOT ONLY WHAT IT IS BUILT FROM.
+ *
+ * `assertBundleSourcesWatched` above reads the bundle's own record of its
+ * inputs and checks each one is in the job's `paths:`. The *output* is not one
+ * of those inputs, so nothing above says a word about it — and a pull request
+ * that edits only `bundle.generated.ts`, injecting code into the blob that
+ * runs over somebody's private markdown, is precisely the case the
+ * rebuild-and-compare job says it exists for.
+ *
+ * Today that request is caught, by one pattern: `console/files/**` is in the
+ * list because most of the bundle's sources live under it, and the artifact
+ * happens to sit there too. Nothing records that this coincidence is
+ * load-bearing, and the guard above actively pushes a maintainer toward the
+ * edit that ends it — its complaint is that "a list of directories always
+ * will" forget a sibling, and the obvious answer to that is to enumerate the
+ * recorded sources instead. Measured, not supposed: replacing that one
+ * pattern with the source paths it covers, named one by one, leaves `check()`
+ * green with the artifact unwatched. No count is written down here on
+ * purpose — it would be the stale-number defect this file exists to catch.
+ *
+ * So the output is asserted here, beside the inputs, with the same matcher.
+ */
+export function assertBundleArtifactWatched(root = ROOT, bundle = BUNDLE) {
+  const watched = scopePaths(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"), "editor-bundle");
+  if (unwatchedSources([bundle], watched).length > 0) {
+    throw new Error(
+      `editor-bundle does not run when ${bundle} itself changes, so a commit that edits only the ` +
+        "generated bundle skips the rebuild that would catch it",
     );
   }
 }
@@ -335,6 +378,49 @@ export function assertScopedJob(yaml, job, workflow, packages) {
   }
 }
 
+/**
+ * A job that runs several packages' suites, each behind its own scope step.
+ * Every scope names its package and the workflow; every step after the first
+ * scope (other than the scopes themselves) is gated by exactly one of them;
+ * and each scope gates a step that runs its own package — so a suite cannot
+ * end up behind another package's scope and skip when its own code changes.
+ */
+export function assertMultiScopedJob(yaml, job, workflow, suites) {
+  const steps = stepBlocks(jobBlock(yaml, job));
+  const first = steps.findIndex((step) => step.includes("uses: ./.github/actions/ci-scope"));
+  if (first === -1) throw new Error(`${workflow}:${job} has no scope step`);
+  const gated = new Map(Object.keys(suites).map((id) => [id, []]));
+  for (const step of steps.slice(first)) {
+    if (step.includes("uses: ./.github/actions/ci-scope")) {
+      const id = step.match(/\bid:\s*([\w-]+)/)?.[1];
+      const suite = suites[id];
+      if (!suite) throw new Error(`${workflow}:${job} has a scope step "${id}" nobody declared`);
+      if (!step.includes(workflow)) throw new Error(`${workflow}:${job}:${id} does not run when its workflow changes`);
+      for (const name of suite.packages) {
+        if (!step.includes(name)) throw new Error(`${workflow}:${job}:${id} does not name package ${name}`);
+      }
+      continue;
+    }
+    const ids = [...step.matchAll(/steps\.([\w-]+)\.outputs\.affected == 'true'/g)].map((match) => match[1]);
+    const name = step.match(/name:\s*([^\n]+)/)?.[1] ?? step.match(/uses:\s*([^\n]+)/)?.[1] ?? "unnamed step";
+    if (ids.length !== 1) throw new Error(`${workflow}:${job}: ${name} is not gated by exactly one package scope`);
+    if (!gated.has(ids[0])) throw new Error(`${workflow}:${job}: ${name} is gated by unknown scope ${ids[0]}`);
+    // A step that runs another package's suite behind this scope would skip
+    // when that package changes and nothing here does.
+    for (const [other, { runs }] of Object.entries(suites)) {
+      if (other !== ids[0] && step.includes(runs) && !step.includes(suites[ids[0]].runs)) {
+        throw new Error(`${workflow}:${job}: ${name} runs ${runs} behind the ${ids[0]} scope`);
+      }
+    }
+    gated.get(ids[0]).push(step);
+  }
+  for (const [id, { runs }] of Object.entries(suites)) {
+    if (!gated.get(id).some((step) => step.includes(runs))) {
+      throw new Error(`${workflow}:${job}: no step behind scope ${id} runs ${runs}`);
+    }
+  }
+}
+
 function requiredPaths(rootNames, workflow, root = ROOT) {
   return new Set([...workspacePaths(rootNames, root), ...INFRA_PATHS, workflow]);
 }
@@ -347,25 +433,40 @@ export function check(root = ROOT) {
   const browser = readFileSync(browserPath, "utf8");
   const collaboration = readFileSync(collaborationPath, "utf8");
 
-  const browserMobile = requiredPaths(["@context/mobile"], ".github/workflows/browser.yml", root);
-  assertPaths(filterPaths(browser, "webkit_build", "mobile"), browserMobile, "webkit browser build");
   const nativeMobile = requiredPaths(["@context/mobile"], ".github/workflows/ci.yml", root);
   assertPaths(filterPaths(ci, "native-bundle", "mobile"), nativeMobile, "native-bundle");
 
-  const fullWebkit = new Set([
-    "apps/mobile/e2e/webkit/**",
-    "apps/mobile/features/console/**",
-    "packages/collaboration/**",
-    "packages/communications/**",
-    "packages/desktop-bridge/**",
-    "packages/drawings/**",
-    "packages/meetings/**",
-    "packages/obsidian-runtime/**",
-    "packages/shared/**",
-    ...INFRA_PATHS,
-    ".github/workflows/browser.yml",
-  ]);
-  assertPaths(filterPaths(browser, "webkit_build", "full"), fullWebkit, "full WebKit suite");
+  // Per push the browser runs only the note editor's tests, scoped by what the
+  // editor imports; the rest of the suite is daily (Dev2, 2026-10-07). The
+  // editor job must run exactly the specs the scope watches, or an editor
+  // test could change without running, or run without its file being watched.
+  const browserTrigger = browser.slice(browser.indexOf("\non:"), browser.indexOf("\njobs:"));
+  for (const event of ["pull_request", "push", "schedule", "workflow_dispatch"]) {
+    if (!browserTrigger.includes(`\n  ${event}:`)) throw new Error(`browser.yml no longer runs on ${event}`);
+  }
+  const scopeStep = jobBlock(browser, "webkit_build");
+  for (const entry of [
+    "apps/mobile/features/console/files/LiveEditor.web.tsx",
+    "apps/mobile/features/console/files/LiveEditor.tsx",
+    "apps/mobile/features/console/files/webview/entry.ts",
+  ]) {
+    if (!scopeStep.includes(`            ${entry}\n`)) throw new Error(`the editor browser scope no longer follows ${entry}`);
+  }
+  if (!scopeStep.includes('push-diff: "true"')) throw new Error("a merge that does not touch the editor runs its browser tests again");
+  const scopedSpecs = [...scopeStep.matchAll(/^ {12}(apps\/mobile\/e2e\/webkit\/[\w.]+\.spec\.ts)$/gm)].map((m) => m[1]).sort();
+  const editorJob = jobBlock(browser, "webkit_editor");
+  const editorSpecs = [...editorJob.matchAll(/(e2e\/webkit\/[\w.]+\.spec\.ts)/g)].map((m) => `apps/mobile/${m[1]}`).sort();
+  if (!scopedSpecs.length || scopedSpecs.join() !== [...new Set(editorSpecs)].join()) {
+    throw new Error(`the editor job runs ${editorSpecs.join(", ")} but the scope watches ${scopedSpecs.join(", ")}`);
+  }
+  for (const job of ["webkit_full", "webkit_offline"]) {
+    if (!/\n    if: .*needs\.webkit_build\.outputs\.daily == 'true'/.test(jobBlock(browser, job))) {
+      throw new Error(`${job} runs on every push again; it is daily`);
+    }
+  }
+  if (!/\n    if: .*needs\.webkit_build\.outputs\.daily != 'true'/.test(editorJob)) {
+    throw new Error("the note editor job no longer runs per push");
+  }
   const build = jobBlock(browser, "webkit_build");
   const shards = jobBlock(browser, "webkit_full");
   const summary = jobBlock(browser, "editor_webkit");
@@ -380,22 +481,39 @@ export function check(root = ROOT) {
     throw new Error("WebKit summary does not retain one merged report");
   }
 
-  // Scoped by what the run executes: the screen and Worker it mounts, and the
-  // harness that drives them. Losing one of these entries would shrink the
-  // scope to whatever the rest import, and skip runs that matter.
-  assertScopedJob(collaboration, "browser", ".github/workflows/collaboration.yml", ["@context/collaboration"]);
-  const collaborationEntries = scopePaths(collaboration, "browser", "entries");
-  for (const entry of COLLABORATION_ENTRIES) {
-    if (!collaborationEntries.has(entry)) throw new Error(`collaboration browser scope is missing entry ${entry}`);
+  // The control-plane suite runs once, in `ci / Test Convex Backend`; Gateway
+  // Contracts keeps only its detector. So ci.yml's convex filter must watch
+  // everything that suite reads from outside apps/convex, or a gateway-only
+  // pull request skips the very checks Gateway Contracts was written for.
+  const convexFilter = changeFilter(ci, "convex");
+  for (const path of [
+    ...workspacePaths(["@context/mcp", "@context/convex"], root),
+    "apps/mobile/features/console/storage/dropbox.ts",
+    "apps/mobile/features/console/storage/dropbox.web.ts",
+    ".github/workflows/deploy-convex.yml",
+    ...INFRA_PATHS,
+  ]) {
+    // A file under the watched path, so `packages/**` covers
+    // `packages/collaboration/**`.
+    const sample = path.endsWith("/**") ? `${path.slice(0, -3)}/sample.ts` : path;
+    if (![...convexFilter].some((pattern) => matches(sample, pattern))) {
+      throw new Error(`ci.yml's convex filter does not watch ${path}`);
+    }
   }
-  for (const entry of collaborationEntries) {
-    if (!existsSync(join(root, entry))) throw new Error(`collaboration browser scope entry ${entry} does not exist`);
+
+  // The browser run is daily and on demand (Dev2, 2026-10-07), and the
+  // per-push half of it, the collaboration package's own suite, runs in
+  // `Test Gateway`. Losing either would leave the editor's room unchecked.
+  const trigger = collaboration.slice(collaboration.indexOf("\non:"), collaboration.indexOf("\npermissions:"));
+  if (!/\n  schedule:\n    - cron: "[^"]+"/.test(trigger) || !trigger.includes("\n  workflow_dispatch:")) {
+    throw new Error("collaboration browser run is not scheduled daily and runnable by hand");
   }
-  // The route and the switch that lead the harness to that fixture are not
-  // imported by it, so they are watched by name.
-  const collaborationPaths = scopePaths(collaboration, "browser");
-  for (const path of ["apps/mobile/app/e2e-fixture.tsx", "apps/mobile/features/e2e/FixtureScreen.tsx", "apps/mcp/test/browser/**"]) {
-    if (!collaborationPaths.has(path)) throw new Error(`collaboration browser scope does not watch ${path}`);
+  if (/\n  (pull_request|push):/.test(trigger)) {
+    throw new Error("collaboration browser run is back on every push; it runs daily");
+  }
+  const gateway = jobBlock(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"), "test");
+  if (!gateway.includes("pnpm --filter @context/collaboration test")) {
+    throw new Error("Test Gateway no longer runs the collaboration suite on every push");
   }
   const collaborationJob = jobBlock(collaboration, "browser");
   if (!collaborationJob.includes("image: mcr.microsoft.com/playwright:v1.56.1-noble")) {
@@ -410,24 +528,35 @@ export function check(root = ROOT) {
     [".github/workflows/ci.yml", "convex-deploy-typecheck", ["@context/convex"]],
     [".github/workflows/gateway-contracts.yml", "contracts", ["@context/mcp", "@context/convex"]],
     [".github/workflows/mcp.yml", "test", ["@context/mcp"]],
-    [".github/workflows/mcp.yml", "decryptor", ["@supa-media/context-encryption-decryptor"]],
-    [".github/workflows/mcp.yml", "meetings", ["@context/meetings"]],
-    [".github/workflows/mcp.yml", "obsidian-runtime", ["@context/obsidian-runtime"]],
-    [".github/workflows/mcp.yml", "communications", ["@context/communications"]],
-    [".github/workflows/mcp.yml", "drawings", ["@context/drawings"]],
     [".github/workflows/mcp.yml", "desktop", ["@context/desktop"]],
-    [".github/workflows/router.yml", "test", ["@context/router"]],
     [".github/workflows/email-worker.yml", "test", ["@context/email-worker"]],
-    [".github/workflows/transcribe-worker.yml", "test", ["@context/transcribe-worker"]],
-    [".github/workflows/egress-service.yml", "test", ["@context/egress-service"]],
-    [".github/workflows/sentry-worker.yml", "test", ["@context/sentry-worker"]],
     [".github/workflows/cli.yml", "test", ["@supa-media/context"]],
     [".github/workflows/cli.yml", "no-dependencies", ["@supa-media/context"]],
   ];
+  // One job, several packages: each suite is gated by its own package's scope.
+  assertMultiScopedJob(readFileSync(join(root, ".github/workflows/mcp.yml"), "utf8"), "packages", ".github/workflows/mcp.yml", {
+    decryptor: { packages: ["@supa-media/context-encryption-decryptor"], runs: "packages/encryption-decryptor" },
+    meetings: { packages: ["@context/meetings"], runs: "packages/meetings" },
+    obsidian: { packages: ["@context/obsidian-runtime"], runs: "packages/obsidian-runtime" },
+    communications: { packages: ["@context/communications"], runs: "packages/communications" },
+    drawings: { packages: ["@context/drawings"], runs: "packages/drawings" },
+    sentry: { packages: ["@context/sentry-worker"], runs: "infra/sentry-worker" },
+  });
+  assertMultiScopedJob(readFileSync(join(root, ".github/workflows/workers.yml"), "utf8"), "test", ".github/workflows/workers.yml", {
+    router: { packages: ["@context/router"], runs: "infra/router" },
+    transcribe: { packages: ["@context/transcribe-worker"], runs: "infra/transcribe-worker" },
+    egress: { packages: ["@context/egress-service"], runs: "infra/egress-service" },
+    siteshots: { packages: ["@context/site-shots"], runs: "infra/site-shots" },
+    agent: { packages: ["@context/agent"], runs: "apps/agent" },
+  });
+
   for (const [workflow, job, packages] of scoped) {
     assertScopedJob(readFileSync(join(root, workflow), "utf8"), job, workflow, packages);
   }
   assertBundleSourcesWatched(root);
+  assertBundleArtifactWatched(root);
+  assertBundleSourcesWatched(root, MAP_BUNDLE, 20);
+  assertBundleArtifactWatched(root, MAP_BUNDLE);
   for (const script of rootDeclaringGuards(root)) assertGuardRootsWatched(script, root);
 }
 
@@ -511,6 +640,28 @@ export function selfTest() {
   // quietly weaker. A legitimate change to the list fails here and gets read.
   if (guardRoots("scripts/check-worker-fetch-options.mjs").length !== 4) {
     throw new Error("check-worker-fetch-options.mjs no longer declares the four roots read here");
+  }
+
+  /*
+    The bundle's OUTPUT, in both directions. The failing case is the real edit
+    this guards against: a `paths:` list that names every recorded source and
+    not the artifact they build, which `assertBundleSourcesWatched` passes.
+  */
+  const artifactYaml = (paths) =>
+    `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          paths: |\n${paths
+      .map((path) => `            ${path}\n`)
+      .join("")}`;
+  const sourcesOnly = artifactYaml([
+    "apps/mobile/features/console/files/editorSetup.ts",
+    "apps/mobile/features/console/files/webview/entry.ts",
+  ]);
+  if (unwatchedSources([BUNDLE], scopePaths(sourcesOnly, "editor-bundle")).length !== 1) {
+    throw new Error("a paths list naming only the bundle's sources was read as watching the bundle");
+  }
+  for (const covering of [BUNDLE, "apps/mobile/features/console/files/**", "apps/mobile/**"]) {
+    if (unwatchedSources([BUNDLE], scopePaths(artifactYaml([covering]), "editor-bundle")).length !== 0) {
+      throw new Error(`\`${covering}\` was read as not covering the generated bundle`);
+    }
   }
 
   const noPaths = `  editor-bundle:\n    steps:\n      - uses: ./.github/actions/ci-scope\n        id: scope\n        with:\n          packages: "@context/mobile"\n`;

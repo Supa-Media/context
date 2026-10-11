@@ -3,7 +3,12 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "@jest/globals";
 
-import { FONT_STYLESHEET_HREF, FONT_STYLESHEET_ID } from "../features/design/fonts.web";
+import {
+  FONT_STYLESHEET_HREF,
+  FONT_STYLESHEET_ID,
+  LIBRON_STYLESHEET_HREF,
+  LIBRON_STYLESHEET_ID,
+} from "../features/design/fonts.web";
 import { darkColors, lightColors } from "../features/design/tokens";
 
 /**
@@ -86,6 +91,29 @@ describe("the web shell's ground", () => {
     // and appends a second one on every web load — same href, so nothing
     // breaks and nothing tells you either.
     expect(shell).toContain(`id="${FONT_STYLESHEET_ID}"`);
+  });
+
+  test("Libron, the reading face, is linked from the head with its runtime id", () => {
+    expect(shell).toContain(`<link id="${LIBRON_STYLESHEET_ID}" rel="stylesheet" href="${LIBRON_STYLESHEET_HREF}" />`);
+  });
+
+  test("every face libron.css names is a file in public/, with the licence beside it", () => {
+    /*
+      The stylesheet is served from our own origin, so a renamed or missing
+      woff2 is a silent fallback to Georgia rather than an error anywhere.
+      Root-level names only: a customer's domain serves one-segment static
+      paths and nothing deeper (infra/router site.ts STATIC_FILE).
+    */
+    const publicDir = join(__dirname, "..", "public");
+    const css = readFileSync(join(publicDir, LIBRON_STYLESHEET_HREF.slice(1)), "utf8");
+    const urls = [...css.matchAll(/url\("([^"]+)"\)/g)].map((m) => m[1]);
+    expect(urls).toHaveLength(4);
+    for (const url of urls) {
+      expect(url).toMatch(/^\/[A-Za-z0-9-]+\.woff2$/);
+      expect(existsSync(join(publicDir, url.slice(1)))).toBe(true);
+    }
+    expect(shell).toContain('<link rel="preload" href="/Libron-Regular.woff2"');
+    expect(readFileSync(join(publicDir, "Libron-OFL.txt"), "utf8")).toContain("SIL Open Font License");
   });
 
   test("no URL of ours is handed to Google Fonts", () => {

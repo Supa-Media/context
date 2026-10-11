@@ -51,16 +51,12 @@ export function createControlPlaneStub(options = {}) {
 
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
-  /**
-   * `${workspaceId}:${provider}` → the model API key that workspace connected.
-   *
-   * Flat and keyed by both, modelling `providerCredentials`' own
-   * `by_workspace_provider` index — so a lookup that forgets the workspace half
-   * reaches the wrong tenant's key here exactly as it would there.
-   */
-  const providerCredentials = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
+  const meetingSummaryVerdicts = new Map();
+  const meetingSummaryReports = [];
+  /** Every `/gateway/agent-turn` report, as the turn log would receive it. */
+  const turnReports = [];
   /**
    * workspaceId → the rotation in progress, or `null` — mutated by
    * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
@@ -442,46 +438,19 @@ export function createControlPlaneStub(options = {}) {
 
         // `noteCap` is a fifth sibling — the free managed tier's cap — split
         // here for the reason above: a fixture may nest it, the wire never does.
-        const { searchIndex, encryptionKey, noteCap, ...storage } = binding;
+        // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
+        // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
+        const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
+          ...(meaningIndex ? { meaningIndex } : {}),
           ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));
-      }
-
-      case "/gateway/provider": {
-        /*
-          The same two proofs the binding route spends, in the same order, with
-          the same refusal. Written out rather than sharing a helper with
-          `/gateway/binding` on purpose: these are two doors on the real control
-          plane, and a stub that collapses them into one would pass a gateway
-          that had quietly started sending the wrong shape to one of them.
-        */
-        const grant = await grantForAccessToken(body.accessToken);
-        if (!grant) return ok({ credential: null });
-        const covered = coveredContexts(grant);
-        const named =
-          body.expectedWorkspaceId === null || body.expectedWorkspaceId === undefined
-            ? covered.find((entry) => entry.workspaceId === grant.workspaceId)
-            : covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
-        if (!named) return ok({ credential: null });
-
-        // The closed set lives on the control plane, and an unknown provider is
-        // the same `null` as an unknown token — never a different status a
-        // caller could count to enumerate it.
-        if (body.provider !== "anthropic" && body.provider !== "openai") {
-          return ok({ credential: null });
-        }
-        const apiKey = providerCredentials.get(`${named.workspaceId}:${body.provider}`);
-        if (apiKey === undefined) return ok({ credential: null });
-        // Two flat fields and nothing beside them — no workspace id, no
-        // fingerprint, no grant. See the route's own header in `http.ts`.
-        return ok({ credential: { provider: body.provider, apiKey } });
       }
 
       case "/gateway/builtin-model":
@@ -496,6 +465,27 @@ export function createControlPlaneStub(options = {}) {
         }
         if (!known) return ok({ verdict: null });
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
+      }
+
+      case "/gateway/meeting-summary":
+      case "/gateway/meeting-summary/usage": {
+        // The meeting-summary gate, as the built-in model's above: every plan
+        // may, so an unset workspace is allowed rather than refused.
+        const grant = await grantForAccessToken(body.accessToken);
+        const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
+        if (path === "/gateway/meeting-summary/usage") {
+          if (known) meetingSummaryReports.push({ workspaceId: grant.workspaceId, ...body, accessToken: undefined });
+          return ok({ recorded: Boolean(known) });
+        }
+        if (!known) return ok({ verdict: null });
+        return ok({ verdict: meetingSummaryVerdicts.get(grant.workspaceId) ?? { allowed: true, remaining: 9, paying: false } });
+      }
+
+      case "/gateway/agent-turn": {
+        const grant = await grantForAccessToken(body.accessToken);
+        const known = grant && (body.expectedWorkspaceId ?? grant.workspaceId) === grant.workspaceId;
+        if (known) turnReports.push({ workspaceId: grant.workspaceId, ...body, accessToken: undefined });
+        return ok({ recorded: Boolean(known) });
       }
 
       case "/gateway/clients/register": {
@@ -644,7 +634,7 @@ export function createControlPlaneStub(options = {}) {
         job.status = "running";
         const binding = bindings.get(job.workspaceId);
         if (!binding) return ok({ job: null });
-        const { searchIndex, encryptionKey, ...storage } = binding;
+        const { searchIndex, meaningIndex, encryptionKey, ...storage } = binding;
         return ok({
           job: {
             job: {
@@ -657,6 +647,7 @@ export function createControlPlaneStub(options = {}) {
             },
             binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
             ...(searchIndex ? { searchIndex } : {}),
+            ...(meaningIndex ? { meaningIndex } : {}),
             ...(encryptionKey ? { encryptionKey } : {}),
           },
         });
@@ -825,6 +816,12 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/moves": {
+        // Answered `{ok: true}` on every path, like the real route; `calls`
+        // carries the body a test asserts on.
+        return ok({ ok: true });
+      }
+
       case "/gateway/tree": {
         // Answered `{ok: true}` on every path, like `/gateway/activity`.
         // `calls` carries the body, which is what a test asserts on.
@@ -878,14 +875,14 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
-  /** Connect a model account to one workspace, as the console's action does. */
-  function connectProvider(workspaceId, provider, apiKey) {
-    providerCredentials.set(`${workspaceId}:${provider}`, apiKey);
-  }
-
   /** What `/gateway/builtin-model` answers for one workspace. */
   function setBuiltinVerdict(workspaceId, verdict) {
     builtinVerdicts.set(workspaceId, verdict);
+  }
+
+  /** What `/gateway/meeting-summary` answers for one workspace. */
+  function setMeetingSummaryVerdict(workspaceId, verdict) {
+    meetingSummaryVerdicts.set(workspaceId, verdict);
   }
 
   return {
@@ -898,10 +895,11 @@ export function createControlPlaneStub(options = {}) {
     addGrant,
     revoke,
     issueCode,
-    connectProvider,
     setBuiltinVerdict,
     builtinReports,
-    providerCredentials,
+    setMeetingSummaryVerdict,
+    meetingSummaryReports,
+    turnReports,
     grants,
     clients,
     codes,

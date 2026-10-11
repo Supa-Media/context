@@ -225,6 +225,7 @@ export function itemsFromHits(hits: SearchHit[]): PaletteItem[] {
       label: hit.title,
       ...(folder === "" ? {} : { detail: displayPath(folder) }),
       ...(snippet ? { snippet } : {}),
+      ...(hit.meaningOnly ? { meaningOnly: true } : {}),
       kind: "note" as const,
     };
   });

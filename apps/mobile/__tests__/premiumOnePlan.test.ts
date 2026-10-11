@@ -49,7 +49,7 @@
  * read, and the assertion that the sentence is identical everywhere.
  */
 
-import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -120,16 +120,17 @@ const view = (over: Partial<PremiumView> = {}): PremiumView => ({
  * PREMIUM IS ONE PLAN: A LIST, AND ONE SWITCH AFTER PAYING.
  *
  * The section names everything the $5 buys and asks nothing before the
- * Upgrade button (`docs/decisions/billing.md`, "One plan"). The only switch is
- * the search index, for an owner who is paying.
+ * Upgrade button (`docs/decisions/billing.md`, "One plan"). It has no switches.
+ * Fast search is not in the plan: it is on for every workspace since
+ * 2026-10-08, and its owner switches it under Storage & search.
  */
 
 describe("what Premium includes", () => {
   test("storage we run lists unlimited notes; the owner's own storage does not", () => {
     const ours = premiumIncludeRows(status({ storageIsManaged: true })).map((r) => r.key);
     const theirs = premiumIncludeRows(status()).map((r) => r.key);
-    expect(ours).toEqual(["notes", "fastSearch", "domain"]);
-    expect(theirs).toEqual(["fastSearch", "domain"]);
+    expect(ours).toEqual(["notes", "domain"]);
+    expect(theirs).toEqual(["domain"]);
   });
 
   test("a free owner sees no switch, only the list and one button", () => {
@@ -139,11 +140,9 @@ describe("what Premium includes", () => {
     expect(host.querySelectorAll('[data-testid="premium-upgrade"]')).toHaveLength(1);
   });
 
-  test("a paying owner is pointed at the one search switch, under Storage & search", () => {
-    // Premium had its own search-index switch beside the one under Storage &
-    // search: two controls for one question. Now it only says where it is.
-    const choose = jest.fn(async (_next: unknown) => {});
-    const opened: string[] = [];
+  test("a paying owner gets no search block and no fast search row", () => {
+    // Fast search is on for every workspace, so Premium neither lists it nor
+    // offers a switch for it. The switch lives under Storage & search.
     const paying = status({
       status: "active",
       hasStripeCustomer: true,
@@ -151,35 +150,14 @@ describe("what Premium includes", () => {
       selected: { managedStorage: true, fastSearch: true },
       active: { managedStorage: true, fastSearch: true },
     });
-    const host = mount(view({ status: paying, choose }), {
-      onOpenStorage: () => opened.push("storage"),
+    const host = mount(view({ status: paying }), {
+      onOpenStorage: () => {},
     });
-    expect(host.querySelector('[data-testid="premium-search-index-switch"]')).toBeNull();
-    expect(host.textContent ?? "").toContain("Turn it on or off under Storage & search.");
-    const link = host.querySelector('[data-testid="premium-open-search"]') as HTMLElement | null;
-    expect(link).not.toBeNull();
-    act(() => link!.click());
-    expect(opened).toEqual(["storage"]);
-    expect(choose).not.toHaveBeenCalled();
-  });
-
-  test("a plan that left fast search out can put it back, from here", async () => {
-    // The old switch here could drop fast search from the plan, and Storage &
-    // search cannot offer what the plan does not include — so this is the way
-    // back, and the only control Premium still draws for the index.
-    const choose = jest.fn(async (_next: unknown) => {});
-    const paying = status({
-      status: "active",
-      hasStripeCustomer: true,
-      storageIsManaged: true,
-      selected: { managedStorage: true, fastSearch: false },
-      active: { managedStorage: true, fastSearch: false },
-    });
-    const host = mount(view({ status: paying, choose }));
-    const button = host.querySelector('[data-testid="premium-include-search"]') as HTMLElement | null;
-    expect(button).not.toBeNull();
-    await act(async () => button!.click());
-    expect(choose).toHaveBeenCalledWith({ managedStorage: true, fastSearch: true });
+    expect(host.querySelector('[data-testid="premium-search-index"]')).toBeNull();
+    expect(host.querySelector('[data-testid="premium-open-search"]')).toBeNull();
+    expect(host.querySelector('[data-testid="premium-include-search"]')).toBeNull();
+    expect(host.textContent ?? "").not.toContain("Fast search");
+    expect(host.textContent ?? "").not.toContain("Storage & search");
   });
 
   test("a member reads the list and gets no switch", () => {

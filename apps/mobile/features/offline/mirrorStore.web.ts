@@ -1,8 +1,19 @@
+import { getDesktopBridge } from "@context/desktop-bridge";
 import type { KeyValueStore } from "./memory";
 import { kvMirrorStore, type MirrorStore } from "./mirrorStoreCore";
 
 /**
- * The mirror's storage — web: IndexedDB, through a wrapper written here.
+ * The mirror's storage — web: IndexedDB, through a wrapper written here, and
+ * **only inside the desktop app**.
+ *
+ * Offline is a desktop and phone app feature, never a browser one (decided by
+ * the owner, 2026-10-08: "offline should only be a thing on the desktop app
+ * and on a native mobile app. Like we shouldn't be doing that on web"). A
+ * plain browser tab gets no mirror (`mirrorSupported` is false, and
+ * `openMirrorStore` answers `null`), reads every list, folder and search from
+ * the server, and deletes the database an earlier version left behind. The
+ * queue of unsent edits stays in `localStorage` (`store.web.ts`): that is
+ * somebody's typing, not a copy of the workspace.
  *
  * `store.web.ts` explains why the queue and the drafts live in `localStorage`
  * and says, in as many words, that IndexedDB "would be the right answer" for
@@ -146,6 +157,28 @@ export async function openMirrorDatabase(
 
 let opened: Promise<MirrorStore | null> | null = null;
 
+/** Whether this runtime keeps an offline copy at all: the desktop app does, a browser tab does not. */
+export function mirrorSupported(scope?: Parameters<typeof getDesktopBridge>[0]): boolean {
+  try {
+    return getDesktopBridge(scope) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete the copy an earlier version kept in this browser. Best effort and
+ * never awaited by a reader: a tab that holds the database open blocks the
+ * delete until it closes, and the request then completes on its own.
+ */
+export function discardBrowserMirror(factory: IDBFactory | undefined): void {
+  try {
+    factory?.deleteDatabase(DB_NAME);
+  } catch {
+    // Site data blocked: there is nothing stored to delete either.
+  }
+}
+
 /**
  * The one mirror store for the life of the tab. One, for the reason the native
  * half gives: its single queue is what orders a sign-out's clear against a
@@ -160,6 +193,10 @@ export function openMirrorStore(): Promise<MirrorStore | null> {
       factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
     } catch {
       factory = undefined;
+    }
+    if (!mirrorSupported()) {
+      discardBrowserMirror(factory);
+      return null;
     }
     const db = await openMirrorDatabase(factory);
     return db === null ? null : kvMirrorStore(idbKeyValue(db), "indexeddb");

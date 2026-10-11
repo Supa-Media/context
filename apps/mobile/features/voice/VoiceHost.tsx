@@ -1,5 +1,4 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { AgentEngine } from "../agent/engine";
 import type { VoicePage } from "./VoiceButton";
 
 /**
@@ -25,30 +24,6 @@ export interface VoiceHost {
   page: VoicePage;
   /** Opens the meeting's own destination sheet. See `VoiceSheet`. */
   onRecordMeeting: () => void;
-  /**
-   * What answers a question, or absent for a surface with nothing behind it.
-   *
-   * It rides here for the reason everything else on this object does: the
-   * engine needs the workspace id and the MCP endpoint, which the console
-   * layout holds and `NoteEditor` has never seen. Absent on the demo console,
-   * the E2E fixture and the visual fixture, where `VoiceButton` falls back to
-   * the stub that describes the room and answers nothing — see `engine.ts`.
-   */
-  agent?: AgentEngine;
-  /**
-   * Open the right panel on Chat, with this note already the room.
-   *
-   * The note's right-click menu is the caller, and it deliberately hands over
-   * no question: the person has not typed one. What it does is put them in
-   * front of the composer with the note already named in the ambient place —
-   * ⌘K's row is the path that carries words, because there somebody typed
-   * some.
-   *
-   * Absent where there is no panel to open. Every compact layout is that, and
-   * so are the three surfaces with no console around them, which is why the
-   * menu row is gone rather than inert there.
-   */
-  onAskAgent?: () => void;
   /**
    * Whether this console draws the `+` in the corner the microphone used to own.
    *

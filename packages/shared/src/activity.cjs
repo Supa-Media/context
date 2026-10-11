@@ -113,6 +113,8 @@ const MAX_ENTRY_PATHS = 5;
 const MAX_SUMMARY_LENGTH = 140;
 
 const { KINDS, SUBSTANCE } = require("./activityVocabulary.cjs");
+const { decodeMoves, mergeMoves, movePairsOf } = require("./activityMoves.cjs");
+const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.cjs");
 
 /**
  * Paths that never produce a line, whatever the action says.
@@ -237,6 +239,9 @@ function entryFor(input) {
       ? touched.filter((_, index) => index % 2 === 1).slice(0, MAX_ENTRY_PATHS)
       : touched.slice(0, MAX_ENTRY_PATHS);
 
+  // An archive is a move into the archive folder, and names its pair the same way.
+  const moves = kind === "moved" || kind === "archived" ? movePairsOf(action, touched) : [];
+
   return {
     at: typeof at === "string" ? at : new Date().toISOString(),
     kind,
@@ -246,6 +251,7 @@ function entryFor(input) {
     by: actor && typeof actor.name === "string" ? actor.name : null,
     via: actor && typeof actor.client === "string" ? actor.client : null,
     note: normalizeSummary(meta.summary),
+    ...(moves.length ? { moves } : {}),
   };
 }
 
@@ -378,6 +384,8 @@ function applyEntry(entries, entry) {
       vis: candidate.vis === "team" && entry.vis === "team" ? "team" : "private",
       note: entry.note || candidate.note || null,
     };
+    const moves = mergeMoves(candidate.moves, entry.moves);
+    if (moves.length) merged.moves = moves;
     const next = list.slice();
     next.splice(index, 1);
     next.unshift(merged);
@@ -521,6 +529,7 @@ function decodeEntry(raw) {
       ? value.paths.filter((path) => typeof path === "string" && path !== "")
       : [];
     if (!paths.length) return null;
+    const moves = decodeMoves(value.moves);
     return {
       at: value.at,
       kind: value.kind,
@@ -530,6 +539,7 @@ function decodeEntry(raw) {
       by: typeof value.by === "string" ? value.by : null,
       via: typeof value.via === "string" ? value.via : null,
       note: typeof value.note === "string" ? value.note : null,
+      ...(moves.length ? { moves } : {}),
     };
   } catch {
     return null;
@@ -740,61 +750,6 @@ function nextFile(currentText, change) {
   const entries = applyEntry(parseFile(currentText), entry);
   if (!entries) return null;
   return { text: renderFile(entries, currentText), entries, entry };
-}
-
-/**
- * The entries a given reader may see.
- *
- * Two independent gates, and a change has to pass both:
- *
- *  1. **What was decided when it happened.** `vis` is the same immutable
- *     event-time flag `list_changes` reads, so a note that was private when it
- *     changed never becomes reportable later.
- *  2. **What the manifest says now.** `canSee` is re-derived per path at read
- *     time, so a note taken back into private disappears from the rendering
- *     for everyone who lost it, including from lines written while it was
- *     shared.
- *
- * `owner` skips both, because the file is the owner's own record and they can
- * read it as a note in any case.
- */
-function visibleEntries(entries, options) {
-  const { owner, canSee } = options || {};
-  if (owner) return entries.slice();
-  return entries.filter((entry) => {
-    if (entry.vis !== "team") return false;
-    if (typeof canSee !== "function") return false;
-    return entry.paths.every((path) => canSee(path));
-  });
-}
-
-/** How many of these are newer than the reader's last visit. */
-function unseenCount(entries, seenAt) {
-  const since = Number(seenAt);
-  if (!Number.isFinite(since) || since <= 0) return entries.length;
-  return entries.filter((entry) => {
-    const at = Date.parse(entry.at);
-    return Number.isFinite(at) && at > since;
-  }).length;
-}
-
-/**
- * The paths a reader has not caught up with, for the dots in the file tree.
- *
- * Notes only, and folders are the caller's job: the tree knows which of its
- * rows are collapsed and this does not.
- */
-function unseenPaths(entries, seenAt) {
-  const since = Number(seenAt);
-  const paths = new Set();
-  for (const entry of entries) {
-    const at = Date.parse(entry.at);
-    if (Number.isFinite(since) && since > 0 && (!Number.isFinite(at) || at <= since)) {
-      continue;
-    }
-    for (const path of entry.paths) paths.add(path);
-  }
-  return paths;
 }
 
 module.exports = {

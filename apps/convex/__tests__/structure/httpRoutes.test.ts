@@ -196,8 +196,7 @@ describe("the gateway's HTTP routes", () => {
    * the paths here is what keeps "the contract" and "the routes" the same list.
    *
    * `/gateway/usage` was served and called unpinned for a while, the failure
-   * this list exists to prevent; it is listed now, as is every later route.
-   */
+   * this list exists to prevent; it is listed now, as is every later route. */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
@@ -207,6 +206,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/jobs/open": "gatewayJobsOpen",
     "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/usage": "gatewayUsage",
+    "/gateway/search-timing": "gatewaySearchTiming",
     "/gateway/feedback": "gatewayFeedback",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",

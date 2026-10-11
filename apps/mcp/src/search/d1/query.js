@@ -87,6 +87,39 @@ export function toMatchExpression(query) {
   return tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
+/** Shortest token that also matches as the start of a longer word. */
+export const RELAXED_PREFIX_MIN = 3;
+
+/**
+ * The second try, for a query the strict expression found nothing for: any
+ * of the words rather than all of them, and a word of three letters or more
+ * also matching as the start of a longer one (`engin` finds `engineers`).
+ *
+ * This is what lets a ready projection's miss be the answer instead of a
+ * fall-through to the bucket index. That index scored any-term matches and
+ * expanded a term it did not know by prefix; the projection's strict AND of
+ * exact words missed exactly those queries, and every such miss paid for the
+ * slow path (Dev2, 2026-10-08: "we shouldn't be using index in the bucket at
+ * all anymore"). `bm25()` still ranks notes holding more of the words first.
+ *
+ * `null` when it would ask nothing the strict expression did not.
+ */
+export function toRelaxedMatchExpression(query) {
+  const strict = toMatchExpression(query);
+  if (strict === null) return null;
+  const tokens = query
+    .split(/[^\p{L}\p{N}_]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  const relaxed = tokens
+    .map((token) => {
+      const quoted = `"${token.replace(/"/g, '""')}"`;
+      return [...token].length >= RELAXED_PREFIX_MIN ? `${quoted}*` : quoted;
+    })
+    .join(" OR ");
+  return relaxed === strict ? null : relaxed;
+}
+
 /**
  * The tables a caller at one tier may read.
  *

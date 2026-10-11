@@ -5,6 +5,7 @@ import {
   followChord,
   noteLinkAt,
   noteLinksIn,
+  unresolvedNoteLinksIn,
   opensBehind,
 } from "../features/console/files/noteLinks";
 import { knownNotePaths, mergeLinkPaths } from "../features/console/files/paths";
@@ -299,5 +300,61 @@ describe("mergeLinkPaths", () => {
   test("sorted, so a caller that hands this across the WebView bridge gets a stable reference", () => {
     const result = mergeLinkPaths(listings, ["b.md", "a.md"]);
     expect(result).toEqual([...result].sort());
+  });
+});
+
+/*
+  A BARE NAME FINDS ITS NOTE WHATEVER ITS CASE, AND ONE THAT FINDS NOTHING
+  DOES NOT LOOK LIKE A LINK.
+
+  Reported 2026-10-11 with a screenshot of `[[Eve]]`: drawn in link colour by
+  live preview, and a click opened nothing, because the note on disk was
+  `eve.md` and the match was exact. Now the name matches loosely when nothing
+  matches exactly, and a bare name that still finds no single note is drawn
+  as unresolved (`unresolvedNoteLinksIn`) instead of as a working link.
+
+  SABOTAGE: drop `looselyNamed` from `resolveLink` in the shared engine and
+  the first two fail.
+*/
+describe("bare names, matched loosely", () => {
+  const people = [NOTE, "2-areas/people/eve.md", "1-projects/love-thy-neighbor.md"];
+
+  test("case does not stop a name finding its note", () => {
+    expect(linksIn("tribute [[Eve]] to giving", people).map((span) => span.path)).toEqual([
+      "2-areas/people/eve.md",
+    ]);
+  });
+
+  test("spaces stand for a file name's hyphens", () => {
+    expect(linksIn("[[Love Thy Neighbor]]", people).map((span) => span.path)).toEqual([
+      "1-projects/love-thy-neighbor.md",
+    ]);
+  });
+
+  test("a name that finds a note is not listed as unresolved", () => {
+    expect(unresolvedNoteLinksIn("tribute [[Eve]] to giving", { path: NOTE, paths: people })).toEqual(
+      [],
+    );
+  });
+
+  test("a name that finds nothing is, brackets and all", () => {
+    const text = "tribute [[Eve]] to giving";
+    expect(unresolvedNoteLinksIn(text, { path: NOTE, paths: KNOWN })).toEqual([
+      { from: 8, to: 15, name: "Eve" },
+    ]);
+    expect(text.slice(8, 15)).toBe("[[Eve]]");
+  });
+
+  test("so does one two notes answer to", () => {
+    expect(unresolvedNoteLinksIn("[[overview]]", { path: NOTE, paths: KNOWN })).toHaveLength(1);
+  });
+
+  test("paths, web links and embeds are never listed", () => {
+    expect(
+      unresolvedNoteLinksIn("[[../a]] [x](https://example.invalid) ![[nothing.png]]", {
+        path: NOTE,
+        paths: KNOWN,
+      }),
+    ).toEqual([]);
   });
 });

@@ -30,7 +30,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
-import { rewriteReferences } from "./references.js";
+import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
@@ -62,12 +62,11 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   let collaborationBase = null;
   if (collaborationSupported(store) && !isEncryptedNote(sourceText) &&
       collaborationEligible(source, sourceText)) {
-    if (store.capabilities?.conditionalDelete !== true) {
-      const head = await collaborationHead(store, source);
-      if (head?.status !== undefined && head.status !== "deleted") {
-        return toolError("this storage cannot safely move a collaboratively edited note");
-      }
-    } else {
+    const head = await collaborationHead(store, source);
+    if (head?.status && head.status !== "active") {
+      return toolError("this note cannot be moved safely right now; re-read and retry");
+    }
+    if (head || store.capabilities?.conditionalDelete === true) {
       try {
         collaborationBase = await readCollaborationDocument(store, source);
       } catch {
@@ -98,9 +97,6 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   );
 
   if (collaborationBase) {
-    if (store.capabilities?.conditionalDelete !== true) {
-      return toolError("this storage cannot safely move a collaboratively edited note");
-    }
     if (destinationVisibility !== "team") {
       try {
         await persistExactVisibility(store, destination, destinationVisibility, rules);
@@ -129,13 +125,13 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     }
     await clearExactVisibility(store, source);
     await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
-    const references = await rewriteReferences(store, scope, rules, overrides, new Map([[source, destination]]));
+    const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[source, destination]]));
     await recordChange(store, "move_note", scope, [source, destination], {
       etag: moved.etag,
       visibility: destinationVisibility,
       team_visible: sourceVisibility === "team" && destinationVisibility === "team",
       source_visibility: sourceVisibility,
-      references: references.capped ? "not-rewritten" : references.links,
+      references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
     });
     return withActivityHint(toolText(
       `moved: ${source} → ${destination} (etag ${moved.etag})\nvisibility: ${destinationVisibility}` +
@@ -175,7 +171,7 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   }
   await clearExactVisibility(store, source);
   await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
-  const references = await rewriteReferences(
+  const references = await rewriteReferencesOrQueue(
     store,
     scope,
     rules,
@@ -187,7 +183,7 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     visibility: destinationVisibility,
     team_visible: sourceVisibility === "team" && destinationVisibility === "team",
     source_visibility: sourceVisibility,
-    references: references.capped ? "not-rewritten" : references.links,
+    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +

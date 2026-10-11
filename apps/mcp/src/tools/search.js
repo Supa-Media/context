@@ -10,16 +10,164 @@ import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
 import { noteTitle, splitReducedRecallNotes } from "../search/visible.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { searchVisibleNotes } from "../search/visibleNotes.js";
+import { MEANING_ONLY_LABEL, meaningSearchable, searchBothWays } from "../search/meaning/serve.js";
+import { meaningEmbedderFor } from "../search/meaning/store.js";
+import { searchSettingsOf } from "../search/settings.js";
+import { loadPrivacyState } from "../privacy/state.js";
+import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
+import { withReadReach } from "../privacy/egress.js";
+
+/** Most hits a search across every workspace shows. */
+const EVERYWHERE_HITS = 12;
+
+/** Reciprocal-rank constant, the usual 60. */
+const RRF_K = 60;
+
+/** How far down a loose (any-word) hit is counted, so a note that merely shares "team" with the query never outranks a real match. */
+const LOOSE_PENALTY = 10;
+
+/**
+ * One list from every workspace's, ranked by evidence rather than by
+ * workspace: each hit scores its word rank in its own workspace (a loose
+ * any-word hit counts as ten places lower) plus its rank among every
+ * workspace's meaning matches put together, which are comparable because one
+ * model scored them all. A note strong both ways rises; a workspace's first
+ * word hit for a query that has nothing to do with it does not outrank
+ * another workspace's note the query was about. Ties keep the lists' order,
+ * this workspace first.
+ *
+ * @param {Array<Array<object>>} lists hits per workspace, this workspace's first, each hit
+ *   carrying `wordRank`, `loose` and `meaningScore` (`search/meaning/serve.js`)
+ */
+export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
+  const all = lists.flatMap((hits, list) => hits.map((hit, order) => ({ hit, list, order })));
+  const byMeaning = all
+    .filter(({ hit }) => typeof hit.meaningScore === "number")
+    .sort((a, b) => b.hit.meaningScore - a.hit.meaningScore);
+  const meaningRank = new Map(byMeaning.map((entry, rank) => [entry, rank]));
+  const scored = all.map((entry) => {
+    const { hit } = entry;
+    const word = typeof hit.wordRank === "number" ? 1 / (RRF_K + hit.wordRank + 1 + (hit.loose ? LOOSE_PENALTY : 0)) : 0;
+    const meaning = meaningRank.has(entry) ? 1 / (RRF_K + meaningRank.get(entry) + 1) : 0;
+    return { ...entry, score: word + meaning };
+  });
+  scored.sort((a, b) => b.score - a.score || a.list - b.list || a.order - b.order);
+  return scored.slice(0, most).map(({ hit }) => hit);
+}
+
+/** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
+function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+  return searchBothWays(
+    store,
+    () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
+    // A folder, never the start of a sibling's name: see `folderPrefix`. The
+    // app answers alike (`apps/convex/__tests__/searchParity.test.ts`).
+    { query, scope, prefix: folderPrefix(prefix), isVisible: (path) => canSee(path, scope, rules, overrides), ...(embed ? { embed } : {}) },
+  );
+}
+
+/**
+ * One query, one fingerprint: the embedder of the connection's own store,
+ * remembered after the first call, so a search across six workspaces embeds
+ * the query once. Undefined when this store has no meaning index, and each
+ * workspace then embeds on its own terms.
+ */
+function sharedEmbedder(store) {
+  if (!meaningSearchable(store)) return undefined;
+  let vector = null;
+  return async (texts) => {
+    if (vector === null) [vector] = await meaningEmbedderFor(store)(texts);
+    return [vector];
+  };
+}
+
+/**
+ * `search_notes` across every workspace the person can reach: the default
+ * since 2026-10-10 (the setting `everywhere`, `../search/settings.js`; asked
+ * for by the owner so an assistant need not guess which workspace an answer
+ * lives in, and made the default by him once the benchmark showed it finds
+ * everything a one-workspace search finds and more). A call that names a
+ * workspace with `context:`, or narrows with `prefix`, searches that one.
+ *
+ * Each other workspace is opened the way a tool call addressed with
+ * `context: "@name"` opens it (`store.openContext`), so it is searched under
+ * the person's role *there* and its own `privacy.md`: a note held back from a
+ * member is as absent through this as through a direct search. A workspace
+ * that cannot be opened or read right now is left out, never guessed at. The
+ * lists are fused by evidence (`fuseEverywhere`), and a hit from another
+ * workspace carries its name in front of the path.
+ */
+async function searchEverywhere(store, here, names, query, embed) {
+  const elsewhere = (
+    await Promise.all(
+      names.map(async (name) => {
+        try {
+          const { session: target, store: targetStore } = await store.openContext(name);
+          const privacy = await loadPrivacyState(targetStore);
+          if (privacy.error) return null;
+          const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
+          return { name, found, workspaceId: target.workspaceId, scope: target.scope };
+        } catch {
+          return null;
+        }
+      }),
+    )
+  ).filter(Boolean);
+  const annotated = (found, name = null) =>
+    found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
+  const hits = fuseEverywhere([annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))]);
+  return {
+    ...here,
+    hits,
+    matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, here.matchCount),
+    matchCountIsFloor: here.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
+    crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
+    reached: reachOf(hits, elsewhere),
+  };
+}
+
+/**
+ * The workspaces whose notes actually reached the answer, for the egress
+ * ledger (`privacy/egress.js`).
+ *
+ * The ones with a hit in the fused list, and no others: a workspace searched
+ * and found nothing in handed the model nothing, and recording it would make
+ * the gate ask about a read that never happened. A hit that lost its place to
+ * `EVERYWHERE_HITS` is the same — it is not in the answer, so it was not
+ * read. Keyed by the name each hit carries in front of its path, which is how
+ * the fan-out labels them.
+ */
+export function reachOf(hits, elsewhere) {
+  const shown = new Set(
+    hits.map((hit) => (typeof hit?.key === "string" ? hit.key.match(/^(@[^/]+)\//)?.[1] : null)).filter(Boolean),
+  );
+  return elsewhere
+    .filter(({ name, workspaceId }) => typeof workspaceId === "string" && shown.has(name))
+    .map(({ workspaceId, scope }) => ({ workspaceId, scope }));
+}
 
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const found = await searchVisibleNotes(store, scope, rules, overrides, query, prefix);
-  const hits = found.hits.map(({ key, snippets, title }) =>
-    snippets.length
+  // A prefix names a folder in this workspace, so a search with one stays here.
+  const names =
+    searchSettingsOf(store).everywhere && !prefix && typeof store.openContext === "function"
+      ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
+      : [];
+  const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
+  const here = await searchOne(store, scope, rules, overrides, query, prefix, embed);
+  const found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : here;
+  const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
+    meaningOnly
+      ? // Found by what it is about, not by the words typed: said so, so an
+        // agent does not quote the snippet as if it carried the term.
+        `${key}\n    (${MEANING_ONLY_LABEL})\n${(snippets.length ? snippets : [title])
+          .map((line) => `    ${line}`)
+          .join("\n")}`
+      : snippets.length
       ? `${key}\n${snippets.map((line) => `    ${line}`).join("\n")}`
       : // Indexed, then edited: it matched when it was indexed and its current
         // text does not carry the term. The title was actually read; a snippet
@@ -37,7 +185,10 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
         "\n\n"
       )}`
     : "(no matches)\n\nA miss usually means the wrong word rather than the wrong assumption — " +
-      "this searches the words in the notes, not their meaning. Before concluding it is not " +
+      (found.meaning === "off"
+        ? "this searches the words in the notes, not their meaning. "
+        : "this searched the words in the notes and what they are about, and nothing was close. ") +
+      "Before concluding it is not " +
       "written down: try the term the user would have typed, drop the prefix if you passed " +
       "one, or call orient / list_notes to see which folders exist. And if the note is long, " +
       `a note is indexed by its opening ${NOTE_INDEX_CHAR_CAP.toLocaleString("en-US")} characters, ` +
@@ -77,13 +228,24 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
       found.totalIsFloor ? "+" : ""
     } notes — narrow with a prefix if needed]`;
   }
-  return toolText(out);
+  if (found.crossWorkspace) {
+    out +=
+      '\n\nA path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note, or to any other tool, to reach it.';
+  }
+  // The workspaces this one call read from, for the turn's egress ledger: a
+  // fan-out hands the model notes from several, and the ledger is told about
+  // the one the call was routed to by `callToolForSession` alone.
+  return withReadReach(toolText(out), found.reached ?? []);
 }
 
 /** The first heading if the note has one, else its filename. */
 export async function toolOpenAiSearch(store, scope, rules, overrides, query) {
   if (!query || typeof query !== "string") return toolError("query required");
-  const { hits } = await searchVisibleNotes(store, scope, rules, overrides, query, "");
+  const { hits } = await searchBothWays(
+    store,
+    () => searchVisibleNotes(store, scope, rules, overrides, query, ""),
+    { query, scope, isVisible: (path) => canSee(path, scope, rules, overrides) },
+  );
   // Titles come from the text already fetched for the snippets, so a result
   // costs no read of its own. This used to spend a second GET per hit, which
   // doubled the most expensive part of the old scan.

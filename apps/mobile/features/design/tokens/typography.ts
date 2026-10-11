@@ -5,7 +5,7 @@ import { Platform } from "react-native";
  *
  * On web these are CSS font stacks — the faces themselves are pulled from
  * Google Fonts (see `fonts.web.ts` and `public/index.html`), exactly as the mockup
- * does. On native we deliberately hand back `undefined` so the platform
+ * does, except Libron, which is served from our own origin. On native we deliberately hand back `undefined` so the platform
  * default is used: passing a comma-separated stack to a native text node is
  * meaningless on iOS and can throw on Android, and there are no bundled font
  * binaries to point at yet. Native is a later surface; see the report.
@@ -41,6 +41,17 @@ export const fonts = {
       "Instrument Sans",
       "ui-sans-serif, system-ui, -apple-system, sans-serif",
     ),
+    default: undefined,
+  }),
+  /**
+   * The text inside a note: Libron, a serif made for long reading on screens
+   * (decided by the owner, 2026-10-11 — notes only; the interface stays in
+   * `body`). Served from our own origin, see `fonts.web.ts`. Its stand-in is a
+   * serif too, so a slow load never swaps between two kinds of letter. Native
+   * has no bundled font binaries yet, so it keeps the platform default there.
+   */
+  reading: Platform.select({
+    web: webStack("Libron", "ui-serif, Georgia, serif"),
     default: undefined,
   }),
   mono: Platform.select({

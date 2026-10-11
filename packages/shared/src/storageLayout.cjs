@@ -16,6 +16,16 @@ const PROBE_PREFIX = `${CONTEXT_ROOT}probes/`;
 const WEBSITE_RELEASE_PREFIX = `${CONTEXT_ROOT}website/releases/`;
 /** Auto-organize suggestions: new in v1 with no legacy location, so no mapping. */
 const ORGANIZER_PREFIX = `${CONTEXT_ROOT}organizer/`;
+/**
+ * What AI clients read: one object per read under a UTC day, plus a
+ * rebuildable roll-up of each day beside it. New with no legacy location.
+ */
+const READS_PREFIX = `${CONTEXT_ROOT}reads/`;
+/**
+ * Sealed logins Tex fills into web pages, one object per entry. New with no
+ * legacy location (`apps/mcp/src/vault/`).
+ */
+const VAULT_PREFIX = `${CONTEXT_ROOT}vault/`;
 
 const LEGACY_STORAGE_PREFIXES = Object.freeze([
   [".audit/", AUDIT_PREFIX],
@@ -58,6 +68,8 @@ module.exports = {
   PROPOSAL_PREFIX,
   PROBE_PREFIX,
   WEBSITE_RELEASE_PREFIX,
+  READS_PREFIX,
+  VAULT_PREFIX,
   ORGANIZER_PREFIX,
   LEGACY_STORAGE_PREFIXES,
   currentStorageKey,

@@ -523,6 +523,64 @@ export const lightGraphColors: GraphColors = {
 };
 
 /**
+ * The live workspace map's own shades (`features/console/map/live/engine`),
+ * the ones the app palette has no word for: the paper of a workspace island,
+ * a resting note, a link, a folder's bubble and its dashed rim, and `ink`,
+ * the dark that reading is drawn in. Reading is deliberately ink and not a
+ * hue: teal (`accent`) is spent only on live writing, a selected note and a
+ * new one, so the eye can find what is changing. Taken from the approved
+ * prototype; the rest of the map's colours come from `Colors`.
+ *
+ * `board` is the surface the map is drawn on (Dev2, 2026-10-11): cream paper
+ * in light mode, a blackboard in dark mode, painted in `ground`. Links are
+ * pencil or chalk in `edge` and resting notes are drawn dots in `dot`, so both
+ * are darker on paper and lighter on the board than a flat map would want
+ * (`engine/draw/board.ts`).
+ */
+export const lightMapColors = {
+  board: "paper",
+  ground: "#FAF7F0",
+  island: "#F7F4ED",
+  dot: "#6B645A",
+  edge: "#8E877C",
+  zone: "#F3EFE7",
+  zoneLine: "#DCD5C8",
+  ink: "#2E2A25",
+  // Each AI tool's colour (`map/live/agentKind.ts`). The texting assistant is
+  // the app's accent. The spare three take any tool the map does not know.
+  agentClaude: "#d9712e",
+  agentCodex: "#7d5fd6",
+  agentChatgpt: "#5f9e3c",
+  agentContext: "#0E6C69",
+  agentBlue: "#3573D1",
+  agentPink: "#C2417F",
+  agentAmber: "#8E5E1F",
+  /** The robot's and the bubble's glyph, read on every tint above. */
+  agentGlyph: "#FFFFFF",
+} as const;
+
+export type MapColors = Readonly<Record<Exclude<keyof typeof lightMapColors, "board">, string> & { board: "paper" | "chalk" }>;
+
+export const darkMapColors: MapColors = {
+  board: "chalk",
+  ground: "#1E2220",
+  island: "#24221F",
+  dot: "#E4E1D9",
+  edge: "#D9D6CE",
+  zone: "#2B2825",
+  zoneLine: "#504A43",
+  ink: "#D8D2C9",
+  agentClaude: "#e8894a",
+  agentCodex: "#a58be8",
+  agentChatgpt: "#8fc46a",
+  agentContext: "#6BC8C1",
+  agentBlue: "#6FA3F2",
+  agentPink: "#F27DB5",
+  agentAmber: "#D9A25C",
+  agentGlyph: "#1B1815",
+};
+
+/**
  * The colours a presence room gives its members, as the gateway assigns them
  * (`PRESENCE_COLORS` in `apps/mcp/src/presence.js`), in that order.
  *

@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
+import { Icon } from "../../design/components/Icon";
 import { TextLink } from "../../design/components/TextLink";
 import { leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
@@ -18,6 +19,13 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * a .zip from Files, and a managed context moves every raw object to a bucket
  * its owner controls from Settings → Storage. The sentence names both real
  * exits instead of drawing a button that would do less than it says.
+ *
+ * **It always fits the window and always closes** (Dev2, 2026-10-10: it
+ * "bombards you and you couldn't even close it", short of zooming the browser
+ * out). Its only way out used to be Close at the foot of a card taller than a
+ * laptop window, drawn with no scroll. Now the card is capped at the window's
+ * height (`doneCardMaxHeight`), its body scrolls, a close mark sits in its
+ * corner outside the scrolling part, and Escape closes it.
  */
 export function SetupDone({
   onClose,
@@ -26,8 +34,11 @@ export function SetupDone({
   onJoinCommunity,
   invitesLeft,
   onInviteFriends,
+  closeOnEscape = true,
 }: {
   onClose: () => void;
+  /** False while something is open over the card, so Escape closes that instead. */
+  closeOnEscape?: boolean;
   onNewWorkspace?: () => void;
   onCopyBootstrap: () => Promise<boolean>;
   /**
@@ -40,19 +51,28 @@ export function SetupDone({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [copied, setCopied] = useState<boolean | null>(null);
+  const { height } = useWindowDimensions();
+  useEscape(closeOnEscape, onClose);
 
   return (
-    <View style={styles.card} testID="setup-done" role="dialog" aria-label="You're set up">
+    <View
+      style={[styles.card, { maxHeight: doneCardMaxHeight(height) }]}
+      testID="setup-done"
+      role="dialog"
+      aria-label="You're set up"
+    >
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.body}
+        testID="setup-done-body"
+      >
       <View style={styles.badge} aria-hidden>
         <Text style={styles.badgeMark}>✓</Text>
       </View>
       <Text role="heading" aria-level={2} style={styles.title}>
         You're set up.
       </Text>
-      <Text style={styles.lede}>
-        Handle, storage, notes and a tool — all connected. The checklist has done its job and
-        won't come back on this device.
-      </Text>
+      <Text style={styles.lede}>Handle, storage, notes and a tool are all connected.</Text>
 
       <View style={styles.exit} testID="setup-done-exit">
         <Text style={styles.exitTitle}>Take everything with you</Text>
@@ -124,8 +144,45 @@ export function SetupDone({
       </View>
 
       <TextLink label="Close" onPress={onClose} style={styles.close} testID="setup-done-close" />
+      </ScrollView>
+      <Pressable
+        accessibilityRole="button"
+        aria-label="Close"
+        onPress={onClose}
+        hitSlop={8}
+        style={styles.dismiss}
+        testID="setup-done-dismiss"
+      >
+        <Icon name="close" size={18} />
+      </Pressable>
     </View>
   );
+}
+
+/** Where the host draws the card from the window's top, and what it keeps below. */
+export const DONE_TOP = 60;
+const DONE_BOTTOM = 24;
+
+/**
+ * The tallest the card may be in a window this high: from where the host
+ * draws it to a margin above the bottom edge, so nothing in it is ever out of
+ * reach. The rest scrolls.
+ */
+export function doneCardMaxHeight(windowHeight: number): number {
+  return Math.max(0, windowHeight - DONE_TOP - DONE_BOTTOM);
+}
+
+function useEscape(enabled: boolean, onEscape: () => void): void {
+  const latest = useRef(onEscape);
+  latest.current = onEscape;
+  useEffect(() => {
+    if (!enabled || typeof document === "undefined") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") latest.current();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [enabled]);
 }
 
 const makeStyles = (colors: Colors) =>
@@ -133,15 +190,30 @@ const makeStyles = (colors: Colors) =>
     card: {
       width: "100%",
       maxWidth: 520,
-      paddingTop: 40,
-      paddingBottom: 24,
-      paddingHorizontal: 40,
       borderWidth: 1,
       borderColor: colors.lineStrong,
       borderRadius: 16,
       backgroundColor: colors.ground,
-      alignItems: "center",
+      overflow: "hidden",
       boxShadow: "0 20px 48px rgba(26,23,20,.16)",
+    },
+    scroll: { flexGrow: 0 },
+    body: {
+      paddingTop: 40,
+      paddingBottom: 24,
+      paddingHorizontal: 40,
+      alignItems: "center",
+    },
+    dismiss: {
+      position: "absolute",
+      top: 12,
+      right: 12,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.ground,
     },
     badge: {
       width: 56,

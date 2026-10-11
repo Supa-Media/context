@@ -47,7 +47,7 @@ online-only and say so: the phone's drawing editor is never kept offline
 drawing made offline could open as a picture nobody can draw in.
 
 A new folder is `createDirectory` made later — the server makes a folder real by
-writing its README placeholder, so there is nothing to invent — and a
+writing its `about.md`, so there is nothing to invent — and a
 `DESTINATION_EXISTS` on drain is the folder that was asked for, not a problem
 for somebody to answer.
 

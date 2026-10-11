@@ -320,6 +320,11 @@ export const workspaceTables = {
      * put away. Set once; later presses do not move it.
      */
     setupRetiredAt: v.optional(v.number()),
+    /**
+     * The email domain this person joined through (`workspaceDomains`), when
+     * they did. They leave when they no longer sign in with any address there.
+     */
+    viaDomain: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])

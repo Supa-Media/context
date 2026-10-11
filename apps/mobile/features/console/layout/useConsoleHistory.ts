@@ -23,11 +23,14 @@ export function useConsoleHistory({
   router,
   route,
   openSettingsSection,
+  mapOpen = false,
 }: {
   data: ConsoleData;
   router: ConsoleRouter;
   route: ConsoleRoute;
   openSettingsSection: ReturnType<typeof settingsFromQuery>;
+  /** `?map=1`: the live map is drawn over Browse, and is a place of its own. */
+  mapOpen?: boolean;
 }): { history: HistoryState; step: (delta: -1 | 1) => void } {
   /*
     Where you have been in this context, for the toolbar's `‹` and `›`.
@@ -87,8 +90,9 @@ export function useConsoleHistory({
         routeKind: route.kind,
         appSection: route.kind === "app" ? route.section : null,
         selectedPath,
+        mapOpen,
       }),
-    [openSettingsSection, route, selectedPath],
+    [openSettingsSection, route, selectedPath, mapOpen],
   );
 
   useEffect(() => {
@@ -133,6 +137,20 @@ export function useConsoleHistory({
           return next;
         }
 
+        /*
+          The live map is a page over Browse in this context, so a step to it
+          is the same params the Map button sets (`map/live/route.ts`), from
+          inside the context. It finds its camera and its open card again in
+          `peek/mapMemory.ts`.
+        */
+        if (place.kind === "map") {
+          if (route.kind !== "context" && contextSlug !== null) {
+            router.replace(hrefFor({ kind: "context", slug: contextSlug, view: "browse" }));
+          }
+          router.setParams({ map: "1", changes: undefined, settings: undefined });
+          return next;
+        }
+
         if (openSettingsSection !== null) router.setParams({ settings: undefined });
         /*
           Back into the context first, when the step is leaving an app pane:
@@ -154,10 +172,12 @@ export function useConsoleHistory({
           navigatingTo.current = null;
           return state;
         }
+        // Off the map, to the note: the map is drawn where the note would be.
+        if (mapOpen) router.setParams({ map: undefined });
         return next;
       });
     },
-    [contextSlug, data.files, openSettingsSection, route, router],
+    [contextSlug, data.files, openSettingsSection, route, router, mapOpen],
   );
   return { history, step };
 }

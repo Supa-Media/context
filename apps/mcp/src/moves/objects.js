@@ -206,6 +206,7 @@ export const LINK_SCAN_CAP = 4000;
 
 /** One line a move prints about its references, or nothing to say. */
 export function referencesLine(result) {
+  if (result.pending) return `\nreferences: updating in background (move_id: ${result.moveId})`;
   if (result.failed > 0) {
     const notes = result.failed === 1 ? "1 note" : `${result.failed} notes`;
     return `\nreferences: partially rewritten (${notes} could not be checked or updated)`;

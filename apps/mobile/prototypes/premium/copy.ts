@@ -292,7 +292,7 @@ export const switchToManaged = {
     "Your own storage stays exactly as it is until you delete it yourself.",
     "The apps, the AI clients and the addresses you have already handed out.",
   ],
-  price: `${PRICE} for this context, whether you take managed storage, fast search, or both.`,
+  price: `${PRICE} for this context, for managed storage.`,
   cta: "Continue to Stripe",
   cancel: "Keep my own storage",
   afterNote:

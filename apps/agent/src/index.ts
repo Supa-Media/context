@@ -1,5 +1,5 @@
 /**
- * context-agent: the Worker behind the texting assistant (it calls itself "your Context").
+ * context-agent: the Worker behind Tex, the texting assistant.
  *
  *     Linq ──POST /linq──▶ this Worker ──▶ SenderInbox (one per phone number)
  *                                             │  alarm
@@ -7,6 +7,12 @@
  *                     control plane: whose phone is this? → short-lived grant
  *                     gateway /agent: answer with that grant
  *                     Linq: send the reply
+ *
+ * And once a minute, a Cron Trigger runs whatever routines are due
+ * (routines.ts): the control plane names the runs, the gateway runs each with
+ * its own grant, and the answer is texted through each phone's SenderInbox to
+ * the chat that phone last texted from. The control plane hears only an
+ * outcome and a count.
  *
  * This Worker decides nothing about who may read what. It proves a webhook
  * came from Linq, and it asks the control plane for the grant of whoever
@@ -17,6 +23,7 @@
 import { parseInbound } from "./inbound";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
+import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -79,6 +86,7 @@ export default {
 
     const now = Math.floor(Date.now() / 1000);
     if (!(await verifyLinqSignature(env.LINQ_WEBHOOK_SECRET ?? "", request.headers, raw, now))) {
+      logWebhook("unsigned");
       return new Response(null, { status: 401 });
     }
 
@@ -89,9 +97,16 @@ export default {
       return new Response(null, { status: 400 });
     }
     const inbound = parseInbound(payload);
-    if (inbound.kind === "invalid") return new Response(null, { status: 400 });
+    if (inbound.kind === "invalid") {
+      logWebhook("invalid");
+      return new Response(null, { status: 400 });
+    }
     // Signed, but nothing we act on: 200 so Linq does not retry it.
-    if (inbound.kind === "ignored") return new Response(null, { status: 200 });
+    if (inbound.kind === "ignored") {
+      logWebhook("ignored", inbound.reason);
+      return new Response(null, { status: 200 });
+    }
+    logWebhook("accepted");
 
     const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
     const result = await stub.fetch("https://inbox/accept", {
@@ -100,7 +115,44 @@ export default {
     });
     return new Response(null, { status: result.ok ? 200 : 503 });
   },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runDueRoutines({
+        fetch: (input, init) => fetch(input, init),
+        controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+        workerSecret: env.AGENT_WORKER_SECRET,
+        gatewayOrigin: env.GATEWAY_ORIGIN,
+        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        log: (entry) => console.log(JSON.stringify(entry)),
+      }),
+    );
+  },
 };
+
+/**
+ * One line per webhook, so "they texted and nothing came back" can be told
+ * apart from "nothing ever arrived": an outcome and, for a dropped event, why.
+ * Never the sender's number, never the text (see `inbox.ts` on what is kept).
+ */
+function logWebhook(outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
+  console.log(JSON.stringify({ event: "linq_webhook", outcome, ...(reason ? { reason } : {}) }));
+}
+
+/** Ask one phone's inbox to text it a routine's answer. */
+async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string): Promise<PhoneTexted> {
+  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+  const response = await stub.fetch(ROUTINE_TEXT_URL, {
+    method: "POST",
+    body: JSON.stringify({ text, idempotencyKey }),
+  });
+  if (!response.ok) return "failed";
+  const { status } = (await response.json()) as { status?: unknown };
+  return status === "texted" || status === "no_chat" ? status : "failed";
+}
+
+/** The inbox's internal route for a routine's text. Only this Worker reaches it. */
+const ROUTINE_TEXT_URL = "https://inbox/routine-text";
 
 export class SenderInbox implements DurableObject {
   constructor(
@@ -118,6 +170,23 @@ export class SenderInbox implements DurableObject {
       return simulatorInbox(this.state.storage, path.slice("/sim/".length), body, Date.now(), (message) =>
         accept(this.state.storage, message, Date.now()),
       );
+    }
+    if (path === "/routine-text") {
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown };
+      if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
+        return new Response(null, { status: 400 });
+      }
+      const status = await textRoutine(
+        this.state.storage,
+        { text: body.text, idempotencyKey: body.idempotencyKey },
+        {
+          fetch: (input, init) => fetch(input, init),
+          linqApiKey: this.env.LINQ_API_KEY,
+          now: () => Date.now(),
+          simulator: simulatorEnabled(this.env.SIMULATOR),
+        },
+      );
+      return Response.json({ status });
     }
     const message = (await request.json()) as Message;
     const outcome = await accept(this.state.storage, message, Date.now());

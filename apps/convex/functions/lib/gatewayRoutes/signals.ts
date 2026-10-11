@@ -137,6 +137,47 @@ export async function gatewayActivityHandler(
 }
 
 /**
+ * That an AI client moved one note from one context into another, so the
+ * console map can show it — `functions/workspaceMoves.ts`.
+ *
+ * Two workspace ids, two note paths and the acting identity. **Paths cross,
+ * and that is the difference from every neighbour here**: the move's record
+ * is an `auditEvents` row, which carries paths for every console move already
+ * ("Paths are metadata. Content is not." — `functions/files.ts`), and a
+ * record of a move that could not say what moved would be no record. Never
+ * content. `recordAgentMove` writes nothing unless the actor can write both
+ * contexts now, and the answer is the same `{ok: true}` whatever happened.
+ */
+export async function gatewayMovesHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const answered = () => json({ ok: true });
+  const fromWorkspaceId = stringField(body, "fromWorkspaceId");
+  const toWorkspaceId = stringField(body, "toWorkspaceId");
+  const fromPath = stringField(body, "fromPath");
+  const toPath = stringField(body, "toPath");
+  const actorUserId = stringField(body, "actorUserId");
+  const actorClientId = stringField(body, "actorClientId");
+  if (!fromWorkspaceId || !toWorkspaceId || !fromPath || !toPath || !actorUserId) {
+    return answered();
+  }
+  try {
+    await ctx.runMutation(internal.functions.workspaceMoves.recordAgentMove, {
+      fromWorkspaceId,
+      toWorkspaceId,
+      fromPath,
+      toPath,
+      actorUserId,
+      ...(actorClientId === null ? {} : { actorClientId }),
+    });
+  } catch {
+    // As its neighbours: no failure here is the gateway's business.
+  }
+  return answered();
+}
+
+/**
  * That an MCP write created, moved, removed or re-scoped something in a
  * context, and which audiences could see it — so the consoles showing that
  * context re-list it now. See `functions/treeSignals.ts`.

@@ -2,11 +2,13 @@ import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
 import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
+import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { scheduleSignupAlert } from "./functions/signupAlerts";
 import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
+import { checkCode } from "./functions/phoneCodes";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -39,10 +41,24 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // sign-in. See `functions/signupAlerts.ts`. The same moment is the account
   // conversion X and Meta ads count (`functions/xConversions.ts`,
   // `functions/metaConversions.ts`).
+  // An address added on Account settings signs in to that account rather than
+  // making a new one (`functions/lib/schema/signInEmails.ts`).
+  findUserByEmail: async (ctx, email) => (await userWithSignInEmail(ctx as never, email)) as never,
   onUserCreated: async (ctx, { userId }) => {
     await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+  },
+  // Signing in with a phone (Dev2, 2026-10-09). The app texts the code
+  // (`functions/phoneSignIn.ts`), `checkCode` checks it, and `signInUser` names the
+  // account: the one holding the phone, or a new one for a phone staff let in
+  // from the waitlist. Any other phone is refused. `spendCheck` is the guess
+  // limit, since `@convex-dev/auth` does not rate-limit a credentials provider.
+  phoneVerify: {
+    findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
+    mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
+    // Context texts its own codes (`functions/phoneCodes.ts`), so it checks them too.
+    check: (phone, code, ctx) => checkCode(ctx as never, phone, code),
   },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",

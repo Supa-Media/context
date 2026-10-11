@@ -90,6 +90,21 @@ describe("in-app message answers", () => {
     expect(await allRows(t)).toHaveLength(1);
   });
 
+  test("the folder messages are answered once per workspace, and not for the whole account", async () => {
+    const t = setupTest();
+    const seyi = await createUser(t, "seyi@example.invalid");
+    const ws = await createWorkspace(t, seyi, "seyi");
+    const as = asUser(t, seyi);
+    await expect(as.mutation(mark, { message: "missing-folders" })).rejects.toThrow();
+    await expect(as.mutation(mark, { message: "business-workspace" })).rejects.toThrow();
+    await as.mutation(mark, { message: "missing-folders", workspaceId: ws });
+    await as.mutation(mark, { message: "business-workspace", workspaceId: ws });
+    expect(await allRows(t)).toEqual([
+      expect.objectContaining({ message: "missing-folders", workspaceId: ws }),
+      expect.objectContaining({ message: "business-workspace", workspaceId: ws }),
+    ]);
+  });
+
   test("a variant only where the message takes one, and never an endless list", async () => {
     const t = setupTest();
     const seyi = await createUser(t, "seyi@example.invalid");

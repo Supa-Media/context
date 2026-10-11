@@ -38,7 +38,7 @@ export function folderTagTarget(
     /*
       Listed in the folder but not yet in this device's copy: its tags are
       not known, and guessing "none" would write over them, or make an
-      `overview.md` that pushes a written README aside. Not yet, then.
+      `about.md` that pushes a written README aside. Not yet, then.
     */
     if (note === undefined && listed?.includes(`${folder}/${name}`)) return null;
     if (note === undefined) continue;

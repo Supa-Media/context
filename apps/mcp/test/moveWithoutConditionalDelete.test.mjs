@@ -80,6 +80,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-move-fallback.test";
 
@@ -122,7 +123,16 @@ function binding(bucket, key, capabilities = {}) {
   };
 }
 
+/** Each person's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_OWNER = `cat_movefb_console_${"0".repeat(22)}`;
+const CONSOLE_UNSAFE = `cat_movefb_console_unsafe_${"0".repeat(15)}`;
+const consoleFor = (token) => (token === TOKEN_OWNER ? CONSOLE_OWNER : token === TOKEN_UNSAFE ? CONSOLE_UNSAFE : null);
+
 async function callTool(env, tokenValue, name, args = {}) {
+  return approving(() => callToolOnce(env, tokenValue, name, args), { env, consoleToken: consoleFor(tokenValue) });
+}
+
+async function callToolOnce(env, tokenValue, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -206,6 +216,23 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     alsoMemberOf: [{ workspaceId: "ws_second", role: "owner" }],
   });
   await controlPlane.addGrant({
+    accessToken: CONSOLE_OWNER,
+    workspaceId: "ws_r2like",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_movefb",
+    alsoMemberOf: [{ workspaceId: "ws_second", role: "owner" }],
+  });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_UNSAFE,
+    workspaceId: "ws_unsafe",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_movefb_unsafe",
+  });
+  await controlPlane.addGrant({
     accessToken: TOKEN_UNSAFE,
     workspaceId: "ws_unsafe",
     role: "owner",
@@ -246,6 +273,14 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     "...and the destination holds the bytes",
     primary.get("1-projects/renamed.md")?.body === "PLAIN-MARKER"
   );
+  primary.set("1-projects/read-before-move.md", { body: "PRESERVE-HISTORY", etag: "ph1" });
+  await callTool(env, TOKEN_OWNER, "read_note", { path: "1-projects/read-before-move.md" });
+  const headedMove = await callTool(env, TOKEN_OWNER, "move_note", {
+    source: "1-projects/read-before-move.md",
+    destination: "1-projects/read-after-move.md",
+  });
+  check("a note with a stored collaboration head moves on conditional-write-only storage",
+    !headedMove?.isError && primary.get("1-projects/read-after-move.md")?.body.startsWith("PRESERVE-HISTORY"));
   const oldSourceRead = await callTool(env, TOKEN_OWNER, "read_note", {
     path: "1-projects/plain.md",
   });
@@ -458,11 +493,11 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   check("...and names the move it can be resumed with", Boolean(moveId));
 
   // Bounded passes, exactly as an owner or the background worker would drive
-  // them. The cap is generous relative to BULK / MOVE_MATERIALIZE_BATCH so a
-  // regression shows up as "never finishes" rather than as a hang.
+  // them. Allow copy, cleanup, checkpointed source verification, and the
+  // reference sweep; a regression still shows up as "never finishes".
   let passes = 0;
   let last = "";
-  while (passes < 60) {
+  while (passes < 90) {
     const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: moveId });
     last = textOf(pass);
     passes += 1;

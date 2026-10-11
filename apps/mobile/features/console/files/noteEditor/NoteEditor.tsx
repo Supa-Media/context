@@ -16,10 +16,10 @@ import { LinkSheet } from "../LinkSheet";
 import { useVoiceHost } from "../../../voice/VoiceHost";
 import { makeStyles } from "./styles";
 import { noteFoot } from "./statusLine";
-import { PublishOpenNote } from "./PublishOpenNote";
 import { noteFlow } from "./flow";
 import { noteScroller } from "./scroller";
 import { noteVoiceButton } from "./voice";
+import { RecentRunsAside } from "../../routines/RecentRuns";
 import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 
@@ -442,7 +442,16 @@ export function NoteEditor({
       {compact ? (
         noteScroller(view, flow)
       ) : (
-        flow
+        /*
+          Always this row, so the editor's place in the tree is the same for
+          every note: on a wide window a routine note's recent runs stand
+          beside it (`routines/RecentRuns.tsx`), and for every other note the
+          aside draws nothing.
+        */
+        <View style={styles.besideRow}>
+          <View style={styles.besideMain}>{flow}</View>
+          <RecentRunsAside />
+        </View>
       )}
 
       {/*
@@ -503,20 +512,6 @@ export function NoteEditor({
         WebKit CI found that, in `encryption.spec.ts`, not in a test of this
         feature: a floating control is every other control's problem.
       */}
-      {/*
-        What is open, published for the console's right panel.
-
-        `NoteEditor` is the only thing that can build this — `page.ts` argues
-        that where `noteReference` is defined — and the panel is its sibling
-        rather than its descendant, so the two meet at a store rather than at
-        a provider hoisted over both. See `features/agent/openNote.ts`.
-
-        Drawn as a component rather than run as an effect here so that it
-        unmounts with the editor: leaving a stale note published after the
-        pane goes would have the panel describing a room nobody is in.
-      */}
-      <PublishOpenNote state={state} />
-
       {voice === null || !liveEditorOnScreen ? null : (
         noteVoiceButton(view, voice)
       )}

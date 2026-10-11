@@ -115,6 +115,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "member.invited": "Invited somebody",
   "member.removed": "Removed somebody",
   "member.role_changed": "Changed somebody's role",
+  "member.merged_sign_in_email": "Moved in from another email",
+  "domain.added": "Opened this workspace to an email domain",
+  "domain.updated": "Changed an email domain's access",
+  "domain.removed": "Closed this workspace to an email domain",
   "invitation.revoked": "Withdrew an invitation",
   "share.created": "Shared a note with somebody",
   "share.revoked": "Revoked a shared link",
@@ -127,6 +131,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "oauth.authorized": "Authorised an AI app",
   "privacy.reset": "Reset the privacy manifest",
   "search.fast_enabled": "Turned fast search on",
+  "search.meaning_enabled": "Turned search by meaning on",
+  "search.meaning_disabled": "Turned search by meaning off",
   "search.fast_disabled": "Turned fast search off",
   "storage.provisioned": "Connected storage",
   "storage.disconnected": "Disconnected storage",
@@ -436,7 +442,7 @@ export function deletionBlockedReason(input: {
   if (input.kind !== "shared") {
     // A personal workspace's name is the person's own username and its capture address is
     // live on the apex. Releasing that is account deletion's business.
-    return "A personal workspace is deleted with the account it belongs to. Delete the account to release its name.";
+    return "A personal workspace is deleted with your account.";
   }
   if (input.storageIsManaged) {
     return "This workspace's notes are in storage we run, and moving them out to a bucket you own is not built yet. Deleting it here would leave them somewhere you cannot reach, so it is refused until that lands.";
@@ -513,9 +519,11 @@ export interface AdvancedView {
 export interface DurableMoveJob {
   jobId: string;
   status: "queued" | "running" | "complete" | "failed";
-  phase?: "copying" | "deleting";
+  phase?: "copying" | "deleting" | "rewriting";
   completed?: number;
   total?: number;
+  progressChangedAt?: number;
+  progressPerMinute?: number;
   updatedAt: number;
 }
 
@@ -527,7 +535,7 @@ export interface DurableMoveView {
 }
 
 /** One short, path-free sentence for a background folder move. */
-export function describeMoveProgress(job: DurableMoveJob): {
+export function describeMoveProgress(job: DurableMoveJob, now = Date.now()): {
   headline: string;
   detail: string;
 } {
@@ -547,10 +555,17 @@ export function describeMoveProgress(job: DurableMoveJob): {
     job.total > 0
   ) {
     const percent = Math.min(99, Math.floor((job.completed / job.total) * 100));
-    const phase = job.phase === "copying" ? "Copying safely" : "Cleaning up the original";
+    const phase = job.phase === "copying" ? "Copying safely" :
+      job.phase === "deleting" ? "Cleaning up the original" : "Updating links";
+    const ageMinutes = job.progressChangedAt === undefined ? undefined :
+      Math.max(0, Math.floor((now - job.progressChangedAt) / 60_000));
+    const pace = job.progressPerMinute !== undefined && ageMinutes !== undefined && ageMinutes < 10
+      ? ` · ${Math.round(job.progressPerMinute * 10) / 10}/min recently` : "";
+    const freshness = ageMinutes === undefined ? "" : ageMinutes >= 10
+      ? ` · No progress for ${ageMinutes} min` : ` · Last advanced ${ageMinutes} min ago`;
     return {
       headline: "Moving a large folder",
-      detail: `${phase} · ${job.completed} of ${job.total} · ${percent}%`,
+      detail: `${phase} · ${job.completed} of ${job.total} · ${percent}%${pace}${freshness}`,
     };
   }
   return {

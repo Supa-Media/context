@@ -6,7 +6,6 @@ import type {
   OrganizerDecision,
   OrganizerKind,
   OrganizerStatus,
-  OrganizerSuggestion,
   ResolveResult,
   RouteCard,
   RouteTeam,
@@ -31,12 +30,6 @@ export interface OrganizerApi {
   acknowledgeNotice: FunctionReference<"mutation", "public", Workspace & { turnOff?: boolean }, null>;
   setAutopilot: FunctionReference<"mutation", "public", Workspace & { kind: OrganizerKind; on: boolean }, null>;
   sweepNow: FunctionReference<"mutation", "public", Workspace, null>;
-  suggestions: FunctionReference<
-    "action",
-    "public",
-    Workspace,
-    { suggestions: OrganizerSuggestion[]; sweptAt: number | null }
-  >;
   /** What changed: the cards waiting for the owner, newest first. */
   changes: FunctionReference<"action", "public", Workspace, { changes: ChangeCard[] }>;
   /** `steps` only for a change card: the ticked ones. */

@@ -81,7 +81,11 @@ describe("www. beside a root domain", () => {
       "www.acme-test.com",
     ]);
     const settings = await asUser(t, owner).query(api.functions.customDomains.settings, { workspaceId });
-    expect(settings.domain).toMatchObject({ id: domainId, hostname: "acme-test.com", www: { hostname: "www.acme-test.com", live: false } });
+    expect(settings.domain).toMatchObject({
+      id: domainId,
+      hostname: "acme-test.com",
+      www: { hostname: "www.acme-test.com", live: false, stage: "ownership", problem: null },
+    });
     const records = settings.domain!.records;
     expect(records.map((record) => [record.purpose, record.type, record.host])).toEqual([
       ["routing", "ALIAS", "@"],
@@ -104,7 +108,7 @@ describe("www. beside a root domain", () => {
     expect(await resolve(t, "acme-test.com")).toEqual({ handle: "acme", homeSlug: null });
     expect(await resolve(t, "WWW.acme-test.com.")).toEqual({ redirect: "acme-test.com" });
     const settings = await asUser(t, owner).query(api.functions.customDomains.settings, { workspaceId });
-    expect(settings.domain?.www).toEqual({ hostname: "www.acme-test.com", live: true });
+    expect(settings.domain?.www).toEqual({ hostname: "www.acme-test.com", live: true, stage: "live", problem: null });
 
     const response = await t.fetch("/domain/resolve", {
       method: "POST",
@@ -233,5 +237,58 @@ describe("www. beside a root domain", () => {
     await t.action(internal.functions.customDomainsProvision.check, { domainId });
     await runDue(t);
     expect(await companion(t)).toMatchObject({ ownershipVerified: true, status: "active" });
+  });
+
+  test("a live root whose www. certificate is still pending says so, and Check again asks Cloudflare to look at the www. now", async () => {
+    const t = setupTest();
+    const world = stubWorld();
+    const { owner, workspaceId, domainId } = await connect(t);
+    const root = await t.run(async (ctx) => await ctx.db.get(domainId));
+    world.txt.set(ownershipRecordName(root!.hostname), [ownershipRecordValue(root!.verifyToken)]);
+    world.goLive(root!.hostname);
+    // The www. reaches us, but its own certificate has not been issued yet.
+    for (const row of world.registrations.values()) {
+      if (row.hostname === "www.acme-test.com") {
+        row.status = "active";
+        row.ssl.status = "pending_validation";
+      }
+    }
+    await t.action(internal.functions.customDomainsProvision.check, { domainId });
+    await runDue(t);
+
+    const settings = await asUser(t, owner).query(api.functions.customDomains.settings, { workspaceId });
+    expect(settings.domain).toMatchObject({ status: "active", stage: "live" });
+    expect(settings.domain?.www).toEqual({ hostname: "www.acme-test.com", live: false, stage: "https", problem: null });
+    expect(await resolve(t, "www.acme-test.com")).toBeNull();
+
+    const wwwId = [...world.registrations.values()].find((row) => row.hostname === "www.acme-test.com")!.id;
+    const nudges = () => world.calls.filter((call) => call.method === "PATCH" && call.url.endsWith(`/${wwwId}`)).length;
+    const before = nudges();
+    vi.advanceTimersByTime(10_000);
+    await asUser(t, owner).mutation(api.functions.customDomains.checkNow, { domainId });
+    await runDue(t);
+    expect(nudges()).toBe(before + 1);
+
+    // Once its certificate is in, the next look makes it live.
+    world.goLive("www.acme-test.com");
+    vi.advanceTimersByTime(10_000);
+    await asUser(t, owner).mutation(api.functions.customDomains.checkNow, { domainId });
+    await runDue(t);
+    const after = await asUser(t, owner).query(api.functions.customDomains.settings, { workspaceId });
+    expect(after.domain?.www).toEqual({ hostname: "www.acme-test.com", live: true, stage: "live", problem: null });
+    expect(await resolve(t, "www.acme-test.com")).toEqual({ redirect: "acme-test.com" });
+  });
+
+  test("a live root and www. are not nudged: Check again only asks Cloudflare about what is still pending", async () => {
+    const t = setupTest();
+    const world = stubWorld();
+    const { owner, domainId } = await connect(t);
+    await goLive(t, world, domainId);
+    const patches = () => world.calls.filter((call) => call.method === "PATCH").length;
+    const before = patches();
+    vi.advanceTimersByTime(10_000);
+    await asUser(t, owner).mutation(api.functions.customDomains.checkNow, { domainId });
+    await runDue(t);
+    expect(patches()).toBe(before);
   });
 });

@@ -32,7 +32,7 @@ import { useThemedStyles, type Colors } from "../../../../design/theme";
 import { useConsoleNav } from "../../../ConsoleNavContext";
 import type { FolderListSource, ListNote } from "../../listBlock/model";
 import type { ItemActions } from "../items";
-import { makeItTaskStatus } from "../listLayout";
+import { makeItTaskStatus } from "../taskBasics";
 import type { FolderItem } from "../model";
 import { folderStatuses } from "../statuses";
 import { QuickAddComposer, type QuickAddTask } from "../tasks/QuickAddComposer";

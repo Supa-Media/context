@@ -24,6 +24,7 @@ import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { waitlistConversionId } from "./lib/xConversion";
+import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
 
 /** New waitlist rows per window, across every caller. */
 export const WAITLIST_JOINS_PER_HOUR = 300;
@@ -43,6 +44,11 @@ export const enter = mutation({
     // reported to Meta (`metaConversions.ts`). Checked there; never stored.
     fbc: v.optional(v.string()),
     fbp: v.optional(v.string()),
+    // The landing page the person saw (`/a` to `/c`) and the ad that sent them
+    // (UTM), recorded on a new row only. Cleaned by `signUpOrigin`, and an
+    // unknown value is dropped rather than refused.
+    landing: v.optional(v.string()),
+    campaign: v.optional(adCampaignValidator),
   },
   returns: v.object({
     status: v.union(v.literal("admitted"), v.literal("joined"), v.literal("already")),
@@ -73,6 +79,7 @@ export const enter = mutation({
       joinedAt: now,
       source: args.source ?? "homepage",
       joinedMailAt: now,
+      ...signUpOrigin(args),
     });
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
     await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
@@ -118,7 +125,8 @@ export const mailFacts = internalQuery({
   returns: v.union(v.null(), v.object({ email: v.string() })),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.waitlistId);
-    return row === null ? null : { email: row.email };
+    // A row joined with a phone has no address to mail.
+    return row?.email === undefined ? null : { email: row.email };
   },
 });
 

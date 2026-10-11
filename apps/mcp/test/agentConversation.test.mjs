@@ -7,7 +7,9 @@ import {
   MAX_HISTORY_TURNS,
   readConversation,
   trimHistory,
+  usedTools,
 } from "../src/agent/conversation.js";
+import { systemPrompt } from "../src/agent/prompt.js";
 
 function memoryStore() {
   const objects = new Map();
@@ -82,4 +84,51 @@ test("a corrupt or odd file reads as an empty conversation, and odd entries are 
     { role: "user", text: "hi" },
     { role: "assistant", text: "hello" },
   ]);
+});
+
+/*
+  The history is words only, so a model reading its own earlier answer saw no
+  lookup behind it and took the answer back ("I didn't open Wikipedia in this
+  conversation"), live on staging, 2026-10-10. Which tools a turn used is kept
+  by name, never their arguments or results, and the next turn is told.
+*/
+test("an answer keeps the names of the tools it used, and nothing else about them", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "When was Ada Lovelace born?", "1815.", {
+    tools: ["browse", "browse", "search_web", "text_progress", "../privacy.md", 7, "x".repeat(80)],
+  });
+  const turns = await readConversation(store, "texts");
+  assert.deepEqual(turns[1], { role: "assistant", text: "1815.", tools: ["browse", "search_web"] });
+  assert.deepEqual(usedTools(turns), [{ question: "When was Ada Lovelace born?", tools: ["browse", "search_web"] }]);
+});
+
+test("a history written before tools were kept reads as it did", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "Hi", "Hey.");
+  const turns = await readConversation(store, "texts");
+  assert.equal(Object.hasOwn(turns[1], "tools"), false);
+  assert.deepEqual(usedTools(turns), []);
+});
+
+test("the next turn is told which tools each earlier answer used, and that a retraction was the mistake", () => {
+  const history = [
+    { role: "user", text: "When was Ada Lovelace born?" },
+    { role: "assistant", text: "1815.", tools: ["browse"] },
+    { role: "user", text: "Thanks" },
+    { role: "assistant", text: "Anytime." },
+    { role: "user", text: `Save "${"a".repeat(100)}"` },
+    { role: "assistant", text: "Saved.", tools: ["write_note"] },
+  ];
+  const used = usedTools(history);
+  assert.equal(used.length, 2);
+  assert.ok(used[1].question.length <= 60 && !used[1].question.includes('"'));
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.match(prompt, /"When was Ada Lovelace born\?": you used browse\./);
+  assert.match(prompt, /that text was the mistake/);
+  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true }), /What you did for those earlier texts/);
+});
+
+test("the rule against unread facts counts an earlier answer's lookups, so it is not a reason to retract", () => {
+  const prompt = systemPrompt(null, { texting: true, continued: true });
+  assert.match(prompt, /an earlier answer of yours counts: its lookups happened/);
 });

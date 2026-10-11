@@ -31,49 +31,41 @@ more as a verb. Making them agree in either direction loses one of the two
 facts. The visibility *sentence* stays on the folder page — it says what `team`
 means for the notes inside, which is the one thing a padlock cannot.
 
-### A folder's placeholder is not a row
+### A folder's about note is its description
 
-Object storage has no folders, so `createFolder` writes `README.md` to give the
-prefix something to be. That file then appeared as the first row of every folder
-the console drew — above whatever anybody had actually written, on the surface
-with the least room for it, and on a screen whose whole argument is that a
-folder is somewhere you are rather than a settings panel. The owner's report was
-"I don't love that creating a folder puts an overview page in it".
+Object storage has no folders, so `createFolder` writes one key to give the
+prefix something to be. That key is now an empty `about.md`, and a folder's
+about note is the text drawn at the top of its page, not a row in its list.
+Until 2026-10-08 the key was `README.md`, holding a "Folder placeholder."
+sentence that the console hid. The owner decided (2026-10-08) that `about.md`,
+`overview.md`, `index.md` and `README.md` all mean the same thing, that new
+folders and new workspaces write `about.md`, and that a folder's description
+is shown, never hidden.
 
-**The console does not list it, and the bucket still holds it.** `listedEntries`
-drops it and both surfaces call that one function — the tree and the folder
-page are one listing shown twice, and a file that is a row on one and absent on
-the other is worse than the row it was hiding. `loadedCounts` skips it for the
-same reason: that line is read against the rows on screen, so counting a row
-nobody can find prints one note more than anybody can go and look at. Obsidian,
-`ls`, rclone and the gateway are unchanged, which is the point — the file exists
-*for* them.
-
-Three boundaries carry the argument, and each is a test:
-
-- **Never at the root.** The root prefix needs no key to exist, so a `README.md`
-  beside `index.md` was put there on purpose — very probably by whoever
-  self-hosted the bucket — and hiding it would be hiding content.
-- **The open note is always drawn.** A placeholder reached from search, from a
-  `[[link]]` or from a restored tab is the thing you are looking at, and a tree
-  that draws a selection it does not contain is worse than one extra row. It
-  goes back to being unlisted when you leave it.
+- **At the top of the page, not in the list.** The folder page draws the about
+  note's words under its title (`folderPage/AboutBlock.tsx`); the folder list
+  and the sidebar leave its row out (`tree.ts` `aboutNoteOf`). Search, AIs and
+  other apps reading the bucket still see an ordinary file.
+- **It says it is a file.** The filename sits in the block's corner and opens
+  the note; somebody who may write clicks the words to edit them in place
+  through the console's one lent editor.
+- **Long text folds.** Past about five lines it fades out behind "Show all", so
+  a long description never pushes the folder's notes off the screen.
+- **The root is the front page.** The top of the workspace uses `index.md` for
+  this, and only `index.md`: a `README.md` at the root is whatever the bucket's
+  maker put there.
+- **Nothing is renamed.** Workspaces scaffolded earlier keep their `README.md`
+  folder notes, and every reader accepts all four names in the order above. An
+  untouched "Folder placeholder." README is still never drawn as a description.
+  The Undo of a just-made folder recognises it by its one empty `about.md`.
+- **A note is only a description once it is written.** A new `about.md` is
+  empty, and an empty one offers "Add a description" to a writer. Nothing
+  invents a description on anybody's behalf, and nothing writes the folder's
+  name into it, since a heading there would go stale on the first rename.
 - **Names, never contents.** A listing carries names; asking the bucket for every
-  README on every expand would be a request per folder to decide a row. The
-  honest cost is that a folder overview somebody really wrote is hidden too.
-  Nothing becomes unreachable — search finds it, a link opens it, Obsidian never
-  hid it — and if that cost turns out to bite, the fix is to render the README as
-  the folder page's own introduction rather than to put the row back.
+  about note on every expand would be a request per folder.
 
-The body changed with it. It used to be `# <folder name>`: the opening line of a
-note somebody had started, on a file nobody wrote. The only readers left are the
-tools the file exists for, and to them an empty overview page reads like a task,
-so it says what it is instead — `renderFolderPlaceholder`, exported so the copy
-is pinned by a test. `NEW_FOLDER_HINT` still mentions the file at the moment the
-folder is made, because a README turning up in somebody's vault that the app
-never mentioned is worse than one line of explanation.
-
-**`privacy.md` is unlisted by the same rule** (owner, 2026-09-26: "no need to
+**`privacy.md` is unlisted** (owner, 2026-09-26: "no need to
 show it to people"). It was a root row tagged "generated": read-only, not a note,
 and saying nothing a person could act on that the visibility markers on the rows
 it governs do not already say. `isUnlistedFile` is the placeholder test or

@@ -9,8 +9,10 @@
  * On a folder's page the bottom bar's field names the folder, and the search
  * it opens asks the bucket for that folder and everything under it — the
  * gateway's own `prefix`, with a trailing slash so `1-projects` never finds
- * `1-projects-old`. One chip widens it to the whole workspace; from Home, and
- * after search closes, it is the whole workspace again.
+ * `1-projects-old`. One chip widens it; from Home, and after search closes,
+ * it is unscoped again — and unscoped ⌘K searches every workspace through
+ * `files.searchContexts` (Dev2, 2026-10-09: "by default it should search all
+ * workspaces"), not the one bucket.
  *
  * SABOTAGE (each run once, each failed the test named):
  *  - `usePaletteSearch` passing `wholeSearch` instead of `scopedSearch` to
@@ -21,7 +23,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { act } from "react";
-import { mockConsoleState, mountConsole } from "./fixtures";
+import { everywhereAsked, mockConsoleState, mountConsole } from "./fixtures";
 
 function type(app: ReturnType<typeof mountConsole>, query: string) {
   const input = app.find("palette-input") as HTMLInputElement | null;
@@ -87,11 +89,13 @@ describe("search on a phone follows the folder you are in", () => {
     await settle();
     expect(asked.at(-1)).toEqual({ query: "roadmap", prefix: "1-projects/" });
 
-    // Everywhere asks again, with no prefix at all.
+    // Widened, it asks every workspace instead, and the bucket no more.
+    const before = asked.length;
     app.press(app.find("search-scope-everywhere"));
     type(app, "roadmaps");
     await settle();
-    expect(asked.at(-1)).toEqual({ query: "roadmaps", prefix: undefined });
+    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmaps" });
+    expect(asked.slice(before).some((each) => each.query === "roadmaps")).toBe(false);
     app.unmount();
   });
 
@@ -115,9 +119,11 @@ describe("search on a phone follows the folder you are in", () => {
     });
     expect(app.find("palette-input")).not.toBeNull();
     expect(app.find("search-scope")).toBeNull();
+    const before = asked.length;
     type(app, "roadmap");
     await settle();
-    expect(asked.at(-1)).toEqual({ query: "roadmap", prefix: undefined });
+    expect(everywhereAsked.at(-1)).toEqual({ query: "roadmap" });
+    expect(asked.slice(before).some((each) => each.prefix === "1-projects/")).toBe(false);
     app.unmount();
   });
 });

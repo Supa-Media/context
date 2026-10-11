@@ -14,7 +14,8 @@
     "./recorder": "./src/recorder.js",
     "./chunks": "./src/chunks.js",
     "./session": "./src/session.js",
-    "./recovery": "./src/recovery.js"
+    "./recovery": "./src/recovery.js",
+    "./summary": "./src/summary.js"
   },
   "scripts": {
     "test": "node test/test.mjs",

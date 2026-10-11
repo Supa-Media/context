@@ -21,6 +21,7 @@ import type {
   GatewayBinding,
   GatewayEncryptionKey,
   GatewayKeyRotation,
+  GatewayMeaningIndex,
   GatewaySearchIndex,
 } from "./bindingShapes";
 
@@ -41,10 +42,16 @@ export interface ClaimedGatewayJob {
   moveId?: string;
 }
 
+/** A redelivered Queue message must wait for the running pass's lease. */
+export interface LeasedGatewayJob {
+  retryAfterMs: number;
+}
+
 export interface OpenedGatewayJob {
   job: ClaimedGatewayJob;
   binding: GatewayBinding;
   searchIndex?: GatewaySearchIndex;
+  meaningIndex?: GatewayMeaningIndex;
   encryptionKey?: GatewayEncryptionKey;
   rotation?: GatewayKeyRotation;
   /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */
@@ -64,7 +71,7 @@ export const createGatewayJobArgs = {
   moveId: v.optional(v.string()),
 };
 
-export const createGatewayJobReturns = v.boolean();
+export const createGatewayJobReturns = v.union(v.boolean(), v.literal("already_active"));
 
 export async function createGatewayJobHandler(
   ctx: MutationCtx,
@@ -87,6 +94,30 @@ export async function createGatewayJobHandler(
   if (workspaceId === null) return false;
 
   const now = Date.now();
+  const existing = await ctx.db.query("gatewayJobs")
+    .withIndex("by_workspace_kind_move", (q) => q
+      .eq("workspaceId", workspaceId)
+      .eq("kind", args.kind)
+      .eq("moveId", args.moveId))
+    .collect();
+  // A manual retry must not mint a second worker for a move whose queue job
+  // is still leased or has recently reported progress. A stale queued ticket
+  // can have been lost between row creation and Queue.send, so allow a fresh
+  // ticket after five minutes. Running passes keep their full lease.
+  if (existing.some((job) => job.expiresAt > now && (
+    (job.status === "running" && typeof job.leasedAt === "number" &&
+      job.leasedAt + GATEWAY_JOB_LEASE_MS > now) ||
+    (job.status === "queued" && job.updatedAt + 5 * 60 * 1000 > now)
+  ))) return "already_active";
+  for (const job of existing) {
+    if (job.expiresAt > now && (job.status === "queued" || job.status === "running")) {
+      await ctx.db.patch(job._id, {
+        status: "failed",
+        updatedAt: now,
+        lastError: "superseded by a fresh move worker",
+      });
+    }
+  }
   await ctx.db.insert("gatewayJobs", {
     hashedTicket: args.hashedTicket,
     workspaceId,
@@ -108,6 +139,7 @@ export const claimGatewayJobArgs = { hashedTicket: v.string() };
 
 export const claimGatewayJobReturns = v.union(
   v.null(),
+  v.object({ retryAfterMs: v.number() }),
   v.object({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
@@ -130,10 +162,11 @@ export async function claimGatewayJobHandler(
   if (job === null) return null;
   if (job.expiresAt <= Date.now()) return null;
   const now = Date.now();
-  const staleLease =
-    job.status === "running" &&
-    typeof job.leasedAt === "number" &&
-    job.leasedAt + GATEWAY_JOB_LEASE_MS <= now;
+  const leasedUntil = typeof job.leasedAt === "number" ? job.leasedAt + GATEWAY_JOB_LEASE_MS : 0;
+  const staleLease = job.status === "running" && leasedUntil <= now;
+  if (job.status === "running" && !staleLease) {
+    return { retryAfterMs: Math.max(1_000, leasedUntil - now) };
+  }
   if (job.status !== "queued" && !staleLease) return null;
   const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
   if (membership === null || membership.role !== "owner") return null;
@@ -161,7 +194,7 @@ export const reportGatewayJobArgs = {
     error: v.optional(v.string()),
     progress: v.optional(
       v.object({
-        phase: v.union(v.literal("copying"), v.literal("deleting")),
+        phase: v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting")),
         completed: v.number(),
         total: v.number(),
       }),
@@ -190,16 +223,24 @@ export async function reportGatewayJobHandler(
     progress.completed >= 0 &&
     progress.total > 0 &&
     progress.completed <= progress.total;
+  const now = Date.now();
+  const progressChanged = validProgress && (job.progressPhase !== progress.phase ||
+    job.progressCompleted === undefined || progress.completed > job.progressCompleted);
+  const elapsed = now - (job.progressChangedAt ?? now);
+  const measuredRate = progressChanged && job.progressPhase === progress.phase &&
+    job.progressCompleted !== undefined && progress.completed > job.progressCompleted && elapsed > 0
+    ? (progress.completed - job.progressCompleted) * 60_000 / elapsed : undefined;
   await ctx.db.patch(job._id, {
     status: args.result.status,
-    updatedAt: Date.now(),
-    completedAt: args.result.status === "complete" ? Date.now() : undefined,
+    updatedAt: now,
+    completedAt: args.result.status === "complete" ? now : undefined,
     lastError: gatewayJobError(args.result.error),
     ...(validProgress
       ? {
           progressPhase: progress.phase,
           progressCompleted: progress.completed,
           progressTotal: progress.total,
+          ...(progressChanged ? { progressChangedAt: now, progressPerMinute: measuredRate } : {}),
         }
       : {}),
   });

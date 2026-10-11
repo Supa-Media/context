@@ -57,10 +57,11 @@ import {
   type BindingStatus,
   type GatewayEncryptionKey,
   type GatewayKeyRotation,
+  type GatewayMeaningIndex,
   type GatewaySearchIndex,
   type OpenedGatewayBinding,
 } from "./lib/controlPlane/bindingShapes";
-import type { ClaimedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
+import type { ClaimedGatewayJob, LeasedGatewayJob, OpenedGatewayJob } from "./lib/controlPlane/gatewayJobs";
 import * as session from "./lib/controlPlane/session";
 import * as authorization from "./lib/controlPlane/authorization";
 import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
@@ -231,12 +232,18 @@ export const openStorageBinding = internalAction({
       hide this edge in a crowd. The one call that matters is visible here.
     */
     let searchIndex: GatewaySearchIndex | undefined;
+    // Search by meaning's sibling, on the same credential, the same workspace
+    // and the same "absent is ordinary" terms. Its own query failing costs
+    // only it, never fast search's descriptor.
+    let meaningIndex: GatewayMeaningIndex | undefined;
     try {
-      const target = await ctx.runQuery(
-        internal.functions.fastSearch.projectionTargetForWorkspace,
-        { workspaceId },
-      );
-      if (target !== null) {
+      const [target, meaning] = await Promise.all([
+        ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId }),
+        ctx
+          .runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, { workspaceId })
+          .catch(() => null),
+      ]);
+      if (target !== null || meaning !== null) {
         const apiToken = await ctx.runAction(
           internal.functions.admin.readIntegrationSecret,
           { name: D1_TOKEN_SECRET },
@@ -253,12 +260,17 @@ export const openStorageBinding = internalAction({
           typeof accountId === "string" &&
           accountId.length > 0
         ) {
-          searchIndex = {
-            databaseId: target.databaseId,
-            accountId,
-            apiToken,
-            state: target.state,
-          };
+          if (target !== null) {
+            searchIndex = {
+              databaseId: target.databaseId,
+              accountId,
+              apiToken,
+              state: target.state,
+            };
+          }
+          if (meaning !== null) {
+            meaningIndex = { indexName: meaning.indexName, accountId, apiToken, state: meaning.state };
+          }
         }
       }
     } catch {
@@ -274,6 +286,7 @@ export const openStorageBinding = internalAction({
         The token cannot appear here either — this catch names no error.
       */
       searchIndex = undefined;
+      meaningIndex = undefined;
     }
 
     /*
@@ -432,6 +445,7 @@ export const openStorageBinding = internalAction({
           status: "active",
         },
         searchIndex,
+        meaningIndex,
         encryptionKey,
         rotation,
         noteCap,
@@ -457,6 +471,7 @@ export const openStorageBinding = internalAction({
         status: "active",
       },
       searchIndex,
+      meaningIndex,
       encryptionKey,
       rotation,
       noteCap,
@@ -480,14 +495,15 @@ export const claimGatewayJob = internalMutation({
 export const openGatewayJob = internalAction({
   args: validators.openGatewayJobArgs,
   returns: validators.openGatewayJobReturns,
-  handler: async (ctx, args): Promise<OpenedGatewayJob | null> => {
-    const claimed: ClaimedGatewayJob | null = await ctx.runMutation(
+  handler: async (ctx, args): Promise<OpenedGatewayJob | LeasedGatewayJob | null> => {
+    const claimed: ClaimedGatewayJob | LeasedGatewayJob | null = await ctx.runMutation(
       internal.functions.controlPlane.claimGatewayJob,
       {
         hashedTicket: args.hashedTicket,
       },
     );
     if (claimed === null) return null;
+    if ("retryAfterMs" in claimed) return claimed;
 
     let credential;
     try {
@@ -497,9 +513,9 @@ export const openGatewayJob = internalAction({
     } catch {
       await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
         hashedTicket: args.hashedTicket,
-        result: { status: "failed", error: "storage_unavailable" },
+        result: { status: "queued", error: "storage_unavailable" },
       });
-      return null;
+      return { retryAfterMs: 30_000 };
     }
     if (credential === null || !isUsable(credential.status as BindingStatus)) {
       await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
@@ -510,12 +526,22 @@ export const openGatewayJob = internalAction({
     }
 
     let searchIndex: GatewaySearchIndex | undefined;
+    let meaningIndex: GatewayMeaningIndex | undefined;
     try {
-      const target: { databaseId: string; state: "backfilling" | "ready" } | null = await ctx.runQuery(
-        internal.functions.fastSearch.projectionTargetForWorkspace,
-        { workspaceId: claimed.workspaceId },
-      );
-      if (target !== null) {
+      const [target, meaning]: [
+        { databaseId: string; state: "backfilling" | "ready" } | null,
+        { indexName: string; generation: string; state: "backfilling" | "ready" } | null,
+      ] = await Promise.all([
+        ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, {
+          workspaceId: claimed.workspaceId,
+        }),
+        ctx
+          .runQuery(internal.functions.meaningSearch.writeTargetForWorkspace, {
+            workspaceId: claimed.workspaceId,
+          })
+          .catch(() => null),
+      ]);
+      if (target !== null || meaning !== null) {
         const apiToken: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
           name: D1_TOKEN_SECRET,
         });
@@ -528,16 +554,17 @@ export const openGatewayJob = internalAction({
           typeof accountId === "string" &&
           accountId.length > 0
         ) {
-          searchIndex = {
-            databaseId: target.databaseId,
-            accountId,
-            apiToken,
-            state: target.state,
-          };
+          if (target !== null) {
+            searchIndex = { databaseId: target.databaseId, accountId, apiToken, state: target.state };
+          }
+          if (meaning !== null) {
+            meaningIndex = { indexName: meaning.indexName, accountId, apiToken, state: meaning.state };
+          }
         }
       }
     } catch {
       searchIndex = undefined;
+      meaningIndex = undefined;
     }
 
     let encryptionKey: GatewayEncryptionKey | undefined;
@@ -586,6 +613,7 @@ export const openGatewayJob = internalAction({
           status: "active",
         },
         searchIndex,
+        meaningIndex,
         encryptionKey,
         rotation,
         managedEncryption,
@@ -607,6 +635,7 @@ export const openGatewayJob = internalAction({
         status: "active",
       },
       searchIndex,
+      meaningIndex,
       encryptionKey,
       rotation,
       managedEncryption,

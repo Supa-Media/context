@@ -14,7 +14,9 @@ import { type Clearance } from "../clearance";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
+import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
+import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
@@ -61,6 +63,8 @@ export interface SearchHit {
   path: string;
   title: string;
   snippets: string[];
+  /** Found by what the note is about, not by the words typed ("Same topic, different words"). */
+  meaningOnly?: boolean;
 }
 
 export interface SearchResults {
@@ -100,6 +104,22 @@ export interface SearchResults {
    * actionable rather than a bare count.
    */
   reducedRecallNotes: string[];
+  /**
+   * Which derivative answered: the D1 projection (`fast`), the shard index in
+   * the bucket (`index`), or neither (`none`: an empty query, or no index
+   * yet). Recorded with the search's time so the admin console can say which
+   * path the slow searches took (`functions/searchTimings.ts`). Never shown to
+   * the person searching.
+   */
+  answeredBy?: "fast" | "index" | "none";
+  /**
+   * How long each half of the search took, in milliseconds from the start of
+   * `searchNotes`: the words (the projection or the bucket index) and the
+   * meaning lookup, which run at the same time. `meaning` is absent when
+   * meaning search is off for this workspace. Drawn in ⌘K's "where the time
+   * went" panel (Dev2, 2026-10-09: "show how long the query took").
+   */
+  timing?: { words: number; meaning?: number };
 }
 
 /**
@@ -247,6 +267,7 @@ export async function searchNotes(
       indexMissing: false,
       reducedRecall: false,
       reducedRecallNotes: [],
+      answeredBy: "none",
     };
   }
 
@@ -273,6 +294,35 @@ export async function searchNotes(
   // between them a caller must never be able to see.
   const limit = pageDepth(options.limit);
 
+  // Search by meaning, asked now so it runs while the words are searched, and
+  // merged into whichever index answers (`search/meaning/serve.js`). It never
+  // rejects: a failure is `null`, which leaves the word answer as it was.
+  const started = Date.now();
+  let meaningMs: number | undefined;
+  const meaningPending = meaningSearchable(store)
+    ? meaningMatches(store, {
+        query,
+        scope: options.clearance.scope,
+        grantedGroups: options.clearance.names.size > 0,
+        isVisible,
+        prefix: underFolder,
+      }).then((matches: unknown) => {
+        meaningMs = Date.now() - started;
+        return matches;
+      })
+    : Promise.resolve(null);
+  const timed = (wordsMs: number): NonNullable<SearchResults["timing"]> =>
+    meaningMs === undefined ? { words: wordsMs } : { words: wordsMs, meaning: meaningMs };
+  const merged = async (found: SearchResults): Promise<SearchResults> => {
+    const wordsMs = Date.now() - started;
+    // `evidence` (the word rank and closeness behind each hit) is for the
+    // gateway's search across workspaces; a console answer carries hits only.
+    const { meaning: _meaning, evidence: _evidence, ...results } = await withMeaning(store, found, await meaningPending, {
+      keyField: "path",
+    });
+    return { ...(results as SearchResults), timing: timed(wordsMs) };
+  };
+
   if (projection !== null) {
     try {
       const fast = await answerFromProjection(projection, {
@@ -281,13 +331,17 @@ export async function searchNotes(
         tier: options.clearance.scope,
         isVisible,
         limit,
+        // The projection is only handed over `ready`, and its miss is the
+        // answer, never a fall-through to the bucket index.
+        missIsAnswer: true,
       });
       if (fast) {
-        return {
-          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[] }) => ({
+        return await merged({
+          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
             path: hit.key,
             title: hit.title,
             snippets: hit.snippets,
+            ...(hit.loose ? { loose: true } : {}),
           })),
           matchCount: fast.matchCount,
           matchCountIsFloor: fast.matchCountIsFloor,
@@ -305,7 +359,8 @@ export async function searchNotes(
           // `SearchResults.reducedRecall`.
           reducedRecall: false,
           reducedRecallNotes: [],
-        };
+          answeredBy: "fast",
+        });
       }
     } catch {
       // Every D1 failure is one of `d1/client.js`'s closed-set codes, and none
@@ -319,7 +374,7 @@ export async function searchNotes(
 
   const found = await searchIndexedNotes(store as unknown as SearchStore, {
     isVisible,
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     query,
     prefix: underFolder,
     limit,
@@ -344,10 +399,12 @@ export async function searchNotes(
       indexMissing: true,
       reducedRecall: false,
       reducedRecallNotes: [],
+      answeredBy: "none",
+      timing: timed(Date.now() - started),
     };
   }
 
-  return {
+  return await merged({
     hits: (found.hits ?? []).map((hit) => ({
       path: hit.key,
       title: hit.title,
@@ -359,7 +416,8 @@ export async function searchNotes(
     indexMissing: false,
     reducedRecall: Boolean(found.reducedRecall),
     reducedRecallNotes: found.reducedRecallNotes ?? [],
-  };
+    answeredBy: "index",
+  });
 }
 
 /**
@@ -394,7 +452,7 @@ export async function runIndexPass(
   return await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
     budget,
     reserve,
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     ...(shardByteCap === undefined ? {} : { shardByteCap }),
   });
 }
@@ -485,7 +543,7 @@ export async function indexChangedNotes(
   for (const path of change.written) only.set(path, { version: "", uploaded });
   const pass = await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
     budget: createSearchBudget(INDEX_NOTES_BUDGET),
-    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable: isIndexableNote,
     only,
   });
   return {

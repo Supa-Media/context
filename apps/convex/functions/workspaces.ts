@@ -154,7 +154,7 @@ export const createWorkspace = mutation({
  *
  * ## Everything here is reversible, and nothing here can overwrite
  *
- * This writes a `README.md` per folder plus `index.md` and `privacy.md`, all of
+ * This writes an `about.md` per folder plus `index.md` and `privacy.md`, all of
  * them ordinary Markdown in the customer's own bucket. Every one can be
  * renamed, edited or deleted afterwards, in the console or in Obsidian. It is a
  * leg-up on an empty bucket, not a schema.
@@ -181,7 +181,7 @@ export const applyStructure = mutation({
     template: v.union(v.literal("para"), v.literal("custom")),
     /**
      * Required for `custom`, refused for `para`. Each becomes a root folder
-     * whose `README.md` carries the description, verbatim.
+     * whose `about.md` carries the description, verbatim.
      */
     folders: v.optional(
       v.array(v.object({ folder: v.string(), description: v.string() })),

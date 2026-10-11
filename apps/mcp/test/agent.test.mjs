@@ -1,8 +1,9 @@
 /**
  * The agent turn, end to end through the real worker.
  *
- * A question goes in at `/agent`, the worker opens the customer's model account
- * through `/gateway/provider`, calls a **fake model** that answers with tool
+ * A question goes in at `/agent`, the worker asks the control plane whether this
+ * turn may spend the built-in model, calls a **fake model** behind the AI
+ * gateway's address (`agentModelFixture.mjs`) that answers with tool
  * calls, and those calls run through the same `callToolForSession` an MCP
  * client's do — against a real `S3Store` over the in-memory backend, behind the
  * real privacy engine.
@@ -57,22 +58,17 @@
  *     the wire and one at the function.
  *  4. The turn recording `steps` with the arguments each tool was called with.
  *     → **1 fails**: `the steps name tools and never arguments`.
- *  5. `agentTools` dropping the `WITHHELD_FROM_AGENT` filter — the shape of
- *     "`readOnlyHint` already says whether a model may call it".
- *     → **2 fail**: `the key export is never offered to the agent` and `...and
- *     does not run at all, whatever the model named`, one at the offering and
- *     one at the call. Two guards, and the export needs both gone to land.
+ *  5. `export_encryption_keys` put back in `schemas/notes.js` with
+ *     `readOnlyHint: true`, the shape it had before the owner removed it.
+ *     → **3 fail** here: `no connection's client is offered a key export, the
+ *     owner's included`, `the key export is never offered to the agent` and
+ *     `...and does not run at all, whatever the model named` (12 across the
+ *     suite, the tool counts and the encryption section among them).
  *  6. `runTurn` dispatching `call.name` without checking it against `tools` —
  *     the state this file was merged in.
  *     → **2 fail**: `a tool the agent was never offered writes nothing` and
  *     `...and does not run at all, whatever the model named`. The first one is
  *     the damage: the note really is in the bucket.
- *  7. `export_encryption_keys` renamed throughout `index.js` and nowhere else —
- *     the drift that makes a literal in `WITHHELD_FROM_AGENT` stop matching,
- *     which the absence check cannot see.
- *     → `this connection's client really is offered the key export` fails (with
- *     four in the encryption suite). The absence check passes, vacuously, which
- *     is the whole reason its companion is there.
  */
 
 import worker from "../src/index.js";
@@ -84,12 +80,18 @@ import {
   GATEWAY_SECRET,
 } from "./controlPlaneStub.mjs";
 import { agentTools, describePlace, systemPrompt } from "../src/agent/turn.js";
+import {
+  AI_GATEWAY_ENV,
+  AI_GATEWAY_ORIGIN,
+  BUILTIN_ALLOWED,
+  GATEWAY_WIRE_MODEL,
+  systemText,
+} from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
 const TOKEN_TEAM = `cat_agent_team_${"0".repeat(25)}`;
 const TOKEN_READONLY = `cat_agent_read_${"0".repeat(25)}`;
-const API_KEY = "zarquon-plumbago-agent-not-a-real-key-and-never-was";
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -124,7 +126,7 @@ function createFakeModel() {
         headers: { "Content-Type": "application/json" },
       });
     }
-    // Anthropic's Messages shape, which is the provider these tests drive.
+    // Anthropic's Messages shape, which is what the AI gateway answers in.
     const content = [];
     if (next.text) content.push({ type: "text", text: next.text });
     for (const call of next.toolCalls ?? []) {
@@ -144,7 +146,7 @@ function createFakeModel() {
     );
   }
 
-  return { requests, install, handle, origin: "https://api.anthropic.com" };
+  return { requests, install, handle, origin: AI_GATEWAY_ORIGIN };
 }
 
 async function ask(env, tokenValue, body) {
@@ -243,9 +245,9 @@ export async function runAgentChecks(check) {
       userId: "user_agent",
     });
 
-    controlPlane.connectProvider("ws_agent", "anthropic", API_KEY);
+    controlPlane.setBuiltinVerdict("ws_agent", BUILTIN_ALLOWED);
 
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 
     // Seeded straight into the backend, the way the tenancy suite does it.
     // `4-archive` takes the manifest's `private` default; `1-projects` is
@@ -274,8 +276,8 @@ export async function runAgentChecks(check) {
       answered.body?.answer?.includes("12 September") === true,
     );
     check(
-      "the turn names the provider it spent",
-      answered.body?.provider === "anthropic",
+      "the turn names the model it spent: the built-in one",
+      answered.body?.provider === "builtin",
     );
     check(
       "the steps name the tools that ran, in order",
@@ -289,16 +291,18 @@ export async function runAgentChecks(check) {
       ),
     );
 
-    /* ---------------------- 2. the key, and where it goes ------------------ */
+    /* ---------------------- 2. the model, and whose it is ------------------ */
 
     check(
-      "the key reaches the model provider and nothing else",
+      "every round runs on the built-in model, through our gateway",
       model.requests.length > 0 &&
-        model.requests.every((request) => request.headers["x-api-key"] === API_KEY),
+        model.requests.every(
+          (request) => request.url.startsWith(AI_GATEWAY_ORIGIN) && request.body?.model === GATEWAY_WIRE_MODEL,
+        ),
     );
     check(
-      "no answer the route gives carries the key",
-      !JSON.stringify(answered.body).includes(API_KEY),
+      "no round carries a provider key: this deployment configured none",
+      model.requests.every((request) => request.headers["x-api-key"] === undefined),
     );
 
     /* ---------------------- 3. the tools it is offered --------------------- */
@@ -317,32 +321,19 @@ export async function runAgentChecks(check) {
     check("the read tools are offered", offeredNames.includes("read_note"));
 
     /*
-      AND `readOnlyHint` IS THE WRONG AXIS FOR "MAY A MODEL CALL THIS".
+      THERE IS NO KEY EXPORT TO OFFER.
 
-      `export_encryption_keys` mutates nothing, so it is annotated
-      `readOnlyHint: true` — correct, for what that flag answers. It also
-      returns this context's workspace data key(s) **in the clear**, and its own
-      description says there is no un-export. `agentTools` read that flag as
-      "safe to hand a model" and offered it, on the one grant tier that can call
-      it — this one.
-
-      Where that ends is not the answer on the screen. `propose_note` is offered
-      too and writes its content into the bucket, so a turn talked into
-      exporting and then proposing puts the key that opens every encrypted note
-      in this context next to the notes it opens: plaintext, at rest, in the one
-      place the encryption exists to survive. Non-negotiable #1 — credentials
-      never live in the bucket.
-
-      `WITHHELD_FROM_AGENT` holds the name as a string literal, so a check that
-      only asserts absence would keep passing after somebody renamed the tool
-      and quietly unwithheld it. The companion check below asserts the same
-      connection's *client* is still offered it, which is the half that fails on
-      that rename.
+      The owner removed `export_encryption_keys` from the MCP on 2026-10-08:
+      leaving the product already hands back every note in plain text, and a
+      tool that returned the key in the clear let any AI app pull it into a
+      chat, or, with `propose_note`, into the bucket beside the notes it opens.
+      Asked of the owner's own client, the widest grant there is, so a tool that
+      came back under that name would fail here before it reached a model.
     */
     const clientNames = await clientToolNames(env, TOKEN_OWNER);
     check(
-      "this connection's client really is offered the key export",
-      clientNames.includes("export_encryption_keys"),
+      "no connection's client is offered a key export, the owner's included",
+      clientNames.length > 0 && !clientNames.includes("export_encryption_keys"),
     );
     check(
       "the key export is never offered to the agent",
@@ -452,7 +443,7 @@ export async function runAgentChecks(check) {
         text: "PRIVATE-ONLY-MARKER",
       },
     });
-    const sentSystem = model.requests[model.requests.length - 1].body.system ?? "";
+    const sentSystem = systemText(model.requests[model.requests.length - 1].body);
     check(
       "the ambient place reaches the model",
       sentSystem.includes("1-projects/pricing.md") && sentSystem.includes("unsaved"),
@@ -471,10 +462,26 @@ export async function runAgentChecks(check) {
     const noQuestion = await ask(env, TOKEN_OWNER, { question: "   " });
     check("an empty question is refused", noQuestion.status === 400);
 
+    /*
+      People's own keys were deleted (the owner, 2026-10-10). A request that
+      still names a provider gets the refusal an unconnected one always got,
+      whichever provider it names, and is never quietly answered on ours.
+    */
+    const asked = model.requests.length;
     const noProvider = await ask(env, TOKEN_OWNER, { question: "hi", provider: "ollama" });
+    const namedAnthropic = await ask(env, TOKEN_OWNER, { question: "hi", provider: "anthropic" });
+    const namedOpenAi = await ask(env, TOKEN_OWNER, { question: "hi", provider: "openai" });
     check(
-      "a provider this build cannot spend is refused as an unconnected one",
-      noProvider.status === 409 && noProvider.body?.error === "no_provider",
+      "a request naming any provider is refused as no_provider, and no model is called",
+      [noProvider, namedAnthropic, namedOpenAi].every(
+        (refused) => refused.status === 409 && refused.body?.error === "no_provider",
+      ) && model.requests.length === asked,
+    );
+    check(
+      "...with the same words for every provider, none of them asking for an account",
+      noProvider.body?.error_description === namedAnthropic.body?.error_description &&
+        namedAnthropic.body?.error_description === namedOpenAi.body?.error_description &&
+        !/connect|account|anthropic|openai/i.test(noProvider.body?.error_description ?? "connect"),
     );
 
     model.install([{ status: 500 }]);
@@ -510,6 +517,26 @@ export async function runAgentChecks(check) {
     check(
       "the conversation is kept in the customer's own bucket",
       bucket.has(".context/agent/conversations/texts.json"),
+    );
+
+    // A turn that looked something up says so to the next one, by tool name
+    // only: words-only history had the model take back answers it had checked.
+    model.requests.length = 0;
+    model.install([
+      { toolCalls: [{ name: "search_notes", args: { query: "launch venue" } }] },
+      { text: "At the hall." },
+      { text: "Yes, the hall." },
+    ]);
+    await ask(env, TOKEN_OWNER, { question: "Where is the launch?", conversation: "texts" });
+    await ask(env, TOKEN_OWNER, { question: "Are you sure?", conversation: "texts" });
+    const saved = bucket.get(".context/agent/conversations/texts.json")?.body ?? "";
+    check(
+      "a texted answer keeps the names of the tools it used, never their arguments",
+      saved.includes('"tools":["search_notes"]') && !saved.includes("launch venue"),
+    );
+    check(
+      "...and the next turn is told it used them",
+      /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
     );
 
     model.requests.length = 0;
@@ -551,6 +578,16 @@ export async function runAgentChecks(check) {
       systemPrompt(null).includes("propose_note"),
     );
     check(
+      "the app's agent still cites note paths, and is not told it is texting",
+      systemPrompt(null).includes("Cite the note path") && !systemPrompt(null).includes("No Markdown"),
+    );
+    check(
+      "a texted answer is told to write without Markdown or note paths, and still cannot edit",
+      systemPrompt(null, { texting: true }).includes("No Markdown") &&
+        !systemPrompt(null, { texting: true }).includes("Cite the note path") &&
+        systemPrompt(null, { texting: true }).includes("propose_note"),
+    );
+    check(
       "agentTools only ever narrows",
       agentTools([
         { name: "read_note", annotations: { readOnlyHint: true } },
@@ -567,7 +604,7 @@ export async function runAgentChecks(check) {
       A length bound, not a trust boundary: the app that builds the place is the
       person's own client. What it buys is that a client bug which puts a whole
       document where a path goes costs one confused answer rather than a bill,
-      on a request the customer pays for by the token.
+      on a request somebody pays for by the token.
     */
     check(
       "an absurdly long place field is dropped rather than sent",

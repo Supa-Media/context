@@ -411,13 +411,20 @@ describe("names for what the census counts", () => {
 
 describe("the tabs", () => {
   test("the errands are distinct and growth comes first", () => {
-    // The waitlist joined as a fifth when sign-up became invite-only.
+    // The waitlist joined as a fifth when sign-up became invite-only, and the
+    // agent as a sixth when the texting assistant's turns started being timed,
+    // and search beside it when searches were; people last, for typing in
+    // phones before sign-in moved to them.
     expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
       "growth",
       "estate",
       "activity",
+      "agent",
+      "aiCosts",
+      "search",
       "credentials",
       "waitlist",
+      "people",
     ]);
     expect(isAdminTab("growth")).toBe(true);
     expect(isAdminTab("secrets")).toBe(false);

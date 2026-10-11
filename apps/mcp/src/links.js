@@ -258,6 +258,21 @@ export function parseLinks(text) {
   return found.sort((a, b) => a.start - b.start);
 }
 
+/** True when only parsed link targets changed, with every other byte intact. */
+export function onlyLinkTargetsChanged(before, after) {
+  if (before === after) return false;
+  const stripped = (text) => {
+    let result = "";
+    let cursor = 0;
+    for (const link of parseLinks(text)) {
+      result += text.slice(cursor, link.start) + "\u0000";
+      cursor = link.end;
+    }
+    return result + text.slice(cursor);
+  };
+  return stripped(before) === stripped(after);
+}
+
 /**
  * The wikilinks in `text`, in order, as `/(!?)\[\[([^\]\n]+)\]\]/g`
  * matched them.
@@ -395,6 +410,46 @@ export function styleOf(file) {
  * ambiguous one resolves to nothing rather than to a guess.
  */
 export function resolveLink(link, fromPath, byName) {
+  const target = linkTargetOf(link, fromPath);
+  if (target === null) return null;
+  if (target.kind === "path") return target.path;
+  const candidates = byName?.get(target.name) ?? looselyNamed(byName, target.name);
+  return candidates?.length === 1 ? candidates[0] : null;
+}
+
+/**
+ * The notes a bare name matches when no basename matches it exactly: the same
+ * name with case, spaces and underscores set aside, so `[[Eve]]` finds
+ * `people/eve.md`. Only a fallback, and still only when one note answers. The
+ * twin of `looselyNamed` in `packages/shared/src/links.ts`; `linkParity.test.ts`
+ * holds the two together.
+ */
+function looselyNamed(byName, name) {
+  if (byName === undefined || byName === null) return undefined;
+  const wanted = looseName(name);
+  if (wanted === "") return undefined;
+  const found = [];
+  for (const [candidate, paths] of byName) {
+    if (looseName(candidate) === wanted) found.push(...paths);
+  }
+  return found.length === 0 ? undefined : found;
+}
+
+function looseName(name) {
+  return name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+}
+
+/**
+ * What a link names before anything is looked up: a path (`kind: "path"`),
+ * or for a bare target only a name (`kind: "name"`, without `.md`), because a
+ * name means a note only once the whole bucket says which one carries it.
+ * `null` for anything this module will not touch.
+ *
+ * `resolveLink` is this plus the name lookup. The tree's link table stores
+ * exactly this, so "which notes point at X" is answered by the same parse a
+ * rewrite runs (`tree/links.js`).
+ */
+export function linkTargetOf(link, fromPath) {
   const target = link.target.trim();
   if (target === "" || target.startsWith("#") || isExternal(target)) return null;
 
@@ -404,11 +459,7 @@ export function resolveLink(link, fromPath, byName) {
   const decoded = link.kind === "inline" ? safeDecode(file) : file;
   const style = styleOf(decoded);
 
-  if (style === "bare") {
-    const name = decoded.replace(/\.md$/, "");
-    const candidates = byName?.get(name);
-    return candidates?.length === 1 ? candidates[0] : null;
-  }
+  if (style === "bare") return { kind: "name", name: decoded.replace(/\.md$/, "") };
 
   const base = style === "relative" ? dirOf(fromPath).split("/") : [];
   const segments = normalizeSegments([...base, ...decoded.split("/")]);
@@ -420,8 +471,8 @@ export function resolveLink(link, fromPath, byName) {
     already carrying a *different* extension is an attachment — an image, a PDF
     — and is resolved as written rather than having `.md` bolted onto it.
   */
-  if (path.endsWith(".md")) return path;
-  return /\.[a-z0-9]{1,8}$/i.test(path) ? path : `${path}.md`;
+  if (path.endsWith(".md")) return { kind: "path", path };
+  return { kind: "path", path: /\.[a-z0-9]{1,8}$/i.test(path) ? path : `${path}.md` };
 }
 
 function safeDecode(value) {
@@ -506,8 +557,17 @@ function encodeTarget(file) {
  * and every relative one of them now needs a different number of `../`.
  *
  * `renames` maps a moved note's old path to its new one. A link resolving to a
- * path that is not in it is still re-expressed when the *referrer* moved, and
- * otherwise left byte-identical.
+ * path that is not in it is still re-expressed when the *referrer* moved.
+ * An owner sweep may also pass `forwardTarget` to follow an earlier move from
+ * the forwarding ledger, including a move whose link sweep was deferred.
+ *
+ * `allowTarget` decides whether a link MAY be pointed at its new destination.
+ * A rewrite happens inside somebody else's note, which keeps its own
+ * visibility, so following a move into a narrower place would write that
+ * place's path where a wider audience reads it. A refused target leaves the
+ * link on the path it already named: broken for everybody rather than
+ * readable by the wrong people. Callers that rewrite notes they do not own
+ * the audience of must pass it.
  *
  * Returns `null` when nothing changed, so a caller can skip the write rather
  * than stamp a new etag and a `.history/` entry on an unchanged file — and
@@ -515,7 +575,7 @@ function encodeTarget(file) {
  * is what a move reports back and deriving it by diffing afterwards would be a
  * second, disagreeing implementation of "what changed".
  */
-export function rewriteLinks(text, { fromPath, toPath, renames, byName }) {
+export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardTarget = undefined, allowTarget = undefined }) {
   const links = parseLinks(text);
   if (links.length === 0) return null;
 
@@ -526,9 +586,16 @@ export function rewriteLinks(text, { fromPath, toPath, renames, byName }) {
   for (const link of links) {
     const resolved = resolveLink(link, fromPath, byName);
     if (resolved === null) continue;
-    const destination = renames.get(resolved) ?? resolved;
+    const moved = renames.get(resolved) ?? resolved;
+    const followed = forwardTarget?.(moved) ?? moved;
+    // Asked only where the link would actually move, so a referrer that merely
+    // changed depth still re-expresses a target it was always allowed to name.
+    const destination = followed !== resolved && allowTarget && !allowTarget(followed) ? resolved : followed;
     // The referrer stayed put and the target stayed put: nothing to say.
     if (destination === resolved && fromPath === toPath) continue;
+    // A bare name resolves wherever the referrer lives: a target that stayed
+    // put needs nothing, and re-expressing `[[Eve]]` would respell it `[[eve]]`.
+    if (destination === resolved && link.kind === "wiki" && styleOf(splitAnchor(link.target.trim()).file) === "bare") continue;
 
     const replacement = expressLink(link, toPath, destination);
     if (replacement === link.target) continue;

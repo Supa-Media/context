@@ -38,6 +38,28 @@ deliberate: this is a decision not to draw something, and a guard against
 drawing it would be a test asserting the absence of a feature nobody has.
 `FolderView.tsx`'s own comment on the exception mark is what a future reader
 hits first, and it now says the slot is for exceptions and names this.
+
+### The exception: the tree counts while the live map is open
+
+**Decided by the owner's approval of the live map proposal, 2026-10-07.** The
+approved proposal draws a number beside each top-level folder in the sidebar
+while the map is open, moving as the map does: notes arriving in a folder,
+leaving it, and, while replaying, the count at the playhead. That is an
+explicit exception to the rule above, and it is narrow on purpose:
+
+- **Only while the map is open.** Close it and the rows carry no counts again;
+  a folder listing and the phone's Browse never show them.
+- **Only the tree's top-level folders, in the workspace the map shows.** They
+  are the map's legend, the same numbers the map draws on its folder bubbles,
+  and not a measure of anything to be driven to zero. `0-inbox` counts there
+  like every other folder, because next to a map of where notes are, it is.
+- **Nothing is fetched for it.** The numbers come from the map's own state
+  (`map/live/mapCounts.ts`), and with the map closed the store is empty.
+
+The test that fails if it is reversed is `liveMapEntry.test.ts`'s tree-counts
+case (`tree-map-count`): counts appear with the map open, follow the
+playhead, and are gone when it closes.
+
 ## The workspaces come back as a row at the foot of the tree, not as a column
 
 **Superseded on 2026-09-26** by [the account button at the foot of the
@@ -318,6 +340,25 @@ search" — which is asserted by exact equality, so a keyword edit that merges
 those two destinations fails loudly. `consoleNav.test.ts` holds the aliases.
 `settingsOverlayRender.test.ts` sweeps every section for exactly one
 `role="heading"`, which is what stops a merged panel from growing a second one.
+
+**Seven again, 2026-10-10.** The list had grown back to fifteen rows, and the
+owner called it "very cluttered … a lot of wordiness … a lot of things that you
+probably don't need to expose". The approved boards cut it to Profile, then
+General, People & sharing, Connected apps, Plan, Storage and Website. Feedback,
+Activity, Meetings and Emoji kept their pages and keys but are
+`folded`: each is opened by a row, switch or link on the page a person would
+open first (Profile, People & sharing, Connected apps, General),
+and by a search for its name. Rule 2 above still holds: nothing went with its
+row. Every page opens with one line, not a paragraph, and explanations that
+still matter sit behind a "How this works" disclosure. The bar above a section
+carries no workspace chip or health pill; the Storage row says "Healthy".
+Test: "seven listed rows; five pages live behind a row on another page" in
+`settingsSections.test.ts`.
+
+**The AI model page is gone, 2026-10-10.** The owner asked the same day to
+remove "add your own token" from Settings. The `model` section, its panel and
+its provider list were deleted rather than folded; nothing in the console
+reads or writes a personal AI key any more.
 
 ### A pasted image is a width in the note and a file in the bucket, and nothing else
 

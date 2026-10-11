@@ -23,6 +23,7 @@ import {
   referencesLine,
   retireMovedSource,
 } from "../../moves/objects.js";
+import { ROLE_LABEL, isMainFolder, topLevelRole } from "../../../../../packages/shared/src/folderRoles.cjs";
 import {
   eligible as collaborationEligible,
   supported as collaborationSupported,
@@ -40,8 +41,9 @@ import { normalizePath } from "../../notes/paths.js";
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
+import { remapFolderIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { recordPartialMove } from "./notes.js";
-import { rewriteReferences } from "./references.js";
+import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 async function persistPrivacyFolderMove(store, source, destination) {
@@ -135,6 +137,8 @@ async function createLogicalFolderMove(store, scope, source, destination, object
   // moved from here on, so a link that arrives in between must forward too.
   // One folder entry covers every object under it — see `forwarding.js`.
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
+  // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
+  await remapFolderIcons(store, source, destination);
   const now = new Date().toISOString();
   const id = `move-${crypto.randomUUID()}`;
   const job = {
@@ -159,16 +163,19 @@ async function createLogicalFolderMove(store, scope, source, destination, object
   };
   await store.put(moveJobKey(id), JSON.stringify(job, null, 2));
   await writeMoveSentinel(store);
+  let queued = false;
   if (typeof store.enqueueGatewayJob === "function") {
     try {
-      await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id });
+      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
     } catch {
       // The on-bucket marker is the source of truth. Queueing is what makes the
       // move autonomous, but a control-plane blip must not roll back the
       // logical cutover; the owner can still resume with `materialize_move`.
     }
   }
-  if (typeof store.defer === "function") {
+  // The durable queue owns the job once accepted. Running the request's
+  // waitUntil materializer as well starts two writers on the same move marker.
+  if (!queued && typeof store.defer === "function") {
     try {
       store.defer(() => materializeMoveInBackground(store, scope, id));
     } catch {
@@ -205,6 +212,14 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   ) {
     return toolError("source and destination folders must be separate, non-reserved trees");
   }
+  // The five built-in folders stay where every client expects them
+  // (folderRoles.cjs). Decided by name alone, before anything is listed, so
+  // the refusal says nothing about whether the folder exists or is visible.
+  if (isMainFolder(source)) {
+    return toolError(
+      `${ROLE_LABEL[topLevelRole(source)]} is a built-in folder, so it can't be renamed or moved. Move what's inside it instead.`
+    );
+  }
 
   const sourcePrefix = `${source}/`;
   const destinationPrefix = `${destination}/`;
@@ -238,15 +253,6 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     const destinationObjects = await listAllKeys(store, destinationPrefix);
     if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
       return toolError(`conflict: destination already contains objects: ${destination}/`);
-    }
-    if (collaborationSupported(store)) {
-      for (const { key } of allObjects) {
-        if (key.endsWith(".md") && await collaborationHead(store, key)) {
-          return toolError(
-            "large logical folder move is unavailable while the folder contains an active collaborative note; move it in smaller batches",
-          );
-        }
-      }
     }
     if (dryRun) {
       return toolText(
@@ -308,18 +314,18 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
       const sourceText = await object.text();
       if (collaborationSupported(store) && !isEncryptedNote(sourceText) &&
           collaborationEligible(move.source, sourceText)) {
-        if (store.capabilities?.conditionalDelete !== true) {
-          const head = await collaborationHead(store, move.source);
-          if (head?.status !== undefined && head.status !== "deleted") {
-            return toolError(`this storage cannot safely move a collaboratively edited note: ${move.source}`);
-          }
-          move.body = new TextEncoder().encode(sourceText);
-        } else {
+        const head = await collaborationHead(store, move.source);
+        if (head?.status && head.status !== "active") {
+          return toolError(`this note cannot be moved safely right now: ${move.source}`);
+        }
+        if (head || store.capabilities?.conditionalDelete === true) {
           try {
             move.collaborationBase = await readCollaborationDocument(store, move.source);
           } catch {
             return toolError(`this note cannot be moved safely right now: ${move.source}`);
           }
+        } else {
+          move.body = new TextEncoder().encode(sourceText);
         }
       } else {
         move.body = new TextEncoder().encode(sourceText);
@@ -416,7 +422,9 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     { roots: [source], keep: [destination] }
   );
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
-  const references = await rewriteReferences(
+  // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
+  await remapFolderIcons(store, source, destination);
+  const references = await rewriteReferencesOrQueue(
     store,
     scope,
     rules,
@@ -427,7 +435,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     count: moves.length,
     visibilities: moves.map((move) => ({ path: move.destination, visibility: move.visibility })),
     team_visible: moves.every((move) => move.visibility === "team"),
-    references: references.capped ? "not-rewritten" : references.links,
+    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +

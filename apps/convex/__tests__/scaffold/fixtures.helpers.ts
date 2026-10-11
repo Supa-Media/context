@@ -81,4 +81,4 @@ export function seedLiveWorkspace(store: { seed(key: string, body: string): void
 /*                     a scaffold that only partly lands                      */
 /* -------------------------------------------------------------------------- */
 
-export const PARA_READMES = PARA_FOLDERS.map((folder) => `${folder}/README.md`);
+export const PARA_FOLDER_NOTES = PARA_FOLDERS.map((folder) => `${folder}/about.md`);

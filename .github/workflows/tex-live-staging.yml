@@ -1,0 +1,53 @@
+# Tex end to end, live against staging, through the texts simulator.
+#
+# Runs scripts/staging-tex-live.mjs: the seeded alpha@supa.media persona links
+# a fictional 555-01XX number, texts Tex a quick question and a long task, and
+# the run checks the long task texts its progress before its result. Nothing
+# goes over the real Linq line: the simulator writes replies to its own log.
+#
+# Manual only: it spends staging model calls and writes a note in the persona's
+# workspace.
+name: Tex Live (staging)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tex-live-staging
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Text Tex on staging
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 25
+    env:
+      APP_ENV: staging
+      STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Find the staging texting Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          echo "TEX_SIMULATOR_ORIGIN=https://context-agent-staging.$sub.workers.dev" >> "$GITHUB_ENV"
+      - name: Text Tex through the simulator
+        run: node scripts/staging-tex-live.mjs

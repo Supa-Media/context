@@ -15,6 +15,7 @@
  * told the folder changed since.
  */
 
+import { ControlPlaneError } from "../../controlPlane.js";
 import { toolError, toolText } from "../results.js";
 
 const ACTIONS = new Set(["status", "check", "publish", "screenshot", "history"]);
@@ -115,13 +116,28 @@ export async function toolSiteAction(store, args) {
   if (request.action === "screenshot" && typeof store.shootSite !== "function") {
     return toolError("screenshots are not available on this deployment; a site check needs no browser.");
   }
-  const answer = await store.site({
-    action: request.action,
-    ...(request.draft ? { draft: request.draft } : {}),
-    ...(request.inspect ? { inspect: request.inspect } : {}),
-    ...(request.revision !== undefined ? { revision: request.revision } : {}),
-    ...(request.action === "screenshot" ? { page: request.page ?? "/" } : {}),
-  });
+  let answer;
+  try {
+    answer = await store.site({
+      action: request.action,
+      ...(request.draft ? { draft: request.draft } : {}),
+      ...(request.inspect ? { inspect: request.inspect } : {}),
+      ...(request.revision !== undefined ? { revision: request.revision } : {}),
+      ...(request.action === "screenshot" ? { page: request.page ?? "/" } : {}),
+    });
+  } catch (error) {
+    // A slow answer is not an outage, and a publish we stopped waiting for
+    // may still have landed: say which, so an agent checks rather than
+    // publishing again blind or reporting the service down.
+    if (error instanceof ControlPlaneError && error.reason === "timed out") {
+      return toolError(
+        request.action === "publish"
+          ? 'the website took too long to answer, so this publish may or may not have landed. Check with site: { action: "history" } before publishing again.'
+          : `the website took too long to answer this ${request.action}. Try again in a minute.`,
+      );
+    }
+    throw error;
+  }
   if (answer === null) return toolError(REFUSED);
   if (request.action === "screenshot") return await photograph(store, answer, request.sizes ?? SIZES);
   if (request.action === "check") return describeCheck(answer);

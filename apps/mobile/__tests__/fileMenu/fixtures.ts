@@ -107,4 +107,5 @@ export const MUTATING: MenuActionId[] = [
   "archive",
   "restore",
   "delete",
+  "setIcon",
 ];

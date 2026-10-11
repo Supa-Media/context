@@ -29,6 +29,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
@@ -68,8 +69,16 @@ async function rpc(token, method, params, path = "/mcp") {
   return body?.result;
 }
 
+/** The person's own app on each workspace a tool grant connects to (`egressApproval.mjs`). */
+const CONSOLE_ME = `cat_remember_console_me_${"0".repeat(16)}`;
+const CONSOLE_RAW = `cat_remember_console_raw_${"0".repeat(15)}`;
+const consoleFor = (token) => (token === OWNER ? CONSOLE_ME : token === RAW ? CONSOLE_RAW : null);
+
 async function call(token, name, args) {
-  const result = await rpc(token, "tools/call", { name, arguments: args });
+  const result = await approving(() => rpc(token, "tools/call", { name, arguments: args }), {
+    env,
+    consoleToken: consoleFor(token),
+  });
   return { text: result?.content?.[0]?.text || "", isError: result?.isError === true };
 }
 
@@ -113,6 +122,24 @@ before(async () => {
       { workspaceId: "ws_team", role: "owner" },
       { workspaceId: "ws_edit", role: "editor" },
     ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_me",
+    userId: "user_me",
+    accessToken: CONSOLE_ME,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    alsoMemberOf: [
+      { workspaceId: "ws_team", role: "owner" },
+      { workspaceId: "ws_edit", role: "editor" },
+    ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_raw",
+    userId: "user_me",
+    accessToken: CONSOLE_RAW,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
   });
   await controlPlane.addGrant({
     workspaceId: "ws_me",
@@ -183,7 +210,7 @@ test("without a note, the fact becomes a new inbox note, never overwriting one",
     const second = await remember({ fact: "Lives in Boston.", kind: "stated" }, token);
     assert.equal(first.isError, false, first.text);
     assert.equal(second.isError, false, second.text);
-    const inbox = [...objects(bucket).keys()].filter((key) => key.startsWith("0-inbox/remembered-"));
+    const inbox = [...objects(bucket).keys()].filter((key) => key.startsWith("0-inbox/memories/"));
     assert.equal(inbox.length, 2, `${bucket}: ${JSON.stringify(inbox)}`);
     for (const key of inbox) assert.equal(await read(key, token), "- Lives in Boston.\n");
   }
@@ -202,9 +229,9 @@ test("replaces matches a whole line, never a line that merely contains it", asyn
 test("writes in another workspace through context, as write_note does, and nowhere else", async () => {
   const answer = await call(OWNER, "remember", { fact: "Team uses Linear.", kind: "stated", context: "@team" });
   assert.equal(answer.isError, false, answer.text);
-  const teamInbox = [...objects("remember-team").keys()].filter((key) => key.startsWith("0-inbox/remembered-"));
+  const teamInbox = [...objects("remember-team").keys()].filter((key) => key.startsWith("0-inbox/memories/"));
   assert.equal(teamInbox.length, 1);
-  assert.equal([...objects("remember-me").keys()].some((key) => key.startsWith("0-inbox/remembered-")), false);
+  assert.equal([...objects("remember-me").keys()].some((key) => key.startsWith("0-inbox/memories/")), false);
   // As an editor, the answer is write_note's for the same destination.
   const asEditor = await call(OWNER, "remember", { fact: "x.", kind: "stated", context: "@edit" });
   const writeAsEditor = await call(OWNER, "write_note", { path: "0-inbox/x.md", content: "- x.\n", context: "@edit" });

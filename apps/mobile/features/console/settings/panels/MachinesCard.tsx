@@ -47,6 +47,10 @@ export function MachinesCard() {
   );
   const revoke = useMutation(api.functions.grants.revokeGrant);
 
+  // Nothing while loading, and nothing when there are no Macs: a box reading
+  // "none" was not something anybody needed.
+  if (machines === undefined || machines.length === 0) return null;
+
   return (
     <View>
       <Text variant="eyebrow" style={styles.head}>
@@ -54,43 +58,26 @@ export function MachinesCard() {
       </Text>
       <Text variant="rowSub" style={styles.sub}>
         Every Mac approved to capture into one of your contexts. Revoking one does
-        not sign it out of anything else — it is its own credential, separate from
-        this session.
+        not sign it out of anything else.
       </Text>
       <Card>
-        {machines === undefined ? (
-          <Row>
+        {machines.map((machine, index) => (
+          <Row key={machine.grantId} divided={index > 0}>
             <Grow>
-              <Text variant="rowSub">Loading…</Text>
-            </Grow>
-          </Row>
-        ) : machines.length === 0 ? (
-          <Row>
-            <Grow>
-              <Text variant="rowSub">
-                No Macs connected yet. Open the desktop app and sign in to add one.
+              <Text variant="rowTitle">{machine.name}</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                {`Approved ${formatApprovedAt(machine.approvedAt)} · ${captureLine(machine.tier)}`}
               </Text>
             </Grow>
+            <RevokeMachine
+              name={machine.name}
+              onRevoke={() => {
+                void revoke({ grantId: machine.grantId });
+              }}
+              testID={`revoke-machine-${machine.grantId}`}
+            />
           </Row>
-        ) : (
-          machines.map((machine, index) => (
-            <Row key={machine.grantId} divided={index > 0}>
-              <Grow>
-                <Text variant="rowTitle">{machine.name}</Text>
-                <Text variant="rowSub" style={styles.rowSub}>
-                  {`Approved ${formatApprovedAt(machine.approvedAt)} · ${captureLine(machine.tier)}`}
-                </Text>
-              </Grow>
-              <RevokeMachine
-                name={machine.name}
-                onRevoke={() => {
-                  void revoke({ grantId: machine.grantId });
-                }}
-                testID={`revoke-machine-${machine.grantId}`}
-              />
-            </Row>
-          ))
-        )}
+        ))}
       </Card>
     </View>
   );

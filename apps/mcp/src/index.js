@@ -91,7 +91,7 @@
  *   ingestion/  inboxRoute, granolaWebhook, inbox, granola, transcription
  *   agent/      route (`/agent`), turn, providers
  *   meetings/   notes          calendar/  sync, ics     context/  identity
- *   encryptionKeys/  rotation, exportRateLimit     crypto/  bytes
+ *   encryptionKeys/  rotation      crypto/  bytes
  *   plugins/listPluginsTool.js
  *
  * Tests that read the gateway as text read the module that holds the code,

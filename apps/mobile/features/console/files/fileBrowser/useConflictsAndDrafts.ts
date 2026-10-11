@@ -36,6 +36,7 @@ type ConflictsAndDraftsDeps =
     | "collaborationPaths"
     | "dispatch"
     | "editorRef"
+    | "renamingRef"
     | "saveRuns"
     | "saveTimers"
     | "setNotice"
@@ -50,7 +51,7 @@ type ConflictsAndDraftsDeps =
 export function useConflictsAndDrafts(deps: ConflictsAndDraftsDeps) {
   const {
     autosave, collaborationPaths, conflictRef, dispatch, editorRef, offlineRef, openNote,
-    performSave, readNote, refresh, reportRefreshFailure, saveRuns, saveTimers, setNotice,
+    performSave, readNote, refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice,
     setSelectedPath, workspaceId,
   } = deps;
 
@@ -315,6 +316,17 @@ export function useConflictsAndDrafts(deps: ConflictsAndDraftsDeps) {
       dispatch({ type: "edited", text });
       if (current.path === null || current.readOnly) return;
       if (collaborationPaths.current.has(current.path)) return;
+      /*
+        Its file is moving. Neither a write nor a device draft is kept under a
+        name it is leaving — a draft left there would come back as a conflict
+        on the next note made at that name — and the editor carries the text
+        to the new one when the rename lands (`renamingRef`).
+      */
+      const renaming = renamingRef.current;
+      if (renaming?.path === current.path) {
+        renaming.held = text;
+        return;
+      }
 
       /*
         And, unless the state says otherwise, scheduled to be written to the

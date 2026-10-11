@@ -2,7 +2,7 @@
  * A website's status, or a publish, for an agent on an owner's or editor's
  * connection — `write_note`'s `site` argument (`../tools/notes/site.js`).
  */
-import { ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createSiteMethods({ post, required }) {
   return {
@@ -20,7 +20,7 @@ export function createSiteMethods({ post, required }) {
         ...(typeof request.inspect === "string" ? { path: request.inspect } : {}),
         ...(typeof request.page === "string" ? { path: request.page } : {}),
         ...(typeof request.revision === "number" ? { revision: request.revision } : {}),
-      });
+      }, { timeoutMs: CONTROL_PLANE_SITE_TIMEOUT_MS });
       const site = required(parsed, "site");
       if (site === null) return null;
       if (!site || typeof site !== "object") throw new ControlPlaneError("malformed site");

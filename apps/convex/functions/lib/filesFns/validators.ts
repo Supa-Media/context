@@ -90,6 +90,12 @@ export const emojiStoredValidator = v.object({
 
 export const emojiRemovedValidator = v.object({ kind: v.literal("emojiRemoved") });
 
+/** Pairs rather than a record: a Convex record key cannot be every folder name. */
+export const folderIconsValidator = v.object({
+  kind: v.literal("folderIcons"),
+  icons: v.array(v.object({ path: v.string(), icon: v.string() })),
+});
+
 export const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
   created: v.array(v.string()),
@@ -151,7 +157,7 @@ export const fileValidator = v.object({
  * `lib/fileOps.ts`: the visibility fields are a listing's, `etag` is the
  * store's own from the listing and is absent only where the store gave none.
  */
-const manifestEntryValidator = v.object({
+export const manifestEntryValidator = v.object({
   path: v.string(),
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
@@ -174,6 +180,36 @@ export const manifestValidator = v.object({
   cursor: v.union(v.string(), v.null()),
   /** The walk could not finish: the pages so far are a floor, not a total. */
   truncated: v.boolean(),
+  manifestUsable: v.boolean(),
+  /** Where the keys came from: the tree table, or a walk of the bucket. */
+  source: v.optional(v.union(v.literal("tree"), v.literal("bucket"))),
+  /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
+  since: v.optional(v.number()),
+  privacy: v.optional(v.union(v.string(), v.null())),
+});
+
+/** One page of a folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+export const folderNotesValidator = v.object({
+  kind: v.literal("folderNotes"),
+  available: v.boolean(),
+  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), props: v.string() })),
+  cursor: v.union(v.string(), v.null()),
+  missing: v.array(v.string()),
+  fill: v.boolean(),
+});
+
+/** One page of what changed since a device's last sync. See `TreeChangesResult`. */
+export const treeChangesValidator = v.object({
+  kind: v.literal("treeChanges"),
+  full: v.boolean(),
+  entries: v.array(manifestEntryValidator),
+  folders: v.array(v.object({ path: v.string(), visibility: visibilityReadValidator })),
+  gone: v.array(v.string()),
+  goneFolders: v.array(v.string()),
+  since: v.number(),
+  after: v.string(),
+  more: v.boolean(),
+  privacy: v.union(v.string(), v.null()),
   manifestUsable: v.boolean(),
 });
 
@@ -379,6 +415,8 @@ export const activityEntryValidator = v.object({
   by: v.union(v.string(), v.null()),
   via: v.union(v.string(), v.null()),
   note: v.union(v.string(), v.null()),
+  /** `[from, to]` per move on a `moved` or `archived` line. See `ActivityEntry.moves`. */
+  moves: v.optional(v.array(v.array(v.string()))),
 });
 
 export const activityValidator = v.object({
@@ -394,8 +432,23 @@ export const durableMoveValidator = v.object({
     v.literal("complete"),
     v.literal("failed"),
   ),
-  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting"))),
   completed: v.optional(v.number()),
   total: v.optional(v.number()),
+  progressChangedAt: v.optional(v.number()),
+  progressPerMinute: v.optional(v.number()),
   updatedAt: v.number(),
+});
+
+/** The chaos score for one reader. See `chaosOps.ts`. */
+const chaosFolderValidator = v.object({ folder: v.string(), items: v.number(), chaos: v.number() });
+export const chaosScoreValidator = v.object({
+  kind: v.literal("chaosScore"),
+  available: v.boolean(),
+  score: v.union(v.number(), v.null()),
+  word: v.union(v.string(), v.null()),
+  weekAgo: v.union(v.number(), v.null()),
+  folders: v.array(chaosFolderValidator),
+  longNotes: v.array(v.object({ path: v.string(), lines: v.number() })),
+  folder: v.union(chaosFolderValidator, v.null()),
 });

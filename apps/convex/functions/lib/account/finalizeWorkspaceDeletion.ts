@@ -11,6 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { voidCapabilitiesAddressedTo } from "./addressedTo";
 import { deleteWorkspacePlaces } from "../places";
+import { deleteWorkspaceRoutines } from "../routines/app";
 
 export async function finalizeWorkspaceDeletion(
   ctx: MutationCtx,
@@ -53,6 +54,16 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const row of messageReads) await ctx.db.delete(row._id);
 
+  // The email domains it was opened to: a domain name and a role.
+  const domains = await ctx.db
+    .query("workspaceDomains")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of domains) await ctx.db.delete(row._id);
+
+  // When its routines run and as whom; the routine notes stay in the bucket.
+  await deleteWorkspaceRoutines(ctx, workspaceId);
+
   // Members' pins and open counts in this workspace: paths and counts.
   await deleteWorkspacePlaces(ctx, workspaceId);
 
@@ -63,6 +74,23 @@ export async function finalizeWorkspaceDeletion(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of encryption) await ctx.db.delete(row._id);
+
+  // The agent's turn log: names, durations and counts, at most 30 days of them.
+  const turns = await ctx.db
+    .query("agentTurns")
+    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const turn of turns) await ctx.db.delete(turn._id);
+
+  // The search timing log: durations and which index answered, at most 30
+  // days. Bounded, because a busy workspace's month of searches could pass a
+  // mutation's read limit and fail the deletion; anything left is a duration
+  // with no workspace behind it, and the hourly retention sweep takes it.
+  const timings = await ctx.db
+    .query("searchTimings")
+    .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId))
+    .take(4000);
+  for (const timing of timings) await ctx.db.delete(timing._id);
 
   const events = await ctx.db
     .query("auditEvents")

@@ -7,6 +7,7 @@ import { leading, pointerType as t, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { landAfterSignIn } from "./landing";
+import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
 import { CONSOLE_ROUTE } from "./redirect";
 import { useEmailSignIn, type EmailSignIn } from "./useEmailSignIn";
 import { WaitlistResult } from "./WaitlistResult";
@@ -92,6 +93,9 @@ export function JoinCard({
           </View>
           <Text variant="foot" style={styles.foot}>
             We're letting people in a few at a time. Already in? You'll get a sign-in code here.
+          </Text>
+          <Text variant="foot" style={styles.foot} testID="join-needs-phone">
+            {EMAIL_STILL_NEEDS_PHONE}
           </Text>
         </>
       ) : (

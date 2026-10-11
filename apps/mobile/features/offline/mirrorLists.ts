@@ -73,12 +73,12 @@ export async function mirroredListNotes(
 
   const notes: ListNote[] = [];
   const wanted = [];
-  let missing = 0;
+  const missing: string[] = [];
   for (const entry of index.entries.values()) {
     if (!isNotePath(entry.path) || !inFolder(entry.path, folder, subfolders)) continue;
     if (entry.encrypted === true) continue;
     if (!entry.body) {
-      missing += 1;
+      missing.push(entry.path);
       continue;
     }
     const known = memo.notes.get(entry.path);
@@ -92,7 +92,7 @@ export async function mirroredListNotes(
     batch.forEach((entry, n) => {
       const body = bodies[n];
       if (body === null || body === undefined) {
-        missing += 1;
+        missing.push(entry.path);
         return;
       }
       const note: ListNote = {
@@ -111,5 +111,6 @@ export async function mirroredListNotes(
   for (const path of [...memo.notes.keys()]) {
     if (!index.entries.has(path)) memo.notes.delete(path);
   }
-  return { notes, complete: missing === 0 && index.listedComplete !== false };
+  const listed = index.listedComplete !== false;
+  return { notes, complete: missing.length === 0 && listed, ...(listed ? { missing } : {}) };
 }

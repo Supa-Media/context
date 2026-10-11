@@ -1,0 +1,345 @@
+// Turns recorded texting-assistant runs into one Markdown result note, and a
+// key file that maps each answer's id back to its setup. The note never names
+// a setup in its answers, so whoever judges it cannot tell which setup wrote
+// what. Judging appends a "## Judged by <model>, <date>" section to the note.
+import { createHash } from "node:crypto";
+
+import { WORDS } from "./words.mjs";
+
+// Where the four words of an id are read from the 32-byte SHA-256 digest.
+const WORD_OFFSETS = [0, 4, 8, 12];
+
+// The id for one run identity at one attempt. Attempt 0 is the identity's own
+// digest; later attempts only happen to resolve a collision.
+function idFor(identity, attempt) {
+  const digest = createHash("sha256")
+    .update(attempt === 0 ? identity : `${identity}#${attempt}`)
+    .digest();
+  return WORD_OFFSETS.map((at) => WORDS[digest.readUInt32BE(at) % WORDS.length]).join("-");
+}
+
+/**
+ * Each run's answer id, as a copy of the run with an `id` field. The same run
+ * always gets the same id. Runs are resolved in identity order, not array
+ * order, so a collision is settled the same way however the runs were listed.
+ */
+export function assignIds(result) {
+  const runs = result.runs ?? [];
+  const versions = new Map((result.setups ?? []).map((setup) => [setup.name, setup.version]));
+  const identity = (run) =>
+    `${result.testVersion}:${run.setup}@${versions.get(run.setup)}:${run.question}:${run.run}`;
+  const order = runs
+    .map((run, index) => ({ index, key: identity(run) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.index - b.index));
+  const taken = new Set();
+  const ids = new Array(runs.length);
+  for (const { index, key } of order) {
+    let attempt = 0;
+    let id = idFor(key, attempt);
+    while (taken.has(id)) {
+      attempt += 1;
+      id = idFor(key, attempt);
+    }
+    taken.add(id);
+    ids[index] = id;
+  }
+  return runs.map((run, index) => ({ ...run, id: ids[index] }));
+}
+
+// Prices in USD per million tokens. Models without cache prices bill
+// cache tokens at the input rate.
+const PRICES = {
+  // Catalog models through the AI gateway, at the providers' standard rates
+  // (aggregators citing the vendors' pricing pages, 2026-09; cached input where
+  // the vendor publishes one).
+  "google/gemini-2.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.03 },
+  "openai/gpt-5-mini": { input: 0.25, output: 2, cacheRead: 0.025 },
+  "@cf/zai-org/glm-4.7-flash": { input: 0.06, output: 0.4 },
+  "anthropic/claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  "anthropic/claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  // The thinking tier a router may send a text to (`src/agent/router.js`).
+  "anthropic/claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  // Decision models (`src/agent/decide.js`): input only, they write nothing.
+  "@cf/cloudflare/clef": { input: 0.24, output: 0 },
+  "@cf/cloudflare/clef-flash": { input: 0.09, output: 0 },
+  // The judge the first judging used, priced so an estimate can refuse it.
+  "anthropic/claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+};
+
+// Cost in USD of one run. Null when the model has no known price.
+export function priceUsd(model, usage) {
+  if (!Object.hasOwn(PRICES, model)) return null;
+  const p = PRICES[model];
+  const u = usage ?? {};
+  // Missing or non-numeric token counts count as zero.
+  const n = (v) => (Number.isFinite(v) ? v : 0);
+  const cacheRead = p.cacheRead ?? p.input;
+  const cacheWrite = p.cacheWrite ?? p.input;
+  return (
+    (n(u.input) * p.input +
+      n(u.output) * p.output +
+      n(u.cacheRead) * cacheRead +
+      n(u.cacheWrite) * cacheWrite) /
+    1e6
+  );
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const fmtUsd = (v) => (v === null ? "unknown" : `$${v.toFixed(4)}`);
+const fmtSecs = (ms) => (Number.isFinite(ms) ? `${(ms / 1000).toFixed(1)} s` : "n/a");
+
+// Median of the finite values; the mean of the two middle values for even counts.
+function median(values) {
+  const xs = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (xs.length === 0) return null;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+}
+
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+// Recorded text may not start a heading: escape lines beginning with "#".
+function safeText(text) {
+  return String(text ?? "")
+    .split("\n")
+    .map((line) => line.replace(/^(\s{0,3})#/, "$1\\#"))
+    .join("\n");
+}
+
+// A tool call as the world records it (`{ tool, ok }`) or as older results
+// carried it (a bare name), rendered for the note.
+const toolLabel = (call) => (typeof call === "string" ? call : call.ok === false ? `${call.tool} (failed)` : call.tool);
+const failedCalls = (run) => (run.tools ?? []).filter((call) => typeof call !== "string" && call.ok === false).length;
+
+// Price of one run, using the model that actually answered it.
+const runPrice = (run, setup) => priceUsd(run.model ?? setup?.model, run.usage);
+
+function summaryRow(setup, runs) {
+  const mine = runs.filter((r) => r.setup === setup.name);
+  const errors = mine.filter((r) => r.error).length;
+  const prices = mine.map((r) => runPrice(r, setup));
+  let price = "n/a";
+  if (prices.length && prices.some((p) => p === null)) price = "unknown";
+  else if (prices.length) price = fmtUsd(mean(prices));
+  const med = median(mine.map((r) => r.ms));
+  const texts = mean(mine.map((r) => r.texts ?? 0));
+  const failed = mine.reduce((sum, r) => sum + failedCalls(r), 0);
+  return [
+    setup.name,
+    setup.model,
+    String(mine.length - errors),
+    String(errors),
+    med === null ? "n/a" : fmtSecs(med),
+    price,
+    texts === null ? "n/a" : texts.toFixed(1),
+    String(failed),
+  ];
+}
+
+// For each setup with a router (`src/agent/router.js`): how many answers it sent
+// to the thinking model, which questions those were, and what they cost, so the
+// average price above can be read as "cheap most of the time, expensive one
+// time in ten" and a round can see which questions the cutoff reached. The
+// think picks that fell under the setup's cutoff are named too, with the
+// confidence Clef gave each, so the next setup can set `route_at` from them.
+const ROUTER_CALL = /^router: (think|main)(?: \((?:think )?(\d(?:\.\d+)?)\))?$/;
+function routerOf(run) {
+  for (const call of run.tools ?? []) {
+    const m = typeof call === "string" ? null : ROUTER_CALL.exec(call.tool ?? "");
+    if (m) return { tier: m[1], confidence: m[2] === undefined ? null : Number(m[2]) };
+  }
+  return null;
+}
+function questionList(nums) {
+  const sorted = [...new Set(nums)].sort((a, b) => a - b);
+  if (sorted.length <= 1) return sorted.map(String).join("");
+  return `${sorted.slice(0, -1).join(", ")} and ${sorted.at(-1)}`;
+}
+function routedLines(setups, runs) {
+  const lines = [];
+  for (const setup of setups) {
+    if (!setup.router) continue;
+    const mine = runs.filter((r) => r.setup === setup.name && !r.error);
+    const thought = mine.filter((r) => routerOf(r)?.tier === "think");
+    const prices = thought.map((r) => runPrice(r, setup)).filter((p) => p !== null);
+    const price = prices.length ? fmtUsd(mean(prices)) : "n/a";
+    const which = thought.length ? `: questions ${questionList(thought.map((r) => r.question))}` : "";
+    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each)${which}; the rest ran on ${setup.model}.`);
+    const near = mine.filter((r) => routerOf(r)?.tier === "main" && routerOf(r)?.confidence !== null);
+    if (near.length) {
+      const byQuestion = new Map();
+      for (const r of near) byQuestion.set(r.question, [...(byQuestion.get(r.question) ?? []), routerOf(r).confidence]);
+      const named = [...byQuestion.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([q, cs]) => `${q} (${cs.map((c) => c.toFixed(2)).join(", ")})`)
+        .join(", ");
+      const cutoff = typeof setup.router.routeAt === "number" ? ` ${setup.router.routeAt}` : "";
+      lines.push(`Said think but stayed on ${setup.model}, under the cutoff${cutoff}: questions ${named}.`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
+// For each setup: how many answers the gateway retried, and how many went on
+// to the setup's fallback model after the main one failed. Production does the
+// same, so a run says how often a person would have waited or been answered
+// by the fallback, and the score says what those answers were worth.
+// Where a run's hours went, per setup: answering (the model's time, which the
+// setup owns), playing the person (the run's), and the rest (worlds, reruns).
+// Decided 2026-10-09, after a seven-hour run whose answers summed to two. The
+// total is summed over the setup's conversations, so with shards it exceeds
+// the clock: the line says "across its conversations", never "wall time".
+function timeLines(setups, runs) {
+  const lines = [];
+  const minutes = (ms) => `${Math.round(ms / 60000)} min`;
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name && typeof r.wallMs === "number");
+    if (!mine.length) continue;
+    const wall = mine.reduce((sum, r) => sum + r.wallMs, 0);
+    const answering = mine.reduce((sum, r) => sum + (r.ms ?? 0), 0);
+    const person = mine.reduce((sum, r) => sum + (r.personMs ?? 0), 0);
+    lines.push(`Time: ${setup.name} spent ${minutes(wall)} across its conversations: ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
+  }
+  return lines;
+}
+
+function resilienceLines(setups, runs) {
+  const lines = [];
+  for (const setup of setups) {
+    const mine = runs.filter((r) => r.setup === setup.name);
+    const calls = (r) => (r.tools ?? []).filter((call) => typeof call !== "string").map((call) => call.tool);
+    const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
+    const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
+    if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
+    const reran = mine.filter((r) => r.reran);
+    if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
+    if (setup.fallback) {
+      lines.push(`Fell back: ${setup.name} went on to ${setup.fallback} in ${fellBack.length} of ${mine.length} answers after ${setup.model} failed.`, "");
+    }
+  }
+  return lines;
+}
+
+function runBlock(run, setup) {
+  const lines = [`#### ${run.id}`, ""];
+  for (const m of run.conversation ?? []) {
+    const who = m.from === "person" ? "Person" : "Assistant";
+    lines.push(`**${who}:** ${safeText(m.text)}`, "");
+  }
+  const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
+  lines.push(`Tools: ${tools}`, "");
+  // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
+  if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
+  if (run.changes?.length) {
+    lines.push("Changes recorded:", "");
+    for (const c of run.changes) {
+      lines.push(`- ${c.kind} ${c.workspace}/${c.path}: ${c.detail}`);
+    }
+    lines.push("");
+  }
+  if (run.reran) lines.push(`Reran after: ${run.reran}`, "");
+  if (run.error) {
+    lines.push(`Error: ${run.error}`, "");
+  } else {
+    const price = fmtUsd(runPrice(run, setup));
+    lines.push(`Time ${fmtSecs(run.ms)}, ${price}, ${plural(run.texts ?? 0, "text")}`, "");
+  }
+  return lines;
+}
+
+// Ids sort by their text, so a question's answers come out in a fixed order
+// that does not follow the setups.
+const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+export function resultMarkdown(result) {
+  const setups = result.setups ?? [];
+  const runs = assignIds(result);
+  const byName = new Map(setups.map((s) => [s.name, s]));
+  const questionNums = [...new Set(runs.map((r) => r.question))].sort((a, b) => a - b);
+  const maxRun = runs.reduce((m, r) => Math.max(m, r.run), 0);
+
+  const frontMatter = [
+    "---",
+    `job: ${result.job}`,
+    `test: ${result.test}`,
+    `test_version: ${result.testVersion}`,
+    `date: ${result.date}`,
+    // The day the world was on: a pinned one, or "real" when the run used the clock.
+    `today: ${result.today ?? "real"}`,
+    // warm: indexed before the first question; cold: a fresh import, every search a scan.
+    ...(result.world ? [`world: ${result.world}`] : []),
+    `code_commit: ${result.commit}`,
+    ...(result.playedBy ? [`played_by: ${result.playedBy}`] : []),
+    `setups: [${setups.map((s) => `${s.name}@${s.version}`).join(", ")}]`,
+    `runs_per_question: ${maxRun}`,
+    ...(result.fluff ? [`fluff: ${result.fluff.on ? "on" : "off"}`, `fluff_notes: ${result.fluff.notes}`] : []),
+    ...(result.keyFile ? [`key: ${result.keyFile}`] : []),
+    "status: not judged",
+    "---",
+  ];
+
+  const out = [
+    ...frontMatter,
+    "",
+    `# ${result.job} run, ${result.date}`,
+    "",
+    "Answers are named by id. The key file maps ids to setups; a judge never opens it.",
+    "",
+    `This run asked ${plural(questionNums.length, "question")}, ${plural(maxRun, "run")} each, against ${plural(setups.length, "setup")}.`,
+    "",
+    "Moves, edits and texts below were recorded, never carried out.",
+    "",
+    "## Summary",
+    "",
+    "| Setup | Model | Answers | Errors | Median time | Price per question | Texts per question | Failed tool calls |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...setups.map((s) => `| ${summaryRow(s, runs).join(" | ")} |`),
+    "",
+    ...routedLines(setups, runs),
+    ...resilienceLines(setups, runs),
+    ...timeLines(setups, runs),
+    "## Answers",
+    "",
+  ];
+
+  for (const num of questionNums) {
+    const qRuns = runs.filter((r) => r.question === num);
+    const first = qRuns[0];
+    const questionText = String(first.questionText ?? "").replace(/\s+/g, " ");
+    out.push(`### ${num}. ${questionText}`, "");
+    out.push(`as ${first.as}, ${first.kind}${first.gate ? ", gate" : ""}`, "");
+    for (const run of [...qRuns].sort(byId)) out.push(...runBlock(run, byName.get(run.setup)));
+  }
+
+  out.push("## Judging", "", "Judgments are added below as `## Judged by <model>, <date>` sections; never edit an earlier one.", "");
+  return out.join("\n");
+}
+
+/** The key sits beside its result: "<date> <test>.md" has "<date> <test> key.md". */
+export const keyPathFor = (resultPath) => `${resultPath.replace(/\.md$/, "")} key.md`;
+
+/** The key: which setup, question and run wrote each id. Never shown to a judge. */
+export function keyMarkdown(result) {
+  const rows = assignIds(result)
+    .sort(byId)
+    .map((r) => `| ${r.id} | ${r.setup} | ${r.question} | ${r.run} |`);
+  return [
+    "---",
+    `result: ${result.resultFile ?? ""}`,
+    "---",
+    "",
+    `# ${result.job} key, ${result.date}`,
+    "",
+    "Each answer id in the result note, with the setup, question and run that wrote it. A judge never opens this file.",
+    "",
+    "| id | setup | question | run |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+  ].join("\n");
+}

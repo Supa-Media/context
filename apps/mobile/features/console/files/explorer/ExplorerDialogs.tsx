@@ -6,6 +6,8 @@ import {
   MovePicker,
   NamePrompt,
 } from "../Dialogs";
+import { AddFolderSheet } from "../AddFolderSheet";
+import { FolderIconDialog } from "../FolderIconDialog";
 import { NewFolderForm } from "../NewFolderForm";
 import { NewNoteWhere } from "../NewNoteWhere";
 import { TagsSheet } from "../TagsSheet";
@@ -51,6 +53,10 @@ export function ExplorerDialogs({
    * of it is called. Absent, it lists what the console has listed.
    */
   places?: {
+    /** The workspace is a personal one (for the business question in "Add a folder"). */
+    personal?: boolean;
+    /** Opens the new-workspace flow, offered by the business question. Absent where there is no router. */
+    onStartBusiness?: () => void;
     folders?: readonly string[];
     rootLabel?: string;
     /** Every note's tags, for a folder's Tags sheet (its own, and the workspace's to suggest). */
@@ -63,14 +69,12 @@ export function ExplorerDialogs({
   /**
    * The rows of the `create` sheet that are not files.
    *
-   * Passed in because neither belongs to the file browser: a meeting is the
-   * meetings flow's and a conversation is the aside panel's, and this component
-   * is mounted by surfaces that have one, both or neither. Absent means the row
-   * is not drawn — see `CreatePrompt`.
+   * Passed in because they do not belong to the file browser: a meeting is the
+   * meetings flow's, and this component is mounted by surfaces that have one or
+   * not. Absent means the row is not drawn — see `CreatePrompt`.
    */
   create?: {
     onNewMeeting?: (() => void) | null;
-    onNewChat?: (() => void) | null;
     /** Carry on a meeting that already has a note. See `CreatePrompt`. */
     resume?: { detail: string; onResume: () => void } | null;
   };
@@ -154,7 +158,6 @@ export function ExplorerDialogs({
           folders={pickable}
           rootLabel={rootLabel}
           onNewMeeting={create?.onNewMeeting ?? null}
-          onNewChat={create?.onNewChat ?? null}
           onResumeMeeting={create?.resume ?? null}
         />
       );
@@ -226,6 +229,35 @@ export function ExplorerDialogs({
         />
       );
     }
+    case "addFolder": {
+      // The top of the workspace's own folders, as the listing has them now.
+      const names = (files.listings[""]?.entries ?? []).filter((entry) => entry.kind === "folder").map((entry) => entry.name);
+      return (
+        <AddFolderSheet
+          files={files}
+          names={names}
+          folders={pickable}
+          rootLabel={rootLabel}
+          compact={compact}
+          personal={places?.personal === true}
+          onStartBusiness={places?.onStartBusiness}
+          onAdded={(path) => {
+            if (compact) files.select(path);
+          }}
+          onClose={onClose}
+        />
+      );
+    }
+    case "folderIcon":
+      return (
+        <FolderIconDialog
+          path={dialog.path}
+          current={files.iconOf(dialog.path)}
+          onSet={(icon) => files.setIcon(dialog.path, icon)}
+          onClose={onClose}
+          anchor={dialog.anchor}
+        />
+      );
     case "rename":
       return (
         <NamePrompt
@@ -397,7 +429,7 @@ export function ExplorerDialogs({
         <Confirm
           title={`Archive ${dialog.paths.length} items`}
           body={[
-            `These move into 4-archive/ with their original paths kept inside, so you can move them straight back. Nothing is deleted.`,
+            `These move into the archive with their original paths kept inside, so you can move them straight back. Nothing is deleted.`,
             sharesBreakingWarningMany(files.shares, dialog.paths, "Archiving"),
           ]
             .filter(Boolean)
@@ -422,7 +454,7 @@ export function ExplorerDialogs({
         <Confirm
           title="Archive"
           body={[
-            `${dialog.path} moves into 4-archive/ with its original path kept inside, so you can move it straight back. Nothing is deleted.`,
+            `${dialog.path} moves into the archive with its original path kept inside, so you can move it straight back. Nothing is deleted.`,
             sharesBreakingWarning(files.shares, dialog.path, "Archiving"),
           ]
             .filter(Boolean)

@@ -40,7 +40,7 @@ export interface FrameApi {
    */
   setExplorerFolded: (folded: boolean) => void;
   /**
-   * The right panel — chat and meetings — and ⌘J on web.
+   * The right panel — meetings and approvals — and ⌘J on web.
    *
    * `asideToggleFor` owns what it means, exactly as `explorerToggleFor` owns
    * the tree's: at compact it answers `null` and this is a genuine no-op,

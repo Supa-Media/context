@@ -1,3 +1,6 @@
+// The time the listing reports for an object nobody gave one.
+const DEFAULT_LAST_MODIFIED = "2026-08-01T10:00:00.000Z";
+
 /**
  * A tiny S3-compatible backend over an in-memory map.
  *
@@ -7,11 +10,19 @@
  * created here lives behind one endpoint host, which is the point: tenants on
  * the *same provider, same endpoint, adjacent bucket names* is the arrangement
  * a prefix-confusion bug would leak across.
+ *
+ * An object may carry a `lastModified` ISO time (a benchmark world sets one per
+ * note, from its front matter). HEAD and GET then answer a `Last-Modified`
+ * header, and the listing reports it. Without one, the listing reports the
+ * fixed time it always has and no header is sent, so every caller that never
+ * sets a time sees what it saw before. `options.now`, when given, stamps every
+ * write (PUT and copy) with its ISO time, as S3 does.
  */
-export function createS3Backend(endpointOrigin = "https://s3.example-object-storage.test") {
-  /** bucket → Map(key → { body, etag }) */
+export function createS3Backend(endpointOrigin = "https://s3.example-object-storage.test", { now } = {}) {
+  /** bucket → Map(key → { body, etag, lastModified? }) */
   const buckets = new Map();
   let etagCounter = 0;
+  const stamp = () => (now ? now() : undefined);
   /*
     Requests, counted by method.
 
@@ -55,7 +66,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
             continue;
           }
         }
-        contents.push({ key: objectKey, size: value.body.length, etag: value.etag });
+        contents.push({ key: objectKey, size: value.body.length, etag: value.etag, lastModified: value.lastModified });
       }
       const xml =
         `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>` +
@@ -64,7 +75,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
           .map(
             (item) =>
               `<Contents><Key>${escapeXml(item.key)}</Key>` +
-              `<LastModified>2026-08-01T10:00:00.000Z</LastModified>` +
+              `<LastModified>${item.lastModified ?? DEFAULT_LAST_MODIFIED}</LastModified>` +
               `<ETag>&quot;${item.etag}&quot;</ETag><Size>${item.size}</Size></Contents>`
           )
           .join("") +
@@ -87,6 +98,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
         headers: {
           etag: `"${object.etag}"`,
           ...(object.contentType ? { "content-type": object.contentType } : {}),
+          ...lastModifiedHeader(object),
         },
       });
     }
@@ -99,6 +111,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
         headers: {
           etag: `"${object.etag}"`,
           ...(object.contentType ? { "content-type": object.contentType } : {}),
+          ...lastModifiedHeader(object),
         },
       });
     }
@@ -138,7 +151,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
           models. See the header note.
         */
         const etag = source.etag;
-        objects.set(key, { body: source.body, etag, contentType: source.contentType });
+        objects.set(key, { body: source.body, etag, contentType: source.contentType, lastModified: stamp() });
         return new Response(
           `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
           { status: 200 }
@@ -160,6 +173,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
         body,
         etag,
         contentType: init.headers?.["content-type"],
+        lastModified: stamp(),
       });
       return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
     }
@@ -192,6 +206,11 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
 
   const api = { endpoint: endpointOrigin, buckets, bucketFor, handle, install, ops, trips };
   return api;
+}
+
+// Only an object with a time set answers the header; see the header note above.
+function lastModifiedHeader(object) {
+  return object.lastModified ? { "last-modified": new Date(object.lastModified).toUTCString() } : {};
 }
 
 function escapeXml(value) {

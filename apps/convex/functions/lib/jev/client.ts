@@ -17,7 +17,8 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { JevFeatureName } from "./features";
-import { type JevRefusal, type UsageDelta, estimateTokens, writingCostMicroUsd } from "./meter";
+import { type JevRefusal, type UsageDelta, costMicroUsd, estimateTokens, writingCostMicroUsd } from "./meter";
+import { CLEF_MODEL, GEMMA_MODEL, GLM_MODEL } from "./models";
 import {
   type JevAnswers,
   type JevRequest,
@@ -52,6 +53,29 @@ export interface WithJevOptions {
 /** What `withJev` needs from an action: a query and a mutation, nothing else. */
 export type JevCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
+/** One model's answered requests in a run, as `recordUsage` takes them. */
+interface ModelTotals {
+  model: string;
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costMicroUsd: number;
+}
+
+/** Adds one answered request's share to its model's running total. */
+function addToModel(totals: Map<string, ModelTotals>, model: string, share: Omit<ModelTotals, "model">) {
+  const row = totals.get(model) ?? { model, calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 0 };
+  row.calls += share.calls;
+  row.input += share.input;
+  row.output += share.output;
+  row.cacheRead += share.cacheRead;
+  row.cacheWrite += share.cacheWrite;
+  row.costMicroUsd += share.costMicroUsd;
+  totals.set(model, row);
+}
+
 export async function withJev<T>(
   ctx: JevCtx,
   options: WithJevOptions,
@@ -59,9 +83,15 @@ export async function withJev<T>(
 ): Promise<T> {
   const { feature, workspaceId } = options;
   const delta: Required<UsageDelta> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0, writtenMicroUsd: 0, writtenTokens: 0 };
+  /** The same answered requests as `delta`, split by model. Failed and refused requests add nothing here. */
+  const models = new Map<string, ModelTotals>();
   const flush = async () => {
     if (delta.calls + delta.failed + delta.refused === 0) return;
-    await ctx.runMutation(internal.functions.jev.recordUsage, { feature, workspaceId, ...delta });
+    // Clef's cost is priced once over the run's total read tokens, as `addUsage` prices them,
+    // so the rows sum to the same micro-dollars as `jevUsage`. Per-call rounding would drift.
+    const clef = models.get(CLEF_MODEL);
+    if (clef) clef.costMicroUsd = costMicroUsd(clef.input);
+    await ctx.runMutation(internal.functions.jev.recordUsage, { feature, workspaceId, ...delta, models: [...models.values()] });
   };
 
   const gate = await ctx.runQuery(internal.functions.jev.gate, { feature, workspaceId });
@@ -96,7 +126,10 @@ export async function withJev<T>(
       }
       delta.calls += 1;
       delta.questions += Object.keys(request.questions).length;
-      delta.tokens += estimateTokens(request.state.length + JSON.stringify(request.questions).length);
+      const tokens = estimateTokens(request.state.length + JSON.stringify(request.questions).length);
+      delta.tokens += tokens;
+      // Cost is set at flush, over the total; see there.
+      addToModel(models, CLEF_MODEL, { calls: 1, input: tokens, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 0 });
       return answers;
     },
     async write(request) {
@@ -114,9 +147,18 @@ export async function withJev<T>(
       }
       delta.calls += 1;
       const spent = written.usage.input + written.usage.output;
+      const cost = writingCostMicroUsd(written.usage);
       delta.tokens += spent;
       delta.writtenTokens += spent;
-      delta.writtenMicroUsd += writingCostMicroUsd(written.usage);
+      delta.writtenMicroUsd += cost;
+      addToModel(models, request.model === "gemma" ? GEMMA_MODEL : GLM_MODEL, {
+        calls: 1,
+        input: written.usage.input,
+        output: written.usage.output,
+        cacheRead: 0,
+        cacheWrite: 0,
+        costMicroUsd: cost,
+      });
       return written;
     },
   };

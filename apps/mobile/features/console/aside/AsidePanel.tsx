@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { AgentConversation } from "../../agent/AgentConversation";
-import type { AgentEngine } from "../../agent/engine";
-import type { AgentPage } from "../../agent/page";
+import { ApprovalsPanel } from "../../approvals/ApprovalsPanel";
+import { pendingCount } from "../../approvals/copy";
+import type { ApprovalsView } from "../../approvals/useApprovals";
 import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
@@ -11,9 +11,10 @@ import { useMeetingsSnapshot } from "../../meetings/useMeetings";
 import { MeetingsTab } from "./MeetingsTab";
 import {
   ASIDE_TABS,
-  CHAT_INTRO,
+  DEFAULT_ASIDE_TAB,
   asideTabFor,
   meetingNeedsAttention,
+  visibleAsideTabs,
   type AsideTab,
 } from "./tabs";
 
@@ -23,18 +24,16 @@ import {
  * The frame decides *where* this is — a column at `wide`, an overlay over the
  * note at `medium`, absent on a phone — and this decides what is in it. That
  * split is the reason `AppFrame` takes an `aside` slot rather than knowing
- * about chat: geometry is the frame's and content is the console's, and the
+ * about meetings: geometry is the frame's and content is the console's, and the
  * panel changing shape under a resize must not be something this file has an
  * opinion about.
  *
- * ## The two things that happen beside a note
+ * ## What happens beside a note
  *
- * A conversation about what is written, and a recording of what is being said.
- * Both used to float, and both floated for the same reason — neither had
- * anywhere to live. `tabs.ts` carries the rules, including the one that matters
- * most: **a meeting starting does not take the tab.** It gets a dot instead,
- * because a panel that swaps out from under a composer loses the question
- * somebody was halfway through typing.
+ * A recording of what is being said, and the requests waiting on a person's
+ * yes. `tabs.ts` carries the rules, including the one that matters most: **a
+ * meeting starting does not take the tab.** It gets a dot instead, because a
+ * panel that swaps out from under somebody is a panel they stop trusting.
  *
  * ## No close button, and that is the toggle's job
  *
@@ -45,29 +44,10 @@ import {
  * beside the tab strip, which is the row a reader scans to choose.
  */
 export function AsidePanel({
-  chat = true,
-  engine,
-  place,
-  asked,
   started,
-  newChat,
   onOpenNote,
+  approvals,
 }: {
-  /** False draws the Meetings tab alone: the homepage, with no agent behind it. */
-  chat?: boolean;
-  engine: AgentEngine;
-  /** Where the person is, rebuilt by the console on every render. */
-  place: AgentPage;
-  /**
-   * A question handed over from ⌘K, and the moment it was handed over.
-   *
-   * **A counter rides with the text, and it is not decoration.** Asking the
-   * same thing twice is an ordinary thing to do — the first answer was wrong,
-   * or the note changed — and a bare string would look unchanged the second
-   * time and send nothing. The counter is what makes "ask this again" a
-   * different event from "the panel re-rendered".
-   */
-  asked: { text: string; at: number } | null;
   /**
    * When somebody last asked for a meeting, from the console's + menu.
    *
@@ -81,48 +61,32 @@ export function AsidePanel({
    * only gets the dot.
    */
   started: number | null;
-  /**
-   * When somebody last asked for a **new** conversation, from the + menu.
-   *
-   * A counter again, and it is a `key` rather than a command: the transcript
-   * and the draft live inside `AgentConversation`, so the honest way to start a
-   * fresh one is to mount a fresh one. A "clear" method on the conversation
-   * would be a second way to reach the same state, and the one thing this panel
-   * must never do is drop a turn that is in flight into a transcript somebody
-   * has already replaced.
-   */
-  newChat: number | null;
   /** Open a finished meeting's note in the console, by href and path. `null` on the demo console. */
   onOpenNote: ((href: string, path: string) => void) | null;
+  /**
+   * What the egress gate is holding for this person, from `useApprovals`.
+   *
+   * Optional, and absent means no Approvals tab: a host that cannot answer
+   * approvals (the homepage, a test that does not mount the hook) draws the
+   * Meetings tab alone. The tab's count is read here, so it is visible from
+   * the Meetings tab without opening it.
+   */
+  approvals?: ApprovalsView;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [chosen, setChosen] = useState<AsideTab>("chat");
-  const showing: AsideTab = chat ? asideTabFor(chosen) : "meetings";
+  const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
+  const approvalsAvailable = approvals?.available === true;
+  const tabs = visibleAsideTabs({ approvals: approvalsAvailable });
+  // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
+  const wanted = asideTabFor(chosen);
+  const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
+  const waiting = approvals?.items.length ?? 0;
 
-  /*
-    A question arriving takes the tab, where a meeting does not — and the two
-    are not in tension. `tabs.ts` refuses the meeting because nobody asked for
-    it; this *is* somebody asking, in the composer's own words, and landing
-    them on a tab they did not choose to see the answer they did would be the
-    same surprise pointed the other way.
-  */
-  const askedAt = asked?.at ?? null;
-  useEffect(() => {
-    if (askedAt === null) return;
-    setChosen("chat");
-  }, [askedAt]);
-
-  /* The same trade pointed the other way. See `started`. */
+  /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
   useEffect(() => {
     if (started === null) return;
     setChosen("meetings");
   }, [started]);
-
-  /* And a new conversation is a question about to be typed. See `asked`. */
-  useEffect(() => {
-    if (newChat === null) return;
-    setChosen("chat");
-  }, [newChat]);
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
@@ -130,12 +94,18 @@ export function AsidePanel({
   return (
     <View style={styles.panel} testID="aside-panel">
       <View style={styles.tabs} accessibilityRole="tablist">
-        {ASIDE_TABS.filter((tab) => chat || tab.key === "meetings").map((tab) => {
+        {ASIDE_TABS.filter((tab) => tabs.includes(tab.key)).map((tab) => {
           const current = tab.key === showing;
+          const count = tab.key === "approvals" ? pendingCount(waiting) : "";
           return (
             <Pressable
               key={tab.key}
-              onPress={() => setChosen(tab.key)}
+              onPress={() => {
+                setChosen(tab.key);
+                // Looking at the list is asking for the newest one: a request
+                // raised since the console opened should be here when it is.
+                if (tab.key === "approvals") approvals?.refresh();
+              }}
               role="tab"
               accessibilityState={{ selected: current }}
               /*
@@ -148,7 +118,9 @@ export function AsidePanel({
               accessibilityLabel={
                 meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings"
                   ? `${tab.label}, recording`
-                  : tab.label
+                  : count !== ""
+                    ? `${tab.label}, ${count} waiting`
+                    : tab.label
               }
               style={[styles.tab, current && styles.tabCurrent]}
               testID={`aside-tab-${tab.key}`}
@@ -156,6 +128,11 @@ export function AsidePanel({
               <Text variant="rowSub" style={[styles.tabLabel, current && styles.tabLabelCurrent]}>
                 {tab.label}
               </Text>
+              {count !== "" ? (
+                <Text variant="meta" style={styles.count} testID="aside-tab-approvals-count">
+                  {count}
+                </Text>
+              ) : null}
               {meetingNeedsAttention(showing, meetingLive) && tab.key === "meetings" ? (
                 /*
                   Wrapped, because `Dot` takes no `testID` — it is a 6pt mark
@@ -172,21 +149,9 @@ export function AsidePanel({
         })}
       </View>
 
-      {showing === "chat" ? (
-        <View style={styles.body} testID="aside-chat">
-          <Text variant="foot" style={styles.intro}>
-            {CHAT_INTRO}
-          </Text>
-          {/*
-            No `style` prop, so the transcript fills. The modal caps its own —
-            see `AgentPanel` — and this is the host the cap was made a prop for.
-          */}
-          <AgentConversation
-            key={newChat ?? "first"}
-            engine={engine}
-            place={place}
-            asked={asked}
-          />
+      {showing === "approvals" && approvals !== undefined ? (
+        <View style={styles.body} testID="aside-approvals">
+          <ApprovalsPanel view={approvals} />
         </View>
       ) : (
         <MeetingsTab onOpenNote={onOpenNote} />
@@ -217,7 +182,7 @@ const makeStyles = (colors: Colors) =>
     },
     tabCurrent: { backgroundColor: colors.chrome },
     tabLabel: { color: colors.muted },
+    count: { color: colors.muted },
     tabLabelCurrent: { color: colors.text },
     body: { flex: 1, minHeight: 0 },
-    intro: { color: colors.muted, paddingHorizontal: space.x4, paddingTop: space.x3 },
   });

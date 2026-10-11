@@ -1,0 +1,180 @@
+# The Workers and the texting agent, in one job.
+#
+# Same gap `mcp.yml` was written to close: the Supa framework's reusable
+# pipeline filters on apps/mobile, apps/convex and packages/shared, so nothing
+# under infra/ (or apps/agent) is covered by it. These five used to be five
+# workflows — router.yml, transcribe-worker.yml, egress-service.yml,
+# site-shots.yml and agent.yml — each its own runner, checkout, pnpm and Node
+# setup around 10-20s of tests, and five of the twenty runners a free account
+# gets at once. Folded here on 2026-10-07 so the slow jobs stop queueing
+# behind them. Each suite keeps its own scope step (it runs only when its
+# package's inputs change), its own filtered install, and `!cancelled()` so a
+# red suite does not hide the ones after it; `scripts/check-ci-path-gates.mjs`
+# checks every step is gated by its own package's scope.
+name: Workers
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+#
+# And no `branches:` filter on pull_request either — see mcp.yml. A base-branch
+# filter means a pull request stacked on another branch runs no checks at all,
+# which is how #169 merged with zero check runs. The key is absent rather than
+# `branches: ['**']` so that a tidy-up to `'*'` cannot silently stop matching
+# `claude/…`-shaped branches; `scripts/check-workflow-triggers.mjs` enforces it.
+# The `push:` filter below stays on `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "infra/router/**"
+      - "infra/transcribe-worker/**"
+      - "infra/egress-service/**"
+      - "infra/site-shots/**"
+      - "apps/agent/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/workers.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: workers-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Before the scopes, unconditionally: seconds, and shared by every suite.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # ── Edge Router ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: router
+        with:
+          packages: "@context/router"
+          paths: ".github/workflows/workers.yml"
+
+      # Browser checks still report on every pull request, but their expensive
+      # steps belong only to changes in the dependency graph they execute.
+      # email-worker.yml is the second independent host for this guard, and
+      # fast-guards.yml the ungated one.
+      - name: Expensive CI stays scoped to its dependency graph
+        if: ${{ !cancelled() && steps.router.outputs.affected == 'true' }}
+        run: |
+          node scripts/check-ci-path-gates.mjs --self-test
+          node scripts/check-ci-path-gates.mjs
+
+      - name: Install (Edge Router)
+        if: ${{ !cancelled() && steps.router.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/router... --frozen-lockfile
+
+      - name: Typecheck (Edge Router)
+        if: ${{ !cancelled() && steps.router.outputs.affected == 'true' }}
+        working-directory: infra/router
+        run: npx tsc --noEmit
+
+      - name: Routing tests
+        if: ${{ !cancelled() && steps.router.outputs.affected == 'true' }}
+        working-directory: infra/router
+        run: npx vitest run
+
+      # ── Transcribe Worker ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: transcribe
+        with:
+          packages: "@context/transcribe-worker"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Transcribe Worker)
+        if: ${{ !cancelled() && steps.transcribe.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/transcribe-worker... --frozen-lockfile
+
+      - name: Typecheck (Transcribe Worker)
+        if: ${{ !cancelled() && steps.transcribe.outputs.affected == 'true' }}
+        working-directory: infra/transcribe-worker
+        run: npx tsc --noEmit
+
+      - name: Transcription tests
+        if: ${{ !cancelled() && steps.transcribe.outputs.affected == 'true' }}
+        working-directory: infra/transcribe-worker
+        run: npx vitest run
+
+      # ── Plugin Egress Service ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: egress
+        with:
+          packages: "@context/egress-service"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Plugin Egress Service)
+        if: ${{ !cancelled() && steps.egress.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/egress-service... --frozen-lockfile
+
+      - name: Typecheck (Plugin Egress Service)
+        if: ${{ !cancelled() && steps.egress.outputs.affected == 'true' }}
+        working-directory: infra/egress-service
+        run: npx tsc --noEmit
+
+      - name: Egress tests
+        if: ${{ !cancelled() && steps.egress.outputs.affected == 'true' }}
+        working-directory: infra/egress-service
+        run: npm test
+
+      # ── Site Shots Worker ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: siteshots
+        with:
+          packages: "@context/site-shots"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Site Shots Worker)
+        if: ${{ !cancelled() && steps.siteshots.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/site-shots... --frozen-lockfile
+
+      - name: Typecheck (Site Shots Worker)
+        if: ${{ !cancelled() && steps.siteshots.outputs.affected == 'true' }}
+        working-directory: infra/site-shots
+        run: npx tsc --noEmit
+
+      - name: Site shots tests
+        if: ${{ !cancelled() && steps.siteshots.outputs.affected == 'true' }}
+        working-directory: infra/site-shots
+        run: npx vitest run
+
+      # ── Agent ──
+      - uses: ./.github/actions/ci-scope
+        if: ${{ !cancelled() }}
+        id: agent
+        with:
+          packages: "@context/agent"
+          paths: ".github/workflows/workers.yml"
+
+      - name: Install (Agent)
+        if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}
+        run: pnpm install --filter @context/agent... --frozen-lockfile
+
+      - name: Typecheck (Agent)
+        if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}
+        working-directory: apps/agent
+        run: npx tsc --noEmit
+
+      - name: Agent tests
+        if: ${{ !cancelled() && steps.agent.outputs.affected == 'true' }}
+        working-directory: apps/agent
+        run: npx vitest run

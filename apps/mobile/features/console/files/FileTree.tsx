@@ -1,3 +1,4 @@
+import { useMapFolderCount } from "../map/live/mapCounts";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -11,6 +12,7 @@ import type { SyncMark } from "./pendingMarks";
 import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { TreeFolderGlyph } from "./TreeFolderGlyph";
 import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
@@ -95,8 +97,21 @@ export function FileTree({
   pendingStateFor,
   markedPaths,
   agentMarks,
+  workspaceId = null,
+  iconOf,
+  onIconPress,
 }: {
   rows: readonly TreeRow[];
+  /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
+  workspaceId?: string | null;
+  /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
+  iconOf?: (path: string) => string | null;
+  /**
+   * A folder's icon was clicked: open its picker at `anchor`, a window point
+   * under the icon. Absent for somebody who cannot change one, whose icon is
+   * then part of the row like the name. See `TreeFolderGlyph`.
+   */
+  onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -183,6 +198,9 @@ export function FileTree({
         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
+        workspaceId={workspaceId}
+        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
+        onIconPress={onIconPress}
       />
     );
   }
@@ -219,8 +237,15 @@ function FileRow({
   sync,
   marked,
   agent,
+  workspaceId,
+  folderIcon,
+  onIconPress,
 }: {
   row: TreeRow;
+  workspaceId: string | null;
+  /** The emoji this folder was given, or `null` for the plain folder icon. Files never have one. */
+  folderIcon: string | null;
+  onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -244,6 +269,8 @@ function FileRow({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  // Only while the live map is open, and only on a top folder: see `mapCounts.ts`.
+  const mapCount = useMapFolderCount(workspaceId, row.kind === "folder" && row.depth === 0 ? row.path : null);
   const interactions = useRowInteractions({
     path: row.path,
     // Passed through as absent rather than wrapped in a no-op, because
@@ -320,6 +347,20 @@ function FileRow({
             />
           ) : null}
         </View>
+        {/*
+          The folder's own glyph, between its chevron and its name. A file gets
+          the same empty box, so the names still start on one line: the box is
+          the reserved space, and a file has nothing to draw in it.
+        */}
+        <View style={styles.glyph}>
+          {row.kind !== "folder" ? null : (
+            <TreeFolderGlyph
+              label={row.label}
+              icon={folderIcon}
+              onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
+            />
+          )}
+        </View>
         <Text
           variant="tree"
           numberOfLines={1}
@@ -353,6 +394,11 @@ function FileRow({
           children's. See `AgentMark` for the shape.
         */}
         {agent === null ? null : <AgentMark kind={agent} />}
+        {mapCount === null ? null : (
+          <Text variant="treeMeta" style={styles.mapCount} testID="tree-map-count">
+            {String(mapCount)}
+          </Text>
+        )}
       </PressRow>
 
       <VisibilityControl
@@ -547,6 +593,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The name you are reading is the emphasised one: weight, not hue. */
   nodeSelectedLabel: { color: colors.text, fontWeight: "500" },
   chevron: { width: 10, alignItems: "center", justifyContent: "center" },
+  /** The folder's glyph: 16pt of room, with the gap after it the name needs. */
+  glyph: { width: 16, marginRight: 4, alignItems: "center", justifyContent: "center" },
   /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
   label: { flexShrink: 1, minWidth: 0 },
 
@@ -564,6 +612,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginLeft: space.x2,
     backgroundColor: colors.accent,
   },
+  /** The live map's count on a top folder, in the tree's quiet meta type, tabular so it does not jitter. */
+  mapCount: { marginLeft: space.x2, color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
 
   /**
    * The trailing metadata's box.

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { meetings } from "../controller";
 import { useMeetingsSnapshot } from "../useMeetings";
@@ -64,12 +63,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     band: {
       gap: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: radii.card,
-      backgroundColor: colors.critWash,
-      borderWidth: 1,
-      borderColor: colors.critBorder,
     },
-    text: { color: colors.critText },
+    text: { color: colors.critText, fontWeight: "600" },
   });
