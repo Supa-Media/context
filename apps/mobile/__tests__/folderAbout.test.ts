@@ -309,3 +309,31 @@ async function type(field: HTMLTextAreaElement, text: string) {
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
 }
+
+/*
+  Owner, 2026-10-11: the description under a folder's title arrived a second
+  after the page. It waited on every note of the folder's parent; it is one
+  note, read by name ahead of the rest.
+*/
+describe("the description is read ahead of the folder's notes", () => {
+  test("a README's words are drawn while the full read is still on its way", async () => {
+    // A listed README waits for the notes' word that it is not the untouched placeholder;
+    // that word now comes from the front note alone.
+    const readme: ListNote = { path: "2-areas/README.md", updatedAt: 10, properties: {}, heading: "2-areas", lede: "Health, home and money." };
+    const page = host(null);
+    const source = {
+      ...page.source!,
+      load: () => new Promise<never>(() => {}),
+      loadFront: async (folders: readonly string[]) => (folders.includes("2-areas") ? [readme] : []),
+      readBody: async (path: string) =>
+        path === "2-areas/README.md" ? { text: "# 2-areas\n\nHealth, home and money.\n", encrypted: false } : null,
+    };
+    const AREAS = listing("2-areas", [entry("file", "2-areas/README.md"), entry("file", "2-areas/gym.md")]);
+    await mount(entry("folder", "2-areas"), AREAS, { ...page, source });
+    await act(async () => {});
+    await act(async () => {});
+    expect(strip(one("folder-about-words").textContent)).toBe("Health, home and money.");
+    // And the title stays the folder's name rather than the README's "2-areas".
+    expect(strip(document.body.textContent)).not.toContain("2-areas");
+  });
+});

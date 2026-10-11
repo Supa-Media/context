@@ -12,7 +12,7 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { isServerRefusal, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
@@ -24,6 +24,7 @@ import { findEntry } from "../tree";
 import type { OpenNote } from "../types";
 import type { RestoredDraft } from "../editor";
 import { INSTANT_OPEN_MS } from "./timing";
+import { createNotePrefetch, type NotePrefetch } from "./notePrefetch";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
@@ -48,12 +49,23 @@ type OpenNoteDeps =
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "ensureListing" | "refresh" | "reportRefreshFailure">;
 
+/** What one `readNote` answers. */
+type NoteRead = Awaited<ReturnType<FileActionsValues["readNote"]>>;
+
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
     settleOpening, workspaceId,
   } = deps;
+
+  /*
+    Reads asked for before the press (`notePrefetch.ts`), keyed by context and
+    the path the bucket knows the note by.
+  */
+  const readAhead = useRef<NotePrefetch<NoteRead> | null>(null);
+  if (readAhead.current === null) readAhead.current = createNotePrefetch<NoteRead>();
+  const earlyKey = (path: string) => `${workspaceId ?? ""}\n${path}`;
 
   /*
     A note that is in storage and can't be opened (`../unreadable.ts`) closes
@@ -176,7 +188,14 @@ export function useOpenNote(deps: OpenNoteDeps) {
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
         } else {
-          const reading = readNote({ workspaceId, path: source });
+          /*
+            A read already asked for when the pointer reached this note's row
+            is this open's read, unless the editor is on this note already:
+            then it may predate what is on screen, and is dropped.
+          */
+          const asked = readAhead.current?.take(earlyKey(source));
+          const reusable = carriedFrom === undefined && editorRef.current.path !== path;
+          const reading = (reusable ? asked : undefined) ?? readNote({ workspaceId, path: source });
           /*
             Online, the mirror answers first when the bucket is slow.
 
@@ -329,6 +348,23 @@ export function useOpenNote(deps: OpenNoteDeps) {
       }
     },
     [readNote, settleOpening, workspaceId],
+  );
+
+  /**
+   * Start reading a note somebody is about to open — see `notePrefetch.ts`.
+   * Only where `openNote` would ask the bucket anyway: online, a note that
+   * exists there, and not the one the editor is holding.
+   */
+  const prefetch = useCallback(
+    (path: string): void => {
+      if (workspaceId === null || !isMarkdown(path)) return;
+      const offline = offlineRef.current;
+      if (offline.reachability === "offline" || offline.pendingCreate(path) !== undefined) return;
+      if (editorRef.current.path === path) return;
+      const source = offline.serverPathOf(path);
+      readAhead.current?.prefetch(earlyKey(source), () => readNote({ workspaceId, path: source }));
+    },
+    [readNote, workspaceId],
   );
 
   const select = useCallback(
@@ -497,7 +533,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     [openNote, workspaceId],
   );
 
-  return { openNote, select, deselect, followRename };
+  return { openNote, prefetch, select, deselect, followRename };
 }
 
 export type OpenNoteValues = ReturnType<typeof useOpenNote>;

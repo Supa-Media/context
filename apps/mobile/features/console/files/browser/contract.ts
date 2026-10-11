@@ -124,6 +124,13 @@ export interface FileBrowser extends BesideEditing {
   select: (path: string) => boolean;
 
   /**
+   * Somebody is about to open this note — a pointer over its row, a finger
+   * down on it — so its read can start now (`fileBrowser/notePrefetch.ts`).
+   * Optional: a surface with nothing to read ahead from leaves it out.
+   */
+  prefetch?: (path: string) => void;
+
+  /**
    * How many times `select` has moved this browser somewhere.
    *
    * **A counter, because the URL has to tell a navigation from a correction**,
