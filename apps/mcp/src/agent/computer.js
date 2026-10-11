@@ -271,8 +271,9 @@ export function webSession(computer, question, { decide = null, search = null, a
     browser,
     /**
      * A task skill was read this question (`skills.js`): its addresses may be
-     * opened and its words typed, as if the person had written them. Staff
-     * wrote it in the pinned workspace; no page or note can add to it.
+     * opened, as if the person had written them, and the values it marks in
+     * backticks typed (`browse.js`). Staff wrote it in the pinned workspace;
+     * no page or note can add to it.
      */
     vouch(text) {
       for (const url of addressesIn(text)) allowed.add(url);

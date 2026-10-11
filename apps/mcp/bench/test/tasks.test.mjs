@@ -21,7 +21,7 @@ import { parseTest } from "../load.mjs";
 const AI = fileURLToPath(new URL("../ai", import.meta.url));
 const SETUP =
   "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\nskills:\n  connect-chatgpt: someone wants ChatGPT to use Context\n---\n\nYou are a test assistant.\n";
-const SKILL = "---\nwhy: test\n---\n\nOpen https://chatgpt.com/plugins, press Add, name it Context, set the MCP server URL to https://mcp.context.lc/mcp and Authentication to OAuth.\n";
+const SKILL = "---\nwhy: test\n---\n\nOpen https://chatgpt.com/plugins, press Add, name it `Context`, set the MCP server URL to `https://mcp.context.lc/mcp` and Authentication to OAuth.\n";
 
 const bench = {
   people: [{ person: "Maya", workspace: "maya", role: "owner", personal: true }],

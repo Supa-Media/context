@@ -324,8 +324,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // (`openContext` copies the store's settings at open time).
   if (production?.search) store.searchSettings = searchSettingsOf(store, production.search);
   // The setup's task skills (`skills.js`), read from the pinned workspace only when asked for.
-  // A skill read this turn vouches for its own addresses and words, as the
-  // person's message does (`computer.js` `vouch`); nothing else can add to them.
+  // A skill read this turn vouches for its own addresses and backticked values,
+  // as the person's message does (`computer.js` `vouch`); nothing else can.
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });

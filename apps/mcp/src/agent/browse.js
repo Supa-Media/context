@@ -38,6 +38,9 @@ import { addressesIn, canonicalUrl } from "./computer.js";
 
 export const BROWSE_TOOL = "browse";
 
+/** A value a skill marks as typable: one backticked span on one line. */
+const SKILL_VALUE = /`([^`\n]{1,200})`/g;
+
 /** Steps in one call, and in one question. */
 export const MAX_STEPS_PER_CALL = 10;
 export const MAX_STEPS_PER_TURN = 40;
@@ -146,6 +149,8 @@ function readingText(reading, ran) {
  */
 export function browserSession(computer, { allowed, addresses, takePages, say = null }) {
   const theirWords = new Set(wordsOf(addresses));
+  // Exact values a skill read this question vouched for (`vouch` below).
+  const vouchedValues = new Set();
   const theirSites = [...new Set(addressesIn(addresses).map((url) => siteOf(new URL(url).hostname)))];
   let session = null;
   let origin = null;
@@ -234,10 +239,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "type") {
           if (typeof step.text !== "string") return textResult("A type step needs text.", true);
           let onlyOn = null;
-          if (!onlyTheirWords(step.text, theirWords)) {
+          if (!onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
             if (theirSites.length === 0) {
               return textResult(
-                "You can only type the person's own words here, or words from a skill you read this question (read_skill). To type anything else, the person has to name the site in their message.",
+                "You can only type the person's own words here, or a value a skill you read this question gives (read_skill). To type anything else, the person has to name the site in their message.",
                 true,
               );
             }
@@ -300,13 +305,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       handoffSaid ? null : handoffLink !== null ? handoffLine() : handoffMissed ? NO_LINK_LINE : null,
 
     /**
-     * Words a task skill this question read (`skills.js`) may be typed like
-     * the person's own: staff wrote them in the pinned workspace, before any
-     * page was read, so a page cannot have put them there. Only the words: a
+     * The values a task skill this question read (`skills.js`) marks in
+     * backticks, like `https://mcp.context.lc/mcp`, may be typed anywhere,
+     * each exactly as written. Staff wrote them in the pinned workspace
+     * before any page was read, so a page cannot have put them there. Exact
+     * values and never the skill's words one by one: those include its step
+     * numbers, and a page could have a code typed out a digit at a time. A
      * skill never makes a site one the person named.
      */
     vouch(text) {
-      for (const word of wordsOf(text)) theirWords.add(word);
+      for (const match of String(text ?? "").matchAll(SKILL_VALUE)) vouchedValues.add(match[1].trim().toLowerCase());
     },
 
     /** The origin of the page the browser is on, or null before it opens one. */

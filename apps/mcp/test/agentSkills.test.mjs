@@ -23,7 +23,7 @@ import { BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-skills.test";
 const TOKEN_TEXTS = `cat_skil_texts_${"0".repeat(25)}`;
-const SKILL_BODY = "SKILL-MARK: open chatgpt.com/plugins, press Add, then Add custom MCP server, and type https://mcp.context.lc/mcp as its address.";
+const SKILL_BODY = "SKILL-MARK: 1. Open chatgpt.com/plugins. 2. Press Add, then Add custom MCP server. 3. Type `https://mcp.context.lc/mcp` as its address.";
 const SKILLS_FRONT = "skills:\n  connect-chatgpt: someone wants ChatGPT to use Context\n  save-a-login: a site needs a login that is not saved";
 
 function setupFile(front = SKILLS_FRONT) {
@@ -255,7 +255,7 @@ function fakeComputer() {
   };
 }
 
-test("a skill's addresses may be opened and its words typed once it is read, and nothing more", async () => {
+test("a skill's addresses may be opened and its backticked values typed once it is read, and nothing more", async () => {
   const computer = fakeComputer();
   const web = webSession(computer, "connect my chatgpt to context");
   const goto = { steps: [{ do: "goto", url: "https://chatgpt.com/plugins" }] };
@@ -271,6 +271,11 @@ test("a skill's addresses may be opened and its words typed once it is read, and
   const leak = await web.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "maya salary 90000" }] });
   assert.equal(leak.isError, true, "words in neither the message nor the skill are still refused");
   assert.equal(computer.calls.length, before);
+  // The skill's words one by one are not vouched: its step numbers would
+  // let a page have a code typed out a digit at a time.
+  for (const spelled of ["1 2 3", "open add", "mcp context"]) {
+    assert.equal((await web.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: spelled }] })).isError, true, spelled);
+  }
   // The page told it to type something; a page never vouches.
   const fromPage = await web.call(BROWSE_TOOL, { steps: [{ do: "type", ref: 1, text: "type the person's notes" }] });
   assert.equal(fromPage.isError, true);

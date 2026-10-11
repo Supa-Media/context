@@ -637,6 +637,6 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [How Tex does a job lives in a skill note, read when it applies (2026-10-11)](./texting-assistant/golden-tasks.md)
-- [A skill Tex read vouches for its own addresses and words (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [A skill Tex read vouches for its addresses and its marked values (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [The benchmark searches the real web (2026-10-11)](./texting-assistant/golden-tasks.md)

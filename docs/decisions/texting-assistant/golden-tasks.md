@@ -68,28 +68,32 @@ edit to a note, proved by the benchmark, like the prompt is.
 
 Tests: `test/agentSkills.test.mjs`.
 
-## A skill Tex read vouches for its own addresses and words (2026-10-11)
+## A skill Tex read vouches for its addresses and its marked values (2026-10-11)
 
 The browser opens only an address the person wrote, a search result or a link
 on a page it opened, and types only the person's own words, or anything on a
 site they named (`browse.js`). So "connect my ChatGPT to Context" could open
 nothing and type nothing: neither chatgpt.com/plugins nor Context's MCP
-address is in that sentence. A skill read this question now counts as the
-person's words for both rules: its addresses may be opened and its words
-typed (`webSession`'s `vouch`, called by `read_skill`).
+address is in that sentence. A skill read this question now vouches for two
+things: its addresses may be opened, and each value it marks in backticks
+(`` `https://mcp.context.lc/mcp` ``) may be typed exactly as written
+(`webSession`'s `vouch`, called by `read_skill`).
 
 Why this is safe: the guard exists so that a page cannot make Tex send the
 person's notes somewhere. A skill is written by staff in `@context-lc`
-before any page is read, no page or note can add to it, and its words are the
-same for every person, so typing them carries nothing of theirs. It does not
-make a site "named": the anything-goes rule stays the person's alone. It
-lasts one question, like the person's words; a skill tells Tex to read it
-again when they text back mid-job.
+before any page is read, no page or note can add to it, and its values are
+the same for every person, so typing one carries nothing of theirs. Exact
+values, never the skill's words one by one: those include its step numbers,
+and a page could then have a door code typed out a digit at a time (the first
+version did vouch for words, and was narrowed in review before it merged). A
+skill never makes a site "named": the anything-goes rule stays the person's
+alone. It lasts one question, like the person's words; a skill tells Tex to
+read it again when they text back mid-job.
 
 Tests: `test/agentSkills.test.mjs` ("a skill's addresses may be opened and its
-words typed once it is read, and nothing more"; "a texted turn's read_skill
-lets the browser open the skill's address"); sabotaged, `bench/test/tasks.test.mjs`
-fails too.
+backticked values typed once it is read, and nothing more", which also types
+"1 2 3" and fails; "a texted turn's read_skill lets the browser open the
+skill's address"); sabotaged, `bench/test/tasks.test.mjs` fails too.
 
 ## A handoff that made no link says so, in the gateway's words (2026-10-11)
 
