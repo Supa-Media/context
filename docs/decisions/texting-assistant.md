@@ -409,6 +409,14 @@ So the model never chooses an address:
 - A search result's address may be opened like a link on a page: it was in
   the search provider's index before the turn began. An address written inside
   a result's snippet may not. See the next section.
+- Trusted sites (owner, 2026-10-11, after Tex refused chatgpt.com/auth/login
+  mid-setup): the production setup may name up to 20 sites in
+  `trusted_sites:` (`trustedSites.js`), and the model may open any page on
+  one of them or its subdomains without being given the address. It may never
+  add a query string there, so a trusted site cannot carry notes either
+  (`chatgpt.com/?q=…` is refused); lookalike hosts, ports and credentials are
+  refused too. A trusted site is one staff chose in the pinned workspace,
+  never a stranger, and the list is edited like the skills.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a

@@ -41,6 +41,7 @@ import { FILL_LOGIN_TOOL, fillLoginTool } from "./fillLogin.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
+import { OpenableAddresses } from "./trustedSites.js";
 
 /** The web tools: opening a page, and searching when there is a searcher. */
 export const OPEN_PAGE_TOOL = "open_page";
@@ -238,7 +239,7 @@ export function webSession(computer, question, { decide = null, search = null, a
   // for a texted question and differ for a routine, whose prompt is framing
   // this gateway wrote and carries the last run's answer — the model's words,
   // which must never vouch for anything (`route.js`).
-  const allowed = new Set(addressesIn(addresses));
+  const allowed = new OpenableAddresses(addressesIn(addresses));
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;
@@ -279,6 +280,13 @@ export function webSession(computer, question, { decide = null, search = null, a
       for (const url of addressesIn(text)) allowed.add(url);
       browser?.vouch(text);
     },
+    /**
+     * The setup's trusted sites (`trustedSites.js`): any page of theirs with
+     * no query string may be opened without the person writing its address.
+     */
+    trust(sites) {
+      allowed.trust(sites);
+    },
     /** Ends this question's browser, if it opened one. */
     close: () => browser?.close() ?? Promise.resolve(),
     async call(name, args) {
@@ -291,7 +299,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       const wanted = [...new Set(asked.map(canonicalUrl))];
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
-          "You can only open an address the person wrote, or a link from a page you opened. Ask them for the address.",
+          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site. Ask them for the address.",
           true,
         );
       }
