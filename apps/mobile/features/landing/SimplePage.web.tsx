@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useScheme } from "../design/theme";
 import { darkSimpleLandingColors, lightSimpleLandingColors } from "../design/tokens/landingColors";
 import { LandingSignUp } from "./LandingSignUp";
-import { MessyDesk } from "./MessyDesk.web";
+import { ChaosGraph } from "./ChaosGraph.web";
 import { SIMPLE_CSS } from "./simpleCss";
 
 /**
@@ -10,8 +10,9 @@ import { SIMPLE_CSS } from "./simpleCss";
  * with screenshots of instinct.com and thebrowser.company). Their shape: a
  * small hand-drawn mark, short paragraphs in one reading face at one size, and
  * one call to action written as a line of text. It sells a feeling, less
- * chaos, rather than a feature list, and shows it (`MessyDesk`) rather than
- * saying it. The sign-up opens under the last line rather than sitting on the
+ * chaos, rather than a feature list, and shows it (`ChaosGraph`) rather than
+ * saying it. The words are Dev's own, from the shared note they edited
+ * (2026-10-11), with typos fixed and nothing else changed. The sign-up opens under the last line rather than sitting on the
  * page as a card.
  */
 
@@ -49,20 +50,21 @@ export function SimplePage() {
         <a className="sp-logo" href="/" aria-label="Context">
           <NoteDoodle />
         </a>
-        <h1 className="sp-p sp-first">Life is chaotic, but it doesn't have to always stay that way.</h1>
-        <p className="sp-p">Think about everything you keep track of.</p>
-        <MessyDesk />
+        <h1 className="sp-p sp-first">Context gives your brain that feeling you have when your room is clean.</h1>
+        <ChaosGraph />
         <p className="sp-p">
-          Context puts all of it away in plain notes that{" "}
+          It's an opinionated way to put everything away in plain notes that you can always edit, export, do whatever
+          you want with it, and so can all your{" "}
           <a className="sp-u" href="/?page=connect-your-ai">
-            every AI you use
-          </a>{" "}
-          can read. When it is tidy, you feel the way you do after cleaning your room.
+            AI tools
+          </a>
+          .
         </p>
         <p className="sp-p">
-          Letting someone else put your things away can feel strange at first, like hiring a cleaner for the first
-          time. You can still see where everything went, move anything back, and take all of it with you.
+          Work better with your team by organizing your thoughts, start the nonprofit, write the blog, build your
+          website
         </p>
+        <p className="sp-p sp-less">with less chaos</p>
         <p className="sp-p">
           <button type="button" className="sp-cta" aria-expanded={open} aria-controls="join" onClick={() => setOpen(true)}>
             <span>Join the waitlist</span> ›
