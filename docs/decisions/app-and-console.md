@@ -246,6 +246,10 @@ Moved to [The breadcrumb head stopped being a switcher pill when it moved rows](
 
 Moved to [A diagram lives in the note, and the browser is the only thing that makes it safe](./app-and-console/diagrams-recent-and-sharing.md#a-diagram-lives-in-the-note-and-the-browser-is-the-only-thing-that-makes-it-safe).
 
+### A Mermaid chart is drawn by our script in a frame the note cannot leave
+
+Moved to [A Mermaid chart is drawn by our script in a frame the note cannot leave](./app-and-console/diagrams-recent-and-sharing.md#a-mermaid-chart-is-drawn-by-our-script-in-a-frame-the-note-cannot-leave).
+
 ### A phone gets Recent, because it could never get a second tab
 
 Moved to [A phone gets Recent, because it could never get a second tab](./app-and-console/diagrams-recent-and-sharing.md#a-phone-gets-recent-because-it-could-never-get-a-second-tab).

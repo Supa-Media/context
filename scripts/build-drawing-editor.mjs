@@ -40,6 +40,8 @@ const MOBILE = path.join(ROOT, "apps", "mobile");
 const SOURCE = path.join(MOBILE, "drawing-editor");
 const PACKAGE = path.join(MOBILE, "node_modules", "@excalidraw", "excalidraw", "dist", "prod");
 const OUT = path.join(MOBILE, "public", "drawing-assets");
+const DIAGRAM_SOURCE = path.join(MOBILE, "diagram-frame");
+const MERMAID = path.join(MOBILE, "node_modules", "mermaid", "package.json");
 
 /**
  * The families copied next to the bundle, read from the console's own module so
@@ -85,6 +87,75 @@ function pageHtml() {
   </body>
 </html>
 `;
+}
+
+/**
+ * The Mermaid frame's page: the stage the diagram is drawn into, and its CSP.
+ *
+ * The CSP is the half of the sandbox the `sandbox` attribute cannot provide.
+ * `allow-scripts` has to be on for Mermaid to run at all, so what stops a
+ * diagram becoming a beacon — a read receipt fired at whoever wrote it, the
+ * moment the note is opened — is this: one script, ours, and no fetch, image,
+ * font or frame from anywhere. `img-src data:` lets a diagram carry its own
+ * artwork inline and nothing more. `'self'` resolves against this page's URL;
+ * `e2e/webkit/mermaid.spec.ts` proves the script still loads from inside the
+ * opaque origin the sandbox gives it.
+ */
+function diagramPageHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Diagram</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+      #stage { display: flex; justify-content: center; }
+      #stage svg { max-width: 100%; height: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <script src="./frame.js"></script>
+  </body>
+</html>
+`;
+}
+
+/**
+ * The Mermaid renderer the console draws ```mermaid fences with — see
+ * `diagram-frame/entry.js`. Built here rather than by a script of its own
+ * because it is the same kind of thing for the same reasons (a heavy
+ * dependency served as a page from the console's own origin), and every
+ * workflow that deploys the web console already runs this file.
+ *
+ * A classic script, not a module: a sandboxed frame has an opaque origin, and
+ * a module script from it is a CORS request our static host does not answer.
+ */
+async function buildDiagramFrame() {
+  if (!existsSync(MERMAID)) {
+    console.error("mermaid is not installed. Run `pnpm install` first.");
+    process.exit(1);
+  }
+  const dir = path.join(OUT, "diagram");
+  await mkdir(dir, { recursive: true });
+  await build({
+    entryPoints: [path.join(DIAGRAM_SOURCE, "entry.js")],
+    bundle: true,
+    format: "iife",
+    minify: true,
+    sourcemap: false,
+    target: ["es2020"],
+    define: { "process.env.NODE_ENV": '"production"' },
+    outfile: path.join(dir, "frame.js"),
+    logLevel: "warning",
+  });
+  await writeFile(path.join(dir, "index.html"), diagramPageHtml());
+  const bytes = (await stat(path.join(dir, "frame.js"))).size;
+  console.log(
+    `built the diagram frame: ${(bytes / 1048576).toFixed(2)}MB of script, into apps/mobile/public/drawing-assets/diagram`
+  );
 }
 
 async function main() {
@@ -165,6 +236,8 @@ async function main() {
       "into apps/mobile/public/drawing-assets/editor"
   );
   if (result.warnings.length > 0) console.log(`${result.warnings.length} esbuild warning(s)`);
+
+  await buildDiagramFrame();
 }
 
 main().catch((error) => {

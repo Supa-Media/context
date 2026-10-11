@@ -50,6 +50,7 @@ const BLOCK_WIDGET_ROOTS = [
   "cm-lp-grid-live",
   "cm-lp-images",
   "cm-lp-preview-block",
+  "cm-lp-diagram-block",
   "cm-lp-list",
   "cm-lp-cast-block",
   "cm-lp-join",

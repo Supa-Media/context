@@ -139,6 +139,32 @@ export const textStyles = `
   border: 0;
   pointer-events: none;
 }
+/*
+  A MERMAID DIAGRAM — drawn on the note itself, with no card around it: the
+  frame is transparent and the diagram is in the note's own ink (see
+  diagram.ts). Until it reports a drawing the frame is laid out but invisible,
+  because Mermaid measures its labels and a display:none frame measures zero.
+  If it cannot be drawn, the fence is shown as plain mono text with one muted
+  line saying why.
+*/
+.cm-lp-diagram-block { padding: 0.5em 0; }
+.cm-lp-diagram-frame {
+  display: block;
+  width: 100%;
+  height: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.cm-lp-diagram-frame.cm-lp-diagram-drawn { visibility: visible; }
+.cm-lp-diagram-source {
+  margin: 0;
+  font-family: var(--lp-mono);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  color: var(--lp-content);
+}
+.cm-lp-diagram-note { color: var(--lp-muted); font-size: 0.85em; padding-top: 4px; }
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
 /*
   A CALLOUT — an Obsidian blockquote that opens with [!type] — drawn as a
