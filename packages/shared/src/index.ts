@@ -47,6 +47,23 @@ export {
   PINNED_CONTEXT_SLUG,
   isPinnedContextSlug,
 } from "./pinnedContext";
+/**
+ * The landing pages (`/a` to `/c`) and the rule that names them, and the ad a
+ * visit came from. The waitlist records both, so both halves read them here.
+ */
+export {
+  AD_CAMPAIGN_FIELD_MAX,
+  adCampaignFromSearch,
+  adCampaignLabel,
+  adCampaignOf,
+  type AdCampaign,
+  RETIRED_LANDING_PAGES,
+  DEFAULT_LANDING_PAGE,
+  LANDING_PAGES,
+  landingPageFromPath,
+  landingPageOf,
+  type LandingPage,
+} from "./landingPages";
 export {
   DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
   matchesDestructiveActionAcknowledgement,
@@ -122,6 +139,7 @@ export {
   CUSTOM_EMOJI_NAME,
   customEmojiLeaf,
   customEmojiNameFrom,
+  customEmojiShortcode,
   publishedEmojiNames,
   findShortcodes,
   parseCustomEmojiLeaf,

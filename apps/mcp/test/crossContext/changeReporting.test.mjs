@@ -41,4 +41,46 @@ export async function runCrossContextChangeReportingChecks(check, harness) {
       activity[0].workspaceId === "ws_shared" &&
       [...trees, ...activity].every((body) => body.workspaceId !== "ws_own"),
   );
+
+  /*
+    A note moved between two contexts is reported to the control plane, which
+    is where the console map reads "notes moving between your workspaces"
+    from: both buckets' audit rows are where no request can afford to look.
+    Sabotage-checked: dropping the `reportContextMove` call from
+    `acrossContexts.js` fails the first check; binding the reporter to the
+    destination's store fails the second.
+  */
+  harness.mine.set("1-projects/leaving-for-theirs.md", {
+    body: "# Leaving\n",
+    etag: "m-report-move-1",
+  });
+  controlPlane.calls.length = 0;
+  const moved = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "1-projects/leaving-for-theirs.md",
+    destination: "1-projects/arrived-from-mine.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+  });
+  check("a cross-context move still succeeds", /moved:/.test(textOf(moved)));
+  const moves = sent("/gateway/moves");
+  check(
+    "a cross-context move tells the control plane both ends, the paths and who",
+    moves.length === 1 &&
+      moves[0].fromWorkspaceId === "ws_own" &&
+      moves[0].toWorkspaceId === "ws_shared" &&
+      moves[0].fromPath === "1-projects/leaving-for-theirs.md" &&
+      moves[0].toPath === "1-projects/arrived-from-mine.md" &&
+      moves[0].actorUserId === "user_cross_editor",
+  );
+  check(
+    "and carries no note content",
+    !JSON.stringify(moves).includes("# Leaving"),
+  );
+  controlPlane.calls.length = 0;
+  await callTool(env, TOKEN_EDITOR, "write_note", {
+    context: "@theirs",
+    path: "1-projects/not-a-move.md",
+    content: "# Not a move\n",
+  });
+  check("a write in another context is not reported as a move", sent("/gateway/moves").length === 0);
 }

@@ -269,7 +269,8 @@ function envelopeWorkspaceId(envelope) {
 
 /**
  * Parse and validate an exported key bundle — the document
- * `export_encryption_keys` and the console's export action both produce.
+ * the console's export action produces (and the gateway's removed
+ * `export_encryption_keys` tool produced).
  *
  * @param {unknown} doc parsed JSON, not yet trusted
  * @returns {{workspaceId: string, current: string, keys: Record<string,string>}}

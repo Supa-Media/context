@@ -1,6 +1,7 @@
 /** What one search found, and whether there was an index to find it in. */
 export interface SearchAnswer {
-  hits: { path: string; title: string; snippets: string[] }[];
+  /** `meaningOnly`: found by what the note is about, not by the words typed. */
+  hits: { path: string; title: string; snippets: string[]; meaningOnly?: boolean }[];
   /**
    * Nothing has indexed this context yet, so this is not "no matches" — see
    * `searchNotes` in the control plane's `lib/fileOps.ts`.

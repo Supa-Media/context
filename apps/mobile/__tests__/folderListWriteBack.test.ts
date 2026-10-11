@@ -50,6 +50,9 @@ const noteAt = (path: string): OpenNote & { updatedAt: number } => {
 };
 
 const io: FolderListIO = {
+  // Offline in this suite: the server's list reads are never asked.
+  manifest: async () => Promise.reject(new Error("offline")),
+  readNotes: async () => Promise.reject(new Error("offline")),
   readNote: async (path) => noteAt(path),
   writeNote: async (path, text, expectedEtag) => {
     const held = bucket.get(path);
@@ -68,6 +71,7 @@ function source() {
     io,
     openMirror: async () => store,
     needed: async () => () => new Set(),
+    online: () => false,
   });
 }
 
@@ -124,13 +128,14 @@ describe("a list write is what the device holds afterwards", () => {
       io: { ...io, writeNote: async () => Promise.reject(new Error("storage down")) },
       openMirror: async () => store,
       needed: async () => () => new Set(),
+      online: () => false,
     });
     expect(await refusing.setProperty!("1-projects/web/overview.md", "status", "done")).toBe("That change could not be saved.");
     expect(await afterRefresh("1-projects/web/overview.md")).toBe("active");
   });
 
   test("a reader who may not write is offered no write", () => {
-    const reading = folderListSource({ workspaceId: W, scope: "team", canEdit: false, io, openMirror: async () => store, needed: async () => () => new Set() });
+    const reading = folderListSource({ workspaceId: W, scope: "team", canEdit: false, io, openMirror: async () => store, needed: async () => () => new Set(), online: () => false });
     expect(reading.setProperty).toBeUndefined();
     expect(reading.setLede).toBeUndefined();
     expect(reading.remember).toBeUndefined();

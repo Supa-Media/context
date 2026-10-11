@@ -32,6 +32,27 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * Say how long one search took and which index answered, for the search
+     * timing log (`apps/convex/functions/searchTimings.ts`).
+     *
+     * `reportUsage`'s rule again: called behind the response, its rejection
+     * swallowed, and what crosses is a workspace id, a word from a closed list,
+     * a boolean and a number. Never the query, a path, or a count of what the
+     * workspace holds.
+     *
+     * @param {{workspaceId: string, answeredBy: string, found: boolean, ms: number}} timing
+     */
+    async reportSearchTiming(timing) {
+      if (!timing || typeof timing.workspaceId !== "string" || !timing.workspaceId) return null;
+      return await post("/gateway/search-timing", {
+        workspaceId: timing.workspaceId,
+        answeredBy: timing.answeredBy,
+        found: Boolean(timing.found),
+        ms: timing.ms,
+      });
+    },
+
+    /**
      * Say how far this workspace's search projection has got.
      *
      * The second call on this client whose failure is nobody's problem, for
@@ -92,6 +113,37 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * Say that a note moved out of this context into another one.
+     *
+     * **The one report here that carries paths**, and deliberately: the
+     * control plane records it as the same `file.moveOut` / `file.moveIn`
+     * audit pair a console move writes, which names paths for every move
+     * already, so that the console map can show notes moving between a
+     * person's workspaces without walking every bucket's audit folder. Two
+     * ids, two note paths and the acting identity — never content. The
+     * control plane re-checks that the actor can write both ends.
+     *
+     * @param {string} fromWorkspaceId
+     * @param {{toWorkspaceId: string, fromPath: string, toPath: string,
+     *          actorUserId: string, actorClientId?: string}} move
+     */
+    async reportContextMove(fromWorkspaceId, move) {
+      if (typeof fromWorkspaceId !== "string" || !fromWorkspaceId) return null;
+      const { toWorkspaceId, fromPath, toPath, actorUserId, actorClientId } = move || {};
+      if (![toWorkspaceId, fromPath, toPath, actorUserId].every((value) => typeof value === "string" && value)) {
+        return null;
+      }
+      return await post("/gateway/moves", {
+        fromWorkspaceId,
+        toWorkspaceId,
+        fromPath,
+        toPath,
+        actorUserId,
+        actorClientId: typeof actorClientId === "string" ? actorClientId : undefined,
+      });
+    },
+
+    /**
      * Say that this context's file tree changed, and which audiences —
      * `private`, `team`, `@name` — could see the change. Labels and an id and
      * nothing else: no path, no count, no content (non-negotiable #1). The
@@ -129,6 +181,26 @@ export function createReportingMethods({ post }) {
     async reportWebsiteChange(workspaceId) {
       if (typeof workspaceId !== "string" || !workspaceId) return null;
       return await post("/gateway/website", { workspaceId });
+    },
+
+    /**
+     * That a write touched `routines/`, the paths it touched and who wrote
+     * them. Paths and an id, never text: the control plane re-reads the folder
+     * through the bucket before it schedules anything
+     * (`docs/decisions/routines.md`).
+     *
+     * @param {string} workspaceId
+     * @param {string | null} userId
+     * @param {string[]} paths
+     */
+    async reportRoutineChange(workspaceId, userId, paths) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      if (!Array.isArray(paths) || paths.length === 0) return null;
+      return await post("/gateway/routines", {
+        workspaceId,
+        ...(typeof userId === "string" && userId ? { userId } : {}),
+        paths,
+      });
     },
 
     /**

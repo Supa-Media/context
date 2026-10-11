@@ -160,7 +160,7 @@ export function changingWorkspace(): MemoryStore & FileStore {
   const base = memoryStore() as MemoryStore & FileStore;
   base.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   base.seed("index.md", "# Northwind\n");
-  base.seed("4-archive/README.md", "# Archive\n");
+  base.seed("9-archive/README.md", "# Archive\n");
   const savedAt = new Map<string, number>();
   for (const fixture of CHANGE_NOTES) {
     base.seed(fixture.path, fixture.text);
@@ -196,7 +196,7 @@ export function changeScore(snapshot: Record<string, string>): { score: number; 
   for (const fixture of CHANGE_NOTES) {
     if (!fixture.expect) continue;
     const expect = fixture.expect;
-    const archived = Object.keys(snapshot).some((key) => key.startsWith("4-archive/") && key.endsWith(fixture.path.split("/").slice(-2).join("/")) && live(key));
+    const archived = Object.keys(snapshot).some((key) => key.startsWith("9-archive/") && key.endsWith(fixture.path.split("/").slice(-2).join("/")) && live(key));
     const text = live(fixture.path) ? snapshot[fixture.path]! : "";
     const fields = noteProperties(text);
     let ok = false;

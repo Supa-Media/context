@@ -12,7 +12,7 @@ import { MOVE_JOB_PREFIX, MOVE_JOB_VERSION, MOVE_SENTINEL_KEY } from "./limits.j
 
 /** Counts only: never forward a marker's paths or provider text to the control plane. */
 export function moveProgressFromText(text) {
-  const found = /^(copied|deleted): (\d+)\/(\d+)$/m.exec(text);
+  const found = /^(copied|deleted|references): (\d+)\/(\d+)$/m.exec(text);
   if (!found) return undefined;
   const completed = Number(found[2]);
   const total = Number(found[3]);
@@ -20,11 +20,40 @@ export function moveProgressFromText(text) {
     return undefined;
   }
   return {
-    phase: found[1] === "copied" ? "copying" : "deleting",
+    phase: found[1] === "copied" ? "copying" : found[1] === "deleted" ? "deleting" : "rewriting",
     completed,
     total,
   };
 }
+/**
+ * A move's failure text, with the bucket's paths taken out, for the control
+ * plane's `gatewayJobs.lastError`.
+ *
+ * `moveProgressFromText` above states the rule for the other channel out of
+ * the same consumer — counts only, never a marker's paths or provider text —
+ * and keeps it with a strict integer regex. The failure channel forwarded the
+ * tool's whole text, and a dozen of `materialize.js`'s throws interpolate
+ * `pair.source` or `pair.destination`, so a customer's note path left the
+ * bucket and was stored where the control plane only truncates it.
+ * `safeMoveStorageDetail` says the same of its own fragment: "only in the
+ * immediate tool response; never persist it in the move marker, activity or
+ * gateway job status."
+ *
+ * Only a validated move id and a known stage survive. Redacting path-like
+ * substrings from arbitrary provider text leaves filename fragments when a
+ * path contains spaces or non-ASCII characters.
+ */
+export function moveErrorForControlPlane(text) {
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  const id = /^move (move-[a-z0-9-]{8,80}):/i.exec(text)?.[1];
+  if (!id) return "move job failed";
+  const materialization = /^move move-[a-z0-9-]{8,80}: materialization paused: (copying|deleting|rewriting|inventorying)\b/i.exec(text);
+  const reference = /^move move-[a-z0-9-]{8,80}: reference (rewrite|inventory) paused:/i.exec(text);
+  const stage = materialization?.[1]?.toLowerCase() ||
+    (reference?.[1] === "rewrite" ? "rewriting" : reference?.[1] === "inventory" ? "inventorying" : null);
+  return `move job failed: ${id}${stage ? ` (${stage})` : ""}`;
+}
+
 const LOGICAL_MOVE_WORKSPACES = new Set();
 
 export function moveJobKey(id) {
@@ -35,11 +64,6 @@ export function moveJobKey(id) {
 export function noteUnderPrefix(path, prefix) {
   if (!prefix) return true;
   return path === prefix || path.startsWith(`${prefix}/`);
-}
-
-function movedDestinationFor(job, sourceKey) {
-  const item = (job.objects || []).find((entry) => entry.source === sourceKey);
-  return item?.destination || null;
 }
 
 export function movedSourceFor(job, destinationKey) {
@@ -55,7 +79,7 @@ export function moveJobActive(job) {
     typeof job.source === "string" &&
     typeof job.destination === "string" &&
     Array.isArray(job.objects) &&
-    ["logical_active", "copying", "deleting", "needs_cleanup"].includes(job.status)
+    ["logical_active", "copying", "deleting", "needs_cleanup", "rewriting"].includes(job.status)
   );
 }
 
@@ -139,18 +163,21 @@ export async function fallbackMoveJobs(store, prefix, budget = null) {
 
 export function applyMoveOverlay(keys, jobs) {
   if (!jobs.length) return keys;
+  // A workspace can have thousands of notes and several thousand objects in
+  // active moves. Looking through every job's object list for every listed
+  // note made ordinary listings and orientation take minutes. Index the
+  // source paths once, retaining the earliest job's precedence for a source.
+  const destinations = new Map();
+  for (const job of jobs) {
+    for (const item of job.objects || []) {
+      if (!destinations.has(item.source)) destinations.set(item.source, item.destination);
+    }
+  }
   const out = new Map();
   for (const object of keys) {
-    let hidden = false;
-    for (const job of jobs) {
-      const destination = movedDestinationFor(job, object.key);
-      if (destination !== null) {
-        hidden = true;
-        out.set(destination, { ...object, key: destination, logicalSource: object.key });
-        break;
-      }
-    }
-    if (!hidden && !out.has(object.key)) out.set(object.key, object);
+    const destination = destinations.get(object.key);
+    if (destination) out.set(destination, { ...object, key: destination, logicalSource: object.key });
+    else if (!out.has(object.key)) out.set(object.key, object);
   }
   return [...out.values()];
 }

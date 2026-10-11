@@ -178,14 +178,23 @@ a backfilling context would pay for a D1 query before every ordinary search and
 get nothing back. `ready` is the control plane's own word for "the copy is
 complete", and it is the same word the card renders.
 
-**A miss falls through; only a hit short-circuits.** This is
-`searchIndexedNotes`' rule — "a miss may pay for a listing, a hit never does" —
-applied one layer up. The projection is a disposable derivative: it can be
-behind, it can have been rebuilt, it can have lost a row. An empty answer from
-it must never be reported as an empty context. The consequence is the property
-that let this be switched on for every opted-in context at once rather than
-behind a second switch: **the fast path can be faster, and cannot be less
-complete, than the search that was already happening.**
+**A ready projection's miss is the answer; it never falls through to the
+bucket index** (decided by the owner, 2026-10-08, reversing "a miss falls
+through"). The fall-through was meant to make the fast path unable to be less
+complete than the search before it, and it made every miss the slowest search
+there is: admin › Search showed the bucket index averaging 7.2 s and up to
+75 s, every one of the slowest a miss in Dev2's 9,000-note workspace, while
+the projection answered in half a second. Dev2: "we shouldn't be using index
+in the bucket at all anymore". Two things replace what the fall-through
+bought. A strict miss is asked again relaxed, any of the words with a word of
+three letters or more also matching as a prefix (`toRelaxedMatchExpression`),
+which is what the bucket index's any-term scoring and prefix expansion found
+that the projection's exact AND did not. And search by meaning, merged into
+every answer, is what still finds a note a projection that is behind has not
+copied. Reverting fails "a ready projection's miss answers no matches rather
+than asking the bucket index" (`apps/mcp/test/searchProjection/serve.test.mjs`)
+and "a ready projection's miss is the answer, never the bucket index"
+(`apps/convex/__tests__/consoleSearch.test.ts`).
 
 **The tier split ranks; `canSee` decides.** `tablesForTier` picks which FTS
 tables a caller's query is scored against, so `bm25()`'s corpus statistics are

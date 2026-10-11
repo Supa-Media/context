@@ -24,6 +24,7 @@ import {
   joinPath,
 } from "../paths";
 import { applyNoteCreate, undoNoteCreate } from "../optimistic";
+import { announceDid } from "../../map/live/announce";
 import { untitledName, type UntitledKind } from "../untitled";
 import type { OpenNote } from "../types";
 import { DRAWING_NEEDS_CONNECTION, claimedMessage, collision } from "./copy";
@@ -147,6 +148,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
             const text = seedFor(current);
             try {
               const result = await writeNote({ workspaceId: workspaceId!, path: at, text });
+              announceDid(workspaceId ?? null, { kind: "create", path: at });
               const visibility = listingsRef.current[folder]?.folderDefault ?? "private";
               if (latestCreate.current === mine) {
                 select(at, {

@@ -55,7 +55,7 @@ const PARA_LINES: Record<string, string> = {
   "1-projects": "Work with a finish line. When it is done, it moves to the archive.",
   "2-areas": "Responsibilities that never finish — a team, your health, the finances.",
   "3-resources": "Reference you want to find again, not tied to one project.",
-  "4-archive": "Finished or dormant. Nothing is deleted, it just moves out of the way.",
+  "9-archive": "Finished or dormant. Nothing is deleted, it just moves out of the way.",
 };
 
 export interface ParaFolderLine {
@@ -282,13 +282,13 @@ export function describeOutcome(
   rows: readonly CustomFolderRow[],
 ): string {
   if (template === "para") {
-    return `${PARA_FOLDERS.length} folders, each with a README saying what it holds, plus index.md and privacy.md.`;
+    return `${PARA_FOLDERS.length} folders, each with an about note saying what it holds, plus index.md and privacy.md.`;
   }
   const count = toFolderSpecs(rows).length;
   if (count === 0) {
     return "Name at least one folder, or pick the standard layout — those are the two things this step can do.";
   }
-  return `${count} folder${count === 1 ? "" : "s"}, each with a README, plus index.md and privacy.md.`;
+  return `${count} folder${count === 1 ? "" : "s"}, each with an about note, plus index.md and privacy.md.`;
 }
 
 /**
@@ -306,12 +306,12 @@ export const REVERSIBLE_NOTE =
 /**
  * Why the descriptions are worth typing.
  *
- * They are not decoration: each one becomes that folder's README and its line
+ * They are not decoration: each one becomes that folder's about note and its line
  * in the manifest, which is what a connected AI client reads to work out where
  * something belongs. One clause, said once, next to the fields.
  */
 export const DESCRIPTION_PURPOSE =
-  "Each description becomes that folder's README and its line in the manifest, so a connected AI client knows where things belong.";
+  "Each description becomes that folder's about note and its line in the manifest, so a connected AI client knows where things belong.";
 
 /**
  * The privacy default, stated rather than offered.

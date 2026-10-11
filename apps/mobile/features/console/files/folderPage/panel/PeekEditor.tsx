@@ -97,6 +97,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     // The editor brings its own margins; the panel's padding is its measure.
     body: { marginHorizontal: -space.x2 },
-    conflict: { gap: space.x3, alignItems: "flex-start", padding: space.x4, borderRadius: 8, backgroundColor: colors.critWash },
+    conflict: { gap: space.x3, alignItems: "flex-start" },
     conflictText: { color: colors.critText },
   });

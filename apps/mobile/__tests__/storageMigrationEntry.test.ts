@@ -305,7 +305,7 @@ describe("Settings → Storage is the permanent home", () => {
     // card beside it — so this cannot pass on a panel that drew nothing.
     const host = await settingsStorage(console_([], { updateStorageLayout: undefined }));
     expect(host.querySelector('[data-testid="settings-storage-migration"]')).toBeNull();
-    expect(host.textContent ?? "").toContain("plain files in storage you own");
+    expect(host.textContent ?? "").toContain("Plain files in storage you own");
   });
 });
 
@@ -352,7 +352,7 @@ describe("the console offers it as a notice, not as a modal", () => {
   test("and it is not offered at all where there is no bucket to tidy", async () => {
     /*
       The one condition the notice has and the settings row does not. An owner
-      with no binding is looking at "No bucket is connected to this context
+      with no binding is looking at "This context has no bucket connected
       yet" two lines above; an offer to reorganize the hidden files of a
       bucket that does not exist is noise at the worst moment. It narrows the
       *interruption*, never who may run this — the same owner still finds it
@@ -363,7 +363,7 @@ describe("the console offers it as a notice, not as a modal", () => {
     expect(host.querySelector('[data-testid="browse-storage-migration"]')).toBeNull();
     // The positive control: the band is drawn, for the notice that *should*
     // be there. Without it this passes on a pane that rendered no band at all.
-    expect(host.textContent ?? "").toContain("No bucket is connected");
+    expect(host.textContent ?? "").toContain("This context has no bucket connected");
   });
 
   test("and an editor is offered nothing at all", async () => {

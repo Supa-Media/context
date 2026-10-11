@@ -166,9 +166,9 @@ function settings(contextId: string): string {
   return mount(() => createElement(SettingsPane, { data, onClose: () => {} })).textContent ?? "";
 }
 
-function members(contextId: string, viewerRole: string | undefined): HTMLElement {
+function members(contextId: string): HTMLElement {
   const view = demoData(contextId).members;
-  return mount(() => createElement(MembersSection, { view, viewerRole }));
+  return mount(() => createElement(MembersSection, { view }));
 }
 
 describe("the chip is worn once, by the frame", () => {
@@ -229,8 +229,9 @@ describe("personal communications stay out of shared workspaces", () => {
 
     // The exact sentence a workspace is handed, in the panels that would
     // otherwise be offering somebody else's mailbox.
-    expect(text).toContain("Switch to a personal workspace");
-    expect(text).toContain("This workspace does not receive email");
+    // One sentence since the 2026-10-10 cleanup, in place of one per panel.
+    expect(text).toContain("Mail and calendar belong to a personal workspace");
+    expect(text).toContain("A shared workspace has no mailbox, calendar or forwarding address");
     expect(text).not.toContain("Google accounts");
     expect(text).not.toContain("Connect Google account");
   });
@@ -351,18 +352,18 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     }
   });
 
-  test("and the argument is reachable, on the card that is about who can read this", () => {
-    // Where `tierExplanation` says it belongs, and where the owner's half of
-    // the same fact (`memberReachSentence`) has always been drawn.
-    expect(members(MEMBER_OF, "member").textContent).toContain(
-      "Only a context's owner sees their private notes.",
-    );
-    expect(members(EDITOR_OF, "editor").textContent).toContain(
-      "Being trusted to write is a separate thing",
-    );
-    // And it is the reader's own half only: an owner is told what having
-    // members handed over, never that their own view is filtered.
-    expect(members(OWNED, "owner").textContent).not.toContain("is invisible here");
+  test("and the members card does not reprint it as a boxed paragraph either", () => {
+    /*
+      It used to: the reader's half (`tierExplanation`) and the owner's half
+      (`memberReachSentence`) were tinted panels at the foot of the people
+      list. Dev2 (2026-10-11) asked for those boxes gone, and for removal over
+      rewording. The one-line state above every note still says it.
+    */
+    for (const contextId of [MEMBER_OF, EDITOR_OF, OWNED]) {
+      const text = members(contextId).textContent;
+      expect(text).not.toContain("is invisible here");
+      expect(text).not.toContain("mark it team");
+    }
   });
 });
 
@@ -382,32 +383,3 @@ async function browseRoot(contextId: string): Promise<string> {
   return (await mountLive(() => createElement(BrowsePane, { data }))).textContent ?? "";
 }
 
-describe("the owner's side of the same fact lives with the people it is about", () => {
-  test("an owner is told what having members did and did not hand over", () => {
-    const text = members(OWNED, "owner").textContent;
-    expect(text).toContain("team level");
-    expect(text).toContain("mark it team");
-  });
-
-  test("it states the rule and never a count, because nothing here counts notes", () => {
-    const container = members(OWNED, "owner");
-    const line = container.querySelector('[data-testid="members-tier-rule"]');
-    expect(line).not.toBeNull();
-    // `ConsoleData` carries no note census and the listings it does carry are
-    // the caller's own filtered view. A number drawn here would be a guess
-    // rendered as a fact about somebody's storage — the exact failure #25 was.
-    expect(line!.textContent).not.toMatch(/\d/);
-  });
-
-  test("a member reading somebody else's members list is told nothing about it", () => {
-    const text = members(MEMBER_OF, "member").textContent;
-    // "Anything you marked private is yours alone" would be a claim about the
-    // owner's notes, addressed to the wrong person.
-    expect(text).not.toContain("mark it team");
-  });
-
-  test("and neither is anybody whose role has not loaded", () => {
-    const text = members(OWNED, undefined).textContent;
-    expect(text).not.toContain("mark it team");
-  });
-});

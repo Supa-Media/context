@@ -12,6 +12,7 @@ export function createJobMethods({ post, required }) {
         expectedWorkspaceId,
         job,
       });
+      if (parsed?.alreadyActive === true) return null;
       const ticket = required(parsed, "ticket");
       if (typeof ticket !== "string" || ticket.length === 0) {
         throw new ControlPlaneError("malformed job ticket");

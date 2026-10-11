@@ -90,6 +90,42 @@ const KEPT: Record<string, string> = {
   "storage-migration": "`dismissed.v1.<workspaceId>`, whether the migration notice has been waved off here. Whether the migration is *needed* is re-read from the binding every time; this only stops the offer.",
 };
 
+/**
+ * Namespaces cleared on sign-out that do not live in the key-value store this
+ * test seeds, each with the check that seeds it where it does live, signs out
+ * through the real `forgetLocalCopies()`, and answers whether it is gone.
+ */
+const CLEARED_ELSEWHERE: Record<string, () => Promise<boolean>> = {
+  /*
+    A browser tab's sidebar tree (`serverTree.ts`): note names, in this tab's
+    `sessionStorage` rather than the store, so a reload draws the tree at once
+    without spending the quota the queue of unsent edits needs.
+  */
+  tree: async () => {
+    const held = new Map<string, string>();
+    const session = {
+      get length() {
+        return held.size;
+      },
+      key: (index: number) => [...held.keys()][index] ?? null,
+      getItem: (key: string) => held.get(key) ?? null,
+      setItem: (key: string, value: string) => void held.set(key, value),
+      removeItem: (key: string) => void held.delete(key),
+      clear: () => held.clear(),
+    } as Storage;
+    const before = (globalThis as { sessionStorage?: Storage }).sessionStorage;
+    (globalThis as { sessionStorage?: Storage }).sessionStorage = session;
+    try {
+      session.setItem("context.lc.tree.v1:private:w1", "seeded");
+      mockOpened = store({});
+      await forgetLocalCopies();
+      return held.size === 0;
+    } finally {
+      (globalThis as { sessionStorage?: Storage }).sessionStorage = before;
+    }
+  },
+};
+
 /** Every `context.lc.<namespace>` this app's source writes, wherever it writes it. */
 function namespacesInSource(): Map<string, string[]> {
   const found = new Map<string, string[]>();
@@ -137,6 +173,11 @@ describe("what this app leaves on the device", () => {
     const unexplained: string[] = [];
     for (const [namespace, files] of found) {
       if (namespace in KEPT) continue;
+      const elsewhere = CLEARED_ELSEWHERE[namespace];
+      if (elsewhere !== undefined) {
+        if (!(await elsewhere())) unexplained.push(`${namespace} (${files.join(", ")}) — left in place`);
+        continue;
+      }
       /*
         Each namespace picks its own separator — `\u001f` for the offline
         copies and the meetings record, `.` for the last place and the setup
@@ -166,7 +207,7 @@ describe("what this app leaves on the device", () => {
 
   test("and nothing is excused that the source no longer writes", () => {
     const found = namespacesInSource();
-    expect(Object.keys(KEPT).filter((namespace) => !found.has(namespace))).toEqual([]);
+    expect([...Object.keys(KEPT), ...Object.keys(CLEARED_ELSEWHERE)].filter((namespace) => !found.has(namespace))).toEqual([]);
   });
 
   test("and the verdict counts each one, so a store that only pretends is caught", async () => {
@@ -180,7 +221,8 @@ describe("what this app leaves on the device", () => {
     */
     const uncounted: string[] = [];
     for (const [namespace, files] of namespacesInSource()) {
-      if (namespace in KEPT) continue;
+      // Not in the store, so not in its count; its own check proves the clear.
+      if (namespace in KEPT || namespace in CLEARED_ELSEWHERE) continue;
       const keys = probeKeys(namespace);
       mockOpened = store(
         Object.fromEntries(keys.map((key) => [key, "seeded"])),

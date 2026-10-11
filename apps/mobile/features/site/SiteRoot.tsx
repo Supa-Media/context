@@ -11,7 +11,7 @@ import { ShareScreen } from "../share/ShareScreen";
 import { PLATFORM_ORIGIN, siteRoutePathFrom } from "./host";
 import { WebsitePage } from "./website/WebsitePage";
 import { useSiteFavicon } from "./useSiteFavicon";
-import { useWebsiteAddress } from "./useWebsiteAddress";
+import { useSitePrefetch, useWebsiteAddress } from "./useWebsiteAddress";
 
 interface Location {
   pathname: string;
@@ -69,17 +69,22 @@ export function SiteRoot({ hostname }: { hostname: string }) {
   }, []);
 
   const routePath = siteRoutePathFrom(location.pathname);
-  const view = useWebsiteAddress(
-    binding === undefined || binding === null || routePath === null
-      ? null
-      : {
-          handle: binding.handle,
-          routePath,
-          ...(routePath === "/" && binding.homeSlug !== null
-            ? { legacySlug: binding.homeSlug }
-            : {}),
-        },
+  const boundHandle = binding === undefined || binding === null ? null : binding.handle;
+  const homeSlug = binding === undefined || binding === null ? null : binding.homeSlug;
+  // The only old short link on a domain is the one its owner chose for `/`.
+  const askFor = useCallback(
+    (path: string) => ({
+      handle: boundHandle ?? "",
+      routePath: path,
+      ...(path === "/" && homeSlug !== null ? { legacySlug: homeSlug } : {}),
+    }),
+    [boundHandle, homeSlug],
   );
+  const view = useWebsiteAddress(
+    boundHandle === null || routePath === null ? null : askFor(routePath),
+    askFor,
+  );
+  const prefetch = useSitePrefetch(boundHandle, askFor);
   // The domain is the site's, so it wears the site's icon — the same rule as
   // `HandleSite`, including the legacy share keeping the Context favicon.
   useSiteFavicon(
@@ -107,6 +112,7 @@ export function SiteRoot({ hostname }: { hostname: string }) {
         name={view.siteName ?? binding.handle}
         view={view}
         navigate={navigate}
+        prefetch={prefetch}
         signIn={(path) => void Linking.openURL(`${PLATFORM_ORIGIN}${path}`)}
       />
     );

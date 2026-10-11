@@ -160,8 +160,8 @@ describe("the offline mirror sees exactly what its reader may", () => {
  * then come from the row not existing rather than from the gate.
  */
 describe("a member cannot recover a hidden path out of the audit trail", () => {
-  const HIDDEN = "2-areas/acquisition-of-acme.md";
-  const SIBLING = "2-areas/acquisition-of-acme-terms.md";
+  const HIDDEN = "2-areas/deals/acquisition-of-acme.md";
+  const SIBLING = "2-areas/deals/acquisition-of-acme-terms.md";
 
   /**
    * A private folder holding two notes, touched by the owner in the ways that
@@ -230,7 +230,8 @@ describe("a member cannot recover a hidden path out of the audit trail", () => {
     const f = await attackFixture();
     await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
       workspaceId: f.workspaceId,
-      path: "2-areas",
+      // A subfolder: `2-areas` itself is built in and cannot be deleted.
+      path: "2-areas/deals",
       confirmation: DELETE_CONFIRMATION,
     });
     const dump = await memberSees(f);

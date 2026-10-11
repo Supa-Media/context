@@ -136,7 +136,7 @@ export async function previewForNoteHandler(
   //
   // `isProductMandatedPath` names every path this product writes, which is
   // more than what a fresh workspace arrives with: the five PARA folders,
-  // `index.md`, `privacy.md`, a `README.md` in each folder and `todo.md` at
+  // `index.md`, `privacy.md`, an `about.md` in each folder and `todo.md` at
   // the root — plus the folders the gateway creates LATER, where
   // `save_context` files a session and where a capture lands under its
   // sender's slug. Those are guessable without

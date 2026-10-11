@@ -103,6 +103,7 @@ async function readVisibleFile(
   state: PrivacyState,
   path: string,
   clearance: Clearance,
+  plain = false,
 ): Promise<FileContents> {
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
 
@@ -118,7 +119,7 @@ async function readVisibleFile(
   // refuses to put it in a textarea.
   const encrypted = isEncryptedNote(text);
   let collaboration: { documentId: string; update: string; text: string; etag: string; rawEtag: string } | null = null;
-  if (!encrypted && collaborationSupported(store) && collaborationEligible(path, text)) {
+  if (!plain && !encrypted && collaborationSupported(store) && collaborationEligible(path, text)) {
     try {
       collaboration = await readCollaborationDocument(store, path);
     } catch {
@@ -193,7 +194,20 @@ export type BatchRead =
  */
 export async function readFiles(
   store: FileStore,
-  options: { paths: readonly string[]; clearance: Clearance },
+  options: {
+    paths: readonly string[];
+    clearance: Clearance;
+    /**
+     * The Markdown as the bucket holds it, without opening each note's
+     * collaboration document — one GET a note rather than about five, and no
+     * document made or repaired as a side effect of looking. What a folder
+     * List or Board reads: it wants front matter, which an edit accepted a
+     * second ago and not yet written out can at worst be that second behind.
+     * Never for a reader that will edit what it gets: its version is the
+     * Markdown object's, not the document's.
+     */
+    plain?: boolean;
+  },
 ): Promise<BatchRead[]> {
   if (options.paths.length > READ_BATCH_PATHS) {
     throw new FileOpError(
@@ -228,7 +242,7 @@ export async function readFiles(
               // race to make one note's collaboration document.
               let pending = reading.get(requested);
               if (!pending) {
-                pending = readVisibleFile(store, state, requirePath(requested), options.clearance);
+                pending = readVisibleFile(store, state, requirePath(requested), options.clearance, options.plain === true);
                 reading.set(requested, pending);
               }
               return { note: await pending };

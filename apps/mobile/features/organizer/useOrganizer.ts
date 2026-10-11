@@ -2,32 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { ToastSpec } from "../design/components/Toast";
-import { offerAction, undoFailed } from "./copy";
+import { undoFailed } from "./copy";
 import { changesCopy } from "./changeCopy";
 import { organizerApi, routesApi } from "./organizerApi";
 import { teamsCopy } from "./teamCopy";
-import {
-  isOrganizerEntry,
-  organizerState,
-  resolveToast,
-  type OrganizerState,
-  type OrganizerToast,
-} from "./rules";
+import { isOrganizerEntry, organizerState, type OrganizerState } from "./rules";
 import type {
   ChangeCard,
   OrganizerDecision,
   OrganizerKind,
   OrganizerStatus,
-  OrganizerSuggestion,
   RouteCard,
   RouteTeam,
   UndoToken,
 } from "./types";
 
 export interface OrganizerSuggestions {
-  /** `null` until they have been asked for. */
-  list: OrganizerSuggestion[] | null;
-  /** What changed cards, read with the list; `null` until then. */
+  /** What changed cards; `null` until they have been asked for. */
   changes: ChangeCard[] | null;
   /** Notes for the owner's teams (a personal workspace only); `null` until asked. */
   routes: RouteCard[] | null;
@@ -46,15 +37,10 @@ export interface OrganizerView {
   state: OrganizerState;
   /** The status once it has answered, `null` while loading or unavailable. */
   status: OrganizerStatus | null;
-  /** The workspace's slug, for "Tidying up @seyi". */
+  /** The workspace's slug, for "Tidying up @seyi" while a sweep reads. */
   slug: string;
   suggestions: OrganizerSuggestions;
   loadSuggestions: () => void;
-  reviewOpen: boolean;
-  /** `closeSettings` when opened from Settings, which is drawn over the list. */
-  openReview: (options?: { closeSettings?: boolean }) => void;
-  closeReview: () => void;
-  resolve: (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => void;
   /** The What changed page is on screen (`?changes=1`); the layout routes these. */
   pageOpen: boolean;
   openPage: () => void;
@@ -86,7 +72,6 @@ export interface OrganizerView {
 type ActivityRow = { at: string; kind: string; paths: string[]; by: string | null; via: string | null };
 
 const EMPTY: OrganizerSuggestions = {
-  list: null,
   changes: null,
   routes: null,
   teams: [],
@@ -147,7 +132,6 @@ export function useOrganizer({
   const status = state.kind === "ready" ? state.status : null;
 
   const [suggestions, setSuggestions] = useState<OrganizerSuggestions>(EMPTY);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [toasts, setToasts] = useState<readonly ToastSpec[]>([]);
   const toastSeq = useRef(0);
   const asking = useRef(0);
@@ -155,7 +139,6 @@ export function useOrganizer({
   // Another workspace is another set of suggestions, and nothing of this one's carries over.
   useEffect(() => {
     setSuggestions(EMPTY);
-    setReviewOpen(false);
     setToasts([]);
   }, [id]);
 
@@ -183,8 +166,7 @@ export function useOrganizer({
     setSuggestions((current) => ({ ...current, loading: true, failed: false }));
     void call((functions, workspace) =>
       Promise.all([
-        convex.action(functions.suggestions, { workspaceId: workspace }),
-        // A deployment without What changed answers nothing here; the list still shows.
+        // A deployment without What changed answers nothing here; the page still draws.
         convex.action(functions.changes, { workspaceId: workspace }).catch(() => ({ changes: [] as ChangeCard[] })),
         loadRoutes(convex, workspace),
       ]),
@@ -193,11 +175,10 @@ export function useOrganizer({
         if (ticket !== asking.current) return;
         setSuggestions((current) => ({
           ...current,
-          list: answer?.[0].suggestions ?? [],
-          changes: answer?.[1].changes ?? [],
-          routes: answer?.[2].routes ?? [],
-          teams: answer?.[2].teams ?? [],
-          keep: answer?.[2].keep ?? "",
+          changes: answer?.[0].changes ?? [],
+          routes: answer?.[1].routes ?? [],
+          teams: answer?.[1].teams ?? [],
+          keep: answer?.[1].keep ?? "",
           loading: false,
           failed: answer === undefined,
         }));
@@ -207,14 +188,6 @@ export function useOrganizer({
         setSuggestions((current) => ({ ...current, loading: false, failed: true }));
       });
   }, [call, convex]);
-
-  // Routing — closing Settings over the list, opening Settings from it — is
-  // the layout's, which wraps these; see `routeOrganizer`.
-  const openReview = useCallback(() => {
-    setReviewOpen(true);
-    loadSuggestions();
-  }, [loadSuggestions]);
-  const closeReview = useCallback(() => setReviewOpen(false), []);
 
   const warn = useCallback((message: string) => say({ message, tone: "warn" }), [say]);
 
@@ -236,43 +209,6 @@ export function useOrganizer({
       );
     },
     [call, convex, warn],
-  );
-
-  const resolve = useCallback(
-    (suggestion: OrganizerSuggestion, decision: OrganizerDecision) => {
-      setSuggestions((current) => ({ ...current, busy: new Set([...current.busy, suggestion.id]) }));
-      const settle = (removed: boolean) =>
-        setSuggestions((current) => {
-          const busy = new Set(current.busy);
-          busy.delete(suggestion.id);
-          const list = removed && current.list !== null ? current.list.filter((s) => s.id !== suggestion.id) : current.list;
-          return { ...current, busy, list };
-        });
-      void call((functions, workspace) =>
-        convex.action(functions.resolve, { workspaceId: workspace, id: suggestion.id, decision }),
-      )
-        .then((result) => {
-          const answer = result ?? { applied: false, offer: null, undo: null };
-          settle(answer.applied);
-          const toast: OrganizerToast | null = resolveToast(suggestion, decision, answer, {
-            undo: () => spendUndo({ token: answer.undo }),
-          });
-          if (toast === null) return;
-          const offer = toast.offer;
-          say({
-            message: toast.message,
-            tone: toast.tone,
-            undo: toast.undo,
-            action: offer === undefined ? undefined : { label: offerAction, run: () => setAutopilot(offer, true) },
-          });
-        })
-        .catch(() => {
-          settle(false);
-          const toast = resolveToast(suggestion, decision, { applied: false, offer: null, undo: null }, { undo: () => {} });
-          if (toast !== null) warn(toast.message);
-        });
-    },
-    [call, convex, say, setAutopilot, spendUndo, warn],
   );
 
   const resolveChange = useCallback(
@@ -474,10 +410,6 @@ export function useOrganizer({
     slug,
     suggestions,
     loadSuggestions,
-    reviewOpen,
-    openReview,
-    closeReview,
-    resolve,
     resolveChange,
     sendRoute,
     sendRoutes,

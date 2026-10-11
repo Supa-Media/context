@@ -127,7 +127,7 @@ describe("texts simulator", () => {
     expect(typing).toBe(false);
     expect(messages.map((m) => [m.dir, m.text])).toEqual([
       ["out", "hi"],
-      ["in", "Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you."],
+      ["in", "Hi, I'm Tex, your Context assistant. Tap the link below to connect your account, then text me the code it shows you."],
       ["in", LINK],
     ]);
   });
@@ -160,7 +160,14 @@ describe("texts simulator", () => {
     );
     const linqCalls: string[] = [];
     await drain(storage, unlinkedDeps(linqCalls));
-    expect(linqCalls).toHaveLength(2);
+    expect(linqCalls.map((url) => new URL(url).pathname.split("/").pop())).toEqual([
+      "read",
+      "typing",
+      "messages",
+      "messages",
+      // A real chat is offered the line's contact card after the reply.
+      "share_contact_card",
+    ]);
     expect((await thread(storage, 2_000)).messages).toEqual([]);
   });
 });

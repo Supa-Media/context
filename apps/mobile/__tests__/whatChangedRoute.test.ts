@@ -6,9 +6,8 @@
  * WHAT CHANGED IS A PAGE WITH AN ADDRESS.
  *
  * `?changes=1` beside `?note=`, the way `?settings=` rides: the page is drawn
- * where a note would be, opening it closes the suggestions popover and
- * Settings, choosing a note leaves it, and only a person who sees suggestions
- * at all can be on it.
+ * where a note would be, opening it closes Settings, choosing a note leaves
+ * it, and only a person who sees What changed at all can be on it.
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
@@ -19,7 +18,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { changesFromQuery, changesHref } from "../features/organizer/changesRoute";
 import { routeOrganizer } from "../features/organizer/consoleOrganizer";
-import { changesCount, footCount, phoneChangesCount } from "../features/organizer/rules";
+import { changesCount, phoneChangesCount } from "../features/organizer/rules";
 import type { OrganizerStatus } from "../features/organizer/types";
 import { useLeavePageOnOpen } from "../features/organizer/useLeavePageOnOpen";
 import type { OrganizerView } from "../features/organizer/useOrganizer";
@@ -36,11 +35,9 @@ const STATUS: OrganizerStatus = {
   autopilot: { done: false, archive: false, file: false },
 };
 
-function view(status: OrganizerStatus | null = STATUS, closed: string[] = []): OrganizerView {
+function view(status: OrganizerStatus | null = STATUS): OrganizerView {
   return {
     status,
-    closeReview: () => closed.push("review"),
-    openReview: () => {},
     pageOpen: false,
     openPage: () => {},
     closePage: () => {},
@@ -57,35 +54,32 @@ describe("the address", () => {
 });
 
 describe("routing", () => {
-  test("opening the page closes the popover and Settings; closing it clears the parameter", () => {
+  test("opening the page closes Settings; closing it clears the parameter", () => {
     const params: Record<string, unknown>[] = [];
-    const closed: string[] = [];
-    const routed = routeOrganizer(view(STATUS, closed), { setParams: (p: Record<string, unknown>) => params.push(p) } as never);
+    const routed = routeOrganizer(view(STATUS), { setParams: (p: Record<string, unknown>) => params.push(p) } as never);
     routed.openPage();
     routed.closePage();
-    expect(closed).toEqual(["review"]);
-    expect(params).toEqual([{ changes: "1", settings: undefined }, { changes: undefined }]);
+    expect(params).toEqual([{ changes: "1", settings: undefined, map: undefined }, { changes: undefined }]);
   });
 
-  test("the page is open only for somebody who sees suggestions", () => {
+  test("the page is open only for somebody who sees What changed", () => {
     const router = { setParams: () => {} } as never;
     expect(routeOrganizer(view(), router, true).pageOpen).toBe(true);
     expect(routeOrganizer(view(), router, false).pageOpen).toBe(false);
     expect(routeOrganizer(view({ ...STATUS, isOwner: false }), router, true).pageOpen).toBe(false);
+    // Switched off on the server, a `?changes=1` address (a bookmark, Back) draws no page.
+    expect(routeOrganizer(view({ ...STATUS, whatChanged: false }), router, true).pageOpen).toBe(false);
     expect(routeOrganizer(view({ ...STATUS, on: false }), router, true).pageOpen).toBe(false);
     expect(routeOrganizer(view(null), router, true).pageOpen).toBe(false);
   });
 });
 
 describe("the counts", () => {
-  test("cards have their own count; the suggestions line counts the rest", () => {
+  test("the count is the cards waiting, and nothing else", () => {
     expect(changesCount(STATUS)).toBe(2);
-    expect(footCount(STATUS)).toBe(3);
-    expect(footCount({ ...STATUS, pending: 2 })).toBeNull();
-    // A server older than the page sends no `changes`: every waiting row is a suggestion.
+    // A server older than the page sends no `changes`: there is nothing to count.
     const { changes: _none, ...older } = STATUS;
     expect(changesCount(older)).toBe(0);
-    expect(footCount(older)).toBe(5);
     expect(changesCount({ ...STATUS, isOwner: false })).toBeNull();
   });
 

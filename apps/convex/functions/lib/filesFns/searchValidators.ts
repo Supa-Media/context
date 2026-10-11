@@ -10,7 +10,13 @@ import { v } from "convex/values";
 export const searchResultsValidator = v.object({
   kind: v.literal("searchResults"),
   hits: v.array(
-    v.object({ path: v.string(), title: v.string(), snippets: v.array(v.string()) }),
+    v.object({
+      path: v.string(),
+      title: v.string(),
+      snippets: v.array(v.string()),
+      /** Found by meaning alone: the app marks it "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
+    }),
   ),
   matchCount: v.number(),
   matchCountIsFloor: v.boolean(),
@@ -30,6 +36,10 @@ export const searchResultsValidator = v.object({
   reducedRecall: v.boolean(),
   /** Which of the caller's own visible notes those are — already `canSee`-filtered. */
   reducedRecallNotes: v.array(v.string()),
+  /** Which index answered, for the search timing log. See `SearchResults.answeredBy`. */
+  answeredBy: v.optional(v.union(v.literal("fast"), v.literal("index"), v.literal("none"))),
+  /** Milliseconds the words and the meaning lookup took. See `SearchResults.timing`. */
+  timing: v.optional(v.object({ words: v.number(), meaning: v.optional(v.number()) })),
 });
 
 /**
@@ -40,6 +50,37 @@ export const searchResultsValidator = v.object({
 export const notePathsValidator = v.object({
   kind: v.literal("notePaths"),
   paths: v.union(v.array(v.string()), v.null()),
+});
+
+/**
+ * The console map's graph for one workspace: every note the caller may see
+ * and the links between them, each end already visible. See `workspaceGraph`
+ * in `lib/fileOps/graph.ts` and `docs/decisions/search.md`.
+ */
+export const workspaceGraphValidator = v.object({
+  kind: v.literal("workspaceGraph"),
+  nodes: v.array(v.object({ path: v.string(), title: v.string() })),
+  /** Index pairs into `nodes`, source first. */
+  edges: v.array(v.array(v.number())),
+  truncated: v.boolean(),
+  /** Every note the caller may see, drawn or not. */
+  noteCount: v.number(),
+  /** The link cap cut links between drawn notes. */
+  linksCut: v.boolean(),
+  /**
+   * The compact answer (`compact: true`): every path, then the links as flat
+   * index pairs, each in chunks under Convex's 8,192-item array limit.
+   */
+  pathChunks: v.optional(v.array(v.array(v.string()))),
+  linkChunks: v.optional(v.array(v.array(v.number()))),
+  behind: v.boolean(),
+  indexMissing: v.boolean(),
+});
+
+/** The answer to `visiblePaths`: the asked-for paths this scope may see now. */
+export const visiblePathsValidator = v.object({
+  kind: v.literal("visiblePaths"),
+  paths: v.array(v.string()),
 });
 
 /** The answer to `forward`: the same paths, each where it is now. */
@@ -68,6 +109,8 @@ export const blendedResultsValidator = v.object({
       title: v.string(),
       /** The explanatory line, or `""` where the index had none to give. */
       snippet: v.string(),
+      /** Found by meaning alone: shown as "Same topic, different words". */
+      meaningOnly: v.optional(v.boolean()),
     }),
   ),
   /** Visible matches across every context asked. A floor when any source's is. */
@@ -90,6 +133,15 @@ export const blendedResultsValidator = v.object({
       state: v.union(v.literal("ok"), v.literal("indexing"), v.literal("failed")),
       matchCount: v.number(),
       matchCountIsFloor: v.boolean(),
+      /**
+       * How long this context took to answer, in milliseconds, and how that
+       * split between the words and the meaning lookup (which run at once).
+       * A context that missed its deadline is timed at the deadline and has
+       * no split. Drawn in ⌘K's "where the time went" panel.
+       */
+      ms: v.optional(v.number()),
+      words: v.optional(v.number()),
+      meaning: v.optional(v.number()),
     }),
   ),
   /**
@@ -145,5 +197,20 @@ export const indexProjectedValidator = v.object({
   ready: v.boolean(),
   moved: v.boolean(),
   report: v.boolean(),
+  failure: v.optional(v.string()),
+});
+
+/**
+ * A search-by-meaning catch-up pass, in counts: no path, no title, no text,
+ * for `indexProjected`'s reason. `failure` is one of our closed codes.
+ */
+export const meaningProjectedValidator = v.object({
+  kind: v.literal("meaningProjected"),
+  embedded: v.number(),
+  deleted: v.number(),
+  notesIndexed: v.number(),
+  notesPending: v.number(),
+  ready: v.boolean(),
+  moved: v.boolean(),
   failure: v.optional(v.string()),
 });

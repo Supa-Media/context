@@ -84,6 +84,41 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
 }
 
 /**
+ * The folder note this product used to write, before it wrote `about.md`.
+ *
+ * Workspaces scaffolded before the rename hold these, byte for byte what
+ * `scaffoldFiles` wrote then. They are still ours, and a resume must recognise
+ * them as such: otherwise a half-finished old layout reads as foreign content
+ * and is refused. Nothing here writes `README.md`; it is only read as an alias.
+ */
+const LEGACY_FOLDER_NOTE = "README.md";
+const FOLDER_NOTE = "about.md";
+
+/**
+ * The old name of a folder note key, or `null` for any other key. Only
+ * `<folder>/about.md` has one; `index.md` and `privacy.md` never changed.
+ */
+export function legacyFolderNoteKey(key: string): string | null {
+  return key.endsWith(`/${FOLDER_NOTE}`)
+    ? `${key.slice(0, -FOLDER_NOTE.length)}${LEGACY_FOLDER_NOTE}`
+    : null;
+}
+
+/**
+ * Each `<folder>/about.md` the layout would write, plus the same bytes under the
+ * old `<folder>/README.md` name, so either name counts as one we wrote.
+ */
+function withLegacyFolderNotes(
+  files: readonly { key: string; body: string }[],
+): { key: string; body: string }[] {
+  const legacy = files.flatMap((file) => {
+    const key = legacyFolderNoteKey(file.key);
+    return key === null ? [] : [{ key, body: file.body }];
+  });
+  return [...files, ...legacy];
+}
+
+/**
  * Is there anything in this bucket that **we did not put there**?
  *
  * ## The question `hasExistingContext` cannot answer
@@ -101,7 +136,7 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
  * key this exact layout would write, holding the exact bytes this exact layout
  * would write there.** Byte-identity is what makes the answer "we wrote this"
  * rather than "something with this name is here": a person's own
- * hand-maintained `privacy.md` or `1-projects/README.md` is not byte-identical
+ * hand-maintained `privacy.md` or `1-projects/about.md` is not byte-identical
  * to our generated one, and one note of theirs anywhere — `1-projects/ship.md`
  * — is a key no layout of ours contains. Either way this returns `true` and
  * the caller refuses, exactly as it does for a vault that was here before we
@@ -115,13 +150,13 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
  * Listed with the same delimiter and page cap as `hasExistingContext`, for the
  * same `.history/` reason. A folder prefix that *is* one of ours is then
  * walked flat, because "the prefix `1-projects/` exists" says nothing about
- * whether what is under it is our README or a thousand of their notes.
+ * whether what is under it is our about note or a thousand of their notes.
  */
 export async function hasForeignContent(
   store: ScaffoldStore,
   files: readonly { key: string; body: string }[],
 ): Promise<boolean> {
-  const ours = new Map(files.map((file) => [file.key, file.body]));
+  const ours = new Map(withLegacyFolderNotes(files).map((file) => [file.key, file.body]));
   const ourPrefixes = new Set(
     files
       .filter((file) => file.key.includes("/"))

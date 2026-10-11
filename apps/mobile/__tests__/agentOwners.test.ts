@@ -39,9 +39,9 @@ describe("the list", () => {
   });
 
   test("a new name goes to the projects folder's front note, made if missing", () => {
-    expect(agentsHome("1-projects/web", [])).toEqual({ target: "1-projects/overview.md", creates: true });
+    expect(agentsHome("1-projects/web", [])).toEqual({ target: "1-projects/about.md", creates: true });
     expect(agentsHome("1-projects/web", [note("1-projects/index.md")])).toEqual({ target: "1-projects/index.md", creates: false });
-    expect(agentsHome("notes/ideas", [])).toEqual({ target: "notes/ideas/overview.md", creates: true });
+    expect(agentsHome("notes/ideas", [])).toEqual({ target: "notes/ideas/about.md", creates: true });
     expect(agentsHome("", [])).toBeNull();
   });
 

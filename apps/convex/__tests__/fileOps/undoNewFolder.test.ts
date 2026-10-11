@@ -8,10 +8,10 @@ import { NOW, bucket, capture, shareProjects } from "./fixtures.helpers";
  * the owner on 2026-09-30): the toast says "Created Hiring in Team · Undo",
  * and Undo takes the folder away again **while it is still empty**.
  *
- * "Still empty" is the whole contract. The folder exists as one placeholder
- * `README.md`; the moment anything else is in it — a note somebody made, a
+ * "Still empty" is the whole contract. The folder exists as one about note
+ * `about.md`; the moment anything else is in it — a note somebody made, a
  * note somebody else made that this caller cannot even see, or words written
- * into the placeholder itself — Undo keeps the folder and says so, because
+ * into the about note itself — Undo keeps the folder and says so, because
  * the alternative is a permanent delete of somebody's work behind a button
  * labelled Undo.
  *
@@ -21,7 +21,7 @@ import { NOW, bucket, capture, shareProjects } from "./fixtures.helpers";
  *
  *  1. Skipping the "only one key" check.          → "a note put in it since keeps the folder"
  *  2. Listing only what the caller can see.        → "a note the caller cannot see still keeps it"
- *  3. Skipping the placeholder-text comparison.    → "words written into the placeholder keep it"
+ *  3. Skipping the about-note text comparison.    → "words written into the about note keep it"
  *  4. Dropping the visibility check.               → "a hidden folder with things in it answers not found too"
  */
 describe("undoing a new folder", () => {
@@ -31,7 +31,7 @@ describe("undoing a new folder", () => {
     const store = bucket();
     await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
     const removed = await removeNewFolder(store, { path: "2-areas/hiring", clearance: owner });
-    expect(removed.paths).toEqual(["2-areas/hiring/README.md"]);
+    expect(removed.paths).toEqual(["2-areas/hiring/about.md"]);
     expect(Object.keys(store.snapshot()).filter((key) => key.startsWith("2-areas/hiring"))).toEqual([]);
   });
 
@@ -42,7 +42,7 @@ describe("undoing a new folder", () => {
     const error = await capture(() => removeNewFolder(store, { path: "2-areas/hiring", clearance: owner }));
     expect(error.code).toBe("FOLDER_NOT_EMPTY");
     expect(error.message).toBe("hiring has something in it now, so it was kept.");
-    expect(store.snapshot()["2-areas/hiring/README.md"]).toContain("Folder placeholder.");
+    expect(store.snapshot()["2-areas/hiring/about.md"]).toBe("");
     expect(store.snapshot()["2-areas/hiring/plan.md"]).toBe("# Plan\n");
   });
 
@@ -60,12 +60,12 @@ describe("undoing a new folder", () => {
     expect(store.snapshot()["1-projects/hiring/pay.md"]).toBe("# Pay\n");
   });
 
-  test("words written into the placeholder keep it", async () => {
+  test("words written into the about note keep it", async () => {
     const store = bucket();
     await createFolder(store, { path: "2-areas/hiring", clearance: owner, now: NOW });
-    const written = await store.get("2-areas/hiring/README.md");
+    const written = await store.get("2-areas/hiring/about.md");
     await writeFile(store, {
-      path: "2-areas/hiring/README.md",
+      path: "2-areas/hiring/about.md",
       expectedEtag: written!.etag,
       text: "# Hiring\n\nWho we are looking for.\n",
       clearance: owner,
@@ -73,7 +73,7 @@ describe("undoing a new folder", () => {
     });
     const error = await capture(() => removeNewFolder(store, { path: "2-areas/hiring", clearance: owner }));
     expect(error.code).toBe("FOLDER_NOT_EMPTY");
-    expect(store.snapshot()["2-areas/hiring/README.md"]).toContain("Who we are looking for.");
+    expect(store.snapshot()["2-areas/hiring/about.md"]).toContain("Who we are looking for.");
   });
 
   test("a folder that is not there, or not the caller's to see, answers not found", async () => {
@@ -87,7 +87,7 @@ describe("undoing a new folder", () => {
     );
     expect(hidden.code).toBe(missing.code);
     expect(hidden.message).toBe(missing.message);
-    expect(store.snapshot()["2-areas/hiring/README.md"]).toContain("Folder placeholder.");
+    expect(store.snapshot()["2-areas/hiring/about.md"]).toBe("");
   });
 
   test("a hidden folder with things in it answers not found too, not \"kept\"", async () => {

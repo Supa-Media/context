@@ -258,29 +258,6 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // product on the grant, so this module adds exactly one new decrypt site,
   // not three.
   "functions/calendarConnect.ts",
-  // THE NINTH, AND THE FIRST CREDENTIAL THAT IS NOT OURS TO ROTATE.
-  //
-  // `providers.ts` holds the API key for the model account the agent spends —
-  // the customer's own Anthropic or OpenAI key — and opens it in exactly one
-  // place, `openProviderCredential`, whose only caller is the gateway. Its own
-  // module for the reason the sixth entry gives: one module per thing sealed
-  // to a different lifetime. This one outlives no binding and is bound to no
-  // handshake; it is replaced when somebody pastes a new key and deleted when
-  // they disconnect, and folding it into `storage.ts` would put a credential
-  // with that lifetime behind a module whose every other secret belongs to a
-  // bucket.
-  //
-  // What bounds it: `connectProvider` and `listProviders` are the only public
-  // exports and neither reaches the decrypt — the first encrypts, the second
-  // builds its answer field by field from the row and never touches
-  // `encryptedApiKey`. The refusals are written to name the provider and never
-  // the key, because a credential we did not issue is one we cannot rotate
-  // after a leak, and #661 put a credential we *could* rotate into the
-  // production logs by way of a validation error.
-  //
-  // See `__tests__/providerCredentials.test.ts`, which drives every failing
-  // path and searches the thrown value for the key it was given.
-  "functions/providers.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */

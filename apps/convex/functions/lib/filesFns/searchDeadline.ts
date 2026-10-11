@@ -39,6 +39,9 @@ export type BlendedAnswer = {
     state: "ok" | "indexing" | "failed";
     matchCount: number;
     matchCountIsFloor: boolean;
+    ms?: number;
+    words?: number;
+    meaning?: number;
   }[];
   searchableCount: number;
 };

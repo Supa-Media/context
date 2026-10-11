@@ -1,6 +1,7 @@
 /**
  * Session and binding resolution: turning a presented access token into a
- * session, a storage binding, or a model provider credential.
+ * session or a storage binding, and asking whether a turn may spend the
+ * built-in model.
  */
 import { ControlPlaneError } from "./client.js";
 
@@ -91,6 +92,8 @@ export function createSessionMethods({ post, required }) {
       return {
         binding: required(parsed, "binding"),
         searchIndex: parsed.searchIndex ?? null,
+        // Search by meaning's index, `searchIndex`'s terms: absent until it takes writes.
+        meaningIndex: parsed.meaningIndex ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
         rotation: parsed.rotation ?? null,
         // The free managed tier's note cap, a fifth sibling and absent for
@@ -100,44 +103,6 @@ export function createSessionMethods({ post, required }) {
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
       };
-    },
-
-    /**
-     * Fetch the model account for the workspace **the user's token names**.
-     *
-     * A route of its own rather than a fifth sibling on `/gateway/binding`, and
-     * `apps/convex/http.ts`'s own header for `/gateway/provider` carries the
-     * argument: folding a model key into `openStorageBinding`'s return would
-     * put it inside the same `v.object` as `secretAccessKey`, where #661 showed
-     * that one drifted field serializes everything beside it into a log. Two
-     * flat fields behind their own door is the smaller blast radius, and the
-     * door spends the identical two proofs this file's contract already
-     * describes — the gateway secret, and the user's access token, with
-     * `expectedWorkspaceId` selecting inside the token's own set and never
-     * outside it.
-     *
-     * It also means the key is opened only by the request about to spend it,
-     * rather than decrypted on every `list_notes` in the product.
-     *
-     * `credential` keeps `required`'s null-vs-missing discipline: an explicit
-     * `null` is "nothing connected, or nothing you may reach", and a *missing*
-     * key is a control plane answering some other contract, which must not be
-     * read as "no credential" — for the reason `required` gives.
-     *
-     * @param {string} accessToken the bearer token exactly as presented
-     * @param {string|null} expectedWorkspaceId the gateway's own conclusion
-     * @param {string} provider "anthropic" or "openai"; the closed set is the
-     *   control plane's, and an unknown one comes back `null` rather than as a
-     *   distinguishable error
-     * @returns {Promise<{provider: string, apiKey: string}|null>}
-     */
-    async getProviderCredential(accessToken, expectedWorkspaceId, provider) {
-      const parsed = await post("/gateway/provider", {
-        accessToken,
-        expectedWorkspaceId,
-        provider,
-      });
-      return required(parsed, "credential");
     },
 
     /**
@@ -152,13 +117,64 @@ export function createSessionMethods({ post, required }) {
       return required(parsed, "verdict");
     },
 
-    /** What a finished built-in turn spent: token counts and a duration, never text. */
-    async recordBuiltinUsage(accessToken, expectedWorkspaceId, { input, output, decision = 0, failed, ms }) {
+    /**
+     * May this grant spend one meeting summary? Every plan may, under a daily
+     * ceiling that depends on the plan (`apps/convex/functions/meetingSummary.ts`),
+     * and the answer counts the summary. `null` is an unknown token or a
+     * workspace it cannot reach.
+     *
+     * @returns {Promise<{allowed: true, remaining: number, paying: boolean}|{allowed: false, reason: string, paying: boolean}|null>}
+     */
+    async startMeetingSummary(accessToken, expectedWorkspaceId) {
+      const parsed = await post("/gateway/meeting-summary", { accessToken, expectedWorkspaceId });
+      return required(parsed, "verdict");
+    },
+
+    /** What one meeting summary spent: token counts, the model and a duration, never text. */
+    async recordMeetingSummaryUsage(
+      accessToken,
+      expectedWorkspaceId,
+      { input, output, cacheRead = 0, cacheWrite = 0, model, failed, ms },
+    ) {
+      await post("/gateway/meeting-summary/usage", {
+        accessToken,
+        expectedWorkspaceId,
+        inputTokens: input,
+        outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        model,
+        failed,
+        ms,
+      });
+    },
+
+    /**
+     * One finished agent turn for the turn log (`apps/convex/functions/agentTurns.ts`):
+     * provider, model, outcome, durations, token counts and the trace of
+     * model rounds and tool names. Never text, never a tool's arguments.
+     */
+    async recordAgentTurn(accessToken, expectedWorkspaceId, turn) {
+      await post("/gateway/agent-turn", { accessToken, expectedWorkspaceId, ...turn });
+    },
+
+    /**
+     * What a finished built-in turn spent: token counts, the model that answered
+     * (for its price) and a duration, never text. Cache counts default to zero.
+     */
+    async recordBuiltinUsage(
+      accessToken,
+      expectedWorkspaceId,
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms },
+    ) {
       await post("/gateway/builtin-model/usage", {
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,
         outputTokens: output,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        model,
         decisionTokens: decision,
         failed,
         ms,

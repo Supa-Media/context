@@ -86,7 +86,7 @@ can type — so the guessability hinge does not do for it what it does for
 the owner explicitly team-linked, which bounds the probe to the set they already
 chose to publish. That bound is only as good as the space being probed, and
 **the product writes a lot of that space itself.** `scaffoldFiles` lays down
-`privacy.md`, `index.md` and a `README.md` in each of the five PARA folders, the
+`privacy.md`, `index.md` and an `about.md` in each of the five PARA folders (older workspaces have a `README.md` there), the
 five folder names are documented in this file, and the connected-client house
 rules put a `todo.md` at the root. So a fresh workspace arrives with roughly a dozen
 addresses anybody can guess without knowing a thing about its owner, and a

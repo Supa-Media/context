@@ -13,12 +13,15 @@ export function searchAndMoveToolDefinitions() {
       name: "search_notes",
       title: "Search notes",
       description:
-        "Search the user's own notes. Reach for this whenever they mention a project, a person, a " +
+        "Search the user's notes, by their words and by their meaning, across every workspace " +
+        "they can reach in one call. Reach for this whenever they mention a project, a person, a " +
         "client, a decision, a preference, or something they have written before — it is usually " +
-        "already recorded here, and asking them to repeat it is the failure mode. Case-insensitive " +
-        "and ranked, so the best matches come first; returns matching paths with line snippets. " +
-        "Pass a folder prefix when you already know where to look, and reuse the result for the " +
-        "session rather than repeating the same search before every write.",
+        "already recorded somewhere they can see, and asking them to repeat it is the failure mode. " +
+        "Ranked, so the best matches come first; returns matching paths with line snippets, and a " +
+        "path that starts with @name/ is in that workspace (pass context: \"@name\" with the rest of " +
+        "the path to read it). To search one workspace only, pass context: \"@name\"; pass a folder " +
+        "prefix to narrow to one subtree of this one. Reuse the result for the session rather than " +
+        "repeating the same search before every write.",
       inputSchema: {
         type: "object",
         properties: {
@@ -118,7 +121,7 @@ export function searchAndMoveToolDefinitions() {
       name: "move_folder",
       title: "Move folder",
       description:
-        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 500 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
+        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 100 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
         type: "object",
         properties: {
@@ -135,16 +138,20 @@ export function searchAndMoveToolDefinitions() {
       name: "materialize_move",
       title: "Finish folder move",
       description:
-        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete.",
+        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0, or append :inspect to the id in clients with an older batch_size schema, to inspect progress without changing anything. Set resume_background to restart a stalled queued worker.",
       inputSchema: {
         type: "object",
         properties: {
           id: { type: "string", description: "Logical move id returned by move_folder" },
           batch_size: {
             type: "integer",
-            minimum: 1,
+            minimum: 0,
             maximum: MOVE_MATERIALIZE_BATCH,
-            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}`,
+            description: `Maximum objects to copy or delete this pass; default ${MOVE_MATERIALIZE_BATCH}. Use 0 for a read-only status check.`,
+          },
+          resume_background: {
+            type: "boolean",
+            description: "Queue a fresh background worker after this pass if work remains",
           },
         },
         required: ["id"],

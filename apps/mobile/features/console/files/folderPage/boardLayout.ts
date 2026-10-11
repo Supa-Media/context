@@ -7,14 +7,14 @@
  * on one writes that word, as it always has; a word nobody placed is still a
  * column, asking for its group. Backlog (any case) is taken out of them and
  * drawn as the rail — somewhere to park a card, out of the way — present
- * while the folder's list holds it or a task still says it, the same rule
- * that draws the List's Backlog band (`listLayout.ts`). A list with no
+ * while the folder's list holds it or a task still says it (`isBacklog`,
+ * `taskBasics.ts`). A list with no
  * Backlog word has no rail — unless the folder has a Backlog folder, which
  * is the rail's contents (`parkedOnBoard`).
  */
 
 import type { ListNote } from "../listBlock/model";
-import { isBacklog } from "./listLayout";
+import { isBacklog } from "./taskBasics";
 import { compareTasks, taskChildren, type FolderGroup, type FolderItem } from "./model";
 import { planUnpark } from "./tasks/backlogFolder";
 import { taskRefOf } from "./tasks/taskEdits";

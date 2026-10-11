@@ -77,7 +77,7 @@ const CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
  * `../escape` to `escape` or stripping a newline gives the person a folder they
  * did not ask for, under a name they will not recognise, in a bucket we do not
  * own. The one exception is the *description*, which is prose destined for the
- * body of a README rather than for a key: surrounding whitespace there is
+ * body of a folder note rather than for a key: surrounding whitespace there is
  * trimmed, because rejecting a trailing space in a sentence is user-hostile and
  * buys nothing.
  *

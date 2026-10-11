@@ -20,41 +20,37 @@ import { type WalkStop, walkStopped } from "./walk";
 /* -------------------------------------------------------------------------- */
 
 /**
- * What lands in a folder the moment it is made.
+ * What lands in a folder the moment it is made: its `about.md`.
  *
  * S3 has no folders — a folder is a shared key prefix — so an "empty folder"
  * can only exist in a UI's memory unless something is written. Rather than
  * invent a hidden marker object (a dot-prefixed key is plumbing and would be
- * invisible to the very tools this is for), a new folder gets a `README.md`,
- * exactly as the PARA scaffold does. The folder is then real for Obsidian,
- * rclone, the gateway and everything else that reads the bucket.
+ * invisible to the very tools this is for), a new folder gets one key, and that
+ * key is the folder's about note: the description the app shows at the top of
+ * the folder page. The folder is then real for Obsidian, rclone, the gateway
+ * and everything else that reads the bucket.
  *
- * **It says it is a placeholder, because it is one.** It used to be `# <name>`
- * — the shape of a note somebody had started writing, on a file nobody wrote,
- * at the top of every folder they made. A person who opened it found an empty
- * overview page they had not asked for and could not tell whether they were
- * supposed to fill in. So the body names itself and says why it is there, which
- * is the only thing it knows. The console does not list it at all
- * (`isFolderPlaceholder`); this text is for the tools that do.
+ * It is written empty. A `# <name>` heading would become the folder page's
+ * title (a front note's heading titles its folder) and would then go stale the
+ * first time the folder was renamed; an empty note leaves the title to the
+ * folder's own name and the description to the person, or to their agent,
+ * which `orient` tells to write it.
  *
- * `renderFolderPlaceholder` is exported so the copy is pinned by a test rather
- * than being a string literal nobody would notice changing.
+ * `renderNewFolderAbout` is exported so the copy is pinned by a test rather than
+ * being a string literal nobody would notice changing. `removeNewFolder` relies
+ * on this exact text to recognise a folder that is still only this key.
  */
-export function renderFolderPlaceholder(folder: string): string {
-  return [
-    "Folder placeholder.",
-    "",
-    `Object storage has no empty folders, so this file is what makes ${folder}/`,
-    "exist. Context does not list it; Obsidian and anything else that reads your",
-    "bucket will. Delete it once the folder holds something else, or write in it —",
-    "it is an ordinary note.",
-    "",
-  ].join("\n");
+export function renderNewFolderAbout(_folder: string): string {
+  return "";
 }
 
 /**
  * Create a folder — which means writing the one key that makes its prefix
- * exist. See `renderFolderPlaceholder` for what that key holds and why.
+ * exist. See `renderNewFolderAbout` for what that key holds and why.
+ *
+ * The result's `readme` field is the path of that key. It keeps its old name
+ * because it is part of the mutation result the app already reads; the file is
+ * now `about.md`.
  */
 export async function createFolder(
   store: FileStore,
@@ -84,18 +80,18 @@ export async function createFolder(
     throw notFound();
   }
 
-  const readme = joinPath(folder, "README.md");
-  const existing = await store.get(readme);
+  const about = joinPath(folder, "about.md");
+  const existing = await store.get(about);
   if (existing !== null) {
     throw new FileOpError("DESTINATION_EXISTS", "That folder already exists.");
   }
   await writeFile(store, {
-    path: readme,
-    text: renderFolderPlaceholder(folder),
+    path: about,
+    text: renderNewFolderAbout(folder),
     clearance: options.clearance,
     now: options.now,
   });
-  return { path: folder, readme };
+  return { path: folder, readme: about };
 }
 
 /**

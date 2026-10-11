@@ -33,7 +33,22 @@ export interface LedeEditing {
   save(text: string): Promise<string | null>;
 }
 
-export function Lede({ text, editing }: { text: string | null; editing?: LedeEditing | null }) {
+export function Lede({
+  text,
+  editing,
+  autoOpen = false,
+  onClose,
+  prompt = "Add a description",
+}: {
+  text: string | null;
+  editing?: LedeEditing | null;
+  /** Open as a field at once: the folder about's Edit button, which has already been pressed. */
+  autoOpen?: boolean;
+  /** Told when the field closes, saved or not. */
+  onClose?: () => void;
+  /** What a writer is offered where there are no words yet. */
+  prompt?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const textStyles = useTextStyles();
   // Mobile Safari zooms into a field under 16px; the lede's 15 is raised on a phone.
@@ -47,6 +62,12 @@ export function Lede({ text, editing }: { text: string | null; editing?: LedeEdi
 
   // The device's copy caught up (or somebody else changed it): draw that.
   useEffect(() => setPending(null), [text]);
+  const opening = useRef<(() => void) | null>(null);
+  // Opened by a button elsewhere: a field at once, once.
+  useEffect(() => {
+    if (autoOpen) opening.current?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const shown = pending ?? text;
   if (editing == null) {
@@ -62,22 +83,26 @@ export function Lede({ text, editing }: { text: string | null; editing?: LedeEdi
       .then((source) => setDraft((current) => (current === (shown ?? "") ? source : current)))
       .catch(() => {});
   };
-  const close = () => {
+  opening.current = open;
+  const close = (tell = true) => {
     done.current = true;
     setDraft(null);
     setHeight(null);
+    if (tell) onClose?.();
   };
   const commit = () => {
     if (done.current || draft === null) return;
     const next = draft.replace(/\s*\r?\n\s*/g, " ").trim();
-    close();
-    if (next === (shown ?? "")) return;
+    const unchanged = next === (shown ?? "");
+    // Told once the words are saved, so a refusal is still here to be read.
+    close(unchanged);
+    if (unchanged) return;
     setPending(next === "" ? "" : noteLede(next) ?? next);
     void editing.save(next).then((answer) => {
       if (answer !== null) {
         setPending(null);
         setProblem(answer);
-      }
+      } else onClose?.();
     });
   };
   const keys = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
@@ -118,11 +143,11 @@ export function Lede({ text, editing }: { text: string | null; editing?: LedeEdi
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         accessibilityRole="button"
-        accessibilityLabel={shown ? `Edit description, ${shown}` : "Add a description"}
+        accessibilityLabel={shown ? `Edit description, ${shown}` : prompt}
         style={[styles.box, hovered && styles.boxHover]}
         testID="folder-lede-edit"
       >
-        {shown ? <Words text={shown} /> : <Text variant="body" style={styles.empty}>Add a description</Text>}
+        {shown ? <Words text={shown} /> : <Text variant="body" style={styles.empty}>{prompt}</Text>}
       </Pressable>
       {problem !== null ? (
         <Text variant="treeMeta" style={styles.problem} role="alert" testID="folder-lede-problem">

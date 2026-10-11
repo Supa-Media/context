@@ -26,6 +26,7 @@ import {
   resolveSession,
   SCOPE_CAPTURE,
   SCOPE_READ,
+  SCOPE_WRITE,
   sessionForContext,
   SessionRefusal,
   splitWorkspacePath,
@@ -37,6 +38,8 @@ import { createControlPlane } from "../controlPlane.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { streamTurn, wantsProgress } from "../agent/progress.js";
+import { handleApprovals } from "./approvals.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
@@ -50,8 +53,10 @@ import {
   scopeForMeetingRequest,
 } from "../meetings/ingest.js";
 import { localIngestionStore } from "../ingestion/inbox.js";
+import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summarize.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
+import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
@@ -67,7 +72,7 @@ export async function route(request, env, ctx) {
     //
     // Meeting ingestion used to be lifted out of this line — `isMeetingPath` on
     // the raw pathname, before the selector — because `meetings` was not one of
-    // `session.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
+    // `workspacePath.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
     // as a workspace called "meetings" selecting the path `/sessions`. That was
     // one route defending itself against a list it was missing from, and it left
     // the actual hole open: the name was still claimable, in a namespace where a
@@ -110,7 +115,7 @@ export async function route(request, env, ctx) {
     // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
     // in `origin.js`, so this asks the question here rather than editing
     // another module's idea of what speaks the MCP transport.
-    if (isTransportPath(path) || isMeetingPath(path)) {
+    if (isTransportPath(path) || isMeetingPath(path) || path === MEETING_SUMMARY_PATH) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -170,7 +175,7 @@ export async function route(request, env, ctx) {
     // branch for the reasons `/presence` has one: a GET that reads no note,
     // writes nothing, and needs no queue, usage counter or search budget.
     if (path === "/agent-activity") {
-      return await handleAgentActivity(request, env, { slug, pathToken, origin });
+      return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
     }
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
@@ -180,14 +185,21 @@ export async function route(request, env, ctx) {
     // the MCP transport paths only, and `handleMeetings` answers a wrong method
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
+    const summaryRoute = path === MEETING_SUMMARY_PATH;
+    // What the egress gate is holding for this person, and their answer: the
+    // app reads it over GET and answers over POST, so the POST-only gate below
+    // is not asked of it either.
+    const approvalsRoute = path === "/approvals";
     if (
+      summaryRoute ||
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
       path === "/collaboration" ||
+      approvalsRoute ||
       meetingRoute
     ) {
-      if (!meetingRoute && request.method !== "POST") return new Response(null, { status: 405 });
+      if (!meetingRoute && !approvalsRoute && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -204,6 +216,11 @@ export async function route(request, env, ctx) {
           : unauthorizedResponse(origin, slug, error);
       }
 
+      // The owner switched the approval gate off for now (2026-10-10, until
+      // orient leans less on the personal context and asks smarter). Unset
+      // keeps it on, so a self-hosted gateway is held as before.
+      if (env.EGRESS_APPROVALS === "off") session.egressOff = true;
+
       // A meeting write is a write, and it is checked here — before a store
       // exists and before any lookup — so the refusal is decided without
       // reading anything and therefore discloses nothing about what this
@@ -215,7 +232,18 @@ export async function route(request, env, ctx) {
       // `callToolForSession` — so a read-only grant gets an assistant that can
       // answer and cannot suggest, which is the honest shape of a read-only
       // grant rather than a special case.
-      const needed = meetingRoute
+      // A summary is written into the note, so it needs write like any edit.
+      // `/approvals` needs only read. Answering an approval releases a write,
+      // but the release is replayed through `callToolForSession`, which checks
+      // write against the workspace the call actually lands in: this
+      // connection's default workspace may clamp the person to `member` where
+      // they are an `editor` in the one they asked to write into. Clamping
+      // the route here would 403 them there, and they could never approve it.
+      const needed = summaryRoute
+        ? SCOPE_WRITE
+        : approvalsRoute
+        ? SCOPE_READ
+        : meetingRoute
         ? scopeForMeetingRequest(request.method)
         : path === "/inbox"
           ? SCOPE_CAPTURE
@@ -224,7 +252,7 @@ export async function route(request, env, ctx) {
         // A meeting client is owed one of the contract's error codes, not the
         // OAuth challenge the MCP transport answers with; it names the one
         // missing scope for the same incremental-consent reason.
-        if (meetingRoute) return meetingScopeRefusal(needed);
+        if (meetingRoute || summaryRoute) return meetingScopeRefusal(needed);
         return forbiddenResponse(origin, null, {
           description: `This connection does not hold the ${needed} scope.`,
           // Incremental consent: name the one scope that was missing, so the
@@ -255,6 +283,9 @@ export async function route(request, env, ctx) {
       // `store.actor` does: the tool layer never sees `env`, and the store dies
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
+      // And the deployment's search settings (`search/settings.js`), on the
+      // same terms; a texting setup may lay its own over them for one turn.
+      store.searchSettings = searchSettingsFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
       // The one way anything in this worker gets to keep working after the
@@ -423,6 +454,11 @@ export async function route(request, env, ctx) {
       // cannot be filed into a workspace the URL did not name. The acting identity
       // rides on the store so the audit line for a written meeting says who,
       // and not merely at what tier.
+      if (summaryRoute) {
+        store.actor = actorFor(session);
+        return handleMeetingSummary(request, store, session, { controlPlane, env });
+      }
+
       if (meetingRoute) {
         store.actor = actorFor(session);
         return handleMeetings(request, path, store, session, {
@@ -465,6 +501,8 @@ export async function route(request, env, ctx) {
         if (target === session) return { session, store };
         const targetStore = await storeForSession(target, env, controlPlane);
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
+        // Read at open time, so a turn's setup settings reach the contexts it addresses.
+        targetStore.searchSettings = store.searchSettings;
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
         targetStore.defer = store.defer;
@@ -515,7 +553,15 @@ export async function route(request, env, ctx) {
       // After `store.openContext` is attached, deliberately: a turn may address
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
-      if (path === "/agent") return await handleAgent(request, env, store, session, controlPlane);
+      if (path === "/agent") {
+        // The texting Worker asks for a long task as a stream of progress
+        // lines (`agent/progress.js`); everyone else gets the whole turn.
+        if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);
+        return streamTurn((progress) => handleAgent(request, env, store, session, controlPlane, { progress }), {
+          waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
+        });
+      }
+      if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
     }
@@ -547,6 +593,31 @@ function attachChangeReporters(store, workspaceId, controlPlane) {
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
   store.reportWebsiteChange = () =>
     controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
+  store.reportRoutineChange = (paths, userId) =>
+    controlPlane.reportRoutineChange(workspaceId, userId, paths).catch(() => {});
+  // A note leaving this context for another: the console map's record of it.
+  // Deferred and swallowed like `reportActivity`; the move itself has landed.
+  store.reportContextMove = (move) => {
+    const send = controlPlane.reportContextMove(workspaceId, move).catch(() => {});
+    if (typeof store.defer !== "function") return;
+    try {
+      store.defer(send);
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
+  // How long a search took and which index answered (`search/visibleNotes.js`),
+  // for the admin console's search timing log. Behind the answer, like the rest.
+  store.reportSearchTiming = (timing) => {
+    // Checked before the request is built: `reportUsage`'s rule, a fetch
+    // nothing keeps alive is a subrequest spent on nothing.
+    if (typeof store.defer !== "function") return;
+    try {
+      store.defer(controlPlane.reportSearchTiming({ ...timing, workspaceId }).catch(() => {}));
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
   store.reportActivity = (teamVisible) => {
     const send = controlPlane.reportActivity(workspaceId, teamVisible === true).catch(() => {});
     if (typeof store.defer !== "function") return;

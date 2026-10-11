@@ -44,8 +44,8 @@
  *
  * `functions.encryptionKeys.exportWorkspaceDataKeys` decrypts every generation
  * of a workspace's data key and returns the plaintext material — the console's
- * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
- * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
+ * `exportEncryptionKeys` is `docs/decisions/encryption.md`'s "Revocation and
+ * export" (the gateway's `export_encryption_keys` was removed on 2026-10-08): the customer must
  * be able to get the key itself, not only decrypt with it through us, or the
  * first non-negotiable is false the moment they leave — by revoking our
  * credential on their own bucket, or by exporting off managed storage. That is
@@ -66,6 +66,14 @@
 export const CREDENTIAL_BARRIERS = new Set([
   "functions.files.runFileOperation",
   "functions.encryptionKeys.exportWorkspaceDataKeys",
+  /*
+   * The vault's barrier (`functions/vault.ts`, decided by the owner
+   * 2026-10-10). It opens a bucket credential and the data key to seal or
+   * open one login's name, sites and people, and returns only those: no
+   * operation it has reads a secret part. Its callers are the signed-in save
+   * and share actions, which check the person against the request first.
+   */
+  "functions.vault.runVaultOperation",
 ]);
 
 /**
@@ -125,22 +133,4 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
   "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
-  // THE FOURTH, AND THE ONLY ONE ADDED RATHER THAN AVOIDED.
-  //
-  // `searchIndex`, `encryptionKey` and `rotation` all became *siblings* on
-  // `/gateway/binding` specifically so this set would stay at three, and that
-  // remains the default answer for a new gateway-facing credential. The model
-  // key is the exception, for a reason that is about #661 rather than about
-  // convenience: `openStorageBinding`'s returns validator already carries
-  // `secretAccessKey`, and `v.object` is exact, so any drift in that shape
-  // serializes everything in it into a log. Folding a customer's provider key
-  // in would make one accident spill two credentials.
-  //
-  // What makes the door cost little: it is built by the same `gatewayRoute`
-  // factory, spends the same two proofs, applies the same
-  // compared-never-looked-up rule to `expectedWorkspaceId`, and answers `null`
-  // for everything that is not a hit — all of which the tests below enforce on
-  // it exactly as they do on the other three. What it does not share is the
-  // validator, which is the entire point: two flat fields, nothing nested.
-  "http.gatewayProvider",
 ]);

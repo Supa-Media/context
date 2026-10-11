@@ -97,7 +97,9 @@ export async function recordProjectionOutcome(
       workspaceId: args.workspaceId,
       notesIndexed: result.notesIndexed,
       notesPending: result.notesPending,
+      ...(result.priorities ? { priorities: result.priorities } : {}),
       ready: result.ready,
+      fromChain: true,
     });
   }
   // Only a link that made progress and did not finish schedules the next.

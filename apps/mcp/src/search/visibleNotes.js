@@ -1,11 +1,11 @@
 /** `searchVisibleNotes` — a search over the notes a caller can see, within its budget. */
 
-import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
+import { folderPrefix, isIndexableNote } from "./indexable.js";
 import { BUDGET_EXHAUSTED } from "./budget.js";
-import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
+import { canSee, effectiveVisibility } from "../privacy/engine.js";
 import { createSearchBudget } from "./maintain.js";
-import { createSearchTrace, logSearchTrace } from "./trace.js";
-import { DEFERRED_SYNC_FLOOR } from "./pacing.js";
+import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
+import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
 import { indexIsBehind, loadIndexManifest } from "./shards.js";
 import { maintainIndexAfter } from "./maintenance.js";
@@ -27,22 +27,79 @@ import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
  * because the alternative is telling somebody their note does not exist.
  */
 export async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
+  const seen = { moves: null };
+  let found;
+  try {
+    found = await searchWithinBudget(store, scope, rules, overrides, query, prefix, seen);
+  } catch (error) {
+    // Only after the move list is known: without it a moved note could be
+    // shown at a path whose privacy was never asked about.
+    if (!error?.[BUDGET_EXHAUSTED] || seen.moves === null) throw error;
+    if (typeof store.setExtraOperationCharge === "function") store.setExtraOperationCharge(null);
+    found = await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves);
+  }
+  /*
+   * Nothing found over an index that says it is behind, while the projection
+   * is still filling: what it has copied so far is asked, and the answer keeps
+   * its "still catching up" floor, so a partial answer is never read as the
+   * whole context. @seyi's projection held 9,129 notes mid-backfill while every
+   * search answered nothing (2026-10-08).
+   */
+  if (found.hits.length === 0 && (found.indexIncomplete || found.degraded) && seen.moves !== null && store.searchIndex?.state !== "ready") {
+    const partial = await rescueFromProjection(store, scope, rules, overrides, query, prefix, seen.moves, { filling: true });
+    if (partial.hits.length > 0) return { ...partial, indexIncomplete: true, matchCountIsFloor: true };
+  }
+  return found;
+}
+
+/**
+ * A search that ran out of budget still answers: from the projection when it
+ * is ready, else with nothing and the "still catching up" floor, never as an
+ * error. An error here took the whole answer with it, meaning matches
+ * included, and a texted question with it (@seyi, 2026-10-08).
+ */
+async function rescueFromProjection(store, scope, rules, overrides, query, prefix, moves, { filling = false } = {}) {
+  const related = moves.some(
+    (job) =>
+      noteUnderPrefix(job.source, prefix) ||
+      noteUnderPrefix(prefix, job.source) ||
+      noteUnderPrefix(job.destination, prefix) ||
+      noteUnderPrefix(prefix, job.destination)
+  );
+  // A folder search mid-move cannot be answered from the projection: notes
+  // moving INTO the folder are not under it there (see below).
+  const answer =
+    related && prefix
+      ? null
+      : await fastSearchAnswer(
+          store,
+          scope,
+          rules,
+          overrides,
+          query,
+          prefix,
+          createSearchBudget(FAST_SEARCH_FLOOR),
+          createSearchTrace(),
+          { filling }
+        );
+  const fast =
+    answer && related ? showAtMovedPaths(answer, moves, (path) => canSee(path, scope, rules, overrides)) : answer;
+  return {
+    hits: fast?.hits ?? [],
+    matchCount: fast?.matchCount ?? 0,
+    matchCountIsFloor: Boolean(fast?.matchCountIsFloor),
+    indexIncomplete: !fast,
+    reducedRecall: false,
+    reducedRecallNotes: [],
+    degraded: false,
+  };
+}
+
+async function searchWithinBudget(store, scope, rules, overrides, query, prefix, seen) {
   // Request-scoped metadata on the per-request store, same as `store.actor`:
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
-  // Logical-delete stores may need a raw read before a conditional write, or
-  // extra marker/prefix probes while filtering a list. Their public operation
-  // is already prepaid by the search budget; charge only those additional
-  // physical calls so the hard Worker ceiling measures what the provider sees.
-  if (typeof store.setExtraOperationCharge === "function") {
-    store.setExtraOperationCharge(() => {
-      if (budget.take(0)) return;
-      const error = new Error("search budget exhausted");
-      error[BUDGET_EXHAUSTED] = true;
-      throw error;
-    });
-  }
   /*
     `activity.md` is not indexed, and that is not an oversight.
 
@@ -54,8 +111,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     point at. The file is still a note the owner can read, and `read_activity`
     is how it is queried.
   */
-  const isIndexable = (key) =>
-    key.endsWith(".md") && !isPlumbing(key) && key !== ACTIVITY_PATH;
+  const isIndexable = isIndexableNote;
   /**
    * Which of the two FTS tables a note's text may be copied into, for the
    * workspaces that have opted into the D1 projection.
@@ -81,6 +137,25 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
   trace.set("budget", budget.remaining);
   trace.set("prefixed", Boolean(prefix));
   const activeLogicalMoves = await searchMoveJobs(store, prefix, budget);
+  seen.moves = activeLogicalMoves;
+  // Installed only after the move list is read. Every finished move leaves
+  // its job file behind as a logical-delete tombstone, and each tombstone is
+  // one more GET to hide; charged here, a context with many past moves spent
+  // the whole budget listing them and every search died "search budget
+  // exhausted" before it asked the projection anything (@seyi, 2026-10-08).
+  //
+  // Logical-delete stores may need a raw read before a conditional write, or
+  // extra marker/prefix probes while filtering a list. Their public operation
+  // is already prepaid by the search budget; charge only those additional
+  // physical calls so the hard Worker ceiling measures what the provider sees.
+  if (typeof store.setExtraOperationCharge === "function") {
+    store.setExtraOperationCharge(() => {
+      if (budget.take(0)) return;
+      const error = new Error("search budget exhausted");
+      error[BUDGET_EXHAUSTED] = true;
+      throw error;
+    });
+  }
   const hasActiveLogicalMoves = activeLogicalMoves.some(
     (job) =>
       noteUnderPrefix(job.source, prefix) ||
@@ -97,9 +172,21 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
    * R2 search below was going to need. See `fastSearchAnswer`.
    */
   const fastSpan = trace.span("fast");
-  const fast = hasActiveLogicalMoves
+  // A folder move in flight no longer sends a whole-context search to the
+  // literal scan, which on a large context spent the budget before it found
+  // anything (@seyi, 2026-10-08). The projection still holds the notes at
+  // their old paths, so its hits are shown at their new ones, through the
+  // caller's privacy engine again. A folder search during a move keeps the
+  // scan: notes moving INTO the folder are not under it in the projection.
+  const moveAware = hasActiveLogicalMoves && !prefix;
+  const fastAnswer = hasActiveLogicalMoves && !moveAware
     ? null
     : await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
+  const fast =
+    fastAnswer && moveAware
+      ? showAtMovedPaths(fastAnswer, activeLogicalMoves, (path) => canSee(path, scope, rules, overrides))
+      : fastAnswer;
+  if (moveAware) trace.set("logicalMoves", true);
   fastSpan();
   if (fast) {
     /*
@@ -133,6 +220,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
       await maintainIndexAfter(store, budget, isIndexable, freshness, projectVisibility)
     );
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "fast", fast.hits.length > 0);
     return {
       hits: fast.hits,
       matchCount: fast.matchCount,
@@ -176,6 +264,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     trace.set("spent", budget.spent);
     trace.set("maintain", "none");
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
     return {
       hits: scan.hits,
       matchCount: scan.hits.length,
@@ -200,7 +289,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     isVisible: (path) => canSee(path, scope, rules, overrides),
     isIndexable,
     query,
-    prefix,
+    prefix: folderPrefix(prefix),
     budget,
     // A person asking a question is the one caller allowed to buy a listing,
     // and only when the answer came back empty over an index that believes it
@@ -226,6 +315,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
       await maintainIndexAfter(store, budget, isIndexable, found, projectVisibility)
     );
     logSearchTrace(trace);
+    reportSearchTiming(store, trace, "index", found.hits.length > 0);
     return {
       hits: found.hits,
       matchCount: found.matchCount,
@@ -272,6 +362,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     await maintainIndexAfter(store, budget, isIndexable, null, projectVisibility)
   );
   logSearchTrace(trace);
+  reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
   return {
     hits: scan.hits,
     matchCount: scan.hits.length,
@@ -286,4 +377,27 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
   };
+}
+
+/**
+ * A fast answer as the caller sees the context mid-move: a note the
+ * projection holds at a source path is shown at its destination, and dropped
+ * if the caller may not see it there. The overlay is the same first-job-wins
+ * map `applyMoveOverlay` draws listings with.
+ */
+export function showAtMovedPaths(answer, jobs, isVisible) {
+  const destinations = new Map();
+  for (const job of jobs) {
+    for (const item of job.objects || []) {
+      if (!destinations.has(item.source)) destinations.set(item.source, item.destination);
+    }
+  }
+  const hits = [];
+  for (const hit of answer.hits) {
+    const key = destinations.get(hit.key) ?? hit.key;
+    if (key !== hit.key && !isVisible(key)) continue;
+    hits.push(key === hit.key ? hit : { ...hit, key });
+  }
+  const dropped = answer.hits.length - hits.length;
+  return { ...answer, hits, matchCount: Math.max(hits.length, answer.matchCount - dropped) };
 }

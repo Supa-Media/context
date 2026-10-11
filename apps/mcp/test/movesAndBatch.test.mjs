@@ -1,5 +1,8 @@
 import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
+import { recordForwarding } from "../src/forwarding.js";
+import { readDocument as readCollaborationDocument } from "@context/collaboration";
+import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -87,6 +90,21 @@ export async function runMovesAndBatchChecks() {
       folderDryRun.content[0].text.includes("preflight ok") &&
       objects.has("1-projects/portable-moved/batch-a.md")
   );
+  // The five built-in folders cannot be renamed or moved, by owner or team,
+  // under any number, and the refusal is the same whether the folder exists.
+  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"], ["priv-token", "4-archive"], ["priv-token", "9-archive"], ["priv-token", "Inbox"]]) {
+    const refused = await call(token, "move_folder", { source, destination: "renamed-main-folder", dry_run: true });
+    check(
+      `move_folder refuses the built-in folder ${source}`,
+      refused.isError && /is a built-in folder/.test(refused.content[0].text) && !objects.has("renamed-main-folder/batch-a.md")
+    );
+  }
+  const insideMain = await call("pub-token", "move_folder", {
+    source: "1-projects/portable-moved",
+    destination: "1-projects/portable-inside",
+    dry_run: true,
+  });
+  check("...while folders inside a built-in folder still move", !insideMain.isError);
   const forgedMoveId = "move-forged-private-leak";
   await contextStore.put(
     `.context/moves/${forgedMoveId}.json`,
@@ -149,10 +167,19 @@ export async function runMovesAndBatchChecks() {
       objects.has("1-projects/big-move/note-000.md") &&
       !objects.has("1-projects/big-moved/note-000.md")
   );
+  await contextStore.put(".context/folder-icons.json", JSON.stringify({
+    version: 1,
+    icons: { "1-projects/big-move": "🚀", "1-projects/big-move/sub": "🧪", "2-areas": "🏠" },
+  }));
   const bigMove = await call("priv-token", "move_folder", {
     source: "1-projects/big-move",
     destination: "1-projects/big-moved",
   });
+  check(
+    "a folder's icon, and the icons inside it, move with it",
+    JSON.stringify(JSON.parse(storedText(".context/folder-icons.json")).icons) ===
+      JSON.stringify({ "1-projects/big-moved": "🚀", "1-projects/big-moved/sub": "🧪", "2-areas": "🏠" })
+  );
   const bigMoveId = bigMove.content[0].text.match(/move_id: (\S+)/)?.[1];
   check(
     "owner move_folder creates a logical move for a too-large tree",
@@ -230,6 +257,11 @@ export async function runMovesAndBatchChecks() {
       bigSearchUnprefixed.includes("1-projects/big-moved/note-000.md") &&
       !bigSearchUnprefixed.includes("1-projects/big-move/note-000.md")
   );
+  const markerBeforeInspection = storedText(`.context/moves/${bigMoveId}.json`);
+  const inspection = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 0 });
+  check("zero batch inspects without moving", !inspection.isError && inspection.content[0].text.includes("references_scanned: 0/0") && inspection.content[0].text.includes("next_source: 1-projects/big-move/note-000.md") && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection && !objects.has("1-projects/big-moved/note-000.md"));
+  const legacyInspection = await call("priv-token", "materialize_move", { id: `${bigMoveId}:inspect`, batch_size: 1 });
+  check("cached connector inspection does not move", legacyInspection.content[0].text === inspection.content[0].text && storedText(`.context/moves/${bigMoveId}.json`) === markerBeforeInspection);
   await contextStore.put("1-projects/big-moved/note-000.md", "user edit during pending move");
   let materialized = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 100 });
   check(
@@ -266,7 +298,7 @@ export async function runMovesAndBatchChecks() {
   );
   check(
     "materialize_move direct calls are masked outside owner scope",
-    (await call("pub-token", "materialize_move", { id: bigMoveId })).isError
+    (await call("pub-token", "materialize_move", { id: bigMoveId, batch_size: 0 })).isError
   );
   await contextStore.delete(`.context/moves/${bigMoveId}.json`);
   await call("priv-token", "materialize_move", { id: bigMoveId });
@@ -291,6 +323,94 @@ export async function runMovesAndBatchChecks() {
       !objects.has("1-projects/big-missing-moved/note-000.md")
   );
   await contextStore.delete(`.context/moves/${missingMoveId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`1-projects/retargeted/note-${i}.md`,
+      i === 0 ? "Contact [site](https://old.example)" : `record ${i}`);
+  }
+  const retargetedMove = await call("priv-token", "move_folder", {
+    source: "1-projects/retargeted",
+    destination: "4-archive/1-projects/retargeted",
+  });
+  const retargetedId = retargetedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await contextStore.put("4-archive/1-projects/retargeted/note-0.md",
+    "Contact [site](https://new.example)");
+  let retargetedResult = await call("priv-token", "materialize_move", {
+    id: retargetedId, batch_size: 1,
+  });
+  await contextStore.delete("4-archive/1-projects/retargeted/note-1.md");
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${retargetedId}.json`)); i += 1) {
+    retargetedResult = await call("priv-token", "materialize_move", {
+      id: retargetedId, batch_size: 100,
+    });
+    if (retargetedResult.isError) break;
+  }
+  check("materialization preserves a destination whose link targets alone changed",
+    !retargetedResult?.isError &&
+      storedText("4-archive/1-projects/retargeted/note-0.md") ===
+        "Contact [site](https://new.example)" &&
+      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-0.md")) &&
+      storedText("4-archive/1-projects/retargeted/note-1.md") === "record 1" &&
+      isLogicalDeleteMarker(storedText("1-projects/retargeted/note-1.md")));
+  await contextStore.delete(`.context/moves/${retargetedId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`2-areas/communications/generated-conflict/note-${i}.md`,
+      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
+  }
+  const conflictMove = await call("priv-token", "move_folder", {
+    source: "2-areas/communications/generated-conflict",
+    destination: "4-archive/2-areas/communications/generated-conflict",
+  });
+  const conflictId = conflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await contextStore.put("4-archive/2-areas/communications/generated-conflict/note-0.md",
+    "---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nUpdated message 0");
+  let conflictResult;
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${conflictId}.json`)); i += 1) {
+    conflictResult = await call("priv-token", "materialize_move", {
+      id: conflictId, batch_size: 100,
+    });
+    if (conflictResult.isError) break;
+  }
+  const conflictBackup =
+    `4-archive/2-areas/communications/generated-conflict/note-0.move-conflict-${conflictId}.md`;
+  check("generated communication conflicts preserve both versions",
+    !conflictResult?.isError &&
+      storedText(conflictBackup)?.includes("Original message 0") &&
+      storedText("4-archive/2-areas/communications/generated-conflict/note-0.md")?.includes("Updated message 0") &&
+      isLogicalDeleteMarker(storedText("2-areas/communications/generated-conflict/note-0.md")));
+  await contextStore.delete(`.context/moves/${conflictId}.json`);
+  for (let i = 0; i < 101; i += 1) {
+    await contextStore.put(`2-areas/communications/headed-conflict/note-${i}.md`,
+      `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
+  }
+  await call("priv-token", "read_note", {
+    path: "2-areas/communications/headed-conflict/note-0.md",
+  });
+  const headedConflictMove = await call("priv-token", "move_folder", {
+    source: "2-areas/communications/headed-conflict",
+    destination: "4-archive/2-areas/communications/headed-conflict",
+  });
+  const headedConflictId = headedConflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  await call("priv-token", "materialize_move", { id: headedConflictId, batch_size: 1 });
+  await readCollaborationDocument(contextStore,
+    "4-archive/2-areas/communications/headed-conflict/note-0.md");
+  let headedConflictResult;
+  for (let i = 0; i < 10 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${headedConflictId}.json`)); i += 1) {
+    headedConflictResult = await call("priv-token", "materialize_move", {
+      id: headedConflictId, batch_size: 100,
+    });
+    if (headedConflictResult.isError) break;
+  }
+  const headedBackup =
+    `4-archive/2-areas/communications/headed-conflict/note-0.move-collaboration-conflict-${headedConflictId}.md`;
+  check("a generated note with distinct collaboration identities keeps both histories",
+    !headedConflictResult?.isError &&
+      storedText(headedBackup)?.includes("Original message 0") &&
+      storedText("4-archive/2-areas/communications/headed-conflict/note-0.md")?.includes("Original message 0") &&
+      isLogicalDeleteMarker(storedText("2-areas/communications/headed-conflict/note-0.md")));
+  await contextStore.delete(`.context/moves/${headedConflictId}.json`);
   for (let i = 0; i < 501; i += 1) {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/big-complete/note-${suffix}.md`, `complete ${suffix}`);
@@ -302,14 +422,7 @@ export async function runMovesAndBatchChecks() {
     destination: "2-areas/deep/big-complete-moved",
   });
   const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
-  let completeMaterialize = completeMove;
-  for (let i = 0; i < 20 &&
-    !isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)); i += 1) {
-    completeMaterialize = await call("priv-token", "materialize_move", {
-      id: completeMoveId,
-      batch_size: 100,
-    });
-  }
+  const completeMaterialize = await finishMoveWithBoundedCleanup(completeMoveId, completeMove);
   check(
     "materialize_move completes a logical move and removes the source objects",
     !completeMaterialize.isError &&
@@ -324,6 +437,7 @@ export async function runMovesAndBatchChecks() {
       storedText("2-areas/deep/big-complete-moved/note-001.md") ===
         "[[../../../1-projects/big-complete-link]]"
   );
+  await checkSettledConcurrentFailure();
   const queuedGatewayMessages = [];
   env.GATEWAY_JOBS = {
     async send(message) {
@@ -357,16 +471,28 @@ export async function runMovesAndBatchChecks() {
     firstProgressReport?.body?.result?.status === "queued" &&
       firstProgressReport?.body?.result?.progress?.phase === "copying" &&
       Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
-      firstProgressReport.body.result.progress.completed > 0 &&
+      firstProgressReport.body.result.progress.completed === 20 &&
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
-  for (let i = 0; i < 20 &&
+  let observedReferenceBatch = false;
+  for (let i = 0; i < 1200 &&
     !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
     const message = queuedGatewayMessages.shift();
     if (!message) break;
+    const beforeText = storedText(`.context/moves/${queuedMoveId}.json`);
     await worker.queue({ messages: [{ body: message }] }, env);
+    const afterText = storedText(`.context/moves/${queuedMoveId}.json`);
+    if (!isLogicalDeleteMarker(beforeText) && !isLogicalDeleteMarker(afterText)) {
+      const before = JSON.parse(beforeText);
+      const after = JSON.parse(afterText);
+      if (before.status === "rewriting" && after.reference_scanned > (before.reference_scanned || 0)) {
+        observedReferenceBatch = after.reference_scanned - (before.reference_scanned || 0) <= 5;
+      }
+    }
   }
+  check("queue link sweeps use a smaller bounded batch while copies still use twenty",
+    observedReferenceBatch);
   check(
     "queue consumer materializes a large logical move across bounded passes",
     isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&
@@ -451,6 +577,123 @@ export async function runMovesAndBatchChecks() {
   );
   const listAfterAudit = (await call("priv-token", "list_notes"))?.content?.[0]?.text;
   check("audit plumbing is hidden from note listings", lacks(listAfterAudit, ".context/audit/"));
+
+  // A workspace beyond the synchronous link-scan cap still repairs both
+  // inbound and moved-note relative links, including an owner's private note.
+  for (let i = 0; i < 4001; i += 1) {
+    await contextStore.put(`3-resources/link-fixture/note-${String(i).padStart(4, "0")}.md`, `fixture ${i}`);
+  }
+  await contextStore.put("1-projects/portable-link-target/note.md", "[outside](../portable-link-ref.md)");
+  await contextStore.put("1-projects/portable-link-ref.md", "[[1-projects/portable-link-target/note]]");
+  await contextStore.put("1-projects/secret-thing/private-link.md", "[[1-projects/portable-link-target/note]]");
+  await contextStore.put("4-archive/1-projects/earlier-thread.md", "archived thread");
+  await contextStore.put("1-projects/earlier-ref.md", "[[1-projects/earlier-thread]]");
+  await recordForwarding(contextStore, [{
+    from: "1-projects/earlier-thread.md",
+    to: "4-archive/1-projects/earlier-thread.md",
+    kind: "note",
+  }]);
+  await contextStore.put("1-projects/other-active/note.md", "[[1-projects/portable-link-target/note]]");
+  const otherMoveId = "move-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  await contextStore.put(`.context/moves/${otherMoveId}.json`, JSON.stringify({
+    version: 1,
+    id: otherMoveId,
+    status: "copying",
+    source: "1-projects/other-active",
+    destination: "1-projects/other-moved",
+    objects: [{
+      source: "1-projects/other-active/note.md",
+      destination: "1-projects/other-moved/note.md",
+    }],
+  }));
+  const referenceMessages = [];
+  env.GATEWAY_JOBS = { async send(message) { referenceMessages.push(message); } };
+  const queuedLinks = await call("priv-token", "move_folder", {
+    source: "1-projects/portable-link-target",
+    destination: "1-projects/deep/portable-link-moved",
+  });
+  const linkJobId = /move_id: ([a-z0-9-]+)/i.exec(queuedLinks?.content?.[0]?.text || "")?.[1];
+  check("an owner move schedules reference repair beyond the scan cap",
+    !queuedLinks.isError && Boolean(linkJobId) &&
+      queuedLinks.content[0].text.includes("references: updating in background"));
+  const profileMarker = storedText(`.context/moves/${linkJobId}.json`);
+  const profile = await call("priv-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 });
+  check("owner can profile without changing the marker; other scopes are masked",
+    !profile.isError && profile.content[0].text.includes("note inventory:") &&
+    profile.content[0].text.includes("active move markers:") &&
+    storedText(`.context/moves/${linkJobId}.json`) === profileMarker &&
+    (await call("pub-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 })).isError);
+  const restarted = await call("priv-token", "materialize_move", {
+    id: linkJobId,
+    batch_size: 1,
+    resume_background: true,
+  });
+  check("an owner can restart a stalled reference worker",
+    !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
+      referenceMessages.length >= 2);
+  const inventoryAfterFirstPass = JSON.parse(storedText(`.context/moves/${linkJobId}.json`));
+  check("reference inventory saves its first storage page before rewriting",
+    inventoryAfterFirstPass.reference_inventory_pages === 1 &&
+      Array.isArray(inventoryAfterFirstPass.reference_inventory_keys) &&
+      inventoryAfterFirstPass.reference_scanned === undefined);
+  const queuedBeforeFreshPass = referenceMessages.length;
+  const freshPass = await call("priv-token", "materialize_move", {
+    id: linkJobId, batch_size: 1,
+  });
+  check("a fresh move pass does not queue a duplicate worker",
+    !freshPass.isError && referenceMessages.length === queuedBeforeFreshPass);
+  check("reference inventory resumes from the saved cursor",
+    JSON.parse(storedText(`.context/moves/${linkJobId}.json`)).reference_inventory_pages === 2);
+  const staleKey = `.context/moves/${linkJobId}.json`;
+  const staleJob = JSON.parse(storedText(staleKey));
+  staleJob.updated_at = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await contextStore.put(staleKey, JSON.stringify(staleJob));
+  const stalePass = await call("priv-token", "materialize_move", {
+    id: linkJobId, batch_size: 1,
+  });
+  check("an ordinary materialize call revives a stalled background worker",
+    !stalePass.isError && stalePass.content[0].text.includes("background worker queued") &&
+      referenceMessages.length === queuedBeforeFreshPass + 1);
+  delete env.GATEWAY_JOBS;
+  let profiledCheckpoint = false;
+  for (let i = 0; i < 100 &&
+    !isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)); i += 1) {
+    const progress = await call("priv-token", "materialize_move", { id: linkJobId, batch_size: 100 });
+    if (progress?.isError) break;
+    const markerText = storedText(`.context/moves/${linkJobId}.json`);
+    if (!profiledCheckpoint && !isLogicalDeleteMarker(markerText) &&
+        JSON.parse(markerText).reference_inventory_complete === true) {
+      const checkpointProfile = await call("priv-token", "materialize_move", {
+        id: `${linkJobId}:profile`, batch_size: 1,
+      });
+      profiledCheckpoint = !checkpointProfile.isError &&
+        checkpointProfile.content[0].text.includes("checkpointed inventory:") &&
+        !checkpointProfile.content[0].text.includes("note inventory:");
+    }
+  }
+  check("owner profiles the checkpointed reference inventory without a fresh bucket walk",
+    profiledCheckpoint);
+  check("queued reference repair updates inbound and moved-note relative links",
+    isLogicalDeleteMarker(storedText(`.context/moves/${linkJobId}.json`)) &&
+      storedText("1-projects/portable-link-ref.md") === "[[1-projects/deep/portable-link-moved/note]]" &&
+      storedText("1-projects/deep/portable-link-moved/note.md") === "[outside](../../portable-link-ref.md)");
+  check("owner reference repair also updates private notes",
+    storedText("1-projects/secret-thing/private-link.md") === "[[1-projects/deep/portable-link-moved/note]]");
+  check("reference repair follows an earlier move in the forwarding ledger",
+    storedText("1-projects/earlier-ref.md") === "[[4-archive/1-projects/earlier-thread]]");
+  check("reference repair leaves another active move's source untouched",
+    storedText("1-projects/other-active/note.md") === "[[1-projects/portable-link-target/note]]");
+  for (const key of [...objects.keys()]) {
+    if (key.startsWith("3-resources/link-fixture/") ||
+        key.startsWith("1-projects/portable-link-") ||
+        key.startsWith("1-projects/deep/portable-link-") ||
+        key.startsWith("1-projects/other-active/") ||
+        key === "1-projects/earlier-ref.md" ||
+        key === "4-archive/1-projects/earlier-thread.md" ||
+        key === "1-projects/secret-thing/private-link.md") objects.delete(key);
+  }
+  objects.delete(`.context/moves/${linkJobId}.json`);
+  objects.delete(`.context/moves/${otherMoveId}.json`);
 
 
 }

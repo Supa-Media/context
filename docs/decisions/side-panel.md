@@ -21,8 +21,8 @@ anything with a status, a project included — **Status, Priority, Owners,
 Tags and Due** as one-press values, its **Subtasks** ("2 of 4 done") with a
 dot that ticks each off, and the **Notes** in it, with "+ Add subtask" and "+
 Add a note"; for a plain folder, what is in it. Last, for every row, the
-note's **words**: a note's own, a folder's front note's (`overview.md`, else
-`index.md`, else `README.md`), without the frontmatter the values already
+note's **words**: a note's own, a folder's front note's (`about.md`, else
+`overview.md`, else `index.md`, else `README.md`), without the frontmatter the values already
 say and without a first heading that is only the title again. A name in the
 panel — a subtask, a note — opens it here, and the crumb goes back up.
 

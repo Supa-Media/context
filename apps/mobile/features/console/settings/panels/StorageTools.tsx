@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
@@ -39,6 +39,11 @@ import { pointerType as t } from "../../../design/tokens";
  */
 export function FolderMovesCard({ view }: { view: AdvancedView["moves"] }) {
   const styles = useThemedStyles(makeStyles);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   if (view.failure) {
     return (
       <View style={styles.block}>
@@ -60,7 +65,7 @@ export function FolderMovesCard({ view }: { view: AdvancedView["moves"] }) {
       </Text>
       <Card>
         {view.jobs.map((job, index) => {
-          const words = describeMoveProgress(job);
+          const words = describeMoveProgress(job, now);
           return (
             <View key={job.jobId} testID="durable-move-progress">
               <Row divided={index > 0}>

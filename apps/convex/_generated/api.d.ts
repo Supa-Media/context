@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as functions_builtInFolders from "../functions/builtInFolders.js";
 import type * as functions_stagingPersonas from "../functions/stagingPersonas.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
@@ -22,6 +23,7 @@ import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
+import type * as functions_chaosScore from "../functions/chaosScore.js";
 import type * as functions_chatProduct from "../functions/chatProduct.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
 import type * as functions_collect from "../functions/collect.js";
@@ -38,6 +40,8 @@ import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
 import type * as functions_files from "../functions/files.js";
+import type * as functions_folderIcons from "../functions/folderIcons.js";
+import type * as functions_folderNotes from "../functions/folderNotes.js";
 import type * as functions_folders from "../functions/folders.js";
 import type * as functions_forms from "../functions/forms.js";
 import type * as functions_formNotify from "../functions/formNotify.js";
@@ -52,6 +56,9 @@ import type * as functions_handoffEmail from "../functions/handoffEmail.js";
 import type * as functions_moveCatchUp from "../functions/moveCatchUp.js";
 import type * as functions_managedEncryption from "../functions/managedEncryption.js";
 import type * as functions_managedProvisioning from "../functions/managedProvisioning.js";
+import type * as functions_meaningAdmin from "../functions/meaningAdmin.js";
+import type * as functions_meaningProvision from "../functions/meaningProvision.js";
+import type * as functions_meaningSearch from "../functions/meaningSearch.js";
 import type * as functions_lib_admin from "../functions/lib/admin.js";
 import type * as functions_lib_appSecrets from "../functions/lib/appSecrets.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
@@ -103,10 +110,22 @@ import type * as functions_storage from "../functions/storage.js";
 import type * as functions_feedback from "../functions/feedback.js";
 import type * as functions_messages from "../functions/messages.js";
 import type * as functions_places from "../functions/places.js";
+import type * as functions_phoneCheck from "../functions/phoneCheck.js";
+import type * as functions_signInEmails from "../functions/signInEmails.js";
+import type * as functions_otherEmail from "../functions/otherEmail.js";
+import type * as functions_workspaceDomains from "../functions/workspaceDomains.js";
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
+import type * as functions_routines from "../functions/routines.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
+import type * as functions_meetingSummary from "../functions/meetingSummary.js";
+import type * as functions_agentTurns from "../functions/agentTurns.js";
+import type * as functions_searchTimings from "../functions/searchTimings.js";
+import type * as functions_treeAdmin from "../functions/treeAdmin.js";
+import type * as functions_treeAdminInternal from "../functions/treeAdminInternal.js";
+import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
+import type * as functions_vault from "../functions/vault.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
 import type * as functions_xConversions from "../functions/xConversions.js";
@@ -115,6 +134,7 @@ import type * as functions_referrals from "../functions/referrals.js";
 import type * as functions_usage from "../functions/usage.js";
 import type * as functions_websites from "../functions/websites.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
+import type * as functions_workspaceMoves from "../functions/workspaceMoves.js";
 import type * as http from "../http.js";
 
 import type {
@@ -124,6 +144,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "functions/builtInFolders": typeof functions_builtInFolders;
   "functions/stagingPersonas": typeof functions_stagingPersonas;
   auth: typeof auth;
   crons: typeof crons;
@@ -140,9 +161,13 @@ declare const fullApi: ApiFromModules<{
   "functions/moveCatchUp": typeof functions_moveCatchUp;
   "functions/managedEncryption": typeof functions_managedEncryption;
   "functions/managedProvisioning": typeof functions_managedProvisioning;
+  "functions/meaningAdmin": typeof functions_meaningAdmin;
+  "functions/meaningProvision": typeof functions_meaningProvision;
+  "functions/meaningSearch": typeof functions_meaningSearch;
   "functions/authorizations": typeof functions_authorizations;
   "functions/cardAssets": typeof functions_cardAssets;
   "functions/cardRender": typeof functions_cardRender;
+  "functions/chaosScore": typeof functions_chaosScore;
   "functions/chatProduct": typeof functions_chatProduct;
   "functions/collect": typeof functions_collect;
   "functions/cloudflare": typeof functions_cloudflare;
@@ -159,6 +184,8 @@ declare const fullApi: ApiFromModules<{
   "functions/fastSearch": typeof functions_fastSearch;
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
   "functions/files": typeof functions_files;
+  "functions/folderIcons": typeof functions_folderIcons;
+  "functions/folderNotes": typeof functions_folderNotes;
   "functions/folders": typeof functions_folders;
   "functions/forms": typeof functions_forms;
   "functions/formNotify": typeof functions_formNotify;
@@ -219,11 +246,23 @@ declare const fullApi: ApiFromModules<{
   "functions/feedback": typeof functions_feedback;
   "functions/messages": typeof functions_messages;
   "functions/places": typeof functions_places;
+  "functions/phoneCheck": typeof functions_phoneCheck;
+  "functions/signInEmails": typeof functions_signInEmails;
+  "functions/otherEmail": typeof functions_otherEmail;
+  "functions/workspaceDomains": typeof functions_workspaceDomains;
   "functions/telemetry": typeof functions_telemetry;
   "functions/textLinks": typeof functions_textLinks;
+  "functions/routines": typeof functions_routines;
   "functions/builtinModel": typeof functions_builtinModel;
+  "functions/meetingSummary": typeof functions_meetingSummary;
+  "functions/agentTurns": typeof functions_agentTurns;
+  "functions/searchTimings": typeof functions_searchTimings;
+  "functions/treeAdmin": typeof functions_treeAdmin;
+  "functions/treeAdminInternal": typeof functions_treeAdminInternal;
+  "functions/treeChanges": typeof functions_treeChanges;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
+  "functions/vault": typeof functions_vault;
   "functions/waitlist": typeof functions_waitlist;
   "functions/signupAlerts": typeof functions_signupAlerts;
   "functions/xConversions": typeof functions_xConversions;
@@ -231,6 +270,7 @@ declare const fullApi: ApiFromModules<{
   "functions/referrals": typeof functions_referrals;
   "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
+  "functions/workspaceMoves": typeof functions_workspaceMoves;
   http: typeof http;
 }>;
 

@@ -413,6 +413,30 @@ export const consumeLinkCode = internalMutation({
         await ctx.db.delete(link._id);
       }
     }
+    // A phone confirmed on another account is the same claim, recorded in the
+    // other place it lives (`users.phone` with `phoneVerificationTime`), and it
+    // has to move too: it is write-once, it has no unlink, and since phones
+    // sign in (`phoneSignIn.phoneHolder`, which reads it *before* a link) a row
+    // left behind would go on signing that account in for whoever holds the
+    // number next. One phone, one account — the rule `phoneHeldByAnother`
+    // states and this is the only path that can break.
+    const confirmed = await ctx.db
+      .query("users")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .take(10);
+    for (const user of confirmed) {
+      if (user._id === match.userId || user.phoneVerificationTime === undefined) continue;
+      await ctx.db.patch(user._id, { phone: undefined, phoneVerificationTime: undefined });
+      const theirs = await personalWorkspaceOf(ctx, user._id);
+      if (theirs !== null) {
+        await recordAudit(ctx, {
+          workspaceId: theirs,
+          actorUserId: user._id,
+          action: "texts.phone.moved",
+          details: {},
+        });
+      }
+    }
     // And an account has one number: a new one replaces the old.
     await removeLinksOf(ctx, match.userId, "texts.phone.replaced");
     await ctx.db.insert("phoneLinks", { userId: match.userId, phone: args.phone, linkedAt: now });

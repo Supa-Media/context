@@ -118,8 +118,8 @@ describe("share links: the one card that may say something", () => {
    * The corpus exists to hold `shareTokenFrom` here and
    * `shareTokenFromSegment` in `apps/mobile` together, and both suites do run
    * it — but only one of them runs in CI when the corpus changes. The file
-   * lives under `infra/router/src/`, so editing it triggers `router.yml`
-   * (`paths: infra/router/**`) while the reusable workflow's change detection
+   * lives under `infra/router/src/`, so editing it triggers the router's suite
+   * (`workers.yml`, scoped to `@context/router`) while the reusable workflow's change detection
    * skips `ci / Test Mobile App`, which is gated on `apps/mobile/**`. Measured
    * on the commit that added six cases: `Test Edge Router` ran, `Test Mobile
    * App` was skipped. So the edit the corpus is *designed* to receive is
@@ -386,6 +386,11 @@ describe("a readable team link", () => {
     "index.md",
     "privacy.md",
     "todo.md",
+    "0-inbox/about.md",
+    "1-projects/about.md",
+    "2-areas/about.md",
+    "3-resources/about.md",
+    "4-archive/about.md",
     "0-inbox/README.md",
     "1-projects/README.md",
     "2-areas/README.md",

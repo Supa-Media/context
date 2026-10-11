@@ -643,3 +643,55 @@ describe("the link is drawn as one", () => {
     expect(rule).not.toMatch(/touch-callout/i);
   });
 });
+
+/*
+  `[[Eve]]`, the owner's screenshot of 2026-10-11: a bare name drawn as a link
+  that opened nothing, because the note on disk was `eve.md`. With the note
+  known, a click opens it; with no note, it is drawn as unresolved and a click
+  places the caret, as text does.
+*/
+describe("a bare name in a different case", () => {
+  function mountEve(paths: string[]) {
+    const opened: Opened[] = [];
+    const ref = {
+      current: {
+        path: NOTE,
+        paths,
+        onOpen: (path: string, mode: NoteLinkOpen) => opened.push({ path, mode }),
+      } satisfies NoteLinkContext,
+    };
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({ doc: "tribute [[Eve]] to giving", extensions: [noteLinks(ref)] }),
+      parent,
+    });
+    return {
+      view,
+      opened,
+      destroy: () => {
+        view.destroy();
+        parent.remove();
+      },
+    };
+  }
+
+  test("opens the note whose file name it names", () => {
+    const mounted = mountEve([NOTE, "2-areas/people/eve.md"]);
+    const link = mounted.view.contentDOM.querySelector<HTMLElement>(".cm-note-link");
+    expect(link?.textContent).toBe("[[Eve]]");
+    link!.dispatchEvent(mouse("mousedown"));
+    expect(mounted.opened).toEqual([{ path: "2-areas/people/eve.md", mode: "foreground" }]);
+    mounted.destroy();
+  });
+
+  test("with no such note, is drawn unresolved and opens nothing", () => {
+    const mounted = mountEve([NOTE]);
+    expect(mounted.view.contentDOM.querySelector(".cm-note-link")).toBeNull();
+    const missing = mounted.view.contentDOM.querySelector<HTMLElement>(".cm-note-link-unresolved");
+    expect(missing?.textContent).toBe("[[Eve]]");
+    missing!.dispatchEvent(mouse("mousedown"));
+    expect(mounted.opened).toEqual([]);
+    mounted.destroy();
+  });
+});

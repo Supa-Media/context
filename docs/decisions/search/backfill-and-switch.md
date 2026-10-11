@@ -113,6 +113,15 @@ Three rules the console follows and does not re-derive:
   we do not share, and never to `on`, which would claim a copy of somebody's
   notes exists.
 
+**No off switch in the console since 2026-10-10.** The owner: "fast search
+can't be turned off anymore. It's required now." Settings shows that it is on,
+and keeps **Turn on** for a workspace that was switched off before. The index is
+still a disposable derivative (non-negotiable #3), still lives in the
+customer-data account, and is still released when storage is disconnected or the
+workspace is deleted (`releaseForStorage`), so the exit path is unchanged. The
+`disable` mutation stays on the server with no console caller. The paragraph below
+describes the switch as it was.
+
 Turning it **on** is one press and turning it **off** is two, which is the
 reverse of the usual instinct and follows from what each costs: on is undone by
 off, while off deletes an index that took a backfill to build. The armed state
@@ -145,3 +154,19 @@ That split is for *statistics*, not for access. The visibility stored in the
 projection is `privacy.md` as it was at index time and can go stale, so the live
 `canSee` still filters every result before it leaves — exactly as it does for
 the R2 index. The split buys correct ranking; the filter buys correctness.
+
+### The control plane's copy walks a listing of the bucket, and deletes rows for notes it lacks
+
+Since 2026-10-08 the scheduled copy (`projectSearchIndex`) takes its census
+from `listNoteObjects`, as search by meaning does, not from the R2 index's
+docmap. The docmap fell behind on Dev2's @seyi and kept the old Areas paths of
+texts a move had taken to the Inbox, so /admin showed about 10,000 notes in T0
+where there were under a thousand, and the copy could never finish. A row the
+census lacks was also never revisited, so those old paths kept answering
+searches with notes that open nothing. Each pass now deletes rows for paths
+the listing does not hold, only in folders the listing finished. The R2 index
+pass no longer runs in front of it, only when the listing fails: on @seyi it
+never converged, so every link re-copied the notes it reported touching and
+the walk never left its first window. Searches still keep that index for their
+fallback. Reverting either half fails
+`apps/convex/__tests__/searchBackfillCensus.test.ts`.

@@ -124,7 +124,8 @@ a credential, and each was an edge the guard could not see:
 
 **What simplifying it would cost.**
 
-- *Dropping the follower* reopens laundering by refactor. Measured: moving the
+- *Dropping the follower* reopens laundering by refactor. Measured (while the
+  function existed; it was removed with saved model keys on 2026-10-10): moving the
   real `providers.openProviderForGateway` handler, decrypt and all, into a
   `functions/lib/` helper leaves the new analyzer's graph unchanged, while the
   old one loses the taint on that function and on `/gateway/provider`; add a

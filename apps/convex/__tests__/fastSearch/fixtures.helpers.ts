@@ -134,16 +134,6 @@ import { FAST_SEARCH_GENERATION } from "../../functions/lib/fastSearch";
 export async function context(t: TestConvex, slug: string) {
   const owner = await createUser(t, `${slug}-owner@example.com`);
   const workspaceId = await createWorkspace(t, owner, slug);
-  await t.run((ctx) =>
-    ctx.db.insert("workspacePlans", {
-      workspaceId,
-      managedStorage: false,
-      fastSearch: true,
-      status: "active",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }),
-  );
   return { owner, workspaceId };
 }
 
@@ -176,14 +166,4 @@ export function bindingDoc(
   } as Doc<"searchIndexes">;
 }
 
-export function planDoc(
-  fields: Partial<Doc<"workspacePlans">> = {},
-): Doc<"workspacePlans"> {
-  return {
-    managedStorage: false,
-    fastSearch: true,
-    status: "active",
-    ...fields,
-  } as Doc<"workspacePlans">;
-}
 

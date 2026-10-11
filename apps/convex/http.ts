@@ -123,10 +123,15 @@ import * as signals from "./functions/lib/gatewayRoutes/signals";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
+import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
+import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
+import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
+import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
+import * as routines from "./functions/lib/gatewayRoutes/routines";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
@@ -294,14 +299,13 @@ export const gatewaySessionsByGrant = gatewayRoute(
 
 export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
 
-/* -------------------------------------------------------------------------- */
-/* 2a. POST /gateway/provider — the model account the agent spends            */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
-/** The built-in model's gate and meter, for a texting grant with no account connected. */
+/** The built-in model's gate and meter: the only model the assistant runs on. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
 export const gatewayBuiltinUsage = gatewayRoute(builtinModel.gatewayBuiltinUsageHandler);
+/** Meeting summaries' gate and meter, for any live grant. */
+export const gatewayMeetingSummary = gatewayRoute(meetingSummary.gatewayMeetingSummaryHandler);
+export const gatewayMeetingSummaryUsage = gatewayRoute(meetingSummary.gatewayMeetingSummaryUsageHandler);
+export const gatewayAgentTurn = gatewayRoute(agentTurns.gatewayAgentTurnHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
@@ -317,6 +321,9 @@ export const gatewaySearchIndexProgress = gatewayRoute(
 
 export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 
+/* 2b-quater. POST /gateway/moves — an AI client moved a note between contexts */
+export const gatewayMoves = gatewayRoute(signals.gatewayMovesHandler);
+
 /* -------------------------------------------------------------------------- */
 /* 2b-tree. POST /gateway/tree — a context's file tree changed               */
 /* -------------------------------------------------------------------------- */
@@ -328,6 +335,9 @@ export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
+
+/* POST /gateway/routines — a write touched `routines/`; re-read the folder. */
+export const gatewayRoutines = gatewayRoute(routines.gatewayRoutinesHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
@@ -843,6 +853,7 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
 http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
 
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
+export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);
 
 /* -------------------------------------------------------------------------- */
 
@@ -851,13 +862,17 @@ export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/sessions/by-grant", method: "POST", handler: gatewaySessionsByGrant });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
-http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
 http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
+http.route({ path: "/gateway/meeting-summary", method: "POST", handler: gatewayMeetingSummary });
+http.route({ path: "/gateway/meeting-summary/usage", method: "POST", handler: gatewayMeetingSummaryUsage });
+http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentTurn });
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
+http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsCreate });
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
@@ -880,6 +895,11 @@ export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
 http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
 
+// A page where the person saves or shares a vault login themselves.
+export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
+
+http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
 http.route({ path: "/gateway/feedback", method: "POST", handler: gatewayFeedback });
@@ -898,6 +918,7 @@ export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
 
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
+http.route({ path: "/gateway/search-timing", method: "POST", handler: gatewaySearchTiming });
 
 /* The texting assistant: link a phone, and open a session for one text. */
 export const agentTextsLink = agentWorkerRoute(agentTexts.agentTextsLinkHandler);
@@ -908,5 +929,11 @@ export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHand
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
+
+/* Routines: the runs due now, and how each one went (a code, never text). */
+export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);
+export const agentRoutinesResult = agentWorkerRoute(routines.agentRoutinesResultHandler);
+http.route({ path: "/agent-texts/routines/due", method: "POST", handler: agentRoutinesDue });
+http.route({ path: "/agent-texts/routines/result", method: "POST", handler: agentRoutinesResult });
 
 export default http;

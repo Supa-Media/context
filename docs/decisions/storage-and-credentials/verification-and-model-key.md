@@ -156,11 +156,23 @@ impossible to add without an isolation test.
 
 ## The model key is a fourth credential route, not a fifth sibling on the binding
 
-The agent spends the customer's own Anthropic or OpenAI account, so the control
-plane holds an API key per workspace (`providerCredentials`, encrypted with the
-workspace as AAD, exactly like a storage secret). The gateway has to have it in
-plaintext for the length of one request, which makes it the fourth thing
-`CREDENTIAL_HTTP_ROUTES` enumerates: `/gateway/provider`.
+**Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
+assistant uses only the built-in model.** `/gateway/provider`,
+`openProviderForGateway` and the connect, list and disconnect functions are
+gone, `CREDENTIAL_HTTP_ROUTES` is back to three, and `providerCredentials` is
+emptied by `functions/providers:deleteSavedKeys` and kept in the schema only
+until production has run it
+([texting-assistant](../texting-assistant.md#the-built-in-model-is-for-premium-capped-and-metered-like-jev)).
+What follows is the reasoning as it stood. It is kept because it is still the
+answer if a credential issued by somebody else's console ever needs to reach
+the gateway again: its own door with a two-field validator, not a sibling on
+the binding.
+
+The agent spent the customer's own Anthropic or OpenAI account, so the control
+plane held an API key per workspace (`providerCredentials`, encrypted with the
+workspace as AAD, exactly like a storage secret). The gateway had to have it in
+plaintext for the length of one request, which made it the fourth thing
+`CREDENTIAL_HTTP_ROUTES` enumerated: `/gateway/provider`.
 
 **Every previous gateway-facing credential deliberately avoided being a route.**
 `searchIndex`, `encryptionKey` and `rotation` are all *siblings* on
@@ -214,13 +226,10 @@ which is an oracle for the provider set — so the closed set is checked in the
 handler, where the refusal is the same `null`. Letting anything ride beside the
 credential in the response — a workspace id, a fingerprint, a grant id — makes
 two refusals distinguishable and puts a fact about a customer next to a secret.
-`apps/convex/__tests__/providerCredentials.test.ts` fails, in particular "a hit
-names the provider and the key, and nothing else", "an unknown provider is
-answered exactly like an unknown token" and "a token for one workspace cannot
-open another's credential"; `apps/mcp/test/providerCredential.test.mjs` fails
-"a token cannot reach another tenant's model account" and "a refusal is a 200
-with a null, never a status the caller can count"; and
-`apps/convex/__tests__/structure.test.ts` fails on the enumeration itself.
+The tests that held this — `apps/convex/__tests__/providerCredentials.test.ts`
+and `apps/mcp/test/providerCredential.test.mjs` — were deleted with the route on
+2026-10-10; `apps/convex/__tests__/structure/` still fails if a decrypt-capable
+HTTP route appears that `CREDENTIAL_HTTP_ROUTES` does not list.
 
 ### A moved note leaves a forwarding address, and it is a trail rather than an index
 

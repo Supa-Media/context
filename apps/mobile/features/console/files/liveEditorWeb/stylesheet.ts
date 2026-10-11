@@ -97,7 +97,7 @@ export function ensureStyles(colors: Colors): void {
     Not the scroller's own font-family, which is set directly below: that one
     is the note's body text and existed before anything here needed a token.
   */
-  --lp-body: ${fonts.body};
+  --lp-body: ${fonts.reading};
   /*
     THE READING MEASURE — the one --lp-* here that is not a colour or a face.
 
@@ -124,7 +124,8 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }
 .cm-lp-root .cm-editor.cm-focused { outline: none; }
 .cm-lp-root .cm-scroller {
-  font-family: ${fonts.body};
+  /* The note's text is read in Libron; the interface around it is not. */
+  font-family: ${fonts.reading};
   /*
     The two numbers noteGutterFor needs, spent here and read there.
 

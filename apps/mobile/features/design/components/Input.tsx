@@ -405,11 +405,15 @@ export function FormError({
 
 /** A neutral inline note, for progress lines like "Checking your bucket…". */
 export function Notice({
-  tone = "neutral",
   children,
   style,
   testID,
 }: {
+  /**
+   * What the words inside say, for them to follow — `NoticeLine`'s coloured
+   * mark, or a `warnText` / `okText` style. Never drawn as a tinted panel any
+   * more (Dev2, 2026-10-11: those boxes read as generated).
+   */
   tone?: "neutral" | "ok" | "warn";
   children: ReactNode;
   style?: ViewStyle;
@@ -421,10 +425,9 @@ export function Notice({
    */
   testID?: string;
 }) {
-  const styles = useThemedStyles(makeStyles);
   return (
     <View
-      style={[styles.notice, styles[`notice_${tone}` as const], style]}
+      style={style}
       role="status"
       testID={testID}
     >
@@ -513,24 +516,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.ground,
   },
 
-  formError: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.critBorder,
-    backgroundColor: colors.critWash,
-  },
+  // The headline is already red and bold; a red box around it as well was
+  // one emphasis too many (Dev2, 2026-10-11).
+  formError: {},
   formErrorHead: { fontWeight: "600" },
   formErrorNext: { marginTop: 4, color: colors.text2 },
 
-  notice: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-  },
-  notice_neutral: { borderColor: colors.line, backgroundColor: colors.surface },
-  notice_ok: { borderColor: colors.okBorder, backgroundColor: colors.okWash },
-  notice_warn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
 });

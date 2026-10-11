@@ -23,6 +23,7 @@ import type { SetupAgent } from "../../../../features/agentSetup/guides";
 import { selectedContext } from "../../../../features/console/types";
 import { visibilityTierForRole } from "../../../../features/console/visibility";
 import { legacyDraftFor } from "../../../../features/console/collaboration/legacyDraft";
+import { useMeetingSummary } from "../../../../features/meetings/useMeetingSummary";
 
 /**
  * `/console/@:slug` — a context's default view, opened on one note.
@@ -166,6 +167,19 @@ export default function ContextBrowseRoute() {
     onCollaborationState: data.files.setCollaborationState,
   });
 
+  /*
+    A meeting's summary for the note on screen. Asked of the gateway here, next
+    to `useNoteRoom`, because both need the console's grant and this route is
+    never the landing page's demo. Visitors on the homepage have no gateway.
+  */
+  const summary = useMeetingSummary({
+    workspaceId: data.visitor === undefined ? data.selectedContextId : null,
+    endpoint: data.visitor === undefined ? data.endpoint : null,
+    path: data.files.editor.path,
+    text: presence?.collaboration?.text ?? data.files.editor.draft,
+    canEdit: data.files.canEdit,
+  });
+
   const openSettings =
     slug === null
       ? undefined
@@ -185,6 +199,7 @@ export default function ContextBrowseRoute() {
         data={data}
         presence={presence}
         drawingCollaboration={drawingCollaboration}
+        summary={summary}
         /*
           `setParams`, not a push of `settingsHref`: this route is already the
           context the gear belongs to, and building a fresh URL would drop the

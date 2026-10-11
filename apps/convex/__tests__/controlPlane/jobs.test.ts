@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
+import type { ActionCtx } from "../../_generated/server";
 import type { Id } from "../../_generated/dataModel";
 import { hashToken } from "../../functions/lib/crypto";
+import { gatewayJobsReportHandler } from "../../functions/lib/gatewayRoutes/jobs";
 import {
   FAKE_D1,
   FAKE_STORAGE,
@@ -26,6 +28,18 @@ import {
 /* -------------------------------------------------------------------------- */
 
 describe("/gateway/jobs/*", () => {
+  test("a failed report returns a generic retryable error to the gateway", async () => {
+    const ctx = {
+      runMutation: async () => { throw new Error("database unavailable"); },
+    } as unknown as ActionCtx;
+    const response = await gatewayJobsReportHandler(ctx, {
+      ticket: "opaque-ticket",
+      result: { status: "queued" },
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false });
+  });
+
   test("an owner-private grant mints a hashed ticket and opens one queued move", async () => {
     const { t, alice, bob, aliceWs, grantA } = await twoConnectedTenants();
     await t.run((ctx) =>
@@ -48,6 +62,14 @@ describe("/gateway/jobs/*", () => {
     expect(rows[0].hashedTicket).toBe(await hashToken(ticket));
     expect(JSON.stringify(rows[0])).not.toContain(ticket);
 
+    const duplicate = await bodyOf(await gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-aaaaaaaaaaaa" },
+    }));
+    expect(duplicate).toEqual({ ticket: null, alreadyActive: true });
+    expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(1);
+
     const opened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
     const job = opened.job as {
       job: { workspaceId: Id<"workspaces">; moveId: string };
@@ -59,7 +81,9 @@ describe("/gateway/jobs/*", () => {
     expect(job.binding.bucket).toBe("tenant-a");
 
     const replay = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
-    expect(replay).toEqual({ job: null });
+    expect(replay.job).toEqual({ retryAfterMs: expect.any(Number) });
+    expect((replay.job as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(0);
+    expect((replay.job as { retryAfterMs: number }).retryAfterMs).toBeLessThanOrEqual(15 * 60 * 1000);
 
     await gatewayPost(t, "/gateway/jobs/report", {
       ticket,
@@ -86,7 +110,31 @@ describe("/gateway/jobs/*", () => {
       progressPhase: "copying",
       progressCompleted: 100,
       progressTotal: 501,
+      progressChangedAt: expect.any(Number),
     });
+
+    await t.run((ctx) => ctx.db.patch(progressed!._id, {
+      progressChangedAt: Date.now() - 60_000,
+    }));
+    await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: { status: "queued", progress: { phase: "rewriting", completed: 10, total: 200 } },
+    });
+    const rewriting = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(rewriting).toMatchObject({ progressPhase: "rewriting", progressCompleted: 10 });
+    expect(rewriting?.progressPerMinute).toBeUndefined();
+    await t.run((ctx) => ctx.db.patch(rewriting!._id, {
+      progressChangedAt: Date.now() - 60_000,
+    }));
+    await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: { status: "queued", progress: { phase: "rewriting", completed: 30, total: 200 } },
+    });
+    const measured = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(measured?.progressPerMinute).toBeGreaterThan(19);
+    expect(measured?.progressPerMinute).toBeLessThan(21);
 
     const visible = await asUser(t, alice).query(api.functions.files.listDurableMoves, {
       workspaceId: aliceWs,
@@ -94,9 +142,11 @@ describe("/gateway/jobs/*", () => {
     expect(visible).toEqual([
       expect.objectContaining({
         status: "queued",
-        phase: "copying",
-        completed: 100,
-        total: 501,
+        phase: "rewriting",
+        completed: 30,
+        total: 200,
+        progressChangedAt: expect.any(Number),
+        progressPerMinute: expect.any(Number),
       }),
     ]);
     expect(JSON.stringify(visible)).not.toContain("move-aaaaaaaaaaaa");
@@ -134,6 +184,55 @@ describe("/gateway/jobs/*", () => {
       }),
     );
     expect(teamTier).toEqual({ ticket: null });
+  });
+
+  test("a stale queued ticket can be replaced, but a live lease cannot", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+    const create = () => gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-dddddddddddd" },
+    });
+    expect(typeof (await bodyOf(await create())).ticket).toBe("string");
+    const first = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(first).not.toBeNull();
+    await t.run((ctx) => ctx.db.patch(first!._id, { updatedAt: Date.now() - 6 * 60 * 1000 }));
+    expect(typeof (await bodyOf(await create())).ticket).toBe("string");
+    const rows = await t.run((ctx) => ctx.db.query("gatewayJobs").collect());
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row._id === first!._id)?.status).toBe("failed");
+    const second = rows.find((row) => row._id !== first!._id)!;
+    await t.run((ctx) => ctx.db.patch(second._id, {
+      status: "running",
+      leasedAt: Date.now() - 6 * 60 * 1000,
+    }));
+    expect(await bodyOf(await create())).toEqual({ ticket: null, alreadyActive: true });
+    expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(2);
+  });
+
+  test("a redelivered running ticket waits for its lease and then resumes", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+    const created = await bodyOf(await gatewayPost(t, "/gateway/jobs/create", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+      job: { kind: "materialize_move", moveId: "move-eeeeeeeeeeee" },
+    }));
+    const ticket = created.ticket as string;
+    expect((await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }))).job).not.toBeNull();
+    const leased = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(leased.job).toEqual({ retryAfterMs: expect.any(Number) });
+    const row = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    await t.run((ctx) => ctx.db.patch(row!._id, { leasedAt: Date.now() - 16 * 60 * 1000 }));
+    const recovered = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect((recovered.job as { job: { moveId: string } }).job.moveId).toBe("move-eeeeeeeeeeee");
+    const resumed = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(resumed?.attempts).toBe(2);
   });
 });
 

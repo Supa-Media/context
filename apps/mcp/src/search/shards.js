@@ -71,5 +71,5 @@ export {
   serializeShard,
   parseShard,
 } from "./shards/serialize.js";
-export { loadIndexManifest, loadDocmapPaths, loadShard, fetchShardBytes, decodeShard } from "./shards/io.js";
+export { loadIndexManifest, loadDocmapPaths, loadDocmap, loadShard, fetchShardBytes, decodeShard } from "./shards/io.js";
 export { syncShardedIndex } from "./shards/sync.js";

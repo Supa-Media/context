@@ -29,6 +29,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { projectWrittenNoteAfterResponse } from "../search/writeProjection.js";
+import { frontMatterChanged } from "../activity/changes.js";
 import { recordChange } from "../activity/record.js";
 
 export async function handleCollaboration(request, store, session, origin) {
@@ -224,12 +225,17 @@ export async function handleCollaboration(request, store, session, origin) {
       team_visible: visibility === "team",
       content_bytes: byteSize(result.text),
       previous_bytes: byteSize(storedText),
+      // A status chosen in the editor reaches every open List, as an agent's does.
+      ...(frontMatterChanged(storedText, result.text) ? { front_matter_changed: true } : {}),
     });
     await projectWrittenNoteAfterResponse(store, {
       path: effectivePath,
       content: result.text,
       version: result.etag,
       visibility,
+      // A commit per typing pause: search by meaning catches the note up from
+      // its new version rather than re-embedding it every few seconds.
+      meaning: false,
     });
   }
   await announceCommittedToPresence(store, effectivePath, result);

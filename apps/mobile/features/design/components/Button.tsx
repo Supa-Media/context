@@ -240,8 +240,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.critBorder,
-    backgroundColor: colors.surface3,
+    // A solid red button, not a red-tinted box (Dev2, 2026-10-11): the press
+    // that cannot be taken back is the brightest thing on its row.
+    borderColor: colors.crit,
+    backgroundColor: colors.crit,
   },
 
   /**
@@ -300,7 +302,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.crit,
   },
 
-  dangerLabel: { color: colors.critText },
+  dangerLabel: { color: colors.ink, fontWeight: "600" },
   dialogPrimaryLabel: { color: colors.ink },
   decisionLabel: { color: colors.text },
   ghostLabelHover: { color: colors.text },
@@ -309,7 +311,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   disabled: { opacity: 0.45 },
 });
 
-const makeHoverStyles = (colors: Colors) => StyleSheet.create({
+const makeHoverStyles = (_colors: Colors) => StyleSheet.create({
   /** The same lift `white` makes, without the glow it makes it with. */
   accent: { transform: [{ translateY: -1 }] },
   white: {
@@ -320,7 +322,7 @@ const makeHoverStyles = (colors: Colors) => StyleSheet.create({
   },
   ghost: {},
   mini: { borderColor: "rgba(255,255,255,.26)" },
-  danger: { backgroundColor: colors.critWash },
+  danger: { opacity: 0.9 },
   // Identical hover for both halves of the consent pair, for the same reason
   // their resting state is identical.
   decision: { borderColor: "rgba(255,255,255,.26)" },

@@ -54,7 +54,7 @@ export async function runOrientVisibilityChecks() {
     // than a dereference, which is why no sweep for `oPriv.` or `oPriv?.` finds
     // it — the crash moved here when the assignment stopped throwing.
     if (typeof text !== "string") return null;
-    const line = text.match(new RegExp(`^- ${prefix} — (\\d+)(\\+?) notes?$`, "m"));
+    const line = text.match(new RegExp(`^- ${prefix} \\((\\d+)(\\+?) notes?\\)`, "m"));
     return line ? { count: Number(line[1]), floor: line[2] === "+" } : null;
   }
   /**

@@ -83,6 +83,8 @@ export function Explorer({
   workspaces,
   activity,
   agents,
+  personal,
+  onStartBusiness,
 }: ExplorerProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -171,6 +173,9 @@ export function Explorer({
         markedPaths={markedPaths}
         agentMarks={agentMarks}
         background={background}
+        onAddFolder={files.canEdit ? () => setDialog({ kind: "addFolder" }) : undefined}
+        // The same editor-only rule as "Set icon…" in the row's menu (`iconGroup`).
+        onIconPress={files.canEdit ? (path, anchor) => setDialog({ kind: "folderIcon", path, anchor }) : undefined}
       />
 
       <ExplorerFoot
@@ -246,6 +251,7 @@ export function Explorer({
         dialog={dialog}
         onClose={() => setDialog(null)}
         access={access}
+        places={{ personal: personal === true, onStartBusiness }}
       />
     </View>
   );

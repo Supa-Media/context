@@ -63,12 +63,21 @@ const SET_ELSEWHERE: Record<string, string> = {
   FREE_MANAGED_STORAGE:
     "an emergency brake set by hand to exactly `disabled`; normal production is on when " +
     "the managed account is configured, and a deploy must not silently disable existing signup",
+  MEANING_SEARCH_ROLLOUT:
+    "an emergency brake set by hand to exactly `disabled`; search by meaning reaches every " +
+    "workspace by default, and a deploy must not silently stop that rollout",
+  FAST_SEARCH_ROLLOUT:
+    "an emergency brake set by hand to exactly `disabled`; fast search reaches every " +
+    "workspace by default, and a deploy must not silently stop that rollout",
   FEEDBACK_INTAKE:
     "an emergency brake set by hand to exactly `disabled`; intake is on whenever " +
     "FEEDBACK_SENTRY_DSN is set, and a deploy must not silently stop reports",
   OPEN_SIGNUP:
     "a self-host's switch back to open sign-up, set by hand; our deployments are invite-only " +
     "and a deploy must never be able to open them",
+  PHONE_CHECK_EXEMPT_EMAILS:
+    "test inboxes set by hand on a deployment whose sign-in tests use them; absent exempts " +
+    "nobody, which is the safe default",
   HOME_SITE_HANDLE:
     "a self-host's own homepage handle; our deployments leave it unset and get the " +
     "default, `context-lc`, which is also the router's default",
@@ -107,27 +116,29 @@ function envNamesIn(source: string): string[] {
 }
 
 /**
- * The `for var in … ; do` list in the workflow's sync step.
+ * The names the workflow's sync step passes to `scripts/convex-env-sync.mjs`.
  *
- * There are two such loops in that file — this one, and the shorter one in
- * "Verify the control plane has what it needs" below it. The first match is
- * the sync loop today, and `assertIsSyncLoop` is what keeps that true: a
- * reordering that silently started checking the *verify* list would turn this
- * whole file into a test that a handful of variables are required, which is
- * not what it claims to assert.
+ * Since 2026-10-07 the step is one batched call rather than a
+ * `for var in … ; do` loop of `convex env set`. The file still has such a
+ * loop — the shorter one in "Verify the control plane has what it needs" —
+ * which is exactly what an older version of this reader silently started
+ * matching once the sync loop was gone. The sentinels below are what caught
+ * it: they keep this function reading the sync list and not the verify list.
  */
 function workflowSyncList(): Set<string> {
   const workflow = readFileSync(repoFile(".github/workflows/deploy-convex.yml"), "utf8");
-  const loop = workflow.match(/for var in ([\s\S]*?); do/);
-  if (loop === null) throw new Error("no `for var in … ; do` loop in deploy-convex.yml");
+  // The command and every `\`-continued line after it, up to the first line
+  // that does not continue.
+  const call = workflow.match(/node scripts\/convex-env-sync\.mjs((?:[^\n]*\\\n)*[^\n]*)/);
+  if (call === null) throw new Error("no `node scripts/convex-env-sync.mjs` call in deploy-convex.yml");
   const names = new Set(
-    loop[1].replace(/\\\s*\n/g, " ").split(/\s+/).filter((n) => n.length > 0),
+    call[1].replace(/\\\s*\n/g, " ").split(/\s+/).filter((n) => n.length > 0),
   );
   // Present in the sync loop and absent from the verify loop, so this says
   // which of the two was read rather than merely that something was.
   for (const sentinel of ["RESEND_API_KEY", "TURNSTILE_SECRET_KEY"]) {
     if (!names.has(sentinel)) {
-      throw new Error(`matched a loop without ${sentinel} — this is not the sync loop`);
+      throw new Error(`read a list without ${sentinel} — this is not the sync list`);
     }
   }
   return names;
@@ -162,5 +173,59 @@ describe("the deploy pushes what the control plane reads", () => {
     for (const reason of Object.values(SET_ELSEWHERE)) {
       expect(reason.length).toBeGreaterThan(20);
     }
+  });
+});
+
+/**
+ * AND NOBODY MAY *ENUMERATE* THE ENVIRONMENT, ONLY READ IT BY NAME.
+ *
+ * Convex's `process.env` answers a named read and lists no keys, so
+ * `{ ...process.env }` is an **empty object** there and
+ * `Object.keys(process.env)` is an empty array. That is not a theory: #1439
+ * shipped `twilioSmsKeys({ ...process.env, TWILIO_MESSAGING_SERVICE_SID: id })`,
+ * which arrived carrying only the ID, returned `null` for want of the account
+ * keys, and sent every sign-in code through Verify instead. The admin panel
+ * saved the value and nothing changed. #1443 fixed it by naming each key.
+ *
+ * The guard above could not catch it, and the reason is worth keeping: it
+ * collects reads **by name**, and an enumeration names nothing, so it
+ * contributed no names and passed. This closes that gap from the other side.
+ *
+ * It fails closed here and did there — no key, no call — but the next spread
+ * might gate a check rather than a credential, and an empty environment would
+ * then make the check vacuous rather than refuse.
+ */
+describe("the control plane reads the environment by name", () => {
+  /** Spread, `Object.*` over it, or `for (… in …)`: every way to ask for its keys. */
+  const ENUMERATIONS = [
+    /\.\.\.\s*process\.env/,
+    /Object\s*\.\s*(?:keys|values|entries|assign|getOwnPropertyNames|fromEntries)\s*\(\s*process\.env/,
+    /for\s*\(\s*(?:const|let|var)\s+[\w$]+\s+in\s+process\.env/,
+    /JSON\s*\.\s*stringify\s*\(\s*process\.env\s*\)/,
+  ];
+
+  const offenders: string[] = [];
+  for (const path of sources(repoFile("apps/convex"))) {
+    const source = readFileSync(path, "utf8");
+    if (ENUMERATIONS.some((pattern) => pattern.test(source))) offenders.push(path);
+  }
+
+  it("finds an enumeration when there is one", () => {
+    // Calibration: a guard whose patterns match nothing proves nothing.
+    const samples = [
+      "const all = { ...process.env, A: 1 };",
+      "Object.keys(process.env).forEach(f);",
+      "for (const name in process.env) read(name);",
+      "log(JSON.stringify(process.env));",
+    ];
+    for (const sample of samples) {
+      expect(ENUMERATIONS.some((pattern) => pattern.test(sample))).toBe(true);
+    }
+    // And does not fire on an ordinary named read.
+    expect(ENUMERATIONS.some((pattern) => pattern.test('const k = process.env.GATEWAY_SECRET;'))).toBe(false);
+  });
+
+  it("nothing under apps/convex enumerates it", () => {
+    expect(offenders).toEqual([]);
   });
 });

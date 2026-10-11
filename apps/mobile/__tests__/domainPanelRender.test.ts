@@ -162,7 +162,7 @@ describe("DomainPanel", () => {
     const wwwRecord = { purpose: "www" as const, type: "CNAME", name: "www.acme.com", host: "www", value: "customers.context.lc", done: false };
     const waiting = mount({
       settings: settings({
-        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [wwwRecord], www: { hostname: "www.acme.com", live: false } }),
+        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [wwwRecord], www: { hostname: "www.acme.com", live: false, stage: "routing", problem: null } }),
       }),
       failed: false,
       homepageChoices: [],
@@ -174,13 +174,54 @@ describe("DomainPanel", () => {
 
     const done = mount({
       settings: settings({
-        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [{ ...wwwRecord, done: true }], www: { hostname: "www.acme.com", live: true } }),
+        domain: pending({ ...live, hostname: "acme.com", apex: true, records: [{ ...wwwRecord, done: true }], www: { hostname: "www.acme.com", live: true, stage: "live", problem: null } }),
       }),
       failed: false,
       homepageChoices: [],
       actions: actions(),
     });
     expect(byTest(done, "domain-www")?.textContent).toContain("www.acme.com sends visitors to acme.com.");
+    expect(byTest(done, "domain-www-pill")?.textContent).toBe("Live");
+  });
+
+  test("a live root whose www. certificate is still on its way says so, and can be checked again", () => {
+    const live = { status: "active" as const, stage: "live" as const, ownershipVerified: true, routingVerified: true, httpsReady: true };
+    const wwwRecord = { purpose: "www" as const, type: "CNAME", name: "www.acme.com", host: "www", value: "customers.context.lc", done: true };
+    const owner = actions();
+    const root = mount({
+      settings: settings({
+        domain: pending({
+          ...live,
+          hostname: "acme.com",
+          apex: true,
+          records: [wwwRecord],
+          www: { hostname: "www.acme.com", live: false, stage: "https", problem: null },
+        }),
+      }),
+      failed: false,
+      homepageChoices: [],
+      actions: owner,
+    });
+    expect(byTest(root, "domain-pill")?.textContent).toBe("Live");
+    expect(byTest(root, "domain-www-pill")?.textContent).toBe("Securing");
+    expect(byTest(root, "domain-www")?.textContent).toContain("visitors who type it see a security error");
+    expect(byTest(root, "domain-www")?.textContent).not.toContain("sends visitors");
+    const check = byTest(root, "domain-check");
+    expect(check).not.toBeNull();
+    act(() => (check as HTMLElement).click());
+    expect(owner.checkNow).toHaveBeenCalledTimes(1);
+  });
+
+  test("a member of a live domain gets no Check again", () => {
+    const root = mount({
+      settings: settings({
+        canManage: false,
+        domain: pending({ status: "active", stage: "live", ownershipVerified: true, routingVerified: true, httpsReady: true, records: [] }),
+      }),
+      failed: false,
+      homepageChoices: [],
+    });
+    expect(byTest(root, "domain-check")).toBeNull();
   });
 
   test("a stuck domain says what to do, in our words", () => {

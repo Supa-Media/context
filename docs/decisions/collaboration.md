@@ -226,5 +226,6 @@ repairs share one follow-up read.
 
 `apps/mobile/__tests__/presenceRecovery.test.ts`,
 `collaborationTransport.test.ts` and `durableCollaboration.test.ts` hold these
-contracts; the browser gate (`apps/mcp/test/browser/verifyEditor.mjs`) holds a
+contracts on every push; the daily browser run (`apps/mcp/test/browser/verifyEditor.mjs`,
+`collaboration.yml`) holds a
 silent handshake and a silently dead socket against the real gateway.

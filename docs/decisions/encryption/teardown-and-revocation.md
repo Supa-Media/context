@@ -53,9 +53,9 @@ into "your notes, in your bucket, hostage to our database".
 
 So the export is part of the feature and not a follow-up.
 
-**`export_encryption_keys`** — owner-only, available in the console and over
-MCP, returns for the acting workspace every *live* key generation, in the
-clear, in one versioned document:
+**The console's key export** (`exportEncryptionKeys`) — owner-only, returns
+for the acting workspace every *live* key generation, in the clear, in one
+versioned document:
 
 ```json
 {
@@ -147,45 +147,14 @@ Five consequences, each a decision:
   There is no un-export.
 - **Owner-only, on the explicit role** — write access to every note in a
   context is not the authority to decide where the key that opens them lives.
-  Same reasoning as the search opt-in being owner-only. Over MCP a team-tier
-  caller does not even learn the tool exists: `export_encryption_keys` is
-  refused with the byte-identical `unknown tool: export_encryption_keys` a
-  caller gets for a name it invented, the same idiom `canSee` already applies
-  to a path ("byte-identical to a path that never existed"), now applied to a
-  capability rather than a note.
-
-  **That claim is two halves, and it was one for a while.** The refusal is in
-  `callTool`; the listing is in `toolsForSession`, and until
-  `PRIVATE_TIER_ONLY_TOOLS` existed the second half was missing — `tools/list`
-  handed a team-tier connection the name, the description and the sentence
-  "export this context's workspace data key(s) in the clear", and then the
-  call said the tool was unknown. A masked refusal about a capability the same
-  connection has just been advertised masks nothing, and the mechanism that
-  fixes it already existed for `list_plugins`, which is the shape this should
-  have been copied from. Both `export_encryption_keys` and
-  `rotate_encryption_keys` are now filtered out of the listing for a
-  connection that reads at the private tier in no context it covers, and the
-  listing half is asserted beside the call half — either alone passes for a
-  gateway that gets the other one wrong.
-- **Rate limited**, independently on each surface because the two share no
-  state to spend a round trip reaching: the console's `authorizeEncryptionExport`
-  counts against `apps/convex/functions/lib/rateLimit.ts`'s table, five per
-  rolling day; the gateway's tool counts against a small JSON counter at
-  `.context/encryption-export-rate.json` in the customer's own bucket, the same
-  policy, best-effort under a genuine race — an acceptable gap for a limit
-  defending an owner's own repeated access to their own key, where the harm
-  being defended against is a compromised session harvesting the key by
-  retrying, not a race with itself.
-- **Audited on both surfaces, by their own existing audit trail.** The gateway
-  tool writes to `.audit/` in the customer's own bucket, naming the acting
-  identity and the OAuth client, through the same `recordChange` every other
-  audited gateway write uses. The console action writes to the control plane's
-  own `auditEvents` table, naming the acting user, through the same
-  `recordAudit` `storage.rekeyed` already uses — a different audit trail
-  because the two surfaces have different unavoidable state (an OAuth client
-  id exists only on the gateway path; a control-plane user session exists only
-  on the console path), not two shapes for the same fact. Neither ever
-  carries the exported key material.
+  Same reasoning as the search opt-in being owner-only.
+- **Rate limited**: `authorizeEncryptionExport` counts against
+  `apps/convex/functions/lib/rateLimit.ts`'s table, five per rolling day — the
+  harm defended against is a compromised session harvesting the key by
+  retrying.
+- **Audited**: the console action writes to the control plane's own
+  `auditEvents` table, naming the acting user, through the same `recordAudit`
+  `storage.rekeyed` already uses. It never carries the exported key material.
 - **There is no import.** No endpoint accepts a key from a caller, ever. One
   would be a decryption oracle: hand the gateway a key and a ciphertext and ask
   whether they match.
@@ -209,16 +178,34 @@ Five consequences, each a decision:
   owner and in the read-only landing-page demo, the same rule `StorageActions`
   states throughout the console.
 
-**The console's export reaches the same barrier the gateway's does, and
-neither is a second cryptosystem.** `exportWorkspaceDataKeys` — a
-`CREDENTIAL_BARRIER`, `__tests__/structure.test.ts` — is the one function that
-decrypts every generation and hands the plaintext back; the console's public
+**The console's export is not a second cryptosystem.**
+`exportWorkspaceDataKeys` — a `CREDENTIAL_BARRIER`,
+`__tests__/structure.test.ts` — is the one function that decrypts every
+generation and hands the plaintext back; the console's public
 `exportEncryptionKeys` action calls it only after `authorizeEncryptionExport`
-has spent the rate limit and written the audit row in the same transaction,
-and the gateway's `export_encryption_keys` tool reaches the same material
-because `/gateway/binding` already decrypts every live generation for
-ordinary decrypt — export is a formatting step over what that route already
-returns, not a new credential path.
+has spent the rate limit and written the audit row in the same transaction.
+
+### There is no key export over MCP (decided by the owner, 2026-10-08)
+
+The gateway had an `export_encryption_keys` tool, the same document over MCP.
+The owner removed it ("Remove it", 2026-10-08), asking what it was for:
+leaving the product already hands back every note in plain text, so handing
+an AI app scrambled notes and a key is the worse exit, and a tool that
+returns the key in the clear lets any connected app pull it into a chat
+transcript, or with one write into the bucket beside the notes it opens.
+
+Non-negotiable #1 still holds without it, because the console's export above
+is unchanged and is where an owner who plans to revoke our credential gets
+their key. A passphrase-locked note was never opened by either export.
+
+What a "simplification" back would cost: a key in a third party's chat
+history, which no revocation reaches. What fails if it is reversed:
+`no connection is offered a key export, the owner's included` in
+`apps/mcp/test/encryptionGateway/exportKeys.test.mjs`, the tool counts in
+`protocolBasics.test.mjs`, and `the key export is never offered to the agent`
+in `agent.test.mjs`. Every caller now gets the byte-identical `unknown tool`
+an invented name gets. The `.context/encryption-export-rate.json` counter that
+tool kept is left where it is in buckets that have one; nothing reads it.
 
 **And the decryptor is a file, not a promise.** `packages/encryption-decryptor`
 is dependency-free Web Crypto in an MIT-licensed public repository, and the

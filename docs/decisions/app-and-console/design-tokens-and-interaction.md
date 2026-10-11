@@ -173,6 +173,50 @@ reversed:* `htmlShell.test.ts` pins the served document's font href to
 holds `heroHeadingWidth(98)` above `HERO_LONGEST_LINE_AT_98` and across the
 clamped size range.
 
+### Note text is read in Libron, served from our own origin (2026-10-11)
+
+The owner chose **Libron**, a serif made for long reading on screens, for
+the text inside notes, and only for that: "only update the text inside
+notes". For a few minutes that day every Instrument Sans surface had become
+Libron (#1510), and the owner then narrowed it. The interface, the landing
+page, the map, the share-card images, the link-preview card, desktop and
+published website pages all stay in Instrument Sans.
+
+`fonts.reading` is the token. It sets the note editor's text
+(`.cm-scroller`) and the blocks drawn inside a note (`--lp-body`: forms,
+tables), and a shared note's text in `NoteBody`'s note look. `siteLook.ts`
+puts `fonts.body` back for website pages. Comments, the title-line status and
+everything around the note stay in `fonts.body`.
+
+Libron is not on Google Fonts. Its official web files (v0.31,
+`Libron_Web.zip`) are served unmodified from the web app's root,
+`public/Libron-*.woff2`, with `public/libron.css` declaring them and the OFL
+beside them as `public/Libron-OFL.txt`. They sit at the root on purpose,
+because a customer's domain serves only one-segment static paths
+(`infra/router/src/site.ts`) and a shared note can open there.
+
+**The licence has one condition we must keep:** "Libron" is a Reserved Font
+Name, so a modified copy may not carry the name. Subsetting, re-hinting or
+re-encoding the files would count as modifying them. Ship the author's files
+byte for byte, and update by replacing them with a newer official release.
+
+Libron has two weights. `libron.css` gives each file a weight range: 500 draws
+in the regular and 600 in the bold, so the browser never fakes a bold. The
+fallback is a serif (`ui-serif, Georgia, serif`), so a slow load never swaps
+between two kinds of letter. The native app, including its editor WebView,
+still draws notes in the platform font, because native has no bundled font
+binaries (`fonts.ts`).
+
+*What a "simplification" costs:* pointing `fonts.body` at Libron puts the
+whole interface in a serif, which the owner tried and reversed. Loading the
+font from a third-party CDN puts every cold load behind somebody else's
+uptime, and a subset "to save bytes" breaks the licence. *The tests that fail
+if it is reversed:* `htmlShell.test.ts` pins the `libron.css` link and its
+runtime id, and checks that every face the stylesheet names is a root-level
+file in `public/` with the licence beside it. `readingFace.test.ts` holds the
+editor and shared-note text on `fonts.reading`, and the interface and website
+pages off it.
+
 ### A long press has two signals, because the platform is watching the finger too
 
 The gesture shipped, its tests passed, and on a phone it did nothing.

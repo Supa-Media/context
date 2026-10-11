@@ -1,0 +1,249 @@
+/**
+ * Search by meaning, on the read side: the notes a query is *about*, merged
+ * into the word search's answer as one list (the owner's pick, 2026-10-07:
+ * best answer first, and a note found only by meaning is marked "Same topic,
+ * different words").
+ *
+ * ## Privacy is decided here, not by the index
+ *
+ * The index's `tier` filter keeps a team caller's top matches from filling up
+ * with private notes, and that is all it does. Every match goes through the
+ * caller's `isVisible` (the live `privacy.md`, `canSee`) before it is used for
+ * anything, ranking included, so a note made private a minute ago is gone from
+ * the next search rather than the next re-index. A path under plumbing, or
+ * outside the caller's prefix, is dropped the same way.
+ *
+ * ## It never costs the word search anything
+ *
+ * Absent index, a model that is down, a Vectorize that refuses: the word
+ * answer comes back exactly as it would have, and the failure is one log line
+ * with a closed code. The extra work is bounded: one embedding, one query, and
+ * at most `MEANING_SNIPPET_READS` note reads for the matches the words missed.
+ */
+
+import { ACTIVITY_PATH } from "../../../../../packages/shared/src/activity.cjs";
+import { isPlumbing } from "../../privacy/engine.js";
+import { extractFields } from "../indexer.js";
+import { noteTitle } from "../resultText.js";
+import { createMeaningClient } from "./client.js";
+import { meaningPassages, rankMeaningMatches } from "./project.js";
+import { meaningEmbedderFor } from "./store.js";
+import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+
+/**
+ * The closeness below which a match is noise rather than "the same topic".
+ * bge-m3 cosine of a short query against a ~1,500-character passage, which
+ * sits far lower than two sentences compared with each other.
+ *
+ * It was 0.55 until 2026-10-10, and that dropped nearly everything: measured
+ * on two production indexes (one of ~37,000 passages) with plain questions,
+ * the passages a person meant scored 0.40 to 0.63 ("leaving the team" against
+ * a conversation where someone says they cannot keep doing their role: 0.43
+ * to 0.52), while queries about nothing in the workspace ("banana bread
+ * recipe with walnuts") topped out at 0.31 to 0.34. A loosely related match
+ * ("beach vacation" against a meeting that talks about a party venue) can
+ * reach 0.44, which is the price of the recall; it is labelled as found by
+ * meaning, never as having the words. Tunable, and the only number here a
+ * search quality review should need to touch.
+ */
+export const MEANING_MIN_SCORE = DEFAULT_SEARCH_SETTINGS.minScore;
+
+/** Notes found only by meaning that one search may read for a snippet. */
+export const MEANING_SNIPPET_READS = 3;
+
+/**
+ * The same, when no note held every word typed. Then meaning is the better
+ * half of the answer (a question asked in a person's own words, "who left
+ * the team"), so more of it is shown.
+ */
+export const MEANING_SNIPPET_READS_LOOSE = 6;
+
+/** The words a person reads beside a note found only by meaning. */
+export const MEANING_ONLY_LABEL = "Same topic, different words";
+
+/** Reciprocal-rank constant: the usual 60, so neither list's top dominates. */
+const RRF_K = 60;
+
+/** Does this store have a meaning index worth asking? A filling one is: its notes are real. */
+export function meaningSearchable(store) {
+  const state = store?.meaningIndex?.state;
+  return state === "ready" || state === "backfilling";
+}
+
+/**
+ * The notes `query` is about, best first, that this caller may see: `[{path,
+ * score, chunk}]`, or `null` when meaning search is off or failed (which the
+ * caller treats as "words only", never as "nothing found").
+ *
+ * @param {object} store
+ * @param {{query: string, scope: string, isVisible: (path: string) => boolean,
+ *   prefix?: string, grantedGroups?: boolean, fetchImpl?: Function,
+ *   embed?: (texts: string[]) => Promise<number[][]>, minScore?: number}} options
+ *   `minScore` is the closeness under which a match is dropped: the store's
+ *   setting (`../settings.js`) unless given.
+ * @returns {Promise<Array<{path: string, score: number, chunk: number}> | null>}
+ */
+export async function meaningMatches(
+  store,
+  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed, minScore },
+) {
+  const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
+  if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
+  try {
+    const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
+    const client = createMeaningClient(store.meaningIndex, { fetchImpl });
+    // A team caller with no group grants sees team notes only, so asking the
+    // index for anything else would only crowd the top of the list. One who
+    // answers to a group can see some notes indexed as `private` (a group
+    // note's tier), so asks for every tier and lets `isVisible` decide.
+    const tiers = scope === "private" || grantedGroups ? null : ["team"];
+    const raw = await client.query(vector, { tiers });
+    return rankMeaningMatches(raw).filter(
+      (match) =>
+        match.score >= floor &&
+        match.path.endsWith(".md") &&
+        match.path !== ACTIVITY_PATH &&
+        !isPlumbing(match.path) &&
+        (!prefix || match.path.startsWith(prefix)) &&
+        isVisible(match.path),
+    );
+  } catch (error) {
+    try {
+      console.error(
+        JSON.stringify({
+          event: "meaning-search-failed",
+          workspace: store.actor?.workspaceId,
+          code: typeof error?.code === "string" ? error.code : "UNKNOWN",
+        }),
+      );
+    } catch {
+      // A log line cannot fail a search.
+    }
+    return null;
+  }
+}
+
+/**
+ * One list from two: reciprocal rank fusion over the word hits' order and the
+ * meaning matches' order, so a note both find rises and a note only one finds
+ * still places. Ties keep the word search's order.
+ *
+ * **A loose word hit comes after every meaning match.** A loose hit is from
+ * the word search's any-word retry: no note held every word, so it holds
+ * some, and for a question in plain words that is mostly "the" and "team".
+ * Fused evenly, those buried the one note that was about the question (the
+ * owner, 2026-10-10, "who left the team": a page of emails that say "team",
+ * no meeting). A loose hit that meaning also found keeps its fused place.
+ *
+ * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
+ */
+export function mergeHits(wordHits, matches, keyField = "key") {
+  const merged = new Map();
+  wordHits.forEach((hit, rank) => {
+    merged.set(hit[keyField], { key: hit[keyField], word: hit, meaning: null, score: 1 / (RRF_K + rank + 1), order: rank });
+  });
+  (matches ?? []).forEach((match, rank) => {
+    const entry = merged.get(match.path);
+    const add = 1 / (RRF_K + rank + 1);
+    if (entry) {
+      entry.meaning = match;
+      entry.score += add;
+    } else {
+      merged.set(match.path, {
+        key: match.path,
+        word: null,
+        meaning: match,
+        score: add,
+        order: wordHits.length + rank,
+      });
+    }
+  });
+  const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
+  return [...merged.values()]
+    .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
+    .map(({ key, word, meaning }) => ({ key, word, meaning }));
+}
+
+/** A snippet for a note found only by meaning: the start of the passage that matched. */
+async function meaningSnippet(store, match, chars = 200) {
+  let text;
+  try {
+    const object = await store.get(match.path);
+    if (!object) return null; // moved or deleted since it was embedded
+    text = await object.text();
+  } catch {
+    return null;
+  }
+  // An encrypted note's passages are its title alone (`meaningPassages` reads
+  // through `indexableText`), so its snippet is empty and no ciphertext shows.
+  const passages = meaningPassages(match.path, text);
+  const passage = passages[match.chunk] ?? passages[0] ?? "";
+  // A passage is the indexed title, a blank line, then its slice of the body
+  // (`meaningPassages`), so the snippet is what follows that title.
+  const indexedTitle = String(extractFields(match.path, text).title ?? "").trim();
+  const body = passage.startsWith(indexedTitle) ? passage.slice(indexedTitle.length) : passage;
+  const line = body.replace(/\s+/g, " ").trim().slice(0, chars);
+  return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
+}
+
+/**
+ * The word search's answer with the meaning matches folded in, in the word
+ * search's own hit shape plus `meaningOnly`. Every word hit stays; at most
+ * `MEANING_SNIPPET_READS` notes the words missed are added among them. A
+ * meaning-only note that cannot be read (moved, deleted) is dropped rather
+ * than shown without a snippet that was actually read.
+ *
+ * `matches` is `meaningMatches`'s answer, asked for alongside the word search
+ * rather than after it, so the two cost one wait, not two.
+ *
+ * `extraNotes` (how many meaning-only notes may be added) and `snippetChars`
+ * (how much of the matching passage each shows) are the store's settings
+ * unless given (`../settings.js`); a word search that found only loose
+ * any-word hits may add twice as many, never fewer than the loose cap.
+ */
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars } = {}) {
+  const settings = searchSettingsOf(store);
+  const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
+  const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  if (!matches || matches.length === 0) {
+    // `loose` is a ranking signal, never part of the answer; it and the word
+    // rank ride beside the hits as `evidence`, for a search across
+    // workspaces (`tools/search.js`) to rank by.
+    const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
+    const evidence = Object.fromEntries(found.hits.map((hit, rank) => [hit[keyField], { wordRank: rank, loose: hit.loose === true, meaningScore: null }]));
+    return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
+  }
+  const out = [];
+  let reads = 0;
+  // `every` of none is true: a word search that found nothing is the loosest.
+  const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
+  const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
+  // The evidence behind each hit, beside the hits rather than on them: a
+  // search across workspaces (`tools/search.js`) ranks by it, since one
+  // workspace's first word hit and another's are not the same strength.
+  const evidence = {};
+  for (const entry of mergeHits(found.hits, matches, keyField)) {
+    evidence[entry.key] = {
+      wordRank: wordRanks.get(entry.key) ?? null,
+      loose: entry.word?.loose === true,
+      meaningScore: entry.meaning ? entry.meaning.score : null,
+    };
+    if (entry.word) {
+      const { loose: _loose, ...word } = entry.word;
+      out.push({ ...word, meaningOnly: false });
+      continue;
+    }
+    if (reads >= readCap) continue;
+    reads += 1;
+    const read = await meaningSnippet(store, entry.meaning, chars);
+    if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
+  }
+  const added = out.filter((hit) => hit.meaningOnly).length;
+  return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning: "on" };
+}
+
+/** Word search and search by meaning, asked together and merged. */
+export async function searchBothWays(store, wordSearch, options, shape = {}) {
+  const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
+  return await withMeaning(store, found, matches, shape);
+}

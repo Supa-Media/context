@@ -86,6 +86,18 @@ export class S3Store {
       writable: true,
       configurable: true,
     });
+    // The SigV4 signing key derived from that secret for one day, region and
+    // service. Deriving it is four HMACs and five key imports per request,
+    // which made signing most of the cost of a bulk move. It lives exactly as
+    // long as the secret it comes from — this store, i.e. one request — is
+    // never module-level, so nothing outlives the request that decrypted the
+    // credential, and it is hidden from serialization the same way.
+    Object.defineProperty(this, "signingKeys", {
+      value: newSigningKeyCache(),
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
     this.rootPrefix = normalizeRootPrefix(config.rootPrefix);
     // Path style is the default, and virtual-hosted addressing is opt-in.
     // The old heuristic — "the host does not start with the bucket name" — is
@@ -161,6 +173,7 @@ export class S3Store {
       secretAccessKey: this.secretAccessKey,
       region: this.region,
       date: this.now(),
+      signingKeys: this.signingKeys,
     });
     return this.fetchImpl(url.toString(), {
       method,
@@ -440,10 +453,11 @@ export async function signRequest({
   region,
   date = new Date(),
   service = SERVICE,
+  signingKeys = newSigningKeyCache(),
 }) {
   const amzDate = toAmzDate(date);
   const dateStamp = amzDate.slice(0, 8);
-  const payloadHash = await sha256Hex(body);
+  const payloadHash = body.byteLength === 0 ? EMPTY_SHA256 : await sha256Hex(body);
 
   const canonicalHeaders = new Map();
   canonicalHeaders.set("host", url.host);
@@ -480,8 +494,10 @@ export async function signRequest({
     await sha256Hex(new TextEncoder().encode(canonicalRequest)),
   ].join("\n");
 
-  const key = await deriveSigningKey(secretAccessKey, dateStamp, region, service);
-  const signature = toHex(await hmac(key, stringToSign));
+  const key = await signingKeyFor(signingKeys, secretAccessKey, scope, dateStamp, region, service);
+  const signature = toHex(
+    new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(stringToSign)))
+  );
 
   const out = {
     "x-amz-content-sha256": payloadHash,
@@ -494,6 +510,29 @@ export async function signRequest({
     if (!UNSIGNED_HEADERS.has(name.toLowerCase())) out[name] = String(value);
   }
   return out;
+}
+
+/** SHA-256 of zero bytes: every GET, HEAD, DELETE and list signs it. */
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/** One store's derived signing key: the secret and scope it was made for. */
+function newSigningKeyCache() {
+  return { secret: null, scope: null, key: null };
+}
+
+/**
+ * The HMAC key for `scope`, derived once per secret and scope and imported
+ * non-extractable. A different secret or a new day re-derives; the cache
+ * holds one entry, so it never grows.
+ */
+async function signingKeyFor(cache, secretAccessKey, scope, dateStamp, region, service) {
+  if (cache.key !== null && cache.secret === secretAccessKey && cache.scope === scope) return cache.key;
+  const bytes = await deriveSigningKey(secretAccessKey, dateStamp, region, service);
+  const key = await crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  cache.secret = secretAccessKey;
+  cache.scope = scope;
+  cache.key = key;
+  return key;
 }
 
 /** Exported so a known-answer test can pin the HMAC chain. */

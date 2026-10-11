@@ -13,12 +13,18 @@
  *   the reply is sent or given up on. Then it is deleted.
  * - `seen:<eventId>` holds a timestamp, never text, for a day, so a webhook
  *   that Linq redelivers is answered once.
+ * - `chat` holds the Linq chat id of this sender's last accepted text, never
+ *   text, so a routine can text them unprompted (routines.ts). Linq's line
+ *   only reaches people who texted it first, and this is the record of that.
+ * - `card` holds a timestamp, never text: when this sender was last offered
+ *   the line's contact card, so it is offered at most once a day.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  */
 
-import { sendLinqText, type Fetch } from "./clients";
-import { replyTo, type Message, type ReplyDeps } from "./reply";
+import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
+import { textsFromAnswer } from "./format";
+import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -40,6 +46,17 @@ export const MAX_SEND_ATTEMPTS = 3;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
 export const MAX_PENDING = 20;
 
+/**
+ * Where a routine's text goes: the chat this sender last texted from. The
+ * simulator's own chats are marked, so a routine there lands in its log.
+ */
+export const CHAT_KEY = "chat";
+
+/** When this sender was last offered the contact card; Linq asks for once a day at most. */
+export const CARD_KEY = "card";
+export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
+export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
+
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -56,6 +73,11 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await storage.put<RememberedChat>(CHAT_KEY, {
+    chatId: message.chatId,
+    ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
+    at: now,
+  });
   await storage.setAlarm(now);
   return "queued";
 }
@@ -65,7 +87,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   for (const [key, item] of pending) {
     const stored = item.reply;
-    const reply = stored === undefined ? await replyTo(item.message, deps) : [stored].flat();
+    const reply = stored === undefined ? await answering(item.message, deps, storage) : [stored].flat();
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
@@ -83,6 +105,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
         );
       }
       await storage.delete(key);
+      if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, deps);
     } catch {
       const attempts = item.attempts + 1;
       if (attempts >= MAX_SEND_ATTEMPTS) {
@@ -97,6 +120,101 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     }
   }
   await pruneSeen(storage, deps.now());
+}
+
+/**
+ * Share the line's contact card, so Messages names it "Context" with its icon,
+ * once a day at most. Linq needs an outbound message in the chat first, which
+ * is why this runs after a reply was sent. The time is kept whether or not Linq
+ * accepted it, so a line with no card set up costs one request a day, not one
+ * per text.
+ */
+async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
+  const last = await storage.get<number>(CARD_KEY);
+  if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
+  await storage.put(CARD_KEY, deps.now());
+  await shareLinqContactCard(deps.fetch as Fetch, deps.linqApiKey, chatId);
+}
+
+/** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
+export const TYPING_REFRESH_MS = 55_000;
+
+/**
+ * How long a turn may run without a word before the person is told it is a
+ * longer one (`COPY.working`), once. A quick answer is back well before it; a
+ * task that is already texting its progress never sees it.
+ */
+export const WORKING_NUDGE_MS = 40_000;
+
+/**
+ * Mark the text read and work out the reply with the typing bubble showing,
+ * as a person would, texting any progress the turn reports on the way
+ * (`apps/mcp/src/agent/progress.js`).
+ *
+ * The first bubble is awaited (it is quick, and bounded) so it cannot land
+ * after a fast reply and hang in the chat; a renewal still in flight is
+ * awaited before the reply goes out, for the same reason. The simulator draws
+ * its own bubble from the queue, so it gets none; its progress goes to its log.
+ *
+ * Progress texts are sent once, as they happen, each with its own idempotency
+ * key, and are not retried with the answer: a line about where a task had got
+ * to is stale by the time a retry would send it.
+ */
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
+  const simulator = message.channel === "simulator";
+  let progressSent = 0;
+  let chain: Promise<void> = Promise.resolve();
+  const say = (text: string): Promise<void> => {
+    const index = progressSent;
+    progressSent += 1;
+    chain = chain.then(async () => {
+      try {
+        if (simulator) await record(storage, "in", text, deps.now());
+        else {
+          await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, message.chatId, text, `progress:${message.eventId}:${index}`);
+          // Sending a text clears the bubble; the task is still going.
+          await startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+        }
+      } catch {
+        // A progress line that failed costs the person a line, never the answer.
+      }
+    });
+    return chain;
+  };
+  // A link in a progress line (a live sign-in page) goes as a text of its
+  // own, as in an answer, so iMessage draws it as a card.
+  const onProgress = async (text: string) => {
+    for (const part of textsFromAnswer(text)) await say(part);
+  };
+  const nudge = setTimeout(() => {
+    if (progressSent === 0) void say(COPY.working);
+  }, WORKING_NUDGE_MS);
+
+  if (simulator) {
+    try {
+      return await replyTo(message, { ...deps, onProgress });
+    } finally {
+      clearTimeout(nudge);
+      await chain;
+    }
+  }
+  // Read first, then the bubble, as a person would: the text is seen, then
+  // answered. Both are quick and never throw.
+  await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+  const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+  await typing();
+  let renewal: Promise<void> = Promise.resolve();
+  const timer = setInterval(() => {
+    renewal = typing();
+  }, TYPING_REFRESH_MS);
+  try {
+    return await replyTo(message, { ...deps, onProgress });
+  } finally {
+    clearTimeout(nudge);
+    clearInterval(timer);
+    await renewal;
+    await chain;
+  }
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {

@@ -13,7 +13,24 @@ import { ROUTE_SEGMENTS } from "@context/shared";
 const SECRET_QUERY_VALUE = /([?&](?:code|token|secret|key|note|access_token|refresh_token|id_token)=)[^&#\s]*/gi;
 const AUTH_HEADER = /(authorization["']?\s*[:=]\s*["']?)(?:bearer\s+)?[^\s,"'}]+/gi;
 const AWS_ACCESS_KEY = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
-const CALLBACK_SECRET = /(\/(?:invite|join|s|texts)\/)[^/?#\s]+/gi;
+const CALLBACK_SECRET = /(\/(?:invite|join|s|texts|vault)\/)[^/?#\s]+/gi;
+/*
+  A query value that carries a whole path of its own.
+
+  `loginHref` parks the address somebody was heading for in `?next=`, and
+  `encodeURIComponent` turns its slashes into `%2F` — so the rules above and
+  below, which all anchor on a literal `/`, see one opaque value and leave it
+  standing. The addresses parked there are precisely the unguessable ones:
+  a vault link (`/vault/<token>`, which reveals a saved password), an
+  invitation (`/invite/<token>`), a parked OAuth request, and the `(app)`
+  gate's attempted `/console/<handle>?note=<path>`.
+
+  Keyed on the shape rather than on the name, for the same reason
+  `ROUTE_SEGMENTS` is an allowlist: the next thing parked this way will be
+  parked under a name this file has not heard of. A rooted path is the only
+  thing `safeNextRoute` lets through, so every one of them starts `%2F`.
+*/
+const ENCODED_PATH_QUERY_VALUE = /([?&][A-Za-z0-9_.-]{1,64}=)[^&#\s]*%2[Ff][^&#\s]*/g;
 const CONTEXT_PATH = /(\/console\/)[^/?#\s]+/gi;
 // `/note/@slug/<path>` — everything after the keyword, not just the handle.
 // This route carries a whole note path, which `CONTEXT_PATH`'s one-segment
@@ -45,6 +62,7 @@ export function redactTelemetryText(value: string): string {
     .replace(AUTH_HEADER, "$1[redacted]")
     .replace(AWS_ACCESS_KEY, "[redacted-access-key]")
     .replace(CALLBACK_SECRET, "$1:token")
+    .replace(ENCODED_PATH_QUERY_VALUE, "$1[redacted]")
     .replace(CONTEXT_PATH, "$1:context")
     .replace(NOTE_ADDRESS, "$1:address")
     .replace(EMAIL, "[redacted-email]")
@@ -88,7 +106,7 @@ export function telemetryRoute(pathname: string): string {
   if ((named[0] === "console" || named[0] === "note") && named.length >= 2) {
     named[1] = ":context";
   }
-  if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "texts") && named.length >= 2) {
+  if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "texts" || named[0] === "vault") && named.length >= 2) {
     named[1] = ":token";
   }
   const safe = named.map((part, index) =>

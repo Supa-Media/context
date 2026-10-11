@@ -182,7 +182,10 @@ export function consoleTopTrailing({
           a claim about the note that is open, and a note stays open
           behind Map, Connections and the settings overlay.
         */}
-        <SaveMark editor={data.files.editor} local={data.visitor !== undefined} />
+        {/* A shared link's reader edits nothing, so there is no save to mark. */}
+        {data.visitor !== undefined && !data.files.canEdit ? null : (
+          <SaveMark editor={data.files.editor} local={data.visitor !== undefined} />
+        )}
         {/*
           Gated on `insideContext`, and the two chips beside it are not.
           That is deliberate rather than an oversight to tidy: a bucket is

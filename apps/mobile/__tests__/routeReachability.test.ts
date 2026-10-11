@@ -207,6 +207,12 @@ const NAVIGATES = [
   "router.navigate",
   "Redirect href",
   "<Link",
+  /*
+    A page carried in the query of the route it is on (`?map=1`, the live
+    map; `?settings=`), which Back and a shared link both find. It is a
+    navigation in every sense this guard cares about: a press changes the URL.
+  */
+  "router.setParams",
 ];
 
 /** Every file a claim rests on, control and navigation together. */
@@ -525,6 +531,8 @@ describe("every route is reachable, or says why not", () => {
       "/[handle]",
       "/[handle]/[...path]",
       "/admin",
+      // The same console at one of its tabs; `/admin` redirects to it.
+      "/admin/[...section]",
       "/authorize",
       "/connect/cli",
       "/connect/dropbox",
@@ -569,6 +577,7 @@ describe("every route is reachable, or says why not", () => {
       "/preview/onboarding/[step]",
       "/s/[token]",
       "/texts/[token]",
+      "/vault/[token]",
     ]);
     for (const entry of exempt) {
       if (entry.reachable) continue;

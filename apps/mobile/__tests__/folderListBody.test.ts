@@ -32,6 +32,8 @@ const note = (path: string, text: string, encrypted = false): OpenNote => ({
 });
 
 const io = (bucket: Record<string, OpenNote>): FolderListIO => ({
+  manifest: async () => Promise.reject(new Error("offline")),
+  readNotes: async () => Promise.reject(new Error("offline")),
   readNote: async (path) => {
     served.push(path);
     const found = bucket[path];
@@ -44,7 +46,7 @@ const io = (bucket: Record<string, OpenNote>): FolderListIO => ({
 });
 
 const source = (scope: "private" | "team", bucket: Record<string, OpenNote> = {}) =>
-  folderListSource({ workspaceId: W, scope, canEdit: false, io: io(bucket), openMirror: async () => store, needed: async () => () => new Set() });
+  folderListSource({ workspaceId: W, scope, canEdit: false, io: io(bucket), openMirror: async () => store, needed: async () => () => new Set(), online: () => false });
 
 beforeEach(async () => {
   store = memoryMirrorStore();

@@ -24,6 +24,13 @@ compatibility_date = "2026-08-01"
 
 [vars]
 
+# The egress gate (docs/decisions/privacy-and-sharing/agent-egress.md) holds an
+# AI client's call that would widen who can see something until the person
+# approves it. "off" lets such calls run at once. The owner switched it off on
+# this deployment on 2026-10-10 until orient asks smarter; leave it unset on
+# your own deployment to keep the gate.
+EGRESS_APPROVALS = "off"
+
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
@@ -117,6 +124,7 @@ queue = "context-gateway-jobs"
 queue = "context-gateway-jobs"
 max_batch_size = 1
 max_batch_timeout = 5
+max_retries = 20
 
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
@@ -166,6 +174,17 @@ service = "context-site-shots"
 #   CALENDAR_ICS_URL        a calendar's secret iCal URL
 #   GRANOLA_API_KEY         reads Granola note contents
 #   GRANOLA_WEBHOOK_SECRET  verifies signed Granola webhook deliveries
+#
+# Optional on any deployment:
+#   BRAVE_SEARCH_API_KEY    lets the texting assistant search the web
+#                           (src/agent/search.js); without it there is no
+#                           search tool. AGENT_SEARCH picks another provider.
+#   AI_GATEWAY_ACCOUNT_ID   optional. Cloudflare account id for AI Gateway
+#                           (src/agent/aiGateway.js); kept secret, not [vars].
+#   AI_GATEWAY_ID           optional. The AI Gateway's name; falls back to Workers AI (GLM) if unset.
+#   AI_GATEWAY_TOKEN        optional. Token for AI Gateway; falls back to Workers AI (GLM) if unset.
+#   ANTHROPIC_CREDIT_KEY    optional. The Claude plan's API credit key, spent first;
+#                           without it every gateway call is Unified Billing.
 
 # ── Self-host only, commented out on purpose ────────────────────────────────
 #
@@ -213,6 +232,7 @@ name = "context-mcp-staging"
 workers_dev = true
 
 [env.staging.vars]
+EGRESS_APPROVALS = "off"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"

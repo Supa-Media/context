@@ -29,6 +29,7 @@ jest.mock("@context/convex/_generated/api", () => ({
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { resetSiteAnswers } from "../features/site/siteAnswers";
 import { useWebsiteAddress, type WebsiteAddressRequest } from "../features/site/useWebsiteAddress";
 
 const page = (text: string): ResolvedWebsiteAddress => ({
@@ -68,6 +69,8 @@ afterEach(() => {
   mockEdge.mockImplementation(async () => null);
   mockSignedIn = false;
   mockRevision = "1:1";
+  // Answers are kept for the tab; each test is a fresh tab.
+  resetSiteAnswers();
 });
 
 describe("where the answer comes from", () => {

@@ -113,3 +113,39 @@ revoke an unused invite, or pause new ones for everyone.
 
 Simplifying any of this away costs the waitlist its meaning. Tests:
 `apps/convex/__tests__/referrals.test.ts`.
+
+## One person, several sign-in emails, and accounts are never joined
+
+Decided by the owner, 2026-10-09. An account belongs to a person, and that person may sign in with several emails: a work one, a home one. Each extra address is a `signInEmails` row, confirmed by a code mailed to it, and every "who is this address?" question goes through `lib/signInEmails.ts`. That covers sign-in (`findUserByEmail` in `auth.ts`), shares and invitations (`lib/identities.ts`), the invite-only gate, and invitation mail. `users.email` stays the one address mail goes to; a returning sign-in never replaces it (`@supa-media/convex` 1.8.0).
+
+An address already on another account is never "joined", because two accounts each own a personal workspace and one person must not have two. When that other account owns **no** workspace (someone who only ever joined other people's), confirming the code moves its memberships over and closes it. If it owns anything, the address is refused before a code is sent, and again when the code is confirmed. The code is the consent, since only the mailbox's holder can read it.
+
+Simplifying this to "match people by `users.email`" would turn every added address into a second account the first time it signs in. `__tests__/signInEmailsSignIn.test.ts` runs the real sign-in and fails if that happens. Letting an add take an address from an account that owns a workspace would delete somebody's notes on the strength of one mailed code; `__tests__/signInEmails.test.ts` refuses it.
+
+The first-sign-in question "Do you already use Context with another email?" (board s7) was retired on 2026-10-09, when sign-in moved to phone numbers. The phone now ties a person to the account they already have, so new people no longer get the extra step.
+
+Closing an account frees every address it signs in with. Shares addressed to any of them are revoked, as they are for the main address, so a dead account can never hold an address (`personalRows.ts`).
+
+Every account also confirms a phone once (`functions/phoneCheck.ts`, behind `PHONE_CHECK`, on in production since 2026-10-09 by Dev2's choice; `deploy-convex.yml` syncs it, and the GitHub secret set to anything else turns it off). One phone number belongs to one account.
+
+**People sign in with their phone (Dev2, 2026-10-09; boards p1–p3).** The sign-in page asks for a phone first. A phone an account holds, confirmed on it or linked for texting, is texted a code, and the `phone-verify` provider (`@supa-media/convex`, wired in `auth.ts`) signs in only when Twilio Verify approves that code, to the account holding the phone (`functions/phoneSignIn.ts`). A phone nobody holds and staff have not let in goes on the waitlist with just the number ("login and waitlist sign up", Dev2 2026-10-09) and is texted nothing. Staff let phone rows in from the admin Waitlist tab like any other, and Add takes phones as well as addresses. A let-in phone is texted a code, and that code makes its account with the phone already confirmed (`signInUser`). Nothing is mailed or texted on Let in for a phone row. An account a phone made is then asked for an email once (`EmailCheckScreen`, `myPhoneCheck.needsEmail`). If that address already has its own account and the phone account is still empty, the empty one folds into it and the phone moves with it (`signInEmails.ts`, "moved"); the person signs in again with the phone and lands in the account they had. So a stranger can only make us text numbers some account holds or staff let in, which keeps the public action from becoming an SMS pump. Lookups, texts per number, texts overall, code checks per number and waitlist joins are all rate limited. The answers "joined" and "already" reveal whether a number is on the list, as `waitlist.enter` does for an address. Email stays one link away, and an invitation's `/join` link stays on email. `__tests__/phoneSignIn.test.ts` runs the real sign-in. It fails if a wrong code signs in, if an unconfirmed phone signs in, if a number not let in is texted or gets an account, if a phone fold takes an account holding another phone, or if the check limit stops guarding.
+
+**One person, one account, however many emails (Dev2, 2026-10-09).** When the phone check is answered with a number another account already holds, the two are one person: the email sign-in proved the mailbox, and the code proves the phone. If this account owns nothing, it closes into the holder and its emails go along ("joined"; the person signs in again and lands there). If the holder owns nothing, as an account a phone made may, it closes into this one and its phone and texting link come here. Only when both own a workspace is the number refused, because accounts are never joined. Signing in with that phone already reached the holder, so a join gives nothing the phone did not. `lib/account/phoneJoin.ts`; `__tests__/phoneCheck.test.ts` fails if two owning accounts are joined or an empty one is refused.
+
+Staff can also type a person's phone in the console's People tab (`/admin/people`, `lib/adminFns/people.ts`; Dev2, 2026-10-09, ahead of signing in with a phone number). A typed phone counts as confirmed, because staff vouch for the person they know. The one-phone-one-account rule still holds: a number another account holds is refused and never moved. The staff audit trail keeps only the last four digits. `__tests__/adminPeople.test.ts` fails if a held number is accepted or a whole number reaches the trail.
+
+Staff can also archive an account there (Dev2, 2026-10-09, for test accounts cluttering the console). Archiving only hides the account from People and from Growth's figures and roster, along with the workspaces it made. It deletes nothing: the account, its workspaces and their buckets stay, it can still sign in, and Unarchive undoes it. Real deletion stays the account owner's own action. The `archivedAccounts` row goes when the account is closed.
+
+## A shared workspace opened to an email domain
+
+Decided by the owner, 2026-10-09 (boards s3/s4). An owner of a **shared** workspace can open it to everyone at an email domain, such as `publicworship.org`, from Settings › Sharing › Your organization. Somebody with a confirmed address there joins when they open a link to the workspace, either with their main email or with one added on Account settings. They join with the role the owner picked, which is Can read by default. The invite-only gate lets that address in. When they stop signing in with any address at the domain, they leave (`viaDomain` on the membership).
+
+This is membership, never publication, so non-negotiable #5 holds. Every joiner is a named account whose mailbox was proven by a code, and the owner sees each one in People and can remove them. Three rules keep the set honest:
+- An owner can add only a domain they sign in with themselves.
+- A personal mail service (`gmail.com` and the rest of `lib/emailDomains.ts`) is never a domain, because anybody can get an address there, and opening a workspace to one would publish it.
+- A personal workspace is never opened.
+
+To anybody outside the domain, the join answers exactly as a missing workspace does. The switch stops new joins and leaves the people already in.
+
+Dropping the "owner must sign in with it" rule would let anybody open a workspace to a domain they do not belong to. Allowing personal mail domains would turn a workspace into a public one. `__tests__/workspaceDomains.test.ts` fails on either, on a join that ignores the switch, and on an email removal that does not mean leaving.
+

@@ -165,7 +165,7 @@ describe("absent rather than disabled", () => {
 });
 
 describe("what the panel must keep saying", () => {
-  test("the second offer is named, and named as always asked", () => {
+  test("the every-time rule and the page-you-are-on offer are both still said", () => {
     /*
       The rule this setting must not be mistaken for. A panel showing one
       configurable folder and nothing else would read as though that were the
@@ -173,8 +173,9 @@ describe("what the panel must keep saying", () => {
       you are standing on is still offered second.
     */
     const screen = mount();
-    expect(screen.text()).toContain("Second offer");
-    expect(screen.text()).toContain("Always asked");
+    expect(screen.text()).toContain("Each time you record, you can also pick the folder you're in.");
+    // The old card's headline is gone: the sentence above replaces it.
+    expect(screen.text()).not.toContain("Second offer");
     expect(screen.text()).toContain("asked every time, before the microphone opens");
   });
 });

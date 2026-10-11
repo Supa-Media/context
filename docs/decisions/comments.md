@@ -105,6 +105,26 @@ Simplifying it back to a full margin toggled on activity brings back the jump.
 The comments e2e test checks that the text stays still while a card opens and
 closes.
 
+## Crowded cards fold into one row beside their words
+
+Dev2 picked this on 2026-10-10 (option C of
+https://claude.ai/artifact/EUFVCFb6J84JdsncMfGyC5) after several comments on
+one paragraph overlapped. The margin used to push each card down until it
+touched none, so a busy paragraph's cards ended up beside the next one, and
+clicking a card pushed the cards above it up past the top of the note, where
+they were stopped at the edge on top of each other.
+
+Now a card sits level with its words, or at most `FOLD_SLACK` (48px) below
+them. A thread that would be pushed further joins a "N more here" row at that
+spot. Show opens the row in place and lists its threads under it, and clicking
+a folded thread's words opens it the same way. Nothing in the margin moves up
+for a card that opens, and lifting the last card to fit the window never puts
+another card above its own line. The rule is `layoutMargin` and `keepInView`
+in `files/comments/model.ts`. Going back to pushing cards apart without
+folding brings back cards that sit beside the wrong paragraph. The comments
+unit suite checks random notes for overlaps and for cards far from their
+lines, and the comments e2e test checks a crowded paragraph in a browser.
+
 ## On a phone, a thread opens in a sheet
 
 Dev2 approved this on 2026-09-27 (phone artboards 3 and 4). Below the

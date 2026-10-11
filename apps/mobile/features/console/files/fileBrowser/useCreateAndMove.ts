@@ -24,6 +24,7 @@ import {
   parentPath,
 } from "../paths";
 import { findEntry, namesIn } from "../tree";
+import { announceDid } from "../../map/live/announce";
 import {
   applyFolderCreate,
   applyMove,
@@ -243,7 +244,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const path = joinPath(folder, name);
       if (offlineRef.current.reachability === "offline") {
         /*
-          The server makes a folder real by writing its README placeholder,
+          The server makes a folder real by writing its about note,
           and this is that same call made later (`queueFolder`). Drawn now, as
           an empty folder, so a note can be made in it straight away.
         */
@@ -268,7 +269,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         async () => {
           await createDirectory({ workspaceId: workspaceId!, path });
           return {
-            touched: [path, joinPath(path, "README.md")],
+            touched: [path, joinPath(path, "about.md")],
             message: folder === "" ? `Created ${folderLabel(name)}.` : `Created ${folderLabel(name)} in ${folderLabel(folder)}.`,
             /*
               Undo takes it back while it is still empty (board 05c). The
@@ -326,6 +327,8 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const undoDraw = follows ? drawListingMove(path, to) : drawMove(path, to);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
+        // Drawn on the live map: a move made here reaches no tool call's record.
+        announceDid(workspaceId ?? null, { kind: "move", from: path, to });
         return {
           ...result,
           message: `Moved to ${folderLabel(destinationFolder)}.`,

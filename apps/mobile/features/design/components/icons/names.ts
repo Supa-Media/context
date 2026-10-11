@@ -36,6 +36,8 @@ export const ICON_NAMES = [
   "panelRight",
   "search",
   "plus",
+  /** Zoom out, on the live map's zoom control. */
+  "minus",
   "check",
   "close",
   "chevronLeft",
@@ -92,6 +94,8 @@ export const ICON_NAMES = [
   "clock",
   /** The Map pane: nodes with edges between them. */
   "constellation",
+  /** The sidebar's Map button: the live workspace map (`?map=1`). */
+  "liveMap",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
   "exchange",
 

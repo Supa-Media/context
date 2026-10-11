@@ -22,7 +22,7 @@ import type { FolderItem } from "../model";
 import { taskChildren } from "../model";
 import { parentPath } from "../../paths";
 import { folderStatuses, type StatusList } from "../statuses";
-import { makeItTaskStatus } from "../listLayout";
+import { makeItTaskStatus } from "../taskBasics";
 import type { OwnerChoice } from "../items";
 import type { QuickAddTask } from "./QuickAddComposer";
 import type { TaskHost } from "./taskHost";

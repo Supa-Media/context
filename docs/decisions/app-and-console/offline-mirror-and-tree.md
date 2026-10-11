@@ -1,5 +1,62 @@
 # App and console — offline mirror and tree
 
+### Offline is the desktop and phone apps; online, lists read the server
+
+Decided by the owner, 2026-10-08: "when connected to the internet we should
+always be using server", and "offline should only be a thing on the desktop app
+and on a native mobile app. Like we shouldn't be doing that on web." This
+narrows the two sections below; where they say "the device's copy answers",
+read "offline, in an app that keeps one".
+
+**A browser tab keeps no copy of a workspace.** `mirrorStore.web.ts` opens
+IndexedDB only when `getDesktopBridge()` finds the desktop shell
+(`mirrorSupported`); a plain tab gets `null`, says nothing about an offline
+copy, and deletes the `context-offline-mirror` database an earlier version
+filled. The queue of unsent edits stays in `localStorage`: it is someone's
+typing, not a copy of the workspace, and dropping it would lose words.
+
+**A folder List or Board reads the server whenever it can.** `syncManifest`
+takes a `folder`, walks only that subtree through the same `canSee`, and a
+folder the caller cannot see answers byte-for-byte as an absent one at the same
+cost (`manifestSkipsPlumbing.test.ts`). `serverListNotes` then reads the notes
+whose version it has not parsed, fifty at a time, keeping parsed frontmatter in
+memory only. `folderListSource` uses the device's copy only when the device
+says it is offline, or when the server fails and a copy exists. The side
+panel's note body follows the same order. Tests: `serverLists.test.ts`
+(sabotage: preferring the mirror online fails "the server's answer, not the
+device's older copy") and `offlineMirrorIdb.test.ts` ("a plain browser tab: no
+mirror, and the old database is deleted").
+
+**A browser tab's side panel draws the server's whole tree, held in memory.**
+With no mirror, every folder opened was its own `listFiles` ("Loading…"), and
+the tree signal's "walk again" reached nothing, so another writer's changes
+never appeared (reported by the owner the same day: "back to really slow
+loading"). Since then a tab answers a refresh request — opening a context, or
+the tree signal — by walking `syncManifest` (metadata only, the same `canSee`)
+and keeping the tree in memory (`serverTree.ts`), keyed by clearance and
+session epoch, never written to the device. Every folder of that walk is
+stamped as listed by the server, so opening it asks nothing more; only a
+**complete** walk is kept, because a folder a partial walk never reached would
+read "Empty" again. Tests: `serverTree.test.ts`, `serverTreeSync.test.ts`
+(sabotage: dropping the tab's walk fails "a refresh request walks the server
+and redraws the tree").
+
+**The walk draws as it goes, and the tab keeps its last whole tree.** Still
+slow in @seyi (9,129 notes, so three or more 4,000-entry manifest calls one
+after another): nothing came from the walk until its last page, and every
+reload began at "Reading your bucket…". The manifest is in key order, so after
+each page every folder whose keys all sort before the cursor is whole and is
+drawn then (`finishedBefore`); a walk that stops part-way keeps those. The last
+complete tree is kept in `sessionStorage` — names and versions, never note
+text, never `localStorage` (whose quota the unsent-edit queue needs) — and a
+reload draws it at once as the device's copy (rows first, server still asked,
+#1345's rule). It dies with the tab and is cleared at sign-out and on leaving a
+context. A tab re-walks a context at most once per 15 seconds however often the
+tree signal fires.
+
+Search was already server-first online (`useDeviceSearch`). The phone app's
+Home still counts from its copy, which is the app's offline copy by design.
+
 ### The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 
 The sections above cache what somebody happened to open. The mirror — every
@@ -290,6 +347,16 @@ Android device are unverified until somebody runs a first sync on one.
 
 ### The file tree is drawn from the mirror's metadata, so a folder opens without a request
 
+> **Superseded in part (decided by the owner, 2026-10-08): online, the server
+> answers.** The device's rows still draw at once, but every folder opened while
+> connected is also asked of `listFiles` once per session, and that answer
+> replaces the rows. A mirror walk that stopped short had drawn Inbox and Areas
+> as "Empty" in a workspace where both hold notes, and because a drawn folder
+> never asked, they stayed that way. An incomplete walk also no longer
+> overwrites a folder the server answered. Rules: `fileBrowser/liveListing.ts`;
+> tests: `liveListing.test.ts` and `fileTreeMetadata.test.ts` ("online, a
+> nested folder draws from the device at once and still asks the bucket").
+
 Clicking a folder in the sidebar used to wait on `listFiles`: membership,
 storage, a read of `privacy.md`, then a provider listing, every time a folder
 had not been opened in this session — 200 to 800 ms on staging for folders of
@@ -422,7 +489,8 @@ What a simplification costs, and what fails:
   from a shared folder moves without telling the team" / "a shared note moved
   somewhere private still tells the team it went" (`treeHints.test.mjs`).
 - Stamping every save: "an edit to an existing note moves nobody's hint" and
-  "an edit to an existing note sends nothing".
+  "an edit to an existing note sends nothing" (a front matter change is the
+  exception; see the next section).
 - Throwing to a refused caller: "a non-member is told nothing, the same
   nothing as a context that never changed".
 - A store `openContext` builds without its own reporters: "a cross-context
@@ -444,3 +512,44 @@ reader who could see only the source converges at the next periodic walk. The
 writer's own console also receives its hint and walks once more; that walk
 confirms what the optimistic listing already drew.
 
+### A front matter change is a hint too, and an open project page fetches what moved
+
+Decided 2026-10-07, after the owner reported the Projects List "not updating in
+real time": an agent set statuses and made a folder a project, and the List
+went on drawing the old values until the five-minute pass. Two gaps made it.
+The gateway sent no hint for a save to an existing note, and a hint only ever
+re-walked metadata, while a List is drawn from bodies' front matter.
+
+- **An `update_note` whose front matter changed sends the tree hint**
+  (`sendsTreeHint`, `frontMatterChanged` in `activity/changes.js`), from
+  `write_note` and from a collaboration flush alike. The audit row carries
+  `front_matter_changed: true`, never the values. A body edit still sends
+  nothing: front matter changes a few times in a note's life, keystrokes do
+  not. A sealed note never counts; its stored form changes on every save.
+- **A refresh in a context where a project folder was opened runs that
+  folder's freshen instead** (`folderFreshener.wants`, `useMirrorSync`): the
+  same listing commit, then the notes under the folder whose version moved.
+  Still one walk per hint, and still at most `FOLDER_FRESHEN_LIMIT` notes.
+- **"Still fetching some notes" is judged by the page's own notes**
+  (`holdsFolder`), not by the read of the folder's parent, which for a root
+  folder is the whole workspace: saved sessions in `0-inbox/` kept the line
+  under the Projects List for good.
+- **A rewrite that dropped the opening `---` gets it back** (`write_note`,
+  `restoreOpeningDelimiter`): only where the stored note opened with front
+  matter, only for `key: value` lines closed by a lone `---`, and the result
+  says so. The case that prompted it: a client stored
+  `updated: …\nstatus: in progress\n…\n---`, and the project fell into the
+  List's Notes section.
+
+Not covered yet: a property set from another person's console List
+(`files.writeNote`, a save carrying an etag) still announces nothing, so other
+viewers see it at their next walk.
+
+What fails if reversed: "an agent changing a note's status tells the consoles,
+at the note's own audiences", "a missing opening --- is put back, and the
+stored note opens with its front matter again" (`treeHints.test.mjs`), "a
+collaboration edit that changes front matter is marked, with no content in the
+row" (`collaboration.test.mjs`), "a sibling folder's missing notes are not
+this page's" (`folderPageHoldsFolder.test.ts`), "a retry for one context
+leaves the others alone, and says which it wants"
+(`offlineFolderFreshener.test.ts`).

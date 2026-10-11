@@ -36,7 +36,9 @@ export async function gatewayJobsCreateHandler(
     kind,
     moveId,
   });
-  return json({ ticket: created ? ticket : null });
+  return json(created === "already_active"
+    ? { ticket: null, alreadyActive: true }
+    : { ticket: created ? ticket : null });
 }
 
 export async function gatewayJobsOpenHandler(
@@ -69,7 +71,7 @@ export async function gatewayJobsReportHandler(
       : null;
   const progress =
     rawProgress !== null &&
-    (rawProgress.phase === "copying" || rawProgress.phase === "deleting") &&
+    (rawProgress.phase === "copying" || rawProgress.phase === "deleting" || rawProgress.phase === "rewriting") &&
     typeof rawProgress.completed === "number" &&
     Number.isInteger(rawProgress.completed) &&
     rawProgress.completed >= 0 &&
@@ -78,7 +80,7 @@ export async function gatewayJobsReportHandler(
     rawProgress.total > 0 &&
     rawProgress.completed <= rawProgress.total
       ? {
-          phase: rawProgress.phase as "copying" | "deleting",
+          phase: rawProgress.phase as "copying" | "deleting" | "rewriting",
           completed: rawProgress.completed,
           total: rawProgress.total,
         }
@@ -94,8 +96,9 @@ export async function gatewayJobsReportHandler(
         },
       });
     } catch {
-      // Reporting is not a read path and not a credential path; every refusal
-      // answers the same way so the ticket cannot be probed from the outside.
+      // A transport/database failure must reach the Queue consumer so it can
+      // retry after the live lease. The response carries no ticket state.
+      return json({ ok: false }, 503);
     }
   }
   return json({ ok: true });

@@ -1,6 +1,6 @@
 /** Rewriting the links that point at a moved note. */
 
-import { canSee } from "../../privacy/engine.js";
+import { canSee, effectiveVisibility, narrowerVisibility } from "../../privacy/engine.js";
 import { recordChange } from "../../activity/record.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
@@ -9,7 +9,12 @@ import { isEncryptedNote } from "../../encryption.js";
 import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { mapInBatches } from "../../notes/storage.js";
+import { forwardPath, readForwarding } from "../../forwarding.js";
+import { MOVE_JOB_VERSION } from "../../moves/limits.js";
+import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
+import { linkCandidates } from "../../tree/links.js";
+import { treeClientOf } from "../../tree/record.js";
 
 /**
  * Point every link at where its note went.
@@ -50,13 +55,20 @@ const RECORDED_PATH_CAP = 200;
  */
 const REFERENCE_READ_CONCURRENCY = 8;
 
-export async function rewriteReferences(store, scope, rules, overrides, renames, { write = true } = {}) {
+export async function rewriteReferences(store, scope, rules, overrides, renames, {
+  write = true,
+  after,
+  limit,
+  paths,
+  currentJobId,
+  inventoryKeys,
+  candidates,
+} = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
   let keys;
   try {
-    keys = (await listAllNoteKeys(store))
-      .map(({ key }) => key)
+    keys = (inventoryKeys || (await listAllNoteKeys(store)).map(({ key }) => key))
       .filter((key) => canSee(key, scope, rules, overrides));
   } catch {
     // `listAllKeys` throws rather than truncate. A walk that could not be
@@ -65,11 +77,42 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     // this.
     return { notes: 0, links: 0, capped: true };
   }
-  if (keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
+  keys.sort();
+  const allVisibleKeys = keys;
+  const activeJobs = await loadMoveJobs(store);
+  const unavailable = new Set();
+  for (const job of activeJobs) {
+    for (const item of job.objects) {
+      unavailable.add(item.source);
+      if (job.id !== currentJobId) unavailable.add(item.destination);
+    }
+  }
+  keys = keys.filter((key) => !unavailable.has(key));
+  // The tree's link table named the notes that can hold a link to what moved
+  // (`tree/links.js`): only those are read. Every visible note still feeds
+  // `byName` below, because a bare link is unambiguous only across them all.
+  if (candidates) keys = keys.filter((key) => candidates.has(key));
+  const paged = Number.isInteger(limit) && limit > 0;
+  if (!paged && !paths && keys.length > LINK_SCAN_CAP) {
+    return { notes: 0, links: 0, capped: true };
+  }
+
+  const visibleKeys = keys;
+  if (paths) {
+    const selected = new Set(paths);
+    keys = keys.filter((key) => selected.has(key));
+  } else if (paged) {
+    keys = keys.filter((key) => !after || key > after).slice(0, limit);
+  }
 
   const wasAt = new Map();
   for (const [from, to] of renames) wasAt.set(to, from);
-  const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
+  const byName = indexByName(allVisibleKeys.map((key) => wasAt.get(key) ?? key));
+  // The forwarding ledger includes earlier moves whose link sweeps could not
+  // run in a large workspace. Owner sweeps can repair those stale references
+  // while preserving the relative style of each link.
+  const forwarding = scope === "private" ? await readForwarding(store) : null;
+  const forwardTarget = forwarding ? (path) => forwardPath(forwarding, path) : undefined;
 
   const results = await mapInBatches(keys, REFERENCE_READ_CONCURRENCY, async (key) => {
     try {
@@ -98,7 +141,33 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
         ciphertext".
       */
       if (isEncryptedNote(text)) return { notes: 0, links: 0, written: null, failed: false };
-      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
+      /*
+        A LINK MAY NOT BE POINTED SOMEWHERE ITS OWN NOTE'S READERS CANNOT GO.
+
+        This sweep edits notes OTHER than the one that moved, and each keeps
+        its own visibility. `canSee` above decides which notes this caller may
+        scan; it says nothing about who reads them afterwards. So an owner
+        moving a team-visible note into a private folder had its new path
+        written into every team-visible note that referenced it — the privacy
+        engine answering `not found` for the note while a note the same reader
+        may open spelled out where it went.
+
+        The test is the destination's reach against the referrer's own, so a
+        narrowing is refused and a widening is not: `private` may name
+        anything, `team` may not name a group's or a private note's path, and
+        two different groups resolve to `private` and refuse each other, which
+        is `narrowerVisibility`'s existing rule rather than a second one here.
+
+        The manifest this reads is the one the move already wrote through, and
+        a destination narrower than `team` can only come from a source that was
+        narrower than `team` — whose path the referrer was naming before this
+        move and which is not this sweep's to repair.
+      */
+      const referrerVisibility = effectiveVisibility(key, rules, overrides);
+      const allowTarget = (destination) =>
+        narrowerVisibility(referrerVisibility, effectiveVisibility(destination, rules, overrides)) ===
+          referrerVisibility;
+      const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName, forwardTarget, allowTarget });
       if (rewritten === null) return { notes: 0, links: 0, written: null, failed: false };
       if (!write) return { notes: 1, links: rewritten.changed, written: null, failed: false };
       /*
@@ -140,7 +209,8 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   });
   const notes = results.reduce((sum, result) => sum + result.notes, 0);
   const links = results.reduce((sum, result) => sum + result.links, 0);
-  const failed = results.reduce((sum, result) => sum + (result.failed ? 1 : 0), 0);
+  const failedPaths = results.flatMap((result, index) => result.failed ? [keys[index]] : []);
+  const failed = failedPaths.length;
   const written = results.flatMap((result) => result.written === null ? [] : [result.written]);
 
   /*
@@ -171,5 +241,78 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
       truncated: written.length > RECORDED_PATH_CAP,
     });
   }
-  return { notes, links, capped: failed > 0, failed };
+  return {
+    notes,
+    links,
+    capped: failed > 0,
+    failed,
+    failedPaths,
+    ...(paged && !paths ? {
+      after: keys.at(-1) ?? after ?? null,
+      done: keys.length === 0 || !visibleKeys.some((key) => key > keys.at(-1)),
+      scanned: keys.length,
+      total: visibleKeys.length,
+    } : {}),
+  };
+}
+
+/** A large workspace needs a durable background reference sweep, even for a
+ * one-note move. The move has already committed; keeping its rename map in a
+ * job lets the same materializer finish the link work after the request ends.
+ */
+export async function rewriteReferencesOrQueue(store, scope, rules, overrides, renames) {
+  const fromTable = await referenceCandidates(store, renames);
+  const result = await rewriteReferences(store, scope, rules, overrides, renames, fromTable ?? {});
+  // Gateway jobs currently require owner clearance. A team caller must not
+  // create a job that the queue will later run with owner permissions.
+  if (!result.capped || result.failed > 0 || scope !== "private") return result;
+  const entries = [...renames];
+  const id = `move-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const job = {
+    version: MOVE_JOB_VERSION,
+    id,
+    status: "rewriting",
+    source: entries[0][0],
+    destination: entries[0][1],
+    reference_scope: scope,
+    created_at: now,
+    updated_at: now,
+    total_objects: entries.length,
+    objects: entries.map(([source, destination]) => ({ source, destination })),
+    reference_failed_paths: [],
+  };
+  await persistMoveJob(store, job);
+  await writeMoveSentinel(store);
+  let queued = false;
+  try {
+    if (typeof store.enqueueGatewayJob === "function") {
+      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
+    }
+  } catch {
+    // The marker remains resumable if queueing is temporarily unavailable.
+  }
+  if (!queued) {
+    try {
+      store.defer?.(async () => {
+        const { materializeMoveInBackground } = await import("./materialize.js");
+        await materializeMoveInBackground(store, scope, id);
+      });
+    } catch {
+      // The durable job is the source of truth, not this request's lifetime.
+    }
+  }
+  return { notes: 0, links: 0, capped: false, pending: true, moveId: id };
+}
+
+/**
+ * The notes that can hold a link to what moved, from the tree's link table,
+ * as `rewriteReferences` options; `null` where this context has no table or
+ * it cannot be trusted yet, and the rewrite walks every note as before.
+ */
+export async function referenceCandidates(store, renames) {
+  const client = treeClientOf(store);
+  if (client === null || renames.size === 0) return null;
+  const found = await linkCandidates(client, renames);
+  return found === null ? null : { inventoryKeys: found.inventory, candidates: found.candidates };
 }

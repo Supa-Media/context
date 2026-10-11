@@ -50,7 +50,7 @@
  *    `scripts/check-no-identifiers.mjs`.
  * 6. **The masked-tool skip is removed**, so a masked tool is validated like
  *    any other — 2 checks failed, both existence-oracle ones: a team-tier
- *    caller could tell `export_encryption_keys` from an invented name by the
+ *    caller could tell `rotate_encryption_keys` from an invented name by the
  *    shape of the complaint.
  * 7. **The census's dispatch-table parser is pointed at a function that does
  *    not exist** — 1 check failed, the parser's own self-test, which is the

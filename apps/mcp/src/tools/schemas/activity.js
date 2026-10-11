@@ -52,6 +52,12 @@ export function activityToolDefinitions() {
         type: "object",
         properties: {
           limit: { type: "integer", minimum: 1, maximum: 100, description: "Default 20" },
+          reads: {
+            type: "boolean",
+            description:
+              "Also list the notes AI clients read in the last 7 days, and which client read each, " +
+              "for tracing who opened what. Default false.",
+          },
         },
         additionalProperties: false,
       },

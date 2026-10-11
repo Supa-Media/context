@@ -32,7 +32,7 @@ export function folderRejectionError(
     hidden: `${named} starts with a dot. Names beginning with a dot are reserved for plumbing and are hidden from every client.`,
     reserved: `${named} is the name of a file this context already creates.`,
     duplicate: `${named} is listed twice.`,
-    "description-empty": `${named} needs a one-line description. It becomes that folder's README.`,
+    "description-empty": `${named} needs a one-line description. It becomes that folder's about note.`,
     "description-too-long": `The description for ${named} is longer than ${MAX_FOLDER_DESCRIPTION_LENGTH} characters.`,
     "description-control-character": `The description for ${named} must be a single line.`,
   };

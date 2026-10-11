@@ -128,3 +128,74 @@ test.describe("a window with a little less room than a card needs", () => {
     );
   });
 });
+
+test("a paragraph with more comments than room folds the extras into one row beside it", async ({
+  page,
+}) => {
+  // Dev2, 2026-10-10: with many comments on one paragraph, cards were pushed
+  // away from their words and, once one was clicked, onto each other.
+  await page.goto("/e2e-fixture");
+  const line = page.locator(".cm-line", { hasText: "Tenancy is bucket-level" });
+  await expect(line).toBeVisible();
+  const box = await line.boundingBox();
+  if (box === null) throw new Error("no line to click");
+  await page.mouse.click(box.x + 4, box.y + box.height / 2);
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.insertText(
+    [
+      "",
+      "",
+      "<!--c:aa01-->One<!--/c:aa01--> <!--c:aa02-->two<!--/c:aa02--> <!--c:aa03-->three<!--/c:aa03--> <!--c:aa04-->four<!--/c:aa04--> words.",
+      "",
+      "```comments",
+      'aa01 "One"',
+      "- 2026-10-10T04:00:00Z @sayo: Can we say forever? Legal wants it gone, and this needs a longer card.",
+      'aa02 "two"',
+      "- 2026-10-10T04:01:00Z Codex: Out of date: the free plan is 1,000 notes now.",
+      'aa03 "three"',
+      "- 2026-10-10T04:02:00Z @john: And put no card first.",
+      'aa04 "four"',
+      "- 2026-10-10T04:03:00Z Claude: Link this to the Premium page.",
+      "```",
+      "",
+    ].join("\n"),
+  );
+  const fold = page.locator(".cm-cmt-fold");
+  await expect(fold).toHaveCount(1);
+  await expect(fold).toContainText("more here");
+  await page.waitForTimeout(400);
+
+  const visibleBoxes = async () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".cm-cmt-card, .cm-cmt-fold")]
+        .filter((node) => getComputedStyle(node).visibility !== "hidden")
+        .map((node) => node.getBoundingClientRect())
+        .map((rect) => ({ top: rect.top, bottom: rect.bottom }))
+        .sort((a, b) => a.top - b.top),
+    );
+  const noOverlap = (boxes: { top: number; bottom: number }[]) => {
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.top).toBeGreaterThanOrEqual(boxes[i - 1]!.bottom - 0.5);
+  };
+  const closed = await visibleBoxes();
+  // The first card, and one row for the rest, both beside the paragraph.
+  expect(closed).toHaveLength(2);
+  noOverlap(closed);
+
+  await fold.getByRole("button", { name: "Show" }).click();
+  await expect(fold).toContainText("comments here");
+  await page.waitForTimeout(400);
+  const open = await visibleBoxes();
+  expect(open).toHaveLength(5);
+  noOverlap(open);
+  // Opening the row moves nothing above it: the first card stays level with its words.
+  const words = await page.locator(".cm-cmt-hl", { hasText: "One" }).boundingBox();
+  expect(Math.abs(open[0]!.top - (words?.y ?? NaN))).toBeLessThan(24);
+
+  // Clicking a folded thread's words opens its row too.
+  await fold.getByRole("button", { name: "Hide" }).click();
+  await expect(fold).toContainText("more here");
+  await page.locator(".cm-cmt-hl", { hasText: "four" }).click();
+  await expect(page.locator(".cm-cmt-card-active")).toContainText("Link this to the Premium page");
+  await page.waitForTimeout(400);
+  noOverlap(await visibleBoxes());
+});

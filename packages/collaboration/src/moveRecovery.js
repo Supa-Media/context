@@ -12,6 +12,28 @@ import {
 } from "./records.js";
 import { scrubStructural } from "./purge.js";
 
+// R2 enforces conditional PUT but not conditional DELETE. Claim an object with
+// an operation-specific marker under If-Match before deleting it. The marker
+// also lets recovery distinguish a completed claim from somebody else's edit.
+function retirementMarker(operationId) {
+  return `context-move-retired:${operationId}`;
+}
+
+async function retireMoveObject(store, key, etag, operationId) {
+  if (store.capabilities?.conditionalDelete === true) {
+    return (await store.delete(key, { onlyIf: { etagMatches: etag } })) !== null;
+  }
+  const marker = retirementMarker(operationId);
+  const current = await readObject(store, key);
+  if (!current) return true;
+  if (current.text !== marker) {
+    if (current.etag !== etag) return false;
+    if (!await put(store, key, marker, { etagMatches: etag })) return false;
+  }
+  await store.delete(key);
+  return !(await readObject(store, key));
+}
+
 export async function recoverMove(store, operationId, attempt = 0) {
   if (attempt >= MAX_RETRIES) throw fail("CONCURRENT_WRITE", "move recovery exceeded its retry budget");
   const retry = () => recoverMove(store, operationId, attempt + 1);
@@ -58,22 +80,30 @@ export async function recoverMove(store, operationId, attempt = 0) {
   let destinationObject = await readObject(store, op.to);
   if (!destinationObject) {
     if (!sourceObject) {
-      if (state.path !== op.to) throw fail("STRUCTURAL_CONFLICT", "source Markdown disappeared before the move completed");
+      // A competing materialization pass may remove the provisional copy
+      // after this journal has safely retired the source. The frozen state and
+      // journal still own the original Markdown, so recreate the destination.
+      const frozenHere = state.path === op.from &&
+        state.structural?.operationId === operationId &&
+        sourceHead?.status === "moving";
+      if (state.path !== op.to && !frozenHere) {
+        throw fail("STRUCTURAL_CONFLICT", "source Markdown disappeared before the move completed");
+      }
     } else {
       if (sourceObject.etag !== op.sourceRawEtag || sourceObject.text !== op.sourceText) {
         return abortMove(store, opRecord, "source Markdown changed during the move");
       }
-      const copied = await put(store, op.to, op.sourceText, { absent: true });
-      if (!copied) return retry();
-      destinationObject = await readObject(store, op.to);
-      const journaled = await updateStructural(store, { ...op, destinationRawEtag: copied.etag }, opRecord.etag);
-      if (journaled.value.phase === "aborted") return finishAbortedMove(store, journaled);
-      if (journaled.value.phase === "complete") return journaled.value;
-      opRecord = journaled;
-      op = opRecord.value;
-      if (!destinationObject || destinationObject.etag !== copied.etag || destinationObject.text !== op.sourceText) {
-        return abortMove(store, opRecord, "destination path changed during the move");
-      }
+    }
+    const copied = await put(store, op.to, op.sourceText, { absent: true });
+    if (!copied) return retry();
+    destinationObject = await readObject(store, op.to);
+    const journaled = await updateStructural(store, { ...op, destinationRawEtag: copied.etag }, opRecord.etag);
+    if (journaled.value.phase === "aborted") return finishAbortedMove(store, journaled);
+    if (journaled.value.phase === "complete") return journaled.value;
+    opRecord = journaled;
+    op = opRecord.value;
+    if (!destinationObject || destinationObject.etag !== copied.etag || destinationObject.text !== op.sourceText) {
+      return abortMove(store, opRecord, "destination path changed during the move");
     }
   } else if (destinationObject.text !== op.sourceText) {
     return abortMove(store, opRecord, "destination path changed during the move");
@@ -81,11 +111,12 @@ export async function recoverMove(store, operationId, attempt = 0) {
 
   const latestSource = await readObject(store, op.from);
   if (latestSource) {
-    if (latestSource.etag !== op.sourceRawEtag || latestSource.text !== op.sourceText) {
+    if (latestSource.text !== retirementMarker(operationId) &&
+        (latestSource.etag !== op.sourceRawEtag || latestSource.text !== op.sourceText)) {
       return abortMove(store, opRecord, "source Markdown changed during the move");
     }
-    const removed = await store.delete(op.from, { onlyIf: { etagMatches: op.sourceRawEtag } });
-    if (removed === null) return retry();
+    const removed = await retireMoveObject(store, op.from, op.sourceRawEtag, operationId);
+    if (!removed) return retry();
     if (await readObject(store, op.from)) return retry();
   }
   if (!destinationObject) destinationObject = await readObject(store, op.to);
@@ -131,6 +162,11 @@ function ownsPreparedMoveHead(head, op) {
 /** Remove only a move's proven copy before releasing its prepared destination head. */
 async function cleanupAbortedMoveDestination(store, op) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+    const destinationHeadObject = await readObject(store, await headKey(op.to));
+    if (destinationHeadObject?.text === retirementMarker(op.operationId)) {
+      if (!await retireMoveObject(store, await headKey(op.to), destinationHeadObject.etag, op.operationId)) continue;
+      return;
+    }
     let destinationHead = await readHead(store, op.to);
     if (!ownsPreparedMoveHead(destinationHead, op)) return;
 
@@ -138,9 +174,10 @@ async function cleanupAbortedMoveDestination(store, op) {
     // initialize a new generation, and then lose its object to rollback.
     if (typeof op.destinationRawEtag === "string") {
       const destinationObject = await readObject(store, op.to);
-      if (destinationObject?.etag === op.destinationRawEtag) {
-        const removed = await store.delete(op.to, { onlyIf: { etagMatches: op.destinationRawEtag } });
-        if (removed === null) {
+      if (destinationObject?.etag === op.destinationRawEtag ||
+          destinationObject?.text === retirementMarker(op.operationId)) {
+        const removed = await retireMoveObject(store, op.to, op.destinationRawEtag, op.operationId);
+        if (!removed) {
           const latest = await readObject(store, op.to);
           if (latest?.etag === op.destinationRawEtag) continue;
         }
@@ -149,8 +186,7 @@ async function cleanupAbortedMoveDestination(store, op) {
 
     destinationHead = await readHead(store, op.to);
     if (!ownsPreparedMoveHead(destinationHead, op)) return;
-    const removedHead = await store.delete(await headKey(op.to), { onlyIf: { etagMatches: destinationHead.etag } });
-    if (removedHead !== null) return;
+    if (await retireMoveObject(store, await headKey(op.to), destinationHead.etag, op.operationId)) return;
   }
   throw fail("CONCURRENT_WRITE", "move abort cleanup could not settle the destination");
 }

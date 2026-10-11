@@ -97,3 +97,19 @@ Moved to [A shed index must say so to the caller it happened to, not only to the
 ### With no connection, search reads the copy on the device, and says so
 
 Moved to [With no connection, search reads the copy on the device, and says so](./search/offline-search.md#with-no-connection-search-reads-the-copy-on-the-device-and-says-so).
+
+### The map's graph is read per shard at request time, and stored nowhere
+
+Moved to [The map's graph is read per shard at request time, and stored nowhere](./search/workspace-map.md#the-maps-graph-is-read-per-shard-at-request-time-and-stored-nowhere).
+
+### Every search is timed, and the time is all that is kept
+
+Moved to [Every search is timed, and the time is all that is kept](./search/search-timings.md#every-search-is-timed-and-the-time-is-all-that-is-kept).
+
+### Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
+
+Moved to [Search by meaning is on for every workspace, free and Premium, and an owner can turn it off](./search/meaning-search.md#search-by-meaning-is-on-for-every-workspace-free-and-premium-and-an-owner-can-turn-it-off).
+
+### Notes reach the index two ways, and a map in the bucket says which are in
+
+Moved to [Notes reach the index two ways, and a map in the bucket says which are in](./search/meaning-search.md#notes-reach-the-index-two-ways-and-a-map-in-the-bucket-says-which-are-in).

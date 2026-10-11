@@ -10,9 +10,10 @@ name: Deploy to Production
 #   validate ─┬─ web export ─────────────────────┐
 #             ├─ convex ─┬─ gateway ─────────────┼─ router + assets
 #             │          ├─ email ───────────────┤
-#             │          ├─ transcribe ──────────┼─ mobile-update
-#             │          ├─ egress ──────────────┘
-#             │          └─ agent
+#             │          ├─ transcribe ──────────┼─ mobile-update (publish)
+#             │          ├─ egress ──────────────┤
+#             │          └─ agent                │
+#             ├─ mobile-bundle (export) ─────────┘
 #             └─ sentry
 #
 # Why each edge exists:
@@ -20,7 +21,8 @@ name: Deploy to Production
 #   plane functions the old backend does not have.
 # - The web export builds alongside the backends. The router waits for both,
 #   then publishes Worker code and that exact export as one version.
-# - The OTA update waits for the backends, not the web artifact.
+# - The OTA update waits for the backends, not the web artifact. Its bundle is
+#   exported from the start, beside them; only the upload waits.
 #
 # The gateway's suite is not rerun here. `validate` requires this exact commit
 # to have passed staging, and staging runs that suite (a superset of this
@@ -131,8 +133,18 @@ jobs:
     uses: ./.github/workflows/deploy-router.yml
     secrets: inherit
 
-  mobile-update:
-    needs: [validate, convex, gateway, email, transcribe, egress]
+  mobile-bundle:
+    needs: validate
     if: ${{ !cancelled() && !failure() && needs.validate.outputs.ota == 'true' }}
     uses: ./.github/workflows/deploy-mobile-update.yml
+    with:
+      phase: bundle
+    secrets: inherit
+
+  mobile-update:
+    needs: [validate, convex, gateway, email, transcribe, egress, mobile-bundle]
+    if: ${{ !cancelled() && !failure() && needs.validate.outputs.ota == 'true' }}
+    uses: ./.github/workflows/deploy-mobile-update.yml
+    with:
+      phase: publish
     secrets: inherit

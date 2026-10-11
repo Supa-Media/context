@@ -63,9 +63,58 @@ export async function scanWebsiteRoutes(
   /** The text of every page read, for a site check (`./siteCheck.ts`). */
   pages: Array<{ objectKey: string; markdown: string }>;
 }> {
+  /*
+    Only `website/` is walked, and then only the folders its pages name.
+    This used to walk the whole bucket to find both, and on a large workspace
+    took longer than the gateway waits for an answer: a seven-page site's
+    check, status and publish over MCP all failed as "control plane
+    unavailable" (2026-10-09). The prefix walk asks the same barrier at the
+    same clearance, so a note `privacy.md` holds back is absent from it exactly
+    as it was from the whole-bucket walk.
+  */
+  const list = (folder: string) => listMarkdownUnder(ctx, workspaceId, clearance, folder);
+  const paths = await list(DEFAULT_WEBSITE_ROOT);
+
+  const read = (keys: string[]) =>
+    readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
+  const { pages, etags } = await read(paths);
+  const own = buildWebsiteRouteStatuses(pages, { wholeSite: true });
+  /*
+    The folders the site's pages name. Their notes are read through the same
+    barrier at the same clearance as the pages, so a note `privacy.md` holds
+    back was never listed above and is not here either.
+  */
+  const referenced = await referencedWebsitePages(own, pages, list, read);
+  for (const [key, etag] of referenced.etags) etags.set(key, etag);
+  const statuses = [...own, ...referenced.statuses];
+  const allPages = [...pages, ...referenced.pages];
+  return {
+    pages: allPages,
+    restricted: allPages
+      .filter((page) => websiteTextRestricts(page.markdown))
+      .map((page) => page.objectKey),
+    statuses,
+    indexed: statuses.map((status) => ({
+      ...status,
+      sourceEtag: etags.get(status.objectKey)!,
+    })),
+  };
+}
+
+/**
+ * Every Markdown path under `folder` this clearance may list, through the
+ * barrier's prefix-limited manifest. A listing that cannot finish fails the
+ * scan rather than reading as "nothing there": a partial manifest is never
+ * evidence that an indexed route was deleted.
+ */
+async function listMarkdownUnder(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  clearance: Clearance,
+  folder: string,
+): Promise<string[]> {
+  const prefix = `${folder}/`;
   const paths: string[] = [];
-  /* Every other note this clearance may list, for the folders a page names. */
-  const elsewhere: string[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -77,6 +126,7 @@ export async function scanWebsiteRoutes(
         grantedNames: clearance.grantedNames,
         operation: {
           kind: "manifest",
+          folder,
           ...(cursor === undefined ? {} : { cursor }),
         },
       },
@@ -84,13 +134,11 @@ export async function scanWebsiteRoutes(
     if (manifest.kind !== "manifest")
       throw scanError("The website listing returned an invalid result.");
     for (const entry of manifest.entries) {
-      if (!/\.md$/i.test(entry.path)) continue;
-      if (!entry.path.startsWith(`${DEFAULT_WEBSITE_ROOT}/`)) {
-        elsewhere.push(entry.path);
-        continue;
-      }
+      // The barrier already limits the walk to the folder; this keeps that
+      // true of the scan's own answer whatever the store did with the prefix.
+      if (!entry.path.startsWith(prefix) || !/\.md$/i.test(entry.path)) continue;
       paths.push(entry.path);
-      if (paths.length > MAX_WEBSITE_ROUTES) {
+      if (folder === DEFAULT_WEBSITE_ROOT && paths.length > MAX_WEBSITE_ROUTES) {
         throw scanError(
           `A website may contain at most ${MAX_WEBSITE_ROUTES} route files.`,
         );
@@ -114,31 +162,7 @@ export async function scanWebsiteRoutes(
       cursor = nextCursor;
     }
   } while (cursor !== undefined);
-
-  const read = (keys: string[]) =>
-    readScanPages(ctx, workspaceId, clearance, keys, options.publication === true);
-  const { pages, etags } = await read(paths);
-  const own = buildWebsiteRouteStatuses(pages, { wholeSite: true });
-  /*
-    The folders the site's pages name. Their notes are read through the same
-    barrier at the same clearance as the pages, so a note `privacy.md` holds
-    back was never listed above and is not here either.
-  */
-  const referenced = await referencedWebsitePages(own, pages, elsewhere, read);
-  for (const [key, etag] of referenced.etags) etags.set(key, etag);
-  const statuses = [...own, ...referenced.statuses];
-  const allPages = [...pages, ...referenced.pages];
-  return {
-    pages: allPages,
-    restricted: allPages
-      .filter((page) => websiteTextRestricts(page.markdown))
-      .map((page) => page.objectKey),
-    statuses,
-    indexed: statuses.map((status) => ({
-      ...status,
-      sourceEtag: etags.get(status.objectKey)!,
-    })),
-  };
+  return paths;
 }
 
 /** Read `paths` through the barrier at `clearance`: what it lets through, with each note's etag. */

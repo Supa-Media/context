@@ -3,7 +3,6 @@ import type { WorkspaceRole } from "@context/convex/functions/lib/workspaceAuth"
 import { scopeForRole } from "@context/convex/functions/files";
 import {
   isFilteredView,
-  memberReachSentence,
   tierChipLabel,
   tierSentence,
   visibilityTierForRole,
@@ -87,25 +86,6 @@ describe("an owner is not told they are limited", () => {
     // and noise beside a warning is how the warning gets skimmed past.
     expect(tierSentence("owner")).toBeNull();
   });
-
-  test("and the one line they do get is about the people they invited, not about themselves", () => {
-    const reach = memberReachSentence("owner");
-    expect(reach).not.toBeNull();
-    expect(reach).toContain("team level");
-    // It says the rule. It must never grow a count: `ConsoleData` carries no
-    // note census, so any number here would be invented. See the function's
-    // comment.
-    expect(reach).not.toMatch(/\d/);
-  });
-
-  test("nobody else gets the owner's line", () => {
-    // It describes a decision only the owner made. On somebody else's context
-    // "anything you marked private is yours alone" is a claim about the wrong
-    // person's notes.
-    expect(memberReachSentence("editor")).toBeNull();
-    expect(memberReachSentence("member")).toBeNull();
-    expect(memberReachSentence(undefined)).toBeNull();
-  });
 });
 
 describe("a role the console does not know yet is described in no words at all", () => {
@@ -137,7 +117,6 @@ describe("a role the console does not know yet is described in no words at all",
       expect(visibilityTierForRole(unknown)).toBe("unknown");
       expect(tierChipLabel(unknown)).toBeNull();
       expect(tierSentence(unknown)).toBeNull();
-      expect(memberReachSentence(unknown)).toBeNull();
     }
   });
 });

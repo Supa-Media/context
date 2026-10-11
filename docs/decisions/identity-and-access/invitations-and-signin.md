@@ -83,12 +83,22 @@ enqueues a job in a separate transaction whose return value is discarded, so
 makes it safe for the *scheduled* job to decide things the mutation never could,
 including whether the address already belongs to somebody.
 
-**A `@name` invitee is mailed nothing.** Not a deferred send: we have no
-address, and finding one would be resolving an identifier to a person at invite
-time, which is exactly what the invite box refuses to do. `listMyInvitations`
-stays the channel for a handle and the fallback for every address, because mail
-is dropped for an unverified inviter, dropped with no Resend key, sent at most
-once per row, and may simply not arrive.
+**A `@name` invitee is mailed too, at their account's verified address.** This
+used to say a handle was mailed nothing, because finding an address would be
+"resolving an identifier to a person at invite time". That had the place wrong:
+the lookup happens in the scheduled job, which the paragraph above already
+established is safe, and `inviteMember` resolves the addressee anyway for the
+existing-member no-op. The rule's real cost was the common case going silent —
+someone invited `@shyoh` by name and `@shyoh` heard nothing (reported by the
+owner, 2026-10-10). The job resolves the handle with `resolveAddressedUser`, the
+same authority accepting uses, mails only a verified address, never mints a
+sign-in code for it (a handle only names an existing account), and drops every
+refusal silently; the address never reaches the inviter, the row, the audit
+detail or a log. `listMyInvitations` stays the fallback for every invitation,
+because mail is dropped for an unverified inviter, dropped with no Resend key,
+sent at most once per row, and may simply not arrive. Reversing this fails
+`invitationEmail/sendAndContent.test.ts`, "a @name invitee is mailed at their
+verified address".
 
 **The emailed link is not the invitation token being used as a credential.** The
 token still only addresses the invitation; what signs a recipient in is a

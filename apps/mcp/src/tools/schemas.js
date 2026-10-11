@@ -18,6 +18,7 @@ import { formToolDefinitions } from "./schemas/forms.js";
 import { activityToolDefinitions } from "./schemas/activity.js";
 import { routingToolDefinitions } from "./schemas/routing.js";
 import { feedbackToolDefinitions } from "./schemas/feedback.js";
+import { vaultToolDefinitions } from "./schemas/vault.js";
 
 export function baseToolDefinitions() {
   return [
@@ -31,5 +32,6 @@ export function baseToolDefinitions() {
     ...activityToolDefinitions(),
     ...routingToolDefinitions(),
     ...feedbackToolDefinitions(),
+    ...vaultToolDefinitions(),
   ];
 }

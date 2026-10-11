@@ -11,6 +11,13 @@
 export const CONTROL_PLANE_TIMEOUT_MS = 8_000;
 
 /**
+ * How long a website status, check or publish may take. These read the site's
+ * pages from the bucket (and a publish writes a copy of each), so they are
+ * real work rather than a lookup, and an agent waits for the answer anyway.
+ */
+export const CONTROL_PLANE_SITE_TIMEOUT_MS = 30_000;
+
+/**
  * Cap on a control-plane response body.
  *
  * Small on purpose: every documented payload is a few hundred bytes, and the
@@ -101,10 +108,10 @@ function requireConfig(env) {
  * could carry into the next tenant's request.
  */
 export function createTransport(env, fetchImpl) {
-  async function post(path, body) {
+  async function post(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS } = {}) {
     const { base, secret } = requireConfig(env);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONTROL_PLANE_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response;
     try {
       response = await fetchImpl(`${base}${path}`, {
@@ -130,8 +137,10 @@ export function createTransport(env, fetchImpl) {
       });
     } catch {
       // The caught error may quote the request — headers included. It is
-      // dropped on the floor rather than wrapped.
-      throw new ControlPlaneError("request failed");
+      // dropped on the floor rather than wrapped. A call we gave up on says
+      // so: "request failed" for a slow answer sent people hunting an outage
+      // that was never there (2026-10-09).
+      throw new ControlPlaneError(controller.signal.aborted ? "timed out" : "request failed");
     } finally {
       clearTimeout(timer);
     }

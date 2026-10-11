@@ -239,23 +239,27 @@ export function GoogleConnectionsCard({
         <Grow>
           <Text variant="rowTitle">Google</Text>
           <Text variant="rowSub" style={styles.rowSub}>
-            Gmail, Calendar and Chat. Google asks for all three at once, so an account
-            carries whichever of them you granted.
+            Bring in Gmail, Calendar and Chat. Checked every five minutes.
           </Text>
         </Grow>
-        {actions ? <GoogleConnectButton actions={actions} /> : null}
+        {actions ? (
+          <GoogleConnectButton actions={actions} first={connections.length === 0} />
+        ) : null}
       </Row>
 
       {connections.length === 0 ? (
+        /* With the button right there, "no account yet" is already said. */
+        !loading && actions ? null : (
         <Row divided>
           <Grow>
             <Text variant="rowSub">
               {loading
                 ? "Loading Google accounts…"
-                : "No Google account connected yet. Adding one starts filling this context with your mail, calendar and chats."}
+                : "No Google account connected yet."}
             </Text>
           </Grow>
         </Row>
+        )
       ) : (
         connections.map((connection) => (
           <GoogleAccountRow
@@ -378,7 +382,14 @@ function GoogleAccountRow({
  * scopes submitted in Cloud Console. A picker whose value was overridden on
  * every path is a control that lies about what consent it is about to ask for.
  */
-function GoogleConnectButton({ actions }: { actions: GoogleActions }) {
+function GoogleConnectButton({
+  actions,
+  first,
+}: {
+  actions: GoogleActions;
+  /** No account yet: the button says what it connects. */
+  first: boolean;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const google = useGoogleStart(actions.workspaceId);
@@ -388,7 +399,7 @@ function GoogleConnectButton({ actions }: { actions: GoogleActions }) {
   return (
     <View style={styles.connect}>
       <Button
-        label={starting ? "Opening Google…" : "Add account"}
+        label={starting ? "Opening Google…" : first ? "Connect Google" : "Add account"}
         disabled={starting || google.redirectUri === null}
         onPress={() => google.start(everything)}
         trailing={starting ? <ActivityIndicator color={colors.text} size="small" /> : null}

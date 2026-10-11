@@ -261,7 +261,7 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   "auth",
   "cdn",
   "dev",
-  // Every first path segment `apps/mcp/src/session.js` reads as a route rather
+  // Every first path segment `apps/mcp/src/workspacePath.js` reads as a route rather
   // than as a context. `granola-webhook` was claimable until a test derived
   // this set from the gateway's own list instead of restating five of them by
   // hand: the gateway reads `/@granola-webhook/mcp` as a route, so the context
@@ -294,6 +294,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // What agents are reading and writing in a workspace, for the console's file
   // tree, at `/agent-activity`. Reserved on the same terms as `presence`.
   "agent-activity",
+  // What the egress gate is holding for a person, at `/approvals` on the
+  // gateway. Reserved on the same terms as `presence`.
+  "approvals",
   "oauth",
   "static",
   "status",
@@ -347,6 +350,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // claimed it first. They stay, and `names.test.ts` holds them.
   "brain",
   "brains",
+  // The texting assistant's name (decided by the owner, 2026-10-10): `@tex`
+  // and `tex@context.lc` would read as the assistant itself.
+  "tex",
   // On-bucket layout words, so a name can never be confused for a folder.
   //
   // The numbered forms are the ones that actually exist on a bucket
@@ -360,6 +366,13 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   "2-areas",
   "3-resources",
   "4-archive",
+  // The archive every new workspace gets, and the fixed-number extras a
+  // workspace can add (see `packages/shared/src/folderRoles.cjs`). Retiring a
+  // word does not free its name, and these are as guessable as `4-archive`.
+  "9-archive",
+  "4-clients",
+  "5-teams",
+  "6-products",
   "inbox",
   "projects",
   "areas",

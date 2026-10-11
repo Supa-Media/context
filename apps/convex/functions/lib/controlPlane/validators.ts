@@ -12,6 +12,7 @@ import {
   dropboxBindingValidator,
   encryptionKeyValidator,
   keyRotationValidator,
+  meaningIndexValidator,
   s3BindingValidator,
   searchIndexValidator,
 } from "./bindingShapes";
@@ -48,6 +49,7 @@ export const openStorageBindingReturns = v.union(
   v.object({
     binding: v.union(s3BindingValidator, dropboxBindingValidator),
     searchIndex: v.optional(searchIndexValidator),
+    meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
     noteCap: v.optional(v.number()),
@@ -59,6 +61,7 @@ export const openGatewayJobArgs = { hashedTicket: v.string() };
 
 export const openGatewayJobReturns = v.union(
   v.null(),
+  v.object({ retryAfterMs: v.number() }),
   v.object({
     job: v.object({
       workspaceId: v.id("workspaces"),
@@ -70,6 +73,7 @@ export const openGatewayJobReturns = v.union(
     }),
     binding: v.union(s3BindingValidator, dropboxBindingValidator),
     searchIndex: v.optional(searchIndexValidator),
+    meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),

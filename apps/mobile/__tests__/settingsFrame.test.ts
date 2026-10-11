@@ -237,8 +237,10 @@ describe("the bar says where you are and how to leave", () => {
     expect(bar!.textContent).toContain("@");
   });
 
-  test("the storage health the bar carried is still carried", () => {
-    expect(find(pointer("plugins"), "settings-health")).not.toBeNull();
+  test("the bar carries no health pill: the list's Storage row says it", () => {
+    // Removed 2026-10-10 with the rest of the clutter in the bar. A broken
+    // bucket still shows on the Storage row and its page.
+    expect(find(pointer("plugins"), "settings-health")).toBeNull();
   });
 });
 
