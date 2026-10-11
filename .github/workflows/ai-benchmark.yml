@@ -42,6 +42,10 @@ on:
         description: "The job to benchmark (tests/<job>.md, setups/<job>/)"
         required: false
         default: "texting-assistant"
+      test:
+        description: "The test to run (tests/<test>.md), e.g. tasks for the golden tasks; empty uses the job's own"
+        required: false
+        default: ""
       setups:
         description: "Setups to run, comma-separated; empty runs every setup in setups/<job>/"
         required: false
@@ -126,6 +130,7 @@ jobs:
       # argument that is not a number or a name is a mistake worth a clear
       # refusal rather than a stack trace twenty minutes in.
       BENCH_PARALLEL: ${{ inputs.parallel || '12' }}
+      BENCH_TEST: ${{ inputs.test }}
       BENCH_SETUPS: ${{ inputs.setups }}
       BENCH_QUESTIONS: ${{ inputs.questions }}
       BENCH_RUNS: ${{ inputs.runs }}
@@ -152,6 +157,7 @@ jobs:
           [[ "$BENCH_RUNS" =~ ^[0-9]{0,3}$ ]] || refuse "runs must be a whole number, or empty for the test's own."
           [[ "$BENCH_MAX_USD" =~ ^[0-9]{1,4}(\.[0-9]{1,2})?$ ]] || refuse "max_usd must be a number of dollars."
           [[ "$BENCH_JUDGE" =~ ^[a-z0-9@/._-]{0,64}$ ]] || refuse "judge must be a model id."
+          [[ "$BENCH_TEST" =~ ^([a-z0-9][a-z0-9-]{0,63})?$ ]] || refuse "test must be a lowercase name (tests/<test>.md), or empty for the job's."
           [[ "$BENCH_SETUPS" =~ ^[A-Za-z0-9,._-]{0,256}$ ]] || refuse "setups must be comma-separated setup names."
           [[ "$BENCH_QUESTIONS" =~ ^[0-9,]{0,256}$ ]] || refuse "questions must be comma-separated numbers."
           [[ "$BENCH_JUDGE_RUN_ID" =~ ^[0-9]{0,20}$ ]] || refuse "judge_run_id must be a run id, or empty."
@@ -216,7 +222,7 @@ jobs:
             [ -f "${result%.md} key.md" ] || { echo "::error::run $BENCH_JUDGE_RUN_ID has no benchmark-key artifact beside its result."; exit 1; }
           else
             stamp="$(date -u +%Y-%m-%d)"
-            result="apps/mcp/bench/ai/results/${stamp} ${BENCH_JOB} gh-${{ github.run_number }}.md"
+            result="apps/mcp/bench/ai/results/${stamp} ${BENCH_TEST:-$BENCH_JOB} gh-${{ github.run_number }}.md"
           fi
           echo "result=${result}" >> "$GITHUB_OUTPUT"
           echo "key=${result%.md} key.md" >> "$GITHUB_OUTPUT"
@@ -242,6 +248,7 @@ jobs:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
           args=("$BENCH_JOB" --parallel "$BENCH_PARALLEL" --out "$RESULT")
+          [ -n "$BENCH_TEST" ] && args+=(--test "$BENCH_TEST")
           [ -n "$BENCH_SETUPS" ] && args+=(--setups "$BENCH_SETUPS")
           [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
           [ -n "$BENCH_RUNS" ] && args+=(--runs "$BENCH_RUNS")

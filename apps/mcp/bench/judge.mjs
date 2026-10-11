@@ -25,6 +25,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { checkVerdicts } from "./checks.mjs";
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { priceUsd } from "./report.mjs";
@@ -289,8 +290,14 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
     if (answers.every((answer) => done.has(answer.id))) continue;
     const question = test.questions.find((q) => q.n === n);
     if (!question) throw new Error(`answers to question ${n} are in the result, but the test does not have it`);
+    // Checks the run's record proves (`checks.mjs`) are graded here, never sent.
+    const checked = new Map(answers.map((answer) => [answer.id, checkVerdicts(question, answer)]));
+    if (checksOf(question, test.everyAnswer).length === 0) {
+      for (const answer of answers) done.set(answer.id, { id: answer.id, verdicts: checked.get(answer.id), gate: null });
+      continue;
+    }
     const { checks, body, inputTokens, outputTokens } = buildJudgeRequest({ model: judgeModel, question, answers, every: test.everyAnswer });
-    requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question) });
+    requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question), checked });
   }
 
   const estimate = estimateJudging(requests, judgeModel);
@@ -306,7 +313,7 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
   await inFlight(requests, concurrency, async (request) => {
     const started = Date.now();
     const { blocks, usage } = await judgeQuestion({ send, ...request });
-    for (const block of blocks) done.set(block.id, block);
+    for (const block of blocks) done.set(block.id, { ...block, verdicts: [...(request.checked.get(block.id) ?? []), ...block.verdicts] });
     spent.input += usage.input;
     spent.output += usage.output;
     spent.usd += priceOf(judgeModel, usage) ?? 0;

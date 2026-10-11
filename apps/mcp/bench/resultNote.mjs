@@ -67,6 +67,8 @@ function readBlock(id, lines) {
   const toolList = toolsLine === null ? "none" : toolsLine.slice("Tools: ".length).trim();
   const timeLine = tail.find((line) => TIME.test(line));
   const errorLine = tail.find((line) => line.startsWith("Error: "));
+  // What the scripted browser did (`sites.mjs`), for the checks (`checks.mjs`).
+  const browserLine = tail.find((line) => line.startsWith("Browser: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -78,6 +80,7 @@ function readBlock(id, lines) {
     toolsLine,
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),
+    browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };

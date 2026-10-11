@@ -152,6 +152,23 @@ test("pullSetups replaces setups/<job>/ with the notes in Context, skipping the 
   await assert.rejects(pullSetups({ job: "../x", dir, connection, fetchImpl }), /not a job name/);
 });
 
+test("pullSetups brings the job's skills folder too, and nothing deeper", async () => {
+  const notes = {
+    "ai/setups/texting-assistant/guide.md": "---\njob: texting-assistant\n---\n\nGuide.\n",
+    "ai/setups/texting-assistant/skills/about.md": "What skills are.\n",
+    "ai/setups/texting-assistant/skills/connect-chatgpt.md": "Open chatgpt.com/plugins.",
+    "ai/setups/texting-assistant/skills/old/retired.md": "Not a skill.\n",
+  };
+  const { fetchImpl } = fakeGateway({ notes });
+  const dir = await mkdtemp(join(tmpdir(), "bench-pull-skills-"));
+  const connection = { endpoint: ENDPOINT, accessToken: "cat_1" };
+  const pulled = await pullSetups({ job: "texting-assistant", dir, connection, fetchImpl });
+  assert.deepEqual(pulled.names, ["guide"]);
+  assert.deepEqual(pulled.skills, ["connect-chatgpt"]);
+  assert.deepEqual(await readdir(join(dir, "setups", "texting-assistant", "skills")), ["connect-chatgpt.md"]);
+  assert.equal(await readFile(join(dir, "setups", "texting-assistant", "skills", "connect-chatgpt.md"), "utf8"), "Open chatgpt.com/plugins.\n");
+});
+
 const SCORED = [
   "---",
   "job: texting-assistant",

@@ -69,6 +69,24 @@ function commit() {
   }
 }
 
+/**
+ * The job's task skills (`src/agent/skills.js`), `setups/<job>/skills/*.md`:
+ * one folder for every setup in the round, placed where production keeps
+ * them, and promoted with the setup that names them. None is fine.
+ */
+export async function readSkills(dir, job) {
+  const folder = join(dir, "setups", job, "skills");
+  let names;
+  try {
+    names = (await readdir(folder)).filter((name) => name.endsWith(".md")).sort();
+  } catch {
+    return [];
+  }
+  const skills = [];
+  for (const name of names) skills.push({ name: name.slice(0, -3), raw: await readFile(join(folder, name), "utf8") });
+  return skills;
+}
+
 async function readSetups(dir, job, only) {
   const folder = join(dir, "setups", job);
   const names = (await readdir(folder)).filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
@@ -80,7 +98,7 @@ async function readSetups(dir, job, only) {
     const parsed = await parseSetup(raw);
     // The product would refuse it and fall back, so a run of it measures nothing.
     if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
-    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback });
+    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback, skills: parsed.skills.map((skill) => skill.name) });
   }
   return setups;
 }
@@ -141,20 +159,30 @@ async function loadRun(options) {
   // Every conversation the run will have, in the order the result lists them.
   const jobs = [];
   for (const setup of setups) for (const question of questions) for (let n = 1; n <= runs; n += 1) jobs.push({ setup, question, run: n });
-  return { dir, bench, fluffOn, fluffNotes, testName, test, setups, questions, runs, jobs };
+  const skills = await readSkills(dir, options.job);
+  // A setup naming a skill the folder does not have would be measured without it.
+  for (const setup of setups) {
+    const missing = setup.skills.filter((name) => !skills.some((skill) => skill.name === name));
+    if (missing.length) throw new Error(`setups/${options.job}/${setup.name}.md names skills with no file in setups/${options.job}/skills/: ${missing.join(", ")}`);
+  }
+  return { dir, bench, fluffOn, fluffNotes, testName, test, setups, questions, runs, jobs, skills };
 }
 
 /** The jobs shard `index` of `count` answers: every `count`th one, so each shard mixes setups and questions. */
 export const shardJobs = (jobs, index, count) => jobs.filter((_, k) => k % count === index);
 
 /** Answer `jobs` in this process, one conversation at a time. `label` prefixes the progress lines. */
-async function answerJobs(options, { bench, test }, jobs, label = "") {
+async function answerJobs(options, { bench, test, skills = [] }, jobs, label = "") {
+  // A test that runs on the scripted web (`front.web: scripted`, `sites.mjs`)
+  // searches and browses the bench's sites, never the real web.
+  const scripted = test.front.web === "scripted";
+  if (scripted && bench.sites.length === 0) throw new Error(`tests/${options.test ?? options.job}.md runs on the scripted web, but sites/ has no sites`);
   const send = claudeTransport(process.env);
   if (!options.fake) process.stderr.write(`${label}Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   // Production's texting assistant has web search, so a run must offer it too
   // (decided 2026-10-09): without the key the assistant is measured with a
   // shorter tool list than people get. --fake runs without one.
-  if (!options.fake && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
+  if (!options.fake && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
   const models = options.fake
@@ -166,6 +194,11 @@ async function answerJobs(options, { bench, test }, jobs, label = "") {
         ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
       };
+  if (scripted) {
+    models.sites = bench.sites;
+    delete models.searchKey;
+  }
+  models.skills = skills;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
@@ -210,6 +243,8 @@ async function answerJobs(options, { bench, test }, jobs, label = "") {
           ...result,
           model: result.model ?? setup.model,
           changes: world.changes(),
+          // What the scripted browser did, for the checks (`checks.mjs`).
+          browser: world.browser(),
           // Wall time for the whole conversation, worlds and the played person
           // included, so a run can say where its hours went.
           wallMs: realNow() - wallStarted,

@@ -390,3 +390,38 @@ test("a run the model never answered is not a run: the question is judged on its
     await empty.cleanup();
   }
 });
+
+test("a golden task's gate breaks on any failed line but a judge line, and on a run never answered", async () => {
+  const { scoreSetups, parseBars } = await import("../score.mjs");
+  const questions = new Map([
+    [1, { n: 1, kind: "task", mirror: null }],
+    [2, { n: 2, kind: "lookup", mirror: null }],
+  ]);
+  const key = [
+    { id: "a1", setup: "done", question: 1, run: 1 },
+    { id: "a2", setup: "done", question: 2, run: 1 },
+    { id: "b1", setup: "missed-check", question: 1, run: 1 },
+    { id: "b2", setup: "missed-check", question: 2, run: 1 },
+    { id: "c1", setup: "never-answered", question: 1, run: 1 },
+    { id: "c2", setup: "never-answered", question: 2, run: 1 },
+    { id: "d1", setup: "judge-line-only", question: 1, run: 1 },
+    { id: "d2", setup: "judge-line-only", question: 2, run: 1 },
+  ];
+  const v = (kind, pass) => ({ kind, line: "x", pass, reason: "" });
+  const judged = new Map([
+    ["a1", { verdicts: [v("must", true), v("must not", true)] }],
+    ["a2", { verdicts: [v("must", false)] }],
+    ["b1", { verdicts: [v("must", false), v("must not", true)] }],
+    ["b2", { verdicts: [v("must", true)] }],
+    ["c1", { verdicts: [], skipped: "no answer: status 500" }],
+    ["c2", { verdicts: [v("must", true)] }],
+    ["d1", { verdicts: [v("must", true), v("judge", false)] }],
+    ["d2", { verdicts: [v("must", true)] }],
+  ]);
+  const answers = new Map(key.map((row) => [row.id, { time: null, conversation: [] }]));
+  const { rows } = scoreSetups({ key, judged, answers, questions, bars: parseBars({ score: "50%" }) });
+  const gates = Object.fromEntries(rows.map((row) => [row.setup, row.gateFailed]));
+  assert.deepEqual(gates, { done: [], "missed-check": [1], "never-answered": [1], "judge-line-only": [] });
+  // A failed must line on a question that is not a task costs the question only.
+  assert.deepEqual(rows.find((row) => row.setup === "done").gateFailed, []);
+});
