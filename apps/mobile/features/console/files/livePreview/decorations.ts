@@ -39,7 +39,13 @@ import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange 
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
 import { completedTasks, hangingIndents, listGlyphs } from "./lists";
 import { BulletWidget, TaskWidget } from "./listWidgets";
-import { hiddenMarkRanges, isBracketedText, selectionTouches, styleClassFor } from "./reveal";
+import {
+  hiddenMarkRanges,
+  isBracketedText,
+  selectionTouches,
+  styleClassFor,
+  wikiLinkExtent,
+} from "./reveal";
 import { tableGrids, tableLines } from "./tableModel";
 import { TableGridWidget } from "./tableWidget";
 
@@ -312,7 +318,9 @@ export function decorationsFor(state: EditorState): DecorationSet {
       if (insidePreview(node.from)) return;
       // Words in brackets are not a link — see `isBracketedText`.
       if (isBracketedText(node.node, state.doc)) return;
-      styles.push(Decoration.mark({ class: className }).range(node.from, node.to));
+      // A wiki link is painted brackets and all — see `wikiLinkExtent`.
+      const { from, to } = wikiLinkExtent(node, state.doc);
+      styles.push(Decoration.mark({ class: className }).range(from, to));
     },
   });
 

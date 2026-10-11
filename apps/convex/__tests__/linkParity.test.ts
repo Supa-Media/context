@@ -67,6 +67,7 @@ const CORPUS = [
   "empty target [x]()",
   "two on one line [[./sibling]] [[../../2-products/context-lc/overview]]",
   "a sibling [[./sibling]] and a cousin [[../other/thing]]",
+  "loose names [[Eve]], [[Love Thy Neighbor]], [[Unique_Name]] and [[OVERVIEW]]",
 ];
 
 const NAMES = [
@@ -78,12 +79,15 @@ const NAMES = [
   "2-products/x/overview.md",
   "1-projects/a note with spaces.md",
   "1-projects/persistence/assets/diagram.png",
+  "2-areas/people/eve.md",
+  "1-projects/love-thy-neighbor.md",
 ];
 
 const RENAMES: [string, string][] = [
   ["2-products/context-lc/overview.md", "2-products/contextlc/readme.md"],
   ["1-projects/persistence/sibling.md", "4-archive/2026/sibling.md"],
   ["3-resources/unique-name.md", "3-resources/renamed-name.md"],
+  ["2-areas/people/eve.md", "2-areas/people/eve-adams.md"],
 ];
 
 /** Every place the referring note might be, including two it was moved to. */

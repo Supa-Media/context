@@ -1,4 +1,4 @@
-import { RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
+import { type EditorState, type Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import {
   Decoration,
@@ -9,7 +9,7 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
-import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links";
+import { indexByName, parseLinks, resolveLink, styleOf } from "@context/shared/src/links";
 
 import { webUrl } from "./webUrl";
 
@@ -190,6 +190,36 @@ export function noteLinksIn(
 }
 
 /**
+ * Every bare `[[name]]` that no note this surface knows answers to — drawn as
+ * an unresolved link rather than as one that works.
+ *
+ * Live preview paints every `[[…]]` in link colour (it cannot know what
+ * resolves), so a bare name nothing matched looked exactly like a link and
+ * opened nothing when clicked: the owner's `[[Eve]]`, 2026-10-11. This is the
+ * list `noteLinks` dims, with the tooltip saying why, so what looks followable
+ * and what is followable are one set again. An embed is not words and is left
+ * to `imageBlock`.
+ */
+export function unresolvedNoteLinksIn(
+  text: string,
+  context: { path: string | null; paths?: readonly string[] },
+): { from: number; to: number; name: string }[] {
+  if (context.path === null) return [];
+  const byName = indexByName(context.paths ?? []);
+  const out: { from: number; to: number; name: string }[] = [];
+  for (const link of parseLinks(text)) {
+    if (link.kind !== "wiki") continue;
+    const name = link.target.trim().split("#")[0]!;
+    if (name === "" || styleOf(name) !== "bare") continue;
+    if (resolveLink(link, context.path, byName) !== null) continue;
+    const span = widen(text, link);
+    if (text[span.from] === "!") continue;
+    out.push({ ...span, name: name.replace(/\.md$/, "") });
+  }
+  return out;
+}
+
+/**
  * Grow a target's span to the whole link.
  *
  * Done by scanning outward from the target rather than by re-matching, because
@@ -322,6 +352,7 @@ export const TAP_SLOP = 10;
 export const TAP_MAX_MS = 500;
 
 const linkMark = Decoration.mark({ class: "cm-note-link" });
+const unresolvedMark = Decoration.mark({ class: "cm-note-link-unresolved" });
 
 /**
  * The extension.
@@ -349,14 +380,19 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   );
 
   function build(view: EditorView): DecorationSet {
-    const builder = new RangeSetBuilder<Decoration>();
-    for (const span of spansOf(view)) builder.add(span.from, span.to, linkMark);
-    return builder.finish();
+    const text = view.state.doc.toString();
+    const marks = [
+      ...noteLinksIn(text, ref.current).map((span) => linkMark.range(span.from, span.to)),
+      ...unresolvedNoteLinksIn(text, ref.current).map((span) =>
+        unresolvedMark.range(span.from, span.to),
+      ),
+    ];
+    return Decoration.set(marks, true);
   }
 
   const tooltip = hoverTooltip((view, pos): Tooltip | null => {
     const span = noteLinkAt(spansOf(view), pos);
-    if (span === null) return webTooltip(view, pos);
+    if (span === null) return unresolvedTooltip(view, pos) ?? webTooltip(view, pos);
     return {
       pos: span.from,
       end: span.to,
@@ -380,6 +416,31 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       },
     };
   });
+
+  /** Over a bare name nothing answers to: say so, rather than look followable. */
+  const unresolvedTooltip = (view: EditorView, pos: number): Tooltip | null => {
+    const missing = unresolvedNoteLinksIn(view.state.doc.toString(), ref.current).find(
+      (span) => pos >= span.from && pos <= span.to,
+    );
+    if (missing === undefined) return null;
+    return {
+      pos: missing.from,
+      end: missing.to,
+      above: true,
+      create: () => {
+        const dom = document.createElement("div");
+        dom.className = "cm-note-link-tooltip";
+        const name = document.createElement("span");
+        name.className = "cm-note-link-name";
+        name.textContent = missing.name;
+        const hint = document.createElement("span");
+        hint.className = "cm-note-link-hint";
+        hint.textContent = "No note has this name, or more than one does";
+        dom.append(name, hint);
+        return { dom };
+      },
+    };
+  };
 
   /** The same card over a web link: where it goes, and how to edit it instead. */
   const webTooltip = (view: EditorView, pos: number): Tooltip | null => {
@@ -665,6 +726,18 @@ const linkTheme = EditorView.theme({
       one piece of text in the note with no reason left to behave differently
       from the rest of it.
     */
+  },
+  /*
+    A bare name nothing answers to (`unresolvedNoteLinksIn`): the muted colour
+    and a dotted line, Obsidian's way of drawing a link with no note behind it,
+    over live preview's own link colour — the nested selector is for when live
+    preview's span ends up inside this one.
+  */
+  ".cm-note-link-unresolved, .cm-note-link-unresolved .cm-lp-link": {
+    color: "var(--lp-muted)",
+    textDecorationLine: "underline",
+    textDecorationStyle: "dotted",
+    cursor: "text",
   },
   ".cm-note-link-tooltip": {
     display: "flex",

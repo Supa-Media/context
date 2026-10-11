@@ -413,8 +413,30 @@ export function resolveLink(link, fromPath, byName) {
   const target = linkTargetOf(link, fromPath);
   if (target === null) return null;
   if (target.kind === "path") return target.path;
-  const candidates = byName?.get(target.name);
+  const candidates = byName?.get(target.name) ?? looselyNamed(byName, target.name);
   return candidates?.length === 1 ? candidates[0] : null;
+}
+
+/**
+ * The notes a bare name matches when no basename matches it exactly: the same
+ * name with case, spaces and underscores set aside, so `[[Eve]]` finds
+ * `people/eve.md`. Only a fallback, and still only when one note answers. The
+ * twin of `looselyNamed` in `packages/shared/src/links.ts`; `linkParity.test.ts`
+ * holds the two together.
+ */
+function looselyNamed(byName, name) {
+  if (byName === undefined || byName === null) return undefined;
+  const wanted = looseName(name);
+  if (wanted === "") return undefined;
+  const found = [];
+  for (const [candidate, paths] of byName) {
+    if (looseName(candidate) === wanted) found.push(...paths);
+  }
+  return found.length === 0 ? undefined : found;
+}
+
+function looseName(name) {
+  return name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
 }
 
 /**
@@ -571,6 +593,9 @@ export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardT
     const destination = followed !== resolved && allowTarget && !allowTarget(followed) ? resolved : followed;
     // The referrer stayed put and the target stayed put: nothing to say.
     if (destination === resolved && fromPath === toPath) continue;
+    // A bare name resolves wherever the referrer lives: a target that stayed
+    // put needs nothing, and re-expressing `[[Eve]]` would respell it `[[eve]]`.
+    if (destination === resolved && link.kind === "wiki" && styleOf(splitAnchor(link.target.trim()).file) === "bare") continue;
 
     const replacement = expressLink(link, toPath, destination);
     if (replacement === link.target) continue;
