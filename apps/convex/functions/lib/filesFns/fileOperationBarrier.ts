@@ -265,6 +265,21 @@ export async function runFileOperationHandler(
   if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
   if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
 
+  /*
+    The three lookups a store is built from, asked together. Each is its own
+    function call on the control plane, and asked one after another they were
+    a visible share of every note open: the person waits on all three before a
+    byte of the note is read. None depends on another, and each is still
+    answered (and refused) exactly as before — only the waiting overlaps.
+    A failure is caught where it is started and decided below, in the order
+    the code always decided them, so an unconnected bucket still says so
+    before a key problem does.
+  */
+  const capLookup = ctx
+    .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
+    .catch(() => null);
+  const encryptionLookup = managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+
   let credential: GatewayCredential | null;
   try {
     credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
@@ -304,13 +319,11 @@ export async function runFileOperationHandler(
   // The free managed tier's cap, the same number `/gateway/binding` sends, so
   // the console and an AI client are refused at the same count. A failed read
   // is no cap: a billing lookup must never cost somebody their notes.
-  const noteCap = await ctx
-    .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
-    .catch(() => null);
+  const noteCap = await capLookup;
 
   // Managed-storage encryption, or null for plain. A mode with no usable key
   // is a refusal, never a plain store over sealed bytes.
-  const managedEncryption = await managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+  const managedEncryption = await encryptionLookup;
   if (managedEncryption === undefined) {
     const refusal = encryptedUnreadable();
     if (args.operation.kind !== "googleForwardSync") throw refusal;

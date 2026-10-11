@@ -3,23 +3,35 @@ import { expect, test } from "@playwright/test";
 /*
   The landing pages (Dev, 2026-10-11): `/` is page a and `/a` to `/c` are the
   three versions under test. a is a page of prose in the shape of the two
-  references Dev sent, selling less chaos by showing AI helpers filing a busy day;
+  references Dev sent, selling less chaos by showing AI helpers sorting a cluttered life into workspaces;
   b is the landing page `/` showed until then, kept as it was; c is the console's own shell, which every page of the website
   (`/?page=…`) still is. `/d` and `/e`, retired, send a visit to `/`.
 */
 
-test("/ is page a: the feeling, a day being filed, and the phone sign-up under one line", async ({ page }) => {
+test("/ is page a: Tex, the feeling, a day being sorted, and the phone sign-up under one line", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Context gives your brain that feeling you have when your room is clean/);
-  // Nothing wider than the window, rotated scraps included.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    /^Context is an app that gives your brain that feeling you have when your room is clean/,
+  );
+  // Nothing wider than the window.
   const wide = await page.locator(".sp").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(wide).toBeLessThanOrEqual(1);
-  // Things land loose, the helpers file them into their folders, and the visitor can pause it.
-  await page.locator(".sp-graph").scrollIntoViewIfNeeded();
-  await expect(page.locator(".sp-item[data-state=loose]").first()).toBeAttached({ timeout: 5_000 });
-  await expect(page.locator(".sp-item[data-state=filed]").first()).toBeAttached({ timeout: 8_000 });
+  // Tex, the graph and its Pause all fit the first screen, so nobody scrolls to see what is going on.
+  await expect(page.locator(".sp-tex svg")).toBeVisible();
+  const graph = page.locator("canvas.sp-graph");
+  await expect(graph).toBeVisible();
+  const bottom = await page.getByRole("button", { name: "Pause" }).evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(bottom).toBeLessThanOrEqual(900);
+  // The canvas is drawn on, and the visitor can pause it.
+  const inked = (el: HTMLCanvasElement) => {
+    const { data } = el.getContext("2d")!.getImageData(0, 0, el.width, el.height);
+    let n = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i]! > 0) n++;
+    return n;
+  };
+  await expect.poll(() => graph.evaluate(inked), { timeout: 5_000 }).toBeGreaterThan(2_000);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
   await expect(page.getByLabel("Phone number")).toHaveCount(0);

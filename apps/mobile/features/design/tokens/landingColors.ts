@@ -26,23 +26,22 @@ export const darkLandingColors: LandingColors = {
 /**
  * Page a's off-white sheet (`SimplePage.web`), after the references: ink type
  * on off-white, a grey hairline under the examples and a warm highlighter.
+ * Light only (Dev, 2026-10-11: the dark version read as a different page).
+ * Tex, the mascot, is the brand blue with paper-white eyes; the four AI
+ * helpers on the graph each have a cursor colour (Claude, ChatGPT, Maya's
+ * Codex, Jon's Claude).
  */
-export const lightSimpleLandingColors = {
+export const simpleLandingColors = {
   paper: "#F1F0EA",
   ink: "#1C1B19",
   ink2: "#4A4844",
   hair: "#C9C6BC",
   mark: "#DDD1BE",
   card: "#FAF9F5",
+  blue: "#2A45CF",
+  eye: "#FBFAF6",
+  agent1: "#C4572F",
+  agent2: "#167A5E",
+  agent3: "#6A45C2",
+  agent4: "#B23F78",
 } as const;
-
-export type SimpleLandingColors = Readonly<Record<keyof typeof lightSimpleLandingColors, string>>;
-
-export const darkSimpleLandingColors: SimpleLandingColors = {
-  paper: "#151514",
-  ink: "#ECEAE4",
-  ink2: "#B5B2AA",
-  hair: "#4A4844",
-  mark: "#45413B",
-  card: "#1E1D1B",
-};

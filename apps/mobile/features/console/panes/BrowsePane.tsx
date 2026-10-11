@@ -25,6 +25,7 @@ import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { useShownEntry } from "./browsePane/useShownEntry";
+import { NoteIntentContext } from "../files/noteIntent";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
 import { useMapRoute } from "../map/live/MapRouteContext";
 
@@ -339,6 +340,7 @@ export function BrowsePane({
   );
 
   return (
+    <NoteIntentContext.Provider value={files.prefetch}>
     <View style={styles.region}>
       {/*
         The breadcrumb is drawn for a selected *folder* too, not only a note —
@@ -498,5 +500,6 @@ export function BrowsePane({
         }}
       />
     </View>
+    </NoteIntentContext.Provider>
   );
 }

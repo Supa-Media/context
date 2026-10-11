@@ -160,8 +160,6 @@ const { CreateWorkspaceChrome } =
   require("../features/workspace/CreateWorkspaceScreen") as typeof import("../features/workspace/CreateWorkspaceScreen");
 const { InviteScreen } =
   require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
-const { TextsLinkScreen } =
-  require("../features/texts/TextsLinkScreen") as typeof import("../features/texts/TextsLinkScreen");
 const { InviteListScreen } =
   require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
@@ -289,8 +287,9 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
-  "texts/[token].tsx": { kind: "screen", mount: () => createElement(TextsLinkScreen) },
+  "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
+  "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
@@ -353,6 +352,7 @@ const ROUTES: Record<string, Coverage> = {
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
   "texts/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("texts/_layout.tsx")) },
   "vault/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("vault/_layout.tsx")) },
+  "tex/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/_layout.tsx")) },
   "[handle]/_layout.tsx": {
     kind: "gate",
     mount: () => createElement(requireRoute("[handle]/_layout.tsx")),

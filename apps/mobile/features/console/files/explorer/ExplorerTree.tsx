@@ -81,6 +81,7 @@ export function ExplorerTree({
               accessibilityLabel={match.item.label}
               selected={files.selectedPath === match.item.id}
               onPress={() => select(match.item.id)}
+              onIntent={() => files.prefetch?.(match.item.id)}
               radius={radii.sm}
               style={styles.match}
               hoverStyle={styles.matchHover}
@@ -118,6 +119,7 @@ export function ExplorerTree({
           workspaceId={files.contextId}
           iconOf={files.iconOf}
           onIconPress={onIconPress}
+          onIntent={files.prefetch}
         />
       )}
 

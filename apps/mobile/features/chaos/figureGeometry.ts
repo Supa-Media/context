@@ -112,10 +112,20 @@ export interface FigureParts {
  *
  * `small` drops the speckles and motion marks; `minStroke` (in the board's
  * units) is the thinnest any line may be, so a 20px figure still reads.
+ * `grow` is how much thicker a strand gets on its way to the #, and
+ * `alwaysGoogly` keeps the googly eyes on the calm # too: page a's mascot,
+ * Tex, is drawn with 16 and true (Dev, 2026-10-11, approved on the preview).
  */
 export function figureParts(
   chaos: number,
-  { small, minStroke = 0, seed = 7, width = 9 }: { small: boolean; minStroke?: number; seed?: number; width?: number },
+  {
+    small,
+    minStroke = 0,
+    seed = 7,
+    width = 9,
+    grow = 44,
+    alwaysGoogly = false,
+  }: { small: boolean; minStroke?: number; seed?: number; width?: number; grow?: number; alwaysGoogly?: boolean },
 ): FigureParts {
   const t = chaosToT(chaos);
   const k = ease(t);
@@ -130,7 +140,7 @@ export function figureParts(
       const ty = y0 + (y1 - y0) * u + (y0 === y1 ? wob : 0);
       return [p[0] + (tx - p[0]) * k, p[1] + (ty - p[1]) * k];
     });
-    const w = Math.max(width + 44 * k * k * k, minStroke);
+    const w = Math.max(width + grow * k * k * k, minStroke);
     // A dry second pass slightly offset, like a brush going over twice.
     return { d: pathOf(strand), dry: pathOf(strand.map((p): Point => [p[0] + 3, p[1] - 2])), width: w };
   });
@@ -170,7 +180,7 @@ export function figureParts(
         };
 
   // Googly while any chaos is left; two calm dots once there is none.
-  const calm = shownScore(chaos) === 0;
+  const calm = !alwaysGoogly && shownScore(chaos) === 0;
   const j = 1 - k; // pupils drift back to centre as it calms down
   const googly = calm
     ? null

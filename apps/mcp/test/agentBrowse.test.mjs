@@ -163,7 +163,7 @@ export async function runAgentBrowseChecks(check) {
     const computer = fakeComputer();
     computer.canHandOff = () => true;
     const inner = computer.browse;
-    computer.browse = async (session, steps, options) => ({ ...(await inner(session, steps)), ...(options?.handoff ? { liveUrl: "https://live.example/LIVE-SAY" } : {}) });
+    computer.browse = async (session, steps, options) => ({ ...(await inner(session, steps)), ...(options?.handoff ? { handoffUrl: "https://live.example/LIVE-SAY" } : {}) });
     const said = [];
     const web = webSession(computer, "log me in to shop.example.com", { say: async (text) => (said.push(text), true) });
     const handed = await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.com/" }, { do: "handoff" }] });
@@ -190,7 +190,7 @@ export async function runAgentBrowseChecks(check) {
     const inner = computer.browse;
     computer.browse = async (session, steps, options) => ({
       ...(await inner(session, steps)),
-      ...(options?.handoff ? { liveUrl: "https://live.example/LIVE-WHERE" } : {}),
+      ...(options?.handoff ? { handoffUrl: "https://live.example/LIVE-WHERE" } : {}),
     });
     const said = [];
     const web = webSession(computer, "shop.example.com", { say: async (text) => (said.push(text), true) });
@@ -255,6 +255,8 @@ async function runEndToEnd(check) {
             session: "bb-session-1",
             ran: body.steps.map((s) => ({ do: s.do, ok: true })),
             page: { url: "https://shop.example.com/login", title: "Sign in", text: "Sign in", truncated: false, elements: [] },
+            // What an older screenshot Worker answered with: Browserbase's own
+            // live-view link, a bearer link to the browser. Never passed on.
             ...(body.handoff ? { liveUrl: "https://live.browserbase.example/view/LIVE-MARKER" } : {}),
           });
         }
@@ -282,7 +284,7 @@ async function runEndToEnd(check) {
         };
       },
     };
-    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI, SITE_SHOTS };
+    const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, AI, SITE_SHOTS, APP_ORIGIN: "https://app.context.test" };
     const { ctx, settle } = createWorkerCtx();
     const response = await worker.fetch(
       new Request("https://mcp.context.test/agent", {
@@ -339,9 +341,14 @@ async function runEndToEnd(check) {
     const handed = await second.json();
     const modelSaw = JSON.stringify(calls);
     check(
-      "a handoff's live link is added to the text by the gateway, and the model never sees it",
-      handed.answer.endsWith("https://live.browserbase.example/view/LIVE-MARKER") && !modelSaw.includes("LIVE-MARKER") &&
+      "a handoff texts the person's own /tex/<handle> page, added by the gateway, and the model never sees it",
+      handed.answer.endsWith("https://app.context.test/tex/browse") && !modelSaw.includes("/tex/browse") &&
         modelSaw.includes("A link to this browser will be added to your reply"),
+    );
+    check(
+      "Browserbase's own live-view link never reaches the text, the model or the saved turn",
+      !JSON.stringify(handed).includes("LIVE-MARKER") && !modelSaw.includes("LIVE-MARKER") &&
+        !JSON.stringify([...s3.bucketFor("tenant-browse").values()]).includes("LIVE-MARKER"),
     );
     check(
       // The sentence around the link is the gateway's, and says where the

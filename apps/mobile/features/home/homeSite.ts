@@ -293,6 +293,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "privacy",
   "s",
   "terms",
+  "tex",
   "texts",
   "vault",
   "welcome",

@@ -72,12 +72,13 @@ const PROVIDERS = {
  * The computer this deployment gives the agent, or null when it has none (a
  * self-hosted gateway without Browser Rendering, or an unknown provider name).
  * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
- * find their Browserbase browser again in a later question.
+ * find their Browserbase browser again in a later question; `viewer` is the
+ * page they take it over on (`texViewerUrl`), the only link a handoff texts.
  */
-export function computerFor(env, { owner = null } = {}) {
+export function computerFor(env, { owner = null, viewer = null } = {}) {
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env, { owner }) : null;
+  return make ? make(env, { owner, viewer }) : null;
 }
 
 /**

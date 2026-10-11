@@ -77,7 +77,8 @@ test("a scripted model connects ChatGPT through the gateway and the scripted sit
   try {
     const first = await world.text("can you make sure my chatgpt is properly set up to use context");
     assert.equal(first.ok, true);
-    assert.match(first.answer, new RegExp(`${LIVE_VIEW_ORIGIN}/bench-browser-\\d+`), "the gateway appended the handoff link");
+    assert.match(first.answer, /https:\/\/app\.bench\.invalid\/tex\/maya$/, "the gateway appended the person's own take-over page");
+    assert.ok(!first.answer.includes(LIVE_VIEW_ORIGIN), "and never the browser's own live-view link");
     tools.push(...first.tools);
     const second = await world.text("Done, I'm signed in");
     assert.match(second.answer, /take over the browser on context\.lc/);
