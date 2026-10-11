@@ -7,6 +7,7 @@ import { minimapAlpha } from "../lod";
 import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
 import { drawGround, drawLinks, drawNotes } from "./base";
+import { paintBoard } from "./board";
 import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
@@ -27,8 +28,7 @@ export type RenderOptions = {
 export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: Viewport, opts: RenderOptions): HitFrame {
   const C = opts.style.palette;
   ctx.save();
-  ctx.fillStyle = C.ground;
-  ctx.fillRect(0, 0, vp.w, vp.h);
+  paintBoard(ctx, C, cam, vp);
   const v = visibleRect(vp);
   const screen = (p: Point) => toScreen(cam, vp, p);
   const hot = new Set<string>([...scene.editing.keys(), ...scene.reading.keys()]);

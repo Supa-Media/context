@@ -27,7 +27,8 @@ function linkStrokes(data: MapData) {
   engine.renderAt(NOW);
   const strokes = canvas.ctx.calls.filter((c) => c.op === "stroke" && c.strokeStyle === palette.edge && (c.alpha ?? 1) > 0);
   engine.destroy();
-  return { strokes, lines: canvas.ctx.calls.filter((c) => c.op === "lineTo").length };
+  // A link is a pencil or chalk stroke with a slight bow (`draw/board.ts`), so a curve, not a line.
+  return { strokes, lines: canvas.ctx.calls.filter((c) => c.op === "lineTo" || c.op === "quadraticCurveTo").length };
 }
 
 const data = (graphs: MapData["graphs"], scope: MapData["scope"]): MapData => ({
