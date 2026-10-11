@@ -401,6 +401,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: 21,
   },
   paneHeadText: { flex: 1, minWidth: 0 },
-  // About 62 characters of 13px body text.
+  // `max-width:62ch` at 13.5px Instrument Sans measures ~546px.
   paneHeadSub: { marginTop: 6, maxWidth: 546 },
 });

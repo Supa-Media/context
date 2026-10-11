@@ -34,12 +34,12 @@
  * right layout, wrong letterforms, no error.
  *
  * So the face is injected from `apps/convex/functions/lib/cardFont/
- * libron.ts`, the one copy of Libron Bold this repository holds as data and
+ * instrumentSans.ts`, the one copy of Instrument Sans this repository holds and
  * the same bytes the *generated* card is drawn with. Nothing is fetched.
  *
  * **`document.fonts.check` is not the guard**, and that is worth stating
  * because it looks like one: with zero faces loaded it answered `true` for
- * `600 72px "Libron"` — it reports whether text *can* be rendered,
+ * `600 72px "Instrument Sans"` — it reports whether text *can* be rendered,
  * and a fallback can. `document.fonts.size` counts faces that actually loaded,
  * so that is what is asserted.
  */
@@ -55,7 +55,7 @@ const source = resolve(here, "../og-card.source.html");
 const output = resolve(here, "../src/og-card.png");
 const fontModule = resolve(
   here,
-  "../../../apps/convex/functions/lib/cardFont/libron.ts",
+  "../../../apps/convex/functions/lib/cardFont/instrumentSans.ts",
 );
 
 /**
@@ -73,7 +73,7 @@ const fontModule = resolve(
  */
 function embeddedFontBase64() {
   const module = readFileSync(fontModule, "utf8");
-  const start = module.indexOf("LIBRON_BOLD_BASE64");
+  const start = module.indexOf("INSTRUMENT_SANS_600_BASE64");
   if (start === -1) throw new Error(`no font constant in ${fontModule}`);
   const chunks = [...module.slice(start).matchAll(/"([A-Za-z0-9+/=]{16,})"/g)].map(
     (m) => m[1],
@@ -95,7 +95,7 @@ try {
 
   await page.addStyleTag({
     content:
-      `@font-face{font-family:"Libron";font-style:normal;` +
+      `@font-face{font-family:"Instrument Sans";font-style:normal;` +
       `font-weight:600;src:url(data:font/ttf;base64,${embeddedFontBase64()}) format("truetype")}`,
   });
   await page.evaluate(() => document.fonts.ready);

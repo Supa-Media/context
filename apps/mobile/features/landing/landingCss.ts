@@ -9,7 +9,7 @@
  * reaches the app.
  */
 export const LANDING_CSS = `
-.lp{position:relative;height:100vh;height:100dvh;overflow-y:auto;scroll-behavior:smooth;background:var(--paper);color:var(--ink);font-family:"Libron",ui-serif,Georgia,serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+.lp{position:relative;height:100vh;height:100dvh;overflow-y:auto;scroll-behavior:smooth;background:var(--paper);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 .lp *,.lp *::before,.lp *::after{box-sizing:border-box}
 /* resets carry no weight (:where), so a class like .lp-stmt's centring margin still wins */
 :where(.lp) a{color:inherit;text-decoration:none}
