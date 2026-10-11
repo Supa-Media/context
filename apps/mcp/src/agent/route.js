@@ -329,6 +329,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  // The setup's trusted sites (`trustedSites.js`), openable without an address given.
+  // With `open_web: yes`, any public https address (owner, 2026-10-11).
+  opened?.trust(production?.trustedSites ?? [], { openWeb: production?.openWeb === true });
   const productionModel =
     production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);

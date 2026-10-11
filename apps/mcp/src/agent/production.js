@@ -34,6 +34,10 @@
  *   skills         optional: task how-tos the assistant may read (`skills.js`),
  *                  one `  name: when it applies` line each, read from
  *                  `ai/production/skills/<name>.md`
+ *   trusted_sites  optional: `[a.com, b.org]`, sites whose pages the assistant
+ *                  may open without being given the address (`trustedSites.js`)
+ *   open_web       optional `yes`: the assistant may open any public https
+ *                  address it chooses (`trustedSites.js` `onOpenWeb`)
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
@@ -54,6 +58,7 @@ import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
+import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -125,6 +130,11 @@ async function parse(raw) {
   const skills = readSkillList(front.skills);
   if (skills === null) return null;
 
+  const trustedSites = readTrustedSites(front.trusted_sites);
+  if (trustedSites === null) return null;
+  const openWeb = readOpenWeb(front.open_web);
+  if (openWeb === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -143,6 +153,8 @@ async function parse(raw) {
     fallback,
     search,
     skills,
+    trustedSites,
+    openWeb,
     tools,
     maxSteps,
     prompt,
