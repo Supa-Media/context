@@ -79,6 +79,29 @@ export function isBracketedText(node: SyntaxNode, doc?: Doc): boolean {
   return !hasReferenceDefinition(doc, text.slice(1, -1));
 }
 
+/**
+ * The range a link is *painted* over: the node itself, or the whole `[[…]]`
+ * when the node is the inner `[…]` of a wiki link.
+ *
+ * Lezer reads `[[Eve]]` as a `Link` around `[Eve]`, so painting the node alone
+ * coloured one bracket of each pair and left the outer pair as body text — the
+ * owner's screenshot of 2026-10-11, with the caret on the link and its source
+ * showing. An embed (`![[…]]`) keeps the node's own range: `imageBlock` owns it.
+ */
+export function wikiLinkExtent(
+  node: { name: string; from: number; to: number },
+  doc: Doc,
+): { from: number; to: number } {
+  const range = { from: node.from, to: node.to };
+  if (node.name !== "Link" || node.from < 1) return range;
+  const outer =
+    doc.sliceString(node.from - 1, node.from) === "[" &&
+    doc.sliceString(node.to, node.to + 1) === "]";
+  if (!outer) return range;
+  if (node.from >= 2 && doc.sliceString(node.from - 2, node.from - 1) === "!") return range;
+  return { from: node.from - 1, to: node.to + 1 };
+}
+
 /** Whether `[label]: …` is defined anywhere in the note (case-insensitive). */
 function hasReferenceDefinition(doc: Doc, label: string): boolean {
   if (label.trim() === "") return false;

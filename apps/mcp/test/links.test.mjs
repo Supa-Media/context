@@ -192,6 +192,28 @@ export async function runLinkChecks(check) {
       resolveLink({ kind: "wiki", target: "overview" }, NOTE, indexByName([NOTE, "2-products/x/overview.md"])) === null
     );
     check("a bare name nothing answers to is left alone", resolve("nothing-here") === null);
+
+    // Loose bare names (2026-10-11, `[[Eve]]` vs `eve.md`): case and spacing set aside, uniqueness not.
+    const people = indexByName(["2-areas/people/eve.md", "1-projects/love-thy-neighbor.md", "a/Eve.md"]);
+    const loose = (target) => resolveLink({ kind: "wiki", target }, NOTE, people);
+    check("an exact basename still wins over a loose one", loose("Eve") === "a/Eve.md");
+    check("a loose name two notes answer to is left alone", loose("EVE") === null);
+    const onePerson = indexByName(["2-areas/people/eve.md", "1-projects/love-thy-neighbor.md"]);
+    const loosely = (target) => resolveLink({ kind: "wiki", target }, NOTE, onePerson);
+    check("a name differing only in case resolves to its one note", loosely("Eve") === "2-areas/people/eve.md");
+    check("spaces stand for the hyphens a file name uses", loosely("Love Thy Neighbor") === "1-projects/love-thy-neighbor.md");
+    check(
+      "a loose name with an alias and an anchor still resolves",
+      parseLinks("[[Eve#notes|her]]").map((link) => resolveLink(link, NOTE, onePerson))[0] === "2-areas/people/eve.md"
+    );
+    check("the referrer moving leaves a loose name spelt as written", rewrite("ask [[Eve]]", { to: "4-archive/overview.md", names: ["2-areas/people/eve.md"] }) === null);
+    check(
+      "renaming the note a loose name found rewrites the link to the new name",
+      rewrite("ask [[Eve]]", {
+        renames: new Map([["2-areas/people/eve.md", "2-areas/people/eve-adams.md"]]),
+        names: ["2-areas/people/eve.md"],
+      })?.text === "ask [[eve-adams]]"
+    );
   }
 
   /* -- (4) style is preserved --------------------------------------------- */
