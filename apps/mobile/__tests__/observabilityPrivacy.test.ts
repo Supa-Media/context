@@ -9,6 +9,8 @@ import {
   telemetryRoute,
 } from "../features/observability/privacy";
 import { cleanPostHogProperties } from "../features/observability/runtime.web";
+import { inviteHref, loginHref } from "../features/auth/redirect";
+import { vaultLinkHref } from "../features/vault/vaultLink";
 
 /** By explicit path: a bare import is the web half, which this suite resolves first. */
 const { postHogNativeOptions } =
@@ -102,6 +104,36 @@ describe("observability privacy boundary", () => {
     );
     expect(clean).not.toContain("supa");
     expect(clean).not.toContain("pay-review");
+  });
+
+  test("a capability parked in ?next= does not reach a vendor", () => {
+    // `loginHref` percent-encodes its whole target, so the `/vault/<token>`,
+    // `/invite/<token>` and `/console/<handle>?note=` rules never see a slash
+    // to anchor on: `%2Fvault%2F…` is one opaque query value to all three. The
+    // app builds exactly these URLs — a vault link opened signed out or signed
+    // in as the wrong account, and the `(app)` gate's attempted address — and
+    // `location.href` is what Sentry reads into `request.url` and into history
+    // breadcrumbs. So the token has to die here or it dies nowhere.
+    const vault = `https://context.lc${loginHref(vaultLinkHref("unguessable-vault-token"))}`;
+    expect(redactTelemetryText(vault)).not.toContain("unguessable-vault-token");
+
+    const invite = `https://context.lc${loginHref(inviteHref("unguessable-invite-token"))}`;
+    expect(redactTelemetryText(invite)).not.toContain("unguessable-invite-token");
+
+    const note = `https://context.lc${loginHref("/console/@private-team?note=1-projects%2F2026-pay-review.md")}`;
+    const clean = redactTelemetryText(note);
+    expect(clean).not.toContain("private-team");
+    expect(clean).not.toContain("pay-review");
+
+    // And through the two places Sentry actually puts a URL.
+    expect(
+      JSON.stringify(
+        redactTelemetryValue({
+          request: { url: vault },
+          breadcrumbs: [{ category: "navigation", data: { from: "/", to: vault } }],
+        }),
+      ),
+    ).not.toContain("unguessable-vault-token");
   });
 
   test("a draft carried in the address fragment does not reach a vendor", () => {
