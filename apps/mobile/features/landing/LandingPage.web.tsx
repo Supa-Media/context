@@ -1,13 +1,12 @@
-import { useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import type { LandingPage as Letter } from "@context/shared";
 import { captureLandingPage } from "../auth/landingPage";
 import { useColors, useScheme } from "../design/theme";
 import { LANDING_CSS } from "./landingCss";
-import { agentTint } from "../console/map/live/agentKind";
-import { darkMapColors, lightMapColors } from "../design/tokens/colors";
 import { darkLandingColors as darkLanding, lightLandingColors as lightLanding } from "../design/tokens/landingColors";
 import { HomeShell } from "../home/HomeShell";
-import { PageA, PageB } from "./variants.web";
+import { SimplePage } from "./SimplePage.web";
+import { PageB } from "./variants.web";
 
 /**
  * The landing pages, `/` and `/a` to `/c` (Dev, 2026-10-11, replacing the
@@ -15,21 +14,23 @@ import { PageA, PageB } from "./variants.web";
  * counted on the waitlist by its letter (`waitlist.landing`) and by the ad
  * that sent the visit (`waitlist.campaign`).
  *
- * a is the simple one and b the map, both plain pages in the Paper sheet. c
- * is the console's own shell in visitor mode, the homepage every other page
- * of the website still is, so "the landing page was the app shell" is that
- * shell itself rather than a picture of it. See docs/decisions/websites.md.
+ * a is the simple one, a page of prose in the references' shape. b is the
+ * page `/` showed until today, unchanged, with the map at its centre. c is
+ * the console's own shell in visitor mode, the homepage every other page of
+ * the website still is, so "the landing page was the app shell" is that shell
+ * itself rather than a picture of it. See docs/decisions/websites.md.
  */
 export function LandingPage({ page }: { page: Letter }) {
   useEffect(() => {
     // The page a visit landed on is the one its waitlist row records.
     captureLandingPage(`/${page}`);
   }, [page]);
-  return page === "c" ? <HomeShell /> : <PaperPage page={page} />;
+  if (page === "a") return <SimplePage />;
+  return page === "c" ? <HomeShell /> : <PaperPage />;
 }
 
-/** a and b: one page in the landing sheet. */
-function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
+/** b: the map page, in the landing sheet. */
+function PaperPage() {
   const colors = useColors();
   const scheme = useScheme();
   useEffect(() => {
@@ -40,7 +41,6 @@ function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
     };
   }, []);
   const sheet = scheme === "dark" ? darkLanding : lightLanding;
-  const map = scheme === "dark" ? darkMapColors : lightMapColors;
   const vars = useMemo(
     () =>
       ({
@@ -52,23 +52,14 @@ function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
         "--blue": sheet.blue,
         "--accent": colors.accent,
         "--ground": colors.pageSurface,
-        // Each AI in the colour the map draws it in, so the headline and the map agree.
-        "--ai-claude": agentTint("claude", "Claude", map),
-        "--ai-chatgpt": agentTint("chatgpt", "ChatGPT", map),
-        "--ai-codex": agentTint("codex", "Codex", map),
-        "--ai-cursor": agentTint("other", "Cursor", map),
-        "--glyph": map.agentGlyph,
         colorScheme: scheme,
       }) as CSSProperties,
-    [sheet, map, colors, scheme],
+    [sheet, colors, scheme],
   );
-  const Page = PAGES[page];
   return (
-    <div className="lp" style={vars} data-landing={page}>
+    <div className="lp" style={vars} data-landing="b">
       <style>{LANDING_CSS}</style>
-      <Page />
+      <PageB />
     </div>
   );
 }
-
-const PAGES: Record<Exclude<Letter, "c">, () => ReactNode> = { a: PageA, b: PageB };

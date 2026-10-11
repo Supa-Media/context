@@ -16,36 +16,31 @@ and a cast preview (`/#cast-preview=…`) and the cast studio's stage are
 recordings of it, so `landingFor` (`features/landing/route.ts`) answers null
 for all of them.
 
-- **a and b are one sentence, a few lines and one action.** The references
-  are a page with a single large sentence and almost nothing else, but each
-  spends that space on personality: product names in their own marks, a
-  doodle per example. Ours is "Tell Claude. ChatGPT already knows.", each
-  name in the colour and robot the map draws that AI with, retyped live by a
-  caret of its colour through Claude, ChatGPT, Cursor and Codex
-  (`features/landing/tell.ts`; redesign of 2026-10-11 after "these designs are
-  uninspired"). Under it, one line ("Context is one set of notes for you,
-  your team and every AI you use", with every client that connects), four
-  doodled facts (write together live, text it in iMessage, private stays
-  private, download everything) and the sign-up card; a fits one laptop
-  screen. b is the same sentence beside the live map. No feature grids,
-  screenshots or prose sections: adding them back is reversing this
-  decision. The blue square is the sentence's full stop and follows the
-  wordmark.
-- **The headline only ever says true things.** Every name in it is a client
-  Context connects today, the second name is retyped before the first so
-  every whole sentence the page stops on names two different AIs, and Gemini
-  CLI is named in the line under it rather than in the chain only because it
-  is too wide for a phone's line. Assistive tech hears the first sentence,
-  still; the retyping is hidden from it, and with reduced motion the first
-  sentence simply stays. The page has one h1: the sign-up's heading is a
-  level below it there (`PhoneSignInForm`'s `headingLevel`).
+- **a is a page of prose, in the references' own shape.** Dev sent phone
+  screenshots of instinct.com and thebrowser.company and, after two passes
+  that reinterpreted them (a big statement, then an animated headline), said
+  plainly "/a should be a simple design like these 2". So a is what they are:
+  a small hand-drawn mark, three short paragraphs in one reading face at one
+  size (what Context is; that it is plain files every AI reads and writes,
+  with the product names dotted; what it helps with, each example underlined
+  and linked to the website page that says more), and the call to action as
+  a line of text with a highlighter, "Join the waitlist ›", which opens the
+  sign-up beneath it. Off-white page, ink type, no cards, no nav bar, no
+  pictures, one laptop screen (`SimplePage.web.tsx`, `simpleCss.ts`).
+  Adding a hero, feature list or animation back is reversing this decision.
+- **b is the page `/` showed until 2026-10-11, unchanged** ("b/ should be the
+  current default page"): tab.bot's shape in our colours, the live map behind
+  "Less chaos", the real editor playing a demo, the prose, and the sign-up
+  card (`variants.web.tsx`; its classes keep their old `lp-a-` names).
 - **c is the shell itself.** "The landing page was the app shell" means the
   console's frame in visitor mode, drawn by `HomeShell`, not a picture of it.
   It differs from `/?page=index` only in being counted as page c.
-- **The map is the real engine, the data is a labelled demo.** b draws the
-  console's live map engine with made-up workspaces, people, AIs and notes
-  (`demoMap.ts`) and says "Demo". It takes no pointer, so scrolling never
-  zooms it.
+- **The map and the editor are the real engines, the data is a labelled
+  demo.** b draws the console's live map engine with made-up workspaces,
+  people, AIs and notes (`demoMap.ts`), and under it the homepage's own shell
+  plays a made-up scene in an iframe (`LandingEditor.web.tsx`,
+  `editorScene.ts`), each saying "demo". Never a screenshot: they change when
+  the console does.
 - **No claim the product cannot keep.** The clients listed are the ones
   `plugins/context` installs, and the texting and download lines are what
   ships today.
@@ -75,10 +70,10 @@ for all of them.
 
 Test: `apps/mobile/__tests__/landingRoute.test.ts` and `landingPages.test.ts`
 (which address is which page, and how a campaign is read and cleaned),
-`landingTell.test.ts` (the headline names only connected AIs and never stops
-on a false sentence),
-`adCampaign.test.ts`, `loginScreen.test.ts` (a phone join fires both
-pixels), `adminWaitlistRender.test.ts`, the waitlist tests in
+`landingEditorScene.test.ts` (b's editor scene), `adCampaign.test.ts`,
+`loginScreen.test.ts` (a phone join fires both pixels),
+`adminWaitlistRender.test.ts`, the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`, and
-`e2e/webkit/landingPages.spec.ts` (a fits one screen with one h1, b labels its
-demo, c is the shell, retired letters go home).
+`e2e/webkit/landingPages.spec.ts` (a is one screen of prose whose line opens
+the sign-up, b is the old page with its map and editor, c is the shell,
+retired letters go home).

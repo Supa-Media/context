@@ -1,82 +1,95 @@
-import { useWindowDimensions } from "react-native";
-import { Doodles } from "./Doodles.web";
-import { DEMO_IDS } from "./demoMap";
+import { LandingEditor } from "./LandingEditor";
 import { LandingMap } from "./LandingMap";
+import { Footer, Headline, JoinLink, Nav } from "./parts.web";
 import { LandingSignUp } from "./LandingSignUp";
-import { Footer, Nav } from "./parts.web";
-import { Tell } from "./Tell.web";
 
 /**
- * The landing pages (Dev, 2026-10-11: "a more simple design … similar to
- * thebrowser.company and instinct.com"). One sentence, a line, four doodled
- * facts and one action. The sentence is "Tell Claude. ChatGPT already
- * knows.", retyped live by the AIs' own carets (`Tell.web.tsx`): a sees it
- * on paper, b over the map of made-up people and AIs at work. Every claim on
- * them is true of the product today, and the map is labelled a demo.
+ * Page b, the landing page `/` showed from 2026-10-09 to 2026-10-11 (then
+ * page a of five), kept as it was (Dev, 2026-10-11: "b/ should be the current
+ * default page"): tab.bot's shape in our colours, with the map at the centre.
+ * Every claim on it is true of the product today, and the map's people, AIs
+ * and notes are a labelled demo.
  */
 
-/** The AIs that connect today, set a shade darker than the sentence round them. */
-function Tools() {
+const STATEMENT = "Context is one set of notes for you, your team, and every AI you use.";
+
+const PROSE = [
+  "Most AI starts from zero. You explain the project again, paste in the same notes, and then copy the answer somewhere your team will see it.",
+  "Context keeps your notes in one place that you, your team and your AI tools all use. Claude, ChatGPT, Codex, Cursor and Gemini CLI connect with one sign‑in. They can find and read the notes you can see, and write back where your role allows.",
+  "Every workspace has its own people and its own privacy. A private note stays private, from people and from AIs: an assistant can't read a note you can't, or write somewhere you can't.",
+  "Every note is a plain Markdown file. We run the storage for free up to 1,000 notes, or you can plug in your own. Either way you can download everything, any time, on every plan.",
+  "And you can watch it happen. The map shows who is in which note, what each AI is reading, and what changed today.",
+];
+
+/** What page a's editor section says beside the editor: each one true today. */
+const EDITOR_POINTS = [
+  "Plain Markdown files, no clutter",
+  "Claude, ChatGPT, Codex, Cursor and Gemini CLI connect to it",
+  "Your files, yours to download or move any time",
+  "Write together, live, with people and AIs",
+];
+
+/** The statement and the prose under it: what Context is, in the order a stranger needs it. */
+function Story() {
   return (
     <>
-      <b>Claude</b>, <b>ChatGPT</b>, <b>Codex</b>, <b>Cursor</b> and <b>Gemini&nbsp;CLI</b>
+      <p className="lp-stmt">{STATEMENT}</p>
+      <div className="lp-prose">
+        {PROSE.map((line) => (
+          <p key={line.slice(0, 24)}>{line}</p>
+        ))}
+      </div>
     </>
   );
 }
 
-function SignUpCard() {
+/** The sign-up, at the foot of a page whose hero has none. */
+function JoinSection() {
   return (
-    <div className="lp-card" id="join">
-      <LandingSignUp />
-    </div>
-  );
-}
-
-export function PageA() {
-  return (
-    <div className="lp-page">
-      <Nav />
-      <main className="lp-a">
-        <Tell />
-        <div className="lp-a-row">
-          <div className="lp-a-copy">
-            <p className="lp-lede">
-              Context is one set of notes for you, your team and every AI you use. <Tools /> read and write it with one
-              sign‑in.
-            </p>
-            <Doodles />
-          </div>
-          <SignUpCard />
-        </div>
-      </main>
-      <Footer />
-    </div>
+    <section className="lp-join" id="join" aria-labelledby="lp-join-title">
+      <div className="lp-glow" />
+      <Headline as="h2">
+        <span id="lp-join-title">Get on the same page</span>
+      </Headline>
+      <p>We're letting people in a few at a time.</p>
+      <div className="lp-card">
+        <LandingSignUp />
+      </div>
+    </section>
   );
 }
 
 export function PageB() {
-  // On a wide window the copy takes the left; the camera fits the rest.
-  const width = useWindowDimensions().width;
-  const wide = width > 900;
-  const left = wide ? Math.min(620, width * 0.42) : 0;
   return (
-    <div className="lp-page">
-      <Nav />
-      <main className="lp-b">
-        <div className="lp-b-map">
-          <LandingMap paper only={DEMO_IDS.work} inset={wide ? { top: 24, right: 8, bottom: 24, left } : { top: 24, right: 0, bottom: 24, left: 0 }} />
+    <>
+      <header className="lp-a-hero">
+        <Nav />
+        <div className="lp-map lp-fade">
+          <LandingMap paper inset={{ top: 60, right: 0, bottom: 220, left: 0 }} />
         </div>
-        <span className="lp-demo lp-b-label">Demo: made-up people, AIs and notes</span>
-        <div className="lp-b-copy">
-          <Tell className="lp-tell-3" />
-          <p className="lp-lede">
-            One set of notes for you, your team and <Tools />. The map is the real one; the people, AIs and notes on it are
-            made up.
-          </p>
-          <SignUpCard />
+        <div className="lp-a-line">
+          <Headline />
+          <JoinLink />
         </div>
-      </main>
+        <div className="lp-hint">
+          <span>Scroll to explore</span>
+          <i />
+          <span className="lp-demo">Demo workspaces</span>
+        </div>
+      </header>
+      <section className="lp-a-editor" aria-labelledby="lp-editor-title">
+        <h2 id="lp-editor-title">A Markdown editor, and nothing in the way.</h2>
+        <ul className="lp-points">
+          {EDITOR_POINTS.map((point) => (
+            <li key={point}>{point}</li>
+          ))}
+        </ul>
+        <LandingEditor />
+        <p className="lp-demo">The real editor, playing a demo: made-up people and AIs writing in one note.</p>
+      </section>
+      <Story />
+      <JoinSection />
       <Footer />
-    </div>
+    </>
   );
 }
