@@ -178,7 +178,7 @@ export function webPrompt(webNames) {
   }
   if (webNames.has(FILL_LOGIN_TOOL)) {
     lines.push(
-      "When a site needs signing in, check vault_list and use fill_login with the saved login; never ask the person for a password. With none saved, give them vault_add_link, or a handoff so they sign in themselves.",
+      "When a site needs signing in, check vault_list and use fill_login with a saved login. With none saved, hand the browser to the person (a browse handoff step) so they sign in themselves, then carry on when they text you; offer vault_add_link afterwards so next time you can sign in yourself. Never ask for a password, and never say you can't use a site just because no login is saved.",
     );
   }
   if (lines.length === 0) return "";
@@ -269,6 +269,16 @@ export function webSession(computer, question, { decide = null, search = null, a
     tools,
     usage,
     browser,
+    /**
+     * A task skill was read this question (`skills.js`): its addresses may be
+     * opened, as if the person had written them, and the values it marks in
+     * backticks typed (`browse.js`). Staff wrote it in the pinned workspace;
+     * no page or note can add to it.
+     */
+    vouch(text) {
+      for (const url of addressesIn(text)) allowed.add(url);
+      browser?.vouch(text);
+    },
     /** Ends this question's browser, if it opened one. */
     close: () => browser?.close() ?? Promise.resolve(),
     async call(name, args) {

@@ -42,6 +42,10 @@ Moved to [Nine sizes, two densities, and no literal font size anywhere](./app-an
 
 Moved to [One interface face, and `display` kept as a role with no face of its own](./app-and-console/design-tokens-and-interaction.md#one-interface-face-and-display-kept-as-a-role-with-no-face-of-its-own).
 
+### Libron is the body face, served from our own origin (2026-10-11)
+
+Moved to [Libron is the body face, served from our own origin](./app-and-console/design-tokens-and-interaction.md#libron-is-the-body-face-served-from-our-own-origin-2026-10-11).
+
 ### A long press has two signals, because the platform is watching the finger too
 
 Moved to [A long press has two signals, because the platform is watching the finger too](./app-and-console/design-tokens-and-interaction.md#a-long-press-has-two-signals-because-the-platform-is-watching-the-finger-too).

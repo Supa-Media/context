@@ -3,14 +3,22 @@ import { Platform } from "react-native";
 /**
  * Font families.
  *
- * On web these are CSS font stacks — the faces themselves are pulled from
- * Google Fonts (see `fonts.web.ts` and `public/index.html`), exactly as the mockup
- * does. On native we deliberately hand back `undefined` so the platform
+ * On web these are CSS font stacks. Libron, the reading face, is served from
+ * the app's own origin (`public/libron.css`); JetBrains Mono comes from Google
+ * Fonts. Both are linked by `public/index.html` and `fonts.web.ts`. On native we deliberately hand back `undefined` so the platform
  * default is used: passing a comma-separated stack to a native text node is
  * meaningless on iOS and can throw on Android, and there are no bundled font
  * binaries to point at yet. Native is a later surface; see the report.
  */
 const webStack = (primary: string, fallback: string) => `${primary}, ${fallback}`;
+
+/**
+ * What draws while Libron loads, or wherever it cannot: Libron is a serif
+ * built for long reading on screens (decided by the owner, 2026-10-11), so its
+ * stand-in is a serif too, and a page never jumps between two different kinds
+ * of letter.
+ */
+const READING_FALLBACK = "ui-serif, Georgia, serif";
 
 export const fonts = {
   /**
@@ -28,19 +36,17 @@ export const fonts = {
    * face again later without touching a call site. It just resolves to the
    * body face now, and the difference between display and interface is carried
    * by size, weight and tracking instead.
+   *
+   * Since 2026-10-11 the body face is Libron, for the interface and notes
+   * alike (the owner's call: "change everything that was Instrument Sans into
+   * Libron").
    */
   display: Platform.select({
-    web: webStack(
-      "Instrument Sans",
-      "ui-sans-serif, system-ui, -apple-system, sans-serif",
-    ),
+    web: webStack("Libron", READING_FALLBACK),
     default: undefined,
   }),
   body: Platform.select({
-    web: webStack(
-      "Instrument Sans",
-      "ui-sans-serif, system-ui, -apple-system, sans-serif",
-    ),
+    web: webStack("Libron", READING_FALLBACK),
     default: undefined,
   }),
   mono: Platform.select({

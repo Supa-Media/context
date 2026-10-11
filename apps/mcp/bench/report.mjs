@@ -233,6 +233,8 @@ function runBlock(run, setup) {
   }
   const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
+  // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
+  if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

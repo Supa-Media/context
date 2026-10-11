@@ -29,7 +29,7 @@ export const FILL_LOGIN_DEFINITION = {
     "Sign in with a login the person saved: fills the username and password boxes on the page your browser is on. " +
     "First open the site's sign-in page with browse, then pass the login's id from vault_list and the numbers of the boxes. " +
     "You never see the username or password; press the sign-in button with browse afterwards. " +
-    "It only works on the login's own site. If there is no saved login, give them vault_add_link instead of asking for the password.",
+    "It only works on the login's own site. If there is no saved login, never ask for the password: hand the browser over with a browse handoff step so they sign in themselves, and offer vault_add_link so you can sign in for them next time.",
   inputSchema: {
     type: "object",
     properties: {

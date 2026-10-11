@@ -12,7 +12,8 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
-import { readProductionSetup } from "./production.js";
+import { readProductionSetup, readProductionSkill } from "./production.js";
+import { skillSession, withSkills } from "./skills.js";
 import { searchSettingsOf } from "../search/settings.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
@@ -322,6 +323,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
   if (production?.search) store.searchSettings = searchSettingsOf(store, production.search);
+  // The setup's task skills (`skills.js`), read from the pinned workspace only when asked for.
+  // A skill read this turn vouches for its own addresses and backticked values,
+  // as the person's message does (`computer.js` `vouch`); nothing else can.
+  const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
+    onRead: (body) => opened?.vouch(body),
+  });
   const productionModel =
     production !== null && canRunBuiltin(production.model, env) ? production.model : null;
   const builtinUsed = productionModel ?? builtinModel(env);
@@ -421,6 +428,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       tools: [
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
+        ...(skills?.tools ?? []),
       ],
       /*
         THE ONE DISPATCHER, AND IT IS THE CLIENT'S. Not a copy, not a subset
@@ -429,9 +437,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
-      callTool: textingAwareCallTool(
-        (name, args) => callToolForSession({ name, arguments: args }, store, session),
-        textingWriting,
+      callTool: withSkills(
+        skills,
+        textingAwareCallTool((name, args) => callToolForSession({ name, arguments: args }, store, session), textingWriting),
       ),
       env,
       providerOptions: {

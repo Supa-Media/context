@@ -21,6 +21,8 @@
 
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
+import { skillPath } from "../src/agent/skills.js";
+import { createWeb } from "./sites.mjs";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -30,6 +32,9 @@ import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_
 import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
 import { wireSearchSettings } from "../src/search/settings.js";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+
+/** Brave's search endpoint (`src/agent/search.js`). */
+const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 const PINNED = "context-lc";
@@ -175,11 +180,25 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : []), ...(vectorize ? [vectorize.install()] : [])];
   if (today !== null) restore.push(installClock(today));
 
-  // Model calls are the only traffic that leaves the world.
+  // The scripted web a golden task runs on (`sites.mjs`): the browser
+  // Worker's stand-in, and the answers to web searches.
+  const web = models.sites?.length ? createWeb(models.sites) : null;
+
+  // Model calls are the only traffic that leaves the world, and web searches
+  // when the run has a search key and no scripted web: production searches
+  // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
+  // world refused the call, so every search_web in a result had failed).
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
+    if (url.startsWith(BRAVE_SEARCH)) {
+      if (web) {
+        const results = web.search(new URL(url).searchParams.get("q") ?? "");
+        return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
+    }
     if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
     if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
     throw new Error("a benchmark turn tried to reach the network outside the model");
@@ -194,6 +213,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const pinned = s3.bucketFor("bench-pinned");
   pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
   pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0", lastModified: modified(noteModifiedAt(setupRaw, baseMs)) });
+  // The setup's task skills (`src/agent/skills.js`), where production keeps them.
+  for (const [i, skill] of (models.skills ?? []).entries()) {
+    pinned.set(skillPath(skill.name), { body: skill.raw, etag: `k${i}`, lastModified: modified(baseMs) });
+  }
 
   const token = `cat_bench_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
   await controlPlane.addGrant({
@@ -225,6 +248,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // A scripted web answers searches itself, so no real key is needed or sent.
+    ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a
     // search setup under test puts in the Worker's vars.
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
@@ -245,6 +270,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message) {
+      // The person opened the last handoff's link and signed in before texting.
+      web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
@@ -305,6 +332,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           cacheWrite: usage.cacheWriteTokens ?? 0,
         },
       };
+    },
+
+    /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
+    browser() {
+      return web ? web.events() : [];
     },
 
     /** What the conversation changed in the invented workspaces, as a list. */

@@ -17,6 +17,14 @@ this folder: it is public, like the rest of the repository.
   the `every_answer` lines graded on every answer. `tests/search.md` is the
   search job: each question is one `search_notes` call and names the notes
   that should come back (`expect:`), scored with no judge (`pnpm ai search`).
+- `tests/tasks.md`: the golden tasks (decided 2026-10-11), jobs the texting
+  assistant must always get right: connect ChatGPT or Claude to Context, sign
+  in to a site, save a login, find something on a site. Run it with
+  `--test tasks`. Every task is a gate, and its `must call`, `must reach`,
+  `must hand off`, `must type`, `must choose` and `must set` lines are checked
+  from the run's record (`bench/checks.mjs`), not by the judge.
+- `sites/`: the scripted web a test with `web: scripted` runs on, one file per
+  site (`bench/sites.mjs` says the format). Invented sites use `.example`.
 - `setups/<job>/`: written by `pnpm ai pull <job>` and ignored by git. A
   setup is the complete package (model, settings, prompt) in the production
   file's format; a `setups/search/` file is a search setup: `job: search` and
