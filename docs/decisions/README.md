@@ -369,6 +369,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
 - A diagram lives in the note, and the browser is the only thing that makes it safe
+- A Mermaid chart is drawn by our script in a frame the note cannot leave
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
 - Reading mode is the whole rule for a block that replaces its own source

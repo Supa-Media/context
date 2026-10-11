@@ -340,6 +340,9 @@ importers:
       html2canvas:
         specifier: 1.4.1
         version: 1.4.1
+      mermaid:
+        specifier: 11.17.2
+        version: 11.17.2
       posthog-js:
         specifier: ^1.429.2
         version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0)

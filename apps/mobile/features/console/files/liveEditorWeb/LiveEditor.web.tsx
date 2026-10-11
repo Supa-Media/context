@@ -69,6 +69,7 @@ import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
 import { hasMargin } from "../comments/model";
+import { redrawDiagrams } from "../livePreview/diagram";
 
 export function LiveEditor({
   value,
@@ -267,6 +268,8 @@ export function LiveEditor({
    */
   useEffect(() => {
     ensureStyles(colors);
+    // Diagrams are drawn in a frame the stylesheet cannot reach; tell them.
+    redrawDiagrams();
   }, [colors]);
 
   /**

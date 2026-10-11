@@ -197,8 +197,9 @@ module.exports = [
       exist. `URL` earns its place rather than being convenience: `assetPath.js`
       builds the font base from `document.baseURI` with it, because the relative
       string it replaced was silently resolved against the origin instead.
+      The Mermaid frame (`diagram-frame/`) is a page of the same kind.
     */
-    files: ["drawing-editor/**/*.{js,jsx}"],
+    files: ["drawing-editor/**/*.{js,jsx}", "diagram-frame/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
