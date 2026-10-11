@@ -38,7 +38,7 @@ export async function writeClipboard(text: string): Promise<boolean> {
     area.style.opacity = "0";
     document.body.appendChild(area);
     try {
-      area.focus();
+      area.focus({ preventScroll: true });
       area.setSelectionRange(0, text.length);
       return document.execCommand("copy");
     } finally {
