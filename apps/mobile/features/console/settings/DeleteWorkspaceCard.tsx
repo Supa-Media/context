@@ -3,9 +3,9 @@ import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Grow, Row } from "../../design/components/Card";
 import { Icon } from "../../design/components/Icon";
-import { FormError, Notice, TextField } from "../../design/components/Input";
+import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   deletionConfirmed,
@@ -74,6 +74,11 @@ export function DeleteWorkspaceCard({
     One line that says to take a copy first, then the buttons. The long
     explanation and the typed name are what "Delete…" opens, so the page is not
     led by a paragraph about deleting while somebody came to rename it.
+
+    No tinted card around it (Dev2, 2026-10-11: boxes "scream vibe coded"). The
+    one-way door is said in bold red on the line itself, and Delete is the solid
+    red button. When deletion is refused, the reason takes that line's place as
+    plain subtext rather than a box of its own.
   */
   return (
     <View style={styles.card} testID="delete-workspace-card">
@@ -81,9 +86,18 @@ export function DeleteWorkspaceCard({
         <Icon name="trash" size={16} color={colors.critText} />
         <View style={styles.grow}>
           <Text variant="rowTitle">Delete this workspace</Text>
-          <Text variant="rowSub" style={styles.line}>
-            Download a copy first. This can&apos;t be undone.
-          </Text>
+          {deletion.blocked !== null ? (
+            <Text variant="rowSub" style={styles.line} testID="delete-workspace-blocked">
+              {deletion.blocked}
+            </Text>
+          ) : (
+            <Text variant="rowSub" style={styles.line}>
+              Download a copy first.{" "}
+              <Text variant="rowSub" style={styles.oneWay}>
+                This can&apos;t be undone.
+              </Text>
+            </Text>
+          )}
         </View>
         {onDownload === undefined ? null : (
           <Button
@@ -96,20 +110,15 @@ export function DeleteWorkspaceCard({
         )}
         {deletion.blocked === null && !open ? (
           <Button
-            variant="mini"
             label="Delete…"
             accessibilityLabel={`Delete the workspace @${deletion.slug}…`}
+            variant="danger"
             onPress={() => setOpen(true)}
-            style={styles.openButton}
             testID="delete-workspace-open"
           />
         ) : null}
       </View>
-      {deletion.blocked !== null ? (
-        <Notice tone="warn" style={styles.blocked}>
-          <Text variant="rowSub">{deletion.blocked}</Text>
-        </Notice>
-      ) : open ? (
+      {deletion.blocked === null && open ? (
         <View style={styles.body}>
           <Text variant="rowSub" style={styles.sub}>
             {who}. Notes in the bucket behind @{deletion.slug} stay exactly where they are —
@@ -170,17 +179,11 @@ export function DeleteWorkspaceCard({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    card: {
-      borderWidth: 1,
-      borderColor: colors.critBorder,
-      borderRadius: radii.card,
-      backgroundColor: colors.critWash,
-      padding: space.x4,
-    },
+    card: { paddingVertical: space.x2 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     grow: { flex: 1, minWidth: 0 },
     line: { marginTop: 2 },
-    openButton: { borderColor: colors.critBorder },
+    oneWay: { fontWeight: "600", color: colors.critText },
     body: { marginTop: space.x3 },
     sub: { maxWidth: 520 },
     confirmRow: { marginTop: 12, alignItems: "flex-end", gap: 12 },

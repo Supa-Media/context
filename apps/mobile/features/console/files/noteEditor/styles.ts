@@ -262,24 +262,12 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   status: { flexGrow: 1, flexShrink: 1 },
 
   conflict: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.warnBorder,
-    backgroundColor: colors.warnWash,
     gap: 10,
   },
   conflictText: { color: colors.warnText },
   conflictActions: { flexDirection: "row", gap: 10 },
 
   notice: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.xl,
-    backgroundColor: colors.hintWash,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
   },
   noticeStrong: { color: colors.hintStrong, fontFamily: fonts.mono },
 });

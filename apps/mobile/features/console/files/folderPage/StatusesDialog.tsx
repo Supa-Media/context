@@ -426,7 +426,7 @@ const makeStyles = (colors: Colors) =>
     inUseHead: { color: colors.muted },
     inUseRow: { gap: space.x2, paddingVertical: space.x2 },
     inUseWord: { flexDirection: "row", alignItems: "center", gap: space.x2, flexWrap: "wrap" },
-    confirm: { gap: space.x2, padding: space.x3, borderRadius: radii.lg, backgroundColor: colors.warnWash, borderWidth: 1, borderColor: colors.warnBorder },
+    confirm: { gap: space.x2 },
     confirmText: { color: colors.text },
     actions: { flexDirection: "row", gap: 10 },
     problem: { color: colors.critText },

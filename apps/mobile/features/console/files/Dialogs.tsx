@@ -561,12 +561,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   listRowOnLabel: { color: colors.accentText },
   listRowMeta: { marginLeft: "auto" },
   hint: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.xl,
-    backgroundColor: colors.hintWash,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
   },
   hintStrong: { color: colors.hintStrong, fontFamily: fonts.mono },
 });

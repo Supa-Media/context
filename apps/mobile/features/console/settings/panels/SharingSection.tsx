@@ -46,8 +46,6 @@ export function SharingSection({
 
       <MembersSection
         view={data.members}
-        viewerRole={current?.role}
-        showReachRule={false}
         /*
           Defensive because this pane is rendered from fixtures that carry only
           the half of `members` their own subject needs. A missing invitations

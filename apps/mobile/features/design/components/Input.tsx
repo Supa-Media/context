@@ -513,24 +513,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.ground,
   },
 
-  formError: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.critBorder,
-    backgroundColor: colors.critWash,
-  },
+  // The headline is already red and bold; a red box around it as well was
+  // one emphasis too many (Dev2, 2026-10-11).
+  formError: {},
   formErrorHead: { fontWeight: "600" },
   formErrorNext: { marginTop: 4, color: colors.text2 },
 
-  notice: {
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-  },
-  notice_neutral: { borderColor: colors.line, backgroundColor: colors.surface },
-  notice_ok: { borderColor: colors.okBorder, backgroundColor: colors.okWash },
-  notice_warn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
+  // No box (Dev2, 2026-10-11). The tone is carried by the words inside —
+  // `NoticeLine`'s coloured mark, or a `warnText` / `okText` style — never a
+  // tinted panel around them.
+  notice: {},
+  notice_neutral: {},
+  notice_ok: {},
+  notice_warn: {},
 });
