@@ -32,6 +32,8 @@ const CALLBACK_SECRET = /(\/(?:invite|join|s|texts|vault)\/)[^/?#\s]+/gi;
 */
 const ENCODED_PATH_QUERY_VALUE = /([?&][A-Za-z0-9_.-]{1,64}=)[^&#\s]*%2[Ff][^&#\s]*/g;
 const CONTEXT_PATH = /(\/console\/)[^/?#\s]+/gi;
+// `/tex/<handle>`: whose agent computer this is, which is who uses Tex.
+const TEX_HANDLE = /(\/tex\/)[^/?#\s]+/gi;
 // `/note/@slug/<path>` — everything after the keyword, not just the handle.
 // This route carries a whole note path, which `CONTEXT_PATH`'s one-segment
 // shape would leave standing from the second segment on.
@@ -64,6 +66,7 @@ export function redactTelemetryText(value: string): string {
     .replace(CALLBACK_SECRET, "$1:token")
     .replace(ENCODED_PATH_QUERY_VALUE, "$1[redacted]")
     .replace(CONTEXT_PATH, "$1:context")
+    .replace(TEX_HANDLE, "$1:context")
     .replace(NOTE_ADDRESS, "$1:address")
     .replace(EMAIL, "[redacted-email]")
     .replace(FRAGMENT_VALUE, "$1[redacted]");
@@ -106,6 +109,7 @@ export function telemetryRoute(pathname: string): string {
   if ((named[0] === "console" || named[0] === "note") && named.length >= 2) {
     named[1] = ":context";
   }
+  if (named[0] === "tex" && named.length >= 2) named[1] = ":context";
   if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "texts" || named[0] === "vault") && named.length >= 2) {
     named[1] = ":token";
   }
