@@ -11,10 +11,13 @@ import worker from "./index";
 import {
   HOME_SITE_ELEMENT_ID,
   fetchHomeSnapshot,
+  homePagePathOf,
   injectHomeSnapshot,
   parseHomeSnapshot,
   type HomeSnapshot,
 } from "./homeSite";
+// The app's source as text: its module imports half the app, and the list is all this needs.
+import appHomeSite from "../../../apps/mobile/features/home/homeSite.ts?raw";
 
 const ENV = {
   EXPO_ORIGIN: "https://context.expo.app",
@@ -115,11 +118,23 @@ describe("the homepage's HTML", () => {
     expect(response.headers.get("ETag")).toBe('"abc"');
   });
 
-  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/Legal/logo.png"])("%s does not ask", async (path) => {
+  it.each(["/login", "/@context-lc", "/console", "/s/abc", "/vault/tok-abc", "/Legal/logo.png"])("%s does not ask", async (path) => {
     await get(path);
     expect(fetchSpy.mock.calls.map(([input]) => String(typeof input === "string" ? input : input.url))).toEqual([
       `https://context.expo.app${path}`,
     ]);
+  });
+
+  /*
+    The app's own list is held to its routes by its tests; this holds the
+    edge's copy to the app's, so a screen added there (`/vault` was missed
+    once) is never mistaken for a homepage page here.
+  */
+  it("no first segment the app answers itself is a page here", () => {
+    const list = /export const APP_SEGMENTS[^=]*= new Set\(\[([\s\S]*?)\]\)/.exec(appHomeSite)?.[1] ?? "";
+    const segments = [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
+    expect(segments).toContain("vault");
+    expect(segments.filter((segment) => homePagePathOf(new URL(`https://context.lc/${segment}`)) !== null)).toEqual([]);
   });
 
   it.each([
