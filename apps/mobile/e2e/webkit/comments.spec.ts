@@ -85,6 +85,50 @@ test("a comment is written, answered and resolved in the margin", async ({
   await expect(line).toContainText("Tenancy is bucket-level");
 });
 
+test("starting a comment far down a note keeps the page where it is", async ({
+  page,
+}) => {
+  // Dev2, 2026-10-11: highlighting words and pressing Comment jumped back to
+  // the top of the note. The new card's box was focused before it had been
+  // placed beside its line, so the browser scrolled to where it first stood.
+  await page.goto("/e2e-fixture");
+  const first = page.locator(".cm-line", { hasText: "Tenancy is bucket-level" });
+  await expect(first).toBeVisible();
+  const box = await first.boundingBox();
+  if (box === null) throw new Error("no line to click");
+  await page.mouse.click(box.x + 4, box.y + box.height / 2);
+  await page.keyboard.press("ControlOrMeta+End");
+  const filler = Array.from({ length: 120 }, (_, i) => `Filler paragraph ${i + 1}.`).join("\n\n");
+  await page.keyboard.insertText(`\n\n${filler}\n\nWords far down the note.`);
+  const far = page.locator(".cm-line", { hasText: "Words far down the note." });
+  await far.scrollIntoViewIfNeeded();
+  await expect(far).toBeInViewport();
+
+  const scroller = page.locator(".cm-scroller");
+  const farBox = await far.boundingBox();
+  if (farBox === null) throw new Error("no line to select");
+  await page.mouse.click(farBox.x + 4, farBox.y + farBox.height / 2);
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  const before = await scroller.evaluate((node) => node.scrollTop);
+  expect(before).toBeGreaterThan(500);
+
+  await page.locator(".cm-cmt-chip").click();
+  const input = page.locator(".cm-cmt-card textarea");
+  await expect(input).toBeFocused();
+  await page.waitForTimeout(400);
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(before - 50);
+  await expect(far).toBeInViewport();
+  await expect(input).toBeInViewport();
+
+  await input.fill("Still here.");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".cm-cmt-card", { hasText: "Still here." })).toBeVisible();
+  await page.waitForTimeout(400);
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(before - 50);
+  await expect(far).toBeInViewport();
+});
+
 test.describe("a window with a little less room than a card needs", () => {
   // About 200px beside a centred column, so the column eases about 100px left
   // when the note gets its first comment.

@@ -172,7 +172,7 @@ export function carryOver(from: HTMLElement, to: HTMLElement) {
   if (document.activeElement === before) {
     const { selectionStart, selectionEnd } = before;
     queueMicrotask(() => {
-      after.focus();
+      after.focus({ preventScroll: true });
       after.setSelectionRange(selectionStart, selectionEnd);
     });
   }
