@@ -1,6 +1,6 @@
 import { useConvexAuth } from "convex/react";
 
-/** What every landing page shares: the bar on top, the statement, the foot. */
+/** What every landing page shares: the bar on top and the foot. */
 
 /** The top of every version: the name, and sign in. */
 export function Nav() {
@@ -22,23 +22,6 @@ export function Nav() {
         </a>
       )}
     </nav>
-  );
-}
-
-/**
- * The page's one sentence, with the blue square for its full stop. The last
- * word is held to the square so a line break never leaves it on its own.
- */
-export function Statement({ children, last }: { children: string; last: string }) {
-  return (
-    <h1 className="lp-say">
-      {children}{" "}
-      <span className="lp-nw">
-        {last}
-        <span className="lp-sq" aria-hidden />
-        <span className="lp-sr">.</span>
-      </span>
-    </h1>
   );
 }
 

@@ -17,12 +17,28 @@ recordings of it, so `landingFor` (`features/landing/route.ts`) answers null
 for all of them.
 
 - **a and b are one sentence, a few lines and one action.** The references
-  are a page with a single large sentence and almost nothing else. a is that
-  sentence ("Context is one set of notes for you, your team, and every AI you
-  use"), a short paragraph and the sign-up card, fitting one laptop screen;
-  b is the same restraint beside the live map. No feature grids, screenshots
-  or prose sections: adding them back is reversing this decision. The blue
-  square is the sentence's full stop and follows the wordmark.
+  are a page with a single large sentence and almost nothing else, but each
+  spends that space on personality: product names in their own marks, a
+  doodle per example. Ours is "Tell Claude. ChatGPT already knows.", each
+  name in the colour and robot the map draws that AI with, retyped live by a
+  caret of its colour through Claude, ChatGPT, Cursor and Codex
+  (`features/landing/tell.ts`; redesign of 2026-10-11 after "these designs are
+  uninspired"). Under it, one line ("Context is one set of notes for you,
+  your team and every AI you use", with every client that connects), four
+  doodled facts (write together live, text it in iMessage, private stays
+  private, download everything) and the sign-up card; a fits one laptop
+  screen. b is the same sentence beside the live map. No feature grids,
+  screenshots or prose sections: adding them back is reversing this
+  decision. The blue square is the sentence's full stop and follows the
+  wordmark.
+- **The headline only ever says true things.** Every name in it is a client
+  Context connects today, the second name is retyped before the first so
+  every whole sentence the page stops on names two different AIs, and Gemini
+  CLI is named in the line under it rather than in the chain only because it
+  is too wide for a phone's line. Assistive tech hears the first sentence,
+  still; the retyping is hidden from it, and with reduced motion the first
+  sentence simply stays. The page has one h1: the sign-up's heading is a
+  level below it there (`PhoneSignInForm`'s `headingLevel`).
 - **c is the shell itself.** "The landing page was the app shell" means the
   console's frame in visitor mode, drawn by `HomeShell`, not a picture of it.
   It differs from `/?page=index` only in being counted as page c.
@@ -59,8 +75,10 @@ for all of them.
 
 Test: `apps/mobile/__tests__/landingRoute.test.ts` and `landingPages.test.ts`
 (which address is which page, and how a campaign is read and cleaned),
+`landingTell.test.ts` (the headline names only connected AIs and never stops
+on a false sentence),
 `adCampaign.test.ts`, `loginScreen.test.ts` (a phone join fires both
 pixels), `adminWaitlistRender.test.ts`, the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`, and
-`e2e/webkit/landingPages.spec.ts` (a fits one screen, b labels its demo, c is
-the shell, retired letters go home).
+`e2e/webkit/landingPages.spec.ts` (a fits one screen with one h1, b labels its
+demo, c is the shell, retired letters go home).

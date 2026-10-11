@@ -3,6 +3,8 @@ import type { LandingPage as Letter } from "@context/shared";
 import { captureLandingPage } from "../auth/landingPage";
 import { useColors, useScheme } from "../design/theme";
 import { LANDING_CSS } from "./landingCss";
+import { agentTint } from "../console/map/live/agentKind";
+import { darkMapColors, lightMapColors } from "../design/tokens/colors";
 import { darkLandingColors as darkLanding, lightLandingColors as lightLanding } from "../design/tokens/landingColors";
 import { HomeShell } from "../home/HomeShell";
 import { PageA, PageB } from "./variants.web";
@@ -38,6 +40,7 @@ function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
     };
   }, []);
   const sheet = scheme === "dark" ? darkLanding : lightLanding;
+  const map = scheme === "dark" ? darkMapColors : lightMapColors;
   const vars = useMemo(
     () =>
       ({
@@ -49,9 +52,15 @@ function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
         "--blue": sheet.blue,
         "--accent": colors.accent,
         "--ground": colors.pageSurface,
+        // Each AI in the colour the map draws it in, so the headline and the map agree.
+        "--ai-claude": agentTint("claude", "Claude", map),
+        "--ai-chatgpt": agentTint("chatgpt", "ChatGPT", map),
+        "--ai-codex": agentTint("codex", "Codex", map),
+        "--ai-cursor": agentTint("other", "Cursor", map),
+        "--glyph": map.agentGlyph,
         colorScheme: scheme,
       }) as CSSProperties,
-    [sheet, colors, scheme],
+    [sheet, map, colors, scheme],
   );
   const Page = PAGES[page];
   return (
