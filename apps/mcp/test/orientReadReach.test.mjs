@@ -4,10 +4,10 @@
  *
  * `privacy/egress.js` decides whether a widening needs a person by asking what
  * this turn read: a read from a workspace other than the one being widened
- * always asks. `search_notes` reports its fan-out through `withReadReach`
- * (row 668). Orient's fan-out is the same shape — one call, several
- * workspaces' note text — and reported nothing, so a turn that held another
- * workspace's front page could widen inside a team-tier workspace unasked.
+ * always asks. `search_notes` reports its fan-out through `withReadReach`.
+ * Orient's fan-out is the same shape — one call, several workspaces' note
+ * text — and reported nothing, so a turn that held another workspace's front
+ * page could widen inside a team-tier workspace unasked.
  *
  * Only a workspace whose front page actually rendered counts, for the reason
  * `search.js`'s `reachOf` gives: a workspace that handed the model nothing was
