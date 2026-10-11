@@ -68,13 +68,52 @@ export function onTrustedSite(url, sites) {
  */
 export class OpenableAddresses extends Set {
   #sites = [];
+  #openWeb = false;
 
   /** The setup's trusted sites (`readTrustedSites`); may be called once a turn. */
   trust(sites) {
     if (Array.isArray(sites)) this.#sites = sites.filter((site) => typeof site === "string" && SITE.test(site));
   }
 
-  has(url) {
-    return super.has(url) || onTrustedSite(url, this.#sites);
+  /** The setup's `open_web: yes` (`onOpenWeb`). */
+  openWeb(on) {
+    this.#openWeb = on === true;
   }
+
+  has(url) {
+    if (super.has(url) || onTrustedSite(url, this.#sites)) return true;
+    return this.#openWeb && onOpenWeb(url);
+  }
+}
+
+/**
+ * OPEN WEB (owner, 2026-10-11: "let's accept the risk like these products").
+ * With `open_web: yes` in the setup, the model may open any public https
+ * address it chooses, the way Instinct and OpenAI's agents browse. The cost,
+ * accepted on purpose: a page can now ask the assistant to carry the person's
+ * notes out in an address. What still holds: saved passwords are filled by the
+ * gateway and never seen (`fillLogin.js`), typing stays limited (`browse.js`),
+ * and the address is https on a real hostname with no credentials or port.
+ */
+export function onOpenWeb(url) {
+  if (typeof url !== "string") return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "" || parsed.port !== "") return false;
+  const host = parsed.hostname;
+  // Not a bare IP address or an internal name.
+  if (/^[\d.]+$/.test(host) || host.includes(":") || host.startsWith("[")) return false;
+  if (/(^|\.)(localhost|local|internal|lan|home|corp)$/.test(host)) return false;
+  return SITE.test(host);
+}
+
+/** A setup's `open_web:` value: `yes` is true, absent or `no` is false, anything else null. */
+export function readOpenWeb(value) {
+  if (value === undefined || value === "no" || value === "false") return false;
+  if (value === "yes" || value === "true") return true;
+  return null;
 }

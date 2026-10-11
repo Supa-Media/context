@@ -127,3 +127,45 @@ test("a trusted site never carries a query the model wrote, and other sites stay
   }
   assert.deepEqual(computer.opened, []);
 });
+
+/* ---------------- open web (owner, 2026-10-11) ---------------- */
+
+test("parseSetup reads open_web, off by default, and refuses a value it does not know", async () => {
+  const file = (line) => setupFile().replace("---\n\nYou", `${line}\n---\n\nYou`);
+  assert.equal((await parseSetup(setupFile())).openWeb, false);
+  assert.equal((await parseSetup(file("open_web: yes"))).openWeb, true);
+  assert.equal(await parseSetup(file("open_web: maybe")), null);
+});
+
+test("with open web, any public https address opens, with or without a query", () => {
+  const allowed = new OpenableAddresses();
+  assert.equal(allowed.has("https://news.example.org/story?id=4"), false);
+  allowed.openWeb(true);
+  assert.equal(allowed.has("https://news.example.org/story?id=4"), true);
+  assert.equal(allowed.has("https://chatgpt.com/auth/login"), true);
+});
+
+for (const [name, url] of [
+  ["a bare IP address", "https://10.0.0.1/admin"],
+  ["an IPv6 address", "https://[::1]/"],
+  ["an internal name", "https://intranet.corp/"],
+  ["localhost", "https://localhost/"],
+  ["a port", "https://example.org:8443/"],
+  ["credentials", "https://user:pass@example.org/"],
+]) {
+  test(`open web still refuses ${name}`, () => {
+    const allowed = new OpenableAddresses();
+    allowed.openWeb(true);
+    assert.equal(allowed.has(url), false);
+  });
+}
+
+test("open_page opens an address the model chose only when the setup opens the web", async () => {
+  const computer = fakeComputer();
+  const session = webSession(computer, "find me the delta baggage policy");
+  const url = "https://www.delta.com/us/en/baggage/overview";
+  assert.equal((await session.call(OPEN_PAGE_TOOL, { urls: [url] })).isError, true);
+  session.trust([], { openWeb: true });
+  assert.notEqual((await session.call(OPEN_PAGE_TOOL, { urls: [url] })).isError, true);
+  assert.deepEqual(computer.opened, [url]);
+});

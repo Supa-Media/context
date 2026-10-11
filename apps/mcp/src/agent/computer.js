@@ -284,8 +284,9 @@ export function webSession(computer, question, { decide = null, search = null, a
      * The setup's trusted sites (`trustedSites.js`): any page of theirs with
      * no query string may be opened without the person writing its address.
      */
-    trust(sites) {
+    trust(sites, { openWeb = false } = {}) {
       allowed.trust(sites);
+      allowed.openWeb(openWeb);
     },
     /** Ends this question's browser, if it opened one. */
     close: () => browser?.close() ?? Promise.resolve(),

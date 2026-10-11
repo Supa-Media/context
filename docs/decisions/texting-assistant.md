@@ -417,6 +417,16 @@ So the model never chooses an address:
   (`chatgpt.com/?q=…` is refused); lookalike hosts, ports and credentials are
   refused too. A trusted site is one staff chose in the pinned workspace,
   never a stranger, and the list is edited like the skills.
+- Open web (owner, 2026-10-11: "let's accept the risk like these products",
+  after learning that Instinct and OpenAI's agents browse freely): with
+  `open_web: yes` in the production setup, the model may open any public
+  https address it chooses, query included. **This knowingly reopens the
+  exfiltration this section was written to close**: a page can ask the
+  assistant to put the person's notes in an address. What still holds:
+  saved passwords are filled by the gateway and never seen, typing stays
+  limited to the person's words and skill values, IP addresses, internal
+  names, ports and credentials are refused, and removing the line from the
+  setup note closes it again with no deploy.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
