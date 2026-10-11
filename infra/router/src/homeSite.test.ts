@@ -16,8 +16,13 @@ import {
   parseHomeSnapshot,
   type HomeSnapshot,
 } from "./homeSite";
-// The app's source as text: its module imports half the app, and the list is all this needs.
-import appHomeSite from "../../../apps/mobile/features/home/homeSite.ts?raw";
+// The app's source, read as plain text: importing it (even with Vite's `?raw`)
+// makes Vite load the app's tsconfig, which needs Expo, and this package's CI
+// installs only the router. The list is all this needs.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const appHomeSite = readFileSync(fileURLToPath(new URL("../../../apps/mobile/features/home/homeSite.ts", import.meta.url)), "utf8");
 
 const ENV = {
   EXPO_ORIGIN: "https://context.expo.app",
