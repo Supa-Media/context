@@ -8,9 +8,9 @@ export const SIMPLE_CSS = `
 .sp *,.sp *::before,.sp *::after{box-sizing:border-box}
 :where(.sp) :where(h1,p){margin:0}
 :where(.sp) a{color:inherit;text-decoration:none}
-.sp-col{flex:1;width:100%;max-width:760px;margin:0 auto;padding:clamp(56px,11vh,120px) 32px 64px;display:flex;flex-direction:column;gap:1.2em;font-size:clamp(21px,2.1vw,29px);line-height:1.38;letter-spacing:-.005em}
+.sp-col{flex:1;width:100%;max-width:760px;margin:0 auto;padding:clamp(48px,10vh,112px) 32px 40px;display:flex;flex-direction:column;gap:1.2em;font-size:clamp(21px,2.1vw,29px);line-height:1.38;letter-spacing:-.005em}
 .sp-logo{display:inline-block;width:fit-content;margin-bottom:clamp(40px,7vh,72px);color:var(--ink)}
-.sp-doodle{display:block;width:48px;height:auto;margin-left:-4px}
+.sp-doodle{display:block;width:54px;height:auto;margin-left:-6px}
 .sp-p{font-size:1em;font-weight:400;line-height:1.38;text-wrap:pretty;color:var(--ink)}
 .sp-first{font-weight:500;text-wrap:balance}
 .sp-u{text-decoration:underline;text-decoration-color:var(--hair);text-decoration-thickness:1px;text-underline-offset:.2em;transition:text-decoration-color .15s}
@@ -25,5 +25,5 @@ export const SIMPLE_CSS = `
 .sp-foot{width:100%;max-width:760px;margin:0 auto;padding:0 32px 32px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}
 .sp-copy{margin-left:auto}
 .sp-foot a:hover{color:var(--ink)}
-@media (max-width:600px){.sp-col{padding-left:24px;padding-right:24px}.sp-foot{padding-left:24px;padding-right:24px}.sp-doodle{width:40px}.sp-copy{margin-left:0}}
+@media (max-width:600px){.sp-col{padding-left:24px;padding-right:24px}.sp-foot{padding-left:24px;padding-right:24px}.sp-doodle{width:46px;margin-left:-5px}.sp-copy{margin-left:0}}
 `;
