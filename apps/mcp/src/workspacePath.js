@@ -128,4 +128,7 @@ export const RESERVED_FIRST_SEGMENTS = new Set([
   // the same way as `agent`: a route that answered 404 while its suite was
   // green, because the path read as a workspace called `approvals`.
   "approvals",
+  // The person's own view of Tex's browser, `/tex/computer` (`http/texComputer.js`).
+  // Already in the control plane's RESERVED_NAMES as the assistant's name.
+  "tex",
 ]);

@@ -155,8 +155,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   let session = null;
   let origin = null;
   let steps = 0;
-  // The live-view link, never the model's: texted the moment it exists when
-  // the turn can text mid-task (`say`), else added to the reply by the gateway.
+  // The person's own page for taking the browser over (`context.lc/tex/<handle>`),
+  // never the model's and never a link to the browser itself: texted the
+  // moment it exists when the turn can text mid-task (`say`), else added to
+  // the reply by the gateway.
   let handoffLink = null;
   let handoffSaid = false;
   // A handoff the model asked for that never produced a link.
@@ -186,7 +188,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
   async function run(planned, { handoff = false } = {}) {
     const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
-    if (typeof result?.liveUrl === "string" && result.liveUrl.startsWith("https://")) handoffLink = result.liveUrl;
+    if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
     if (!reading) return null;
@@ -294,7 +296,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       return textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
     },
 
-    /** The live-view link a handoff made this question and has not texted yet, for the gateway's reply. */
+    /** The take-over link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
     /**
      * The gateway's own sentence for a link it is about to append, or null.

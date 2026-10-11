@@ -2,7 +2,8 @@
  * POST /browse with `provider: "browserbase"`: the same steps as Cloudflare's
  * browser (./browse.ts), on this person's Browserbase browser.
  *
- *   `{ provider, owner, steps }` → `{ session, ran, page }`
+ *   `{ provider, owner, steps, handoff? }` → `{ session, ran, page }` (`handoff`
+ *   says the person is being handed this browser, and asks for nothing)
  *   `/browse/close` `{ provider, owner }` → releases their browser now
  *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
