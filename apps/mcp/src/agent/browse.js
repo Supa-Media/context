@@ -67,7 +67,7 @@ export const BROWSE_DEFINITION = {
     "Use a web browser to do things on a site: open a page, click, type, choose options, go back, scroll. " +
     "Each reading numbers what you can press or type into, like [7]; steps name those numbers as ref. " +
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
-    "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name. " +
+    "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. " +
     "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. " +
     HANDOFF_SENTENCE +
     "Use open_page instead when you only need to read.",
@@ -232,7 +232,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
-            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site (no ?query added). Otherwise ask them for the address.", true);
+            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
           }
           gotos += 1;
           planned.push({ do: "goto", url });

@@ -300,7 +300,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       const wanted = [...new Set(asked.map(canonicalUrl))];
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
-          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site. Ask them for the address.",
+          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site — and there only its plain path, with nothing of yours written into it. Ask them for the address.",
           true,
         );
       }
