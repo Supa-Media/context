@@ -61,9 +61,19 @@ export async function readFile(
   options: { path: string; clearance: Clearance; forward?: "never" | "onMiss" },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
+  /*
+    The note is asked for while `privacy.md` is still on its way, rather than
+    after it: two bucket round trips one after the other were the first half
+    of every open's wait. Nothing about the answer changes — `canSee` still
+    decides before a byte of the note is returned, and a note the caller may
+    not see is refused exactly as one that is missing. Only the request is
+    early. A failure of this early request is caught here and the ordinary
+    read below asks again, so it can never be the reason a read fails.
+  */
+  const early = store.get(path).catch(() => undefined);
   const state = await loadPrivacyState(store);
   if (options.forward !== "onMiss") {
-    return await readVisibleFile(store, state, path, options.clearance);
+    return await readVisibleFile(store, state, path, options.clearance, false, early);
   }
 
   /*
@@ -84,7 +94,7 @@ export async function readFile(
     re-asked there and a forward can never widen what a caller reaches.
   */
   try {
-    return await readVisibleFile(store, state, path, options.clearance);
+    return await readVisibleFile(store, state, path, options.clearance, false, early);
   } catch (error) {
     if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
     const forwarded = forwardPath(await readForwarding(store), path);
@@ -104,10 +114,13 @@ async function readVisibleFile(
   path: string,
   clearance: Clearance,
   plain = false,
+  /** The same `store.get(path)`, already asked; `undefined` if it failed. */
+  early?: Promise<Awaited<ReturnType<FileStore["get"]>> | undefined>,
 ): Promise<FileContents> {
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
 
-  const object = await store.get(path);
+  const asked = early === undefined ? undefined : await early;
+  const object = asked === undefined ? await store.get(path) : asked;
   if (object === null) throw notFound();
 
   const described = describeFile(path, state.rules, state.overrides);

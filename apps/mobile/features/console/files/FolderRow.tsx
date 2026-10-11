@@ -7,6 +7,7 @@
 
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
+import { useNoteIntent } from "./noteIntent";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -120,6 +121,7 @@ export function FolderRow({
     onDragEnd: drag?.onDragEnd ?? noopVoid,
   });
   const isDropTarget = drag !== undefined && drag.target === row.path;
+  const intent = useNoteIntent();
   return (
     <View
       ref={interactions.ref as never}
@@ -128,6 +130,7 @@ export function FolderRow({
     >
     <PressRow
       onPress={() => onSelect(row.path)}
+      onIntent={intent !== undefined && row.kind === "file" && picked === undefined ? () => intent(row.path) : undefined}
       style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}

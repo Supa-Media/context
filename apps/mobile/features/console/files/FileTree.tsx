@@ -100,8 +100,11 @@ export function FileTree({
   workspaceId = null,
   iconOf,
   onIconPress,
+  onIntent,
 }: {
   rows: readonly TreeRow[];
+  /** A note row is about to be opened, so its read can start (`FileBrowser.prefetch`). */
+  onIntent?: (path: string) => void;
   /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
   workspaceId?: string | null;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
@@ -201,6 +204,7 @@ export function FileTree({
         workspaceId={workspaceId}
         folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
         onIconPress={onIconPress}
+        onIntent={onIntent}
       />
     );
   }
@@ -240,8 +244,10 @@ function FileRow({
   workspaceId,
   folderIcon,
   onIconPress,
+  onIntent,
 }: {
   row: TreeRow;
+  onIntent?: (path: string) => void;
   workspaceId: string | null;
   /** The emoji this folder was given, or `null` for the plain folder icon. Files never have one. */
   folderIcon: string | null;
@@ -319,6 +325,7 @@ function FileRow({
         )}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
+        onIntent={row.kind === "file" && onIntent !== undefined ? () => onIntent(row.path) : undefined}
         radius={radii.sm}
         style={StyleSheet.flatten([
           styles.node,

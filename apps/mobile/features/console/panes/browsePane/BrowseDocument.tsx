@@ -17,6 +17,8 @@ import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { NoteLoading } from "./NoteLoading";
+import { isMarkdown } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -367,6 +369,9 @@ export function BrowseDocument({
         ) : landing === null ? null : (
           phoneHome
         )
+      ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
+        // A note on its way with nothing yet to draw it from: say so.
+        <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
       /*
@@ -418,6 +423,16 @@ export function BrowseDocument({
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />
+    ) : files.opening === selected.path && files.editor.path !== selected.path ? (
+      /*
+        A note the listing names, whose body is still on its way. The editor
+        here would be empty, with its "Write in markdown…" placeholder, over a
+        note that is not — see `NoteLoading`. `useShownEntry` keeps the page
+        that was already on screen instead whenever there is one; this is the
+        open with nothing before it (the phone's Home, an empty region, a
+        closed note).
+      */
+      <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
     ) : files.conflict?.path === selected.path ? (
       /*
         A conflict takes the region.

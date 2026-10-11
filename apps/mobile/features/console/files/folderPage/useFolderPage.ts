@@ -60,6 +60,12 @@ export interface FolderPageHost {
 export interface FolderNotes {
   /** Null until the first read lands. */
   readonly notes: readonly ListNote[] | null;
+  /**
+   * This folder's own front note, read by name ahead of the rest, or null
+   * until it lands. The title and description come from it alone, so they
+   * need not wait for every note the page's List and Board are drawn from.
+   */
+  readonly front: readonly ListNote[] | null;
   /** False while this device may still be missing some notes. */
   readonly complete: boolean;
   /**
@@ -129,6 +135,7 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     complete: boolean;
     missing?: readonly string[];
   } | null>(null);
+  const [front, setFront] = useState<readonly ListNote[] | null>(null);
   const [chosen, setChosen] = useState<Chosen>(() => new Map());
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
@@ -144,9 +151,23 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
   useEffect(() => {
     alive.current = true;
     setLoaded(null);
+    setFront(null);
     setProblem(null);
     if (source === undefined) return;
     let current = true;
+    /*
+      The description under the title arrived a second after the page
+      (owner, 2026-10-11): it waited on every note of the folder's parent,
+      bodies and all, when it is one note read by name.
+    */
+    if (scope !== "" && source.loadFront !== undefined) {
+      void source
+        .loadFront([scope])
+        .then((notes) => {
+          if (current) setFront(notes);
+        })
+        .catch(() => {});
+    }
     const read = () => {
       const folders = ancestorsOf(scope);
       const above: Promise<readonly (readonly ListNote[])[]> =
@@ -254,6 +275,7 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
   }, [loaded, complete, waited, folder]);
   return {
     notes,
+    front,
     complete,
     settled,
     canEdit: setProperty !== undefined,

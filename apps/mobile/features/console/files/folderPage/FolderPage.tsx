@@ -147,7 +147,12 @@ export function FolderPage({
   }
 
   const now = Date.now();
-  const summary = useMemo(() => (notes === null || folder === "" ? null : summarizeFolder(folder, notes)), [notes, folder]);
+  // The folder's own front note says what the title and description are, and is read ahead of the rest.
+  const described = notes ?? loaded.front;
+  const summary = useMemo(
+    () => (described === null || folder === "" ? null : summarizeFolder(folder, described)),
+    [described, folder],
+  );
   const { items, skipped } = useMemo(() => folderItems(folder, pending.rows, notes ?? []), [folder, pending.rows, notes]);
   // The folder's status list says what its children's statuses mean; its parent's, what its own means.
   const statuses = useMemo(() => folderStatuses(folder, notes ?? []), [folder, notes]);
@@ -347,7 +352,7 @@ export function FolderPage({
       ? (width: number) => (
           <AboutPanel
             path={peeking}
-            title={summary?.title ?? fallbackTitle}
+            title={summary?.heading ?? fallbackTitle}
             source={host.source}
             width={width}
             onNavigate={onSelect}
@@ -405,7 +410,7 @@ export function FolderPage({
         ) : null}
         <AboutBlock
           path={about}
-          title={summary?.title ?? fallbackTitle}
+          title={summary?.heading ?? fallbackTitle}
           source={host.source}
           compact={compact}
           create={createAbout}
@@ -449,7 +454,7 @@ export function FolderPage({
         />
       ) : null}
       {sheet !== null && sheet === about ? (
-        <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
+        <AboutSheet path={sheet} title={summary?.heading ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
         {view === "files" ? (

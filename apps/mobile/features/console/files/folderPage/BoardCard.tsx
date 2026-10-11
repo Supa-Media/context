@@ -21,6 +21,8 @@ import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useCardDrag } from "./boardDrag";
+import { useNoteIntent } from "../noteIntent";
+import { useHoverIntent } from "../../../design/useHoverIntent";
 import { OwnerFace, PriorityGlyph } from "./Glyphs";
 import type { ItemActions } from "./items";
 import { NEW_FRONT_NOTE, type FolderItem } from "./model";
@@ -50,6 +52,8 @@ export function BoardCard({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
+  const intent = useNoteIntent();
+  const hoverIntent = useHoverIntent(item.kind === "note" && intent !== undefined ? () => intent(item.path) : undefined);
   const edit = actions.onChoose;
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
   const tag = tagsOf(item.properties)[0];
@@ -62,8 +66,15 @@ export function BoardCard({
     <View ref={ref as never} style={lifted && styles.lifted} testID="folder-card-drag">
       <Pressable
         onPress={() => actions.onOpen(item)}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
+        onPressIn={item.kind === "note" && intent !== undefined ? hoverIntent.pressIn : undefined}
+        onHoverIn={() => {
+          setHovered(true);
+          hoverIntent.hoverIn();
+        }}
+        onHoverOut={() => {
+          setHovered(false);
+          hoverIntent.hoverOut();
+        }}
         role="link"
         aria-current={selected ? "true" : undefined}
         accessibilityLabel={item.kind === "folder" ? `${item.label}, folder` : item.label}

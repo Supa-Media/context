@@ -30,7 +30,7 @@ import { compareGroups, isDoneStatus } from "../../../../../mcp/src/lists.js";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import { groupLabel } from "../listBlock/words";
 import { valueChoices } from "../listBlock/valueMenu";
-import { baseName, displayName, folderLabel, isMarkdown } from "../paths";
+import { baseName, displayName, folderLabel, isMarkdown, repeatsFolderName } from "../paths";
 import type { FileEntry } from "../types";
 import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
 import { comparePriority, priorityOf, type Priority } from "./taskProps";
@@ -46,8 +46,13 @@ export interface FolderSummary {
   readonly target: string;
   /** `target` does not exist yet, and writing to it creates it. */
   readonly creates: boolean;
-  /** The front note's `title` or first heading, contained; null for none. */
+  /**
+   * The front note's `title` or first heading, contained; null for none, and
+   * null for one that only repeats the folder's name (`folderTitle`).
+   */
   readonly title: string | null;
+  /** That title as the note has it, even a repeat: the heading the about note's words sit under. */
+  readonly heading?: string | null;
   readonly properties: Readonly<Record<string, PropertyValue>>;
   /** The front note's first paragraph, when the device has read one. */
   readonly lede: string | null;
@@ -131,6 +136,21 @@ function statusOf(properties: Readonly<Record<string, PropertyValue>>, key = "st
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * The front note's title, unless it only repeats the folder's own name.
+ *
+ * Owner, 2026-10-11: opening Areas, the page said "Areas", then a moment later
+ * "1-areas". Older folders were made with a README whose heading was the
+ * folder's name on disk, number and all, and the page swapped to it when the
+ * note arrived. A heading that says nothing the folder's name does not is not
+ * a title: the page keeps the name it already drew (`folderLabel`), so it
+ * neither changes under the reader nor shows the sort number. A heading that
+ * says something else — "Health & home" — is still the title.
+ */
+function folderTitle(folder: string, title: string | null): string | null {
+  return title !== null && repeatsFolderName(folder, title) ? null : title;
+}
+
 /** A folder as its front note describes it, with the newest save anywhere inside. */
 export function summarizeFolder(folder: string, notes: readonly ListNote[]): FolderSummary {
   const front = frontNoteOf(folder, notes);
@@ -143,7 +163,8 @@ export function summarizeFolder(folder: string, notes: readonly ListNote[]): Fol
   return {
     target: front?.path ?? `${prefix}${NEW_FRONT_NOTE}`,
     creates: front === null,
-    title: titleOf(front),
+    title: folderTitle(folder, titleOf(front)),
+    heading: titleOf(front),
     properties: front?.properties ?? {},
     lede: front?.lede ?? null,
     updatedAt: newest,
