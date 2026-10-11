@@ -168,7 +168,14 @@ export type VaultLinkView =
   | { kind: "saved"; name: string; site: string; type: EntryType }
   | { kind: "shared"; name: string; grantee: string | null; type: EntryType }
   | { kind: "declined" }
-  | { kind: "dead"; reason: DeadReason; headline: string; detail: string };
+  | {
+      kind: "dead";
+      reason: DeadReason;
+      headline: string;
+      detail: string;
+      /** A link for another account: sign out, then sign in at this href and come back to the link. */
+      signInAgain?: string;
+    };
 
 export type DeadReason = "expired" | "notYours" | "storage" | "key" | "failed";
 
@@ -179,6 +186,15 @@ export function resolveVaultLinkView(inputs: {
   described: Described;
   outcome: Outcome;
 }): VaultLinkView {
+  const view = resolveView(inputs);
+  // The one dead end signing out fixes: the link is fine, the account is not.
+  if (view.kind === "dead" && view.reason === "notYours" && inputs.token !== null) {
+    return { ...view, signInAgain: loginHref(vaultLinkHref(inputs.token, inputs.prefill)) };
+  }
+  return view;
+}
+
+function resolveView(inputs: Parameters<typeof resolveVaultLinkView>[0]): VaultLinkView {
   const { token, auth, prefill, described, outcome } = inputs;
   if (auth.isLoading) return { kind: "wait" };
   if (token === null) return dead("expired");
@@ -252,13 +268,17 @@ export function errorMessageOf(error: unknown): string | null {
 
 /**
  * A submit failure that leaves the link usable: a field the backend refused,
- * or no answer at all (offline, a dropped socket). Everything with a code
- * other than INVALID_ARGUMENT ends the page.
+ * a write the workspace's storage did not take (the link is spent only by a
+ * write that landed), or no answer at all (offline, a dropped socket).
+ * Everything else with a code ends the page.
  */
 function fixableProblem(error: unknown): FormProblem | null {
   const code = errorCodeOf(error);
   if (code === "INVALID_ARGUMENT") {
     return { headline: errorMessageOf(error) ?? "Check the details and try again." };
+  }
+  if (code === "VAULT_STORAGE_FAILED") {
+    return { headline: errorMessageOf(error) ?? "That didn't go through.", next: "This link still works. Try again." };
   }
   if (code === undefined) {
     return { headline: "That didn't go through.", next: "Check your connection and try again." };

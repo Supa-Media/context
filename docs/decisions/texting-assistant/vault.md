@@ -76,6 +76,12 @@ gives me a link where I can share it."
   minutes, and is spent once. Saving and sharing happen in
   `apps/convex/functions/vault.ts`, after that check. The gateway only reads
   the vault; there is no tool that writes one.
+- A link is spent by the write that landed, not by the press. Save and Share
+  check the link, write the bucket, then spend it in one transaction that
+  re-checks it, so a storage failure (`VAULT_STORAGE_FAILED`) leaves the same
+  link to try again and two racing saves spend it once. An add link reserves
+  its entry id on the first try, so a retry rewrites that entry rather than
+  leaving a duplicate.
 - So a steered model cannot save, change or share a login. The most it can do
   is text the person a page where they decide.
 - Nobody texts a password. The tool description tells the model to answer a
@@ -87,10 +93,14 @@ gives me a link where I can share it."
 **What a simplification would cost:** letting the gateway write the vault
 gives every prompt injection a way to plant or share a login; a bearer link
 without the signed-in check lets whoever holds the link (including the agent's
-own browser) press Share. Tests: `apps/convex/__tests__/vault.test.ts` ("only
+own browser) press Share; spending the link before the write strands a person
+whose bucket hiccuped with a spent link and nothing saved. Tests:
+`apps/convex/__tests__/vault.test.ts` ("only
 the person who asked can spend it, and only once", "a request row holds ids
 and times, nothing of a login", "a share names a member of a shared workspace,
-never a stranger or a personal login").
+never a stranger or a personal login"), `apps/convex/__tests__/vaultRetry.test.ts`
+("a failed write leaves the link usable…", "two saves at once spend the link
+once and write one entry").
 
 ### A vault holds secrets too: named fields, most with a value for dev, staging and prod
 

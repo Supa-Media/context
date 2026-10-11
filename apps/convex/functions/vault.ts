@@ -29,8 +29,8 @@
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery } from "../_generated/server";
+import { ConvexError, v, type Infer } from "convex/values";
+import { action, internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
@@ -76,7 +76,7 @@ type RequestLabels = {
   workspace: { handle: string; name: string; kind: "personal" | "shared" } | null;
   grantee: string | null;
 };
-type SpentRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
+type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
 type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[] };
 type Revealed = { username: string; password: string; fields: FieldValues[] };
 type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
@@ -179,26 +179,76 @@ export const requestLabels = internalQuery({
   },
 });
 
+const requestCheckArgs = {
+  hashedToken: v.string(),
+  userId: v.id("users"),
+  kind: v.union(v.literal("add"), v.literal("share")),
+};
+
 /**
- * Spend a request: it must be live, unused and this person's, and for a
- * share the grantee must still be a member. Atomic, so a double tap on Save
- * spends it once.
+ * The request row, if it is live, unused, of this kind and this person's, and
+ * for a share the grantee is still a member. Throws the page's own codes.
+ */
+async function liveRequest(
+  ctx: MutationCtx,
+  args: { hashedToken: string; userId: Id<"users">; kind: "add" | "share" },
+): Promise<Doc<"vaultRequests">> {
+  const row = await ctx.db
+    .query("vaultRequests")
+    .withIndex("by_hashed_token", (q) => q.eq("hashedToken", args.hashedToken))
+    .unique();
+  if (row === null || row.usedAt !== undefined || row.expiresAt <= Date.now() || row.kind !== args.kind) {
+    throw dead();
+  }
+  if (row.userId !== args.userId) throw notYours();
+  if ((await getMembership(ctx, row.workspaceId, args.userId)) === null) throw dead();
+  if (row.kind === "share" && (row.granteeUserId === undefined || (await getMembership(ctx, row.workspaceId, row.granteeUserId)) === null)) {
+    throw dead();
+  }
+  return row;
+}
+
+/**
+ * Before the write: is the link still good? Spends nothing, so a write that
+ * fails leaves the person the same link to try again with.
+ *
+ * Saving and sharing check, write, then spend (`consumeVaultRequest`), rather
+ * than spend first and un-spend on a throw: a rollback has to run to save the
+ * link, and an action that dies mid-write never reaches its `catch`, so the
+ * person is back to a spent link and nothing saved. Spending last cannot
+ * strand a link that way, and the spend is one transaction that re-checks
+ * `usedAt`, so two writes that race still spend it once.
+ *
+ * An add link also gets its entry id here, once: the first caller's
+ * `candidateEntryId` is kept on the row and every later caller is handed that
+ * one. So a retry after a write that landed but was never spent, or a second
+ * tap racing the first, rewrites the same entry instead of leaving a
+ * duplicate nobody can delete yet. An entry id is an id like the rest of the
+ * row, and names nothing of a login.
+ */
+export const checkVaultRequest = internalMutation({
+  args: { ...requestCheckArgs, candidateEntryId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<LiveRequest> => {
+    const row = await liveRequest(ctx, args);
+    let entryId = row.entryId ?? null;
+    if (row.kind === "add" && entryId === null) {
+      if (!isEntryId(args.candidateEntryId)) throw fail("INVALID_ARGUMENT", "Missing entry id.");
+      entryId = args.candidateEntryId as string;
+      await ctx.db.patch(row._id, { entryId });
+    }
+    return { workspaceId: row.workspaceId, entryId, granteeUserId: row.granteeUserId ?? null };
+  },
+});
+
+/**
+ * Spend a request, after its write landed. Same checks as before the write,
+ * again, in one transaction: of two saves that both wrote, exactly one spends
+ * the link and the other is told it was used.
  */
 export const consumeVaultRequest = internalMutation({
-  args: { hashedToken: v.string(), userId: v.id("users"), kind: v.union(v.literal("add"), v.literal("share")) },
-  handler: async (ctx, args): Promise<SpentRequest> => {
-    const row = await ctx.db
-      .query("vaultRequests")
-      .withIndex("by_hashed_token", (q) => q.eq("hashedToken", args.hashedToken))
-      .unique();
-    if (row === null || row.usedAt !== undefined || row.expiresAt <= Date.now() || row.kind !== args.kind) {
-      throw dead();
-    }
-    if (row.userId !== args.userId) throw notYours();
-    if ((await getMembership(ctx, row.workspaceId, args.userId)) === null) throw dead();
-    if (row.kind === "share" && (row.granteeUserId === undefined || (await getMembership(ctx, row.workspaceId, row.granteeUserId)) === null)) {
-      throw dead();
-    }
+  args: requestCheckArgs,
+  handler: async (ctx, args): Promise<LiveRequest> => {
+    const row = await liveRequest(ctx, args);
     await ctx.db.patch(row._id, { usedAt: Date.now() });
     return { workspaceId: row.workspaceId, entryId: row.entryId ?? null, granteeUserId: row.granteeUserId ?? null };
   },
@@ -260,6 +310,7 @@ const operationValidator = v.union(
   v.object({ kind: v.literal("meta"), entryId: v.string() }),
   v.object({
     kind: v.literal("add"),
+    entryId: v.string(),
     userId: v.string(),
     type: v.union(v.literal("login"), v.literal("secret")),
     name: v.string(),
@@ -319,7 +370,13 @@ export const runVaultOperation = internalAction({
       return meta === null ? null : shown(op.entryId, meta);
     }
     if (op.kind === "add") {
-      const id = newEntryId();
+      // The id the link reserved (`checkVaultRequest`), so a retry rewrites one
+      // entry. Only ever this person's own earlier try: an add that named
+      // anybody else's entry would be a way to overwrite it and its people.
+      const id = op.entryId;
+      if (!isEntryId(id)) throw fail("INVALID_ARGUMENT", "Missing entry id.");
+      const earlier = (await readMeta(store, keys, workspaceId, id)) as VaultMeta | null;
+      if (earlier !== null && earlier.createdBy !== op.userId) throw dead();
       const now = Date.now();
       const meta: VaultMeta = {
         type: op.type,
@@ -371,6 +428,30 @@ function checkToken(token: string): void {
   if (typeof token !== "string" || token.length === 0 || token.length > 128) throw dead();
 }
 
+/**
+ * The barrier, from a signed-in page. Its own refusals (`VAULT_NO_STORAGE`,
+ * a bad id) pass through; anything else is the bucket or the key service
+ * failing, which the page hears as `VAULT_STORAGE_FAILED` in `message`'s
+ * words. Never the store's own error text, which can name an endpoint or a
+ * bucket. Every caller runs this before spending a link, so the link it
+ * names is still good to try again.
+ */
+async function openVault(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  operation: Infer<typeof operationValidator>,
+  message: string,
+): Promise<Shown | null> {
+  try {
+    return await ctx.runAction(internal.functions.vault.runVaultOperation, { workspaceId, operation });
+  } catch (error) {
+    if (error instanceof ConvexError) throw error;
+    // Ids and the operation's kind only: never the error text, never a value.
+    console.warn(JSON.stringify({ event: "vault.storage_failed", workspaceId, operation: operation.kind }));
+    throw fail("VAULT_STORAGE_FAILED", message);
+  }
+}
+
 /** What `/vault/<token>` shows before the person does anything. Never a value. */
 export const describeVaultRequest = action({
   args: { token: v.string() },
@@ -402,10 +483,12 @@ export const describeVaultRequest = action({
     if (labels.workspace === null) throw dead();
     let entry: Described["entry"] = null;
     if (row.kind !== "add") {
-      const opened = await ctx.runAction(internal.functions.vault.runVaultOperation, {
-        workspaceId: row.workspaceId,
-        operation: { kind: "meta", entryId: row.entryId ?? "" },
-      });
+      const opened = await openVault(
+        ctx,
+        row.workspaceId,
+        { kind: "meta", entryId: row.entryId ?? "" },
+        "Your workspace's storage didn't answer. Reload this page to try again.",
+      );
       if (opened === null || !mayUse(opened.meta, userId)) throw dead();
       entry = { type: opened.meta.type, name: opened.meta.name, sites: opened.meta.sites, fields: opened.meta.fields };
     }
@@ -449,18 +532,25 @@ export const saveVaultLogin = action({
     if (username.length > MAX_SECRET || password.length > MAX_SECRET) {
       throw fail("INVALID_ARGUMENT", "That is longer than a login can be.");
     }
-    const spent = await ctx.runMutation(internal.functions.vault.consumeVaultRequest, {
-      hashedToken: await hashToken(args.token),
+    // Check, write, then spend: see `checkVaultRequest` and `consumeVaultRequest`.
+    const hashedToken = await hashToken(args.token);
+    const live = await ctx.runMutation(internal.functions.vault.checkVaultRequest, {
+      hashedToken,
       userId,
       kind: "add",
+      candidateEntryId: newEntryId(),
     });
-    const saved = await ctx.runAction(internal.functions.vault.runVaultOperation, {
-      workspaceId: spent.workspaceId,
-      operation: { kind: "add", userId, type, name, sites: site ? [site] : [], username, password, fields },
-    });
+    if (live.entryId === null) throw dead();
+    const saved = await openVault(
+      ctx,
+      live.workspaceId,
+      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields },
+      "That wasn't saved: your workspace's storage didn't take it.",
+    );
     if (saved === null) throw fail("KEY_UNAVAILABLE", "This workspace's vault can't be opened right now.");
+    await ctx.runMutation(internal.functions.vault.consumeVaultRequest, { hashedToken, userId, kind: "add" });
     await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
-      workspaceId: spent.workspaceId,
+      workspaceId: live.workspaceId,
       actorUserId: userId,
       action: "vault.saved",
       entryId: saved.entryId,
@@ -491,10 +581,12 @@ export const revealVaultEntry = action({
       hashedToken: await hashToken(args.token),
       userId,
     });
-    const opened = await ctx.runAction(internal.functions.vault.runVaultOperation, {
-      workspaceId: live.workspaceId,
-      operation: { kind: "reveal", entryId: live.entryId, userId },
-    });
+    const opened = await openVault(
+      ctx,
+      live.workspaceId,
+      { kind: "reveal", entryId: live.entryId, userId },
+      "Your workspace's storage didn't answer. Try again.",
+    );
     if (opened === null || opened.revealed === undefined) throw dead();
     await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
       workspaceId: live.workspaceId,
@@ -513,26 +605,28 @@ export const confirmVaultShare = action({
   handler: async (ctx, args): Promise<{ name: string; grantee: string | null }> => {
     const userId = await signedIn(ctx);
     checkToken(args.token);
-    const spent = await ctx.runMutation(internal.functions.vault.consumeVaultRequest, {
-      hashedToken: await hashToken(args.token),
-      userId,
-      kind: "share",
-    });
-    if (spent.entryId === null || spent.granteeUserId === null) throw dead();
-    const shared = await ctx.runAction(internal.functions.vault.runVaultOperation, {
-      workspaceId: spent.workspaceId,
-      operation: { kind: "share", entryId: spent.entryId, userId, granteeUserId: spent.granteeUserId },
-    });
+    // Check, write, then spend. Adding a name to the people list is idempotent,
+    // so a retry or a racing second tap writes the same meta.
+    const hashedToken = await hashToken(args.token);
+    const live = await ctx.runMutation(internal.functions.vault.checkVaultRequest, { hashedToken, userId, kind: "share" });
+    if (live.entryId === null || live.granteeUserId === null) throw dead();
+    const shared = await openVault(
+      ctx,
+      live.workspaceId,
+      { kind: "share", entryId: live.entryId, userId, granteeUserId: live.granteeUserId },
+      "That wasn't shared: your workspace's storage didn't take it.",
+    );
     if (shared === null) throw dead();
+    await ctx.runMutation(internal.functions.vault.consumeVaultRequest, { hashedToken, userId, kind: "share" });
     await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
-      workspaceId: spent.workspaceId,
+      workspaceId: live.workspaceId,
       actorUserId: userId,
       action: "vault.shared",
-      entryId: spent.entryId,
+      entryId: live.entryId,
     });
     const labels = await ctx.runQuery(internal.functions.vault.requestLabels, {
-      workspaceId: spent.workspaceId,
-      granteeUserId: spent.granteeUserId,
+      workspaceId: live.workspaceId,
+      granteeUserId: live.granteeUserId,
     });
     return { name: shared.meta.name, grantee: labels.grantee };
   },

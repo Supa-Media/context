@@ -99,6 +99,7 @@ function render(
         onShare: () => {},
         onReveal: handlers.onReveal ?? (() => {}),
         onDecline: () => {},
+        onSwitchAccount: () => {},
       }),
     ),
   );
@@ -284,5 +285,44 @@ describe("the view page", () => {
     expect(find("vault-view-password-value")?.textContent).toBe("correct-horse-fake");
     expect(find("vault-view-dotenv")).toBeNull();
     expect(attributeText()).not.toContain("correct-horse-fake");
+  });
+});
+
+describe("a link for another account", () => {
+  function renderFailed(code: string, prefill = {}) {
+    const switched: string[] = [];
+    const view = resolveVaultLinkView({
+      token: "tok",
+      auth: { isLoading: false, isAuthenticated: true },
+      prefill,
+      described: { kind: "failed", error: { data: { code } } },
+      outcome: { kind: "idle" },
+    });
+    act(() =>
+      root.render(
+        createElement(VaultLinkBody, {
+          view,
+          onSave: async () => true,
+          onShare: () => {},
+          onReveal: () => {},
+          onDecline: () => {},
+          onSwitchAccount: (href: string) => void switched.push(href),
+        }),
+      ),
+    );
+    return switched;
+  }
+
+  test("offers signing in as someone else, and hands over the way back to this link", () => {
+    const switched = renderFailed("VAULT_LINK_NOT_YOURS", { name: "Netflix" });
+    expect(find("vault-link-not-yours")).not.toBeNull();
+    press("vault-link-switch-account");
+    expect(switched).toEqual([`/login?next=${encodeURIComponent("/vault/tok?name=Netflix")}`]);
+  });
+
+  test("an expired link has no such button", () => {
+    renderFailed("VAULT_LINK_DEAD");
+    expect(find("vault-link-dead")).not.toBeNull();
+    expect(find("vault-link-switch-account")).toBeNull();
   });
 });

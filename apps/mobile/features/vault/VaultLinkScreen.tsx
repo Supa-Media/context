@@ -12,6 +12,7 @@ import { clamp, leading, pointerType as t } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { InvitePage, Title } from "../invite/InviteScreen";
 import { firstParam } from "../invite/invite";
+import { useSwitchAccount } from "../auth/useSwitchAccount";
 import { VaultAddForm, type VaultDraft, type VaultInitialDraft } from "./VaultAddForm";
 import { VaultViewPage } from "./VaultViewPage";
 import {
@@ -47,6 +48,7 @@ export function VaultLinkScreen() {
   const save = useAction(api.functions.vault.saveVaultLogin);
   const share = useAction(api.functions.vault.confirmVaultShare);
   const reveal = useAction(api.functions.vault.revealVaultEntry);
+  const switchAccount = useSwitchAccount();
   const [described, setDescribed] = useState<Described>({ kind: "idle" });
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const asked = useRef(false);
@@ -109,6 +111,7 @@ export function VaultLinkScreen() {
         onShare={onShare}
         onReveal={onReveal}
         onDecline={() => setOutcome({ kind: "declined" })}
+        onSwitchAccount={switchAccount}
       />
     </InvitePage>
   );
@@ -121,6 +124,7 @@ export function VaultLinkBody({
   onShare,
   onReveal,
   onDecline,
+  onSwitchAccount,
   initialDraft,
 }: {
   view: VaultLinkView;
@@ -128,6 +132,8 @@ export function VaultLinkBody({
   onShare: () => void;
   onReveal: () => void;
   onDecline: () => void;
+  /** Sign out, then go to `href`: sign-in, and back to this link. */
+  onSwitchAccount: (href: string) => void;
   /** Previews only: a form already typed into. */
   initialDraft?: Partial<VaultInitialDraft>;
 }) {
@@ -149,12 +155,25 @@ export function VaultLinkBody({
           </View>
         </Card>
       );
-    case "dead":
+    case "dead": {
+      const signInAgain = view.signInAgain;
       return (
-        <Ending testID={`vault-link-${view.reason === "notYours" ? "not-yours" : "dead"}`} titleSize={titleSize} title={view.headline}>
-          {view.detail}
-        </Ending>
+        <View>
+          <Ending testID={`vault-link-${view.reason === "notYours" ? "not-yours" : "dead"}`} titleSize={titleSize} title={view.headline}>
+            {view.detail}
+          </Ending>
+          {signInAgain === undefined ? null : (
+            <Button
+              label="Sign in as someone else"
+              variant="accent"
+              style={styles.switchAccount}
+              onPress={() => onSwitchAccount(signInAgain)}
+              testID="vault-link-switch-account"
+            />
+          )}
+        </View>
       );
+    }
     case "add":
       return <AddPage view={view} titleSize={titleSize} onSave={onSave} initialDraft={initialDraft} />;
     case "saved":
@@ -306,6 +325,7 @@ const makeStyles = (colors: Colors) =>
     loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
     facts: { marginTop: 24 },
     error: { marginTop: 16 },
+    switchAccount: { marginTop: 24 },
     decisions: { marginTop: 24, flexDirection: "row", gap: 12 },
     // Same size for both answers: saying no is a real answer, not the small print.
     decision: { flex: 1, alignSelf: "auto", justifyContent: "center" },
