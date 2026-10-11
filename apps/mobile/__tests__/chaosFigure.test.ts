@@ -52,6 +52,15 @@ describe("the scribble", () => {
   });
 });
 
+describe("page a's Tex", () => {
+  test("grows its strands less and keeps its googly eyes even when calm", () => {
+    const tex = figureParts(0, { small: false, width: 13, grow: 16, alwaysGoogly: true });
+    expect(tex.strands[0]!.width).toBeCloseTo(29);
+    expect(tex.googly).not.toBeNull();
+    expect(tex.dots).toBeNull();
+  });
+});
+
 describe("small", () => {
   test(`at ${SMALL_FIGURE}px and under: no speckles or motion marks, and thicker strokes`, () => {
     const small = figureParts(100, { small: true, minStroke: 40 });
