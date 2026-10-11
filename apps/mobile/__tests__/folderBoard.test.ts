@@ -3,14 +3,16 @@
  */
 
 /**
- * A PROJECT'S BOARD: BACKLOG AS A RAIL, THEN ITS STATUSES AS COLUMNS.
+ * A PROJECT'S BOARD: BACKLOG AS A SMALL BOX, THEN ITS STATUSES AS COLUMNS.
  *
- * The approved Board (owner, 2026-09-28): a slim Backlog rail at the left —
- * how many are parked, and somewhere to drop a card to park it — then To do,
- * In progress and Finished. Tasks only; a plain note is never a card. A card
+ * The approved Board (owner, 2026-09-28; the rail became a box on
+ * 2026-10-11): a small Backlog box above the columns — how many are parked,
+ * pressed to open Backlog as a column, and somewhere to drop a card to park
+ * it, with a tall drop place at the left while a card is in the air — then
+ * To do, In progress and Finished. Tasks only; a plain note is never a card. A card
  * reads its priority and first tag, its name, how far along it is ("2 of 3
  * done", with a bar) for a task that holds subtasks, when it is due, and
- * whose it is as a face. A list with no Backlog word has no rail. A member
+ * whose it is as a face. A list with no Backlog word has no box. A member
  * moves nothing.
  */
 
@@ -52,28 +54,51 @@ async function dragOnto(name: string, target: HTMLElement) {
 }
 
 describe("the board", () => {
-  test("parks Backlog in a rail at the left, and draws the other statuses as columns of tasks", async () => {
+  test("parks Backlog in a small box, and draws the other statuses as columns of tasks", async () => {
     await board([]);
-    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 1");
-    expect(strip(one("folder-board-rail").textContent)).toContain("1");
+    expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 1");
+    expect(strip(one("folder-board-backlog-box").textContent)).toContain("1");
     expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["To do, 3", "In progress, 1", "Finished, 1"]);
     // Parked cards are out of the way, and plain notes are never cards.
     const names = all("folder-card").map((node) => strip(node.textContent)).join("|");
     expect(names).not.toMatch(/Loyalty cards|Opening budget|layout sketch/);
-    // Pressing the rail opens Backlog as a column, and pressing it again parks it.
-    await press(one("folder-board-rail"));
-    expect(strip(one("folder-board-backlog").textContent)).toContain("Loyalty cards");
-    await press(one("folder-board-backlog-close"));
+    // No column and no sideways words for Backlog until it is asked for.
     expect(all("folder-board-backlog")).toHaveLength(0);
+    expect(strip(one("folder-board").textContent)).not.toContain("ideas and later work");
+    // Pressing the box opens Backlog as the first column, and pressing it again folds it away.
+    await press(one("folder-board-backlog-box"));
+    expect(one("folder-board-backlog-box").getAttribute("aria-expanded")).toBe("true");
+    expect(strip(one("folder-board-backlog").textContent)).toContain("Loyalty cards");
+    await press(one("folder-board-backlog-box"));
+    expect(all("folder-board-backlog")).toHaveLength(0);
+    expect(one("folder-board-backlog-box").getAttribute("aria-expanded")).toBe("false");
   });
 
-  test("a card dropped on the rail is parked: its status becomes the list's Backlog word", async () => {
+  test("a lifted card opens a tall drop place at the left, and dropping it there parks it", async () => {
     const writes: Write[] = [];
     await board(writes);
-    const over = await dragOnto("Sign the lease", one("folder-board-rail"));
+    expect(all("folder-board-backlog-drop")).toHaveLength(0);
+    const data = new Map<string, string>();
+    await act(async () => void card("Sign the lease").dispatchEvent(drag("dragstart", data)));
+    // A beat after the lift, never inside dragstart: changing the layout there can cancel the drag.
+    await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+    const place = one("folder-board-backlog-drop");
+    const over = drag("dragover", data);
+    await act(async () => void place.dispatchEvent(over));
+    expect(over.defaultPrevented).toBe(true);
+    await act(async () => void place.dispatchEvent(drag("drop", data)));
+    expect(writes).toEqual([[`${CAFE}/lease.md`, "status", "backlog", undefined]]);
+    // Dropped, the place closes again.
+    expect(all("folder-board-backlog-drop")).toHaveLength(0);
+  });
+
+  test("a card dropped on the box is parked: its status becomes the list's Backlog word", async () => {
+    const writes: Write[] = [];
+    await board(writes);
+    const over = await dragOnto("Sign the lease", one("folder-board-backlog-box"));
     expect(over.defaultPrevented).toBe(true);
     expect(writes).toEqual([[`${CAFE}/lease.md`, "status", "backlog", undefined]]);
-    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 2");
+    expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 2");
   });
 
   test("a card still moves between columns as it always has", async () => {
@@ -111,23 +136,23 @@ describe("the board", () => {
     expect(all("folder-card", column("Finished")!)).toHaveLength(9);
   });
 
-  test("a list with no Backlog word has no rail", async () => {
+  test("a list with no Backlog word has no box", async () => {
     const own = NOTES.filter((each) => !each.path.endsWith("later.md")).map((each) =>
       each.path === `${CAFE}/overview.md`
         ? { ...each, properties: { ...each.properties, "statuses-not-started": ["to do"], "statuses-in-progress": ["in progress"], "statuses-done": ["finished"] } }
         : each,
     );
     await board([], own);
-    expect(all("folder-board-rail")).toHaveLength(0);
+    expect(all("folder-board-backlog-box")).toHaveLength(0);
     expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["To do, 3", "In progress, 1", "Finished, 1"]);
   });
 
-  test("a member's board moves nothing: no drop on the rail, no card picked up", async () => {
+  test("a member's board moves nothing: no drop on the box, no card picked up", async () => {
     await board(null);
     expect(all("folder-card-drag").every((node) => node.getAttribute("draggable") === "false")).toBe(true);
     const data = new Map([["application/x-context-folder-card", `${CAFE}/lease.md`]]);
     const over = drag("dragover", data);
-    await act(async () => void one("folder-board-rail").dispatchEvent(over));
+    await act(async () => void one("folder-board-backlog-box").dispatchEvent(over));
     expect(over.defaultPrevented).toBe(false);
   });
 });
