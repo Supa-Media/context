@@ -33,6 +33,7 @@ export const lightSimpleLandingColors = {
   ink2: "#4A4844",
   hair: "#C9C6BC",
   mark: "#DDD1BE",
+  card: "#FAF9F5",
 } as const;
 
 export type SimpleLandingColors = Readonly<Record<keyof typeof lightSimpleLandingColors, string>>;
@@ -43,4 +44,5 @@ export const darkSimpleLandingColors: SimpleLandingColors = {
   ink2: "#B5B2AA",
   hair: "#4A4844",
   mark: "#45413B",
+  card: "#1E1D1B",
 };

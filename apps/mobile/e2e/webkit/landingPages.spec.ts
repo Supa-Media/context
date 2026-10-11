@@ -3,19 +3,24 @@ import { expect, test } from "@playwright/test";
 /*
   The landing pages (Dev, 2026-10-11): `/` is page a and `/a` to `/c` are the
   three versions under test. a is a page of prose in the shape of the two
-  references Dev sent; b is the landing page `/` showed until then, kept as
-  it was; c is the console's own shell, which every page of the website
+  references Dev sent, selling less chaos by showing a heap tidying itself;
+  b is the landing page `/` showed until then, kept as it was; c is the console's own shell, which every page of the website
   (`/?page=…`) still is. `/d` and `/e`, retired, send a visit to `/`.
 */
 
-test("/ is page a: prose, one line to join, and the phone sign-up under it", async ({ page }) => {
+test("/ is page a: the feeling, the heap tidying itself, and the phone sign-up under one line", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Context is one set of notes for you, your team and every AI you use/);
-  // Nothing to scroll past on a laptop, and no form until it is asked for.
-  const overflow = await page.locator(".sp").evaluate((el) => el.scrollHeight - el.clientHeight);
-  expect(overflow).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Life is chaotic, but it doesn't have to always stay that way/);
+  // Nothing wider than the window, rotated scraps included.
+  const wide = await page.locator(".sp").evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(wide).toBeLessThanOrEqual(1);
+  // The heap puts itself away once it is seen, and the visitor can undo it.
+  await page.locator(".sp-desk").scrollIntoViewIfNeeded();
+  await expect(page.locator(".sp-desk[data-tidy]")).toBeAttached({ timeout: 5_000 });
+  await page.getByRole("button", { name: "Make a mess again" }).click();
+  await expect(page.locator(".sp-desk[data-tidy]")).toHaveCount(0);
   await expect(page.getByLabel("Phone number")).toHaveCount(0);
   await page.getByRole("button", { name: /Join the waitlist/ }).click();
   await expect(page.locator("#join").getByLabel("Phone number")).toBeVisible();

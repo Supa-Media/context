@@ -2,29 +2,21 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useScheme } from "../design/theme";
 import { darkSimpleLandingColors, lightSimpleLandingColors } from "../design/tokens/landingColors";
 import { LandingSignUp } from "./LandingSignUp";
+import { MessyDesk } from "./MessyDesk.web";
 import { SIMPLE_CSS } from "./simpleCss";
 
 /**
  * Page a, the simple one (Dev, 2026-10-11: "a simple design like these 2",
- * with screenshots of instinct.com and thebrowser.company). Their shape, not
- * a reinterpretation of it: a small hand-drawn mark, three short paragraphs
- * in one reading face at one size, the examples underlined, the product names
- * dotted, and one call to action written as a line of text. The sign-up opens
- * under that line rather than sitting on the page as a card.
+ * with screenshots of instinct.com and thebrowser.company). Their shape: a
+ * small hand-drawn mark, short paragraphs in one reading face at one size, and
+ * one call to action written as a line of text. It sells a feeling, less
+ * chaos, rather than a feature list, and shows it (`MessyDesk`) rather than
+ * saying it. The sign-up opens under the last line rather than sitting on the
+ * page as a card.
  */
 
 /** Light and dark sheets: an off-white page with ink type, like the references. */
 const SHEETS = { light: lightSimpleLandingColors, dark: darkSimpleLandingColors } as const;
-
-/** What it helps with, each a page of the website that says more. */
-const HELPS: readonly { text: string; href: string }[] = [
-  { text: "remember why a decision was made", href: "/?page=how-it-works" },
-  { text: "pick up in Codex where Claude left off", href: "/?page=connect-your-ai" },
-  { text: "keep a private note private", href: "/?page=who-sees-what" },
-  { text: "take every file with you", href: "/?page=your-files" },
-];
-
-const TOOLS = ["Claude", "ChatGPT", "Codex", "Cursor", "Gemini CLI"];
 
 export function SimplePage() {
   const scheme = useScheme();
@@ -47,6 +39,7 @@ export function SimplePage() {
     "--ink2": sheet.ink2,
     "--hair": sheet.hair,
     "--mark": sheet.mark,
+    "--card": sheet.card,
     colorScheme: scheme,
   } as CSSProperties;
   return (
@@ -56,29 +49,19 @@ export function SimplePage() {
         <a className="sp-logo" href="/" aria-label="Context">
           <NoteDoodle />
         </a>
-        <h1 className="sp-p sp-first">Context is one set of notes for you, your team and every AI you use.</h1>
+        <h1 className="sp-p sp-first">Life is chaotic, but it doesn't have to always stay that way.</h1>
+        <p className="sp-p">Think about everything you keep track of.</p>
+        <MessyDesk />
         <p className="sp-p">
-          There is nothing new to learn: every note is a plain Markdown file.{" "}
-          {TOOLS.map((tool, i) => (
-            <span key={tool}>
-              <a className="sp-dot" href="/?page=connect-your-ai">
-                {tool}
-              </a>
-              {i < TOOLS.length - 2 ? ", " : i === TOOLS.length - 2 ? " and " : ""}
-            </span>
-          ))}{" "}
-          read and write them with one sign‑in, and you can text it from iMessage.
+          Context puts all of it away in plain notes that{" "}
+          <a className="sp-u" href="/?page=connect-your-ai">
+            every AI you use
+          </a>{" "}
+          can read. When it is tidy, you feel the way you do after cleaning your room.
         </p>
         <p className="sp-p">
-          It can help you{" "}
-          {HELPS.map((help, i) => (
-            <span key={help.text}>
-              <a className="sp-u" href={help.href}>
-                {help.text}
-              </a>
-              {i < HELPS.length - 2 ? ", " : i === HELPS.length - 2 ? ", or " : "."}
-            </span>
-          ))}
+          Letting someone else put your things away can feel strange at first, like hiring a cleaner for the first
+          time. You can still see where everything went, move anything back, and take all of it with you.
         </p>
         <p className="sp-p">
           <button type="button" className="sp-cta" aria-expanded={open} aria-controls="join" onClick={() => setOpen(true)}>
