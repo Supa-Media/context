@@ -193,12 +193,7 @@ export async function runLinkChecks(check) {
     );
     check("a bare name nothing answers to is left alone", resolve("nothing-here") === null);
 
-    /*
-      A bare name is matched loosely when nothing matches it exactly: `[[Eve]]`
-      was drawn as a link in the editor and opened nothing, because the note on
-      disk was `eve.md` (reported 2026-10-11). Case, spaces and underscores are
-      set aside; uniqueness is not.
-    */
+    // Loose bare names (2026-10-11, `[[Eve]]` vs `eve.md`): case and spacing set aside, uniqueness not.
     const people = indexByName(["2-areas/people/eve.md", "1-projects/love-thy-neighbor.md", "a/Eve.md"]);
     const loose = (target) => resolveLink({ kind: "wiki", target }, NOTE, people);
     check("an exact basename still wins over a loose one", loose("Eve") === "a/Eve.md");
@@ -211,10 +206,7 @@ export async function runLinkChecks(check) {
       "a loose name with an alias and an anchor still resolves",
       parseLinks("[[Eve#notes|her]]").map((link) => resolveLink(link, NOTE, onePerson))[0] === "2-areas/people/eve.md"
     );
-    check(
-      "the referrer moving leaves a loosely matched name spelt as written",
-      rewrite("ask [[Eve]]", { to: "4-archive/overview.md", names: ["2-areas/people/eve.md"] }) === null
-    );
+    check("the referrer moving leaves a loose name spelt as written", rewrite("ask [[Eve]]", { to: "4-archive/overview.md", names: ["2-areas/people/eve.md"] }) === null);
     check(
       "renaming the note a loose name found rewrites the link to the new name",
       rewrite("ask [[Eve]]", {
