@@ -3,14 +3,14 @@ import { landingFor } from "../features/landing/route";
 import { DEMO_LOOP_MS, DEMO_FROM, DEMO_TOUR, demoCounts, demoEvents, demoGraphs, tourStopAt } from "../features/landing/demoMap";
 
 /**
- * The landing pages (Dev2, 2026-10-09): `/` is page a and `/a` to `/e` are
+ * The landing pages (Dev, 2026-10-11): `/` is page a and `/a` to `/c` are
  * their own, while every address the website homepage already answered keeps
  * drawing it.
  */
 describe("landingFor", () => {
-  test("/ is page a, and /a to /e are their own", () => {
+  test("/ is page a, and /a to /c are their own", () => {
     expect(landingFor({ pathname: "/" })).toBe("a");
-    for (const letter of ["a", "b", "c", "d", "e"]) expect(landingFor({ pathname: `/${letter}` })).toBe(letter);
+    for (const letter of ["a", "b", "c"]) expect(landingFor({ pathname: `/${letter}` })).toBe(letter);
     expect(landingFor({ pathname: "/c/" })).toBe("c");
   });
 
@@ -27,7 +27,7 @@ describe("landingFor", () => {
   });
 
   test("anything else is not a landing page", () => {
-    for (const pathname of ["/f", "/A", "/ab", "/pricing", "/@seyi", "/a/b"]) expect(landingFor({ pathname })).toBeNull();
+    for (const pathname of ["/d", "/e", "/f", "/A", "/ab", "/pricing", "/@seyi", "/a/b"]) expect(landingFor({ pathname })).toBeNull();
   });
 });
 

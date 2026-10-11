@@ -15,7 +15,16 @@ import type { PhoneSignIn } from "./usePhoneSignIn";
  * small link away. `usePhoneSignIn` is the state; the
  * page around it (`LoginScreen`) draws the wordmark and the picture.
  */
-export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUseEmail: () => void }) {
+export function PhoneSignInForm({
+  flow,
+  onUseEmail,
+  headingLevel = 1,
+}: {
+  flow: PhoneSignIn;
+  onUseEmail: () => void;
+  /** The sign-in page's heading is its page's; a landing page has its own h1, so it asks for 2. */
+  headingLevel?: 1 | 2;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const { sentTo, submitting, error } = flow;
@@ -24,7 +33,7 @@ export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUse
   if (flow.waitlist !== null) {
     return (
       <View testID="login-phone-waitlist">
-        <Text role="heading" aria-level={1} style={styles.pitch}>
+        <Text role="heading" aria-level={headingLevel} style={styles.pitch}>
           {flow.waitlist === "joined" ? JOINED_HEADING : ALREADY_HEADING}
         </Text>
         <Text variant="rowSub" style={styles.sent}>
@@ -49,7 +58,7 @@ export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUse
         <Text variant="eyebrow" style={styles.eyebrow}>
           Invite only for now
         </Text>
-        <Text role="heading" aria-level={1} style={styles.pitch}>
+        <Text role="heading" aria-level={headingLevel} style={styles.pitch}>
           {PHONE_SIGN_IN_HEADING}
         </Text>
         <View style={styles.field}>
@@ -91,7 +100,7 @@ export function PhoneSignInForm({ flow, onUseEmail }: { flow: PhoneSignIn; onUse
 
   return (
     <View>
-      <Text role="heading" aria-level={1} style={styles.pitch}>
+      <Text role="heading" aria-level={headingLevel} style={styles.pitch}>
         Check your texts.
       </Text>
       <Text variant="rowSub" style={styles.sent}>

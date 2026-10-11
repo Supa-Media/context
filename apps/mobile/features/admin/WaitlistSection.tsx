@@ -43,6 +43,7 @@ import { WaitlistRows } from "./WaitlistRows";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
+  adsSentence,
   landingSentence,
   people,
   removedSentence,
@@ -139,6 +140,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
 
   const counts = list?.counts;
   const landingLine = landing === undefined ? null : landingSentence(landing);
+  const adsLine = landing === undefined ? null : adsSentence(landing);
   return (
     <View style={styles.section}>
       <View style={[styles.head, compact && styles.headCompact]}>
@@ -209,6 +211,11 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       {!friends && landingLine !== null ? (
         <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-landing">
           {landingLine}
+        </Text>
+      ) : null}
+      {!friends && adsLine !== null ? (
+        <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-ads">
+          {adsLine}
         </Text>
       ) : null}
 

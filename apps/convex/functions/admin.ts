@@ -293,8 +293,8 @@ export const listWaitlist = query({
 });
 
 /**
- * Joins and admissions per landing page (`/a` to `/e`), for the Waitlist
- * tab's summary line. Staff only, like the list above.
+ * Joins and admissions per landing page (`/a` to `/c`) and ad, for the
+ * Waitlist tab's summary. Staff only, like the list above.
  */
 export const waitlistLandingCounts = query({
   args: {},

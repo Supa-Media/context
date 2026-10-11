@@ -4,7 +4,10 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { OTP_LENGTH } from "./CodeBoxes";
 import { CODE_FAILED, startError, type StartStatus } from "./phoneSignIn";
+import { adCampaign } from "./adCampaign";
 import { landingPage } from "./landingPage";
+import { reportMetaLead } from "./metaPixel";
+import { reportWaitlistSignUp } from "./xPixel";
 
 /** The provider `apps/convex/auth.ts` registers for a texted code. */
 export const PHONE_VERIFY_PROVIDER = "phone-verify";
@@ -34,16 +37,24 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
     setSubmitting(true);
     try {
       const landing = landingPage();
+      const campaign = adCampaign();
       const result = (await start({
         phone: sentTo ?? phone,
         ...(landing === undefined ? {} : { landing }),
-      })) as { status: StartStatus; phone?: string };
+        ...(campaign === undefined ? {} : { campaign }),
+      })) as { status: StartStatus; phone?: string; conversionId?: string };
       setError(startError(result.status));
       if (result.status === "sent" && result.phone !== undefined) {
         setSentTo(result.phone);
         setCode("");
         setResent(again);
       } else if (result.status === "joined" || result.status === "already") {
+        if (result.status === "joined") {
+          // The same sign-up events as joining with an address, so an ad
+          // counts a phone sign-up too (the landing pages lead with a phone).
+          reportWaitlistSignUp(result.conversionId);
+          reportMetaLead(result.conversionId);
+        }
         setWaitlist(result.status);
       } else if (result.status === "unavailable") {
         options.onUnavailable();

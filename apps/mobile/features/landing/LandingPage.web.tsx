@@ -1,28 +1,38 @@
-import { useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import type { LandingPage as Letter } from "@context/shared";
 import { captureLandingPage } from "../auth/landingPage";
 import { useColors, useScheme } from "../design/theme";
 import { LANDING_CSS } from "./landingCss";
 import { darkLandingColors as darkLanding, lightLandingColors as lightLanding } from "../design/tokens/landingColors";
-import { PageA, PageB, PageC, PageD, PageE } from "./variants.web";
+import { HomeShell } from "../home/HomeShell";
+import { SimplePage } from "./SimplePage.web";
+import { PageB } from "./variants.web";
 
 /**
- * The landing pages, `/` and `/a` to `/e` (Dev2, 2026-10-09): five versions
- * of the front door under test, each counted on the waitlist by the letter it
- * was (`waitlist.landing`).
+ * The landing pages, `/` and `/a` to `/c` (Dev, 2026-10-11, replacing the
+ * five of 2026-10-09): three versions of the front door under test, each
+ * counted on the waitlist by its letter (`waitlist.landing`) and by the ad
+ * that sent the visit (`waitlist.campaign`).
  *
- * These are the one place the homepage is not the console's own shell in
- * visitor mode, which every other page of the website still is: Dev2 asked
- * for "a more typical landing page", and the map in them is the console's
- * real map engine playing a demo. See docs/decisions/websites.md.
+ * a is the simple one, a page of prose in the references' shape. b is the
+ * page `/` showed until today, unchanged, with the map at its centre. c is
+ * the console's own shell in visitor mode, the homepage every other page of
+ * the website still is, so "the landing page was the app shell" is that shell
+ * itself rather than a picture of it. See docs/decisions/websites.md.
  */
 export function LandingPage({ page }: { page: Letter }) {
-  const colors = useColors();
-  const scheme = useScheme();
   useEffect(() => {
     // The page a visit landed on is the one its waitlist row records.
     captureLandingPage(`/${page}`);
   }, [page]);
+  if (page === "a") return <SimplePage />;
+  return page === "c" ? <HomeShell /> : <PaperPage />;
+}
+
+/** b: the map page, in the landing sheet. */
+function PaperPage() {
+  const colors = useColors();
+  const scheme = useScheme();
   useEffect(() => {
     const title = document.title;
     document.title = "Context: less chaos";
@@ -46,13 +56,10 @@ export function LandingPage({ page }: { page: Letter }) {
       }) as CSSProperties,
     [sheet, colors, scheme],
   );
-  const Page = PAGES[page];
   return (
-    <div className="lp" style={vars} data-landing={page}>
+    <div className="lp" style={vars} data-landing="b">
       <style>{LANDING_CSS}</style>
-      <Page />
+      <PageB />
     </div>
   );
 }
-
-const PAGES: Record<Letter, () => ReactNode> = { a: PageA, b: PageB, c: PageC, d: PageD, e: PageE };

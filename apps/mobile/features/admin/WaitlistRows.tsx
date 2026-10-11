@@ -119,7 +119,7 @@ function WideTable({
             <UseFor key="for" text={row.useFor} />,
             <Text key="when" variant="meta" numberOfLines={1}>
               {shortDate(status === "admitted" && row.admittedAt !== null ? row.admittedAt : row.joinedAt)}
-              <LandingLabel landing={row.landing} />
+              <LandingLabel landing={row.landing} campaign={row.campaign} />
             </Text>,
             ...(actions.onAdmit
               ? [<AdmitButton key="admit" row={row} onAdmit={actions.onAdmit} busy={actions.busy} />]
@@ -168,7 +168,7 @@ function StackedRow({
         {row.useFor ? <UseFor text={row.useFor} /> : null}
           <Text variant="meta">
           {when}
-          <LandingLabel landing={row.landing} />
+          <LandingLabel landing={row.landing} campaign={row.campaign} />
         </Text>
       </View>
       {actions.onAdmit ? <AdmitButton row={row} onAdmit={actions.onAdmit} busy={actions.busy} /> : null}
@@ -177,8 +177,8 @@ function StackedRow({
 }
 
 /** The landing page a row came from, as a small label beside its date. */
-function LandingLabel({ landing }: { landing: string | undefined }) {
-  const label = pageLabel(landing);
+function LandingLabel({ landing, campaign }: { landing: string | undefined; campaign: string | undefined }) {
+  const label = pageLabel(landing, campaign);
   return label === null ? null : <Text variant="foot">{`  ·  ${label}`}</Text>;
 }
 

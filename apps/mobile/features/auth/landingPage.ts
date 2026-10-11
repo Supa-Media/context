@@ -1,7 +1,7 @@
 import { landingPageFromPath, landingPageOf, type LandingPage } from "@context/shared";
 
 /**
- * Which landing page (`/a` to `/e`) this visit arrived at, kept for the
+ * Which landing page (`/a` to `/c`) this visit arrived at, kept for the
  * waitlist join so the server can record it (`waitlist.landing`, Dev2,
  * 2026-10-09: "record what version they came from").
  *

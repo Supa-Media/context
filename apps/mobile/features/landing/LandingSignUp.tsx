@@ -11,7 +11,8 @@ import { usePhoneSignIn } from "../auth/usePhoneSignIn";
  * 2026-10-09: "waitlist etc will have to change to phone number"). A number
  * an account holds signs in with a texted code, any other joins the waitlist
  * in place, and "Use email instead" swaps in the homepage's email card. No
- * copy of its own: whatever those two say, this says.
+ * copy of its own: whatever those two say, this says. Its heading is a level
+ * below the page's one sentence.
  */
 export function LandingSignUp() {
   const router = useRouter();
@@ -24,7 +25,7 @@ export function LandingSignUp() {
   const email = useHomeJoin({ replace });
   const answered = useRef(0);
   return mode === "phone" ? (
-    <PhoneSignInForm flow={phone} onUseEmail={() => setMode("email")} />
+    <PhoneSignInForm flow={phone} onUseEmail={() => setMode("email")} headingLevel={2} />
   ) : (
     <JoinCard flow={email} ask={0} answered={answered} />
   );

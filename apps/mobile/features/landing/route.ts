@@ -2,10 +2,11 @@ import { landingPageFromPath, type LandingPage } from "@context/shared";
 import { CAST_PREVIEW_PARAM } from "../home/castPreview";
 
 /**
- * Which landing page, if any, an address on the web shows (Dev2, 2026-10-09:
- * "5 different landing pages /a /b /c /d /e, default to a").
+ * Which landing page, if any, an address on the web shows (Dev, 2026-10-11:
+ * "root (/a) being the simple version, /b being the map variant and /c being
+ * the variant where the landing page was the app shell").
  *
- * `/` is page a, and `/a` to `/e` are their own. The website the homepage
+ * `/` is page a, and `/a` to `/c` are their own. The website the homepage
  * used to draw at `/` is still the homepage everywhere else: any `?page=`
  * (`/?page=pricing`, which `/pricing` redirects to) is a page of the site, and
  * a cast preview's draft (`/#cast-preview=…`) and the cast studio's stage are
