@@ -311,7 +311,7 @@ describe("which landing page a person saw", () => {
     await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "c" });
     expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
     // A second visit from another page does not rewrite it.
-    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "e" })).toEqual({
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", landing: "b" })).toEqual({
       status: "already",
     });
     expect((await row(t, "jon@studio.test"))?.landing).toBe("c");
@@ -319,7 +319,7 @@ describe("which landing page a person saw", () => {
 
   test("a value that is not a landing page is dropped and the join still succeeds", async () => {
     const t = setupTest();
-    for (const [i, landing] of ["z", "A", "<script>"].entries()) {
+    for (const [i, landing] of ["z", "A", "<script>", "d", "e"].entries()) {
       const email = `odd${i}@studio.test`;
       expect(await t.mutation(api.functions.waitlist.enter, { email, landing })).toMatchObject({ status: "joined" });
       expect((await row(t, email))?.landing).toBeUndefined();
@@ -346,6 +346,35 @@ describe("which landing page a person saw", () => {
       { landing: "b", joined: 1, admitted: 0 },
       { landing: "none", joined: 1, admitted: 0 },
     ]);
+  });
+
+  test("the ad that sent them is stored cleaned, beside the page, and counted per page and ad", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    const spring = { source: "meta", campaign: "spring", content: "video-2" };
+    await t.mutation(api.functions.waitlist.enter, { email: "m1@studio.test", landing: "a", campaign: spring });
+    await t.mutation(api.functions.waitlist.enter, { email: "m2@studio.test", landing: "a", campaign: spring });
+    await t.mutation(api.functions.waitlist.enter, {
+      email: "x1@studio.test",
+      landing: "b",
+      campaign: { source: "  x\n", medium: "x".repeat(300), term: "" },
+    });
+    await t.mutation(api.functions.waitlist.enter, { email: "plain@studio.test", landing: "a" });
+    await t.mutation(api.functions.waitlist.enter, { email: "blank@studio.test", landing: "c", campaign: { source: " " } });
+    expect((await row(t, "m1@studio.test"))?.campaign).toEqual(spring);
+    expect((await row(t, "x1@studio.test"))?.campaign).toEqual({ source: "x", medium: "x".repeat(100) });
+    expect(await row(t, "blank@studio.test")).not.toHaveProperty("campaign");
+    // A second visit from another ad does not rewrite it.
+    await t.mutation(api.functions.waitlist.enter, { email: "m1@studio.test", landing: "b", campaign: { source: "x" } });
+    expect((await row(t, "m1@studio.test"))?.campaign).toEqual(spring);
+    expect(await as.query(api.functions.admin.waitlistLandingCounts, {})).toEqual([
+      { landing: "a", joined: 1, admitted: 0 },
+      { landing: "a", campaign: "meta / spring / video-2", joined: 2, admitted: 0 },
+      { landing: "b", campaign: "x", joined: 1, admitted: 0 },
+      { landing: "c", joined: 1, admitted: 0 },
+    ]);
+    const listed = await as.query(api.functions.admin.listWaitlist, { status: "waiting" });
+    expect(listed.rows.find((r) => r.email === "m2@studio.test")?.campaign).toBe("meta / spring / video-2");
   });
 
   test("the landing counts are staff only", async () => {

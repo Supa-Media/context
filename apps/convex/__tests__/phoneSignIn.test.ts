@@ -132,7 +132,7 @@ describe("a phone nobody holds", () => {
   test("joins the waitlist, is texted nothing, and even an approved code makes no account", async () => {
     const t = setupTest();
     await kayla(t);
-    expect(await start(t, NOBODY)).toEqual({ status: "joined", phone: NOBODY });
+    expect(await start(t, NOBODY)).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/) });
     expect(await start(t, NOBODY)).toEqual({ status: "already", phone: NOBODY });
     expect(calls).toEqual([]);
     const rows = await t.run(async (ctx) => await ctx.db.query("waitlist").collect());
@@ -150,19 +150,23 @@ describe("a phone nobody holds", () => {
   });
 });
 
-describe("which landing page a phone was joined from", () => {
-  test("is stored on the new waitlist row, and an invalid one is dropped", async () => {
+describe("which landing page and ad a phone was joined from", () => {
+  test("are stored on the new waitlist row, and an invalid page is dropped", async () => {
     const t = setupTest();
-    expect(await t.action(api.functions.phoneSignIn.start, { phone: NOBODY, landing: "d" })).toEqual({
-      status: "joined",
-      phone: NOBODY,
-    });
+    expect(
+      await t.action(api.functions.phoneSignIn.start, {
+        phone: NOBODY,
+        landing: "c",
+        campaign: { source: " meta ", campaign: "spring", content: "" },
+      }),
+    ).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/) });
     await t.run(async (ctx) => {
       const rows = await ctx.db.query("waitlist").withIndex("by_phone", (q) => q.eq("phone", NOBODY)).collect();
-      expect(rows.map((row) => row.landing)).toEqual(["d"]);
+      expect(rows.map((row) => [row.landing, row.campaign])).toEqual([["c", { source: "meta", campaign: "spring" }]]);
     });
     const other = "+15555550188";
-    expect(await t.action(api.functions.phoneSignIn.start, { phone: other, landing: "<b>" })).toEqual({
+    // `d` was a landing page until 2026-10-11; a page that is not one now is dropped.
+    expect(await t.action(api.functions.phoneSignIn.start, { phone: other, landing: "d" })).toMatchObject({
       status: "joined",
       phone: other,
     });

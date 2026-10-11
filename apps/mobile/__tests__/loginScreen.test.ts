@@ -20,7 +20,7 @@ jest.mock("react-native-safe-area-context", () => ({
 const mockCalls: Array<Record<string, unknown>> = [];
 const mockProviders: string[] = [];
 // What `phoneSignIn.start` answers, and whether a texted code signs in.
-let mockStart: { status: string; phone?: string } = { status: "sent", phone: "+15555550100" };
+let mockStart: { status: string; phone?: string; conversionId?: string } = { status: "sent", phone: "+15555550100" };
 let mockSigningIn = true;
 const mockStarted: Array<Record<string, unknown>> = [];
 const mockRouter = { replace: jest.fn(), push: jest.fn() };
@@ -338,6 +338,25 @@ describe("signing in with a phone", () => {
     await view.press("login-phone-change");
     expect(view.byId("login-phone")).not.toBeNull();
     view.unmount();
+  });
+
+  test("a number that joins counts as an ad sign-up, with the server's conversion id", async () => {
+    const pixel = window as unknown as { twq?: unknown; fbq?: unknown };
+    const events: unknown[][] = [];
+    pixel.twq = (...args: unknown[]) => events.push(["x", ...args]);
+    pixel.fbq = (...args: unknown[]) => events.push(["meta", ...args]);
+    try {
+      mockStart = { status: "joined", phone: "+15555550142", conversionId: "waitlist-abc" };
+      const view = mount({ phone: true });
+      await view.type("login-phone", "+1 555 555 0142");
+      await view.press("login-phone-send");
+      expect(events.map((event) => event[0])).toEqual(["x", "meta"]);
+      expect(JSON.stringify(events)).toContain("waitlist-abc");
+      view.unmount();
+    } finally {
+      delete pixel.twq;
+      delete pixel.fbq;
+    }
   });
 
   test("a number already on the list says so", async () => {

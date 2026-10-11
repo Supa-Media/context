@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
- * Which landing page (`/a` to `/e`) a visit arrived at, kept for the waitlist
+ * Which landing page (`/a` to `/c`) a visit arrived at, kept for the waitlist
  * join (`features/auth/landingPage.ts`). A fresh module per test, since what it
  * remembers lives in the module. Session storage is a small in-memory stand-in
  * on `window`, because the test environment is node.
@@ -62,19 +62,19 @@ describe("the landing page", () => {
 
   test("the first page seen this session is kept, and it is stored for the session", () => {
     const { captureLandingPage, landingPage } = load();
-    captureLandingPage("/d");
+    captureLandingPage("/c");
     captureLandingPage("/b");
-    expect(landingPage()).toBe("d");
-    expect(session.getItem("context.landing")).toBe("d");
+    expect(landingPage()).toBe("c");
+    expect(session.getItem("context.landing")).toBe("c");
   });
 
   test("a page stored by an earlier load of the app is not overwritten", () => {
-    session.setItem("context.landing", "e");
+    session.setItem("context.landing", "c");
     const { captureLandingPage, landingPage } = load();
-    expect(landingPage()).toBe("e");
+    expect(landingPage()).toBe("c");
     captureLandingPage("/b");
-    expect(landingPage()).toBe("e");
-    expect(session.getItem("context.landing")).toBe("e");
+    expect(landingPage()).toBe("c");
+    expect(session.getItem("context.landing")).toBe("c");
   });
 
   test("a stored value that is not a landing page is replaced by the first real one", () => {

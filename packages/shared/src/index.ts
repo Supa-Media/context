@@ -48,10 +48,16 @@ export {
   isPinnedContextSlug,
 } from "./pinnedContext";
 /**
- * The landing pages (`/a` to `/e`) and the rule that names them. The waitlist
- * records which one a person saw, so both halves read it from here.
+ * The landing pages (`/a` to `/c`) and the rule that names them, and the ad a
+ * visit came from. The waitlist records both, so both halves read them here.
  */
 export {
+  AD_CAMPAIGN_FIELD_MAX,
+  adCampaignFromSearch,
+  adCampaignLabel,
+  adCampaignOf,
+  type AdCampaign,
+  RETIRED_LANDING_PAGES,
   DEFAULT_LANDING_PAGE,
   LANDING_PAGES,
   landingPageFromPath,
