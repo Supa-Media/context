@@ -252,13 +252,17 @@ export function errorMessageOf(error: unknown): string | null {
 
 /**
  * A submit failure that leaves the link usable: a field the backend refused,
- * or no answer at all (offline, a dropped socket). Everything with a code
- * other than INVALID_ARGUMENT ends the page.
+ * a write the workspace's storage did not take (the link is spent only by a
+ * write that landed), or no answer at all (offline, a dropped socket).
+ * Everything else with a code ends the page.
  */
 function fixableProblem(error: unknown): FormProblem | null {
   const code = errorCodeOf(error);
   if (code === "INVALID_ARGUMENT") {
     return { headline: errorMessageOf(error) ?? "Check the details and try again." };
+  }
+  if (code === "VAULT_STORAGE_FAILED") {
+    return { headline: errorMessageOf(error) ?? "That didn't go through.", next: "This link still works. Try again." };
   }
   if (code === undefined) {
     return { headline: "That didn't go through.", next: "Check your connection and try again." };

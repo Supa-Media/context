@@ -139,6 +139,22 @@ describe("the vault link", () => {
     expect(view({ kind: "failed", error: err("VAULT_LINK_NOT_YOURS") })).toMatchObject({ kind: "dead", reason: "notYours" });
   });
 
+  test("a write the storage refused stays on the form: nothing was saved, and the link still works", () => {
+    const words = "That wasn't saved: your workspace's storage didn't take it.";
+    const failed: Outcome = { kind: "failed", error: err("VAULT_STORAGE_FAILED", words) };
+    expect(view(shown(addRequest), failed)).toMatchObject({
+      kind: "add",
+      busy: false,
+      problem: { headline: words, next: "This link still works. Try again." },
+    });
+    expect(view(shown(shareRequest), { kind: "failed", error: err("VAULT_STORAGE_FAILED") })).toMatchObject({
+      kind: "share",
+      problem: { headline: "That didn't go through.", next: "This link still works. Try again." },
+    });
+    const problem = (view(shown(addRequest), failed) as { problem: { next?: string } }).problem;
+    expect(problem.next).not.toMatch(/connection/i);
+  });
+
   test("storage and key failures, and anything unknown, end the page", () => {
     expect(view({ kind: "failed", error: err("VAULT_NO_STORAGE") })).toMatchObject({ reason: "storage" });
     expect(view(shown(addRequest), { kind: "failed", error: err("VAULT_NO_STORAGE") })).toMatchObject({ reason: "storage" });
