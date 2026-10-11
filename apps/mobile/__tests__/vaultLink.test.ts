@@ -135,8 +135,20 @@ describe("the vault link", () => {
     expect(expired.kind === "dead" && expired.detail).toMatch(/Ask Tex for a new one/);
   });
 
-  test("someone else's link says so, and nothing else", () => {
-    expect(view({ kind: "failed", error: err("VAULT_LINK_NOT_YOURS") })).toMatchObject({ kind: "dead", reason: "notYours" });
+  test("someone else's link says so, and offers signing in as someone else, back to this link", () => {
+    expect(view({ kind: "failed", error: err("VAULT_LINK_NOT_YOURS") })).toMatchObject({
+      kind: "dead",
+      reason: "notYours",
+      signInAgain: `/login?next=${encodeURIComponent("/vault/tok")}`,
+    });
+    const prefill = { name: "Netflix", site: "netflix.com" };
+    expect(view(shown(addRequest), { kind: "failed", error: err("VAULT_LINK_NOT_YOURS") }, prefill)).toMatchObject({
+      signInAgain: `/login?next=${encodeURIComponent("/vault/tok?name=Netflix&site=netflix.com")}`,
+    });
+    // Only a link for another account offers it: signing out fixes nothing else.
+    for (const code of ["VAULT_LINK_DEAD", "VAULT_NO_STORAGE", "KEY_UNAVAILABLE"]) {
+      expect(view({ kind: "failed", error: err(code) })).not.toHaveProperty("signInAgain");
+    }
   });
 
   test("a write the storage refused stays on the form: nothing was saved, and the link still works", () => {

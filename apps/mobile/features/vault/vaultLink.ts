@@ -168,7 +168,14 @@ export type VaultLinkView =
   | { kind: "saved"; name: string; site: string; type: EntryType }
   | { kind: "shared"; name: string; grantee: string | null; type: EntryType }
   | { kind: "declined" }
-  | { kind: "dead"; reason: DeadReason; headline: string; detail: string };
+  | {
+      kind: "dead";
+      reason: DeadReason;
+      headline: string;
+      detail: string;
+      /** A link for another account: sign out, then sign in at this href and come back to the link. */
+      signInAgain?: string;
+    };
 
 export type DeadReason = "expired" | "notYours" | "storage" | "key" | "failed";
 
@@ -179,6 +186,15 @@ export function resolveVaultLinkView(inputs: {
   described: Described;
   outcome: Outcome;
 }): VaultLinkView {
+  const view = resolveView(inputs);
+  // The one dead end signing out fixes: the link is fine, the account is not.
+  if (view.kind === "dead" && view.reason === "notYours" && inputs.token !== null) {
+    return { ...view, signInAgain: loginHref(vaultLinkHref(inputs.token, inputs.prefill)) };
+  }
+  return view;
+}
+
+function resolveView(inputs: Parameters<typeof resolveVaultLinkView>[0]): VaultLinkView {
   const { token, auth, prefill, described, outcome } = inputs;
   if (auth.isLoading) return { kind: "wait" };
   if (token === null) return dead("expired");
