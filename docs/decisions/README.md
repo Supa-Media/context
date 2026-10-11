@@ -406,6 +406,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every unasked message goes through one path, one at a time, answered per account
 - [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
+- [The map is drawn on paper and a blackboard; its words are not](./app-and-console/live-map-board.md)
 - [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md)
 - [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07)
 - [A replay is served from a history index in the context's own database](./app-and-console/live-map-history.md#a-replay-is-served-from-a-history-index-in-the-contexts-own-database-2026-10-09)

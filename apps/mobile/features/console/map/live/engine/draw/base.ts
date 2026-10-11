@@ -1,9 +1,10 @@
 import { toWorld } from "../camera";
 import { LAYER } from "../hit";
 import type { IslandPlace } from "../layout";
-import { dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
+import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
+import { BOW, bowOf, grain } from "./board";
 import type { DrawEnv } from "./env";
 import { circle, fontOf } from "./primitives";
 
@@ -114,9 +115,10 @@ export function drawLinks(env: DrawEnv): void {
     const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
     const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
-    ctx.lineWidth = edgeWidth(s);
-    ctx.strokeStyle = C.edge;
-    const base = ea * (env.dim ? 0.55 : 1);
+    const width = edgeWidth(s);
+    // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
+    const stroke = grain(ctx, C, C.edge);
+    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1);
     // Links inside a folder at full strength, links between folders faint:
     // the groups read, and the long cross-links do not become the picture.
     for (const across of [true, false]) {
@@ -141,9 +143,20 @@ export function drawLinks(env: DrawEnv): void {
         const a = env.screen(wa);
         const b = env.screen(wb);
         if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
+        const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * BOW;
         ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        ctx.quadraticCurveTo((a.x + b.x) / 2 - (b.y - a.y) * bow, (a.y + b.y) / 2 + (b.x - a.x) * bow, b.x, b.y);
       }
+      // Chalk carries a soft dusty halo: the same path again, wide and faint.
+      if (C.board === "chalk") {
+        ctx.strokeStyle = C.edge;
+        ctx.lineWidth = width * 3.2;
+        ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * 0.1;
+        ctx.stroke();
+        ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      }
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -227,6 +240,9 @@ function crosses(env: DrawEnv, a: Point, b: Point): boolean {
   return !(Math.max(a.x, b.x) < 0 || Math.min(a.x, b.x) > w || Math.max(a.y, b.y) < 0 || Math.min(a.y, b.y) > h);
 }
 
+/** A resting dot gets its drawn rim from this radius up; smaller ones are only grain. */
+export const RIM_FROM = 2.4;
+
 /** Every note as a dot, and the marks of whatever is happening to it. */
 export function drawNotes(env: DrawEnv): void {
   const { ctx, style, model, scene, s } = env;
@@ -237,6 +253,7 @@ export function drawNotes(env: DrawEnv): void {
   // Resting dots, the great majority, go into one path and one fill: what a
   // frame costs is how many times the canvas paints, and a workspace of
   // 20,000 notes painted one dot at a time is a slide show.
+  const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
   ctx.beginPath();
   for (const n of env.near) {
     const key = n.key;
@@ -245,6 +262,7 @@ export function drawNotes(env: DrawEnv): void {
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
     const R = dotRadius(s, n.deg);
+    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7, off: bowOf(n.x, n.y, n.y, n.x) * 0.7 });
     // A dot a pixel or two across looks the same as a square and paints far
     // faster, which is what a whole workspace of tiny dots is made of.
     if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
@@ -254,9 +272,23 @@ export function drawNotes(env: DrawEnv): void {
     }
     env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
   }
-  ctx.fillStyle = C.dot;
+  // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
+  // pencil or chalk dot has, a little off centre.
+  ctx.fillStyle = grain(ctx, C, C.dot);
   ctx.globalAlpha = env.dim ? 0.5 : 1;
   ctx.fill();
+  if (rims.length > 0) {
+    ctx.beginPath();
+    for (const m of rims) {
+      ctx.moveTo(m.x + m.off + m.r, m.y - m.off);
+      ctx.arc(m.x + m.off, m.y - m.off, m.r, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = C.dot;
+    ctx.lineWidth = 0.9;
+    ctx.globalAlpha = (env.dim ? 0.5 : 1) * 0.6;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
   ctx.globalAlpha = 1;
   // Then the few with something happening to them, each with its own marks.
   const marked = new Set<string>([...scene.editing.keys(), ...scene.reading.keys(), ...follow]);

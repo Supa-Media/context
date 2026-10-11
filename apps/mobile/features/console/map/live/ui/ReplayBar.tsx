@@ -169,7 +169,7 @@ function Track({ page, replay, compact }: { page: MapPageState; replay: ReplaySt
               key={i}
               style={[
                 styles.histBar,
-                { height: `${Math.max(6, (count / max) * 100)}%`, backgroundColor: past ? colors.text2 : map.dot, opacity: past ? 1 : 0.45 },
+                { height: `${Math.max(6, (count / max) * 100)}%`, backgroundColor: past ? colors.text2 : colors.muted, opacity: past ? 1 : 0.45 },
               ]}
             />
           );

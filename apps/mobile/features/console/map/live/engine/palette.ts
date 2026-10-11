@@ -10,6 +10,8 @@ import type { AgentTintColors } from "../agentKind";
  * the accent in both themes). Reading is drawn in `ink`.
  */
 export type MapPalette = {
+  /** What the map is drawn on: cream paper (light) or a blackboard (dark). See `draw/board.ts`. */
+  board: "paper" | "chalk";
   ground: string;
   island: string;
   chip: string;
@@ -39,7 +41,8 @@ export type MapPalette = {
  */
 export function mapPalette(colors: Colors, map: MapColors): MapPalette {
   return {
-    ground: colors.pageSurface,
+    board: map.board,
+    ground: map.ground,
     island: map.island,
     chip: colors.surface3,
     line: colors.lineStrong,

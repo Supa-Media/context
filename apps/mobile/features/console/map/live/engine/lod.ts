@@ -37,6 +37,13 @@ export const EDGE_HAZE = 0.55;
 /** Links between notes: a faint haze far out, full strength once notes are apart. */
 export const edgeAlpha = (s: number): number => EDGE_HAZE + (1 - EDGE_HAZE) * clamp((notePx(s) - 8) / 7, 0, 1);
 
+/**
+ * On paper and the blackboard links are pencil and chalk, darker or lighter
+ * than the flat map's: far out, where thousands overlap, they are held back
+ * further so the haze does not turn into a grey or white blot.
+ */
+export const boardHaze = (s: number): number => 0.45 + 0.55 * clamp((notePx(s) - 8) / 7, 0, 1);
+
 /** Their width in pixels: hairlines far out, so a dense haze stays light. */
 export const edgeWidth = (s: number): number => 0.6 + 0.4 * clamp((notePx(s) - 8) / 7, 0, 1);
 
