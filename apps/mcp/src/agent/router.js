@@ -61,11 +61,13 @@ const QUESTIONS = {
       "a change together with a message to someone, or a request that could mean two different things. " +
       "Pick think too when the shape of the question needs two facts put together: a date worked out from another date (a deadline, a notice period, how long is left, what comes first or next), " +
       "an order of events, a total or a comparison, or something that could be written in more than one of their notebooks. " +
+      "Pick think for any job done on a website: connecting ChatGPT, Claude or another app, signing in, filling a form, finding, booking or buying something on a site, " +
+      "and for every reply in the middle of such a job (\"done\", \"what am I seeing\", \"it didn't work\"), which needs the page checked before answering. " +
       "A short question can still need several notes. Pick lookup or change only when one search or one edit in one known note settles it.",
     criteria: {
       lookup: "One fact, date, time or amount from their notes, answerable with one search in one place. Not attendance or feasibility, not a span of days, not a date that has to be worked out from another.",
       change: "Add, change, tick off or move one thing in one note it is clear which; or a greeting, thanks or a quick reply with nothing to look up.",
-      think: "Compare notes or workspaces, look over a span of days, work out a deadline or how long is left, put events in order, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, or handle privacy carefully.",
+      think: "Compare notes or workspaces, look over a span of days, work out a deadline or how long is left, put events in order, make a judgement, give an opinion or a plan, resolve a clash, check whether the person can make an event or commitment, change a note and draft a message in one go, settle which of two things they mean, handle privacy carefully, or do or carry on a job on a website (connect an app, sign in, fill a form, book or buy).",
     },
   },
 };
