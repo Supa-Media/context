@@ -405,11 +405,15 @@ export function FormError({
 
 /** A neutral inline note, for progress lines like "Checking your bucket…". */
 export function Notice({
-  tone = "neutral",
   children,
   style,
   testID,
 }: {
+  /**
+   * What the words inside say, for them to follow — `NoticeLine`'s coloured
+   * mark, or a `warnText` / `okText` style. Never drawn as a tinted panel any
+   * more (Dev2, 2026-10-11: those boxes read as generated).
+   */
   tone?: "neutral" | "ok" | "warn";
   children: ReactNode;
   style?: ViewStyle;
@@ -421,10 +425,9 @@ export function Notice({
    */
   testID?: string;
 }) {
-  const styles = useThemedStyles(makeStyles);
   return (
     <View
-      style={[styles.notice, styles[`notice_${tone}` as const], style]}
+      style={style}
       role="status"
       testID={testID}
     >
@@ -519,11 +522,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   formErrorHead: { fontWeight: "600" },
   formErrorNext: { marginTop: 4, color: colors.text2 },
 
-  // No box (Dev2, 2026-10-11). The tone is carried by the words inside —
-  // `NoticeLine`'s coloured mark, or a `warnText` / `okText` style — never a
-  // tinted panel around them.
-  notice: {},
-  notice_neutral: {},
-  notice_ok: {},
-  notice_warn: {},
 });
