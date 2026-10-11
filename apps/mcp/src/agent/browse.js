@@ -47,6 +47,17 @@ const MAX_TEXT_SHOWN = 8_000;
 
 const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "handoff"]);
 
+/** The gateway's line when a handoff was asked for and no link could be made. */
+export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
+
+/** What the description says about handing the browser over, when this browser can be. */
+const HANDOFF_SENTENCE =
+  "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
+  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. ";
+/** And when it cannot: a model told a link is coming says so, and none comes. */
+const NO_HANDOFF_SENTENCE =
+  "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
+
 export const BROWSE_DEFINITION = {
   name: BROWSE_TOOL,
   description:
@@ -55,8 +66,7 @@ export const BROWSE_DEFINITION = {
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
     "goto follows the same rule as open_page: an address the person wrote, a search result, or a link you saw. " +
     "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. " +
-    "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
-    "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
+    HANDOFF_SENTENCE +
     "Use open_page instead when you only need to read.",
   inputSchema: {
     type: "object",
@@ -144,6 +154,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   // the turn can text mid-task (`say`), else added to the reply by the gateway.
   let handoffLink = null;
   let handoffSaid = false;
+  // A handoff the model asked for that never produced a link.
+  let handoffMissed = false;
   /** ` on example.com` for the page the browser is on, or nothing when it is not known. */
   const hostLabel = () => {
     try {
@@ -188,7 +200,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   }
 
   return {
-    definition: BROWSE_DEFINITION,
+    // Only a browser that can be handed over is described as one (`canHandOff`).
+    definition:
+      computer.canHandOff?.() === true
+        ? BROWSE_DEFINITION
+        : { ...BROWSE_DEFINITION, description: BROWSE_DEFINITION.description.replace(HANDOFF_SENTENCE, NO_HANDOFF_SENTENCE) },
 
     async call(args) {
       const asked = Array.isArray(args?.steps) ? args.steps : [];
@@ -211,7 +227,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
-            return textResult("You can only open an address the person wrote, a search result, or a link you saw. Ask them for the address.", true);
+            return textResult("You can only open an address the person wrote, a search result, a link you saw, or one in a skill you read this question (read_skill). Otherwise ask them for the address.", true);
           }
           gotos += 1;
           planned.push({ do: "goto", url });
@@ -221,7 +237,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           if (!onlyTheirWords(step.text, theirWords)) {
             if (theirSites.length === 0) {
               return textResult(
-                "You can only type the person's own words here. To type anything else, the person has to name the site in their message.",
+                "You can only type the person's own words here, or words from a skill you read this question (read_skill). To type anything else, the person has to name the site in their message.",
                 true,
               );
             }
@@ -261,6 +277,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         */
         handoffSaid = (await say(handoffLine()).catch(() => false)) === true;
       }
+      if (handoff && handoffLink === null) handoffMissed = true;
       const told =
         handoff && handoffSaid
           ? "\n\nThe person has just been texted a link to this browser. Tell them briefly what to do there, and that you'll carry on when they text you."
@@ -274,8 +291,23 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
     /** The live-view link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
-    /** The gateway's own sentence for a link it is about to append, or null. */
-    handoffLine: () => (handoffSaid || handoffLink === null ? null : handoffLine()),
+    /**
+     * The gateway's own sentence for a link it is about to append, or null.
+     * When a handoff was asked for and no link was ever made, the sentence
+     * says so: the model may have promised one, and only this line is ours.
+     */
+    handoffLine: () =>
+      handoffSaid ? null : handoffLink !== null ? handoffLine() : handoffMissed ? NO_LINK_LINE : null,
+
+    /**
+     * Words a task skill this question read (`skills.js`) may be typed like
+     * the person's own: staff wrote them in the pinned workspace, before any
+     * page was read, so a page cannot have put them there. Only the words: a
+     * skill never makes a site one the person named.
+     */
+    vouch(text) {
+      for (const word of wordsOf(text)) theirWords.add(word);
+    },
 
     /** The origin of the page the browser is on, or null before it opens one. */
     currentOrigin: () => origin,

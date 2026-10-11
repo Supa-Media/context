@@ -31,6 +31,9 @@
  *   search         optional: the search settings this setup's turns use over
  *                  the deployment's (`search/settings.js`): everywhere,
  *                  min_score, extra_notes, snippet_chars
+ *   skills         optional: task how-tos the assistant may read (`skills.js`),
+ *                  one `  name: when it applies` line each, read from
+ *                  `ai/production/skills/<name>.md`
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
@@ -50,6 +53,7 @@ import { PINNED_CONTEXT_NAME, readPinnedNote } from "../orient/globalNote.js";
 import { isBuiltinModelName } from "./builtin.js";
 import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
+import { readSkillList, skillBody } from "./skills.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -61,7 +65,8 @@ const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
 const ROUTE_AT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const TOP_KEY = /^([a-z][a-z0-9_]*):(?: +(.*))?$/;
-const SUB_KEY = /^ {2}([a-z][a-z0-9_]*):(?: +(.*))?$/;
+// Hyphens are allowed one level down, for skill names (`skills.js`).
+const SUB_KEY = /^ {2}([a-z][a-z0-9_-]*):(?: +(.*))?$/;
 
 /**
  * `{ job, model, tools, maxSteps, prompt, version }`, or `null` when the file
@@ -117,6 +122,9 @@ async function parse(raw) {
     if (search === null) return null;
   }
 
+  const skills = readSkillList(front.skills);
+  if (skills === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -134,6 +142,7 @@ async function parse(raw) {
     router,
     fallback,
     search,
+    skills,
     tools,
     maxSteps,
     prompt,
@@ -243,6 +252,19 @@ export async function readProductionSetup(store, session, { texting }) {
   try {
     const path = texting ? PRODUCTION_TEXTING_PATH : PRODUCTION_APP_PATH;
     return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One skill note's body from the pinned workspace (`skills.js`), read as the
+ * setup is, or `null`. `path` is one `skillPath` made from a name the setup
+ * listed. Never throws.
+ */
+export async function readProductionSkill(store, session, path) {
+  try {
+    return await readPinnedNote(await pinnedReach(store, session), path, skillBody);
   } catch {
     return null;
   }
