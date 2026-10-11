@@ -96,9 +96,11 @@ describe("browseOnBrowserbase", () => {
     expect(api.calls.some((c) => c.method === "POST" && c.url.endsWith("/sessions"))).toBe(false);
   });
 
-  it("gives the live-view link only when a handoff asks for it", async () => {
+  it("never asks Browserbase for its live-view link, even when a handoff is asked for", async () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], handoff: true });
-    expect(result.body.liveUrl).toBe("https://live.example/new-1");
+    expect(result.body.liveUrl).toBeUndefined();
+    expect(result.api.calls.some((c) => c.url.endsWith("/debug"))).toBe(false);
+    expect(JSON.stringify(result.body)).not.toContain("live.example");
   });
 
   it("refuses an owner that is not a tag", async () => {

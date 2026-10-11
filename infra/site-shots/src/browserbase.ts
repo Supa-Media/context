@@ -1,6 +1,6 @@
 /**
  * Browserbase, the decided browser for Tex (2026-10-10): captcha solving and
- * stealth, and a live view a person can open on their phone to sign in.
+ * stealth, in a browser that outlives a question so a person can sign in.
  *
  * Kept to what the decision allows (`docs/decisions/texting-assistant.md`):
  *
@@ -11,6 +11,8 @@
  *   it goes on the session as `userMetadata`, and the next question finds the
  *   browser by it. Nothing of ours holds a session id between questions, and
  *   a tag cannot be guessed from the id it was made from.
+ * - **No live-view link.** Browserbase's debugger URL drives the browser for
+ *   whoever holds it; the person watches and takes over through ./view.ts.
  * - **It ends itself.** `timeout` caps a session's whole life, so a browser
  *   left for a sign-in is gone within `SESSION_LIFETIME_S` whatever happens.
  *
@@ -88,13 +90,6 @@ export async function createSession(env: BrowserbaseEnv, owner: string, fetcher:
   const session = asSession(raw);
   if (!session) throw new Error("browserbase gave no session");
   return session;
-}
-
-/** The link a person opens to see and use this browser themselves. */
-export async function liveViewUrl(env: BrowserbaseEnv, id: string, fetcher: typeof fetch = fetch): Promise<string | null> {
-  const debug = await api<{ debuggerFullscreenUrl?: unknown }>(env, `/sessions/${encodeURIComponent(id)}/debug`, { method: "GET" }, fetcher);
-  const url = typeof debug?.debuggerFullscreenUrl === "string" ? debug.debuggerFullscreenUrl : null;
-  return url !== null && url.startsWith("https://") ? url : null;
 }
 
 export async function releaseSession(env: BrowserbaseEnv, id: string, fetcher: typeof fetch = fetch): Promise<void> {

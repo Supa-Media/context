@@ -2,14 +2,15 @@
  * POST /browse with `provider: "browserbase"`: the same steps as Cloudflare's
  * browser (./browse.ts), on this person's Browserbase browser.
  *
- *   `{ provider, owner, steps, handoff? }` → `{ session, ran, page, liveUrl? }`
+ *   `{ provider, owner, steps }` → `{ session, ran, page }`
  *   `/browse/close` `{ provider, owner }` → releases their browser now
  *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
- * the same browser. `handoff` asks for the live-view link, which goes back to
- * the gateway only: it adds the link to the text itself, and the model never
- * holds it.
+ * the same browser. Browserbase's own live-view link is never asked for: it
+ * is a bearer link to the browser, and a person hands it on by forwarding a
+ * text. They take over at `context.lc/tex/<handle>` instead, signed in, which
+ * looks through ./view.ts.
  */
 
 import { parseBrowseRequest, runSteps } from "./browse";
@@ -18,7 +19,6 @@ import {
   browserbaseConfigured,
   createSession,
   findSession,
-  liveViewUrl,
   releaseSession,
   type BrowserbaseEnv,
 } from "./browserbase";
@@ -54,11 +54,9 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   try {
     const page = await cdpPage(cdp);
     const result = await runSteps(page, parsed.steps);
-    const wantsLink = (body as { handoff?: unknown })?.handoff === true;
-    const liveUrl = wantsLink ? await liveViewUrl(env, session.id, fetcher).catch(() => null) : null;
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));
-    return json({ session: session.id, ...result, ...(liveUrl ? { liveUrl } : {}) });
+    return json({ session: session.id, ...result });
   } catch {
     return json({ session: session.id, error: "the browser could not do that" }, 502);
   } finally {
