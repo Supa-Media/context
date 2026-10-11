@@ -214,7 +214,7 @@ function BlockView({
         <View style={styles.table}>
           <View style={[styles.row, styles.headRow]}>
             {block.header.map((cell, index) => (
-              <Text key={index} variant="body" style={[styles.cell, styles.headCell]}>
+              <Text key={index} variant="body" style={[styles.cell, styles.cellFace, styles.headCell]}>
                 <Runs runs={cell} />
               </Text>
             ))}
@@ -222,7 +222,7 @@ function BlockView({
           {block.rows.map((row, rowIndex) => (
             <View key={rowIndex} style={styles.row}>
               {row.map((cell, index) => (
-                <Text key={index} variant="body" style={styles.cell}>
+                <Text key={index} variant="body" style={[styles.cell, styles.cellFace]}>
                   <Runs runs={cell} />
                 </Text>
               ))}
@@ -409,21 +409,23 @@ const headingStyle = (level: 1 | 2 | 3 | 4 | 5 | 6, look: NoteLook) =>
     `h${level}` as const
   ];
 
+// A shared note's text is read in Libron (`fonts.reading`); a website page
+// keeps its own voice, which `siteLook.ts` puts back.
 const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { gap: 12 },
-  heading: { color: colors.text },
-  paragraph: { color: colors.text2, lineHeight: leading(14.5, 1.75) },
+  heading: { color: colors.text, fontFamily: fonts.reading },
+  paragraph: { color: colors.text2, fontFamily: fonts.reading, lineHeight: leading(14.5, 1.75) },
   list: { gap: 6, paddingLeft: 4 },
   item: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  marker: { color: colors.muted, minWidth: 18 },
-  itemText: { flexGrow: 1, flexShrink: 1, color: colors.text2, lineHeight: leading(14.5, 1.7) },
+  marker: { color: colors.muted, fontFamily: fonts.reading, minWidth: 18 },
+  itemText: { flexGrow: 1, flexShrink: 1, color: colors.text2, fontFamily: fonts.reading, lineHeight: leading(14.5, 1.7) },
   quote: {
     borderLeftWidth: 2,
     borderLeftColor: colors.line,
     paddingLeft: 14,
     paddingVertical: 2,
   },
-  quoteText: { color: colors.muted, fontStyle: "italic" },
+  quoteText: { color: colors.muted, fontFamily: fonts.reading, fontStyle: "italic" },
   code: {
     borderRadius: radii.lg,
     borderWidth: 1,
@@ -451,6 +453,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text2,
     fontSize: t.ui,
   },
+  cellFace: { fontFamily: fonts.reading },
   headCell: { color: colors.text, fontWeight: "600" },
   strong: { color: colors.text, fontWeight: "600" },
   em: { fontStyle: "italic" },

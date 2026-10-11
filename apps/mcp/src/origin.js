@@ -96,7 +96,11 @@ export function isTransportPath(path) {
     // Authenticated and read by the console from a browser. It changes
     // nothing, but it names notes, so a page on another origin must not be
     // able to ask it with somebody else's token.
-    path === "/agent-activity"
+    path === "/agent-activity" ||
+    // Authenticated, reached by the console from a browser, and a POST to it
+    // releases a write the egress gate held: a page on another origin that
+    // could post here would be approving on the person's behalf.
+    path === "/approvals"
   );
 }
 

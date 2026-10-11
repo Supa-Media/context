@@ -17,8 +17,10 @@
  */
 export interface FolderFreshener {
   request(workspaceId: string, folder: string): void;
-  /** Run every remembered request that can run now. */
-  retry(): void;
+  /** Run every remembered request that can run now — or only this context's. */
+  retry(workspaceId?: string): void;
+  /** A project folder in this context has been asked for, so a refresh should freshen it. */
+  wants(workspaceId: string): boolean;
 }
 
 export function folderFreshener(options: {
@@ -52,8 +54,11 @@ export function folderFreshener(options: {
       wanted.set(workspaceId, folder);
       attempt(workspaceId);
     },
-    retry() {
-      for (const workspaceId of [...wanted.keys()]) attempt(workspaceId);
+    retry(only) {
+      for (const workspaceId of [...wanted.keys()]) if (only === undefined || only === workspaceId) attempt(workspaceId);
+    },
+    wants(workspaceId) {
+      return wanted.has(workspaceId);
     },
   };
 }

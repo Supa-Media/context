@@ -24,7 +24,7 @@ import {
 } from "@context/collaboration";
 import type { FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
-import { requirePath } from "./paths";
+import { assertNotMainFolder, requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
@@ -32,6 +32,7 @@ import { keysUnder, isFolder } from "./walk";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
 import { mutateManifest, remapPrivacy } from "./privacyRewrite";
+import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 
 export interface MoveResult {
   from: string;
@@ -90,6 +91,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
+  assertNotMainFolder(from);
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }
@@ -422,6 +424,8 @@ export async function movePath(
     folderMove,
     survivors: walk.withheld,
   });
+  // Its icon, and the icons of the folders inside it, go where it went.
+  if (folderMove !== null) await remapFolderIcons(store, from, to);
 
   /*
     A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.

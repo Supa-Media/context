@@ -63,6 +63,7 @@ export function PanelBody({
   onOpenNote,
   editing,
   onExpand,
+  empty = "Nothing written here yet.",
 }: {
   source: FolderListSource | undefined;
   /** The note whose words these are (`bodyPath`); null for a folder with no front note. */
@@ -75,6 +76,8 @@ export function PanelBody({
   editing?: PeekEditing;
   /** The note's own page. */
   onExpand?: () => void;
+  /** What a note with no words yet says, or null to say nothing (a folder's about note, to a reader). */
+  empty?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const body = usePanelBody(source, path);
@@ -112,9 +115,9 @@ export function PanelBody({
   }
   const text = panelText(body.text, title);
   if (text.trim() === "") {
-    return (
+    return empty === null ? null : (
       <Text variant="treeMeta" style={styles.note} testID="task-panel-body-note">
-        Nothing written here yet.
+        {empty}
       </Text>
     );
   }

@@ -6,6 +6,8 @@
  * keep.
  */
 
+import type { FolderNotesResult } from "./folderNotes";
+import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
 import type {
   ContextMoveExport,
@@ -14,11 +16,14 @@ import type {
   FileContents,
   ProjectionPass,
   SearchResults,
+  ManifestEntry,
+  ManifestFolder,
   SyncManifest,
 } from "../fileOps";
 import type { FormAction, FormAnswer, FormResult, FormSeedResult } from "../formOps";
 import type { Id } from "../../../_generated/dataModel";
 import type { StorageLayoutState } from "../storageLayout";
+import type { WorkspaceGraphResult } from "../fileOps/graph";
 import type { Visibility } from "../privacy";
 import type { WorkspaceRole } from "../workspaceAuth";
 import type { ContextPluginRow, ManagedInstalls, PluginInventory } from "./pluginValidators";
@@ -42,13 +47,26 @@ export const IDLE_PROJECTION = {
   report: false,
 } as const;
 
+/** What a meaning pass answers when its index is not there to fill. */
+export const IDLE_MEANING = {
+  kind: "meaningProjected",
+  embedded: 0,
+  deleted: 0,
+  notesIndexed: 0,
+  notesPending: 0,
+  ready: false,
+  moved: false,
+} as const;
+
 export type FileOperation =
   | { kind: "readActivity" }
+  /** A routine's recent runs, for a caller who can see the routine note. See `fileOps/routineRuns.ts`. */
+  | { kind: "routineRuns"; path: string }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
-  | { kind: "manifest"; cursor?: string }
-  | { kind: "readMany"; paths: string[] }
+  | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
+  | { kind: "readMany"; paths: string[]; plain?: boolean }
   | {
       kind: "writeWebsiteRelease";
       releaseId: string;
@@ -72,6 +90,8 @@ export type FileOperation =
       refreshOnMiss?: boolean;
     }
   | { kind: "notePaths" }
+  | { kind: "workspaceGraph"; compact?: boolean }
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "maintainIndex"; passes?: number }
   /**
    * Re-index the notes one file operation changed, without listing the bucket.
@@ -79,6 +99,26 @@ export type FileOperation =
    */
   | { kind: "indexNotes"; written: string[]; gone: string[] }
   | { kind: "projectIndex"; passes?: number }
+  /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
+  | { kind: "projectMeaning"; passes?: number }
+  /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
+  | { kind: "sweepTree"; passes?: number }
+  | {
+      kind: "touchTree";
+      paths: string[];
+      files: string[];
+      audiences: string[];
+      /** For a key this change took away: the audiences that could see it before. */
+      left?: { path: string; audiences: string[] }[];
+    }
+  /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
+  | { kind: "treeState" }
+  /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
+  | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
+  /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+  | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
+  /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */
+  | { kind: "chaosScore"; folder?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -124,6 +164,9 @@ export type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "emojiList" }
+  | { kind: "folderIconsRead" }
+  | { kind: "addBuiltInFolder"; role: string }
+  | { kind: "folderIconSet"; path: string; icon: string | null }
   | { kind: "emojiRead"; name: string }
   | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
   | { kind: "emojiRemove"; name: string }
@@ -192,6 +235,7 @@ export type FileOperation =
  */
 export type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
+  | { kind: "routineRuns"; runs: Array<{ at: number; outcome: string; text: string }> }
   | { kind: "websiteReleaseWritten"; pages: number }
   | {
       kind: "websiteReleasePages";
@@ -244,6 +288,8 @@ export type OperationResult =
       stylesCss: string | null;
     }
   | { kind: "notePaths"; paths: string[] | null }
+  | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
+  | { kind: "visiblePaths"; paths: string[] }
   | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";
@@ -254,6 +300,16 @@ export type OperationResult =
       oversizedShards: number;
     }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
+  | {
+      kind: "meaningProjected";
+      embedded: number;
+      deleted: number;
+      notesIndexed: number;
+      notesPending: number;
+      ready: boolean;
+      moved: boolean;
+      failure?: string;
+    }
   | {
       kind: "googleSyncRun";
       runId: Id<"googleSyncRuns">;
@@ -308,7 +364,27 @@ export type OperationResult =
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
       encrypted: boolean;
     }
-  | ({ kind: "manifest" } & SyncManifest)
+  | ({
+      kind: "manifest";
+      source?: "tree" | "bucket";
+      /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
+      since?: number;
+      /** The `privacy.md` version the walk was judged by, read before it started. */
+      privacy?: string | null;
+    } & SyncManifest)
+  | { kind: "treeKept"; complete: boolean }
+  | TreeChangesResult
+  | FolderNotesResult
+  | ChaosScoreResult
+  | {
+      kind: "treeState";
+      status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";
+      rows: number | null;
+      sweptAt: number | null;
+      dirty: boolean;
+      /** Why the last sweep pass failed, keys removed. */
+      error: string | null;
+    }
   | {
       kind: "notes";
       results: Array<
@@ -363,4 +439,30 @@ export type OperationResult =
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
   | { kind: "emojiRemoved" }
+  | { kind: "folderIcons"; icons: Array<{ path: string; icon: string }> }
   | { kind: "organizerResult"; output: string };
+
+/**
+ * One page of what changed since a device's last sync (`treeChanges.ts`).
+ * `full` means it cannot be answered that way: walk the manifest instead.
+ */
+export interface TreeChangesResult {
+  kind: "treeChanges";
+  full: boolean;
+  /** Keys this caller may see that appeared or changed version. */
+  entries: ManifestEntry[];
+  /** Folders those keys live under, and folders still held that a removal touched. */
+  folders: ManifestFolder[];
+  /** Keys that left, of those this caller could see before they left. */
+  gone: string[];
+  /** Folders of those keys that nothing is under any more. */
+  goneFolders: string[];
+  /** Ask again from here. */
+  since: number;
+  after: string;
+  /** This page was full: there is more after `since`/`after`. */
+  more: boolean;
+  /** The `privacy.md` version this page was judged by. */
+  privacy: string | null;
+  manifestUsable: boolean;
+}

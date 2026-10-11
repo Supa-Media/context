@@ -54,50 +54,17 @@
  *
  * Added in adversarial review, with their own counts:
  *
- *   `export_encryption_keys`/`rotate_encryption_keys` left out of
- *   `PRIVATE_TIER_ONLY_TOOLS`, so `tools/list` advertises them to a
- *   team-tier connection the call then tells they do not exist              1
- *   `toolExportEncryptionKeys`'s `scope !== "private"` gate removed     3 → 4
- *   `EXPORT_RATE_LIMIT.limit` moved from 5 to 1                             2
- *   the export document written to a `console.log`                          1
- *   the audit detail carrying `Object.values(key.keys)` (the material
- *   itself) instead of its generation ids                                   2
- *
- * Added in a second adversarial review, re-measured on the same denominator:
- *
- *   `toolExportEncryptionKeys` taking `args` and reading a workspace id
+ *   `rotate_encryption_keys` left out of `PRIVATE_TIER_ONLY_TOOLS`, so
+ *   `tools/list` advertises it to a team-tier connection the call then
+ *   tells it does not exist                                                 1
+ *   `toolRotateEncryptionKeys` taking `args` and reading a workspace id
  *   out of it — the smuggled-argument attack                                1
- *   `toolRotateEncryptionKeys` doing the same                               1
  *
- * Added 2026-09-21, sweeping the gateway's own rate limiters — the half of the
- * export budget a ceiling test cannot see, which is whether it ever lets go:
- *
- *   the export window's reset deleted (the counter never rolls)       0 -> 1
- *   a corrupt counter failing CLOSED instead of open                  0 -> 1
- *   a REFUSED export also writing the counter                              0
- *
- * The first two are the ones that matter, and they fail in the expensive
- * direction. A limit that does not engage lets an owner export their own key
- * too often; a limit that does not release **strands the key** — the one
- * non-negotiable #1 calls the customer's route back to their own notes, on an
- * exit that is "never gated, never degraded". Both were live paths: the reset
- * is the only code that clears the count, and the `catch` runs on any
- * unparseable file in a bucket the customer can also write to directly.
- *
- * **The third row is left at 0 on purpose, and the reason is the point.** The
- * docblock claims that a refused attempt writes nothing "so a rate-limited
- * attempt does not itself consume budget from the window it is refused
- * against". True, and inert: `windowStartedAt` is carried through unchanged by
- * the increment, so the window still expires on schedule however high the
- * count goes, and the only cost of violating it is a wasted bucket write. A
- * test there would turn a zero into a one without adding a guard, which reads
- * as coverage. The property is real; its violation is not observable.
- *
- * The export-gate row moved from 3 to 4 because of a check added here, not
- * because the gate got stronger: with the gate gone, the team-tier caller's
- * earlier attempt succeeds and spends one of the five exports the window
- * allows, so the exact-count rate-limit check fails too. Re-measured rather
- * than left at the number it had when it was written.
+ * The rows that measured `export_encryption_keys` (its gate, its rate limit,
+ * its log and audit hygiene) went with the tool: the owner removed it on
+ * 2026-10-08, because leaving the product already hands back every note in
+ * plain text. Section (15) now proves every caller gets an invented name's
+ * answer for it.
  *
  * Three of the original rows are findings about this file rather than about
  * the source.

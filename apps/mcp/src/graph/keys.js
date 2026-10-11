@@ -3,6 +3,7 @@
 // hide it; no visibility rule lives here.
 import { GRAPH_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 import { sha256Hex } from "../ingestion/inbox.js";
+import { looseName } from "../links.js";
 
 const GRAPH_ROOT = `${GRAPH_PREFIX}v1/`;
 // Builders throw TypeError on a bad segment (programmer error, like an unknown
@@ -31,5 +32,9 @@ export function postingPageKey(gen, family, hash, page) {
 
 // Case-sensitive on purpose (arch 7.2): `A.md` and `a.md` are different keys.
 export const pathHash = (path) => sha256Hex(path);
-export const nameHash = (name) => sha256Hex(name);
+// Names are keyed loosely (case, spaces, underscores and hyphens set aside),
+// because a bare link resolves loosely (`looselyNamed` in links.js): the
+// posting list for a name must hold every link that could resolve to it, and
+// the resolver confirms the exact one at read time.
+export const nameHash = (name) => sha256Hex(looseName(name));
 export const urlHash = (urlKey) => sha256Hex(urlKey);

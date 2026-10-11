@@ -93,6 +93,9 @@ function sources(dir: string): string[] {
     if (full.endsWith(join("design", "tokens.ts"))) return [];
     if (full.endsWith(join("design", "tokens", "colors.ts"))) return [];
     if (full.endsWith(join("design", "tokens", "shadows.ts"))) return [];
+    // The landing pages' Paper sheet, kept beside the palette rather than in
+    // it so the guest bundles that read `colors.ts` do not change with it.
+    if (full.endsWith(join("design", "tokens", "landingColors.ts"))) return [];
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
 }

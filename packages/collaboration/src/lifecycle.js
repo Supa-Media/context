@@ -145,7 +145,10 @@ async function freezeForStructural(store, loaded, operation) {
 /** Move one note while preserving its document identity and revision history. */
 export async function moveDocument(store, from, to, options = {}) {
   requireSupported(store);
-  requireConditionalDelete(store);
+  if (typeof store.delete !== "function" ||
+      (store.capabilities?.conditionalDelete !== true && store.capabilities?.conditionalWrite !== true)) {
+    throw fail("UNSUPPORTED_STORAGE", "moving a collaborative note requires conditional delete or conditional write");
+  }
   if (!lifecyclePath(from, options.internalTrash) || !lifecyclePath(to, options.internalTrash) || from === to) throw fail("INELIGIBLE_DOCUMENT", "move paths must be distinct Markdown notes");
   let sourceHead = await readHead(store, from);
   if (sourceHead?.status === "moved" && !(await readObject(store, from))) throw Object.assign(fail("MOVED", "document moved; reauthorize the destination"), { destination: sourceHead.destination });

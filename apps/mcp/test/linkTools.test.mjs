@@ -23,6 +23,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 import { effectiveVisibility, parsePrivacyManifest } from "../src/privacy/engine.js";
 
 const OWNER_TOKEN = `cat_links_owner_${"0".repeat(16)}`;
@@ -102,11 +103,22 @@ async function rpc(env, token, method, params) {
   return body;
 }
 
+/** Each person's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const EDITOR_TOKEN = `cat_links_editor_${"0".repeat(15)}`;
+const CONSOLE_TOKENS = new Map([
+  [OWNER_TOKEN, `cat_links_console_${"0".repeat(18)}`],
+  [EDITOR_TOKEN, `cat_links_console_editor_${"0".repeat(11)}`],
+  [OTHER_TOKEN, `cat_links_console_out_${"0".repeat(14)}`],
+]);
+
 async function call(env, token, name, args = {}) {
-  const body = await rpc(env, token, "tools/call", { name, arguments: args });
+  const result = await approving(
+    async () => (await rpc(env, token, "tools/call", { name, arguments: args }))?.result,
+    { env, consoleToken: CONSOLE_TOKENS.get(token) },
+  );
   return {
-    text: body?.result?.content?.[0]?.text ?? "",
-    isError: body?.result?.isError === true,
+    text: result?.content?.[0]?.text ?? "",
+    isError: result?.isError === true,
   };
 }
 
@@ -181,6 +193,38 @@ export async function runLinkToolChecks(check) {
       scopes: ["context:read", "context:write"],
       clientId: "mcp_client_links_team_tier",
       userId: "user_seyi",
+    });
+    await controlPlane.addGrant({
+      accessToken: CONSOLE_TOKENS.get(OWNER_TOKEN),
+      workspaceId: "ws_links",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_console",
+      userId: "user_seyi",
+    });
+    await controlPlane.addGrant({
+      accessToken: EDITOR_TOKEN,
+      workspaceId: "ws_links",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "mcp_client_links_editor",
+      userId: "user_ada",
+    });
+    await controlPlane.addGrant({
+      accessToken: CONSOLE_TOKENS.get(EDITOR_TOKEN),
+      workspaceId: "ws_links",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
+      userId: "user_ada",
+    });
+    await controlPlane.addGrant({
+      accessToken: CONSOLE_TOKENS.get(OTHER_TOKEN),
+      workspaceId: "ws_other",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_console",
+      userId: "user_out",
     });
     await controlPlane.addGrant({
       accessToken: OTHER_TOKEN,
@@ -566,7 +610,7 @@ export async function runLinkToolChecks(check) {
       Sabotaging the refusal line failed NOTHING until this existed, which is
       the whole reason it is here.
     */
-    const writerNotOwner = await call(env, TEAM_TIER_TOKEN, "write_note", {
+    const writerNotOwner = await call(env, EDITOR_TOKEN, "write_note", {
       path: "1-projects/writer-not-owner.md",
       content: "# Written but not published\n",
       share: "anyone",

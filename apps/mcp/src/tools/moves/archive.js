@@ -28,7 +28,7 @@ import { normalizePath, timestampSlug } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
-import { rewriteReferences } from "./references.js";
+import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
@@ -136,11 +136,11 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     }
     await clearExactVisibility(store, path);
     await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
-    const references = await rewriteReferences(store, scope, rules, overrides, new Map([[path, dest]]));
+    const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[path, dest]]));
     await recordChange(store, "archive_note", scope, [path, dest], {
       visibility: destinationVisibility,
       team_visible: destinationVisibility === "team",
-      references: references.capped ? "not-rewritten" : references.links,
+      references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
     });
     return withActivityHint(toolText(
       `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
@@ -184,7 +184,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     into it, which is how people learn not to archive.
   */
   await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
-  const references = await rewriteReferences(
+  const references = await rewriteReferencesOrQueue(
     store,
     scope,
     rules,
@@ -194,7 +194,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   await recordChange(store, "archive_note", scope, [path, dest], {
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
-    references: references.capped ? "not-rewritten" : references.links,
+    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)

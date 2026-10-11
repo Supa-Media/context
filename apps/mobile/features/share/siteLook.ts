@@ -63,6 +63,11 @@ export const makeSiteStyles = (colors: Colors) => {
   const run = { fontSize: BODY, lineHeight: leading(BODY, 1.65) };
   return StyleSheet.create({
     body: { gap: 24 },
+    // These two undo the note look's reading face (`fonts.reading`): a website
+    // page is set in the site's own voice, not the one notes are read in. The
+    // keys below that replace the note's wholesale carry no face of their own.
+    heading: { color: colors.text, fontFamily: fonts.body },
+    cellFace: { fontFamily: fonts.body },
     paragraph: { ...run, color: colors.text },
     // A hanging indent about one character wide: the bullet belongs to its line.
     marker: { ...run, color: colors.muted, minWidth: 14 },

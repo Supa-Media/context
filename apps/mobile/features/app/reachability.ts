@@ -387,6 +387,42 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     file: "app/(app)/console/[slug]/index.tsx",
     reachable: true,
     from: [
+      /*
+        The live map is not a route of its own: it is `?map=1` on this page, a
+        page in the document slot over Browse, the way What changed is
+        `?changes=1`. So its two ways in are claims about this route, and its
+        navigation is `router.setParams` on the route it is already on.
+      */
+      {
+        surface: "the live map, from the Map button in the sidebar's top row",
+        control: {
+          file: "features/console/files/explorer/ExplorerToolbar.tsx",
+          contains: ['testID="explorer-map"', "onPress={mapRoute.toggle}"],
+        },
+        navigation: [
+          {
+            file: "features/console/map/live/route.ts",
+            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+          },
+        ],
+        region: "screen",
+        densities: POINTER,
+      },
+      {
+        surface: "the live map, from its place on the phone's Home",
+        control: {
+          file: "features/console/home/homeRows.tsx",
+          contains: ['testID="phone-home-map"', "onPress={onPress}"],
+        },
+        navigation: [
+          {
+            file: "features/console/map/live/route.ts",
+            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+          },
+        ],
+        region: "screen",
+        densities: PHONE,
+      },
       {
         /*
           It was a pill on the phone's workspace strip. The strip went into
@@ -540,7 +576,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: CONSOLE_PALETTE,
-            contains: ["router.push(searchHref(query))"],
+            contains: ["router.push(searchHref("],
           },
         ],
         region: "screen",
@@ -749,6 +785,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       "token exists in that one text message and nowhere in the app, and the " +
       "page only means something to the person holding that phone.",
     marker: "the link the texting assistant sends a phone nobody has",
+  },
+  {
+    route: "/vault/[token]",
+    file: "app/vault/[token].tsx",
+    reachable: false,
+    reason:
+      "The private link Tex texts when it needs a login saved or shared. The " +
+      "token exists in that one text message, and the page opens only for the " +
+      "signed-in person who asked for it.",
+    marker: "the private link Tex texts when it needs a login",
   },
   {
     route: "/[handle]",

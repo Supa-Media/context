@@ -36,7 +36,6 @@ const mockUrl: { pathname: string; note?: string; settings?: string } = { pathna
 /** What the frame being drawn asks for, read lazily inside the mocks. */
 const mockFrame: {
   organizer?: import("./autoOrganize/frames").OrganizerFixture;
-  list?: import("../features/organizer/types").OrganizerSuggestion[];
   activity?: boolean;
   activityOpen?: boolean;
 } = {};
@@ -126,7 +125,7 @@ jest.mock("../features/console/useLiveConsoleData", () => {
         : data.activity;
       // The console's organizer, as the frame describes it; every surface reading it is the real one.
       const { fixtureView: mockView } = require("./autoOrganize/frames") as typeof import("./autoOrganize/frames");
-      const organizer = mockFrame.organizer === undefined ? undefined : mockView(mockFrame.organizer, mockFrame.list ?? []);
+      const organizer = mockFrame.organizer === undefined ? undefined : mockView(mockFrame.organizer);
       return {
         ...data,
         activity,
@@ -200,7 +199,7 @@ const ConsoleLayout = (require("../app/(app)/console/_layout") as { default: () 
 const { ThemeProvider } = require("../features/design/theme") as {
   ThemeProvider: (props: { scheme: "light" | "dark"; children: unknown }) => unknown;
 };
-const { FRAMES, SUGGESTIONS, SWEEP_SUGGESTIONS } = require("./autoOrganize/frames") as typeof import("./autoOrganize/frames");
+const { FRAMES } = require("./autoOrganize/frames") as typeof import("./autoOrganize/frames");
 
 function stampViewport(width: number, height: number): void {
   for (const [key, value] of [
@@ -256,7 +255,6 @@ async function shoot(frame: (typeof FRAMES)[number], density: Density, scheme: S
   mockUrl.settings = frame.at?.settings;
   mockSettingsBodies = frame.settings ?? {};
   mockFrame.organizer = frame.organizer?.(density);
-  mockFrame.list = frame.id.startsWith("02") ? SWEEP_SUGGESTIONS : SUGGESTIONS;
   mockFrame.activity = frame.activity;
   mockFrame.activityOpen = frame.activityOpen && density === "desktop";
 
@@ -273,12 +271,6 @@ async function shoot(frame: (typeof FRAMES)[number], density: Density, scheme: S
   await settle();
   if (frame.prepare) await frame.prepare({ density, settle, press });
   await settle();
-  if (frame.hover && density === "desktop") {
-    const row = document.querySelector(`[data-testid="organizer-suggestion-${frame.hover}"]`);
-    act(() => {
-      row?.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
-    });
-  }
   const text = document.body.textContent ?? "";
   for (const needle of frame.assert ?? []) {
     if (!text.includes(needle)) throw new Error(`${frame.id} ${density}: missing "${needle}"`);

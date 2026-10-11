@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { adCampaignValidator } from "../waitlistCampaign";
 
 /**
  * Who asked to be let in, and who has been.
@@ -17,8 +18,14 @@ import { v } from "convex/values";
  */
 export const waitlistTables = {
   waitlist: defineTable({
-    /** Lowercased and trimmed — `normalizeEmail` from `@context/shared`. */
-    email: v.string(),
+    /**
+     * Lowercased and trimmed — `normalizeEmail` from `@context/shared`. Absent
+     * on a row somebody joined with a phone (Dev2, 2026-10-09: "login and
+     * waitlist sign up" by phone); every row has one or the other.
+     */
+    email: v.optional(v.string()),
+    /** E.164, for a row joined with a phone on the sign-in page. */
+    phone: v.optional(v.string()),
     /**
      * `waiting` until staff act. `admitted` may be mailed a code. `removed` is
      * staff saying no for now: the person still reads "you're already on the
@@ -30,6 +37,20 @@ export const waitlistTables = {
     source: v.union(v.literal("homepage"), v.literal("login"), v.literal("staff")),
     /** The optional one-line answer, at most `USE_FOR_MAX` characters. */
     useFor: v.optional(v.string()),
+    /**
+     * Which landing page (`/a` to `/c`, `LANDING_PAGES` in `@context/shared`)
+     * the person saw before joining. Set once, when the row is made, and never
+     * changed after; read for the landing-page test. `enter` and `phoneSignIn`
+     * validate it and drop anything that is not one, so a stored value is
+     * always a landing page.
+     */
+    landing: v.optional(v.string()),
+    /**
+     * The ad the person came from, as its UTM parameters said (Dev,
+     * 2026-10-11). Set once, with `landing`, and cleaned by `adCampaignOf`
+     * before it is stored, so every field is short plain text.
+     */
+    campaign: v.optional(adCampaignValidator),
     admittedAt: v.optional(v.number()),
     admittedBy: v.optional(v.id("users")),
     /**
@@ -40,6 +61,7 @@ export const waitlistTables = {
     admittedMailAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
+    .index("by_phone", ["phone"])
     .index("by_status_joinedAt", ["status", "joinedAt"]),
 
   /**

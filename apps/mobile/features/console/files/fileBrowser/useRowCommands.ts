@@ -56,10 +56,12 @@ type RowCommandsDeps =
   >
   & Pick<
     BrowserStateValues,
+    | "autosave"
     | "clipboard"
     | "dispatch"
     | "editorRef"
     | "noteRenamed"
+    | "renamingRef"
     | "selectedPath"
     | "selectedPathRef"
     | "setClipboard"
@@ -67,7 +69,7 @@ type RowCommandsDeps =
     | "setSelectedPath"
   >
   & Pick<OfflineQueueValues, "listings">
-  & Pick<OpenNoteValues, "select">
+  & Pick<OpenNoteValues, "followRename" | "select">
   & Pick<RunOperationValues, "run">
   & Pick<QueuedOpsValues, "viaQueue">
   & Pick<
@@ -81,9 +83,9 @@ type RowCommandsDeps =
 
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
-    archiveEntry, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
-    duplicateEntry, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
-    queueRemovalOf, readNote, readNotesAction, restoreTrashEntry, run, select, selectedPath,
+    archiveEntry, autosave, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
+    duplicateEntry, followRename, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     selectedPathRef, setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote,
   } = deps;
@@ -142,6 +144,24 @@ export function useRowCommands(deps: RowCommandsDeps) {
     [editorRef, readNote, workspaceId, writeNote],
   );
 
+  /**
+   * Text typed into a note while its rename was in flight, written to it after
+   * the editor had already gone on to another one — the one case `followRename`
+   * cannot carry. Conditional on the version just read, as every write is.
+   */
+  const writeHeld = useCallback(
+    async (path: string, text: string) => {
+      try {
+        const note = await readNote({ workspaceId: workspaceId!, path });
+        if (note.readOnly || note.encrypted === true || note.text === text) return;
+        await writeNote({ workspaceId: workspaceId!, path, text, expectedEtag: note.etag });
+      } catch {
+        setNotice(`Some of what you typed in ${displayName(baseName(path))} could not be saved.`);
+      }
+    },
+    [readNote, setNotice, workspaceId, writeNote],
+  );
+
   const rename = useCallback(
     (path: string, rawName: string) => {
       const folder = parentPath(path);
@@ -170,6 +190,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
         to,
         renamedInPlace ? drawListingMove(path, to) : drawMove(path, to),
       );
+      // Nothing is written under the name it is leaving — see `renamingRef`.
+      if (renamedInPlace) renamingRef.current = { path, held: null };
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         await followTitle(path, to);
@@ -194,21 +216,36 @@ export function useRowCommands(deps: RowCommandsDeps) {
           },
         };
       }, undoDraw).then((ok) => {
+        if (!renamedInPlace) return;
+        const held = renamingRef.current?.path === path ? renamingRef.current.held : null;
+        if (renamingRef.current?.path === path) renamingRef.current = null;
         /*
           The listing is renamed on the press; the *editor* is not, and this
-          stays where it was — after the server said yes. `select` reads the
-          note at its new path, and that path does not exist until `moveEntry`
-          returns, so moving this earlier would fetch a 404 and close the note
-          somebody is reading.
+          stays where it was — after the server said yes. The note is read at
+          its new path, and that path does not exist until `moveEntry` returns,
+          so moving this earlier would fetch a 404 and close the note somebody
+          is reading.
+
+          Only while the editor is still on it: somebody who went on to another
+          note while the rename was in flight is not pulled back to this one.
+          And what they typed meanwhile goes with it (`followRename`).
         */
-        if (ok && renamedInPlace) select(to);
+        const stillOpen = editorRef.current.path === path;
+        if (ok && stillOpen) followRename(path, to);
+        // Refused: it stays where it is, and what was held is saved there.
+        else if (stillOpen && editorRef.current.status === "dirty") autosave.edited(path);
+        // Left before it landed: what was typed is written where the note is.
+        else if (!stillOpen && held !== null) void writeHeld(ok ? to : path, held);
       });
     },
     [
+      autosave,
       drawListingMove,
       drawMove,
+      followRename,
       followTitle,
       followed,
+      writeHeld,
       listings,
       moveEntry,
       moveResult,

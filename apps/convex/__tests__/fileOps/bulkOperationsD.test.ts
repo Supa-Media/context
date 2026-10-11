@@ -242,27 +242,28 @@ describe('a bulk operation acts only on what the caller can see', () => {
 
   test("a survivor whose name prefixes the deleted one does not shield it", async () => {
     const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/a.md.notes.md", "# Notes\n");
-    store.seed("1-projects/a.md", "# A\n");
+    // An own folder: the built-in `1-projects` cannot be deleted.
+    await setFolderVisibility(store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
+    store.seed("work/a.md.notes.md", "# Notes\n");
+    store.seed("work/a.md", "# A\n");
     store.seed(
-      ".history/1-projects/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
+      ".history/work/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
       "# older notes\n",
     );
     // The survivor is the SHORTER name, held back from the caller.
     await setVisibility(store, {
-      path: "1-projects/a.md",
+      path: "work/a.md",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
 
     const result = await deletePath(store, {
-      path: "1-projects",
+      path: "work",
       clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
-    expect(result.paths).toContain("1-projects/a.md.notes.md");
-    expect(result.paths).not.toContain("1-projects/a.md");
+    expect(result.paths).toContain("work/a.md.notes.md");
+    expect(result.paths).not.toContain("work/a.md");
     // The deleted note keeps no copy, even though a survivor's name prefixes it.
     expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(false);
   });

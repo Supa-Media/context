@@ -179,7 +179,12 @@ export const API_TOKEN = "d1-write-token-not-a-real-one-0000";
  * point, what was not. `fail` makes it answer like a provider having a bad
  * day, which is the only way to test that a search survives one.
  */
-export function createD1Backend() {
+/**
+ * `open(id)` may hand back a `DatabaseSync` of its own for a database id (a
+ * benchmark restores a warmed snapshot from a file); otherwise one is made in
+ * memory. The schema is applied either way, and it is written IF NOT EXISTS.
+ */
+export function createD1Backend({ open } = {}) {
   /*
    * ONE SQLITE PER DATABASE ID IN THE URL, WHICH IS THE POINT.
    *
@@ -200,7 +205,7 @@ export function createD1Backend() {
   function dbFor(id) {
     let existing = databases.get(id);
     if (existing === undefined) {
-      existing = new DatabaseSync(":memory:");
+      existing = (typeof open === "function" ? open(id) : undefined) ?? new DatabaseSync(":memory:");
       for (const statement of SCHEMA) existing.exec(statement);
       databases.set(id, existing);
     }

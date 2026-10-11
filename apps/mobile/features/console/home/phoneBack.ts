@@ -28,7 +28,9 @@ export interface PhoneBackTarget {
 
 export const HOME_LABEL = "Home";
 
-export function phoneBackTarget(selectedPath: string | null): PhoneBackTarget | null {
+export function phoneBackTarget(selectedPath: string | null, mapOpen = false): PhoneBackTarget | null {
+  // The map is a place on Home, so its way back is Home whatever is selected under it.
+  if (mapOpen) return { folder: null, label: HOME_LABEL };
   if (selectedPath === null || selectedPath === "") return null;
   const parent = parentPath(selectedPath);
   if (parent === "") return { folder: null, label: HOME_LABEL };

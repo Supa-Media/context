@@ -1,0 +1,84 @@
+import { defineTable } from "convex/server";
+import { v } from "convex/values";
+import { indexingPrioritiesValidator } from "../indexingPriorities";
+
+export const meaningStatusValidator = v.union(
+  /** Creating the index in Cloudflare. */
+  v.literal("provisioning"),
+  /** The index exists; existing notes are still being read into it. */
+  v.literal("backfilling"),
+  /** Serving searches. New and changed notes are added as they are saved. */
+  v.literal("ready"),
+  /** Setting up did not finish; `error` says why. */
+  v.literal("failed"),
+  /** Turned off, index not deleted yet. Serves nothing. */
+  v.literal("releasing"),
+  /**
+   * Turned off by the owner, and the index is gone. The row stays so that
+   * "on for everyone" does not turn it back on; only the owner can.
+   */
+  v.literal("off"),
+);
+
+/**
+ * One workspace's meaning index: a Cloudflare Vectorize index of fingerprints
+ * of its notes, for search by meaning (decided by the owner, 2026-10-07: build
+ * it, on the free plan and Premium). See
+ * `docs/decisions/search/meaning-search.md`.
+ *
+ * Like `searchIndexes`, this points at a **disposable derivative** on our
+ * infrastructure, holding no customer credential and no note text: deleting
+ * every row here costs a rebuild and loses nothing. A row that loses its
+ * `indexName` before the remote index is gone is an index nothing will ever
+ * clean up, which is why `releasing` keeps it until the delete is confirmed.
+ */
+export const meaningTables = {
+  meaningIndexes: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Whether search by meaning should exist for this workspace. */
+    enabled: v.boolean(),
+    /** Who turned it on; absent when Context turned it on for everyone. */
+    enabledBy: v.optional(v.id("users")),
+    /**
+     * The owner switched it off. Kept through the release, so the row ends at
+     * `off` rather than being deleted, and a storage disconnect keeps it too.
+     */
+    optedOut: v.optional(v.boolean()),
+    enabledAt: v.number(),
+    status: meaningStatusValidator,
+    /** The Vectorize index's name, once it exists. Configuration, not a secret. */
+    indexName: v.optional(v.string()),
+    /** Ours, from a closed set — never a provider's text. */
+    errorCode: v.optional(v.string()),
+    /**
+     * Which call failed, from the same closed set as the log line (`http_400`,
+     * `timeout`, `internal`…), so the admin console can say it. Never text.
+     */
+    errorCause: v.optional(v.string()),
+    /** Operator-facing detail. Never a credential. */
+    error: v.optional(v.string()),
+    /** Backfill progress, so the app can say how far it has got. */
+    notesIndexed: v.optional(v.number()),
+    notesPending: v.optional(v.number()),
+    /** The same, per indexing priority (`lib/indexingPriorities.ts`). */
+    priorities: v.optional(indexingPrioritiesValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_status", ["status"])
+    // The sweep's: the rows of one status that have waited longest.
+    .index("by_status_updated", ["status", "updatedAt"]),
+
+  /**
+   * Where "on for everyone" has walked to in `storageBindings`: one row, the
+   * page cursor of the 15-minute sweep. It starts over at the end, so a
+   * workspace that connects storage later, or reconnects, is reached on the
+   * next lap. Holds no workspace id and no path.
+   */
+  meaningRollout: defineTable({
+    cursor: v.union(v.string(), v.null()),
+    laps: v.number(),
+    updatedAt: v.number(),
+  }),
+};

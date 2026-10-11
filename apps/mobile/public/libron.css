@@ -1,0 +1,37 @@
+/*
+  Libron (c) 2026 Nico Verbruggen, SIL Open Font License 1.1 with Reserved
+  Font Name "Libron" — see /Libron-OFL.txt. These are the official v0.31 web
+  files from github.com/nicoverbruggen/libron, unmodified.
+
+  Libron ships two weights. The app asks for 400, 500 and 600, so each file
+  claims a range: 500 is drawn in the regular, 600 in the bold, and nothing is
+  ever faux-bolded by the browser.
+*/
+@font-face {
+  font-family: "Libron";
+  src: url("/Libron-Regular.woff2") format("woff2");
+  font-weight: 300 549;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("/Libron-Italic.woff2") format("woff2");
+  font-weight: 300 549;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("/Libron-Bold.woff2") format("woff2");
+  font-weight: 550 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Libron";
+  src: url("/Libron-BoldItalic.woff2") format("woff2");
+  font-weight: 550 900;
+  font-style: italic;
+  font-display: swap;
+}

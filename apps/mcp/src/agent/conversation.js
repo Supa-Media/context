@@ -12,6 +12,10 @@
  * tool's result, which can quote a note the next turn's grant might no longer
  * reach. The next turn re-reads what it needs through its own tools.
  *
+ * An answer also keeps the names of the tools it used, and nothing else about
+ * them: without them the next turn saw its own earlier answer with no lookup
+ * behind it and took it back (staging, 2026-10-10).
+ *
  * Bounded twice, by turns and by characters, because the whole file is read
  * into every turn's prompt.
  */
@@ -25,6 +29,40 @@ const CONVERSATIONS = {
 
 export const MAX_HISTORY_TURNS = 12;
 export const MAX_HISTORY_CHARS = 12_000;
+
+/** A tool's name as the history keeps it: a name, never a path or a sentence. */
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+const MAX_TOOL_NAMES = 12;
+/** Said to the person, not used to find anything, so not worth remembering. */
+const UNREMARKABLE = new Set(["text_progress"]);
+
+function toolNames(value) {
+  if (!Array.isArray(value)) return [];
+  const names = value.filter((name) => typeof name === "string" && TOOL_NAME.test(name) && !UNREMARKABLE.has(name));
+  return [...new Set(names)].slice(0, MAX_TOOL_NAMES);
+}
+
+/** How much of a question names it in the prompt: enough to tell which, never the whole text again. */
+const QUESTION_EXCERPT = 60;
+
+/**
+ * For each earlier answer that used tools, the question it answered (a short
+ * excerpt of the person's own words, already in the history) and the tools'
+ * names, oldest first. Per answer rather than pooled: "you used browse" for
+ * the whole conversation did not stop the model taking back the one answer
+ * the browser was for (staging, 2026-10-10).
+ */
+export function usedTools(history) {
+  const used = [];
+  for (let i = 1; i < history.length; i += 1) {
+    const tools = history[i].role === "assistant" ? toolNames(history[i].tools) : [];
+    if (tools.length === 0 || history[i - 1].role !== "user") continue;
+    const words = history[i - 1].text.replace(/\s+/g, " ").replace(/"/g, "'").trim();
+    const question = words.length > QUESTION_EXCERPT ? `${words.slice(0, QUESTION_EXCERPT - 1)}…` : words;
+    used.push({ question, tools });
+  }
+  return used;
+}
 
 /** The path for a named conversation, or null for any other name. */
 export function conversationPath(name) {
@@ -67,20 +105,41 @@ export async function readConversation(store, name) {
     if (!object) return [];
     const parsed = JSON.parse(await object.text());
     const turns = Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
-    return trimHistory(turns.map(({ role, text }) => ({ role, text })));
+    return trimHistory(
+      turns.map(({ role, text, tainted, tools }) => {
+        const names = toolNames(tools);
+        return { role, text, ...(tainted === true ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) };
+      }),
+    );
   } catch {
     return [];
   }
 }
 
-/** Append one question and its answer, keeping the file within bounds. */
-export async function appendConversation(store, name, history, question, answer) {
+/**
+ * Whether anything still in this history was written after the turn read
+ * something from outside the workspace. The next turn's own ledger starts
+ * empty, but the model it opens reads this history, and an answer that
+ * repeated a planted instruction is that instruction, one text later.
+ */
+export function historyIsTainted(history) {
+  return history.some((turn) => turn.tainted === true);
+}
+
+/**
+ * Append one question and its answer, keeping the file within bounds.
+ * `tainted` marks an answer written by a turn that read from outside the
+ * workspace (`historyIsTainted`); it ages out with the turn. `tools` is the
+ * names of the tools the answer used.
+ */
+export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [] } = {}) {
   const path = conversationPath(name);
   if (path === null) return;
+  const names = toolNames(tools);
   const turns = trimHistory([
     ...history,
     { role: "user", text: question },
-    { role: "assistant", text: answer },
+    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) },
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
 }

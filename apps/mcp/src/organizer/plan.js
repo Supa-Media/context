@@ -7,22 +7,18 @@
  * projects and which inbox notes are worth a question, and where an inbox note
  * could go. Nothing here reads a body, so nothing here can leak one.
  *
- * Folders are recognised by shape, the way `archiveRoots` recognises an
- * archive: `1-projects`, `projects` and `2-Projects` all say "projects". A
+ * Folders are recognised by shape (`folderRoles.cjs`), the way `archiveRoots`
+ * recognises an archive: `1-projects`, `projects` and `2-Projects` all say "projects". A
  * context with no such folder simply gets no suggestions of that kind; this
  * never invents a destination in somebody's bucket.
  */
 
 import { FRONT_NOTES } from "../lists/grammar.js";
 import { isPlumbing } from "../privacy/engine.js";
+import { folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
-const ROOT_PATTERNS = {
-  inbox: /^(?:\d+-)?inbox$/i,
-  projects: /^(?:\d+-)?projects$/i,
-  areas: /^(?:\d+-)?areas$/i,
-  resources: /^(?:\d+-)?resources$/i,
-  archive: /^(?:\d+-)?archive$/i,
-};
+const ROOT_KINDS = ["inbox", "projects", "areas", "resources", "archive"];
+
 
 /** Per sweep, so one sweep's inference bill is bounded before it starts. */
 export const MAX_SWEEP_PROJECTS = 60;
@@ -39,8 +35,8 @@ export function organizerRoots(paths) {
   }
   const sorted = [...tops].sort();
   const roots = {};
-  for (const [kind, pattern] of Object.entries(ROOT_PATTERNS)) {
-    roots[kind] = sorted.find((top) => pattern.test(top)) ?? null;
+  for (const kind of ROOT_KINDS) {
+    roots[kind] = sorted.find((top) => folderRole(top) === kind) ?? null;
   }
   return roots;
 }

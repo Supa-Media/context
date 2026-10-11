@@ -78,7 +78,6 @@ function mount(props: {
   entry?: FileEntry;
   listing?: FolderListing;
   canSetVisibility?: boolean;
-  showAudience?: boolean;
 }): Mounted {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -96,7 +95,6 @@ function mount(props: {
         listing: props.listing,
         canSetVisibility: props.canSetVisibility ?? true,
         contextLabel: "@seyi",
-        ...(props.showAudience === undefined ? {} : { showAudience: props.showAudience }),
         onSelect: (path: string) => {
           selected.push(path);
         },
@@ -293,41 +291,21 @@ describe("the controls", () => {
     ).not.toContain("Share this folder with your team");
   });
 
-  test("…and still says what the folder's visibility is", () => {
-    // The sentence stays where the buttons did not: it says what `team` means
-    // for the notes inside this folder, which is the one thing a padlock
-    // cannot.
+  test("…and no sentence about its visibility either", () => {
+    // Gone with the about redesign (the owner, 2026-10-09); who can read what is said in Share.
     const view = mount({ listing: listing([]), canSetVisibility: false });
-    expect(view.container.textContent).toContain("team —");
+    expect(view.container.textContent).not.toContain("team —");
+    expect(view.container.textContent).not.toContain("There is no public tier");
   });
 
   /**
-   * The footnote is gone, and that is deliberate rather than an omission.
-   *
-   * "team means named people you granted access to. There is no public tier"
-   * is an explanation of the model, and it was printed under every folder
-   * listing in the console. It belongs where somebody has gone looking for it —
-   * once — not forty times. What stays here is the line that says what is true
-   * of *this* folder.
+   * No folder page says who can read it under its title any more (the
+   * owner, 2026-10-09, with the about redesign): the line sat between the
+   * about and the list on every folder. It was already kept from a homepage
+   * visitor, who granted nobody anything (2026-09-27).
    */
-  test("the folder states its own visibility and does not restate the model", () => {
-    const text = mount({ listing: listing([]) }).container.textContent ?? "";
-    expect(text).toContain("team —");
-    expect(text).not.toContain("There is no public tier");
-  });
-
-  /**
-   * A homepage visitor is not told who they granted access to.
-   *
-   * "team — visible to the people you granted access" is the owner's sentence,
-   * and the homepage showed it to somebody who is not signed in and granted
-   * nobody anything (the phone artboards' design review, 2026-09-27). The
-   * console passes `showAudience={data.visitor === undefined}`.
-   *
-   * SABOTAGE: ignore `showAudience` in `FolderView`. Fails here.
-   */
-  test("a visitor is not shown the owner's audience sentence", () => {
-    const text = mount({ listing: listing([file("pricing.md")]), showAudience: false })
+  test("no folder page carries the audience sentence", () => {
+    const text = mount({ listing: listing([file("pricing.md")]) })
       .container.textContent ?? "";
     expect(text).not.toContain("granted access");
     expect(text).not.toContain("team —");

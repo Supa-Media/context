@@ -71,7 +71,8 @@ export const facts = internalQuery({
     if (alert.kind === "waitlist") {
       const row = await ctx.db.get(alert.waitlistId);
       if (row === null) return null;
-      about = { kind: "waitlist", email: row.email, source: row.source, useFor: row.useFor ?? null };
+      // A row joined with a phone has its number where the address would be.
+      about = { kind: "waitlist", email: row.email ?? row.phone ?? "", source: row.source, useFor: row.useFor ?? null };
     } else {
       const user = await ctx.db.get(alert.userId);
       if (user === null) return null;

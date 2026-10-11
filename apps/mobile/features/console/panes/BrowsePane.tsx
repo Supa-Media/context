@@ -12,6 +12,7 @@ import { useDeclaredView } from "../files/viewMode";
 import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext } from "../types";
+import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import { classifyCommsPath } from "../communications/paths";
 import { BrowseDocument } from "./browsePane/BrowseDocument";
 import { BrowseNoteHead } from "./browsePane/BrowseNoteHead";
@@ -25,6 +26,7 @@ import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { useShownEntry } from "./browsePane/useShownEntry";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
+import { useMapRoute } from "../map/live/MapRouteContext";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -76,6 +78,7 @@ export function BrowsePane({
   onOpenComms,
   onNavigate,
   onConnectAgent,
+  summary,
 }: BrowsePaneProps) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -226,6 +229,7 @@ export function BrowsePane({
     layingOut,
     storageMigration,
     dropboxEnding,
+    missingFolders,
     intro,
     introAnswer,
     introVisible,
@@ -264,6 +268,7 @@ export function BrowsePane({
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
       dropboxEnding={dropboxEnding}
+      missingFolders={missingFolders}
     />
     )}
     </Reveal>
@@ -291,6 +296,8 @@ export function BrowsePane({
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
   // What changed draws where the document would (`BrowseDocument`).
   const organizerPage = useOrganizerView()?.pageOpen === true;
+  // And so does the live map, filling the slot (`?map=1`).
+  const mapPage = useMapRoute()?.open === true && current != null;
 
   const handleOpenComms =
     onOpenComms ??
@@ -363,7 +370,8 @@ export function BrowsePane({
         (`home/phoneBack.ts`, owner's review 2026-10-01) — the path row that did
         it before is gone, and `pathBar` below is only who else is in the note.
       */}
-      {selected !== null && settled && !compact ? (
+      {/* Not over the map: it names the note under it, which is not on screen. */}
+      {selected !== null && settled && !compact && !mapPage ? (
         <BrowseNoteHead
           files={files}
           selected={selected}
@@ -377,6 +385,7 @@ export function BrowsePane({
           }
           openCrumbMenu={openCrumbMenu}
           presence={presence}
+          summary={summary}
         />
       ) : null}
 
@@ -445,6 +454,7 @@ export function BrowsePane({
         notices={notices}
         pathBar={pathBar}
         page={organizerPage}
+        fill={mapPage}
       />
 
       {/*
@@ -481,6 +491,8 @@ export function BrowsePane({
         places={{
           folders: homeSource.folders,
           rootLabel: current?.displayName ?? contextLabel,
+          personal: current?.kind === "personal",
+          onStartBusiness: onNavigate === undefined ? undefined : () => onNavigate(NEW_WORKSPACE_ROUTE),
           notes: homeSource.notes,
           ...(saveTags === undefined ? {} : { saveTags }),
         }}

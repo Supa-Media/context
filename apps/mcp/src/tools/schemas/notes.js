@@ -182,7 +182,7 @@ export function noteWriteToolDefinitions() {
         "Call it when you learn something worth keeping beyond this conversation: a preference, a " +
         "correction, a fact about them or their work. Do not ask first. Search for the note the fact " +
         "belongs in (search_notes) and pass it as note; leave note out and it becomes a new note in the " +
-        "inbox. Mark kind inferred when they did not say it outright. When the fact changes something " +
+        "inbox's memories folder. Mark kind inferred when they did not say it outright. When the fact changes something " +
         "already written, pass that exact line as replaces: it is swapped, never duplicated. You may also " +
         "keep the fact in your own memory. The note keeps only the plain line; who saved it, when, and " +
         "whether it was stated or inferred are recorded in the workspace's audit trail. Refused: an " +
@@ -246,14 +246,6 @@ export function noteWriteToolDefinitions() {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    },
-    {
-      name: "export_encryption_keys",
-      title: "Export encryption keys",
-      description:
-        "Personal connection only, owner tier. Export this context's workspace data key(s) in the clear — every generation that opens an encrypted note in this bucket — in a versioned, language-neutral format documented in docs/decisions/encryption.md and readable by the offline decryptor in packages/encryption-decryptor. Exporting widens the blast radius: there is no un-export. Rate limited.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "rotate_encryption_keys",

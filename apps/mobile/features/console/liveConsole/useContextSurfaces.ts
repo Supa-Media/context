@@ -9,6 +9,7 @@ import { useMembers } from "../members/useMembers";
 import { useActivity } from "../activity/useActivity";
 import { useAgentActivity } from "../agents/useAgentActivity";
 import { useFastSearch } from "../search/useFastSearch";
+import { useMeaningSearch } from "../search/useMeaningSearch";
 import { useGroups } from "../groups/useGroups";
 import { useShares } from "../shares/useShares";
 import { useAdvanced } from "../advanced/useAdvanced";
@@ -94,6 +95,7 @@ export function useContextSurfaces({
   // not passed: `status` answers the authorization question with the server's
   // answer, and a second one derived here could disagree with it.
   const fastSearch = useFastSearch({ workspaceId: membershipContextId });
+  const meaningSearch = useMeaningSearch({ workspaceId: membershipContextId });
   /*
     Owner-only, and a scan rather than a subscription — see `usePlugins`. The
     read itself takes no path argument, because the gateway's own read takes
@@ -288,6 +290,7 @@ export function useContextSurfaces({
     activity,
     agents,
     fastSearch,
+    meaningSearch,
     plugins,
     contextPlugins,
     pluginGrants,

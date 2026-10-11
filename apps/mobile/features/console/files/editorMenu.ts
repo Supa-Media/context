@@ -73,8 +73,6 @@ export type EditorMenuId =
   | "comment"
   /** Speak into the note, at the caret. */
   | "dictate"
-  /** Hand the note to the agent, in the console's right panel. */
-  | "ask"
   /** One of the checker's suggestions, by its place in the list. */
   | `spelling:${number}`
   /** A flagged word the checker could not place. Inert. */
@@ -90,22 +88,15 @@ export interface EditorMenuContext {
   /** `⌘B` rather than `Ctrl+B`. Read from the browser by the caller. */
   apple: boolean;
   /**
-   * Whether this surface can dictate into the note, and can ask about it.
-   *
-   * **Two flags rather than one "in the console" flag**, because they are true
-   * in different places. Dictation needs a microphone and a writable note; the
-   * agent needs a right panel for an answer to land in, which a phone does not
-   * have (`Regions.aside`) whatever the microphone says. A single flag would
-   * make one of them wrong on some surface, and the surface where it is wrong
-   * is the one nobody is testing on.
+   * Whether this surface can dictate into the note: a microphone and a
+   * writable note.
    *
    * Absent means absent. The landing page's demo console, the fixtures, and
-   * anything mounted outside the console supply neither, and the rows are gone
-   * rather than present and inert — this file's first rule, applied to two
-   * more capabilities.
+   * anything mounted outside the console do not supply it, and the row is gone
+   * rather than present and inert — this file's first rule, applied to one
+   * more capability.
    */
   canDictate?: boolean;
-  canAsk?: boolean;
   /** A folder list can be drawn here: the surface has a copy of the notes. */
   canList?: boolean;
   /** Somebody is signed in to sign a comment with (files/comments/). */
@@ -201,9 +192,6 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
       // a different paragraph from the one their caret was in.
       detail: "Your words land at the cursor",
     });
-  }
-  if (context.canAsk === true) {
-    voice.push({ id: "ask", label: "Ask about this note" });
   }
   if (voice.length > 0) {
     items.push({ ...voice[0]!, separatorBefore: items.length > 0 }, ...voice.slice(1));

@@ -8,7 +8,6 @@ import { Button } from "../../../design/components/Button";
 import { TextLink } from "../../../design/components/TextLink";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { FormError, TextField } from "../../../design/components/Input";
-import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { pointerType as t, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -88,8 +87,7 @@ export function MeetingsDestination({
         Where the notes land
       </Text>
       <Text variant="paneSub" style={styles.sub}>
-        You are asked every time, before the microphone opens. This is what the first
-        offer points at.
+        You are asked every time, before the microphone opens. Meetings are offered this folder first.
       </Text>
 
       {canChange ? (
@@ -118,34 +116,10 @@ export function MeetingsDestination({
         </Card>
       )}
 
-      <SecondOffer kind={kind} />
+      <Text variant="foot" style={styles.second}>
+        Each time you record, you can also pick the folder you're in.
+      </Text>
     </View>
-  );
-}
-
-/**
- * The offer that is not a setting, stated rather than left to inference.
- *
- * A panel that showed one configurable row and nothing else would read as
- * though the folder were the whole answer. It is half of it: the second offer
- * follows wherever you are standing, and is asked for every time.
- */
-function SecondOffer({ kind }: { kind: string }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Card style={styles.second}>
-      <Row style={styles.secondRow}>
-        <Grow>
-          <Text variant="rowTitle">Second offer</Text>
-          <Text variant="rowSub" style={styles.folder}>
-            {kind === "shared"
-              ? "Whatever you are looking at when you press record — this workspace included, with its audience written on the row."
-              : "Whatever you are looking at when you press record, with its audience written on the row."}
-          </Text>
-        </Grow>
-        <Pill tone="neutral">Always asked</Pill>
-      </Row>
-    </Card>
   );
 }
 
@@ -296,8 +270,7 @@ const makeStyles = (_colors: Colors) =>
     sub: { marginBottom: space.x3, maxWidth: 546 },
     folder: { marginTop: 3 },
     readOnly: { marginTop: space.x3 },
-    second: { marginTop: space.x3 },
-    secondRow: { alignItems: "flex-start", flexWrap: "wrap", gap: space.x3 },
+    second: { marginTop: space.x3, maxWidth: 546 },
     editor: { marginTop: space.x3, gap: space.x3 },
     input: { fontFamily: "JetBrainsMono_400Regular", fontSize: t.meta },
     suggestions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },

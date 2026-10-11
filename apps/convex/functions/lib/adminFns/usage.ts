@@ -146,3 +146,24 @@ export async function usageReportHandler(
     },
   };
 }
+
+/** What `usageReport` (`functions/admin.ts`) returns. */
+export const usageReportValidator = v.object({
+  days: v.number(),
+  window: v.array(v.string()),
+  series: v.array(
+    v.object({
+      metric: v.string(),
+      points: v.array(v.object({ day: v.string(), count: v.number() })),
+      total: v.number(),
+    }),
+  ),
+  activeContexts: v.object({
+    points: v.array(v.object({ day: v.string(), count: v.number() })),
+    distinctInWindow: v.number(),
+  }),
+  totals: v.object({
+    workspaces: countedTotalValidator,
+    users: countedTotalValidator,
+  }),
+});

@@ -407,6 +407,11 @@ describe("the console contains a name it did not choose", () => {
       // filter value, and the filter value reached the caption raw while this
       // entry said otherwise.
       "features/console/files/listBlock/words.ts",
+      // The live map's fallback title. Everything the map draws leaves through
+      // one exit, `fillText` in `map/live/engine/draw/primitives.ts`, which
+      // contains it; `liveMapRender.test.ts` checks that exit and that nothing
+      // in the engine writes to the canvas around it.
+      "features/console/map/live/engine/paths.ts",
     ]);
     const found = sourceFilesMatching("\\.split(\"/\")\\.pop()").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);

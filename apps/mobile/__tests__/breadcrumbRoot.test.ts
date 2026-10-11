@@ -92,6 +92,12 @@ jest.mock("../features/console/collaboration/useCollaboration", () => ({
   // file/context state needed to verify breadcrumb dismissal.
   useCollaboration: () => undefined,
 }));
+jest.mock("../features/meetings/useMeetingSummary", () => ({
+  // The meeting summary asks the gateway with a console grant, which needs a
+  // `ConvexProvider` this harness does not have. Nothing these tests check is
+  // about summaries, so it is stubbed the way collaboration is above.
+  useMeetingSummary: () => ({ isMeeting: false, pending: false, message: null, redo: () => {} }),
+}));
 
 
 const { ConsoleDataProvider } =

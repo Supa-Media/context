@@ -424,6 +424,35 @@ export async function runContactsChecks(check) {
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: "../../etc/passwd" })) === "invalid path"
     );
 
+    const importedSource = "2-areas/communications/contacts/alex.md";
+    const importedPath = "0-inbox/contacts/imessage/alex.md";
+    const importedText = "---\ntitle: \"Alex\"\nrole: communication-contact\n---\n\n" +
+      "# Alex\n\n## Identities\n\n- iMessage: `+15551234567`\n\n" +
+      "## iMessage threads\n\n- [2026-08](<../sources/imessage/alex/2026-08.md>)\n";
+    bucket.seed(importedSource, importedText, new Date("2026-09-01T10:00:00.000Z"));
+    const importedMoveId = "move-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    bucket.seed(`.context/moves/${importedMoveId}.json`, JSON.stringify({
+      version: 1,
+      id: importedMoveId,
+      status: "copying",
+      source: "2-areas/communications/contacts",
+      destination: "0-inbox/contacts/imessage",
+      objects: [{ source: importedSource, destination: importedPath }],
+    }));
+    const importedList = await callTool(env, OWNER_TOKEN, "list_contacts");
+    check("an imported iMessage contact appears at its logical Inbox path",
+      importedList.includes(importedPath) && importedList.includes("Alex · 1 identifier"));
+    check("a team connection cannot infer a private imported contact",
+      !(await callTool(env, TEAM_TOKEN, "list_contacts")).includes(importedPath));
+    const importedRead = await callTool(env, OWNER_TOKEN, "read_contact", { path: importedPath });
+    check("read_contact serves an imported contact before physical copying finishes",
+      importedRead.includes("# Alex") && importedRead.includes("+15551234567") &&
+        importedRead.includes(`path: ${importedPath}`));
+    check("read_contact masks that imported contact from a team connection",
+      (await callTool(env, TEAM_TOKEN, "read_contact", { path: importedPath })) === "not found");
+    await bucket.delete(`.context/moves/${importedMoveId}.json`);
+    await bucket.delete(importedSource);
+
     /* ------------------------------ the switch ---------------------------- */
 
     await bucket.put(

@@ -63,6 +63,7 @@
  */
 
 import type { FileEntry, FolderListing, Visibility } from "./types";
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 
 type Listings = Readonly<Record<string, FolderListing | undefined>>;
 type MutableListings = Record<string, FolderListing | undefined>;
@@ -77,14 +78,11 @@ function baseNameOf(path: string): string {
 }
 
 /**
- * The server's order, and deliberately the same three lines as
- * `offline/overlay.ts`: folders first, then `localeCompare` on the name. Two
- * surfaces that disagreed about where a row lands would be a row that jumps
- * when the refresh arrives.
+ * The server's order (`compareListingEntries`, the one implementation): a
+ * row added here lands where the refresh will put it, rather than jumping.
  */
-function compareEntries(a: FileEntry, b: FileEntry): number {
-  if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-  return a.name.localeCompare(b.name);
+function orderIn(parent: string) {
+  return (a: FileEntry, b: FileEntry) => compareListingEntries(parent, a, b);
 }
 
 /** Whether `path` is `root` itself or sits underneath it. */
@@ -173,7 +171,7 @@ export function applyMove(listings: Listings, from: string, to: string): Mutable
       const arrival: FileEntry = { ...moved, path: to, name: baseNameOf(to) };
       next[destinationParent] = {
         ...destination,
-        entries: [...destination.entries, arrival].sort(compareEntries),
+        entries: [...destination.entries, arrival].sort(orderIn(destinationParent)),
       };
     }
   }
@@ -205,7 +203,7 @@ export function applyFolderCreate(listings: Listings, path: string): MutableList
       exception: false,
       readOnly: false,
     };
-    next[parentKey] = { ...parent, entries: [...parent.entries, row].sort(compareEntries) };
+    next[parentKey] = { ...parent, entries: [...parent.entries, row].sort(orderIn(parentKey)) };
   }
 
   if (next[path] === undefined) {
@@ -259,7 +257,7 @@ export function applyNoteCreate(listings: Listings, path: string): MutableListin
     exception: false,
     readOnly: false,
   };
-  next[parentKey] = { ...parent, entries: [...parent.entries, row].sort(compareEntries) };
+  next[parentKey] = { ...parent, entries: [...parent.entries, row].sort(orderIn(parentKey)) };
   return next;
 }
 

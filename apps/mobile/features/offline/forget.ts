@@ -1,3 +1,4 @@
+import { forgetServerTree, forgetServerTrees } from "./serverTree";
 import {
   forgetDeparted,
   forgetEverything,
@@ -246,6 +247,8 @@ async function withDeadline<T>(
  */
 export async function forgetLocalCopies(): Promise<ForgetResult> {
   endSession();
+  // A browser tab's tree: names of notes, in memory and this tab's session.
+  forgetServerTrees();
   return withDeadline(clearEverything(), "sign-out", () => ({ verdict: "unmeasured" }));
 }
 
@@ -392,6 +395,7 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     forgetMirrorStatus(workspaceId);
     forgetMirrorSearch(workspaceId);
     forgetMirrorLists(workspaceId);
+    forgetServerTree(workspaceId);
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
       (mirror) => mirror.forgetWorkspace(workspaceId),

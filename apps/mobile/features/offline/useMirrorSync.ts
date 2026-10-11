@@ -9,19 +9,23 @@ import {
   publishMirrorStatus,
   statusFromIndex,
 } from "./mirrorStatus";
-import { openMirrorStore } from "./mirrorStore";
+import { mirrorSupported, openMirrorStore } from "./mirrorStore";
 import {
   onMirrorFolderRequest,
   onMirrorRefreshRequest,
   publishMirrorListed,
   publishMirrorNotesChanged,
+  lastMirrorRefreshRequest,
+  requestMirrorRefresh,
 } from "./mirrorEvents";
 import { folderFreshener } from "./folderFreshener";
 import { freshenFolder } from "./mirrorFolder";
+import { holdServerTree, keepServerTree, walkServerTree } from "./serverTree";
 import {
   refreshMetadata,
   syncAll,
   type BatchRead,
+  type ChangesPage,
   type ManifestPage,
   type MirrorRun,
   type MirrorSyncDeps,
@@ -62,12 +66,30 @@ import { visibilityTierForRole, type VisibilityTier } from "../console/visibilit
 export const MIRROR_INTERVAL_MS = 5 * 60 * 1000;
 /** A manifest page is one walk of up to a thousand keys per store page. */
 export const MANIFEST_TIMEOUT_MS = 60_000;
+/** The least time between two walks of one context's tree in a browser tab. */
+export const SERVER_TREE_FLOOR_MS = 15_000;
+/**
+ * The same, when the last walk was answered by the tree table rather than the
+ * bucket: a query or two, so the tree can follow every change.
+ */
+export const TABLE_TREE_FLOOR_MS = 1_000;
 /** Fifty notes, up to four megabytes. */
 export const READ_TIMEOUT_MS = 60_000;
 
 export interface MirrorActions {
-  syncManifest: (args: { workspaceId: string; cursor?: string }) => Promise<ManifestPage>;
+  syncManifest: (args: {
+    workspaceId: string;
+    cursor?: string;
+    source?: "tree";
+  }) => Promise<ManifestPage & { source?: "tree" | "bucket" }>;
   readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
+  /** What changed since a cursor; absent, every sync walks the whole tree. */
+  syncTreeChanges?: (args: {
+    workspaceId: string;
+    since: number;
+    after: string;
+    privacy: string;
+  }) => Promise<ChangesPage>;
 }
 
 /** A promise that rejects after `ms`, so a hung action becomes a failed one. */
@@ -145,14 +167,28 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
+        // The tree table where it can answer, as a tab's walk asks: the same
+        // `canSee` over the same keys, without walking the bucket.
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({
               workspaceId,
+              source: "tree",
               ...(cursor === undefined ? {} : { cursor }),
             }),
             MANIFEST_TIMEOUT_MS,
           ),
+        // Only what changed since the last walk, while that walk is fresh
+        // (`mirrorListing.ts`): a sync that costs one page, not the tree.
+        ...(actionsRef.current.syncTreeChanges === undefined
+          ? {}
+          : {
+              changes: (workspaceId: string, cursor: { since: number; after: string; privacy: string }) =>
+                withTimeout(
+                  actionsRef.current.syncTreeChanges!({ workspaceId, ...cursor }),
+                  MANIFEST_TIMEOUT_MS,
+                ),
+            }),
         readNotes: async (workspaceId, paths) =>
           (
             await withTimeout(
@@ -191,7 +227,8 @@ export function useMirrorSync(options: {
       for (const target of targets) {
         if (cancelled || epochRef.current !== currentEpoch()) return;
         if (store === null) {
-          publishMirrorStatus(target.workspaceId, UNAVAILABLE);
+          // A browser tab keeps no copy by design, and says nothing about one.
+          if (mirrorSupported()) publishMirrorStatus(target.workspaceId, UNAVAILABLE);
           continue;
         }
         if (target.tier === "unknown") continue;
@@ -255,43 +292,6 @@ export function useMirrorSync(options: {
   }, [engine]);
 
   /*
-    A context somebody opened, re-listed now: one metadata walk, outside the
-    pass's single flight, so it never waits behind another context's
-    downloads. Concurrent with a pass is safe — the index is written under a
-    lock, and an older walk never undoes a newer one (`commitListing`) — and
-    one refresh per context at a time is all it runs; a request that lands
-    during one runs once more after it.
-  */
-  const refreshing = useRef(new Map<string, boolean>());
-  useEffect(
-    () =>
-      onMirrorRefreshRequest((workspaceId) => {
-        focused.current = workspaceId;
-        if (reachabilityRef.current !== "online") return;
-        if (epochRef.current !== currentEpoch()) return;
-        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
-        if (target === undefined) return;
-        const inFlight = refreshing.current;
-        if (inFlight.has(workspaceId)) {
-          inFlight.set(workspaceId, true);
-          return;
-        }
-        inFlight.set(workspaceId, false);
-        void (async () => {
-          const store = await openMirrorStore();
-          if (store === null) return;
-          do {
-            inFlight.set(workspaceId, false);
-            await refreshMetadata(engine(store), target);
-          } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
-        })()
-          .catch(() => {})
-          .finally(() => inFlight.delete(workspaceId));
-      }),
-    [engine],
-  );
-
-  /*
     A project List or Board opened on a folder: that folder's notes now, not
     whenever the pass reaches them (`mirrorFolder.ts`). Outside the pass's
     single flight for the same reason a refresh is. Remembered until it can
@@ -313,6 +313,116 @@ export function useMirrorSync(options: {
       }),
     [engine],
   );
+  /*
+    A context somebody opened, re-listed now: one metadata walk, outside the
+    pass's single flight, so it never waits behind another context's
+    downloads. Concurrent with a pass is safe — the index is written under a
+    lock, and an older walk never undoes a newer one (`commitListing`) — and
+    one refresh per context at a time is all it runs; a request that lands
+    during one runs once more after it.
+  */
+  const refreshing = useRef(new Map<string, boolean>());
+  const walkedAt = useRef(new Map<string, number>());
+  const fromTable = useRef(new Map<string, boolean>());
+  const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
+    const inFlight = refreshing.current;
+    if (inFlight.has(workspaceId)) {
+      inFlight.set(workspaceId, true);
+      return;
+    }
+    inFlight.set(workspaceId, false);
+    void (async () => {
+      do {
+        inFlight.set(workspaceId, false);
+        await walk();
+      } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
+    })()
+      .catch(() => {})
+      .finally(() => inFlight.delete(workspaceId));
+  }, []);
+  /** A walk with nowhere to write: a browser tab's tree (`serverTree.ts`). */
+  const serverDeps = useCallback(
+    (): Pick<MirrorSyncDeps, "manifest" | "mine" | "now" | "epoch"> => {
+      const epoch = epochRef.current;
+      return {
+        epoch,
+        mine: () => epoch === currentEpoch(),
+        now: () => Date.now(),
+        // The tree table where the context has one (`treeTableOps.ts`); the
+        // answer says which it was, and that sets how soon to walk again.
+        manifest: async (workspaceId, cursor) => {
+          const page = await withTimeout(
+            actionsRef.current.syncManifest({
+              workspaceId,
+              source: "tree",
+              ...(cursor === undefined ? {} : { cursor }),
+            }),
+            MANIFEST_TIMEOUT_MS,
+          );
+          fromTable.current.set(workspaceId, page.source === "tree");
+          return page;
+        },
+      };
+    },
+    [],
+  );
+  useEffect(
+    () =>
+      onMirrorRefreshRequest((workspaceId) => {
+        focused.current = workspaceId;
+        if (reachabilityRef.current !== "online") return;
+        if (epochRef.current !== currentEpoch()) return;
+        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
+        if (target === undefined) return;
+        /*
+          A browser tab keeps no copy, so its walk is held in memory instead
+          (`serverTree.ts`): the side panel opens every folder from it, and
+          this request — the tree signal's, or opening the context — is how
+          it stays live.
+        */
+        if (!mirrorSupported()) {
+          if (target.tier === "unknown") return;
+          const scope = target.tier;
+          runRefresh(workspaceId, async () => {
+            // A busy workspace signals every few seconds; one walk of its
+            // bucket per `SERVER_TREE_FLOOR_MS` is live enough and spares it.
+            const floor = fromTable.current.get(workspaceId) === true ? TABLE_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
+            const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + floor - Date.now();
+            if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+            walkedAt.current.set(workspaceId, Date.now());
+            const deps = serverDeps();
+            await walkServerTree({
+              manifest: (cursor) => deps.manifest(workspaceId, cursor),
+              mine: deps.mine,
+              now: deps.now,
+              onTree: (tree) => {
+                if (!deps.mine() || !holdServerTree(scope, workspaceId, tree, deps.epoch)) return;
+                keepServerTree(scope, workspaceId, tree);
+                publishMirrorListed(workspaceId);
+              },
+            });
+          });
+          return;
+        }
+        /*
+          A project List or Board was opened in this context: its walk is the
+          freshen's, which commits the same listing and then fetches the notes
+          whose version moved. A metadata walk alone left the List on the old
+          bodies — an agent's new status reached the tree and not the page
+          until the five-minute pass ("not updating in real time").
+        */
+        if (freshener.wants(workspaceId)) {
+          freshener.retry(workspaceId);
+          return;
+        }
+        runRefresh(workspaceId, async () => {
+          const store = await openMirrorStore();
+          if (store !== null) await refreshMetadata(engine(store), target);
+        });
+      }),
+    [engine, freshener, runRefresh, serverDeps],
+  );
+
   useEffect(() => onMirrorFolderRequest((workspaceId, folder) => freshener.request(workspaceId, folder)), [freshener]);
 
   // Mount, reconnection, and a change in which contexts there are.
@@ -320,6 +430,11 @@ export function useMirrorSync(options: {
     if (reachability !== "online") return;
     freshener.retry();
     sync();
+    // A tab asks for its tree as the context opens, which on a cold load is
+    // before the connection is known or the context list has landed — and the
+    // request is dropped. Ask again now that both are here.
+    const wanted = focused.current ?? lastMirrorRefreshRequest();
+    if (!mirrorSupported() && wanted !== null) requestMirrorRefresh(wanted);
   }, [reachability, sync, targets, freshener]);
 
   // Back to the foreground, and a modest interval while it stays there.

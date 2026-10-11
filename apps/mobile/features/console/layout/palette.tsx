@@ -1,18 +1,17 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Palette } from "../../design/components/Palette";
-import { searchHref } from "../nav";
+import { noteHref, searchHref } from "../nav";
+import { PaletteSearchHost } from "./EverywhereBar";
+import { loadedInScope, parseScopedQuery } from "./everywhereSearch";
 import { scopeLabel, SearchScopeChips } from "./SearchScope";
 import type { ConsoleData } from "../types";
-import { PaletteWithAsk } from "./frameBridges";
 import type { ConsoleRouter } from "./types";
-import type { ConsoleAside } from "./useConsoleAside";
 import type { PaletteSearch } from "./usePaletteSearch";
 import { lookInFor } from "./SearchLookIn";
 import { showTagOnHome } from "../home/homeTag";
 
 /**
- * ⌘K, while it is open, with its two handoffs — to the search page and to the
- * agent.
+ * ⌘K, while it is open, with its handoff to the search page.
  *
  * A function returning the element rather than a component, so the tree the
  * console layout renders is exactly the one it rendered when this was inline:
@@ -20,7 +19,6 @@ import { showTagOnHome } from "../home/homeTag";
  */
 export function consolePalette({
   paletteOpen,
-  setAsked,
   paletteItems,
   recent = [],
   search,
@@ -32,7 +30,6 @@ export function consolePalette({
   places,
 }: {
   paletteOpen: boolean;
-  setAsked: ConsoleAside["setAsked"];
   paletteItems: PaletteSearch["paletteItems"];
   recent?: PaletteSearch["recent"];
   search: PaletteSearch["search"];
@@ -45,21 +42,34 @@ export function consolePalette({
   /** A phone's folders and tags, for Look in and the places search finds (boards 03, 04). */
   places?: { notes: readonly { path: string; tags: readonly string[] }[]; folders: readonly string[]; rootLabel: string };
 }) {
+  /*
+    ⌘K searches every workspace unless something says it should not (Dev2,
+    2026-10-09): a folder's "Search in <folder>" is one workspace's subtree,
+    which `search` serves; a visitor and the demo have no workspaces to fan
+    out over.
+  */
+  const everywhereOn = scope === null && data.visitor === undefined && !data.demo;
+  const current = data.contexts.find((context) => context.id === data.selectedContextId);
   return (
     paletteOpen ? (
-      <PaletteWithAsk
-        onAsked={(query) => setAsked({ text: query, at: Date.now() })}
-        render={(onAskAgent, askable) => (
+      <PaletteSearchHost
+        enabled={everywhereOn}
+        fallback={search}
+        currentSlug={current?.slug ?? null}
+        contexts={data.contexts}
+        reachability={data.files.sync?.reachability ?? "unknown"}
+        render={({ search: asked, accessory, bar, everywhere }) => (
       <Palette
-        items={paletteItems}
+        items={loadedInScope(paletteItems, everywhere?.narrowed ?? null, current?.slug ?? null)}
         recent={recent}
         emptyHeading={recent.length > 0 ? "Recent" : undefined}
         placeholder={scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
         scopeBar={
-          scope === null || setScope === undefined ? undefined : (
+          scope === null || setScope === undefined ? bar : (
             <SearchScopeChips folder={scope} onWiden={() => setScope(null)} />
           )
         }
+        fieldAccessory={accessory}
         /*
           Reached only when the whole-context search is idle too — under
           `MIN_QUERY`, or with no context selected. Once it has run, the
@@ -68,7 +78,7 @@ export function consolePalette({
         noMatchMessage={
           "Nothing loaded matches that. Keep typing to search the rest of this workspace."
         }
-        search={search}
+        search={asked}
         /*
           The handoff to the dedicated search page.
 
@@ -91,31 +101,20 @@ export function consolePalette({
             ? undefined
             : (query) => {
                 setPaletteOpen(false);
-                router.push(searchHref(query));
+                // "@supa pricing" opens the page on @supa, searching "pricing".
+                const typed = parseScopedQuery(query, everywhere?.contexts.map((each) => each.slug) ?? []);
+                const slug = typed.slug ?? everywhere?.narrowed ?? null;
+                router.push(searchHref(typed.query.trim(), slug === null ? [] : [slug]));
               }
-        }
-        /*
-          The other handoff: hand the words to the agent instead of to
-          search, and open the panel they are answered in.
-
-          Offered only where there is a panel to answer in — a phone has
-          none (`asideToggleFor`), and the demo console has no engine — so
-          the row is absent there rather than pressable and inert. `at` is
-          a timestamp because it only has to be *different* each time; the
-          panel keys its send on the change, so asking the same thing
-          twice is two turns.
-        */
-        onAsk={
-          askable
-            ? (query) => {
-                setPaletteOpen(false);
-                onAskAgent(query);
-              }
-            : undefined
         }
         onChoose={(item) => {
           setPaletteOpen(false);
-          data.files.select(item.id);
+          // A note in another workspace opens there; one here opens in place.
+          if (item.workspace !== undefined && !item.workspace.current) {
+            router.push(noteHref(item.workspace.slug, item.id));
+          } else {
+            data.files.select(item.id);
+          }
         }}
         onDismiss={() => setPaletteOpen(false)}
         lookIn={

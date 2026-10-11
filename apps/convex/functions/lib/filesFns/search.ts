@@ -19,6 +19,7 @@ import {
   queryFingerprint,
   resolveScope,
 } from "../blendedSearch";
+import { recordSearchTiming, timingOf } from "../searchTiming";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 import { type BlendedAnswer, SOURCE_DEADLINE_MS, withDeadline } from "./searchDeadline";
@@ -58,18 +59,38 @@ export async function searchContextHandler(
     prefix?: string;
   },
 ): Promise<Extract<OperationResult, { kind: "searchResults" }>> {
+  // Timed from the first line, authorization included: that is part of what
+  // the person waits for. The device measures the rest (`reportScreen`).
+  const started = Date.now();
   const actorUserId = await callerId(ctx);
   const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
     actorUserId,
     workspaceId: args.workspaceId,
     minimum: "member",
   });
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+  let result: Extract<OperationResult, { kind: "searchResults" }>;
+  try {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "search", query: args.query, prefix: args.prefix },
+    })) as Extract<OperationResult, { kind: "searchResults" }>;
+  } catch (error) {
+    await recordSearchTiming(ctx, {
+      workspaceId: args.workspaceId,
+      surface: "app",
+      ...timingOf(null),
+      ms: Date.now() - started,
+    });
+    throw error;
+  }
+  await recordSearchTiming(ctx, {
     workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    operation: { kind: "search", query: args.query, prefix: args.prefix },
-  })) as Extract<OperationResult, { kind: "searchResults" }>;
+    surface: "app",
+    ...timingOf(result),
+    ms: Date.now() - started,
+  });
 
   // The index this answer read is the index some earlier pass built, and a
   // search does no maintenance of its own — that is what took a console
@@ -163,6 +184,38 @@ export async function notePathsHandler(
     operation: { kind: "notePaths" },
   });
   return result as Extract<OperationResult, { kind: "notePaths" }>;
+}
+
+/**
+ * The console map's graph of one workspace: every note this member's scope may
+ * see, and the links between them, both ends visible. See `workspaceGraph` in
+ * `lib/fileOps/graph.ts` and `docs/decisions/search.md`.
+ *
+ * Read-only and schedules nothing, for `notePathsHandler`'s reason: an index
+ * that is behind answers `behind`, the map says it is catching up, and the
+ * next ordinary search — or `maintainIndex`'s hourly reach — catches it up.
+ */
+export async function workspaceGraphHandler(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    /** Every note, as path chunks: see `GRAPH_ALL_NODE_CAP`. Old clients leave it out. */
+    compact?: boolean;
+  },
+): Promise<Extract<OperationResult, { kind: "workspaceGraph" }>> {
+  const actorUserId = await callerId(ctx);
+  const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    actorUserId,
+    workspaceId: args.workspaceId,
+    minimum: "member",
+  });
+  const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: args.workspaceId,
+    scope,
+    grantedNames,
+    operation: args.compact === true ? { kind: "workspaceGraph", compact: true } : { kind: "workspaceGraph" },
+  });
+  return result as Extract<OperationResult, { kind: "workspaceGraph" }>;
 }
 
 /**
@@ -269,6 +322,7 @@ export async function searchContextsHandler(
     scope.map(async (context) => {
       const offset = offsets[context.workspaceId] ?? 0;
       const asked = depthFor(offset);
+      const started = Date.now();
       const settled = await withDeadline(
         (async () => {
           // The one authorization function, per context, per page. The
@@ -309,7 +363,18 @@ export async function searchContextsHandler(
         })(),
         SOURCE_DEADLINE_MS,
       );
+      // One row per workspace asked: a blended page is as slow as its slowest
+      // source, and the log should be able to say which one that was. A source
+      // that missed its deadline is timed at the deadline.
+      const ms = Date.now() - started;
+      await recordSearchTiming(ctx, {
+        workspaceId: context.workspaceId as Id<"workspaces">,
+        surface: "page",
+        ...timingOf(settled === null ? null : settled.answer),
+        ms,
+      });
       return {
+        ms,
         context,
         offset,
         asked,
@@ -323,7 +388,7 @@ export async function searchContextsHandler(
   const rows: BlendedAnswer["sources"] = [];
   let matchCount = 0;
   let matchCountIsFloor = false;
-  for (const { context, offset, asked, settled } of answered) {
+  for (const { context, offset, asked, settled, ms } of answered) {
     if (settled === null) {
       // A refusal, a timeout and a thrown storage error are one state on
       // screen, and deliberately: what a person can do about each is press
@@ -346,6 +411,7 @@ export async function searchContextsHandler(
         state: "failed",
         matchCount: 0,
         matchCountIsFloor: false,
+        ms,
       });
       continue;
     }
@@ -368,6 +434,8 @@ export async function searchContextsHandler(
       state: settled.indexMissing || settled.indexIncomplete ? "indexing" : "ok",
       matchCount: settled.matchCount,
       matchCountIsFloor: settled.matchCountIsFloor,
+      ms,
+      ...(settled.timing === undefined ? {} : settled.timing),
     });
   }
 
@@ -409,6 +477,7 @@ export async function searchContextsHandler(
         path: row.path,
         title: row.title,
         snippet: row.snippet,
+        meaningOnly: row.meaningOnly,
       };
     }),
     matchCount,

@@ -70,7 +70,7 @@ export { readFile, READ_BATCH_PATHS, READ_BATCH_BYTES, READ_CONCURRENCY, readFil
 export type { FileContents, BatchRead } from "./fileOps/reading";
 export { writeFile, removeNoteEncryption } from "./fileOps/writing";
 export type { WriteResult } from "./fileOps/writing";
-export { renderFolderPlaceholder, createFolder, duplicateName } from "./fileOps/folders";
+export { renderNewFolderAbout, createFolder, duplicateName } from "./fileOps/folders";
 export { removeNewFolder } from "./fileOps/newFolder";
 export { movePath } from "./fileOps/moving";
 export type { MoveResult } from "./fileOps/moving";
@@ -126,6 +126,8 @@ export {
 } from "./fileOps/emoji";
 export type { CustomEmoji } from "./fileOps/emoji";
 export { notePathIndex, searchNotes, maintainSearchIndex, indexChangedNotes } from "./fileOps/search";
+export { workspaceGraph } from "./fileOps/graph";
+export type { WorkspaceGraphResult } from "./fileOps/graph";
 export type { SearchHit, SearchResults, ProjectionClient } from "./fileOps/search";
 export { projectSearchIndex } from "./fileOps/projection";
 export type { ProjectionPass } from "./fileOps/projection";

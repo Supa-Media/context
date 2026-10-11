@@ -3,6 +3,7 @@
  * the visible notes, and the fast answer from the projection.
  */
 
+import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
 import { BUDGET_EXHAUSTED, budgetedStore } from "./budget.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
@@ -162,9 +163,11 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
  * @returns {Promise<object|null>} an answer in `searchIndexedNotes`' shape, or
  *   `null` to mean "not answered — ask the index".
  */
-export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace) {
+export async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace, { filling = false } = {}) {
   const descriptor = store.searchIndex;
-  if (!descriptor || descriptor.state !== "ready") return null;
+  // `filling`: the caller already has an empty, "still catching up" answer
+  // and asks what the part copied so far holds (`searchVisibleNotes`).
+  if (!descriptor || (descriptor.state !== "ready" && !filling)) return null;
   if (budget.remaining < FAST_SEARCH_FLOOR) return null;
 
   let answer;
@@ -172,7 +175,7 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
     const client = createD1Client(descriptor);
     answer = await answerFromProjection(client, {
       query,
-      prefix,
+      prefix: folderPrefix(prefix),
       tier: scope,
       // The gateway's own privacy engine, bound to this caller. Injected for
       // the reason `searchIndexedNotes` takes `isVisible`: the console has its
@@ -188,6 +191,9 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
         trace.set("fastCandidates", candidates);
         trace.set("fastVisible", visible);
       },
+      // Only a `ready` projection reaches here, and its miss is the answer:
+      // it never falls through to the bucket index (`answerFromProjection`).
+      missIsAnswer: true,
     });
   } catch {
     // Every D1 failure is one of `client.js`'s closed-set codes and none of

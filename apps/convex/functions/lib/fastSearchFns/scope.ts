@@ -10,7 +10,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { fastSearchState, searchProjectionState } from "../fastSearch";
-import { bindingFor, planFor, requireUserId } from "./helpers";
+import { bindingFor, requireUserId } from "./helpers";
 import type { SearchableContext } from "./validators";
 
 /**
@@ -75,9 +75,8 @@ export async function searchScopeFor(
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace === null) continue;
     const binding = await bindingFor(ctx, membership.workspaceId);
-    const plan = await planFor(ctx, membership.workspaceId);
-    const serving = searchProjectionState(workspace, plan, binding) === "ready";
-    const state = fastSearchState(workspace, plan, binding);
+    const serving = searchProjectionState(workspace, binding) === "ready";
+    const state = fastSearchState(workspace, binding);
     contexts.push({
       workspaceId: workspace._id,
       slug: workspace.slug,

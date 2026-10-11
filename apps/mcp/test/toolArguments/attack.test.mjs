@@ -156,7 +156,7 @@ export async function runToolArgumentAttackChecks(check, harness) {
 
   /* --------------- the tools that take nothing at all -------------------- */
 
-  for (const name of ["orient", "list_proposals", "list_plugins", "export_encryption_keys", "rotate_encryption_keys"]) {
+  for (const name of ["orient", "list_proposals", "list_plugins", "rotate_encryption_keys"]) {
     const refusal = await callTool(env, TOKEN_OWNER, name, { workspaceId: WORKSPACE_OTHER });
     check(
       `${name} takes no arguments, and now that is true of the door as well`,
@@ -173,13 +173,13 @@ export async function runToolArgumentAttackChecks(check, harness) {
   /* ---------- the refusal must not become an existence oracle ------------ */
 
   /*
-    A team-tier caller is answered `unknown tool` for the two encryption
-    tools, byte-identical to an invented name — `docs/decisions/encryption.md`,
+    A team-tier caller is answered `unknown tool` for the key rotation
+    tool, byte-identical to an invented name — `docs/decisions/encryption.md`,
     "a team-tier caller does not even learn the tool exists". Validating a
     masked tool's arguments would undo that with one sentence: a complaint
     about a property is a statement that the tool is real.
   */
-  const maskedWithJunk = await callTool(env, TOKEN_TEAM, "export_encryption_keys", {
+  const maskedWithJunk = await callTool(env, TOKEN_TEAM, "rotate_encryption_keys", {
     workspaceId: WORKSPACE_OTHER,
   });
   const inventedWithJunk = await callTool(env, TOKEN_TEAM, "no_such_tool_at_all", {
@@ -187,11 +187,11 @@ export async function runToolArgumentAttackChecks(check, harness) {
   });
   check(
     "a masked tool called with bad arguments is still answered as an unknown tool",
-    textOf(maskedWithJunk) === "unknown tool: export_encryption_keys"
+    textOf(maskedWithJunk) === "unknown tool: rotate_encryption_keys"
   );
   check(
     "...which is what an invented name gets, argument for argument",
-    textOf(maskedWithJunk).replace("export_encryption_keys", "«name»") ===
+    textOf(maskedWithJunk).replace("rotate_encryption_keys", "«name»") ===
       textOf(inventedWithJunk).replace("no_such_tool_at_all", "«name»")
   );
   check(
@@ -203,8 +203,8 @@ export async function runToolArgumentAttackChecks(check, harness) {
   /*
     THE SAME TWO PROPERTIES, FOR EVERY MEMBER OF `EXISTENCE_MASKED_TOOLS`.
 
-    The checks above prove it for `export_encryption_keys` alone, and the set
-    has four members. Measured before widening this, the way the traversal
+    The checks above prove it for `rotate_encryption_keys` alone, and the set
+    has three members. Measured before widening this, the way the traversal
     matrix in `store.test.mjs` was: deleting `materialize_move` from
     `EXISTENCE_MASKED_TOOLS` reddened **nothing**, and deleting
     `migrate_storage_layout` reddened nothing either.
@@ -231,7 +231,7 @@ export async function runToolArgumentAttackChecks(check, harness) {
   */
   /*
     **Walked from the set itself, not from a copy of it.** This loop held a
-    hand-written literal of the same four names, and the drift that allowed
+    hand-written literal of the same names, and the drift that allowed
     was measured rather than imagined: adding a fifth name to
     `EXISTENCE_MASKED_TOOLS` and wiring it nowhere else reddened **nothing**
     across the whole suite.
@@ -250,8 +250,9 @@ export async function runToolArgumentAttackChecks(check, harness) {
     // Not `> 0`. A derived loop over an emptied set passes by running nothing,
     // which is the failure mode deriving it was supposed to remove — and this
     // set should only ever grow, so a shrink is a decision somebody has to
-    // come here and make rather than one a green run can hide.
-    maskedNames.length >= 4,
+    // come here and make rather than one a green run can hide. It shrank once,
+    // from four: the owner removed `export_encryption_keys` on 2026-10-08.
+    maskedNames.length >= 3,
   );
   for (const masked of maskedNames) {
     const withJunk = await callTool(env, TOKEN_TEAM, masked, { workspaceId: WORKSPACE_OTHER });

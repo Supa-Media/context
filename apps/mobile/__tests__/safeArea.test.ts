@@ -115,6 +115,7 @@ jest.mock("expo-router", () => {
     // own" an assertion about the layout rather than about its children.
     Stack: () => null,
     Slot: () => null,
+    Navigator: Object.assign(() => null, { Slot: () => null }),
     Link: ({ children }: { children?: unknown }) => h("div", null, children as never),
     useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
     useLocalSearchParams: () => ({}),
@@ -289,6 +290,7 @@ const ROUTES: Record<string, Coverage> = {
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(TextsLinkScreen) },
+  "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
@@ -350,6 +352,7 @@ const ROUTES: Record<string, Coverage> = {
   "(auth)/join/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/join/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
   "texts/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("texts/_layout.tsx")) },
+  "vault/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("vault/_layout.tsx")) },
   "[handle]/_layout.tsx": {
     kind: "gate",
     mount: () => createElement(requireRoute("[handle]/_layout.tsx")),
@@ -368,7 +371,12 @@ const ROUTES: Record<string, Coverage> = {
     kind: "gate",
     mount: () => createElement(requireRoute("(app)/admin/_layout.tsx")),
   },
+  // A redirect to `/admin/growth`; the console itself is `[...section]`.
   "(app)/admin/index.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/admin/index.tsx")),
+  },
+  "(app)/admin/[...section].tsx": {
     kind: "screen",
     mount: () =>
       createElement(

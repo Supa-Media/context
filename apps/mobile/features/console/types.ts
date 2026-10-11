@@ -25,6 +25,7 @@ import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
+import type { ChaosSource } from "../chaos/useChaosScore";
 import type { ConnectFormValues } from "./storage/connect";
 import type { NoteLimit } from "./noteLimit";
 
@@ -463,6 +464,11 @@ export interface ConsoleData {
    */
   organizer?: OrganizerView;
   /**
+   * The chaos score for the selected workspace (`features/chaos`). Absent on
+   * the demo console; every surface treats absence as drawing nothing.
+   */
+  chaos?: ChaosSource;
+  /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.
    */
@@ -514,23 +520,6 @@ export interface ConsoleData {
   noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
-  /**
-   * Whether this context has a model key, so anything that would *ask* one can
-   * be offered — or left out.
-   *
-   * Three values, and the third is the one that matters: `undefined` is "the
-   * subscription has not answered", which is not the same as "there is no
-   * key". A control gated on `=== true` is absent for the moment before the
-   * answer lands and then appears; one gated on `!== false` flashes an offer
-   * and takes it away, which is the worse direction for the thing it offers —
-   * a conversation with a model nobody has paid for.
-   *
-   * It is a boolean rather than the connections themselves because nothing
-   * outside the model pane may need which provider or when: the settings pane
-   * asks `listProviders` for that and shows fingerprints. This is one bit, and
-   * a bit is all a menu needs.
-   */
-  modelConnected?: boolean;
   endpoint: string;
   /**
    * The ingestion alias to display when the backend cannot yet answer for it.
@@ -565,6 +554,8 @@ export interface ConsoleData {
    * owner their index is gone on every reload.
    */
   fastSearch: FastSearchView;
+  /** Search by meaning's status and owner switch; absent in the demo, which draws no card. */
+  meaningSearch?: import("./search/useMeaningSearch").MeaningSearchView;
   /**
    * Who can reach the selected context, and the owner-only controls to change
    * it. Its `actions` are absent for anyone who is not the owner, and in the
@@ -660,6 +651,8 @@ export interface ConsoleData {
    * devlog or a read marker (`whatsNew/WhatsNewHost.tsx`).
    */
   whatsNew?: true;
+  /** Live, signed-in console only, like `whatsNew`: routine notes' run bar and runs (`routines/RoutineHost.tsx`). */
+  routines?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

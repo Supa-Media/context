@@ -1,15 +1,13 @@
-import { AdminPane } from "../../../features/admin/AdminPane";
+import { Redirect } from "expo-router";
+import { DEFAULT_PLACE, adminPath } from "../../../features/admin/place";
 
 /**
- * `/admin` — the staff console.
+ * `/admin` — the staff console's front door, which is its Growth tab.
  *
- * Under `(app)`, so it inherits that layout's session gate and nothing here
- * has to think about signed-out callers. It does **not** inherit the console's
- * rail: this is platform-wide rather than about any one context, and putting
- * it in the rail would imply it belongs to whichever workspace is selected.
- *
- * The route exists for everyone. What it renders, and every query behind it,
- * is decided by `requireAdmin` on the server — see `AdminPane`.
+ * A redirect rather than a second copy of the page, so every place in the
+ * console has exactly one address (`features/admin/place.ts`) and the bare
+ * one is not a seventh spelling of Growth. It replaces rather than pushes, so
+ * Back from `/admin/growth` does not land here and bounce straight back.
  *
  * **Reached by typing the address, and by nothing else.** No rail row, no strip
  * pill, no key: putting it on one of those would say it belongs to whichever
@@ -20,5 +18,5 @@ import { AdminPane } from "../../../features/admin/AdminPane";
  * `/meetings`. Anything added here needs a way in or an entry on that list.
  */
 export default function AdminRoute() {
-  return <AdminPane />;
+  return <Redirect href={adminPath(DEFAULT_PLACE)} />;
 }

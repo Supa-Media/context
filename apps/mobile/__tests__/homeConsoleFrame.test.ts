@@ -166,6 +166,8 @@ describe("the homepage is the console's frame", () => {
     const home = mountHome();
     await act(async () => {});
     expect(home.find("join-card")).not.toBeNull();
+    // Joining by email still means adding a phone (Dev2, 2026-10-09).
+    expect(home.find("join-needs-phone")).not.toBeNull();
     home.press(home.find("account-switcher"));
     expect(home.find("switcher-sign-in")).not.toBeNull();
     expect(home.find("switcher-create-account")).toBeNull();
@@ -217,7 +219,8 @@ describe("the homepage is the console's frame", () => {
       expect(home.find("join-card")).toBeNull();
       home.press(home.find("account-switcher"));
       home.press(home.find("switcher-sign-in"));
-      expect(mockPushed).toEqual(["/"]);
+      // The site's home page in the frame: `/` is landing page a now.
+      expect(mockPushed).toEqual([{ pathname: "/", params: { page: "index" } }]);
     } finally {
       index.markdown = before;
     }

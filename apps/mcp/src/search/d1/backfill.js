@@ -101,6 +101,11 @@ import { deleteStatements, projectNote, upsertStatements } from "./project.js";
 import { indexableText } from "../../encryption.js";
 import { D1Error, failureDetailOf } from "./client.js";
 import {
+  INDEXING_PRIORITIES,
+  compareIndexingOrder,
+  indexingPriority,
+} from "../../../../../packages/shared/src/folderRoles.cjs";
+import {
   DOCMAP_KEY,
   MANIFEST_PARSE_BYTE_CAP,
   loadIndexManifest,
@@ -138,6 +143,9 @@ export const D1_PASS_NOTE_CAP = 20;
  */
 export const VERSION_PROBE_CAP = 100;
 
+/** The largest D1 `IN` query known to work across the Cloudflare API. */
+const VERSION_PROBE_QUERY_CAP = 100;
+
 /**
  * Statements held before they are sent. A window of a hundred typical notes is
  * about five hundred statements, so a pass usually sends once; the client
@@ -168,15 +176,17 @@ export async function readIndexState(client) {
 
 /** The versions the projection currently holds for a window of paths. */
 export async function storedVersions(client, paths) {
-  if (paths.length === 0) return new Map();
-  const placeholders = paths.map(() => "?").join(", ");
-  const rows = await client.query(
-    `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
-    paths
-  );
   const versions = new Map();
-  for (const row of rows) {
-    if (row && typeof row.path === "string") versions.set(row.path, row.version);
+  for (let at = 0; at < paths.length; at += VERSION_PROBE_QUERY_CAP) {
+    const batch = paths.slice(at, at + VERSION_PROBE_QUERY_CAP);
+    const placeholders = batch.map(() => "?").join(", ");
+    const rows = await client.query(
+      `SELECT path, version FROM notes WHERE path IN (${placeholders})`,
+      batch
+    );
+    for (const row of rows) {
+      if (row && typeof row.path === "string") versions.set(row.path, row.version);
+    }
   }
   return versions;
 }
@@ -234,6 +244,49 @@ export async function loadCensus(store, budget, reserve = 0) {
   return { census: censusFromManifest(manifest), manifest };
 }
 
+/**
+ * The cursor is a note's place in indexing order (`compareIndexingOrder`:
+ * everything but the Inbox and Archive, then the Inbox, then the Archive,
+ * decided by the owner, 2026-10-08), written as `<priority>\t<path>` so plain
+ * string order is that order. A cursor in the older form (a bare path, from
+ * before priorities) reads as the start: the next sweep re-verifies from the
+ * top, which costs version probes and copies nothing already current.
+ */
+export function cursorKeyOf(path) {
+  return `${indexingPriority(path)}\t${path}`;
+}
+
+function cursorPosition(cursor) {
+  return /^[1-3]\t/.test(cursor) ? cursor : "";
+}
+
+/**
+ * How many notes the projection holds, per indexing priority and in all, in
+ * one query grouped by top-level folder (the only part of a path a priority
+ * reads). Counted, never inferred from a cursor.
+ *
+ * @returns {Promise<{total: number, byPriority: number[]}>} `byPriority[0]` is
+ *   priority 1.
+ */
+export async function countProjectedByPriority(client) {
+  const rows = await client.query(
+    `SELECT CASE WHEN instr(path, '/') > 0 THEN substr(path, 1, instr(path, '/') - 1) ELSE '' END AS top,
+            COUNT(*) AS n
+       FROM notes GROUP BY top`,
+    []
+  );
+  const byPriority = INDEXING_PRIORITIES.map(() => 0);
+  let total = 0;
+  for (const row of rows) {
+    const n = row ? Number(row.n) : NaN;
+    if (!Number.isFinite(n)) continue;
+    const top = typeof row.top === "string" ? row.top : "";
+    byPriority[indexingPriority(top === "" ? "" : `${top}/`) - 1] += n;
+    total += n;
+  }
+  return { total, byPriority };
+}
+
 /** How many notes the projection holds. Counted, never inferred from a cursor. */
 export async function countProjected(client) {
   const rows = await client.query(`SELECT COUNT(*) AS n FROM notes`, []);
@@ -260,6 +313,9 @@ export async function countProjected(client) {
  * @param {object} options.budget the shared subrequest budget.
  * @param {number} options.reserve ops this pass may not spend.
  * @param {number} options.noteCap notes this pass may project.
+ * @param {number} options.versionProbeCap paths whose stored versions one pass
+ *   may compare. The control plane can scan more current paths than a gateway
+ *   request without raising the cap on notes it writes.
  * @param {number} options.indexPending notes the R2 index itself has not
  *   reached yet, so a projection cannot honestly call itself complete.
  * @param {(progress: object) => Promise<void>|void} options.reportProgress
@@ -275,6 +331,7 @@ export async function projectPass(
     budget,
     reserve = 0,
     noteCap = D1_PASS_NOTE_CAP,
+    versionProbeCap = VERSION_PROBE_CAP,
     indexPending = 0,
     reportProgress = null,
   } = {}
@@ -285,6 +342,7 @@ export async function projectPass(
     notesIndexed: 0,
     notesPending: 0,
     cursor: "",
+    cursorAdvanced: false,
     sweepComplete: false,
     reported: false,
     failure: null,
@@ -292,6 +350,9 @@ export async function projectPass(
   };
   const paths = census instanceof Map ? census : new Map(census || []);
   const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : D1_PASS_NOTE_CAP;
+  const probeCap = Number.isFinite(versionProbeCap)
+    ? Math.max(1, Math.min(300, Math.floor(versionProbeCap)))
+    : VERSION_PROBE_CAP;
   // Every op below is taken against this floor, so the cursor write at the end
   // is affordable however the pass went. `budget.take(floor)` spends one op
   // only while more than `floor` remain.
@@ -325,20 +386,22 @@ export async function projectPass(
     // "the sweep reached the end of the census" is a condition that is never
     // true, `state: "ready"` is never sent, and a fully projected context
     // reports itself as still backfilling forever.
-    const sorted = [...paths.keys()].sort();
+    const sorted = [...paths.keys()].sort(compareIndexingOrder);
+    const from = cursorPosition(cursor);
     const remaining = [];
     for (const path of sorted) {
-      if (path <= cursor) continue;
+      if (cursorKeyOf(path) <= from) continue;
       remaining.push(path);
-      if (remaining.length > VERSION_PROBE_CAP) break;
+      if (remaining.length > probeCap) break;
     }
-    const windowReachedEnd = remaining.length <= VERSION_PROBE_CAP;
-    const window = remaining.slice(0, VERSION_PROBE_CAP);
+    const windowReachedEnd = remaining.length <= probeCap;
+    const window = remaining.slice(0, probeCap);
 
     let stored = new Map();
     if (window.length > 0) {
-      if (!afford(1)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
-      budget.take(floor);
+      const probes = Math.ceil(window.length / VERSION_PROBE_QUERY_CAP);
+      if (!afford(probes)) return await finish(result, paths, indexPending, budget, reserve, client, reportProgress);
+      for (let probe = 0; probe < probes; probe += 1) budget.take(floor);
       stored = await storedVersions(client, window);
     }
 
@@ -480,7 +543,7 @@ export async function projectPass(
       settled = -1;
     }
 
-    let nextCursor = settled >= 0 ? window[settled] : cursor;
+    let nextCursor = settled >= 0 ? cursorKeyOf(window[settled]) : cursor;
 
     // A sweep ends when the window ran to the end of the census and every
     // entry in it was settled. The cursor goes back to the start, so the next
@@ -497,6 +560,7 @@ export async function projectPass(
            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         [CURSOR_KEY, nextCursor]
       );
+      result.cursorAdvanced = true;
     }
     result.cursor = nextCursor;
   } catch (error) {
@@ -536,6 +600,8 @@ export function progressFrom(result) {
   return {
     notesIndexed: result.notesIndexed,
     notesPending: result.notesPending,
+    // Absent on a pass that counted nothing; the row keeps its last.
+    ...(result.priorities ? { priorities: result.priorities } : {}),
     // `ready` only when this projection holds every note the R2 index holds
     // *and* the R2 index itself is not still catching up. A projection that
     // calls itself ready over a half-listed bucket tells somebody their note
@@ -571,7 +637,18 @@ async function finish(result, paths, indexPending, budget, reserve, client, repo
     try {
       if (budget.remaining > reserve) {
         budget.take(reserve);
-        result.notesIndexed = await countProjected(client);
+        const counted = await countProjectedByPriority(client);
+        result.notesIndexed = counted.total;
+        // Per priority: what the census holds against what the projection
+        // holds. A note the R2 index has not reached belongs to no priority
+        // yet, so it is pending in the total only.
+        const census = INDEXING_PRIORITIES.map(() => 0);
+        for (const path of paths.keys()) census[indexingPriority(path) - 1] += 1;
+        result.priorities = INDEXING_PRIORITIES.map((priority, index) => ({
+          priority,
+          indexed: counted.byPriority[index],
+          pending: Math.max(0, census[index] - counted.byPriority[index]),
+        }));
       }
     } catch (error) {
       if (!(error instanceof D1Error)) throw error;

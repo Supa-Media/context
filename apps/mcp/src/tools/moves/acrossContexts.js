@@ -205,6 +205,19 @@ export async function toolMoveNoteAcrossContexts(
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
   });
+  // The control plane's record of the move, which is what the console map
+  // reads to show a note leaving one of the person's workspaces for another;
+  // both buckets' audit rows above are where no request can afford to look.
+  // Ids and paths only, deferred, and never able to fail the move.
+  if (typeof sourceStore.reportContextMove === "function") {
+    sourceStore.reportContextMove({
+      toWorkspaceId: destinationStore.actor?.workspaceId,
+      fromPath: source,
+      toPath: destination,
+      actorUserId: sourceStore.actor?.userId,
+      actorClientId: sourceStore.actor?.clientId,
+    });
+  }
   return toolText(
     `moved: ${sourceContext}/${source} → ${destinationContext}/${destination} (etag ${put.etag})\n` +
       `visibility: ${destinationVisibility}\n` +

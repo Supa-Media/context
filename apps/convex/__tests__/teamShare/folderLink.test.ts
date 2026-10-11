@@ -154,7 +154,7 @@ describe("a folder gets a link too", () => {
    * check: that a note FILENAME is not guessable.
    *
    * For a fresh workspace that is false, and by more than one file. `scaffoldFiles`
-   * writes `privacy.md`, `index.md`, and a `README.md` into every one of the
+   * writes `privacy.md`, `index.md`, and an `about.md` into every one of the
    * five PARA folders — six guessable note names before the owner has written
    * anything — and the connected-client house rules put a `todo.md` at the
    * root. That is the same exhaustible space the five folder names are, so it
@@ -250,7 +250,11 @@ describe("a folder gets a link too", () => {
     );
     const presetFolders = [...presets.matchAll(/folder:\s*"([^"]+)"/g)].map((m) => m[1]!);
     const shipped = [...new Set([...PARA_FOLDERS, ...presetFolders])];
-    const archiveRoots = shipped.filter((folder) => /^(?:\d+-)?archive$/i.test(folder));
+    // `4-archive` is not shipped any more, but every workspace made before
+    // `9-archive` still has it, and the resolver has to find it there.
+    const archiveRoots = [
+      ...new Set([...shipped.filter((folder) => /^(?:\d+-)?archive$/i.test(folder)), "4-archive"]),
+    ];
     expect(
       archiveRoots.length,
       "no archive root found — presets.ts or PARA_FOLDERS changed shape",
@@ -271,10 +275,10 @@ describe("a folder gets a link too", () => {
     // this passes by only ever exercising one of them.
     expect(returned.has("0-inbox/sessions")).toBe(true);
     expect([...returned].some((folder) => folder.endsWith("/chat-history"))).toBe(true);
-    // And the preset default is the case that was broken: `business` ships
-    // `5-archive`, and its sessions went to `0-inbox/sessions` because the
-    // resolver was looking for a `4-archive` that layout never had.
-    expect(returned.has("5-archive/chat-history")).toBe(true);
+    // The archive a new workspace gets, and the one an older PARA workspace
+    // still has. Both have to resolve to their own `chat-history`.
+    expect(returned.has("9-archive/chat-history")).toBe(true);
+    expect(returned.has("4-archive/chat-history")).toBe(true);
 
     for (const folder of returned) expect(PRODUCT_MANDATED_PATHS).toContain(folder);
   });
@@ -357,7 +361,11 @@ describe("a folder gets a link too", () => {
       ).toContain(folder);
       expect(
         PRODUCT_MANDATED_PATHS,
-        `${folder}/README.md is written by the scaffold and must not unfurl`,
+        `${folder}/about.md is written by the scaffold and must not unfurl`,
+      ).toContain(`${folder}/about.md`);
+      expect(
+        PRODUCT_MANDATED_PATHS,
+        `${folder}/README.md is an old scaffold's folder note and must not unfurl`,
       ).toContain(`${folder}/README.md`);
     }
   });

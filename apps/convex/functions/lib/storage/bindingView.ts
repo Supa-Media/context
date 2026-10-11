@@ -75,7 +75,7 @@ export const getStorageBindingReturns = v.union(
     /**
      * WHAT IS STILL NOT THERE, WHEN `scaffoldReason` IS `partial`.
      *
-     * A layout whose `privacy.md` landed and whose `3-resources/README.md`
+     * A layout whose `privacy.md` landed and whose `3-resources/about.md`
      * did not is a working context with a gap, and this is the gap: bucket
      * keys, ours, generated. Say so plainly and offer to try again — do not
      * dress a `partial` up as a failure, and do not hide it either. Empty or

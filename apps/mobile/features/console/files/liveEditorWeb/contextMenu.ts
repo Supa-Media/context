@@ -114,7 +114,6 @@ export function contextMenuListener({
         */
         canDictate: handlers.current.onDictate !== undefined,
         canComment: canComment(created.state),
-        canAsk: handlers.current.onAsk !== undefined,
         canList: created.state.facet(listHost)?.current != null,
       }).length === 0;
     if (empty) {
@@ -273,13 +272,6 @@ export function runEditorMenuAction(
     */
     handlers.current.onDictate?.(current.state.selection.main.head);
     current.focus();
-    return;
-  }
-
-  if (id === "ask") {
-    // No `focus()`: the answer arrives in the panel, and pulling the caret
-    // back into the note would put the keyboard over it on a narrow window.
-    handlers.current.onAsk?.();
     return;
   }
 

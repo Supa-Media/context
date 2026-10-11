@@ -39,6 +39,11 @@ function table(): { all: StandardEmoji[]; byName: Map<string, StandardEmoji> } {
   return parsed;
 }
 
+/** Every standard emoji, in Unicode's order: what a picker shows before anything is typed. */
+export function allStandardEmoji(): readonly StandardEmoji[] {
+  return table().all;
+}
+
 /** The standard emoji a shortcode names, or `undefined`. */
 export function standardEmojiNamed(name: string): StandardEmoji | undefined {
   return table().byName.get(name);

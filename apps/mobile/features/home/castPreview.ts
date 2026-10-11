@@ -1,6 +1,6 @@
 import { splitWebsiteCast } from "@context/shared";
 import { stripFrontmatter } from "../share/markdown";
-import { parseHomeSnapshot, type HomeSnapshot } from "./homeSnapshot";
+import { parseHomeSnapshot, snapshotIcons, type HomeSnapshot } from "./homeSnapshot";
 import { emojiPictures, type EmojiPictures } from "../share/emojiPictures";
 
 /**
@@ -92,7 +92,7 @@ export function previewPagePath(name: string): string | null {
 export function castPreviewSnapshot(
   source: string,
   title: string,
-  options: { banner?: boolean; pages?: readonly PreviewPage[]; emoji?: EmojiPictures } = {},
+  options: { banner?: boolean; pages?: readonly PreviewPage[]; emoji?: EmojiPictures; icons?: FolderIcons } = {},
 ): HomeSnapshot {
   const banner = options.banner === false ? "" : CAST_PREVIEW_BANNER;
   const pages = [{ path: "index.md", routePath: "/", title, markdown: banner + stripFrontmatter(source) }];
@@ -111,7 +111,21 @@ export function castPreviewSnapshot(
     emoji: options.emoji ?? {},
     // A draft's own images are the workspace's, which the homepage cannot read.
     images: {},
+    ...(options.icons === undefined ? {} : { icons: previewIcons(options.icons) }),
   };
+}
+
+/** Folder name (as a scene writes it, `Projects`) → emoji, for the folders a preview's pages sit in. */
+export type FolderIcons = Readonly<Record<string, string>>;
+
+/** The icons keyed the way the preview's folders are named (`Projects` → `projects`). */
+function previewIcons(icons: FolderIcons): Record<string, string> {
+  const keyed: Record<string, string> = {};
+  for (const [name, icon] of Object.entries(icons)) {
+    const at = previewPagePath(name);
+    if (at !== null) keyed[at] = icon;
+  }
+  return snapshotIcons(keyed);
 }
 
 /** The address that plays this draft on the homepage. */
@@ -130,6 +144,7 @@ export function castPreviewFragment(
   title: string,
   pages: readonly PreviewPage[] = [],
   emoji: EmojiPictures = {},
+  icons: FolderIcons = {},
 ): string {
   const carried = pages.slice(0, MAX_PREVIEW_PAGES).map((page) => ({ ...page, markdown: stripFrontmatter(page.markdown) }));
   const body = JSON.stringify({
@@ -137,6 +152,7 @@ export function castPreviewFragment(
     markdown: stripFrontmatter(source),
     ...(carried.length === 0 ? {} : { pages: carried }),
     ...(Object.keys(emoji).length === 0 ? {} : { emoji }),
+    ...(Object.keys(icons).length === 0 ? {} : { icons }),
   });
   return `${CAST_PREVIEW_PARAM}=${toBase64Url(new TextEncoder().encode(body))}`;
 }
@@ -152,6 +168,7 @@ export function castPreviewFrom(hash: string | undefined, options: { banner?: bo
       markdown?: unknown;
       pages?: unknown;
       emoji?: unknown;
+      icons?: unknown;
     };
     if (typeof body.title !== "string" || typeof body.markdown !== "string") return null;
     const pages = body.pages === undefined ? [] : previewPages(body.pages);
@@ -159,10 +176,17 @@ export function castPreviewFrom(hash: string | undefined, options: { banner?: bo
     // Through the same check as a site from the router, so a crafted address
     // can hand the homepage nothing a real site could not.
     // Pictures are checked by the snapshot's own rules: inline images of four types, nothing an address could fetch.
-    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, { ...options, pages, emoji: emojiPictures(body.emoji) }));
+    const icons = body.icons === undefined ? undefined : textValues(body.icons);
+    return parseHomeSnapshot(castPreviewSnapshot(body.markdown, body.title, { ...options, pages, emoji: emojiPictures(body.emoji), icons }));
   } catch {
     return null;
   }
+}
+
+/** An object's string values, by key; anything else in it is dropped. */
+function textValues(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 /** Carried pages, or `null` when they are not all a name, a title and some text. */

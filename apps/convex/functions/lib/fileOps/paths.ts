@@ -7,6 +7,7 @@
 
 import { MAX_PATH_LENGTH } from "./store";
 import { FileOpError } from "./errors";
+import { ROLE_LABEL, isMainFolder, topLevelRole } from "@context/shared/src/folderRoles.cjs";
 
 /* -------------------------------------------------------------------------- */
 /*                                    paths                                   */
@@ -61,6 +62,22 @@ export function requirePath(input: string): string {
   const path = normalizePath(input);
   if (path === null) throw new FileOpError("PATH_INVALID", "That path is not valid.");
   return path;
+}
+
+/**
+ * Refuse to rename, move, archive or delete one of the five built-in folders
+ * (`packages/shared/src/folderRoles.cjs`). What is inside them stays the
+ * person's to move. Decided by the name alone, never by whether the folder
+ * exists or is visible, so the answer discloses nothing about the bucket.
+ */
+export function assertNotMainFolder(path: string): void {
+  if (!isMainFolder(path)) return;
+  const role = topLevelRole(path);
+  const label = role === null ? path : ROLE_LABEL[role];
+  throw new FileOpError(
+    "PATH_INVALID",
+    `${label} is a built-in folder, so it can't be renamed, moved or deleted. What's inside it can be.`,
+  );
 }
 
 /** The empty string is the bucket root, which normalizePath cannot express. */

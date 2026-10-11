@@ -48,7 +48,18 @@ export interface DomainView {
   /** Owner only, while records are missing: the provider can add them for you. */
   oneClick: OneClick | null;
   /** A root domain's `www.`, which sends visitors to the root once it is live. */
-  www: { hostname: string; live: boolean } | null;
+  www: WwwView | null;
+}
+
+/**
+ * A root domain's `www.`. It has its own certificate, so it can still be on
+ * its way, or stuck, while the root is already live.
+ */
+export interface WwwView {
+  hostname: string;
+  live: boolean;
+  stage: DomainStage;
+  problem: string | null;
 }
 
 export interface OneClick {
@@ -330,12 +341,38 @@ export function domainUrl(hostname: string, slug?: string): string {
   return slug === undefined ? `https://${hostname}` : `https://${hostname}/${slug}`;
 }
 
-/** Under a live root domain: what its `www.` does, or what it still needs. */
+/** The `www.` row's pill: the same words the root's pill uses. */
+export function wwwPill(www: WwwView): { tone: PillTone; label: string } {
+  if (www.live) return { tone: "ok", label: "Live" };
+  if (www.problem !== null && NEEDS_ATTENTION.has(www.problem)) return { tone: "warn", label: "Needs attention" };
+  if (www.stage === "https") return { tone: "neutral", label: "Securing" };
+  return { tone: "neutral", label: "Connecting" };
+}
+
+/**
+ * Under a live root domain: what its `www.` does, or what it still needs.
+ * Never "it works" before its own certificate is in: until then a visitor who
+ * types `www.` gets a security error, and the owner should hear that here.
+ */
 export function wwwSentence(domain: DomainView): string | null {
-  if (domain.www === null) return null;
-  if (domain.www.live) return `${domain.www.hostname} sends visitors to ${domain.hostname}.`;
+  const www = domain.www;
+  if (www === null) return null;
+  if (www.live) return `${www.hostname} sends visitors to ${domain.hostname}.`;
   const record = domain.records.find((candidate) => candidate.purpose === "www");
+  switch (www.problem) {
+    case "ROUTING_BLOCKED":
+      return `${www.hostname} isn't reaching Context. Check its CNAME points at ${record?.value ?? "the address below"}, then check again.`;
+    case "CERTIFICATE_FAILED":
+      return `${www.hostname}'s certificate couldn't be issued. A CAA record on ${registrableDomain(domain.hostname)} may not allow letsencrypt.org and pki.goog. Fix it, then check again.`;
+    case "TIMED_OUT":
+      return `We stopped checking ${www.hostname}. Check its CNAME at your DNS provider, then check again.`;
+    case "PROVIDER_REFUSED":
+      return `Our certificate provider turned ${www.hostname} down. Check again, and if it stays this way, remove the domain and connect it again.`;
+  }
+  if (www.stage === "https") {
+    return `${www.hostname} reaches Context and its own certificate is on the way, usually within minutes. Until then, visitors who type it see a security error.`;
+  }
   return record === undefined
-    ? `${domain.www.hostname} is being connected.`
-    : `To send ${domain.www.hostname} here too, add a CNAME for ${record.host} pointing at ${record.value}.`;
+    ? `${www.hostname} is being connected.`
+    : `To send ${www.hostname} here too, add a CNAME for ${record.host} pointing at ${record.value}.`;
 }

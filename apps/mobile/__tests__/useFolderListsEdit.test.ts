@@ -29,7 +29,14 @@ jest.mock("convex/react", () => ({
   },
 }));
 jest.mock("@context/convex/_generated/api", () => ({
-  api: { functions: { files: { readNote: { name: "readNote" }, writeNote: { name: "writeNote" } } } },
+  api: { functions: { files: {
+        readNote: { name: "readNote" },
+        readNotes: { name: "readNotes" },
+        syncManifest: { name: "syncManifest" },
+        writeNote: { name: "writeNote" },
+      },
+      folderNotes: { folderNotes: { name: "folderNotes" } },
+  } },
 }));
 
 import { act, createElement } from "react";

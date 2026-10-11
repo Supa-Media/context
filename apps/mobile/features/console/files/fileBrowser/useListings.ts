@@ -23,12 +23,13 @@ import { onMirrorListed, requestMirrorRefresh } from "../../../offline/mirrorEve
 import type { MirroredTree } from "../../../offline/mirror";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
+import { adoptMirroredTree, stampLiveFolders, wantsLiveListing } from "./liveListing";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 
 type ListingsDeps =
-  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "workspaceId">
+  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "workspaceId">
   & Pick<
     BrowserStateValues,
     | "dispatch"
@@ -48,7 +49,7 @@ type ListingsDeps =
 export function useListings(deps: ListingsDeps) {
   const {
     dispatch, listFiles, listedAtRef, listings, notePathsAction, offlineRef, openRun,
-    searchContext, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
+    searchContext, reportSearchScreen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
     setOpening, setSelectedPath, workspaceId,
   } = deps;
 
@@ -211,7 +212,7 @@ export function useListings(deps: ListingsDeps) {
     (path: string, fresh = false) => {
       if (workspaceId === null) return;
       // `fresh`: something outside this browser wrote here — a layout landing.
-      if (!fresh && listings[path] !== undefined) return;
+      if (!fresh && !wantsLiveListing(path, listings, listedAtRef.current, offlineRef.current.reachability === "offline")) return;
       void refresh([path]).catch(reportRefreshFailure);
     },
     [listings, refresh, reportRefreshFailure, workspaceId],
@@ -234,31 +235,15 @@ export function useListings(deps: ListingsDeps) {
    * `fromDevice` is the tree as it was when this context was opened: it fills
    * only folders nothing has listed yet, because anything already here came
    * from the bucket this session. Otherwise the tree is a walk the mirror just
-   * committed, and it replaces each folder whose own live listing started
-   * before that walk did; when the walk was complete it also drops folders it
-   * no longer names — deleted, moved, or no longer visible — unless a newer
-   * live listing says otherwise.
+   * committed — see `adoptMirroredTree` for what a complete walk and a partial
+   * one may each replace.
    */
   const adoptTree = useCallback(
     (tree: MirroredTree, options: { fromDevice: boolean }) => {
       const listedAt = listedAtRef.current;
-      const newer = (folder: string) => (listedAt.get(folder) ?? -Infinity) >= tree.listedAt;
       setListings((current) => {
-        const next: Listings = { ...current };
-        for (const [folder, listing] of tree.value) {
-          // From the device: only where the bucket has said nothing yet — no
-          // listing, and no refusal either.
-          const skip = options.fromDevice
-            ? current[folder] !== undefined || listedAt.has(folder)
-            : newer(folder);
-          if (skip) continue;
-          next[folder] = listing;
-        }
-        if (!options.fromDevice && tree.complete) {
-          for (const folder of Object.keys(current)) {
-            if (!tree.value.has(folder) && !newer(folder)) delete next[folder];
-          }
-        }
+        const next = adoptMirroredTree(current, tree, listedAt, options.fromDevice);
+        stampLiveFolders(next, tree, listedAt);
         return next;
       });
     },
@@ -467,7 +452,11 @@ export function useListings(deps: ListingsDeps) {
         else next.add(path);
         return next;
       });
-      if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
+      // A folder only the device has drawn is asked for too: its copy may be a
+      // walk that never reached the notes inside (`liveListing.ts`).
+      if (wantsLiveListing(path, listings, listedAtRef.current, offlineRef.current.reachability === "offline")) {
+        void refresh([path]).catch(reportRefreshFailure);
+      }
     },
     [listings, refresh, reportRefreshFailure],
   );
@@ -484,11 +473,26 @@ export function useListings(deps: ListingsDeps) {
    */
   const search = useCallback(
     async (query: string, prefix?: string) => {
+      // What the person waited, from asking to the answer on this device: the
+      // figure the admin console's Search tab leads with. Sent behind the
+      // answer and never awaited — a timing must not slow or fail a search.
+      const started = Date.now();
       const found = await searchContext({
         workspaceId: workspaceId as Id<"workspaces">,
         query,
         ...(prefix === undefined ? {} : { prefix }),
       });
+      try {
+        void Promise.resolve(
+          reportSearchScreen({
+            workspaceId: workspaceId as Id<"workspaces">,
+            ms: Date.now() - started,
+            found: found.hits.length > 0,
+          }),
+        ).catch(() => {});
+      } catch {
+        // See above: never the reason a search fails.
+      }
       return {
         hits: found.hits,
         indexMissing: found.indexMissing,
@@ -497,7 +501,7 @@ export function useListings(deps: ListingsDeps) {
         reducedRecallNotes: found.reducedRecallNotes,
       };
     },
-    [searchContext, workspaceId],
+    [searchContext, reportSearchScreen, workspaceId],
   );
 
   return {

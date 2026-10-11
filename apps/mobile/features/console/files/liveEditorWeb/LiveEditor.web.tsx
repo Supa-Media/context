@@ -101,7 +101,6 @@ export function LiveEditor({
   onPickSuggestion,
   onPreviewLinks,
   onDictate,
-  onAsk,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -291,8 +290,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -593,7 +592,6 @@ export function LiveEditor({
             hasSelection: !view.current.state.selection.main.empty,
             apple: isApplePlatform(),
             canDictate: onDictate !== undefined,
-            canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
             canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,

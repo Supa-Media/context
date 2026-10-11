@@ -52,6 +52,11 @@ a reviewer.
 - **Encrypted notes are excluded entirely** (architecture 7.6; controller
   ruling OPEN-18). An encrypted body yields `coverage: "excluded"`, no
   occurrences, and no memberships, not even a bare-name entry.
+- **Names are keyed loosely** (RESOLVER_VERSION 2; merge of main's #1512, where
+  `[[Eve]]` resolves to `eve.md`). `nameHash` sets aside case, spaces,
+  underscores and hyphens, so a `bare/` posting list holds every link that could
+  resolve to a note and `names/` every note a link could mean. The list is a
+  superset by design; `resolveLink` still decides the exact target.
 - **The graph is bucket native and its health is stated, never assumed** (PLAN
   decision P4; controller ruling OPEN-10 and OPEN-13). On a store without
   conditional write and conditional create the graph still runs, with

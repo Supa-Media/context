@@ -190,6 +190,42 @@ describe.each([
     });
   });
 
+  test("each row names the landing page it came from, and the summary counts them", () => {
+    mockAnswers.set("functions/admin:listWaitlist", {
+      rows: [{ ...waiting[0], landing: "c" }, waiting[1]],
+      more: false,
+      counts: { waiting: 2, admitted: 0 },
+    });
+    mockAnswers.set("functions/admin:waitlistLandingCounts", [
+      { landing: "a", joined: 1, admitted: 0 },
+      { landing: "c", joined: 1, admitted: 0 },
+    ]);
+    mount();
+    click("admin-tab-waitlist");
+    expect(find("admin-waitlist-row-wl_one")?.textContent).toContain("page c");
+    expect(find("admin-waitlist-row-wl_two")?.textContent).not.toContain("page");
+    expect(find("admin-waitlist-landing")?.textContent).toBe("Joined from: a 1 · c 1");
+    expect(find("admin-waitlist-ads")).toBeNull();
+  });
+
+  test("a row an ad sent names the ad, and the summary counts each page and ad", () => {
+    mockAnswers.set("functions/admin:listWaitlist", {
+      rows: [{ ...waiting[0], landing: "b", campaign: "meta / spring" }, waiting[1]],
+      more: false,
+      counts: { waiting: 2, admitted: 0 },
+    });
+    mockAnswers.set("functions/admin:waitlistLandingCounts", [
+      { landing: "a", joined: 2, admitted: 0 },
+      { landing: "b", joined: 1, admitted: 0 },
+      { landing: "b", campaign: "meta / spring", joined: 3, admitted: 1 },
+    ]);
+    mount();
+    click("admin-tab-waitlist");
+    expect(find("admin-waitlist-row-wl_one")?.textContent).toContain("page b · meta / spring");
+    expect(find("admin-waitlist-landing")?.textContent).toBe("Joined from: a 2 · b 4");
+    expect(find("admin-waitlist-ads")?.textContent).toBe("From ads: b meta / spring 3");
+  });
+
   test("rows render, with the answer or a dash", () => {
     mount();
     click("admin-tab-waitlist");
@@ -254,7 +290,7 @@ describe.each([
     expect(find("admin-waitlist-add")).toBeNull();
     const said = find("admin-waitlist-outcome")?.textContent ?? "";
     expect(said).toContain("Let 2 people in. They'll get an email.");
-    expect(said).toContain("Not email addresses, so skipped: not-an-email.");
+    expect(said).toContain("Not an email or a phone with its country code, so skipped: not-an-email.");
   });
 
   test("the signup-alerts switch names the address and turns alerts on", async () => {

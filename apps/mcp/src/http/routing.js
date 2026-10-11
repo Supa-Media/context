@@ -31,6 +31,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A vault link (`tools/vault.js`): a page where the person saves or shares
+  // a login themselves, signed in. The control plane builds the URL.
+  Object.defineProperty(store, "vaultLinks", {
+    value: {
+      request: (request) => controlPlane.vaultRequest(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),
@@ -77,7 +87,9 @@ export function attachGatewayJobQueue(store, session, controlPlane, env) {
   Object.defineProperty(store, "enqueueGatewayJob", {
     value: async (job) => {
       const ticket = await controlPlane.createGatewayJob(session.accessToken, session.workspaceId, job);
+      if (ticket === null) return false;
       await queue.send({ ticket, kind: job.kind, moveId: job.moveId });
+      return true;
     },
     enumerable: false,
     writable: false,

@@ -16,16 +16,55 @@ export const DEFAULT_USD_PER_MTOK = 0.24;
 /** Four characters a token is the usual English estimate; the Worker does not pass on the model's count. */
 export const CHARS_PER_TOKEN = 4;
 
-/**
- * The writing model's published prices, input then output, in US dollars per
- * million tokens (GLM-4.7 Flash, the default writing model, on Cloudflare's Workers AI pricing page,
- * 2026-10-05). The Worker passes on the model's own counts, so a written
- * answer is priced exactly rather than estimated.
- */
-export const WRITING_USD_PER_MTOK = { input: 0.06, output: 0.4 } as const;
+/** US dollars per million tokens, for each token kind a written answer can spend. */
+export interface ModelUsdPerMtok {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
 
-export function writingCostMicroUsd(usage: { input: number; output: number }): number {
-  return Math.round(usage.input * WRITING_USD_PER_MTOK.input + usage.output * WRITING_USD_PER_MTOK.output);
+/**
+ * The writing models' list prices, in US dollars per million tokens, keyed by
+ * the exact model name the gateway reports. Source: Anthropic's and
+ * Cloudflare's published price pages, 2026-10-08. These are our list prices:
+ * a plan's free credit may pay the bill, but the meter still prices each turn
+ * at list so the cap and the usage page mean the same thing on every plan.
+ *
+ * Cache reads and writes are separate rates, so a cached prompt is priced as
+ * the provider bills it, not at the input rate.
+ */
+export const MODEL_USD_PER_MTOK: ReadonlyMap<string, ModelUsdPerMtok> = new Map([
+  ["@cf/zai-org/glm-4.7-flash", { input: 0.06, output: 0.4, cacheRead: 0.06, cacheWrite: 0.06 }],
+  ["anthropic/claude-haiku-5-5", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
+]);
+
+/** The row a model we do not price falls back to: GLM-4.7 Flash, today's built-in model. */
+export const WRITING_USD_PER_MTOK: ModelUsdPerMtok = MODEL_USD_PER_MTOK.get("@cf/zai-org/glm-4.7-flash")!;
+
+export function writingPriceFor(model: string | null | undefined): ModelUsdPerMtok {
+  return (model && MODEL_USD_PER_MTOK.get(model)) || WRITING_USD_PER_MTOK;
+}
+
+/**
+ * Micro-US-dollars for one written answer's tokens. Dollars per million tokens
+ * is the same number as micro-dollars per token, so each count multiplies its
+ * rate directly.
+ */
+export function writingCostMicroUsd(usage: {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  model?: string | null;
+}): number {
+  const price = writingPriceFor(usage.model);
+  return Math.round(
+    usage.input * price.input +
+      usage.output * price.output +
+      (usage.cacheRead ?? 0) * price.cacheRead +
+      (usage.cacheWrite ?? 0) * price.cacheWrite,
+  );
 }
 
 export type JevRefusal = "disabled" | "switched_off" | "not_premium" | "daily_cap";
@@ -84,9 +123,26 @@ export async function usageRow(ctx: QueryCtx, day: string, feature: string, work
     .unique();
 }
 
+/** Whether the workspace's plan is paying right now. Asked at the moment of use. */
+export async function isPaying(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+}
+
+/**
+ * The daily cap that applies to this workspace: the paying cap, or for a
+ * free workspace on a feature open to every plan, its free cap (none: zero).
+ */
+export function capFor(feature: JevFeatureName, paying: boolean): number {
+  const def = JEV_FEATURES[feature];
+  if (def.plan === "everyone" && !paying) return def.dailyCallsFree ?? 0;
+  return def.dailyCallsPerWorkspace;
+}
+
 /**
  * May this workspace use this feature right now, and for how many requests?
  * Asked at the moment of use, never cached across a run's start.
+ * A "premium" feature refuses a workspace that is not paying; an "everyone"
+ * feature never does, and only its cap differs (`capFor`).
  */
 export async function gate(
   ctx: QueryCtx,
@@ -96,9 +152,10 @@ export async function gate(
 ): Promise<{ allowed: true; remaining: number } | { allowed: false; reason: JevRefusal }> {
   if (disabledByEnv(feature)) return { allowed: false, reason: "disabled" };
   if (!(await featureIsOn(ctx, feature))) return { allowed: false, reason: "switched_off" };
-  if (!planIsPaying(statusOf(await planFor(ctx, workspaceId)))) return { allowed: false, reason: "not_premium" };
+  const paying = await isPaying(ctx, workspaceId);
+  if (JEV_FEATURES[feature].plan === "premium" && !paying) return { allowed: false, reason: "not_premium" };
   const used = await usageRow(ctx, utcDay(now), feature, workspaceId);
-  const remaining = JEV_FEATURES[feature].dailyCallsPerWorkspace - ((used?.calls ?? 0) + (used?.failed ?? 0));
+  const remaining = capFor(feature, paying) - ((used?.calls ?? 0) + (used?.failed ?? 0));
   if (remaining <= 0) return { allowed: false, reason: "daily_cap" };
   return { allowed: true, remaining };
 }
@@ -117,6 +174,70 @@ export interface UsageDelta {
   writtenMicroUsd?: number;
   /** Of `tokens`, those already priced in `writtenMicroUsd`. */
   writtenTokens?: number;
+}
+
+/** A model name as the gateway reports it, e.g. "anthropic/claude-haiku-5-5". Anything else is never stored. */
+export const MODEL_NAME = /^[\w@./:-]{1,128}$/;
+
+/** One model's spend in one report, numbers only. */
+export interface ModelUsage {
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costMicroUsd: number;
+}
+
+/**
+ * Add one model's share of a report to `aiModelUsage`, for today's UTC day.
+ * A name that fails `MODEL_NAME` is ignored, and so is an all-zero report, so
+ * a caller can pass what it has without checking. Costs must be the same
+ * figures `addUsage` was given for the same report, so the two tables agree.
+ */
+export async function addModelUsage(
+  ctx: MutationCtx,
+  feature: string,
+  workspaceId: Id<"workspaces">,
+  model: string,
+  usage: ModelUsage,
+  now: number,
+): Promise<void> {
+  if (!MODEL_NAME.test(model)) return;
+  const counts = [usage.calls, usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.costMicroUsd];
+  if (counts.every((n) => n === 0)) return;
+  const day = utcDay(now);
+  const row = await ctx.db
+    .query("aiModelUsage")
+    .withIndex("by_day_feature_model_workspace", (q) =>
+      q.eq("day", day).eq("feature", feature).eq("model", model).eq("workspaceId", workspaceId),
+    )
+    .unique();
+  if (row) {
+    await ctx.db.patch(row._id, {
+      calls: row.calls + usage.calls,
+      inputTokens: row.inputTokens + usage.input,
+      outputTokens: row.outputTokens + usage.output,
+      cacheReadTokens: row.cacheReadTokens + usage.cacheRead,
+      cacheWriteTokens: row.cacheWriteTokens + usage.cacheWrite,
+      costMicroUsd: row.costMicroUsd + usage.costMicroUsd,
+      updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.insert("aiModelUsage", {
+    day,
+    feature,
+    model,
+    workspaceId,
+    calls: usage.calls,
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
+    costMicroUsd: usage.costMicroUsd,
+    updatedAt: now,
+  });
 }
 
 export async function addUsage(

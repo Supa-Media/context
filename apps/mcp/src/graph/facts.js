@@ -10,7 +10,7 @@ import { nameHash, pathHash, urlHash } from "./keys.js";
 import { URL_KEY_VERSION, urlKey } from "./urlKey.js";
 
 export const PARSER_VERSION = 1;
-export const RESOLVER_VERSION = 1;
+export const RESOLVER_VERSION = 2; // 2: bare names and basenames are keyed loosely (main's [[Eve]] finds eve.md)
 
 const baseName = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
 
@@ -21,7 +21,8 @@ const baseName = (path) => path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/
  */
 function classify(occurrence, fromPath) {
   let name = null;
-  const spy = { get(n) { name = n; return undefined; } };
+  const spy = new Map(); // empty and iterable: resolveLink's loose fallback walks it
+  spy.get = (n) => { name = n; return undefined; };
   const path = resolveLink(occurrence, fromPath, spy);
   return { path, name };
 }

@@ -32,17 +32,19 @@ describe("Premium keeps at least one", () => {
       mid-checkout) reached `setEntitlements`, which refuses it with
       ENTITLEMENTS_EMPTY, and the refusal was reported as an error. The box is
       now not offered, and the hint says why.
+
+      Fast search is no longer a box, so managed storage is the one that can be
+      the last.
     */
     const paying = status({
       status: "active",
-      selected: { managedStorage: false, fastSearch: true },
+      selected: { managedStorage: true, fastSearch: false },
       keepOneSelected: true,
     });
     const rows = entitlementRows(paying);
-    expect(rows[0]!.locked).toBeUndefined();
-    expect(rows[1]!.locked).toBe(true);
+    expect(rows[0]!.locked).toBe(true);
     expect(entitlementsHint(paying)).toMatch(/keeps at least one on\. To stop paying, use Manage billing/);
-    expect(wouldEmptyRequiredSelection(paying, "fastSearch", false)).toBe(true);
+    expect(wouldEmptyRequiredSelection(paying, "managedStorage", false)).toBe(true);
     // Adding the other one is always allowed.
     expect(wouldEmptyRequiredSelection(paying, "managedStorage", true)).toBe(false);
 
@@ -55,14 +57,36 @@ describe("Premium keeps at least one", () => {
     expect(entitlementsHint(checkingOut)).toMatch(/keeps at least one on\.$/);
   });
 
-  test("nothing is locked when either box may go", () => {
+  test("the plan's fast search flag still counts, as the control plane counts it", () => {
+    /*
+      The flag no longer does anything for the customer, but the control plane
+      still refuses an empty selection by counting it. So with it on, unticking
+      managed storage is allowed, and with it off, it is refused here too.
+    */
+    const flagOn = status({
+      status: "active",
+      selected: { managedStorage: true, fastSearch: true },
+      keepOneSelected: true,
+    });
+    expect(wouldEmptyRequiredSelection(flagOn, "managedStorage", false)).toBe(false);
+    expect(entitlementRows(flagOn)[0]!.locked).toBeUndefined();
+
+    const flagOff = status({
+      status: "active",
+      selected: { managedStorage: true, fastSearch: false },
+      keepOneSelected: true,
+    });
+    expect(wouldEmptyRequiredSelection(flagOff, "managedStorage", false)).toBe(true);
+  });
+
+  test("nothing is locked when managed storage may go", () => {
     const both = status({
       status: "active",
       selected: { managedStorage: true, fastSearch: true },
       keepOneSelected: true,
     });
     expect(entitlementRows(both).some((row) => row.locked)).toBe(false);
-    expect(wouldEmptyRequiredSelection(both, "fastSearch", false)).toBe(false);
+    expect(wouldEmptyRequiredSelection(both, "managedStorage", false)).toBe(false);
     expect(entitlementsHint(both)).not.toMatch(/at least one/);
 
     // Nobody paying: undoing the only choice is not a cancellation.

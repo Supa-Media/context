@@ -12,11 +12,13 @@ import { PeopleList } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/activity";
 import type { ExplorerProps } from "./props";
-import { AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
+import { ACTIVITY_LIFT, AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
 import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
-import { ReviewPopover } from "../../../organizer/Review";
-import { footCount } from "../../../organizer/rules";
+import { changesCount } from "../../../organizer/rules";
 import type { ExplorerState } from "./useExplorer";
+import { useChaosView } from "../../../chaos/ChaosContext";
+import { ChaosFootPopover } from "../../../chaos/ChaosPopover";
+import { scoreShown } from "../../../chaos/chaosModel";
 
 /**
  * The two popovers the foot's lines open: what changed, and which agents are
@@ -50,11 +52,15 @@ export function ExplorerFootLists({
   const organizer = useOrganizerView();
   const undoFor = useOrganizerUndoFor();
   /*
-    The popovers sit above the foot's lines, and auto-organize's is one more
-    of them — so every popover rises by it, or the list covers the line.
+    The popovers sit above the foot's lines, and auto-organize's "What
+    changed" is one more of them — so every popover rises by it, or the list
+    covers the line.
   */
-  const organizerLine = footCount(organizer?.status ?? null) !== null;
-  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? 76) + AGENTS_LINE_HEIGHT } : sheetLift;
+  const organizerLine = changesCount(organizer?.status ?? null) !== null;
+  // The chaos line is one more (`features/chaos`).
+  const chaos = useChaosView();
+  const lines = (organizerLine ? 1 : 0) + (chaos !== undefined && scoreShown(chaos.result) ? 1 : 0);
+  const lift = lines > 0 ? { bottom: (sheetLift?.bottom ?? ACTIVITY_LIFT) + lines * AGENTS_LINE_HEIGHT } : sheetLift;
   return (
     <>
       {/*
@@ -117,9 +123,8 @@ export function ExplorerFootLists({
           </ScrollView>
         </View>
       ) : null}
-      {organizer !== undefined && organizer.reviewOpen && organizerLine ? (
-        <ReviewPopover organizer={organizer} lift={lift} />
-      ) : null}
+
+      <ChaosFootPopover lift={lift ?? undefined} />
     </>
   );
 }

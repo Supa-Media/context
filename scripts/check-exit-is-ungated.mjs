@@ -92,6 +92,17 @@ export const GATE_TERMS = [
   "planFor",
 ];
 
+/**
+ * Exact string literals that carry a gate term but name somebody else's
+ * protocol, not a plan of ours. Each is removed, quotes and all, before the
+ * terms are looked for, so the same word anywhere else still reddens.
+ *
+ * - `"x-subscription-token"`: the header Brave Search reads its API key from
+ *   (`apps/mcp/src/agent/search.js`). It is our key to their service, and it
+ *   says nothing about what a customer has paid for.
+ */
+export const FOREIGN_LITERALS = ['"x-subscription-token"'];
+
 function filesUnder(path) {
   const stat = statSync(path);
   if (!stat.isDirectory()) return [path];
@@ -106,7 +117,8 @@ function filesUnder(path) {
 
 /** Every gate term appearing in `source` outside comments. */
 export function gatesIn(source) {
-  const code = stripComments(source);
+  let code = stripComments(source);
+  for (const literal of FOREIGN_LITERALS) code = code.split(literal).join('""');
   const found = [];
   for (const term of GATE_TERMS) {
     // Word-boundaried and case-insensitive: `Premium`, `PREMIUM_PLAN` and
@@ -138,6 +150,8 @@ function selfTest() {
     ["the comment that documents compliance", `// deliberately not gated on canEdit — downloading is a read\nreturn download();`, false],
     ["a block comment naming the rule", `/* A function that consults the plan (premium, subscription) is forbidden. */\nok();`, false],
     ["an honest cancelled event status", `const status = raw?.status === "cancelled" ? "cancelled" : "confirmed";`, false],
+    ["a search provider's header name", `headers: { "x-subscription-token": key }`, false],
+    ["that word gating anything else", `headers: { "x-subscription-token": key }; if (!subscription) return null;`, true],
     ["ordinary export code", `const bytes = await store.get(key); return bytes.arrayBuffer();`, false],
   ];
   let failed = 0;

@@ -26,6 +26,7 @@ import {
   searchProjection,
   worker,
 } from "./fixtures.mjs";
+import { showAtMovedPaths } from "../../src/search/visibleNotes.js";
 
 
 /* ========================================================================
@@ -433,11 +434,15 @@ export async function runServeChecks(check) {
     const teamReads = d1.requests
       .slice(beforeTeamSearch)
       .filter((request) => PROJECTION_READ.test(request.sql));
+    // Two reads, because nothing matched strictly and the relaxed second try
+    // asked again (`toRelaxedMatchExpression`); each names the team table
+    // alone.
     check(
-      "asking exactly one table, the team one",
-      teamReads.length === 1 &&
-        teamReads[0].sql.includes("notes_team_fts") &&
-        !teamReads[0].sql.includes("notes_private_fts"),
+      "asking only the team table, strictly and then relaxed",
+      teamReads.length === 2 &&
+        teamReads.every(
+          (read) => read.sql.includes("notes_team_fts") && !read.sql.includes("notes_private_fts"),
+        ),
     );
     const owner = await search("wombat");
     check(
@@ -631,6 +636,23 @@ export async function runServeChecks(check) {
         JSON.stringify((await atDepth(10)).hits),
     );
 
+    // A hit from the any-word retry says so, so search by meaning can rank
+    // its own matches above it (`meaning/serve.js`, `mergeHits`); a hit
+    // that held every word does not.
+    let asked = 0;
+    const retried = await answerFromProjection(
+      { query: async () => (asked++ === 0 ? [] : pageOf(3)) },
+      { query: "who left the team", tier: "team", isVisible: () => true, chunkCap: 200 },
+    );
+    check(
+      "hits from the any-word retry are marked loose",
+      retried.hits.length === 3 && retried.hits.every((hit) => hit.loose === true),
+    );
+    check(
+      "hits that held every word are not",
+      (await atDepth(10)).hits.every((hit) => !("loose" in hit)),
+    );
+
     // -- 5. a refused database is not a failed search ----------------------
     d1.state.fail = 500;
     const refused = await search("numbat");
@@ -652,11 +674,13 @@ export async function runServeChecks(check) {
       refused.text.includes("1-projects/") && refused.answerReads > 0,
     );
 
-    // -- 6. a miss falls through rather than answering "none" --------------
+    // -- 6. a ready projection's miss is the answer, never the bucket index ---
     //
-    // A note that exists in the bucket and in the R2 index and is deliberately
-    // NOT in the projection: the row is deleted underneath it, which is what a
-    // projection that is behind, was rebuilt, or lost a row looks like.
+    // Dev2, 2026-10-08: the bucket index is the slow path and searches must
+    // not fall through to it. A note deliberately NOT in the projection (the
+    // row deleted underneath it) is therefore not found by words — search by
+    // meaning, merged by the tool layer, is what covers a projection behind —
+    // and the search read nothing out of the bucket to say so.
     seed("1-projects/bilby.md", "# Bilby\n\nA bilby sighting.\n", "s6");
     ready("backfilling");
     for (let round = 0; round < 3; round += 1) await search("bilby");
@@ -664,8 +688,15 @@ export async function runServeChecks(check) {
     d1.db.exec(`DELETE FROM notes_team_fts WHERE path = '1-projects/bilby.md'`);
     const missed = await search("bilby");
     check(
-      "a projection that has lost a row does not report the note as missing",
-      missed.text.includes("1-projects/bilby.md"),
+      "a ready projection's miss answers no matches rather than asking the bucket index",
+      !missed.text.includes("1-projects/bilby.md") && missed.answerReads === 0,
+    );
+    // The relaxed second try: not every word is in the note, and one is only
+    // the start of a word in it. Strict AND finds nothing; the retry does.
+    const relaxed = await search("pademel sighting nowhere");
+    check(
+      "a query whose words are not all present still finds the note holding some of them",
+      relaxed.text.includes("1-projects/stub.md") && relaxed.answerReads === 0,
     );
 
     // -- the one thing the fast path is worse at ---------------------------
@@ -838,6 +869,86 @@ export async function runServeChecks(check) {
       d1.rowsIn(DATABASE_ID_B, `SELECT path FROM notes`).every((row) =>
         row.path.startsWith("1-projects/field"),
       ) && d1.rows(`SELECT path FROM notes WHERE path = '1-projects/field.md'`).length === 0,
+    );
+
+    // -- a folder move in flight -------------------------------------------
+    /*
+     * Production, 2026-10-08: a stalled folder move in @seyi sent every
+     * whole-context search to the literal scan, which spent the budget and
+     * failed "search budget exhausted". A ready projection now answers, with
+     * a moved note shown at its new path.
+     */
+    const job = {
+      version: 1,
+      id: "move-serve-0000000001",
+      source: "1-projects/roster.md",
+      destination: "2-areas/roster.md",
+      objects: [{ source: "1-projects/roster.md", destination: "2-areas/roster.md" }],
+      status: "logical_active",
+      created_at: "2026-10-08T00:00:00.000Z",
+    };
+    seed(".context/moves/move-serve-0000000001.json", JSON.stringify(job), "mv1");
+    seed(".context/moves/active", JSON.stringify({ version: 1, active: true }), "mv2");
+    const midMove = await search("roster");
+    bucket.delete(".context/moves/move-serve-0000000001.json");
+    bucket.delete(".context/moves/active");
+    check(
+      "a move in flight does not send a whole-context search to the scan",
+      !midMove.body.result?.isError && midMove.answerReads === 0,
+    );
+    check(
+      "...and a moved note is shown at its new path, never its old one",
+      midMove.text.includes("2-areas/roster.md") && !midMove.text.includes("1-projects/roster.md"),
+    );
+
+    /*
+     * The same move, beside the tombstones of every move that finished before
+     * it. Each is a marker-sized object the logical-delete view must GET to
+     * hide, and each GET was charged to the search's budget, so loading the
+     * move list spent it all and the search died "search budget exhausted"
+     * (@seyi, production, 2026-10-08, still failing after the move-aware fast
+     * path above).
+     */
+    const TOMBSTONES = 60;
+    const marker = (n) => `context.logical-delete.v1.${String(n).padStart(32, "0")}.${"a".repeat(64)}`;
+    for (let n = 0; n < TOMBSTONES; n += 1) {
+      seed(`.context/moves/move-done-${String(n).padStart(10, "0")}.json`, marker(n), `mt${n}`);
+    }
+    seed(".context/moves/move-serve-0000000001.json", JSON.stringify(job), "mv1");
+    seed(".context/moves/active", JSON.stringify({ version: 1, active: true }), "mv2");
+    const pastTombstones = await search("roster", SERVE_TOKEN_OWNER, 40);
+    bucket.delete(".context/moves/move-serve-0000000001.json");
+    bucket.delete(".context/moves/active");
+    for (let n = 0; n < TOMBSTONES; n += 1) bucket.delete(`.context/moves/move-done-${String(n).padStart(10, "0")}.json`);
+    check(
+      "finished moves' tombstones do not spend a search's budget before it asks anything",
+      !pastTombstones.body.result?.isError && pastTombstones.text.includes("2-areas/roster.md"),
+    );
+
+    const hidden = showAtMovedPaths(
+      { hits: [{ key: "1-projects/roster.md", title: "Roster", snippets: [] }], matchCount: 1, matchCountIsFloor: false },
+      [job],
+      (path) => path !== "2-areas/roster.md",
+    );
+    check(
+      "...and one the caller may not see at its new path is dropped, count and all",
+      hidden.hits.length === 0 && hidden.matchCount === 0,
+    );
+
+    // -- a filling projection behind an empty, catching-up answer ------------
+    /*
+     * @seyi, 2026-10-08: mid-backfill the projection held 9,129 notes while
+     * every search answered "(no matches)" with the catching-up note. When
+     * the ordinary answer is empty AND says it is behind, the part already
+     * copied is asked, and the answer keeps saying it may be incomplete.
+     */
+    ready("backfilling");
+    bucket.delete(".context/search/v2/manifest.json");
+    const behind = await search("numbat", SERVE_TOKEN_OWNER, 15);
+    ready("ready");
+    check(
+      "an empty answer that is behind asks the projection copied so far",
+      behind.text.includes("1-projects/") && /still catching up/.test(behind.text),
     );
 
     // -- the credential, on the read path ----------------------------------

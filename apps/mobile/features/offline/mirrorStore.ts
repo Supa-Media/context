@@ -141,6 +141,11 @@ export function fileMirrorStore(): MirrorStore {
 
 let opened: Promise<MirrorStore | null> | null = null;
 
+/** Whether this runtime keeps an offline copy at all: the phone apps always do. */
+export function mirrorSupported(): boolean {
+  return true;
+}
+
 /**
  * The one mirror store for the life of the app.
  *

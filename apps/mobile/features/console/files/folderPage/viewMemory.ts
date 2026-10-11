@@ -1,7 +1,6 @@
 /**
- * Which view somebody last picked for a folder — Notes, List or Board — and
- * what its List's filter bar has ticked (`showFilter.ts`), kept per viewer, per
- * workspace, per folder. Neither is ever written to a note.
+ * Which view somebody last picked for a folder — Notes, List or Board — kept
+ * per viewer, per workspace, per folder. It is never written to a note.
  *
  * A convenience and nothing more: it lives in this browser's storage where
  * there is one, and in memory for the session where there is not (a native
@@ -11,7 +10,6 @@
  */
 
 import type { FolderPageView } from "./model";
-import { parseShowFilter, showFilterKey, type ShowFilter } from "./showFilter";
 
 const PREFIX = "context.folderView";
 const VIEWS: readonly FolderPageView[] = ["files", "list", "board"];
@@ -51,30 +49,6 @@ export function rememberView(workspaceId: string, folder: string, view: FolderPa
   }
 }
 
-const filters = new Map<string, ShowFilter>();
-
-/** The List's filter this viewer last ticked here, without its search; null for none. */
-export function rememberedFilter(workspaceId: string, folder: string): ShowFilter | null {
-  const key = `${keyOf(workspaceId, folder)}\u001ffilter`;
-  const held = filters.get(key);
-  if (held !== undefined) return held;
-  try {
-    return parseShowFilter(storage()?.getItem(key));
-  } catch {
-    return null;
-  }
-}
-
-export function rememberFilter(workspaceId: string, folder: string, filter: ShowFilter): void {
-  const key = `${keyOf(workspaceId, folder)}\u001ffilter`;
-  filters.set(key, filter);
-  try {
-    storage()?.setItem(key, showFilterKey(filter));
-  } catch {
-    // Remembered for this session only.
-  }
-}
-
 const dismissed = new Set<string>();
 
 /** Whether this viewer closed the "track these by status?" line on this folder. */
@@ -106,6 +80,5 @@ export function trackNudgeKey(workspaceId: string): string {
 /** For tests: forget everything held in memory. */
 export function forgetViews(): void {
   memory.clear();
-  filters.clear();
   dismissed.clear();
 }

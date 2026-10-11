@@ -228,25 +228,36 @@ export function computeRanks(index) {
  * what stops a future cache from turning one caller's view into the ranks
  * every later caller scores against.
  *
- * **The narrowed path is the common one, and an earlier version of this comment
- * said the opposite.** It claimed "an owner sees every note, so the common case
- * allocates nothing" — but `visibilityTierForGrant` answers `team` for an owner
- * whose grant lacks `context:private`, and the consent screen defaults every
- * grant to `team`, owners included, deliberately (CLAUDE.md, *the privacy tier
- * is a scope on the grant*). So on any context with a private folder, an
- * owner's own client takes this path. The identity return is for a context that
- * hides nothing *from this caller*, which is a different and smaller
- * population.
+ * **Nothing under `src/` calls this today, and two earlier versions of this
+ * comment were wrong about that in opposite directions.** One claimed the
+ * identity return was the common case; the next claimed this narrowed path was,
+ * reasoning from `visibilityTierForGrant` answering `team` for most grants. The
+ * tier reasoning is right and the conclusion was still false: v1's query half
+ * (`searchIndex` below) has no production caller at all, so neither path is
+ * taken on a live request. A search is served by the v2 shard walk, which
+ * narrows at the shard boundary instead — `shardQuery.js`'s
+ * `collectShardCandidates` computes `N`, `avglen`, `df` and the expansion
+ * vocabulary over the docs it saw as visible and omits PageRank entirely — or
+ * by `d1/query.js`, where the table split per tier does the same job, or by the
+ * literal scan, which has no corpus statistics to leak. All three channels
+ * above are closed on all three, by mechanisms that are not this function.
  *
- * The cost is therefore worth stating rather than dismissing: one `isVisible`
- * call per doc, plus `PAGERANK_ITERATIONS` over the visible subgraph. Measured
- * against a manifest of twenty rules with a third of the bucket visible, on the
- * shape that ran `isVisible` up to twice per doc, so these are ceilings: 0.9 ms
- * at 154 notes (the live context CONTRACT.md cites), 2.8 ms at 1,000, 14.9 ms
- * at 5,000. The first two are noise. The third is not, and it is not this
- * function's problem alone — `parseIndex` runs on every search over the same
- * unbounded index. **A bound on the index is owed, and this function is one
- * more reason for it rather than the reason.**
+ * So this is the v1 half of a pairing whose other half is `searchIndex`, which
+ * takes no predicate and narrows nothing: wiring that one up without this one
+ * is what reopens the three channels, and it is the obvious-looking call to
+ * make. A source guard in `gatewaySourceGuards.test.mjs` holds the pairing
+ * rather than this comment holding it, because a comment has never stopped a
+ * call site.
+ *
+ * The cost is worth stating rather than dismissing, for whoever does wire it:
+ * one `isVisible` call per doc, plus `PAGERANK_ITERATIONS` over the visible
+ * subgraph. Measured against a manifest of twenty rules with a third of the
+ * bucket visible, on the shape that ran `isVisible` up to twice per doc, so
+ * these are ceilings: 0.9 ms at 154 notes (the live context CONTRACT.md cites),
+ * 2.8 ms at 1,000, 14.9 ms at 5,000. The first two are noise. The third is not,
+ * and it is not this function's problem alone — `parseIndex` runs on every
+ * search over the same unbounded index. **A bound on the index is owed, and
+ * this function is one more reason for it rather than the reason.**
  *
  * @param {{ docs: Map, terms: Map }} index
  * @param {(path: string) => boolean} isVisible
@@ -290,17 +301,18 @@ export function visibleIndex(index, isVisible) {
  *
  * A separate function rather than an inline `.filter` at the call site, for one
  * reason: **it is the second of two guards, and two guards that mask one
- * another are one guard with a spare.** `visibleIndex` narrows the corpus
- * before scoring, so in production every path reaching here has already
- * satisfied the same predicate — which means breaking this line changes nothing
- * observable and no end-to-end test can notice. That is exactly the state
- * CLAUDE.md calls "a guard nobody has checked", and it is how this line got
- * there: it was held by ten checks until the corpus was narrowed in front of
- * it. Standing alone it can be driven with a ranked list that was deliberately
- * *not* narrowed — the shape a future refactor of `visibleIndex` would produce
- * by accident.
+ * another are one guard with a spare.** The corpus is narrowed before scoring —
+ * on the live path by `shardQuery.js`'s `collectShardCandidates`, which gathers
+ * over visible docs alone, and on v1's unwired path by `visibleIndex` above —
+ * so every path reaching here has already satisfied the same predicate, which
+ * means breaking this line changes nothing observable and no end-to-end test
+ * can notice. That is exactly the state CLAUDE.md calls "a guard nobody has
+ * checked", and it is how this line got there: it was held by ten checks until
+ * the corpus was narrowed in front of it. Standing alone it can be driven with
+ * a ranked list that was deliberately *not* narrowed — the shape a future
+ * refactor of either narrowing would produce by accident.
  *
- * It stays because it is the half that does not depend on `visibleIndex` being
+ * It stays because it is the half that does not depend on the collector being
  * correct, and an `O(results)` pass is a cheap second opinion about a leak of
  * this kind.
  *

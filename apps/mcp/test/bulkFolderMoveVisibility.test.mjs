@@ -19,8 +19,8 @@
  * folder needs no line in `privacy.md` at all.
  *
  * So the same operation, on the same notes, gives two different answers
- * depending on how many objects the folder happens to hold: at 500 the notes
- * stay private, and at 501 they land on the destination folder's rule. The
+ * depending on how many objects the folder happens to hold: at the threshold
+ * the notes stay private, and one above it they land on the destination folder's rule. The
  * owner is told `logical move active` either way.
  *
  * This is the shape the register already knows from the control plane's
@@ -47,6 +47,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-bulk-visibility.test";
 
@@ -84,7 +85,17 @@ function binding(bucket, key) {
   };
 }
 
+/** The owner's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_OWNER = `cat_bulkvis_console_${"0".repeat(21)}`;
+
 async function callTool(env, tokenValue, name, args = {}) {
+  return approving(() => callToolOnce(env, tokenValue, name, args), {
+    env,
+    consoleToken: tokenValue === TOKEN_OWNER ? CONSOLE_OWNER : null,
+  });
+}
+
+async function callToolOnce(env, tokenValue, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -132,6 +143,14 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     userId: "user_bulkvis",
   });
   await controlPlane.addGrant({
+    accessToken: CONSOLE_OWNER,
+    workspaceId: "ws_bulkvis",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_bulkvis",
+  });
+  await controlPlane.addGrant({
     accessToken: TOKEN_TEAM,
     workspaceId: "ws_bulkvis",
     role: "member",
@@ -147,7 +166,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
 
   /* ---------- 1. over the threshold, private only by inheritance ---------- */
 
-  // 600 > LOGICAL_FOLDER_MOVE_THRESHOLD (500), so this takes the logical path.
+  // 600 > LOGICAL_FOLDER_MOVE_THRESHOLD, so this takes the logical path.
   const BULK = 600;
   for (let n = 0; n < BULK; n += 1) {
     primary.set(`2-areas/deep/note-${String(n).padStart(4, "0")}.md`, {
@@ -218,7 +237,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     textOf(ownerReads).includes("SECRET-0")
   );
 
-  /* ------- 1b. large raw materialization cannot strand active history ----- */
+  /* ------- 1b. large materialization preserves collaboration history ----- */
 
   const ACTIVE_BULK = 501;
   for (let n = 0; n < ACTIVE_BULK; n += 1) {
@@ -232,32 +251,73 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "reading one note in a large folder gives it active collaboration history",
     textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
   );
-  const moveMarkersBefore = [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length;
-  const activeRefused = await callTool(env, TOKEN_OWNER, "move_folder", {
+  const activeMove = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "2-areas/active",
     destination: "1-projects/active",
   });
   check(
-    "a folder past the threshold refuses before moving an active collaborative identity",
-    activeRefused?.isError === true && /active collaborative note/.test(textOf(activeRefused)),
+    "a folder past the threshold accepts a note with collaboration history",
+    !activeMove?.isError && textOf(activeMove).includes("logical move active"),
   );
+  const activeMoveId = /move_id: (\S+)/.exec(textOf(activeMove))?.[1];
+  if (activeMoveId) {
+    let checkedReferenceBound = false;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const progress = await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId });
+      if (!checkedReferenceBound && textOf(progress).includes("rewriting")) {
+        const key = `.context/moves/${activeMoveId}.json`;
+        const before = JSON.parse(primary.get(key).body).reference_scanned;
+        await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId, batch_size: 1 });
+        const after = JSON.parse(primary.get(key).body).reference_scanned;
+        check("one-object recovery advances the reference cursor by one note", after - before === 1);
+        checkedReferenceBound = true;
+      }
+      if (textOf(progress).includes("physical storage sync: complete")) break;
+    }
+    check("large move reached a bounded reference pass", checkedReferenceBound);
+  }
   check(
-    "the refusal leaves source bytes, destinations, and move jobs unchanged",
-    primary.get(activeWitness)?.body === "ACTIVE-0" &&
-      !primary.has("1-projects/active/note-0000.md") &&
-      [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length === moveMarkersBefore,
+    "materialization moves the headed note and its identity",
+    primary.get(activeWitness)?.contentType === "application/x-context-logical-tombstone" &&
+      primary.get("1-projects/active/note-0000.md")?.body.startsWith("ACTIVE-0") &&
+      [...primary.values()].some((value) => {
+        try {
+          const head = JSON.parse(value.body);
+          return head.path === activeWitness && head.status === "moved" &&
+            head.destination === "1-projects/active/note-0000.md";
+        } catch { return false; }
+      }),
   );
+
+  for (let n = 0; n < 101; n += 1) {
+    primary.set(`2-areas/medium/note-${n}.md`, { body: `MEDIUM-${n}`, etag: `m${n}` });
+  }
+  const medium = await callTool(env, TOKEN_OWNER, "move_folder", {
+    source: "2-areas/medium",
+    destination: "1-projects/medium",
+  });
+  check("a 101-note folder uses the resumable logical move",
+    !medium?.isError && textOf(medium).includes("logical move active"));
 
   /* ---------------- 2. the small path, for the same shape ----------------- */
 
   for (let n = 0; n < 3; n += 1) {
     primary.set(`2-areas/small/note-${n}.md`, { body: `SMALL-${n}`, etag: `s${n}` });
   }
+  await callTool(env, TOKEN_OWNER, "read_note", { path: "2-areas/small/note-0.md" });
   const small = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "2-areas/small",
     destination: "1-projects/small",
   });
   check("a folder under the threshold moves directly", !small?.isError);
+  check("a small folder also preserves a headed note on conditional-write-only storage",
+    [...primary.values()].some((value) => {
+      try {
+        const head = JSON.parse(value.body);
+        return head.path === "2-areas/small/note-0.md" && head.status === "moved" &&
+          head.destination === "1-projects/small/note-0.md";
+      } catch { return false; }
+    }));
   const smallTeam = await callTool(env, TOKEN_TEAM, "read_note", {
     path: "1-projects/small/note-0.md",
   });
@@ -338,6 +398,72 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     ).includes("not found")
   );
 
+  /* ---- 4. a move must not publish the PATH of what it moves ------------- */
+
+  /*
+    The privacy engine answers `not found` for the moved note. The link sweep
+    then writes that note's new path into every note that referenced it — and
+    those notes keep their own, wider visibility. So a team reader who is
+    refused the note is handed its exact path by a note they may read.
+
+    `rewriteLinks` resolves a link, maps it through `renames`, and writes the
+    result back; nothing compares the destination's visibility with the
+    referrer's. The owner-only forwarding sweep widens the same write to every
+    earlier move in the ledger.
+
+    The third check below is the positive control, and it is not optional: the
+    sweep is skipped entirely past `LINK_SCAN_CAP`, and a skipped sweep writes
+    no path and would read as "no leak". It has to be proved that a rewrite
+    this move SHOULD make still happens.
+  */
+
+  primary.set("1-projects/linkhub/hub.md", {
+    body: "# Hub\n\nPrivate-bound: [[1-projects/linkhub/secret-topic]]\n" +
+      "Group-bound: [[1-projects/linkhub/circle-topic]]\n" +
+      "Stays in team: [[1-projects/linkhub/open-topic]]\n",
+    etag: "lh1",
+  });
+  for (const name of ["secret-topic", "circle-topic", "open-topic"]) {
+    primary.set(`1-projects/linkhub/${name}.md`, { body: `BODY-${name}`, etag: `lt-${name}` });
+  }
+
+  check(
+    "the hub and its three targets all start readable by a team connection",
+    textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/hub.md" })).includes("Hub") &&
+      textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/secret-topic.md" }))
+        .includes("BODY-secret-topic"),
+  );
+
+  // Into `2-areas` (private), into `1-projects/circle` (@bulkvis-circle, from
+  // section 3), and within `1-projects` (team) — one referrer, three fates.
+  for (const [from, to] of [
+    ["1-projects/linkhub/secret-topic.md", "2-areas/vault/secret-topic.md"],
+    ["1-projects/linkhub/circle-topic.md", "1-projects/circle/circle-topic.md"],
+    ["1-projects/linkhub/open-topic.md", "1-projects/open/open-topic.md"],
+  ]) {
+    const moved = await callTool(env, TOKEN_OWNER, "move_note", { source: from, destination: to });
+    check(`${from} moves to ${to}`, !moved?.isError);
+  }
+
+  const hubAsTeam = textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "1-projects/linkhub/hub.md" }));
+
+  check(
+    "a team reader is refused the moved note itself",
+    textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: "2-areas/vault/secret-topic.md" }))
+      .includes("not found"),
+  );
+  check(
+    "...and the referring note it CAN read does not name that private path",
+    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("2-areas/vault"),
+  );
+  check(
+    "...nor the path of one moved into a group it is not in",
+    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("1-projects/circle/circle-topic"),
+  );
+  check(
+    "POSITIVE CONTROL: a move within team visibility still rewrites the link",
+    hubAsTeam.includes("1-projects/open/open-topic"),
+  );
   restoreS3();
   restoreControlPlane();
 }

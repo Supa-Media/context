@@ -1,12 +1,11 @@
 import { ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import { useState } from "react";
 import { Overlay } from "../../design/components/Overlay";
-import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 
 import { layout, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { SettingsPane, StatusPill } from "../panes/SettingsPane";
+import { SettingsPane } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
 import { SettingsList } from "./SettingsList";
 import { atName } from "../format";
@@ -119,15 +118,6 @@ export function SettingsOverlay({
     : DEFAULT_SETTINGS_SECTION;
 
   const account = isAccountSection(active);
-  /*
-    Workspace opens by saying which context this is, in a block with the name
-    at 16.5pt and the kind and role beneath it. So the chrome around it says
-    none of the three things it would otherwise say — the badge in the title
-    bar, the scope line above the panel, and the health pill — because each
-    would be a second, quieter copy of something the section is already the
-    answer to.
-  */
-  const namesItsOwnContext = active === "workspace";
 
   const list = (
     <SettingsList
@@ -149,27 +139,21 @@ export function SettingsOverlay({
   );
 
   /*
-    The binding's health, which the pane's own head used to carry ahead of
-    everything because it qualifies every control below it. Sectioning skips
-    that head, and the top bar's storage chip is pointer-only — so without this
-    a phone states the health of the bucket nowhere at all.
-
-    Overview no longer wears it either, and that is the one deliberate
-    subtraction: the section draws the same fact in a strip that also names
-    the bucket and when it was last checked, so the pill beside the title was
-    the loudest element on the screen restating the quietest one.
+    No health pill in the bar any more (2026-10-10). It was a "Connected" chip
+    beside Back and Close on every section, restating what the list's Storage
+    row already says ("Healthy"), and the owner called the screen cluttered.
+    A broken bucket still announces itself on that row and on the Storage page.
   */
-  const health =
-    data.storage && !namesItsOwnContext ? (
-      <StatusPill storage={data.storage} testID="settings-health" />
-    ) : null;
-
   const body = account ? (
     <AccountSection
       section={active}
       data={data}
       onSignOut={onSignOut}
       onOpenInvitation={onOpenInvitation}
+      onSelect={(next) => {
+        onSelect(next);
+        setListing(false);
+      }}
     />
   ) : (
     <SettingsPane
@@ -191,21 +175,13 @@ export function SettingsOverlay({
       keyboardShouldPersistTaps="handled"
       testID="settings-pane"
     >
-      {!compact || namesItsOwnContext ? null : (
+      {!compact || account || active === "workspace" ? null : (
         /*
-          The context this panel is about — on a phone, where the bar is a
-          nav bar with a Back and a title in it and has no room for a path.
-
-          Under a pointer it moved *into* the bar rather than being dropped:
-          the breadcrumb above reads `@seyi / settings / storage`, which is
-          the same fact in the place a page states which page it is. This line
-          beside it would be the third copy of the word on one screen — the
-          rail's chips being the second — and the reason it was in the panel
-          before was that the bar was a dialog's title bar, three inches away
-          and holding one word. It is the page's own bar now.
+          Which workspace this page changes, on a phone, where the bar has no
+          room for the breadcrumb. General opens with the address, so it skips it.
         */
-        <Text variant="rowSub" style={styles.scope}>
-          {account ? "Your account" : atName(current?.slug ?? "this context")}
+        <Text variant="rowSub" style={styles.scope} testID="settings-scope">
+          {atName(current?.slug ?? "this workspace")}
         </Text>
       )}
       {body}
@@ -222,12 +198,6 @@ export function SettingsOverlay({
           change exists to remove.
         */
         title={listing ? "Settings" : undefined}
-        badge={
-          account || !current || listing || namesItsOwnContext ? null : (
-            <Pill tone="neutral">{atName(current.slug)}</Pill>
-          )
-        }
-        trailing={listing || account ? null : health}
         closeLabel="Close settings"
         /*
           "Settings", not a bare chevron. The bar is the only thing on a
@@ -255,7 +225,6 @@ export function SettingsOverlay({
         already removed once, on the phone.
       */
       breadcrumb={`${account ? "you" : atName(current?.slug ?? "")} / settings / ${active}`}
-      trailing={account ? null : health}
       closeLabel="Back to your notes"
       sidebar={list}
       sidebarWidth={layout.settingsListWidth}

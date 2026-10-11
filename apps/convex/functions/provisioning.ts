@@ -134,7 +134,7 @@ export type VerificationErrorCode =
  *                         folder layout makes sense.
  *  - `created`          — a starting layout was written, in full.
  *  - `partial`          — the layout's essential file landed, some best-effort
- *                         folders or READMEs did not. **A success.** The bucket
+ *                         folders or folder notes did not. **A success.** The bucket
  *                         is a working context; `scaffoldMissing` names what to
  *                         create by hand or ask an agent for.
  *  - `failed`           — an essential file did not land. Not a context yet.

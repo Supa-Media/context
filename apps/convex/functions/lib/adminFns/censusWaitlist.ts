@@ -50,7 +50,8 @@ export async function admittedWaitlist(ctx: QueryCtx) {
       .take(CENSUS_CEILING + 1),
   );
   const byEmail = new Map<string, Doc<"waitlist">>();
-  for (const row of page.rows) byEmail.set(normalizeEmail(row.email), row);
+  // A row joined with a phone has no address to match an account by.
+  for (const row of page.rows) if (row.email !== undefined) byEmail.set(normalizeEmail(row.email), row);
   return { page, byEmail };
 }
 

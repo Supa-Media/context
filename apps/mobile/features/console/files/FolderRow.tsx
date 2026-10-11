@@ -9,7 +9,8 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space, touchType } from "../../design/tokens";
+import { EmojiGlyph } from "../emoji/EmojiGlyph";
+import { fonts, layout, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { PhoneRowMeta } from "../home/folderRows";
 import type { DragModifier } from "./dnd";
@@ -19,6 +20,7 @@ import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { isGroupVisibility } from "./types";
+import { RowExtraLead, RowExtraTrail, useRowExtra } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
 
 /**
@@ -39,6 +41,7 @@ export function FolderRow({
   picked,
   onHold,
   phone,
+  folderIcon = null,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
@@ -67,11 +70,17 @@ export function FolderRow({
    * only a folder has a chevron. Only in the card.
    */
   phone?: PhoneRowMeta;
+  /** The emoji this folder was given, drawn in place of the folder icon in a card and of the chevron outside one. `null` for the plain one. */
+  folderIcon?: string | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
   const home = card && phone !== undefined ? phone : null;
+  // In the List view: the status dot, the count and the faces (`folderPage/rowExtras.tsx`). `undefined` in Notes.
+  const extra = useRowExtra(row.path);
+  const done = extra?.tone === "done";
+  const extraShown = extra != null && (extra.progress !== null || extra.faces.length > 0);
   /*
     THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
 
@@ -162,18 +171,52 @@ export function FolderRow({
           >
             {picked ? <Icon name="check" size={12} color={colors.surface} /> : null}
           </View>
+        ) : card && extra?.tone != null ? (
+          // A phone's List: the status dot takes the glyph's slot (board 13).
+          <RowExtraLead extra={extra} />
         ) : card ? (
-          <Icon
-            name={row.kind === "folder" ? "folder" : "file"}
-            size={home === null ? 16 : 20}
-            color={home === null ? colors.muted : colors.text2}
-          />
+          row.kind === "folder" && folderIcon !== null ? (
+            // Sized to the glyph it replaces, so the name beside it does not move.
+            <EmojiGlyph
+              emoji={folderIcon}
+              size={home === null ? 16 : 20}
+              textStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone}
+              fallback={
+                <Icon name="folder" size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} />
+              }
+              testID="folder-row-emoji"
+            />
+          ) : (
+            <Icon
+              name={row.kind === "folder" ? "folder" : "file"}
+              size={home === null ? 16 : 20}
+              color={home === null ? colors.muted : colors.text2}
+            />
+          )
         ) : row.kind === "folder" ? (
-          <Icon name="chevronRight" size={15} color={colors.muted} />
+          /*
+            The desktop listing's gutter holds a chevron, and a folder somebody
+            gave an icon shows the icon there instead (owner, 2026-10-08: "when
+            it's set, it should show up in the main view as well"). Same slot,
+            so its name still starts where every other name does; the emoji
+            says "folder" as plainly as the chevron did.
+          */
+          folderIcon !== null ? (
+            <EmojiGlyph
+              emoji={folderIcon}
+              size={15}
+              textStyle={styles.cardEmojiPointer}
+              fallback={<Icon name="chevronRight" size={15} color={colors.muted} />}
+              testID="folder-row-emoji"
+            />
+          ) : (
+            <Icon name="chevronRight" size={15} color={colors.muted} />
+          )
         ) : null}
       </View>
+      {extra === undefined || card ? null : <RowExtraLead extra={extra} />}
       {home === null ? (
-        <Text variant="treeTouch" style={styles.rowName} numberOfLines={1}>
+        <Text variant="treeTouch" style={[styles.rowName, done && styles.rowNameDone]} numberOfLines={1}>
           {label}
         </Text>
       ) : (
@@ -182,7 +225,7 @@ export function FolderRow({
             {home.pinned ? (
               <Icon name="pin" size={13} color={colors.muted} />
             ) : null}
-            <Text style={styles.homeName} numberOfLines={1}>
+            <Text style={[styles.homeName, done && styles.rowNameDone]} numberOfLines={1}>
               {label}
             </Text>
           </View>
@@ -219,6 +262,7 @@ export function FolderRow({
         standing fact. It leads because it is the one of the two a person may
         have to act on.
       */}
+      {extra === undefined ? null : <RowExtraTrail extra={extra} />}
       {sync === null ? null : <SyncMarkDot mark={sync} />}
       {row.exception ? (
         <View
@@ -250,7 +294,7 @@ export function FolderRow({
         claim and is why both exist. Outside the card there is no list edge for
         it to sit against and the leading one already carries the listing.
       */}
-      {home?.meta == null ? null : (
+      {home?.meta == null || extraShown ? null : (
         <Text variant="meta" numberOfLines={1} style={styles.homeMeta} testID="folder-row-meta">
           {home.meta}
         </Text>
@@ -346,7 +390,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   picked: { backgroundColor: colors.accent, borderColor: colors.accent },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
+  /** A folder's own emoji, sized to the glyph it stands in for (16pt on the desktop, 20pt on the phone). */
+  cardEmojiPointer: { fontSize: pointerType.lede, lineHeight: 18 },
+  cardEmojiPhone: { fontSize: touchType.h3, lineHeight: 22 },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
+  /** A finished task, in the List: still there, quieter. */
+  rowNameDone: { color: colors.chromeMuted },
 
   /**
    * The exception mark: a 7pt disc, not a word.

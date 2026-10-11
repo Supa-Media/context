@@ -85,6 +85,9 @@ export async function syncManifestHandler(
   args: {
     workspaceId: Id<"workspaces">;
     cursor?: string;
+    folder?: string;
+    /** `"tree"`: read the tree table where it can answer (`treeTableOps.ts`). */
+    source?: "tree";
   },
 ): Promise<Extract<OperationResult, { kind: "manifest" }>> {
   const actorUserId = await callerId(ctx);
@@ -100,6 +103,8 @@ export async function syncManifestHandler(
     operation: {
       kind: "manifest",
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+      ...(args.folder === undefined ? {} : { folder: args.folder }),
+      ...(args.source === undefined ? {} : { source: args.source }),
     },
   });
   return result as Extract<OperationResult, { kind: "manifest" }>;
@@ -118,6 +123,8 @@ export async function readNotesHandler(
   args: {
     workspaceId: Id<"workspaces">;
     paths: string[];
+    /** The Markdown as stored, without opening collaboration documents: what a folder List reads. */
+    plain?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "notes" }>> {
   const actorUserId = await callerId(ctx);
@@ -138,7 +145,7 @@ export async function readNotesHandler(
     workspaceId: args.workspaceId,
     scope,
     grantedNames,
-    operation: { kind: "readMany", paths: args.paths },
+    operation: { kind: "readMany", paths: args.paths, ...(args.plain === true ? { plain: true } : {}) },
   });
   return result as Extract<OperationResult, { kind: "notes" }>;
 }
@@ -157,6 +164,13 @@ export async function listActivityHandler(
   args: {
     workspaceId: Id<"workspaces">;
     limit?: number;
+    /**
+     * Epoch ms: only lines whose time is at or after this. The map's "Today"
+     * and "This week" replay. With it and no `limit`, every such line the file
+     * keeps (at most `MAX_ENTRIES`, about three months of a busy context) —
+     * the default of 50 would cut a busy week short.
+     */
+    since?: number;
   },
 ): Promise<ActivityEntry[]> {
   const actorUserId: Id<"users"> = await callerId(ctx);
@@ -171,6 +185,26 @@ export async function listActivityHandler(
     operation: { kind: "readActivity" },
   });
   if (result.kind !== "activity") return [];
-  const limit = Math.max(1, Math.min(args.limit ?? 50, 400));
-  return result.entries.slice(0, limit);
+  return activitySince(result.entries as ActivityEntry[], args);
 }
+
+/** The newest-first entries, cut by `since` and then by `limit`. */
+export function activitySince(
+  entries: ActivityEntry[],
+  args: { limit?: number; since?: number },
+): ActivityEntry[] {
+  const since = args.since;
+  const windowed =
+    since === undefined || !Number.isFinite(since)
+      ? entries
+      : entries.filter((entry) => {
+          const at = Date.parse(entry.at);
+          return Number.isFinite(at) && at >= since;
+        });
+  const fallback = since === undefined ? 50 : MAX_ACTIVITY_ENTRIES;
+  const limit = Math.max(1, Math.min(args.limit ?? fallback, MAX_ACTIVITY_ENTRIES));
+  return windowed.slice(0, limit);
+}
+
+/** `MAX_ENTRIES` in `packages/shared/src/activity.cjs`: what the file keeps. */
+const MAX_ACTIVITY_ENTRIES = 400;

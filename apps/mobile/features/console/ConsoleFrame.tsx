@@ -15,6 +15,7 @@ import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
+import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
 import { ConsoleNavProvider } from "./ConsoleNavContext";
@@ -73,12 +74,14 @@ import {
   consoleSyncSheet,
 } from "./layout/sheets";
 import { consoleBarDialogs } from "./layout/barDialogs";
-import { consoleCreateButton, consolePhoneChat } from "./layout/createButton";
+import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
+import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
+import { ChaosSheet } from "../chaos/ChaosPopover";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
+import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import {
-  consoleReviewSheet,
   consoleToasts,
   useConsoleOrganizer,
 } from "../organizer/consoleOrganizer";
@@ -106,7 +109,6 @@ import {
 export function ConsoleFrame({
   data,
   route,
-  pathname,
   router,
   params,
   children,
@@ -114,7 +116,6 @@ export function ConsoleFrame({
   data: ConsoleData;
   /** Which console page this is. The homepage is always a context's Browse. */
   route: ConsoleRoute;
-  pathname: string;
   router: ConsoleRouter;
   /** The query the console acts on — `useConsoleParams` on a real route. */
   params: {
@@ -123,6 +124,8 @@ export function ConsoleFrame({
     connectAgent: SetupAgent | null;
     /** `?changes=1`: the What changed page. Absent on the homepage. */
     changesOpen?: boolean;
+    /** `?map=1`: the live map is open over Browse. */
+    mapOpen?: boolean;
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -230,7 +233,14 @@ export function ConsoleFrame({
   // arrive at — and the strip showed one context's note names under another
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
-  const { history, step } = useConsoleHistory({ data, router, route, openSettingsSection });
+  const { history, step } = useConsoleHistory({
+    data,
+    router,
+    route,
+    openSettingsSection,
+    // Only where the map can be drawn (`useConsoleMapRoute` below): a visitor's `?map=1` is no page.
+    mapOpen: params.mapOpen === true && !data.demo && visitor === undefined,
+  });
   const current = selectedContext(data);
   /*
     Whether tabs are on screen at all. `TabStrip` is the pointer instrument and
@@ -272,11 +282,24 @@ export function ConsoleFrame({
 
   const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
 
-  const contextLabel = atName(current?.slug ?? "your context");
+  /*
+    A visitor's one workspace is named by its display name: the homepage's is
+    "@context", and a shared link's is "Shared with you", which is not a
+    handle and must not read as one (`features/share/SharedConsole.tsx`).
+  */
+  const contextLabel =
+    visitor !== undefined && current?.displayName ? current.displayName : atName(current?.slug ?? "your context");
   // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.
   useLeavePageOnOpen(organizer, data.files.selectedPath);
+  // The chaos score, for the surfaces that draw it; absent-as-nothing everywhere else.
+  const chaos = useConsoleChaos(data.chaos, data.files.select);
+  // The live map (`?map=1`), over Browse in the same slot; leaves the same way.
+  const mapRoute = useConsoleMapRoute(router, params.mapOpen === true, {
+    available: !data.demo && visitor === undefined,
+    selectedPath: data.files.selectedPath,
+  });
 
   const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
   const reading = useReadMode();
@@ -307,10 +330,9 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, contextHrefFrom,
-    startMeetingFlow, meetingSheet, startNewChat, startMeeting, canCreate, agentPlace, asked,
-    setAsked, openAsideAt, agentEngine, resumeRow, voiceHost,
-  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, pathname });
+    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
+    canCreate, openAsideAt, approvals, resumeRow, voiceHost,
+  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry });
 
   /**
    * Where the control is and where a press takes it.
@@ -404,6 +426,8 @@ export function ConsoleFrame({
   return (
     <ConsoleDataProvider value={data}>
       <OrganizerProvider value={organizer}>
+      <ChaosProvider value={chaos}>
+      <MapRouteProvider value={mapRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -429,6 +453,8 @@ export function ConsoleFrame({
           onEntry={setWhatsNewEntry}
         />
       ) : null}
+      {/* The time zone routines fall back to, kept in step with this device (`routines/TimeZoneSync.tsx`). */}
+      {data.routines === true && visitor === undefined && !data.demo ? <TimeZoneSync /> : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
       <PluginTextDialog runtime={data.pluginRuntime} />
       <PluginSettingsPane runtime={data.pluginRuntime} />
@@ -483,7 +509,7 @@ export function ConsoleFrame({
           switching, and neither could say the other's rows). On any page below
           Home it is ‹ back instead, naming where it goes (owner, 2026-10-01).
         */
-        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps })}
+        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute })}
         /*
           `browsing`, not `insideContext`.
 
@@ -495,16 +521,16 @@ export function ConsoleFrame({
           no visible change at all.
         */
         aside={consoleAsidePanel({
-          data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router,
+          data, meetingsAt, router, approvals,
         })}
         explorer={consoleExplorer({
           browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
-          switcherProps,
+          switcherProps, router,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
-          browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog,
-          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel, ask: startNewChat } : null,
+          browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
+          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel } : null,
         })}
       >
         <Shortcuts
@@ -585,7 +611,7 @@ export function ConsoleFrame({
         ) : null}
 
         {consoleBarDialogs({
-          data, barDialog, setBarDialog, startMeeting, startNewChat, resumeRow, current,
+          data, barDialog, setBarDialog, startMeeting, resumeRow, current,
           insideContext, router,
         })}
 
@@ -603,25 +629,20 @@ export function ConsoleFrame({
         */}
         <ToastHost {...consoleToasts(data.files, organizer)} />
 
-        {consoleReviewSheet({ organizer, phone, browsing })}
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog, startNewChat,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog,
         })}
 
         {/*
           The panel, opened by anything above the frame that cannot reach
-          `useFrame` — today the note's right-click menu. It renders nothing;
+          `useFrame` — today a meeting starting. It renders nothing;
           it exists to be *inside* `AppFrame`, which is where the command is.
         */}
         <OpenAsideOn at={openAsideAt} />
 
-        {consolePhoneChat({
-          phoneChatAt, agentEngine, agentPlace, phone, setPhoneChatAt,
-        })}
-
         {consolePalette({
-          paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}
@@ -632,10 +653,14 @@ export function ConsoleFrame({
           not the key.
         */}
         {meetingSheet}
+        {/* The chaos panel from a folder page's chip or the phone's Home; the tree's foot draws its own. */}
+        <ChaosSheet />
       </AppFrame>
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
+      </MapRouteProvider>
+      </ChaosProvider>
       </OrganizerProvider>
     </ConsoleDataProvider>
   );

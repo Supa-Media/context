@@ -15,9 +15,10 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
-import { toolError } from "./results.js";
+import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
+import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
-import { toolExportEncryptionKeys, toolSetEncryption } from "./encryption/setEncryption.js";
+import { toolSetEncryption } from "./encryption/setEncryption.js";
 import { toolListChanges } from "../activity/changes.js";
 import {
   toolListChannelDays,
@@ -29,7 +30,7 @@ import { toolListMeetings, toolReadMeeting } from "./meetings.js";
 import { toolListNotes, toolReadNote } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
-import { toolMaterializeMove } from "./moves/materialize.js";
+import { toolMaterializeMove, toolProfileMoveReferences } from "./moves/materialize.js";
 import { toolMigrateStorageLayout } from "../notes/storage.js";
 import { toolMoveFolder } from "./moves/folder.js";
 import { toolMoveNote } from "./moves/note.js";
@@ -47,6 +48,25 @@ import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
+import { moveJobActive, moveJobKey } from "../moves/jobs.js";
+import { getWithLegacyFallback } from "../storageLayout.js";
+
+const STALLED_MOVE_MS = 5 * 60 * 1000;
+
+async function moveWorkerStalled(store, id) {
+  const key = moveJobKey(id);
+  if (!key) return false;
+  try {
+    const marker = await getWithLegacyFallback(store, key);
+    if (!marker) return false;
+    const job = JSON.parse(await marker.text());
+    const updatedAt = Date.parse(job.updated_at);
+    return moveJobActive(job) && Number.isFinite(updatedAt) &&
+      Date.now() - updatedAt > STALLED_MOVE_MS;
+  } catch {
+    return false;
+  }
+}
 
 export async function callTool(name, args, store, scope) {
   const privacy = await loadPrivacyState(store);
@@ -100,14 +120,8 @@ export async function callTool(name, args, store, scope) {
     // other caller — the same idiom `docs/decisions/encryption.md` already
     // uses for a team-tier read of a private encrypted note ("byte-identical
     // to a path that never existed"), applied here to a *tool* rather than a
-    // path. `set_encryption` and `list_plugins` answer a team-tier caller with
-    // a distinct "permission denied" message, which is fine for a capability
-    // whose existence is not itself sensitive; a workspace's key material is
-    // a narrower thing to advertise, so this refuses as though the tool were
-    // never registered at all.
-    case "export_encryption_keys":
-      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
-      return toolExportEncryptionKeys(store, scope);
+    // path. There is no key export here: the owner removed it on 2026-10-08,
+    // and its name now gets the default's `unknown tool` like any other.
     case "rotate_encryption_keys":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolRotateEncryptionKeys(store, scope);
@@ -153,7 +167,37 @@ export async function callTool(name, args, store, scope) {
     case "materialize_move":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       if (scope !== "private") return toolError("permission denied: move materialization requires owner access.");
-      return toolMaterializeMove(store, scope, args.id, args.batch_size);
+      {
+        // Cached connector schemas may still require batch_size >= 1. Let
+        // those clients inspect the marker through the existing string field.
+        if (typeof args.id === "string" && args.id.endsWith(":inspect")) {
+          return toolMaterializeMove(store, scope, args.id.slice(0, -8), 0);
+        }
+        if (typeof args.id === "string" && args.id.endsWith(":profile")) {
+          return toolProfileMoveReferences(store, args.id.slice(0, -8));
+        }
+        if (args.batch_size === 0) return toolMaterializeMove(store, scope, args.id, 0);
+        // Check before this pass refreshes updated_at. Old clients do not know
+        // resume_background, so an ordinary call must revive a stalled worker.
+        const restartWorker = args.resume_background === true ||
+          await moveWorkerStalled(store, args.id);
+        const result = await toolMaterializeMove(store, scope, args.id, args.batch_size);
+        const text = result?.content?.[0]?.text || "";
+        if (restartWorker && !result?.isError &&
+            !text.includes("complete") && !text.includes("no active work")) {
+          if (typeof store.enqueueGatewayJob !== "function") {
+            return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);
+          }
+          try {
+            const queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: args.id });
+            if (queued === false) return toolText(`${text}\nbackground worker already active`);
+          } catch {
+            return toolText(`${text}\nbackground restart failed; retry resume_background`);
+          }
+          return toolText(`${text}\nbackground worker queued`);
+        }
+        return result;
+      }
     // `archive_chat` is the name this tool shipped under, and a client holding
     // a cached tool list is still calling it. It is no longer *listed* — the
     // rename is the point — but refusing it would drop sessions on the floor
@@ -162,7 +206,7 @@ export async function callTool(name, args, store, scope) {
     case "save_context":
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
-      return toolListChanges(store, scope, rules, overrides, args.limit);
+      return toolListChanges(store, scope, rules, overrides, args.limit, { reads: args.reads === true });
     case "read_activity":
       return toolReadActivity(store, scope, rules, overrides, args);
     case "migrate_storage_layout":
@@ -170,6 +214,14 @@ export async function callTool(name, args, store, scope) {
       return toolMigrateStorageLayout(store, scope, args);
     case "create_link":
       return toolCreateLink(store, scope, args);
+    case "vault_list":
+      return toolVaultList(store);
+    case "vault_add_link":
+      return toolVaultAddLink(store, args);
+    case "vault_share_link":
+      return toolVaultShareLink(store, args);
+    case "vault_view_link":
+      return toolVaultViewLink(store, args);
     case "report_problem":
       return toolReportProblem(store, args);
     case "list_links":

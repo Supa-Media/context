@@ -64,10 +64,42 @@ crons.interval(
   {},
 );
 
+/**
+ * Re-read every workspace's `routines/` folder, as a safety net under the
+ * signals that normally do it (`functions/routines.ts`). A repair of a
+ * disposable derivative, like the search restarts: it reads the customer's
+ * bucket and writes nothing there, and decides nothing — whether a routine
+ * runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval(
+  "re-read routine folders",
+  { hours: 6 },
+  internal.functions.routines.sweepRoutineWorkspaces,
+  {},
+);
+
+crons.interval(
+  "sweep agent turns past their retention",
+  { hours: 1 },
+  internal.functions.agentTurns.purgeOldAgentTurns,
+);
+
+crons.interval(
+  "sweep search timings past their retention",
+  { hours: 1 },
+  internal.functions.searchTimings.purgeOldSearchTimings,
+);
+
 crons.interval(
   "sweep expired texted sign-in links",
   { hours: 1 },
   internal.functions.textLinks.purgeExpiredPhoneLinkInvites,
+);
+
+crons.interval(
+  "sweep expired vault links",
+  { hours: 1 },
+  internal.functions.vault.purgeExpiredVaultRequests,
 );
 
 crons.interval(
@@ -167,6 +199,19 @@ crons.interval(
   "restart stalled search backfills",
   { minutes: 15 },
   internal.functions.fastSearch.sweepStalledBackfills,
+  {},
+);
+
+/**
+ * Search by meaning's sweep: restart a stalled catch-up chain, catch a `ready`
+ * index up once a day on edits nothing embedded at the time (the live editor,
+ * Obsidian), and retry a failure waiting can fix. Same kind of job as the one
+ * above: a repair over a disposable derivative. See `meaningFns/rows.ts`.
+ */
+crons.interval(
+  "sweep search by meaning",
+  { minutes: 15 },
+  internal.functions.meaningSearch.sweep,
   {},
 );
 

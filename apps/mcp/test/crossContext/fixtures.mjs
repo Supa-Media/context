@@ -14,6 +14,7 @@ import {
   createS3Backend,
 } from "../controlPlaneStub.mjs";
 import { createWorkerCtx } from "../workerCtx.mjs";
+import { approving } from "../egressApproval.mjs";
 
 export const S3_ENDPOINT = "https://s3.example-cross-context.test";
 
@@ -94,7 +95,27 @@ export function s3Binding(bucket, key) {
   };
 }
 
+/**
+ * Each person's own app on the workspace their tool grant connects to, which
+ * approves what the egress gate holds (`../egressApproval.mjs`): a write
+ * into another workspace is always held for an MCP client.
+ */
+const CONSOLE_TOKENS = new Map([
+  [TOKEN_OWNER, `cat_cross_console_owner_${"0".repeat(17)}`],
+  [TOKEN_EDITOR, `cat_cross_console_editor_${"0".repeat(16)}`],
+  [TOKEN_GUEST, `cat_cross_console_guest_${"0".repeat(17)}`],
+  [TOKEN_OWNER_BOTH, `cat_cross_console_both_${"0".repeat(18)}`],
+]);
+
 export async function callTool(env, tokenValue, name, args = {}) {
+  return approving(() => callToolOnce(env, tokenValue, name, args), {
+    env,
+    consoleToken: CONSOLE_TOKENS.get(tokenValue) ?? null,
+    call: { name, args },
+  });
+}
+
+async function callToolOnce(env, tokenValue, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -252,6 +273,47 @@ export async function createCrossContextHarness() {
     clientId: "mcp_client_cross_readonly_editor",
     userId: "user_cross",
     alsoMemberOf: [{ workspaceId: "ws_shared", role: "editor" }],
+  });
+  // The consoles that answer for the grants above, one per person and
+  // workspace a held call is filed in.
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_TOKENS.get(TOKEN_OWNER),
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_cross",
+    alsoMemberOf: [
+      { workspaceId: "ws_shared", role: "member" },
+      { workspaceId: "ws_quiet", role: "member" },
+    ],
+  });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_TOKENS.get(TOKEN_EDITOR),
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_cross_editor",
+    alsoMemberOf: [{ workspaceId: "ws_shared", role: "editor" }],
+  });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_TOKENS.get(TOKEN_GUEST),
+    workspaceId: "ws_shared",
+    role: "member",
+    scopes: ["context:read", "context:write"],
+    clientId: "context_console",
+    userId: "user_cross_guest",
+    alsoMemberOf: [{ workspaceId: "ws_stranger", role: "editor" }],
+  });
+  await controlPlane.addGrant({
+    accessToken: CONSOLE_TOKENS.get(TOKEN_OWNER_BOTH),
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    userId: "user_cross_owner_both",
+    alsoMemberOf: [{ workspaceId: "ws_stranger", role: "owner" }],
   });
   await controlPlane.addGrant({
     accessToken: TOKEN_OWNER_BOTH,

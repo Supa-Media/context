@@ -1,0 +1,363 @@
+import { toWorld } from "../camera";
+import { LAYER } from "../hit";
+import type { IslandPlace } from "../layout";
+import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
+import { clamp, lerp, quad, type Point } from "../math";
+import { DUR } from "../scene";
+import { BOW, bowOf, grain } from "./board";
+import type { DrawEnv } from "./env";
+import { circle, fontOf } from "./primitives";
+
+/** How strongly a link between two folders is drawn, against one inside a folder. */
+export const CROSS_FOLDER_LINK = 0.35;
+
+/**
+ * The map's ground layers, back to front: workspaces, the paths between
+ * them, the clickable (undrawn) folder areas, links, trails, and the notes themselves
+ * with their live marks (teal for writing, ink for reading).
+ */
+
+export function drawGround(env: DrawEnv): void {
+  const { model, s } = env;
+  // Nothing is drawn round a workspace, a folder or a subfolder: they are
+  // told apart by the space between them (Dev2, 2026-10-10). Their areas are
+  // still there to click, to go into them.
+  if (model.scope.kind === "all") {
+    for (const island of model.layout.islands) {
+      const p = env.screen(island);
+      if (!env.onScreen(p, island.r * s)) continue;
+      env.hit.circle(p.x, p.y, island.r * s, { kind: "workspace", workspaceId: island.workspaceId }, LAYER.workspace);
+    }
+    drawHighways(env);
+  }
+  for (const island of model.layout.islands) {
+    for (const f of island.folders) {
+      const p = env.screen(f);
+      const pr = f.r * s;
+      if (!env.onScreen(p, pr)) continue;
+      if (f.name !== "") env.hit.circle(p.x, p.y, pr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
+      for (const sub of f.subs) {
+        if (sub.name === "") continue;
+        const q = env.screen(sub);
+        const sr = sub.r * s;
+        if (subRimAlpha(sr) <= 0 || !env.onScreen(q, sr)) continue;
+        env.hit.circle(q.x, q.y, sr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/${sub.name}/` }, LAYER.sub);
+      }
+    }
+  }
+}
+
+/** Dashed paths between workspaces that notes moved along today, with a count that bumps. */
+function drawHighways(env: DrawEnv): void {
+  const { ctx, style, model, s } = env;
+  const C = style.palette;
+  const v = Math.min(env.vp.w, env.vp.h);
+  const islands = model.layout.islands;
+  const biggest = Math.max(...islands.map((i) => i.r)) * s * 2;
+  const hw = highwayAlpha(biggest, v);
+  if (hw <= 0) return;
+  for (const h of env.scene.highways) {
+    const A = islands.find((i) => i.workspaceId === h.a);
+    const B = islands.find((i) => i.workspaceId === h.b);
+    if (!A || !B) continue;
+    const [p1, p2] = rimToRim(A, B);
+    const a = env.screen(p1);
+    const b = env.screen(p2);
+    ctx.globalAlpha = hw * 0.5;
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = Math.min(5, 1 + h.count * 0.22);
+    ctx.setLineDash([2, 6]);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = "butt";
+    ctx.lineWidth = 1;
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2 - h.bump * 3;
+    const text = `${h.count} moved today`;
+    ctx.font = fontOf(style, 12, 600);
+    const w = ctx.measureText(text).width + 18;
+    // Drawn later, over the dots; claimed now, so nothing is put on it.
+    env.pills.push({ x: mx, y: my, w, text, bump: h.bump, alpha: hw });
+    env.occ.claim({ x: mx - w / 2 - 4, y: my - 16, w: w + 8, h: 32 });
+    ctx.globalAlpha = 1;
+  }
+}
+
+/** From one island's rim to the other's, a little off the centre line (as in the prototype). */
+function rimToRim(A: IslandPlace, B: IslandPlace): [Point, Point] {
+  const ang = Math.atan2(B.y - A.y, B.x - A.x);
+  const off = 0.62;
+  const px = -Math.sin(ang);
+  const py = Math.cos(ang);
+  const e1 = Math.sqrt(1 - off * off);
+  return [
+    { x: A.x + (Math.cos(ang) * e1 + px * off) * A.r, y: A.y + (Math.sin(ang) * e1 + py * off) * A.r },
+    { x: B.x + (-Math.cos(ang) * e1 + px * off) * B.r, y: B.y + (-Math.sin(ang) * e1 + py * off) * B.r },
+  ];
+}
+
+/** Links, new notes' links drawing themselves in teal, follow threads and move trails. */
+export function drawLinks(env: DrawEnv): void {
+  const { ctx, style, model, scene, s } = env;
+  const C = style.palette;
+  const notes = model.layout.notes;
+  const ea = edgeAlpha(s);
+  const popping = new Set(scene.pops.map((p) => p.note.key));
+  const creating = new Set<string>();
+  for (const [key, id] of scene.editing) {
+    if (scene.actors.find((a) => a.id === id)?.doing === "create") creating.add(key);
+  }
+  if (ea > 0) {
+    const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
+    const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
+    const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
+    const width = edgeWidth(s);
+    // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
+    const stroke = grain(ctx, C, C.edge);
+    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1);
+    // Links inside a folder at full strength, links between folders faint:
+    // the groups read, and the long cross-links do not become the picture.
+    for (const across of [true, false]) {
+      ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      ctx.beginPath();
+      for (const [ka, kb] of model.layout.edges) {
+        if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
+        if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
+        const na = notes.get(ka)!;
+        const nb = notes.get(kb)!;
+        if ((na.sub.folder !== nb.sub.folder) !== across) continue;
+        // A note moving within its workspace takes its links with it.
+        const fa = env.flyingAt.get(ka);
+        const fb = env.flyingAt.get(kb);
+        if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
+        const wa = fa ?? na;
+        const wb = fb ?? nb;
+        // Off screen in the world's own units first: tens of thousands of
+        // links are tested every frame, and most go nowhere near the view.
+        if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
+        if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
+        const a = env.screen(wa);
+        const b = env.screen(wb);
+        if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
+        const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * BOW;
+        ctx.moveTo(a.x, a.y);
+        ctx.quadraticCurveTo((a.x + b.x) / 2 - (b.y - a.y) * bow, (a.y + b.y) / 2 + (b.x - a.x) * bow, b.x, b.y);
+      }
+      // Chalk carries a soft dusty halo: the same path again, wide and faint.
+      if (C.board === "chalk") {
+        ctx.strokeStyle = C.edge;
+        ctx.lineWidth = width * 3.2;
+        ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * 0.1;
+        ctx.stroke();
+        ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      }
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // A new note's links, drawn out one after another in teal.
+  ctx.strokeStyle = C.accent;
+  ctx.lineWidth = 1.6;
+  for (const pop of scene.pops) {
+    const p = env.screen(pop.note);
+    pop.links.forEach((other, i) => {
+      const k = model.reducedMotion ? 1 : clamp((pop.age - 0.6 - i * 0.9) / DUR.link, 0, 1);
+      if (k <= 0) return;
+      const q = env.screen(other);
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(lerp(p.x, q.x, k), lerp(p.y, q.y, k));
+      ctx.stroke();
+    });
+  }
+  for (const key of creating) {
+    if (popping.has(key)) continue;
+    const p = env.screen(notes.get(key)!);
+    for (const [ka, kb] of model.layout.edges) {
+      const other = ka === key ? kb : kb === key ? ka : null;
+      if (!other || !scene.present.has(other)) continue;
+      const q = env.screen(notes.get(other)!);
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1;
+
+  // What the followed actor has read stays tied to it by a faint ink thread.
+  const followed = model.following ? scene.actors.find((a) => a.id === model.following) : undefined;
+  if (followed && scene.followReads.length > 0) {
+    const f = env.screen(followed);
+    ctx.strokeStyle = C.ink;
+    ctx.globalAlpha = 0.28;
+    ctx.setLineDash([2, 4]);
+    ctx.beginPath();
+    for (const n of scene.followReads) {
+      const p = env.screen(n);
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(f.x, f.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  // Where moved notes came from: a dashed trail that fades after landing.
+  for (const fl of scene.flights) {
+    const fade = fl.landedFor < 0 ? 1 : 1 - fl.landedFor / DUR.trail;
+    if (fade <= 0) continue;
+    ctx.globalAlpha = (fl.cross ? 0.5 : 0.55) * fade;
+    ctx.strokeStyle = C.ink;
+    ctx.setLineDash([4, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const steps = 24;
+    for (let i = 0; i <= steps; i += 1) {
+      const q = env.screen(quad(fl.from, fl.ctrl, fl.to, (i / steps) * fl.k));
+      if (i === 0) ctx.moveTo(q.x, q.y);
+      else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 1;
+  }
+}
+
+/** Does a segment between two off-screen points still cross the screen? (A cheap bounding check.) */
+function crosses(env: DrawEnv, a: Point, b: Point): boolean {
+  const { w, h } = env.vp;
+  return !(Math.max(a.x, b.x) < 0 || Math.min(a.x, b.x) > w || Math.max(a.y, b.y) < 0 || Math.min(a.y, b.y) > h);
+}
+
+/** A resting dot gets its drawn rim from this radius up; smaller ones are only grain. */
+export const RIM_FROM = 2.4;
+
+/** Every note as a dot, and the marks of whatever is happening to it. */
+export function drawNotes(env: DrawEnv): void {
+  const { ctx, style, model, scene, s } = env;
+  const C = style.palette;
+  const rm = model.reducedMotion;
+  const follow = new Set(scene.followReads.map((n) => n.key));
+  const popping = new Set(scene.pops.map((p) => p.note.key));
+  // Resting dots, the great majority, go into one path and one fill: what a
+  // frame costs is how many times the canvas paints, and a workspace of
+  // 20,000 notes painted one dot at a time is a slide show.
+  const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
+  ctx.beginPath();
+  for (const n of env.near) {
+    const key = n.key;
+    if (scene.hidden.has(key) || popping.has(key) || scene.editing.has(key) || scene.reading.has(key) || follow.has(key)) continue;
+    if (env.selected === key) continue;
+    const p = env.screen(n);
+    if (!env.onScreen(p, 30)) continue;
+    const R = dotRadius(s, n.deg);
+    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7, off: bowOf(n.x, n.y, n.y, n.x) * 0.7 });
+    // A dot a pixel or two across looks the same as a square and paints far
+    // faster, which is what a whole workspace of tiny dots is made of.
+    if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
+    else {
+      ctx.moveTo(p.x + R, p.y);
+      ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
+    }
+    env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
+  }
+  // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
+  // pencil or chalk dot has, a little off centre.
+  ctx.fillStyle = grain(ctx, C, C.dot);
+  ctx.globalAlpha = env.dim ? 0.5 : 1;
+  ctx.fill();
+  if (rims.length > 0) {
+    ctx.beginPath();
+    for (const m of rims) {
+      ctx.moveTo(m.x + m.off + m.r, m.y - m.off);
+      ctx.arc(m.x + m.off, m.y - m.off, m.r, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = C.dot;
+    ctx.lineWidth = 0.9;
+    ctx.globalAlpha = (env.dim ? 0.5 : 1) * 0.6;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  ctx.globalAlpha = 1;
+  // Then the few with something happening to them, each with its own marks.
+  const marked = new Set<string>([...scene.editing.keys(), ...scene.reading.keys(), ...follow]);
+  if (env.selected !== null) marked.add(env.selected);
+  for (const key of marked) {
+    if (!scene.present.has(key) || scene.hidden.has(key) || popping.has(key)) continue;
+    const n = model.layout.notes.get(key);
+    if (!n) continue;
+    const p = env.screen(n);
+    if (!env.onScreen(p, 30)) continue;
+    const R = dotRadius(s, n.deg);
+    const ed = scene.editing.has(key);
+    const rd = scene.reading.has(key) || follow.has(key);
+    const sel = env.selected === key;
+    if (ed) {
+      const pulse = rm ? 0.35 : (scene.phase * 1.4) % 1;
+      circle(ctx, p.x, p.y, R + 4 + pulse * 14);
+      ctx.strokeStyle = C.accent;
+      ctx.globalAlpha = 1 - pulse;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 0.18;
+      circle(ctx, p.x, p.y, R + 7);
+      ctx.fillStyle = C.accent;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+    }
+    if (rd && !ed) {
+      circle(ctx, p.x, p.y, R + 4);
+      ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = C.ink;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
+    if (sel) {
+      circle(ctx, p.x, p.y, R + 4);
+      ctx.strokeStyle = C.accent;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    circle(ctx, p.x, p.y, ed || rd ? Math.max(R, 2.6) + 0.6 : R);
+    ctx.fillStyle = ed || sel ? C.accent : rd ? C.ink : C.dot;
+    ctx.globalAlpha = env.dim && !(ed || rd || sel) ? 0.5 : 1;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
+  }
+  // New notes pop in with an overshoot and a ring.
+  for (const pop of scene.pops) {
+    const p = env.screen(pop.note);
+    const R = Math.max(dotRadius(s, pop.note.deg), 2.6) + 1.2;
+    const k = clamp(pop.age / 0.5, 0, 1);
+    const scale = k < 1 ? 1.6 * Math.sin((k * Math.PI) / 2) - 0.6 * k : 1;
+    if (pop.age < DUR.pop) {
+      circle(ctx, p.x, p.y, 8 + pop.age * 30);
+      ctx.strokeStyle = C.accent;
+      ctx.globalAlpha = 1 - pop.age / DUR.pop;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
+    }
+    circle(ctx, p.x, p.y, R * Math.max(0.01, scale));
+    ctx.fillStyle = C.accent;
+    ctx.fill();
+    env.hit.circle(p.x, p.y, R, { kind: "note", workspaceId: pop.note.workspaceId, path: pop.note.path }, LAYER.note);
+  }
+}

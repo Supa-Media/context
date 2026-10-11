@@ -56,8 +56,14 @@ import {
 import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { normalizeSecretName } from "./lib/appSecrets";
 import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } from "./lib/admin";
+import { agentReportHandler, agentReportValidator } from "./lib/adminFns/agentReport";
+import { aiCostsAccountValidator, aiCostsCloudflareValidator, aiCostsReportValidator, type AiCostsCloudflare } from "./lib/adminFns/aiCostsShape";
+import { cloudflareCheck } from "./lib/adminFns/aiCostsCloudflare";
+import { clampAiCostsDays } from "./lib/adminFns/aiCostsRead";
+import { aiCostsAccountHandler, aiCostsReportHandler } from "./lib/adminFns/aiCostsReport";
+import { searchReportHandler, searchReportValidator } from "./lib/adminFns/searchReport";
 import { toConvexError } from "./lib/adminFns/errors";
-import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
+import { COUNT_CEILING, usageReportHandler, usageReportValidator, type CountedTotal, type MetricSeries } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
 import { censusWaitlistValidator } from "./lib/adminFns/censusWaitlist";
 import { jevUsageReportHandler, jevUsageReportValidator, setJevSwitchHandler } from "./lib/jev/admin";
@@ -72,12 +78,22 @@ import {
 import {
   addEmailsHandler,
   admitHandler,
+  landingCountsHandler,
+  landingCountsValidator,
   listWaitlistHandler,
   removeHandler,
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
 import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
+import {
+  archiveResultValidator,
+  listPeopleHandler,
+  personValidator,
+  setArchivedHandler,
+  setPhoneHandler,
+  setPhoneResultValidator,
+} from "./lib/adminFns/people";
 import {
   communityKindValidator,
   communityLinkValidator,
@@ -92,6 +108,11 @@ import {
   setInvitesOffHandler,
   traceReferralHandler,
 } from "./lib/adminFns/referrals";
+import {
+  setSignInTextsSenderHandler,
+  signInTextsHandler,
+  signInTextsValidator,
+} from "./lib/adminFns/signInTexts";
 
 export { COUNT_CEILING, ROSTER_LIMIT };
 export type { AdminSecretRow, CountedTotal, MetricSeries };
@@ -121,32 +142,92 @@ export const amIAdmin = query({
  */
 export const usageReport = query({
   args: { days: v.optional(v.number()) },
-  returns: v.object({
-    days: v.number(),
-    window: v.array(v.string()),
-    series: v.array(
-      v.object({
-        metric: v.string(),
-        points: v.array(v.object({ day: v.string(), count: v.number() })),
-        total: v.number(),
-      }),
-    ),
-    activeContexts: v.object({
-      points: v.array(v.object({ day: v.string(), count: v.number() })),
-      distinctInWindow: v.number(),
-    }),
-    totals: v.object({
-      workspaces: countedTotalValidator,
-      users: countedTotalValidator,
-    }),
-  }),
+  returns: usageReportValidator,
   handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await usageReportHandler(ctx, args);
+  },
+});
+
+/** The Agent tab: answer times, outcomes and tool calls. See `lib/adminFns/agentReport.ts`. */
+export const agentReport = query({
+  args: {
+    days: v.optional(v.number()),
+    client: v.optional(v.union(v.literal("all"), v.literal("texts"), v.literal("app"))),
+    workspace: v.optional(v.string()),
+  },
+  returns: agentReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await agentReportHandler(ctx, args);
+  },
+});
+
+/** The AI costs tab: what Jev and the assistant cost, by feature, model, day and account. See `lib/adminFns/aiCostsReport.ts`. */
+export const aiCostsReport = query({
+  args: { days: v.optional(v.number()) },
+  returns: aiCostsReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await aiCostsReportHandler(ctx, args);
+  },
+});
+
+/** One account's drawer on the AI costs tab. `null` for an unknown or malformed user id. See `lib/adminFns/aiCostsReport.ts`. */
+export const aiCostsAccount = query({
+  args: { userId: v.string(), days: v.optional(v.number()) },
+  returns: aiCostsAccountValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await aiCostsAccountHandler(ctx, args);
+  },
+});
+
+/**
+ * The AI costs tab's check against Cloudflare's own usage count. An action,
+ * because it asks Cloudflare; the staff check is the internal query every
+ * admin action uses. See `lib/adminFns/aiCostsCloudflare.ts`.
+ */
+export const aiCostsCloudflare = action({
+  args: { days: v.optional(v.number()) },
+  returns: aiCostsCloudflareValidator,
+  handler: async (ctx, args): Promise<AiCostsCloudflare> => {
     try {
-      await requireAdmin(ctx);
+      await ctx.runQuery(internal.functions.admin.requireAdminActor, {});
     } catch (error) {
       throw toConvexError(error);
     }
-    return await usageReportHandler(ctx, args);
+    return await cloudflareCheck(
+      {
+        CLOUDFLARE_ANALYTICS_TOKEN: process.env.CLOUDFLARE_ANALYTICS_TOKEN,
+        CLOUDFLARE_ANALYTICS_ACCOUNT_ID: process.env.CLOUDFLARE_ANALYTICS_ACCOUNT_ID,
+      },
+      clampAiCostsDays(args.days),
+    );
+  },
+});
+
+/** The Search tab: how long searches take, and which index answered. See `lib/adminFns/searchReport.ts`. */
+export const searchReport = query({
+  args: {
+    days: v.optional(v.number()),
+    view: v.optional(v.union(v.literal("screen"), v.literal("app"), v.literal("ai"))),
+    workspace: v.optional(v.string()),
+  },
+  returns: searchReportValidator,
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await searchReportHandler(ctx, args);
   },
 });
 
@@ -161,11 +242,9 @@ export const jevUsageReport = query({
   args: { days: v.optional(v.number()) },
   returns: jevUsageReportValidator,
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await jevUsageReportHandler(ctx, args);
   },
 });
@@ -206,12 +285,25 @@ export const listWaitlist = query({
     counts: v.object({ waiting: v.number(), admitted: v.number() }),
   }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listWaitlistHandler(ctx, args.status);
+  },
+});
+
+/**
+ * Joins and admissions per landing page (`/a` to `/c`) and ad, for the
+ * Waitlist tab's summary. Staff only, like the list above.
+ */
+export const waitlistLandingCounts = query({
+  args: {},
+  returns: landingCountsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await landingCountsHandler(ctx);
   },
 });
 
@@ -235,11 +327,9 @@ export const removeFromWaitlist = mutation({
   args: { ids: v.array(v.id("waitlist")) },
   returns: v.object({ changed: v.number() }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await removeHandler(ctx, args.ids);
   },
 });
@@ -289,6 +379,53 @@ export const setSignupAlerts = mutation({
   },
 });
 
+// -- people -----------------------------------------------------------------
+
+/**
+ * Who somebody is: addresses, username, phone, workspaces. Searched by any
+ * of them. See `lib/adminFns/people.ts`.
+ */
+export const listPeople = query({
+  args: { search: v.string(), archived: v.optional(v.boolean()) },
+  returns: v.array(personValidator),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await listPeopleHandler(ctx, args.search, args.archived ?? false);
+  },
+});
+
+/** Hide an account from the console, or bring it back. Deletes nothing. */
+export const setPersonArchived = mutation({
+  args: { userId: v.id("users"), archived: v.boolean() },
+  returns: archiveResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setArchivedHandler(ctx, actor, args.userId, args.archived);
+  },
+});
+
+/** Set or remove somebody's phone; a typed phone counts as confirmed. */
+export const setPersonPhone = mutation({
+  args: { userId: v.id("users"), phone: v.union(v.string(), v.null()) },
+  returns: setPhoneResultValidator,
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setPhoneHandler(ctx, actor, args.userId, args.phone);
+  },
+});
+
 // -- invited by friends, and community links -------------------------------
 
 /**
@@ -310,11 +447,9 @@ export const listReferrals = query({
     invitesOff: v.boolean(),
   }),
   handler: async (ctx) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listReferralsHandler(ctx);
   },
 });
@@ -338,11 +473,9 @@ export const traceReferral = query({
     }),
   ),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await traceReferralHandler(ctx, args.inviteId);
   },
 });
@@ -397,11 +530,9 @@ export const listCommunityLinks = query({
   args: {},
   returns: v.array(communityLinkValidator),
   handler: async (ctx) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listCommunityLinksHandler(ctx);
   },
 });
@@ -533,11 +664,9 @@ export const censusReport = query({
     waitlist: censusWaitlistValidator,
   }),
   handler: async (ctx, args) => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await censusReportHandler(ctx, args);
   },
 });
@@ -565,11 +694,9 @@ export const listSecrets = query({
     }),
   ),
   handler: async (ctx): Promise<AdminSecretRow[]> => {
-    try {
-      await requireAdmin(ctx);
-    } catch (error) {
+    await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
-    }
+    });
     return await listSecretsHandler(ctx);
   },
 });
@@ -668,6 +795,33 @@ export const secretEnvelope = internalQuery({
       .query("appSecrets")
       .withIndex("by_name", (q) => q.eq("name", args.name))
       .unique(),
+});
+
+/** Who sign-in codes come from, and whether they say Context. */
+export const signInTexts = query({
+  args: {},
+  returns: signInTextsValidator,
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await signInTextsHandler(ctx);
+  },
+});
+
+/** Set the Messaging Service sign-in codes are texted through; empty clears it. */
+export const setSignInTextsSender = mutation({
+  args: { messagingServiceSid: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await setSignInTextsSenderHandler(ctx, args.messagingServiceSid, actor);
+  },
 });
 
 /**

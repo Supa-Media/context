@@ -10,6 +10,7 @@ import { classifyCaptureKind } from "../communications/paths.js";
 import { createSearchBudget } from "../search/maintain.js";
 import { INSTRUCTIONS_NAME_CHAR_CAP } from "../mcp/instructions.js";
 import { loadIndexManifest, shedNotePathsOf } from "../search/shards.js";
+import { ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
 /**
  * `orient` is called at the top of a session, before the agent knows whether
@@ -20,7 +21,7 @@ import { loadIndexManifest, shedNotePathsOf } from "../search/shards.js";
  */
 export const ORIENT_FOLDER_PAGE_CAP = 5;
 export const ORIENT_RECENT_LIMIT = 8;
-const ORIENT_CHILDREN_LIMIT = 12;
+export const ORIENT_CHILDREN_LIMIT = 12;
 const ORIENT_ROOT_NOTE_LIMIT = 20;
 /** The front page is the customer's own prose; long ones are cut, never dropped. */
 export const ORIENT_INDEX_CHAR_CAP = 6_000;
@@ -199,6 +200,42 @@ export const NO_FRONT_PAGE =
   "looked around, offer to write one with write_note at path `index.md` — " +
   "every agent that connects reads it first.";
 
+const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
+
+/**
+ * Which top-level folder plays which built-in role (`folderRoles.cjs`), so an
+ * agent files into "the inbox" without guessing at numbers. Only folders this
+ * connection can see are named, and a workspace with none gets no line.
+ */
+export function renderBuiltInFolders(survey) {
+  const named = [];
+  for (const folder of [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)))) {
+    const role = folderRole(folderName(folder));
+    if (role !== null && !named.some((entry) => entry.role === role)) named.push({ role, prefix: folder.prefix });
+  }
+  if (named.length === 0) return "";
+  return (
+    "Built-in folders: " +
+    named.map(({ role, prefix }) => `${ROLE_LABEL[role]} \`${prefix}\``).join(" · ") +
+    ". Inbox, Projects, Areas, Resources and Archive exist in every Context workspace and cannot be renamed, moved or deleted; file into them by what they are for, and move what is inside them freely."
+  );
+}
+
+/**
+ * The guidance under the map. Each folder's description is drawn from its
+ * `about.md`, so the agent is told where that lives, when to read it, and that
+ * it is the file to keep up to date. The other names are not offered as a way
+ * to say the same thing, because a second file for the same purpose is how a
+ * folder ends up with two contradicting descriptions.
+ */
+export const FOLDER_ABOUT_GUIDANCE =
+  "Each folder's description is the first line of its `about.md`. Read a folder's `about.md` before working in that folder, and when you create a folder or learn what it is for, write or update its `about.md` with write_note; do not create `README.md` or `overview.md` for this.";
+
+/** `- 1-projects/ (42 notes) — Work with a finish line.` */
+function folderDescription(node) {
+  return node.description ? ` — ${node.description}` : "";
+}
+
 export function renderStructure(survey) {
   const lines = [];
   for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
@@ -207,21 +244,21 @@ export function renderStructure(survey) {
   if (survey.rootNotes.length > ORIENT_ROOT_NOTE_LIMIT) {
     lines.push(`- (+${survey.rootNotes.length - ORIENT_ROOT_NOTE_LIMIT} more notes at the root)`);
   }
-  for (const folder of survey.folders) {
+  // Drawn in the app's order: built-in folders first and Archive last.
+  const folders = [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)));
+  for (const folder of folders) {
     // The floor travels down as well as up: a child count drawn from a walk
     // that stopped early is no more a total than its parent's is.
     const floor = folder.truncated ? "+" : "";
     const noun = folder.count === 1 && !folder.truncated ? "note" : "notes";
-    lines.push(
-      folder.count === 0
-        ? `- ${folder.prefix}`
-        : `- ${folder.prefix} — ${folder.count}${floor} ${noun}`
-    );
+    const count = folder.count === 0 ? "" : ` (${folder.count}${floor} ${noun})`;
+    lines.push(`- ${folder.prefix}${count}${folderDescription(folder)}`);
     for (const child of folder.children.slice(0, ORIENT_CHILDREN_LIMIT)) {
       // No count means the walk stopped before reaching this subfolder. It is
       // named without a number rather than given a zero: "0 notes" about a
       // folder nothing counted is the one reading that is certainly wrong.
-      lines.push(child.count === null ? `  - ${child.prefix}` : `  - ${child.prefix} — ${child.count}${floor}`);
+      const childCount = child.count === null ? "" : ` (${child.count}${floor} ${child.count === 1 && !floor ? "note" : "notes"})`;
+      lines.push(`  - ${child.prefix}${childCount}${folderDescription(child)}`);
     }
     if (folder.children.length > ORIENT_CHILDREN_LIMIT) {
       lines.push(`  - (+${folder.children.length - ORIENT_CHILDREN_LIMIT} more folders)`);

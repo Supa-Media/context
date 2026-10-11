@@ -11,9 +11,10 @@ import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
 import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { SuggestionsLine } from "../../../organizer/Review";
-import { changesCount, footCount } from "../../../organizer/rules";
+import { changesCount } from "../../../organizer/rules";
 import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
+import { useChaosView } from "../../../chaos/ChaosContext";
+import { ChaosFootLine } from "../../../chaos/ChaosFootLine";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -44,14 +45,13 @@ export function ExplorerFoot({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /*
-    Auto-organize's line: "11 suggestions", the activity line's twin, opening
-    the review list the way that one opens what changed. Only one of the
-    three popovers is open at a time.
+    Auto-organize's one line, "What changed" with the cards waiting. It
+    once had a second count for tidy-up suggestions; Tidy up is gone (owner,
+    2026-10-10), and so is that count.
   */
   const organizer = useOrganizerView();
-  const suggestions = footCount(organizer?.status ?? null);
   const changes = changesCount(organizer?.status ?? null);
-  const closeReview = organizer?.closeReview;
+  const chaos = useChaosView();
   return (
     <>
       {/*
@@ -109,7 +109,7 @@ export function ExplorerFoot({
           accessibilityLabel={`${agentsLabel}. Show who`}
           onPress={() => {
             setActivityOpen(null);
-            closeReview?.();
+            chaos?.closePanel();
             setAgentsOpen((open) => (open === null ? Date.now() : null));
           }}
           ariaExpanded={agentsOpen !== null}
@@ -142,20 +142,17 @@ export function ExplorerFoot({
         />
       ) : null}
 
-      <Reveal open={organizer !== undefined && suggestions !== null}>
-      {organizer !== undefined && suggestions !== null ? (
-        <SuggestionsLine
-          count={suggestions}
-          open={organizer.reviewOpen}
-          onToggle={() => {
-            setActivityOpen(null);
-            setAgentsOpen(null);
-            if (organizer.reviewOpen) organizer.closeReview();
-            else organizer.openReview();
-          }}
-        />
-      ) : null}
-      </Reveal>
+      {/*
+        How organized this workspace is, as one quiet line above the counts
+        (`features/chaos`): there once it has been scored, and its panel opens
+        over the tree like the lines above it.
+      */}
+      <ChaosFootLine
+        onOpening={() => {
+          setActivityOpen(null);
+          setAgentsOpen(null);
+        }}
+      />
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
@@ -163,7 +160,7 @@ export function ExplorerFoot({
           onPress={() => {
             const opening = activityOpen === null;
             setAgentsOpen(null);
-            closeReview?.();
+            chaos?.closePanel();
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this

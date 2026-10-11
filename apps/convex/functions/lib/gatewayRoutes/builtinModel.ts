@@ -7,7 +7,7 @@ import { json, nullableStringField, stringField } from "../gatewayAuth";
  * POST /gateway/builtin-model — may this turn spend the built-in model?
  *
  * Behind the gateway's own secret, with the person's access token as the second
- * proof, like `/gateway/provider`. A malformed body is answered like an unknown
+ * proof, like `/gateway/binding`. A malformed body is answered like an unknown
  * token: `{ verdict: null }`. The decision is `functions/builtinModel.ts`.
  */
 export async function gatewayBuiltinModelHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
@@ -33,6 +33,10 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     inputTokens: count("inputTokens"),
     outputTokens: count("outputTokens"),
     decisionTokens: count("decisionTokens"),
+    cacheReadTokens: count("cacheReadTokens"),
+    cacheWriteTokens: count("cacheWriteTokens"),
+    // Absent means GLM; present but not a string is malformed, sent as "" so it is ignored rather than read as absent.
+    model: body.model === undefined ? undefined : typeof body.model === "string" ? body.model : "",
     failed: body.failed === true,
     ms: count("ms"),
   });

@@ -62,6 +62,7 @@ import {
 } from "./lib/account/deletionGuards";
 import { deletePersonalRows } from "./lib/account/personalRows";
 import { finalizeWorkspaceDeletion } from "./lib/account/finalizeWorkspaceDeletion";
+import { disableMeaningHandler } from "./lib/meaningFns/rows";
 
 /**
  * Delete one disposable workspace owned by the production CUJ account.
@@ -225,6 +226,9 @@ export const deleteAccount = mutation({
  *    `releasing` with `fastSearchProvision.releaseIndex` scheduled, which is
  *    the only path that deletes the remote D1 database holding this context's
  *    projected notes.
+ *  - **`meaningIndexes`** — released below like `searchIndexes`, through
+ *    `meaningSearch`'s own disable: the row is the only handle on the
+ *    workspace's Vectorize index.
  *  - **`googleConnections`** — swept below, the same way. One workspace can
  *    have several (one per connected address); each still-live one has its
  *    grant revoked before its row goes.
@@ -503,12 +507,15 @@ async function deleteWorkspaceCascade(
     .unique();
   if (searchIndex !== null) {
     if (searchIndex.databaseId === undefined) {
-      // Nothing was ever created — a failed provision, or an opt-in reversed
-      // before it got that far. Same branch `disable` takes: the row goes now.
+      // Nothing was ever created, or an owner's off already deleted it: the
+      // row goes now.
       await ctx.db.delete(searchIndex._id);
     } else {
+      // `optedOut` cleared so `forgetIndex` deletes the row rather than
+      // keeping an owner's `off` for a workspace that no longer exists.
       await ctx.db.patch(searchIndex._id, {
         optedIn: false,
+        optedOut: undefined,
         status: "releasing",
         updatedAt: Date.now(),
       });
@@ -519,6 +526,10 @@ async function deleteWorkspaceCascade(
       );
     }
   }
+
+  // The meaning index, released the same way and for the same reason: its row
+  // is the only handle on a Cloudflare index of this workspace's fingerprints.
+  await disableMeaningHandler(ctx, { workspaceId });
 
   await releaseWorkspaceDomains(ctx, workspaceId); // no dangling hostname left for a takeover
   /*

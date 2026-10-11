@@ -1,4 +1,4 @@
-import { check, call, lacks, succeeded, objects, storedText, setConcurrentCreateOnAbsent } from "./harness.mjs";
+import { callUnapproved, check, call, lacks, succeeded, objects, storedText, setConcurrentCreateOnAbsent } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 
 export async function runPrivacyAclChecks() {
@@ -131,14 +131,17 @@ export async function runPrivacyAclChecks() {
     "team nested creation is blocked only when the inherited folder default is private",
     teamBlockedUnderManagedPrivate.isError && !objects.has(`${managedFolder}/team-must-not-create.md`)
   );
-  const publishFolderWithoutConfirmation = await call("priv-token", "set_folder_visibility", {
+  // The egress gate holds a widening from an MCP client until the person
+  // answers (`egressApproval.mjs`): nobody answering, nothing changes.
+  const publishFolderWithoutConfirmation = await callUnapproved("priv-token", "set_folder_visibility", {
     path: managedFolder,
     visibility: "inherit",
     expected_privacy_etag: privateFolderPrivacyEtag,
   });
   check(
-    "private folder to inherited-team transition requires explicit confirmation",
+    "private folder to inherited-team transition waits for the person",
     publishFolderWithoutConfirmation.isError &&
+      /^Not done: this would let the folder/.test(publishFolderWithoutConfirmation.content?.[0]?.text ?? "") &&
       (await call("team-token", "read_note", { path: managedTeamPath }))?.isError
   );
   const publishFolderWithConfirmation = await call("priv-token", "set_folder_visibility", {
@@ -297,14 +300,15 @@ export async function runPrivacyAclChecks() {
     path: teamMeetingPath,
   })).content[0].text;
   const nowPrivateMeetingEtag = nowPrivateMeetingRead.match(/etag: (\S+)/)?.[1];
-  const publishWithoutConfirmation = await call("priv-token", "set_visibility", {
+  const publishWithoutConfirmation = await callUnapproved("priv-token", "set_visibility", {
     path: teamMeetingPath,
     visibility: "team",
     expected_etag: nowPrivateMeetingEtag,
   });
   check(
-    "private to team transition requires explicit publication confirmation",
+    "private to team transition waits for the person",
     publishWithoutConfirmation.isError &&
+      /^Not done: this would make/.test(publishWithoutConfirmation.content?.[0]?.text ?? "") &&
       (await call("team-token", "read_note", { path: teamMeetingPath }))?.isError
   );
   const publishWithConfirmation = await call("priv-token", "set_visibility", {

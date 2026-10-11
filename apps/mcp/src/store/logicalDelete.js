@@ -49,7 +49,12 @@ function isMarkdownPath(path) {
 const strictDecoder = new TextDecoder("utf-8", { fatal: true });
 
 function markdownText(value) {
-  if (typeof value === "string") return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ? null : value;
+  // A JavaScript string is already text, including legacy Markdown that
+  // contains a control character from an imported conversation. Refusing it
+  // only when a move recreated a tombstoned destination stranded that note's
+  // collaboration journal. Stamp the exact string as a fresh generation;
+  // byte buffers below still need strict decoding before they count as text.
+  if (typeof value === "string") return value;
   try {
     if (value instanceof ArrayBuffer) {
       const text = strictDecoder.decode(new Uint8Array(value));
@@ -159,8 +164,11 @@ function unsupportedRecreation(key, value) {
   if (!isMarkdownPath(key)) {
     throw new Error("cannot recreate an unsupported object over a logical tombstone");
   }
+  if (text === null) {
+    throw new Error("cannot recreate a non-text or control-character Markdown body over a logical tombstone");
+  }
   if (!isStampEligible(key, text)) {
-    throw new Error("cannot recreate an unsupported Markdown path over a logical tombstone");
+    throw new Error("cannot recreate an ineligible Markdown body over a logical tombstone");
   }
   return true;
 }
@@ -491,10 +499,14 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
         seenPrefixes.add(prefix);
         delimitedPrefixes.push(prefix);
       }
+      // The last key the provider listed, hidden or not: a caller resuming by
+      // key (`startAfter`) needs it to get past a page that was all markers.
+      const lastListed = (page.objects || []).at(-1)?.key;
       return {
         ...page,
         objects,
         ...(page.delimitedPrefixes === undefined ? {} : { delimitedPrefixes }),
+        ...(typeof lastListed === "string" ? { resumeAfter: lastListed } : {}),
       };
     },
 

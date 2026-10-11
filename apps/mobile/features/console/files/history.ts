@@ -62,7 +62,9 @@ import type { SettingsSectionKey } from "../settings/sections";
 export type Place =
   | { kind: "path"; path: string }
   | { kind: "settings"; section: SettingsSectionKey }
-  | { kind: "app"; section: AppSectionKey };
+  | { kind: "app"; section: AppSectionKey }
+  /** The live map over Browse (`?map=1`): a note opened from it comes back to it. */
+  | { kind: "map" };
 
 export function notePlace(path: string): Place {
   return { kind: "path", path };
@@ -74,6 +76,10 @@ export function settingsPlace(section: SettingsSectionKey): Place {
 
 export function appPlace(section: AppSectionKey): Place {
   return { kind: "app", section };
+}
+
+export function mapPlace(): Place {
+  return { kind: "map" };
 }
 
 /**
@@ -88,6 +94,7 @@ export function samePlace(a: Place | null, b: Place | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.kind !== b.kind) return false;
   if (a.kind === "path") return a.path === (b as { path: string }).path;
+  if (a.kind === "map") return true;
   return a.section === (b as { section: string }).section;
 }
 
@@ -119,11 +126,14 @@ export function placeOf(where: {
   routeKind: "landing" | "app" | "context";
   appSection: AppSectionKey | null;
   selectedPath: string | null;
+  /** The live map open over Browse, `?map=1`. Drawn where the note would be, so it wins over the selection. */
+  mapOpen?: boolean;
 }): Place | null {
   if (where.settingsSection !== null) return settingsPlace(where.settingsSection);
   if (where.routeKind === "app" && where.appSection !== null) {
     return appPlace(where.appSection);
   }
+  if (where.routeKind === "context" && where.mapOpen === true) return mapPlace();
   return where.selectedPath === null ? null : notePlace(where.selectedPath);
 }
 

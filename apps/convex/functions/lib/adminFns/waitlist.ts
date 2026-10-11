@@ -15,7 +15,9 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { AdminActor } from "../admin";
+import { normalizePhone } from "../phoneCheck";
 import { waitlistEmail } from "../waitlist";
+import { adCampaignLabel } from "@context/shared";
 
 /** Rows one listing returns, newest first. */
 export const WAITLIST_PAGE = 200;
@@ -30,13 +32,27 @@ export const waitlistStatusValidator = v.union(
 
 export const waitlistRowValidator = v.object({
   id: v.id("waitlist"),
-  email: v.string(),
+  /** One of the two is set: how the person joined. */
+  email: v.union(v.string(), v.null()),
+  phone: v.union(v.string(), v.null()),
   status: waitlistStatusValidator,
   joinedAt: v.number(),
   source: v.string(),
   useFor: v.union(v.string(), v.null()),
   admittedAt: v.union(v.number(), v.null()),
+  /** The landing page (`/a` to `/c`) the person saw before joining, if recorded. */
+  landing: v.optional(v.string()),
+  /** The ad that sent them, as `adCampaignLabel` reads it, if recorded. */
+  campaign: v.optional(v.string()),
 });
+
+/**
+ * One row per landing page and ad: `campaign` is absent for joins no ad
+ * sent, so summing a page's rows gives its total.
+ */
+export const landingCountsValidator = v.array(
+  v.object({ landing: v.string(), campaign: v.optional(v.string()), joined: v.number(), admitted: v.number() }),
+);
 
 export async function listWaitlistHandler(
   ctx: QueryCtx,
@@ -54,12 +70,15 @@ export async function listWaitlistHandler(
   return {
     rows: rows.slice(0, WAITLIST_PAGE).map((row) => ({
       id: row._id,
-      email: row.email,
+      email: row.email ?? null,
+      phone: row.phone ?? null,
       status: row.status,
       joinedAt: row.joinedAt,
       source: row.source,
       useFor: row.useFor ?? null,
       admittedAt: row.admittedAt ?? null,
+      landing: row.landing,
+      ...campaignField(row),
     })),
     more: rows.length > WAITLIST_PAGE,
     counts,
@@ -74,6 +93,32 @@ async function countStatus(ctx: QueryCtx, status: Doc<"waitlist">["status"]): Pr
     .withIndex("by_status_joinedAt", (q) => q.eq("status", status))
     .take(COUNT_LIMIT);
   return rows.length;
+}
+
+function campaignField(row: Doc<"waitlist">): { campaign?: string } {
+  const campaign = adCampaignLabel(row.campaign);
+  return campaign === null ? {} : { campaign };
+}
+
+/**
+ * Joins and admissions per landing page and ad, for the console's summary.
+ * `none` is a row made before the page was recorded. Like the counts above,
+ * this reads at most `COUNT_LIMIT` rows, so past that it is a floor.
+ */
+export async function landingCountsHandler(ctx: QueryCtx) {
+  const rows = await ctx.db.query("waitlist").take(COUNT_LIMIT);
+  const tallies = new Map<string, { landing: string; campaign?: string; joined: number; admitted: number }>();
+  for (const row of rows) {
+    const landing = row.landing ?? "none";
+    const origin = { landing, ...campaignField(row) };
+    const key = JSON.stringify([origin.landing, origin.campaign ?? null]);
+    const tally = tallies.get(key) ?? { ...origin, joined: 0, admitted: 0 };
+    tally.joined += 1;
+    if (row.status === "admitted") tally.admitted += 1;
+    tallies.set(key, tally);
+  }
+  const order = (tally: { landing: string; campaign?: string }) => `${tally.landing}\u0000${tally.campaign ?? ""}`;
+  return [...tallies.values()].sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
 }
 
 async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActor): Promise<boolean> {
@@ -122,31 +167,46 @@ export async function removeHandler(ctx: MutationCtx, ids: Id<"waitlist">[]) {
 }
 
 /**
- * Let addresses in before they ever ask. Pasted text, split on commas,
- * whitespace and newlines; anything that is not an address is handed back
- * rather than dropped silently.
+ * Let people in before they ever ask. Pasted text, one per line or split on
+ * commas and semicolons; an address or a phone with its country code (people
+ * sign in with a phone since 2026-10-09). Anything else is handed back rather
+ * than dropped silently.
  */
 export async function addEmailsHandler(ctx: MutationCtx, raw: string, actor: AdminActor) {
-  const candidates = [...new Set(raw.split(/[\s,;]+/).filter((part) => part.length > 0))];
+  const candidates = [
+    ...new Set(
+      raw
+        .split(/[\n,;]+/)
+        .flatMap((part) => (normalizePhone(part) !== null ? [part.trim()] : part.split(/\s+/)))
+        .filter((part) => part.length > 0),
+    ),
+  ];
   checkBatch(candidates.length);
   const invalid: string[] = [];
   let changed = 0;
   for (const candidate of candidates) {
     const email = waitlistEmail(candidate);
-    if (email === null) {
+    const phone = email === null ? normalizePhone(candidate) : null;
+    if (email === null && phone === null) {
       invalid.push(candidate);
       continue;
     }
-    const existing = await ctx.db
-      .query("waitlist")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
+    const existing =
+      email !== null
+        ? await ctx.db
+            .query("waitlist")
+            .withIndex("by_email", (q) => q.eq("email", email))
+            .unique()
+        : await ctx.db
+            .query("waitlist")
+            .withIndex("by_phone", (q) => q.eq("phone", phone!))
+            .first();
     if (existing !== null) {
       if (await admitRow(ctx, existing, actor)) changed += 1;
       continue;
     }
     const id = await ctx.db.insert("waitlist", {
-      email,
+      ...(email !== null ? { email } : { phone: phone! }),
       status: "waiting",
       joinedAt: Date.now(),
       source: "staff",

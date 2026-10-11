@@ -77,7 +77,6 @@ afterEach(() => {
 });
 
 const TURN_ON = "Turn fast search on for this context";
-const TURN_OFF = "Turn fast search off and delete the hosted index";
 
 describe("turning it on", () => {
   test("the press an owner makes reaches the mutation", async () => {
@@ -97,29 +96,20 @@ describe("turning it on", () => {
   });
 });
 
-describe("turning it off takes two presses, and the first one is not it", () => {
-  test("one press arms, and nothing has been deleted", async () => {
-    const disable = jest.fn(async () => {});
-    mount({ status: { state: "on", canChange: true }, loading: false, disable });
-    await press(TURN_OFF);
-    // The whole point: a mis-tap in a pocket must not delete an index that
-    // took a backfill to build.
-    expect(disable).not.toHaveBeenCalled();
-    expect(text()).toContain("Press again to turn off");
+describe("fast search cannot be turned off from the card", () => {
+  test("an owner with it on is offered no switch and no way to delete the index", () => {
+    // Fast search is always on. A press here would delete a backfill that took
+    // hours to build, so nothing is offered that could do that.
+    const body = mount({ status: { state: "on", canChange: true }, loading: false, enable: async () => {} });
+    expect(offered()).toEqual([]);
+    expect(body).toContain("Fast search is on");
+    expect(body).not.toContain("Turn off");
+    expect(body).not.toContain("Press again");
   });
 
-  test("the armed state says what the second press destroys and what survives", async () => {
-    mount({ status: { state: "on", canChange: true }, loading: false, disable: async () => {} });
-    await press(TURN_OFF);
-    expect(text()).toContain("untouched in your own bucket");
-  });
-
-  test("the second press deletes", async () => {
-    const disable = jest.fn(async () => {});
-    mount({ status: { state: "on", canChange: true }, loading: false, disable });
-    await press(TURN_OFF);
-    await press(TURN_OFF);
-    expect(disable).toHaveBeenCalledTimes(1);
+  test("the on state says what it answers from, in one line", () => {
+    const body = mount({ status: { state: "on", canChange: true, notesIndexed: 1284 }, loading: false });
+    expect(body).toContain("1,284 notes indexed");
   });
 });
 
@@ -129,22 +119,20 @@ describe("a control nobody may use is not drawn", () => {
     // note here; deciding where a copy of all of them is kept is not the same
     // authority, and a button whose only outcome is a permission error is
     // worse than no button.
-    const body = mount({ status: { state: "on", canChange: false }, loading: false });
+    const body = mount({ status: { state: "off", canChange: false }, loading: false });
     expect(offered()).toEqual([]);
-    expect(body).toContain("Only an owner of this context can change this");
+    expect(body).toContain("Only an owner of this context can turn this on");
   });
 
   test("a switch is withheld even when the console is holding the mutations", async () => {
     // Defence in depth, and the case the absent-action guard cannot catch: a
-    // future caller that hands this card `enable`/`disable` without reading
-    // `canChange` first must still draw nothing, because the server is the one
-    // that decides and it already said no.
+    // future caller that hands this card `enable` without reading `canChange`
+    // first must still draw nothing, because the server is the one that decides
+    // and it already said no.
     const enable = jest.fn(async () => {});
-    const disable = jest.fn(async () => {});
-    mount({ status: { state: "off", canChange: false }, loading: false, enable, disable });
+    mount({ status: { state: "off", canChange: false }, loading: false, enable });
     expect(offered()).toEqual([]);
     expect(enable).not.toHaveBeenCalled();
-    expect(disable).not.toHaveBeenCalled();
   });
 
   test("the landing page's demo says where the decision is taken instead", () => {
@@ -230,7 +218,6 @@ describe("the percentage on the card", () => {
     const body = mount({
       status: { state: "preparing", canChange: true, notesIndexed: 620, notesPending: 380 },
       loading: false,
-      disable: async () => {},
     });
     expect(body).toContain("62% indexed");
     // The count stays: a percentage alone cannot say whether 62% is six notes
@@ -245,7 +232,6 @@ describe("the percentage on the card", () => {
     mount({
       status: { state: "preparing", canChange: true, notesIndexed: 620, notesPending: 380 },
       loading: false,
-      disable: async () => {},
     });
     const name = accessibleName("fast-search-progress");
     expect(name).toContain("fast-search index");
@@ -286,7 +272,6 @@ describe("the percentage on the card", () => {
     const body = mount({
       status: { state: "preparing", canChange: true, notesIndexed: 0, notesPending: 1284 },
       loading: false,
-      disable: async () => {},
     });
     expect(body).toContain("Nothing indexed yet");
     expect(body).not.toMatch(/0\s*%/);
@@ -304,12 +289,13 @@ describe("the percentage on the card", () => {
     expect(document.body.querySelector('[data-testid="fast-search-progress"]')).toBeNull();
   });
 
-  test("a finished index keeps its 100% rather than going quiet", () => {
+  test("a finished index keeps its count rather than going quiet", () => {
+    // The card's second line for `on` is the count, since the percentage is
+    // only worth a notice while there is something still to wait for.
     const body = mount({
       status: { state: "on", canChange: true, notesIndexed: 1284, notesPending: 0 },
       loading: false,
-      disable: async () => {},
     });
-    expect(body).toContain("100% indexed");
+    expect(body).toContain("1,284 notes indexed");
   });
 });

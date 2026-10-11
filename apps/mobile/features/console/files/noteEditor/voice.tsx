@@ -1,6 +1,5 @@
 import { VoiceButton } from "../../../voice/VoiceButton";
 import type { VoiceHost } from "../../../voice/VoiceHost";
-import { agentPage, consoleRoute } from "../../../agent/page";
 import type { NoteView } from "./view";
 
 /**
@@ -8,7 +7,7 @@ import type { NoteView } from "./view";
  * the live editor is on screen and there is a voice host; see the call site.
  */
 export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
-  const { editable, controls, compact, barUp, state, dictateAsked } = view;
+  const { editable, controls, compact, barUp, dictateAsked } = view;
   return (
     <VoiceButton
       page={{ ...voice.page, writable: voice.page.writable && editable }}
@@ -48,37 +47,6 @@ export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
         one. `VoiceButton` draws both whatever this says.
       */
       microphoneElsewhere={compact ? !barUp : voice.createButton === true}
-      /*
-        Built here because this is the only place holding both halves: the
-        console's voice host knows the context, and `state` is the editor
-        itself — which is what knows whether the draft has diverged from
-        the file. It carries references and never the note's text; see
-        `features/agent/page.ts` for why that is a security property and
-        not a size optimisation.
-      */
-      place={agentPage({
-        context: voice.page.context,
-        editor: state,
-        route: consoleRoute(voice.page.context),
-        /*
-          False rather than read from the meetings store, because it is
-          structurally false here: `VoiceButton` returns `null` for the
-          whole of a meeting — there is one microphone and the meeting has
-          it — so the conversation this feeds cannot be on screen while one
-          runs. The field exists for the surfaces that will reach the agent
-          from somewhere other than this control.
-        */
-        meetingLive: false,
-        query: null,
-      })}
-      /*
-        Absent on the three surfaces that provide no host value for it —
-        the demo console, the E2E fixture, the visual fixture — where
-        `VoiceButton` falls back to the stub. A conditional *value*, never
-        a conditional hook: the engine is built in the console layout,
-        which is mounted or not as a whole.
-      */
-      agent={voice.agent}
       /*
         The right-click menu's Dictate row, reaching the microphone this
         button owns. It is the same `start()` the sheet calls, so there is

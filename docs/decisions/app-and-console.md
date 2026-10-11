@@ -42,6 +42,10 @@ Moved to [Nine sizes, two densities, and no literal font size anywhere](./app-an
 
 Moved to [One interface face, and `display` kept as a role with no face of its own](./app-and-console/design-tokens-and-interaction.md#one-interface-face-and-display-kept-as-a-role-with-no-face-of-its-own).
 
+### Note text is read in Libron, served from our own origin (2026-10-11)
+
+Moved to [Note text is read in Libron, served from our own origin](./app-and-console/design-tokens-and-interaction.md#note-text-is-read-in-libron-served-from-our-own-origin-2026-10-11).
+
 ### A long press has two signals, because the platform is watching the finger too
 
 Moved to [A long press has two signals, because the platform is watching the finger too](./app-and-console/design-tokens-and-interaction.md#a-long-press-has-two-signals-because-the-platform-is-watching-the-finger-too).
@@ -70,6 +74,10 @@ Moved to [On the web the app has to be able to *start* offline, which is a servi
 
 Moved to [A reconnection empties every queue, not the one on screen](./app-and-console/offline-conflicts-and-startup.md#a-reconnection-empties-every-queue-not-the-one-on-screen).
 
+### Offline is the desktop and phone apps; online, lists read the server
+
+Moved to [Offline is the desktop and phone apps; online, lists read the server](./app-and-console/offline-mirror-and-tree.md#offline-is-the-desktop-and-phone-apps-online-lists-read-the-server).
+
 ### The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 
 Moved to [The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber](./app-and-console/offline-mirror-and-tree.md#the-offline-mirror-is-fed-by-a-privacy-filtered-manifest-a-batched-read-and-a-create-that-cannot-clobber).
@@ -86,6 +94,18 @@ Moved to [The file tree is drawn from the mirror's metadata, so a folder opens w
 
 Moved to [Somebody else's change reaches an open tree as a hint per audience, never as the change](./app-and-console/offline-mirror-and-tree.md#somebody-elses-change-reaches-an-open-tree-as-a-hint-per-audience-never-as-the-change).
 
+### A front matter change is a hint too, and an open project page fetches what moved
+
+Moved to [A front matter change is a hint too, and an open project page fetches what moved](./app-and-console/offline-mirror-and-tree.md#a-front-matter-change-is-a-hint-too-and-an-open-project-page-fetches-what-moved).
+
+### A workspace's tree is a table in its own database, and the bucket stays the truth
+
+Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
+
+### Links live beside the tree, and "who links here" is one query
+
+Moved to [Links live beside the tree, and "who links here" is one query](./app-and-console/tree-table.md#links-live-beside-the-tree-and-who-links-here-is-one-query).
+
 ### Offline is more than saving: create, rename, move, delete
 
 Moved to [Offline is more than saving: create, rename, move, delete](./app-and-console/offline-mutations-and-team-links.md#offline-is-more-than-saving-create-rename-move-delete).
@@ -98,9 +118,9 @@ Moved to [A team link's note survives the console's own cold start, and the logi
 
 Moved to [A folder page is a page, and a folder is acted on like a note](./app-and-console/mobile-navigation-shell.md#a-folder-page-is-a-page-and-a-folder-is-acted-on-like-a-note).
 
-### A folder's placeholder is not a row
+### A folder's about note is its description
 
-Moved to [A folder's placeholder is not a row](./app-and-console/mobile-navigation-shell.md#a-folders-placeholder-is-not-a-row).
+Moved to [A folder's about note is its description](./app-and-console/mobile-navigation-shell.md#a-folders-about-note-is-its-description).
 
 ### A phone gets a path bar, which is half of the line that was deleted
 
@@ -526,3 +546,11 @@ make sure we are not bombarding users". So:
 Reversing it means a message that shows per browser again, or two that stack.
 `inAppMessages.test.ts`, `inAppMessagesRender.test.ts` and
 `messageReads.test.ts` fail.
+
+### A replay reads the activity feed, and a move line carries its pairs (2026-10-07)
+
+Moved to [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md#a-replay-reads-the-activity-feed-and-a-move-line-carries-its-pairs-2026-10-07).
+
+### Moves between workspaces are read from the control plane, and an agent's move now leaves a row there (2026-10-07)
+
+Moved to [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07).

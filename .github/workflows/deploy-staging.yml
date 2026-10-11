@@ -7,18 +7,21 @@ name: Deploy Staging
 # and when it falls back to deploying everything) and the jobs below read its
 # answer. Independent work runs side by side:
 #
-#   plan ─┬─ convex ──────────────┬─ workers ──────────┬─ verify
-#         ├─ worker-tests ────────┘                    │
-#         └─ web-build ─┬─ router-with-assets ─────────┤
-#                       └─ OTA ────────────────────────┘
+#   plan ─┬─ convex ─── workers ─┬─ OTA publish ─┬─ verify
+#         ├─ OTA bundle ─────────┘               │
+#         ├─ worker-tests ───────────────────────┤
+#         └─ web-build ─── router-with-assets ───┘
 #
 # Why each edge exists:
 # - Workers deploy after Convex, because a new gateway may call functions the
-#   old backend does not have. Their tests do not need Convex and run alongside.
+#   old backend does not have. Their tests (already green on the pull request)
+#   run alongside rather than in front, and `verify` waits for them, so a red
+#   suite still fails the run and blocks production.
 # - The web app is built once. Staging's router publishes that exact export as
 #   Static Assets in the same version as its routing code.
 # - The OTA update needs the same backends, not the web alias, so it publishes
-#   alongside the web deploy.
+#   alongside the web deploy. Its bundle is exported from the start, beside the
+#   backends; only the upload waits for them.
 # - `verify` always runs, as the one end-to-end check, even when nothing else
 #   deployed.
 #
@@ -96,6 +99,12 @@ jobs:
       TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_API_KEY_SID: ${{ secrets.TWILIO_API_KEY_SID }}
+      TWILIO_API_KEY_SECRET: ${{ secrets.TWILIO_API_KEY_SECRET }}
+      TWILIO_VERIFY_SERVICE_SID: ${{ secrets.TWILIO_VERIFY_SERVICE_SID }}
+      TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
+      PHONE_CHECK: ${{ secrets.PHONE_CHECK }}
       AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
       GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
       GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -149,7 +158,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # Only this Worker and what it imports, as production's deploy jobs do: a
+      # full install is ~20s of Expo this job never loads.
+      - run: pnpm install --filter "${{ matrix.worker.package }}..." --frozen-lockfile
       - name: Test ${{ matrix.worker.package }}
         run: pnpm --filter "${{ matrix.worker.package }}" test
 
@@ -170,9 +181,15 @@ jobs:
       - run: pnpm --dir infra/router typecheck
       - run: pnpm --dir infra/router test
 
+  # The Worker suites run beside the deploy instead of in front of it. Every
+  # one of them already passed on the pull request; here they re-prove the
+  # merged commit, and `verify` needs them, so a red suite still fails this
+  # run, and production refuses any commit whose staging run failed. Staging
+  # may briefly serve that commit before the failure lands, which is the trade:
+  # about a minute and a half off every gateway deploy.
   workers:
     name: Deploy ${{ matrix.worker.name }}
-    needs: [plan, convex, worker-tests]
+    needs: [plan, convex]
     if: ${{ !cancelled() && !failure() && needs.plan.outputs.any_worker == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
@@ -197,6 +214,13 @@ jobs:
       AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
       LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
       LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      ANTHROPIC_CREDIT_KEY: ${{ secrets.ANTHROPIC_CREDIT_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -211,7 +235,12 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
             | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
-      - run: pnpm install --frozen-lockfile
+      # Only this Worker and what it imports (plus the screenshot Worker the
+      # gateway binds), as production's deploy jobs do.
+      # By package name: a bare path selector (`./apps/mcp...`) takes the
+      # directory without its workspace dependencies, which left the gateway
+      # without @context/collaboration's yjs (staging run 37667608603).
+      - run: pnpm install --filter "${{ matrix.worker.package }}..." ${{ matrix.worker.name == 'mcp' && '--filter "@context/site-shots..."' || '' }} --frozen-lockfile
       # The gateway binds the screenshot browser (infra/site-shots) as a
       # service, and Cloudflare refuses a binding to a script that does not
       # exist, so that Worker deploys first, in this same job.
@@ -254,6 +283,30 @@ jobs:
               printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
               printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
               printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
+              # Web search for the texting assistant: optional, and with no
+              # key the assistant simply has no search tool.
+              if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
+                printf '%s' "$BRAVE_SEARCH_API_KEY" | pnpm --dir apps/mcp exec wrangler secret put BRAVE_SEARCH_API_KEY --env staging
+              else
+                echo "::warning::BRAVE_SEARCH_API_KEY is not set; the texting assistant has no web search until it is."
+              fi
+              # Tex's Browserbase browser lives in the screenshot Worker:
+              # both or neither, and with neither Tex drives Cloudflare's.
+              if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
+                printf '%s' "$BROWSERBASE_API_KEY" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_API_KEY --env staging
+                printf '%s' "$BROWSERBASE_PROJECT_ID" | pnpm --dir infra/site-shots exec wrangler secret put BROWSERBASE_PROJECT_ID --env staging
+              else
+                echo "::notice::Browserbase is not configured in staging; Tex drives Cloudflare's browser."
+              fi
+              # Model routing through Cloudflare AI Gateway: optional, and with
+              # any of the first three missing the gateway keeps Workers AI.
+              for name in AI_GATEWAY_ACCOUNT_ID AI_GATEWAY_ID AI_GATEWAY_TOKEN ANTHROPIC_CREDIT_KEY; do
+                if [ -n "${!name:-}" ]; then
+                  printf '%s' "${!name}" | pnpm --dir apps/mcp exec wrangler secret put "$name" --env staging
+                else
+                  echo "::notice::$name is not set in the staging environment; the gateway keeps its current model route."
+                fi
+              done
               ;;
             *)
               echo "No secret list for Worker '$WORKER'; add one before deploying it." >&2
@@ -376,10 +429,16 @@ jobs:
       - name: Sync the staging Convex origin
         run: printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
 
-  ota:
-    name: Publish OTA
-    needs: [plan, convex, workers]
-    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
+  # The OTA bundle builds as soon as the plan says the app changed, beside the
+  # backend deploys, and only the upload waits for them. Exporting is the slow
+  # half of `eas update` (about two minutes of Metro); doing it inside the
+  # gated job made it the last thing every staging run waited for. The upload
+  # keeps the old edge: new JS must not reach phones before the Convex
+  # functions and Workers it calls exist.
+  ota-bundle:
+    name: Build OTA bundle
+    needs: plan
+    if: ${{ needs.plan.outputs.app == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
@@ -399,19 +458,60 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build drawing editor
+        run: node scripts/build-drawing-editor.mjs
+      # The export `eas update --clear-cache` runs itself (eas-cli publish.js:
+      # ios + android, source and asset maps), so the upload
+      # below can pass --skip-bundler and publish exactly these files.
+      - name: Export the staging bundle
+        working-directory: apps/mobile
+        run: pnpm exec expo export --output-dir dist --dump-sourcemap --dump-assetmap --platform ios --platform android --clear
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-ota-dist
+          path: apps/mobile/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  ota:
+    name: Publish OTA
+    needs: [plan, convex, workers, ota-bundle]
+    if: ${{ !cancelled() && !failure() && needs.plan.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      APP_ENV: staging
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
+      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
+      EXPO_PUBLIC_APP_BUILD: ${{ github.sha }}
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      # Still needed: `eas update` evaluates app.config.js for the manifest.
+      - run: pnpm install --frozen-lockfile
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Build drawing editor
-        run: node scripts/build-drawing-editor.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-ota-dist
+          path: apps/mobile/dist
       - name: Publish staging OTA
         working-directory: apps/mobile
-        run: eas update --branch staging --clear-cache --message "Staging ${GITHUB_SHA}" --non-interactive
+        run: eas update --branch staging --skip-bundler --input-dir dist --message "Staging ${GITHUB_SHA}" --non-interactive
 
   verify:
     name: Verify live staging
-    needs: [plan, convex, workers, router, ota]
+    needs: [plan, convex, worker-tests, workers, router, ota]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: staging

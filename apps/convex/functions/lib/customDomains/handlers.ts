@@ -94,8 +94,21 @@ export const domainViewValidator = v.object({
   records: v.array(dnsRecordValidator),
   /** Owner only, while records are missing: set them up at the DNS provider in one click. */
   oneClick: v.union(v.object({ provider: v.string(), url: v.string() }), v.null()),
-  /** A root domain's `www.`, which sends visitors to the root once it is live. */
-  www: v.union(v.object({ hostname: v.string(), live: v.boolean() }), v.null()),
+  /**
+   * A root domain's `www.`, which sends visitors to the root once it is live.
+   * It has a registration and a certificate of its own, so it can still be
+   * on its way, or stuck, after the root is live; its own stage and problem
+   * say which.
+   */
+  www: v.union(
+    v.object({
+      hostname: v.string(),
+      live: v.boolean(),
+      stage: v.union(v.literal("ownership"), v.literal("routing"), v.literal("https"), v.literal("live")),
+      problem: v.union(v.string(), v.null()),
+    }),
+    v.null(),
+  ),
 });
 
 export const settingsValidator = v.object({
@@ -203,7 +216,15 @@ export async function settingsHandler(
               canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
                 ? (row.oneClick ?? null)
                 : null,
-            www: www === null ? null : { hostname: www.hostname, live: www.status === "active" },
+            www:
+              www === null
+                ? null
+                : {
+                    hostname: www.hostname,
+                    live: www.status === "active",
+                    stage: stageOf(www),
+                    problem: www.problem ?? null,
+                  },
           },
   };
 }

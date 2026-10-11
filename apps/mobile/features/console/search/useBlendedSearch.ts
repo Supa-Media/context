@@ -90,6 +90,13 @@ export interface BlendedSearchView {
    * `null` when the control plane answered. See `deviceSearchPageNotice`.
    */
   notice: string | null;
+  /**
+   * How long the newest answer took, in ms, from sending the search to its
+   * answer arriving, as this device measured it — the time a person actually
+   * waited, debounce excluded. `null` until something has answered. ⌘K draws
+   * it as its timing pill (Dev2, 2026-10-09).
+   */
+  took: number | null;
 }
 
 /**
@@ -173,6 +180,7 @@ export function useBlendedSearch(options: {
   const [failed, setFailed] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [took, setTook] = useState<number | null>(null);
 
   /**
    * The question the newest request was for.
@@ -263,6 +271,7 @@ export function useBlendedSearch(options: {
      * `toggleScope` states — because `scope` above is built from a
      * subscription that has nothing in it offline.
      */
+    let sentAt = Date.now();
     const fromDevice = async (local: BlendedDeviceSearch, reason: DeviceSearchReason) => {
       const inScope =
         slugs.length === 0
@@ -297,6 +306,7 @@ export function useBlendedSearch(options: {
         return;
       }
       const blended = blendDeviceAnswers(answers);
+      setTook(Date.now() - sentAt);
       setAnswer(blended);
       setResults(blended.results);
       setNotice(deviceSearchPageNotice(reason, answers));
@@ -305,6 +315,7 @@ export function useBlendedSearch(options: {
     const timer = setTimeout(() => {
       void (async () => {
         const local = deviceRef.current;
+        sentAt = Date.now();
         if (offline && local !== null) {
           await fromDevice(local, "offline");
           return;
@@ -315,6 +326,7 @@ export function useBlendedSearch(options: {
         });
         if (asked.current !== question) return;
         if (settled.kind === "value") {
+          setTook(Date.now() - sentAt);
           setLoading(false);
           setNotice(null);
           setAnswer(settled.value);
@@ -432,7 +444,8 @@ export function useBlendedSearch(options: {
       retry,
       retrying,
       notice,
+      took,
     }),
-    [state, results, answer, contexts, loadingMore, loadMore, retry, retrying, notice],
+    [state, results, answer, contexts, loadingMore, loadMore, retry, retrying, notice, took],
   );
 }

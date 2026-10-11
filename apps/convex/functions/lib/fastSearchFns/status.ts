@@ -10,7 +10,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { requireWorkspaceAccess } from "../workspaceAuth";
 import { backfillPercent, fastSearchEntitled, fastSearchState } from "../fastSearch";
-import { bindingFor, planFor, requireUserId } from "./helpers";
+import { bindingFor, requireUserId } from "./helpers";
 import type { FastSearchStatus } from "./validators";
 
 export async function statusHandler(
@@ -24,14 +24,13 @@ export async function statusHandler(
     userId,
   );
   const binding = await bindingFor(ctx, args.workspaceId);
-  const plan = await planFor(ctx, args.workspaceId);
 
   const isOwner = membership.role === "owner";
-  const state = fastSearchState(workspace, plan, binding);
+  const state = fastSearchState(workspace, binding);
 
   return {
     state,
-    canChange: isOwner && fastSearchEntitled(workspace, plan),
+    canChange: isOwner && fastSearchEntitled(workspace),
     notesIndexed: isOwner ? binding?.notesIndexed : undefined,
     notesPending: isOwner ? binding?.notesPending : undefined,
     // `isOwner &&` rather than a ternary over the computed value, so the

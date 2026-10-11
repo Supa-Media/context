@@ -89,4 +89,18 @@ describe("fetching an open project folder", () => {
     await flush();
     expect(calls).toBe(2);
   });
+
+  test("a retry for one context leaves the others alone, and says which it wants", async () => {
+    const h = harness();
+    h.setReady(true);
+    h.freshener.request("ws", "1-projects");
+    h.freshener.request("other", "projects");
+    await flush();
+    h.runs.length = 0;
+    h.freshener.retry("ws");
+    await flush();
+    expect(h.runs).toEqual(["ws:1-projects"]);
+    expect(h.freshener.wants("ws")).toBe(true);
+    expect(h.freshener.wants("never-opened")).toBe(false);
+  });
 });

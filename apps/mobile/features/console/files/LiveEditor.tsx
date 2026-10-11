@@ -732,7 +732,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 0,
     backgroundColor: "transparent",
     color: colors.text,
-    fontFamily: fonts.body,
+    fontFamily: fonts.reading,
     fontSize: t.body,
     lineHeight: leading(t.body, 1.5),
     paddingTop: space.x2,

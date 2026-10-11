@@ -57,6 +57,10 @@ const NOT_SYNCED = new Map([
     "Sentry",
     "Local development reads the Sentry item's dsn field; no deploy workflow reads a Sentry secret today.",
   ],
+  [
+    "BENCH_RUNNER_REFRESH_TOKEN_LIVE",
+    "Written by ai-benchmark.yml itself: the gateway rotates the benchmark runner's refresh token on every use, and a sync from the vault would restore the retired seed (BENCH_RUNNER_REFRESH_TOKEN), which the gateway treats as a replay and answers by revoking the grant.",
+  ],
 ]);
 
 function readAllowlist() {

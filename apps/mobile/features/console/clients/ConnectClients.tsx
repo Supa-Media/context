@@ -24,7 +24,7 @@ import {
  * anyone else pasting it, and that is a question they ask once.
  */
 const AFTER_SENTENCE =
-  "Once it is added, the client sends you back here to sign in and you choose what it may see. It then appears under Connected clients below, and you can revoke it on its own.";
+  "Once it is added, the client sends you back here to sign in and you choose what it may see. It then appears in your list of apps, and you can revoke it on its own.";
 
 /**
  * "Connect a client" — one line per AI tool, collapsed.
@@ -106,7 +106,7 @@ export function ConnectClients({
   return (
     <Card>
       <Text variant="eyebrow" style={styles.eyebrow}>
-        Connect a client
+        Pick your app
       </Text>
 
       {CLIENT_PROVIDERS.map((provider) => (

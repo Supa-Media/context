@@ -12,8 +12,10 @@ import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
 import { phoneBackTarget } from "../home/phoneBack";
+import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
-import type { ConsoleData } from "../types";
+import { selectedContext, type ConsoleData } from "../types";
+import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import type { ConsoleRouter } from "./types";
 import type { ConsoleAside } from "./useConsoleAside";
 
@@ -68,19 +70,24 @@ export function consoleAccountSlot({
   browsing,
   data,
   switcherProps,
+  map,
 }: {
   phone: boolean;
   browsing: boolean;
   data: ConsoleData;
   switcherProps: ComponentProps<typeof SwitcherMenu>;
+  /** The live map's route, when the console has one: ‹ Home closes it. */
+  map?: MapRoute;
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
-  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath) : null;
+  const mapOpen = map?.open === true;
+  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath, mapOpen) : null;
   if (target === null) return account;
   return (
     <PhoneBack
       target={target}
       onBack={() => {
+        if (mapOpen) map?.closeMap();
         if (target.folder === null) data.files.deselect();
         else data.files.select(target.folder);
       }}
@@ -91,20 +98,14 @@ export function consoleAccountSlot({
 
 export function consoleAsidePanel({
   data,
-  agentEngine,
-  agentPlace,
-  asked,
   meetingsAt,
-  newChatAt,
   router,
+  approvals,
 }: {
   data: ConsoleData;
-  agentEngine: ConsoleAside["agentEngine"];
-  agentPlace: ConsoleAside["agentPlace"];
-  asked: ConsoleAside["asked"];
   meetingsAt: number | null;
-  newChatAt: number | null;
   router: ConsoleRouter;
+  approvals: ConsoleAside["approvals"];
 }) {
   /*
     The right panel's contents. Supplied here rather than by the pane for
@@ -113,23 +114,19 @@ export function consoleAsidePanel({
 
     **No `browsing` guard, deliberately**, where `explorer` has one. The
     tree is about a route — Map and Connections have none — and the panel
-    is about the context, so a question asked from the Map is a question
-    about the same notes. `regionsFor` says the same thing by taking no
+    is about the context, so a meeting recorded from the Map is a meeting
+    in the same workspace. `regionsFor` says the same thing by taking no
     `hasExplorer` term for it.
   */
   return (
     data.demo && data.visitor?.meetings === undefined ? undefined : (
       <AsidePanel
-        /*
-          The homepage's visitor gets the Meetings tab alone: their demo
-          meeting runs here, and there is no agent behind a chat for them.
-        */
-        chat={!data.demo}
-        engine={agentEngine}
-        place={agentPlace}
-        asked={asked}
         started={meetingsAt}
-        newChat={newChatAt}
+        /*
+          The homepage's visitor and the demo get the Meetings tab alone:
+          their demo meeting runs here, and no AI client acts for them.
+        */
+        approvals={data.demo ? undefined : approvals}
         /*
           A finished meeting's note, opened in the editor behind the
           panel. `noteEditorHref` builds a console address out of the
@@ -157,6 +154,7 @@ export function consoleExplorer({
   tabs,
   setTreeOverlay,
   switcherProps,
+  router,
 }: {
   browsing: boolean;
   data: ConsoleData;
@@ -166,6 +164,7 @@ export function consoleExplorer({
   tabs: ReturnType<typeof useTabs>;
   setTreeOverlay: Dispatch<SetStateAction<boolean>>;
   switcherProps: ComponentProps<typeof SwitcherMenu>;
+  router: ConsoleRouter;
 }) {
   return (
     browsing ? (
@@ -182,6 +181,8 @@ export function consoleExplorer({
         activity={data.activity}
         // The tree's agent squares and the foot's "N agents active".
         agents={data.agents}
+        personal={selectedContext(data)?.kind === "personal"}
+        onStartBusiness={() => router.push(NEW_WORKSPACE_ROUTE)}
         /*
           **No `vault` and no `vaultDetail` any more, and the line they
           composed has not been deleted — it has moved.**
@@ -235,8 +236,11 @@ export function consoleBottomBar({
   canCreate,
   setBarDialog,
   note,
+  mapOpen = false,
 }: {
   browsing: boolean;
+  /** The live map is open: it has its own sheet at the bottom, and no bar goes under it. */
+  mapOpen?: boolean;
   data: ConsoleData;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   setSearchScope: (scope: string | null) => void;
@@ -244,10 +248,9 @@ export function consoleBottomBar({
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
   /**
    * The note on screen, for the phone's note bar: its entry, the workspace's
-   * label its actions name, and a fresh AI conversation where there is one.
-   * `null` on Home, on a folder, and off a phone.
+   * label its actions name. `null` on Home, on a folder, and off a phone.
    */
-  note: { entry: FileEntry; contextLabel: string; ask: (() => void) | null } | null;
+  note: { entry: FileEntry; contextLabel: string } | null;
 }) {
   const quick =
     note === null
@@ -260,15 +263,12 @@ export function consoleBottomBar({
               canShare: data.files.canShare,
               visitor: data.visitor !== undefined,
             }).map((item) => item.id),
-            note.ask !== null,
           ),
-          onAction: (id: NoteQuickId) => {
-            if (id === "ask") note.ask?.();
-            else runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog });
-          },
+          onAction: (id: NoteQuickId) =>
+            runNoteAction(id, { data, entry: note.entry, contextLabel: note.contextLabel, setBarDialog }),
         };
   return (
-    browsing ? (
+    browsing && !mapOpen ? (
       <ConsoleBottomBar
         data={data}
         note={quick}

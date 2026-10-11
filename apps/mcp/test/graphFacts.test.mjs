@@ -89,6 +89,15 @@ test("bare name goes to bare/ and the written target is kept", async () => {
   assert.ok(r.record.occurrences.some((o) => o.target === "Overview.md#Goals" && o.style === "bare"));
 });
 
+test("a bare name is keyed loosely, so [[Eve]] lands where a note named eve.md is looked up", async () => {
+  const r = await build(FROM, "[[Eve]] and [[Love Thy Neighbor]] and [[Unique_Name]]");
+  assert.ok(r.memberships.has(await bare("eve")));
+  assert.ok(r.memberships.has(await bare("love-thy-neighbor")));
+  assert.ok(r.memberships.has(await bare("unique-name")));
+  assert.equal(await nameHash("Eve"), await nameHash("eve"));
+  assert.ok(r.record.occurrences.some((o) => o.target === "Eve" && o.style === "bare"));
+});
+
 test("non-.md relative target is excluded from incoming/ (OPEN-5)", async () => {
   const r = await build(FROM, "![pic](./pic.png) [[./doc.pdf]] [[./plan]]");
   assert.ok(!r.memberships.has(await incoming("1-projects/alpha/pic.png")));

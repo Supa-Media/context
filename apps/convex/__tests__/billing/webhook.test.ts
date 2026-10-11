@@ -117,9 +117,11 @@ describe("the webhook", () => {
       const scheduled = await t.run((ctx) =>
         ctx.db.system.query("_scheduled_functions").collect(),
       );
+      // Payment no longer touches fast search: it is on for every workspace,
+      // so there is nothing for billing to schedule there.
       expect(
         scheduled.filter((job) => job.name.includes("syncPremiumSelection")),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
       expect(
         scheduled.filter((job) => job.name.includes("provisionManagedStorage")),
       ).toHaveLength(1);

@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, test } from "@jest/globals";
 import { currentEpoch } from "../features/offline/epoch";
 import type { CacheScope } from "../features/offline/keys";
-import { NOTHING_NEEDED, putMirroredNotes } from "../features/offline/mirror";
+import { NOTHING_NEEDED, putMirroredNotes, updateIndex } from "../features/offline/mirror";
 import { forgetMirrorLists, mirroredListNotes } from "../features/offline/mirrorLists";
 import { memoryMirrorStore, type MirrorStore } from "../features/offline/mirrorStoreCore";
 
@@ -101,5 +101,41 @@ describe("reading a folder's notes for a list", () => {
     forgetMirrorLists(WS);
     await store.forgetWorkspace(WS);
     expect(await mirroredListNotes(store, "private", WS, "1-projects", false)).toBeNull();
+  });
+});
+
+describe("which notes are still on their way", () => {
+  /** A note the listing names and whose body has not arrived. */
+  async function listedWithoutBody(path: string, listedComplete: boolean): Promise<void> {
+    await updateIndex(store, currentEpoch(), "private", WS, (index) => {
+      index.entries.set(path, {
+        path,
+        etag: "",
+        visibility: "private",
+        inherited: "private",
+        exception: false,
+        readOnly: false,
+        body: false,
+        syncedAt: NOW,
+      });
+      index.listedComplete = listedComplete;
+      return true;
+    });
+  }
+
+  test("a whole listing names the notes without a body, so a page can judge its own", async () => {
+    await put([{ path: "1-projects/a/overview.md", text: "---\nstatus: in progress\n---\n# A" }]);
+    await listedWithoutBody("0-inbox/sessions/s1.md", true);
+    const source = await mirroredListNotes(store, "private", WS, "", true);
+    expect(source?.complete).toBe(false);
+    expect(source?.missing).toEqual(["0-inbox/sessions/s1.md"]);
+  });
+
+  test("a partial listing names none, because what is missing is not known", async () => {
+    await put([{ path: "1-projects/a/overview.md", text: "# A" }]);
+    await listedWithoutBody("0-inbox/s1.md", false);
+    const source = await mirroredListNotes(store, "private", WS, "", true);
+    expect(source?.complete).toBe(false);
+    expect(source?.missing).toBeUndefined();
   });
 });

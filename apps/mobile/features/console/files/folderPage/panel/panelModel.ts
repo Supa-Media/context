@@ -15,7 +15,7 @@ import { FRONT_NOTES } from "../../../../../../mcp/src/lists/grammar.js";
 import { splitNote } from "../../frontmatter";
 import type { ListNote } from "../../listBlock/model";
 import { baseName, parentPath } from "../../paths";
-import { makeItTaskStatus } from "../listLayout";
+import { makeItTaskStatus } from "../taskBasics";
 import { folderItems, taskChildren, type FolderItem } from "../model";
 import { groupOfStatus, type StatusList } from "../statuses";
 import type { Due } from "../taskProps";

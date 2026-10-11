@@ -104,7 +104,14 @@ export function Check({ tone, children }: { tone: "ok" | "warn"; children: React
   );
 }
 
-/** `.hint` — the blue explanatory panel. */
+/**
+ * `.hint` — an explanatory line under whatever it explains.
+ *
+ * It was a tinted panel, and the console grew one around nearly every
+ * sentence of explanation. Dev2 (2026-10-11): those boxes "scream vibe coded",
+ * so a hint is now just quiet subtext with a little space above it. Anything
+ * that genuinely needs emphasis says so in bold, coloured words, not a box.
+ */
 export function Hint({ children, style }: { children: ReactNode; style?: ViewStyle }) {
   const styles = useThemedStyles(makeStyles);
   return <View style={[styles.hint, style]}>{children}</View>;
@@ -154,12 +161,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   checkWarn: { color: colors.warn, fontWeight: "700" },
   checkBody: { flex: 1, minWidth: 0 },
   hint: {
-    marginTop: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.xl,
-    backgroundColor: colors.hintWash,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
+    marginTop: space.x3,
   },
 });

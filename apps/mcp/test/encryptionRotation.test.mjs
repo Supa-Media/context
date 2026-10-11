@@ -478,10 +478,10 @@ export async function runEncryptionRotationChecks(check) {
     // A second, brand-new rotation (k2 -> k3) exercises this on the same
     // bucket the first rotation left on k2 — 205 notes on k2, one stray still
     // on the long-retired k1 (untouched by this rotation too, same as ever).
-    const exportedForK2 = await call("export_encryption_keys", {});
-    const exportedDoc = JSON.parse(textOf(exportedForK2).slice(textOf(exportedForK2).indexOf("{")));
-    const K2_MATERIAL = exportedDoc.keys.find((entry) => entry.generation === "k2")?.key;
-    check("the export carries k2's own material to build the fixture below", typeof K2_MATERIAL === "string");
+    // Read off the control plane's own row: the gateway has no key export
+    // (removed by the owner on 2026-10-08), and this is where the key lives.
+    const K2_MATERIAL = controlPlane.bindings.get("ws_rot")?.encryptionKey?.keys?.k2;
+    check("the control plane holds k2's own material to build the fixture below", typeof K2_MATERIAL === "string");
 
     const secondRotationFirstCall = await call("rotate_encryption_keys", {});
     check(

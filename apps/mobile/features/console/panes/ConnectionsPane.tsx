@@ -46,16 +46,6 @@ import { selectedContext, type ConsoleData } from "../types";
 export function ConnectionsPane({ data }: { data: ConsoleData }) {
   const styles = useThemedStyles(makeStyles);
   /*
-    The members card below is the one per-context thing on an otherwise
-    app-level pane, so the role it needs is the *selected* context's — not a
-    property of this route. No chip goes in this pane's head for the same
-    reason the switcher above it says "Your context": a `team level only` badge
-    on a heading that spans everything this person can reach would be naming a
-    scope the pane is not in.
-  */
-  const viewerRole = selectedContext(data)?.role;
-
-  /*
     One URL reaches everything; the named ones only choose where a client
     starts.
 
@@ -180,7 +170,6 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       <View style={styles.members}>
         <MembersSection
           view={data.members}
-          viewerRole={viewerRole}
           shareBackWith={shareBackSuggestions(data.contexts, data.members)}
         />
       </View>

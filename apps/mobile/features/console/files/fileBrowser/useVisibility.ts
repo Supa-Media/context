@@ -35,12 +35,12 @@ type VisibilityDeps =
   >
   & Pick<BrowserStateValues, "expanded" | "selectedPath" | "setExpanded" | "setNotice">
   & Pick<OfflineQueueValues, "listings" | "listingsRef">
-  & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
+  & Pick<ListingsValues, "ensureListing" | "refresh" | "reportRefreshFailure">
   & Pick<RunOperationValues, "run">;
 
 export function useVisibility(deps: VisibilityDeps) {
   const {
-    expanded, listings, listingsRef, refresh, reportRefreshFailure, resetPrivacyAction, run,
+    ensureListing, expanded, listings, listingsRef, refresh, reportRefreshFailure, resetPrivacyAction, run,
     selectedPath, setDirectoryVisibility, setExpanded, setNoteVisibility, setNotice,
     updateStorageLayoutAction, workspaceId,
   } = deps;
@@ -164,10 +164,9 @@ export function useVisibility(deps: VisibilityDeps) {
     const missing = ancestorsOf(selectedPath).filter((folder) => !expanded.has(folder));
     if (missing.length === 0) return;
     setExpanded((current) => new Set([...current, ...missing]));
-    void refresh(missing.filter((folder) => listings[folder] === undefined)).catch(
-      reportRefreshFailure,
-    );
-  }, [expanded, listings, refresh, reportRefreshFailure, selectedPath]);
+    // `ensureListing` also asks for a folder only the device's copy has drawn.
+    for (const folder of missing) ensureListing(folder);
+  }, [ensureListing, expanded, selectedPath]);
 
   /**
    * Somebody else wrote to this bucket, so the folder it landed in is stale.

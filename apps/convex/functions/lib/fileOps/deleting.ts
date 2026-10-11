@@ -16,7 +16,8 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
-import { requirePath, timestampSlug } from "./paths";
+import { assertNotMainFolder, requirePath, timestampSlug } from "./paths";
+import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
@@ -57,6 +58,7 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
@@ -137,6 +139,7 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   assertWritablePath(path);
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
@@ -406,6 +409,7 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
+  assertNotMainFolder(path);
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
@@ -498,6 +502,9 @@ export async function deletePath(
   }
 
   await forgetPrivacy(store, keys, targetIsFolder ? path : null, walk.withheld);
+  // A folder that is really gone takes its icon with it; one still holding
+  // notes this caller could not see is still there, icon and all.
+  if (targetIsFolder && walk.withheld.length === 0) await dropFolderIcons(store, path);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is
