@@ -41,7 +41,7 @@ function mountSection(view: MembersView): HTMLElement {
     act(() => root.unmount());
     container.remove();
   });
-  act(() => root.render(createElement(MembersSection, { view, viewerRole: "owner" })));
+  act(() => root.render(createElement(MembersSection, { view })));
   return container;
 }
 

@@ -339,7 +339,9 @@ const variantsFor = (colors: Colors) => ({
     fontFamily: fonts.body,
     fontSize: t.meta,
     lineHeight: leading(t.meta, 1.6),
-    color: colors.hintText,
+    // Muted like any other subtext: a hint is no longer a tinted panel, so it
+    // no longer wears the panel's colour (2026-10-11).
+    color: colors.muted,
   },
   /** `.foot`. */
   foot: {

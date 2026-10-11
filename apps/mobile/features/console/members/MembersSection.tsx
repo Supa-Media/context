@@ -25,7 +25,6 @@ import { useArming } from "../useArming";
 import { FaceView } from "../faces/PersonFace";
 import { useFace } from "../faces/useFace";
 import { PickMenu } from "../settings/panels/PickMenu";
-import { memberReachSentence, tierExplanation } from "../visibility";
 
 /**
  * Who can reach this context, and the controls to change it.
@@ -47,24 +46,12 @@ import { memberReachSentence, tierExplanation } from "../visibility";
  * is all `listInvitations` returns: a declined invitation, a withdrawn one and
  * an expired one are the same absence, deliberately, so that answering "no"
  * never tells the person who sent it that you exist.
- *
- * `viewerRole` is the second prop, and it stays a plain string for the same
- * reason the first one is a plain view model: it is the caller's role in the
- * selected context, read straight off `ConsoleContext.role`, so this section
- * still imports nothing from Convex, Expo Router, or the shell. It is passed in
- * rather than dug out of `view.members` — the row a member holds and the role
- * the context list reports come from the same membership, and reading it from
- * two places is how they get to disagree.
  */
 export function MembersSection({
   view,
-  viewerRole,
   shareBackWith,
-  showReachRule = true,
 }: {
   view: MembersView;
-  /** The caller's role in this context. Absent until the context list lands. */
-  viewerRole?: string;
   /**
    * Handles of people who shared a context with *you* and are not already in
    * this one — offered as one-tap invitees.
@@ -74,51 +61,11 @@ export function MembersSection({
    * from nothing. See `shareBackSuggestions` in `members.ts`.
    */
   shareBackWith?: readonly string[];
-  /**
-   * Whether to print the owner's paragraph about what having members hands
-   * over. On by default, and off in exactly one place: Sharing & Access, where
-   * the Privacy block two blocks below states the same rule in the words that
-   * section is held to.
-   *
-   * `PrivacyPanel`'s own docstring made this call the other way round when the
-   * two were separate screens — it dropped `memberReachSentence` from *its*
-   * copy and left the paragraph here, "one point, two voices, one screen
-   * apart". They are not a screen apart any more, so the same rule now points
-   * the other way: the block whose whole subject is who can read what keeps
-   * the sentence, and the member list stops repeating it in retired
-   * vocabulary.
-   */
-  showReachRule?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { actions } = view;
   const now = Date.now();
   const [inviting, setInviting] = useState(false);
-  /*
-    The owner's half of the tier: what inviting these people did and did not
-    hand over. `null` for everybody else, because it describes a decision only
-    the owner made — a member reading "anything you marked private is yours
-    alone" on somebody else's context would be reading a claim about the wrong
-    person's notes.
-  */
-  const reach = showReachRule ? memberReachSentence(viewerRole) : null;
-  /*
-    And the reader's half, which had nowhere to be drawn.
-
-    A member or an editor sees one line about this on every screen of the
-    context — "Team access — notes marked private are not shown here." That line
-    is deliberately only the *state*: the argument behind it is a paragraph, and
-    a paragraph reprinted over every note is one nobody finishes reading.
-    `tierExplanation` says exactly that in its own docstring, and named a
-    surface to keep it on; until now nothing rendered it, so the reasoning was
-    written down and unreachable.
-
-    This card, because this is the card that answers "who can read this" — the
-    owner's half of the same fact is one row down, and the two halves living on
-    different screens is how the console came to state one of them and not the
-    other. Never both at once: one is `owner` only, the other is everybody else.
-  */
-  const filtered = tierExplanation(viewerRole);
 
   // A query that came back as an error is neither an empty context nor a
   // permanent "Loading…", which is how both halves of this card would otherwise
@@ -208,21 +155,6 @@ export function MembersSection({
           />
         ))}
 
-        {reach !== null ? (
-          <Hint>
-            <Text variant="hint" testID="members-tier-rule">
-              {reach}
-            </Text>
-          </Hint>
-        ) : null}
-
-        {filtered !== null ? (
-          <Hint>
-            <Text variant="hint" testID="members-tier-filtered">
-              {filtered}
-            </Text>
-          </Hint>
-        ) : null}
       </Card>
 
       {actions === undefined && view.readOnlyReason !== undefined ? (

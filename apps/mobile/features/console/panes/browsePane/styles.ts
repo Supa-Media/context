@@ -1,5 +1,5 @@
 import { StyleSheet } from "react-native";
-import { layout, radii, space } from "../../../design/tokens";
+import { layout, space } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
 /** Shared by every part of the Browse pane, so they all draw from one sheet of styles. */
@@ -106,15 +106,9 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
   noticesCompact: { paddingHorizontal: layout.readingMargin, paddingTop: space.x2 },
   notice: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
-    backgroundColor: colors.hintWash,
     gap: 10,
   },
-  noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
+  noticeWarn: {},
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
   /**

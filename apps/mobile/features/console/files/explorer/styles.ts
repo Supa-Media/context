@@ -115,12 +115,6 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
   refusal: {
     marginHorizontal: space.x2,
     marginBottom: space.x2,
-    paddingVertical: space.x2,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.warnBorder,
-    backgroundColor: colors.warnWash,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: space.x2,
