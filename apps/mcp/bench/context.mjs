@@ -204,7 +204,18 @@ export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
     await writeFile(join(folder, basename(path)), content.endsWith("\n") ? content : `${content}\n`);
     names.push(basename(path, ".md"));
   }
-  return { folder, names };
+  // The job's task skills (`src/agent/skills.js`), `<job>/skills/`, beside them.
+  const skillPrefix = `${prefix}/skills`;
+  const skills = [];
+  for (const path of notePaths(listed.text).filter((p) => dirname(p) === skillPrefix && basename(p) !== "about.md")) {
+    const read = await callTool(connection, "read_note", { path }, fetchImpl);
+    if (read.isError) throw new Error(`read_note ${path}: ${read.text}`);
+    const { content } = splitNote(read.text);
+    await mkdir(join(folder, "skills"), { recursive: true });
+    await writeFile(join(folder, "skills", basename(path)), content.endsWith("\n") ? content : `${content}\n`);
+    skills.push(basename(path, ".md"));
+  }
+  return { folder, names, skills };
 }
 
 /**
@@ -369,8 +380,9 @@ export async function signInCommand(options) {
 export async function pullCommand(options, dir) {
   if (!options.job) throw new Error("usage: pnpm ai pull <job> [--dir <benchmarks folder>]");
   const connection = await signIn({ env: process.env });
-  const { folder, names } = await pullSetups({ job: options.job, dir, connection });
+  const { folder, names, skills } = await pullSetups({ job: options.job, dir, connection });
   process.stderr.write(`pulled ${names.length} setup${names.length === 1 ? "" : "s"} into ${folder}: ${names.join(", ")}\n`);
+  if (skills.length) process.stderr.write(`pulled ${skills.length} skill${skills.length === 1 ? "" : "s"}: ${skills.join(", ")}\n`);
 }
 
 /** `pnpm ai publish <result file> [--run-url <url>]`: the result's scores note into Context. */

@@ -83,7 +83,9 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
     const runs = answered(setup, n);
     return runs.length > 0 && runs.every((row) => runPassed(row.id));
   };
-  const gateBroken = (id) => judged.get(id).verdicts.some((v) => v.kind === "must not" && !v.pass);
+  // A gate breaks on a failed must-not line; a golden task's (`kind: task`)
+  // breaks on any failed line but a judge line, since the task MUST be done.
+  const gateBroken = (id, q) => judged.get(id).verdicts.some((v) => !v.pass && (v.kind === "must not" || (q.kind === "task" && v.kind !== "judge")));
 
   const setups = [...new Set(key.map((row) => row.setup))];
   const rows = setups.map((setup) => {
@@ -99,7 +101,9 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       }
       counted += 1;
       if (questionPassed(setup, n)) passed += 1;
-      if (isGateQuestion(q) && answered(setup, n).some((row) => gateBroken(row.id))) gateFailed.push(n);
+      // A golden task the model never answered was not done, which fails it too.
+      const unanswered = q.kind === "task" && runsOf(setup, n).some((row) => judged.get(row.id).skipped);
+      if (isGateQuestion(q) && (unanswered || answered(setup, n).some((row) => gateBroken(row.id, q)))) gateFailed.push(n);
     }
 
     const mine = key.filter((row) => row.setup === setup);

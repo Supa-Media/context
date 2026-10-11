@@ -477,3 +477,52 @@ test("the judge's reply is held to a JSON schema by the API, and every object in
     await cleanup();
   }
 });
+
+test("a task's checks are graded from the run's record and never sent; a question with only checks sends nothing", async () => {
+  const tasks = `---
+job: texting-assistant
+runs: 1
+web: scripted
+---
+
+## 1. Connect ChatGPT
+
+- kind: task
+- as: Maya
+- must call: read_skill
+- must set: connected chatgpt
+- must: say it is connected
+
+## 2. Open the shop
+
+- kind: task
+- as: Maya
+- must reach: shop.example
+`;
+  const run = (question, text, browser) => ({
+    ...turn({ setup: "zebra-setup", question, text, as: "Maya", kind: "task", gate: true, asked: text, said: "It's connected." }),
+    tools: ["read_skill", "browse"],
+    browser,
+  });
+  const result = {
+    ...RESULT,
+    setups: [SETUPS[0]],
+    runs: [run(1, "Connect ChatGPT", ["open chatgpt.com/plugins", "set connected chatgpt"]), run(2, "Open the shop", ["read other.example"])],
+  };
+  const { dir, path, cleanup } = await folder(result, { test: tasks });
+  try {
+    const rec = recording(judging(allPass));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-11" });
+    assert.equal(rec.bodies.length, 1, "question 2 has only checks: nothing to send");
+    assert.deepEqual(payloadOf(rec.bodies[0]).checks.map((c) => c.line), ["say it is connected"]);
+    const blocks = parseJudgedSections(await readFile(path, "utf8")).at(-1).blocks;
+    const ids = assignIds(result).sort((a, b) => a.question - b.question).map((r) => r.id);
+    const verdicts = ids.map((id) => blocks.get(id).verdicts.map((v) => `${v.kind}|${v.line}|${v.pass}`));
+    assert.deepEqual(verdicts, [
+      ["must|call read_skill|true", "must|set connected chatgpt|true", "must|say it is connected|true"],
+      ["must|reach shop.example|false"],
+    ]);
+  } finally {
+    await cleanup();
+  }
+});
