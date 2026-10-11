@@ -4,7 +4,7 @@
  *
  * The public site sets its headings in Instrument Serif
  * (`apps/mobile/features/site/siteFonts.ts`), so the card a page unfurls with
- * does too. Base64 in a module for the reason `libron.ts` gives: Convex
+ * does too. Base64 in a module for the reason `instrumentSans.ts` gives: Convex
  * ships imports, not files. Coverage is checked against this face before a
  * card is drawn (`cardCoverage.ts`), so a glyph it lacks means no card rather
  * than tofu.

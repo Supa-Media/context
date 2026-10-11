@@ -9,9 +9,8 @@
  * appearance because it is a document editor people read in daylight; this is a
  * recording panel that sits over a video call, and the mockups are dark.
  *
- * The three faces — Onest for display, Libron for body (Instrument Sans until
- * 2026-10-11), JetBrains Mono for timers and timestamps — are named with real
- * fallback stacks. The font
+ * The three faces — Onest for display, Instrument Sans for body, JetBrains Mono
+ * for timers and timestamps — are named with real fallback stacks. The font
  * files are NOT bundled yet (see README, "what is stubbed"): on a machine
  * without them the app renders in the system UI face at the same sizes, which
  * is a legible fallback rather than a broken one.
@@ -68,7 +67,7 @@
   --x8: 32px;
 
   --display: "Onest", ui-sans-serif, system-ui, sans-serif;
-  --body: "Libron", ui-serif, Georgia, serif;
+  --body: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 

@@ -185,7 +185,7 @@ function isWhitespace(code: number): boolean {
   );
 }
 
-import { cardFont } from "./cardFont/libron";
+import { cardFont } from "./cardFont/instrumentSans";
 
 /** The card font's coverage, parsed once per isolate. */
 let cached: Set<number> | null = null;
