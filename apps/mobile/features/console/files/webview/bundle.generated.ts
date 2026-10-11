@@ -105,7 +105,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/noteLinkGestures.ts": "d8ac3358f1ff6dce6991b48bbc34c833bff78277892ea76cf32baf158033d10c",
   "apps/mobile/features/console/files/noteLinks.ts": "1ab47911a94040f6374cb6024302c8c07de166da93b1c2144fa3cd46c34a1a95",
   "apps/mobile/features/console/files/owners.ts": "5e33d7b40044a5aaf7f745db0f3f7dcbb44c4c0a3777e891d874ce86ea91ee04",
-  "apps/mobile/features/console/files/paths.ts": "d71d30194dc0f5feaddcfe05ae9a7ad08a3cf0fd6061326f36a4229fce6c0189",
+  "apps/mobile/features/console/files/paths.ts": "395efced8a3cc1ebb0c44bb78de35d899a1afdc1a16b18c387186ad18ad9d6dc",
   "apps/mobile/features/console/files/pluginSuggest.ts": "e731dd410d034747d6e7c420c38e43f0da1b88d53fe19fbe4b7f15729da4db20",
   "apps/mobile/features/console/files/tableChrome.ts": "d2570aec1335b71e792b9ad97a013accd554751c0a25d7429ab13a99fb2ea9cf",
   "apps/mobile/features/console/files/tableEdit.ts": "54feb56bb2cbdf0d713cc65b4f3baad7a9eeaaf4ae4256b5ce9f35b2144572a3",
