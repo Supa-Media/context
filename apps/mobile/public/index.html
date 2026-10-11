@@ -58,8 +58,11 @@
     <link
       id="context-fonts"
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
     />
+    <!-- Libron, the reading face, from our own origin: not on Google Fonts. -->
+    <link rel="preload" href="/Libron-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <link id="context-libron" rel="stylesheet" href="/libron.css" />
 
     <!-- react-native-web's recommended reset, from Expo's stock template. -->
     <style id="expo-reset">
