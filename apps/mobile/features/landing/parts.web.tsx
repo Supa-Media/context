@@ -1,60 +1,52 @@
-import type { ReactNode } from "react";
 import { useConvexAuth } from "convex/react";
 
-/** What every landing page shares: the bar on top, the headline, the way to the sign-up, the foot. */
+/** What every landing page shares: the bar on top, the statement, the foot. */
 
-/** The top of every version: the name, sign in, and the way to the sign-up. */
-export function Nav({ cta = true }: { cta?: boolean }) {
+/** The top of every version: the name, and sign in. */
+export function Nav() {
   const { isAuthenticated } = useConvexAuth();
   return (
     <nav className="lp-nav" aria-label="Context">
       <a className="lp-brand" href="/">
         Context
+        <span className="lp-sq" aria-hidden />
       </a>
       <span className="lp-sp" />
-      <a className="lp-link lp-hide" href="/?page=pricing">
-        Pricing
-      </a>
       {isAuthenticated ? (
-        <a className="lp-pill lp-dark" href="/console">
-          Open Context
+        <a className="lp-link" href="/console">
+          Open Context →
         </a>
       ) : (
-        <>
-          <a className="lp-link" href="/login">
-            Sign in
-          </a>
-          {cta ? <JoinLink /> : null}
-        </>
+        <a className="lp-link" href="/login">
+          Sign in
+        </a>
       )}
     </nav>
   );
 }
 
-/** Takes the visitor to the page's sign-up card. */
-export function JoinLink({ dark = false }: { dark?: boolean }) {
+/**
+ * The page's one sentence, with the blue square for its full stop. The last
+ * word is held to the square so a line break never leaves it on its own.
+ */
+export function Statement({ children, last }: { children: string; last: string }) {
   return (
-    <a className={dark ? "lp-pill lp-dark" : "lp-pill"} href="#join">
-      Sign in or join →
-    </a>
-  );
-}
-
-/** "Less chaos." with the blue square for its full stop. */
-export function Headline({ as: Tag = "h1", children = "Less chaos" }: { as?: "h1" | "h2"; children?: ReactNode }) {
-  return (
-    <Tag className="lp-h1">
-      {children}
-      <span className="lp-sq" aria-hidden />
-      <span className="lp-sr">.</span>
-    </Tag>
+    <h1 className="lp-say">
+      {children}{" "}
+      <span className="lp-nw">
+        {last}
+        <span className="lp-sq" aria-hidden />
+        <span className="lp-sr">.</span>
+      </span>
+    </h1>
   );
 }
 
 export function Footer() {
   return (
     <footer className="lp-foot">
-      <b>Context</b>
+      <span>© Context</span>
+      <span className="lp-sp" />
       <a href="/?page=pricing">Pricing</a>
       <a href="/?page=connect">Connect</a>
       <a href="/?page=devlog">Devlog</a>

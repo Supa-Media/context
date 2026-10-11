@@ -28,7 +28,7 @@ export interface HomeSnapshot {
   /**
    * Emoji drawn on the tree's folders, by the folder's path in the site
    * (`projects`, `projects/launch`). Only a cast preview carries any today:
-   * the landing page's editor demo names its folders' icons in its address.
+   * a crafted preview can name its folders' icons in its address.
    */
   icons?: Readonly<Record<string, string>>;
 }

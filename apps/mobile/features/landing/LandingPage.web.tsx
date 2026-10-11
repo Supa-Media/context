@@ -4,25 +4,32 @@ import { captureLandingPage } from "../auth/landingPage";
 import { useColors, useScheme } from "../design/theme";
 import { LANDING_CSS } from "./landingCss";
 import { darkLandingColors as darkLanding, lightLandingColors as lightLanding } from "../design/tokens/landingColors";
-import { PageA, PageB, PageC, PageD, PageE } from "./variants.web";
+import { HomeShell } from "../home/HomeShell";
+import { PageA, PageB } from "./variants.web";
 
 /**
- * The landing pages, `/` and `/a` to `/e` (Dev2, 2026-10-09): five versions
- * of the front door under test, each counted on the waitlist by the letter it
- * was (`waitlist.landing`).
+ * The landing pages, `/` and `/a` to `/c` (Dev, 2026-10-11, replacing the
+ * five of 2026-10-09): three versions of the front door under test, each
+ * counted on the waitlist by its letter (`waitlist.landing`) and by the ad
+ * that sent the visit (`waitlist.campaign`).
  *
- * These are the one place the homepage is not the console's own shell in
- * visitor mode, which every other page of the website still is: Dev2 asked
- * for "a more typical landing page", and the map in them is the console's
- * real map engine playing a demo. See docs/decisions/websites.md.
+ * a is the simple one and b the map, both plain pages in the Paper sheet. c
+ * is the console's own shell in visitor mode, the homepage every other page
+ * of the website still is, so "the landing page was the app shell" is that
+ * shell itself rather than a picture of it. See docs/decisions/websites.md.
  */
 export function LandingPage({ page }: { page: Letter }) {
-  const colors = useColors();
-  const scheme = useScheme();
   useEffect(() => {
     // The page a visit landed on is the one its waitlist row records.
     captureLandingPage(`/${page}`);
   }, [page]);
+  return page === "c" ? <HomeShell /> : <PaperPage page={page} />;
+}
+
+/** a and b: one page in the landing sheet. */
+function PaperPage({ page }: { page: Exclude<Letter, "c"> }) {
+  const colors = useColors();
+  const scheme = useScheme();
   useEffect(() => {
     const title = document.title;
     document.title = "Context: less chaos";
@@ -55,4 +62,4 @@ export function LandingPage({ page }: { page: Letter }) {
   );
 }
 
-const PAGES: Record<Letter, () => ReactNode> = { a: PageA, b: PageB, c: PageC, d: PageD, e: PageE };
+const PAGES: Record<Exclude<Letter, "c">, () => ReactNode> = { a: PageA, b: PageB };
