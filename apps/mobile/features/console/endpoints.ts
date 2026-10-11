@@ -58,6 +58,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "agent-activity",
   // What the egress gate is holding, and the app's yes or no, `/approvals` on the gateway.
   "approvals",
+  // The person's own view of Tex's browser, `/tex/computer` on the gateway.
+  "tex",
 ]);
 
 /**

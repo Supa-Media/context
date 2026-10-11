@@ -480,9 +480,10 @@ outlives the question, capped at 15 minutes of life, and is found again by a
 tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
 ours stores a session id and no one can name another person's browser. When
 the person must act themselves (sign in, a code, a captcha), the model asks
-for a `handoff`; the gateway adds the live-view link to the text itself, so
-the model never holds it, and it is kept out of the saved conversation,
-because whoever opens it drives a browser the person may be signed in on.
+for a `handoff`; the gateway adds the link to the text itself, so the model
+never holds it, and it is kept out of the saved conversation. Since
+2026-10-11 that link is the person's own page, not Browserbase's live view:
+[Tex's computer](./texting-assistant/computer.md).
 
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The

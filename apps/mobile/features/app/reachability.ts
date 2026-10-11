@@ -797,6 +797,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the private link Tex texts when it needs a login",
   },
   {
+    route: "/tex/[handle]",
+    file: "app/tex/[handle].tsx",
+    reachable: false,
+    reason:
+      "The person's own view of the browser Tex drives for them. Tex texts " +
+      "the address when they must sign in somewhere, and the page opens only " +
+      "for the signed-in owner of that handle.",
+    marker: "the page Tex texts when they have to sign in somewhere",
+  },
+  {
     route: "/[handle]",
     file: "app/[handle]/index.tsx",
     reachable: false,

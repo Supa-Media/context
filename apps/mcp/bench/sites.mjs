@@ -40,7 +40,9 @@
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
- * site, the way someone opening the live-view link would.
+ * site, the way someone taking over at their `/tex/<handle>` page would. The
+ * `liveUrl` this stand-in answers with is what an older screenshot Worker
+ * sent; the gateway must never pass it on.
  *
  * What the browser did is recorded (`events`), and a task's checks read it:
  * which pages it reached, where it handed over, what it typed, which flags it

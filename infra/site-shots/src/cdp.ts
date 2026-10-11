@@ -79,8 +79,18 @@ const KEY_CODES: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Attach to the browser's first page and drive it as a `BrowsePage`. */
-export async function cdpPage(cdp: CdpTransport): Promise<BrowsePage> {
+/** One attached page: raw CDP calls on it, an evaluate, and a wait for it to load. */
+export interface AttachedPage {
+  send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+  evaluate<T>(source: string): Promise<T>;
+  settle(timeout: number): Promise<void>;
+}
+
+/**
+ * Attach to the browser's first page, the one `/browse` drives, so the
+ * person's view (`./view.ts`) and the assistant's steps are on the same page.
+ */
+export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
   const { targetInfos } = await cdp.send<{ targetInfos: Array<{ targetId: string; type: string }> }>("Target.getTargets");
   let targetId = targetInfos.find((t) => t.type === "page")?.targetId;
   if (!targetId) targetId = (await cdp.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" })).targetId;
@@ -106,6 +116,13 @@ export async function cdpPage(cdp: CdpTransport): Promise<BrowsePage> {
     }
     await sleep(300);
   }
+
+  return { send, evaluate, settle };
+}
+
+/** Attach to the browser's first page and drive it as a `BrowsePage`. */
+export async function cdpPage(cdp: CdpTransport): Promise<BrowsePage> {
+  const { send, evaluate, settle } = await attachPage(cdp);
 
   async function focus(selector: string): Promise<void> {
     const found = await evaluate<boolean>(`(() => {

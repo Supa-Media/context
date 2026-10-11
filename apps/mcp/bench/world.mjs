@@ -236,6 +236,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // Where the person's own pages live, as in production: a handoff texts
+    // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
+    // the browser cannot be handed over at all.
+    APP_ORIGIN: "https://app.bench.invalid",
     // The deployed Worker's search budget (wrangler.toml). The free-tier default
     // of 40 is spent by one bucket scan, and every read, listing and orient in the
     // same turn then fails: the 2026-10-08 results measured exactly that.
