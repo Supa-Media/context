@@ -68,6 +68,8 @@
     }
   ],
   "reviewed": {
+    "apps/mcp/src/links.js": "One link engine (parse, read, resolve, rewrite) whose twin is packages/shared/src/links.ts; linkParity.test.ts compares the two function by function, so splitting one copy would split the parity surface.",
+    "packages/shared/src/links.ts": "The app's port of apps/mcp/src/links.js, kept function-for-function parallel so linkParity.test.ts can hold the two engines to identical answers; splitting it would break that mirror.",
     "apps/mobile/features/design/tokens/colors.ts": "The app's colour tokens as one table: each theme's values sit side by side, and the contrast and palette tests read the whole table, so splitting it would scatter one theme across files.",
     "apps/mcp/test/browser/verifyEditor.mjs": "One browser harness: every scenario shares the same worker, control plane, static build and two signed-in pages it boots once; splitting it would boot that stack per file.",
     "apps/mobile/features/console/collaboration/durable.ts": "One class, DurableCollaborationController: the device record, the flush queue, remote reads, recovery replacement and generation adoption all mutate the same private record and Yjs document.",
