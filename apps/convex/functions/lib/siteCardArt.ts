@@ -17,7 +17,7 @@
  *
  *   - the page title in Instrument Serif 400, which is what the page's own
  *     heading is set in (`features/site/siteFonts.ts`);
- *   - the site's name in Instrument Sans 600, which is how the site's header
+ *   - the site's name in Libron 600, which is how the site's header
  *     sets it (`SiteFrame.tsx`, `styles.name`);
  *   - the Paper ground and ink.
  *
@@ -148,7 +148,7 @@ function name(siteName: string): unknown {
     props: {
       style: {
         display: "flex",
-        fontFamily: "Instrument Sans",
+        fontFamily: "Libron",
         fontWeight: 600,
         // 44, not the header's 19-to-64 ratio: an unfurl is drawn around 270px
         // wide, where anything smaller than this is an unreadable smudge.

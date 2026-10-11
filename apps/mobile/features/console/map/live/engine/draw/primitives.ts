@@ -21,7 +21,7 @@ export type Style = {
   faceFor: FaceFor | null;
 };
 
-export const DEFAULT_FONT = '"Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+export const DEFAULT_FONT = '"Libron", ui-serif, Georgia, serif';
 
 export const fontOf = (style: Style, size: number, weight = 500): string => `${weight} ${size}px ${style.font}`;
 

@@ -165,7 +165,7 @@ export function cardElement(facts: CardFacts): unknown {
         flexDirection: "column",
         padding: 40,
         backgroundColor: GROUND,
-        fontFamily: "Instrument Sans",
+        fontFamily: "Libron",
       },
       children: [
         panel({ ...facts, kind: drawnKind(facts.kind, facts.children) }),
@@ -269,7 +269,7 @@ function lockup(handle: string | null, kind: CardKind): unknown {
  *
  * Uppercase Latin and nothing else, so the bundled face draws it without
  * `cardCoverage.ts` having anything to say — which is the whole reason the card
- * has one font rather than two. See `cardFont/instrumentSans.ts`.
+ * has one font rather than two. See `cardFont/libron.ts`.
  */
 function kindChip(kind: CardKind): unknown {
   return {

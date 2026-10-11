@@ -321,6 +321,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Hue is meaning in this product, so the palette rations it
 - Nine sizes, two densities, and no literal font size anywhere
 - One interface face, and `display` kept as a role with no face of its own
+- Libron is the body face, served from our own origin (2026-10-11)
 - A long press has two signals, because the platform is watching the finger too
 - An absence is a claim, and a claim needs an answer
 - A launch is not a screen, and an empty list is not an empty account

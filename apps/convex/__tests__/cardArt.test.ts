@@ -41,9 +41,11 @@ import {
   type CardFacts,
 } from "../functions/lib/cardArt";
 import {
+  CARD_FONT_FAMILY,
   CARD_FONT_SHA256,
   cardFont,
-} from "../functions/lib/cardFont/instrumentSans";
+} from "../functions/lib/cardFont/libron";
+import { siteCardElement } from "../functions/lib/siteCardArt";
 
 /** A note card, with everything the caller may vary spelled out. */
 function facts(over: Partial<CardFacts> = {}): CardFacts {
@@ -65,7 +67,7 @@ describe("the embedded font is the font", () => {
    * again and nothing to drift from.
    *
    * The check is kept rather than deleted, aimed at what remains true: the
-   * header of `lib/cardFont/instrumentSans.ts` records `CARD_FONT_SHA256` as
+   * header of `lib/cardFont/libron.ts` records `CARD_FONT_SHA256` as
    * the digest of the file the base64 came from, and a hand-edited or
    * truncated string would make that a lie.
    */
@@ -84,6 +86,22 @@ describe("the embedded font is the font", () => {
 
   test("decodes once and hands back the same buffer", () => {
     expect(cardFont()).toBe(cardFont());
+  });
+
+  /**
+   * The card trees are import-free (see `cardArt.ts`), so they spell the
+   * family as a literal while `cardRender.ts` registers `CARD_FONT_FAMILY`.
+   * A name that disagrees is a card drawn in satori's fallback, silently.
+   */
+  test("every sans the card trees name is the family that is registered", () => {
+    const families = (tree: unknown) =>
+      [...JSON.stringify(tree).matchAll(/"fontFamily":"([^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(families(cardElement(facts())))).toEqual(new Set([CARD_FONT_FAMILY]));
+    const site = families(
+      siteCardElement({ title: "Writing", siteName: "Seyi" }),
+    );
+    expect(site).toContain(CARD_FONT_FAMILY);
+    expect(site.filter((f) => f !== "Instrument Serif" && f !== CARD_FONT_FAMILY)).toEqual([]);
   });
 });
 

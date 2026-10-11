@@ -54,7 +54,7 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { cardElement, CARD_HEIGHT, CARD_WIDTH } from "./lib/cardArt";
-import { cardFont } from "./lib/cardFont/instrumentSans";
+import { CARD_FONT_FAMILY, cardFont } from "./lib/cardFont/libron";
 import { siteSerifFont } from "./lib/cardFont/instrumentSerif";
 import { siteCardElement, SITE_CARD_HEIGHT, SITE_CARD_WIDTH } from "./lib/siteCardArt";
 
@@ -131,7 +131,7 @@ export const renderCard = internalAction({
             // The face `cardArt.ts` names in `fontFamily`, and the only one
             // registered: a name that disagrees with the tree is a card drawn
             // in satori's own fallback, silently.
-            name: "Instrument Sans",
+            name: CARD_FONT_FAMILY,
             data: cardFont() as unknown as ArrayBuffer,
             weight: 600,
             style: "normal",
@@ -194,7 +194,7 @@ export const renderSiteCard = internalAction({
       height: SITE_CARD_HEIGHT,
       fonts: [
         { name: "Instrument Serif", data: siteSerifFont() as unknown as ArrayBuffer, weight: 400, style: "normal" },
-        { name: "Instrument Sans", data: cardFont() as unknown as ArrayBuffer, weight: 600, style: "normal" },
+        { name: CARD_FONT_FAMILY, data: cardFont() as unknown as ArrayBuffer, weight: 600, style: "normal" },
       ],
       // No network on a glyph miss; see `renderCard`.
       loadAdditionalAsset: async () => "",

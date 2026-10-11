@@ -37,15 +37,16 @@
   The word stops 64px above the bottom edge on purpose: X draws its domain
   label over the bottom-left corner of a card.
 
-  Everything is 600, the one weight of Instrument Sans this repository holds.
+  Everything is 600, drawn in Libron Bold, the one weight of Libron this
+  repository holds as data (2026-10-11: Instrument Sans became Libron).
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <!--
   No webfont link, deliberately. `scripts/render-og-card.mjs` injects the face
-  from the one copy of Instrument Sans this repository holds — the base64 in
-  apps/convex/functions/lib/cardFont/instrumentSans.ts, which is what the
+  from the one copy of Libron Bold this repository holds as data — the base64
+  in apps/convex/functions/lib/cardFont/libron.ts, which is what the
   generated card is drawn with too.
 
   It used to load Google Fonts, and that made the picture depend on the network
@@ -55,7 +56,7 @@
   complaint is exactly the drift this whole pipeline exists to prevent, so the
   bytes come from the repository and the render touches no network at all.
 
-  Opening this file directly in a browser therefore shows the system sans. The
+  Opening this file directly in a browser therefore shows the system font. The
   layout is still right; the letterforms are not.
 -->
 <style>
@@ -72,7 +73,7 @@
   body{
     width:1200px;height:630px;overflow:hidden;position:relative;
     background:var(--ground);color:var(--ink);
-    font-family:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
+    font-family:"Libron",ui-serif,Georgia,serif;
     font-weight:600;-webkit-font-smoothing:antialiased;
   }
   .top{
@@ -89,9 +90,11 @@
   .tile svg{width:66px;height:66px}
   .word{
     position:absolute;left:58px;bottom:64px;
-    font-size:288px;letter-spacing:-.045em;line-height:.8;white-space:nowrap;
+    font-size:250px;letter-spacing:-.03em;line-height:.8;white-space:nowrap;
   }
-  /* The C's own side bearing leaves a gap the rest of the word does not have. */
+  /* The C's own side bearing leaves a gap the rest of the word does not have.
+     250px, not the 288 Instrument Sans was set at: Libron is wider, and the
+     word and its dot have to end inside the right margin. */
   .word .c{margin-right:-.03em}
   .word .dot{
     display:inline-block;width:.19em;height:.19em;margin-left:.035em;
