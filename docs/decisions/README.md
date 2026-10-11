@@ -629,6 +629,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
+- The person views and drives Tex's computer at context.lc/tex/<handle>
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
