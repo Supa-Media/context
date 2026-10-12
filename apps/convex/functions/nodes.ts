@@ -29,6 +29,7 @@ import {
   unsupportedState,
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
+import { migrationPaused } from "./lib/nodes/pause";
 import {
   OBSERVE_BATCH,
   nodeSweepDue,
@@ -305,7 +306,8 @@ export const requestSweep = internalMutation({
     const row = await treeRowQuery(ctx, workspaceId);
     const next = dirtyState(row === null ? null : toState(row));
     await saveTree(ctx, workspaceId, row, next);
-    if (nodeSweepDue(next, Date.now())) {
+    // Paused: the tree stays dirty, and resuming starts the sweep.
+    if (nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -389,4 +391,11 @@ export const saveParity = internalMutation({
     }
     return null;
   },
+});
+
+/** Whether staff paused the migration (`lib/nodes/pause.ts`). */
+export const paused = internalQuery({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx): Promise<boolean> => await migrationPaused(ctx.db),
 });

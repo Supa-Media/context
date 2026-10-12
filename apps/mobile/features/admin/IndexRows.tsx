@@ -13,15 +13,7 @@ import { useCompact } from "./AdminKit";
 import { TableHead, type Column } from "./AdminTable";
 import { whenLabel } from "./agent";
 import { canRestartMeaning } from "./meaningIndexes";
-import {
-  INDEXES,
-  tierLabel,
-  type IndexCell,
-  type IndexHealth,
-  type IndexKey,
-  type TreeIndexRow,
-  type WorkspaceIndexes,
-} from "./searchIndexes";
+import { INDEXES, tierLabel, type IndexCell, type IndexHealth, type IndexKey, type WorkspaceIndexes } from "./searchIndexes";
 
 export type IndexActions = {
   busy: string | null;
@@ -170,21 +162,6 @@ function compactLine(row: WorkspaceIndexes): string {
   return parts.length === 0 ? "All ready" : parts.join(" · ");
 }
 
-/** The Convex tree's line in the tree note: its state, when it was swept, and the last parity check. Counts only. */
-function convexTreeLine(convex: TreeIndexRow["convex"], now: number): string {
-  if (convex === null) return "Convex tree: not started.";
-  const files = convex.files.toLocaleString("en-US");
-  const state = convex.status === "ready" ? `ready, ${files} files` : `${convex.status}, ${files} files so far`;
-  const swept = convex.sweptAt === null ? "never swept" : `swept ${whenLabel(convex.sweptAt, now)}`;
-  const parity =
-    convex.parity === null
-      ? "not checked yet"
-      : convex.parity.mismatches === 0 && convex.parity.privacyMatches
-        ? `matches the bucket at ${convex.parity.clearances} clearances`
-        : `${convex.parity.mismatches} mismatches, privacy ${convex.parity.privacyMatches ? "matches" : "differs"}`;
-  return `Convex tree: ${state}, ${swept}; parity ${parity}.`;
-}
-
 function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
   const styles = useThemedStyles(makeStyles);
   const id = row.slug ?? row.workspaceId;
@@ -220,7 +197,6 @@ function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions
               tree.rows === null ? null : `${tree.rows.toLocaleString("en-US")} notes and files.`,
               tree.sweptAt === null ? "Never filled." : `Last filled ${whenLabel(tree.sweptAt, now)}.`,
               tree.dirty ? "A big change is waiting for the next pass." : null,
-              convexTreeLine(tree.convex, now),
             ]
               .filter(Boolean)
               .join(" "),

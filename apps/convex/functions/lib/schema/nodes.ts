@@ -106,4 +106,15 @@ export const nodeTables = {
     notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
     observedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The migration's one switch, a single row (absent means running). Staff
+   * pause it from admin › Search › Indexes; while paused nothing new starts,
+   * changes only mark trees dirty, and a running sweep stops at its next pass.
+   */
+  nodeMigration: defineTable({
+    paused: v.boolean(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+  }),
 };

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { isNodesOperation } from "../functions/lib/nodes/run";
+import { isNodesOperation, runNodesOperation } from "../functions/lib/nodes/run";
 import { operationResultValidator, operationValidator } from "../functions/lib/filesFns/operationValidators";
 
 /** The `kind` literal of each member of a union validator, read from its JSON form. */
@@ -45,5 +45,46 @@ describe("runFileOperation's validators name the Convex tree operations", () => 
   test("the result returns each of their answers", () => {
     const kinds = kindsOf(operationResultValidator);
     expect(kinds).toEqual(expect.arrayContaining(["nodesKept", "nodesParity"]));
+  });
+});
+
+describe("a paused migration", () => {
+  // Every query answers "paused"; a store that is listed fails the test.
+  function pausedCtx() {
+    const mutations: unknown[] = [];
+    const ctx = {
+      runQuery: async () => true,
+      runMutation: async (_ref: unknown, args: unknown) => {
+        mutations.push(args);
+        return null;
+      },
+      scheduler: { runAfter: async () => "job" },
+    };
+    const store = {
+      list: async () => {
+        throw new Error("listed the bucket while paused");
+      },
+      get: async () => null,
+    };
+    return { ctx, store, mutations };
+  }
+  const workspaceId = "w" as never;
+
+  test("a scheduled sweep stops before it lists anything", async () => {
+    const { ctx, store, mutations } = pausedCtx();
+    const result = await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesSweep" } }, store as never);
+    expect(result).toEqual({ kind: "nodesKept", complete: false });
+    expect(mutations).toEqual([]);
+  });
+
+  test("a re-check only marks the tree dirty, so resuming catches it up", async () => {
+    const { ctx, store, mutations } = pausedCtx();
+    const result = await runNodesOperation(
+      ctx as never,
+      { workspaceId, scope: "private", operation: { kind: "nodesTouch", paths: ["a"], files: [] } },
+      store as never,
+    );
+    expect(result).toEqual({ kind: "nodesKept", complete: false });
+    expect(mutations).toEqual([{ workspaceId }]);
   });
 });

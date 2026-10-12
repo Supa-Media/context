@@ -92,6 +92,15 @@ or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
 still where moves happen.
 
+**Staff can see it and stop it** (asked for by the owner, 2026-10-12). Admin ›
+Search › Indexes has a Convex copy column and card: each workspace's stage
+(not started, copying, copied, matches, differs, stuck, skipped), Pause /
+Resume, Start all and Check all (`functions/nodesMigration.ts`). The switch
+is one `nodeMigration` row. A pause is obeyed before anything is scheduled and
+again at the top of every scheduled pass, so a running sweep stops at its
+next pass, and a change made while paused marks the tree dirty for the resume
+to catch up.
+
 **What a "simplification" would cost.**
 
 - Storing visibility on each row makes Convex a second privacy engine that
@@ -110,3 +119,6 @@ What fails if reversed:
   overwrites a newer one.
 - `apps/convex/__tests__/nodes/convexNodes.test.ts`: one workspace never
   reads or changes another's rows.
+- `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
+  `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
+  pause schedules nothing and stops a pass before it lists the bucket.

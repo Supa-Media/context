@@ -126,6 +126,13 @@ export async function runNodesOperation(
   const sink = sinkFor(ctx, workspaceId);
   const listing = listingOf(workspaceId, store);
 
+  // Paused by staff: a sweep stops here (its chain with it) and a re-check
+  // only marks the tree dirty, so resuming catches up. Parity still runs.
+  if (operation.kind !== "nodesParity" && (await ctx.runQuery(internal.functions.nodes.paused, {}))) {
+    if (operation.kind === "nodesTouch") await sink.dirty().catch(() => {});
+    return { kind: "nodesKept", complete: false };
+  }
+
   if (operation.kind === "nodesSweep") {
     const passes = Math.floor(operation.passes ?? 0);
     let pass: Awaited<ReturnType<typeof sweepNodesPass>>;
@@ -207,6 +214,7 @@ export async function startNodesSweepIfDue(ctx: ActionCtx, workspaceId: Id<"work
   try {
     const state = await ctx.runQuery(internal.functions.nodes.state, { workspaceId });
     if (!nodeSweepDue(state, Date.now())) return;
+    if (await ctx.runQuery(internal.functions.nodes.paused, {})) return;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "private",

@@ -14,23 +14,6 @@ export const treeTargetsValidator = v.object({
   truncated: v.boolean(),
 });
 
-/** The Convex tree's bookkeeping for one workspace (`nodeTrees`): counts and times, never a path. */
-export const convexTreeValidator = v.object({
-  status: v.union(v.literal("empty"), v.literal("filling"), v.literal("ready"), v.literal("unsupported")),
-  files: v.number(),
-  sweptAt: v.union(v.number(), v.null()),
-  /** The last parity check against the bucket, or `null` when none has run. */
-  parity: v.union(
-    v.null(),
-    v.object({
-      checkedAt: v.number(),
-      clearances: v.number(),
-      mismatches: v.number(),
-      privacyMatches: v.boolean(),
-    }),
-  ),
-});
-
 export const treeIndexRowValidator = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.union(v.string(), v.null()),
@@ -48,8 +31,6 @@ export const treeIndexRowValidator = v.object({
   dirty: v.boolean(),
   /** Why the last sweep pass failed, keys removed; cleared once one moves on. */
   error: v.union(v.string(), v.null()),
-  /** The Convex tree (`lib/nodes/`), shadowing the bucket in phase 1; `null` before its first sweep. */
-  convex: v.union(convexTreeValidator, v.null()),
 });
 
 export const treeIndexReportValidator = v.object({

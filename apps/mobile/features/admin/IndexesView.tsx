@@ -52,7 +52,6 @@ export function IndexesView() {
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
   const readTree = useAction(api.functions.treeAdmin.treeIndexes);
   const fillTree = useAction(api.functions.treeAdmin.fillTreeIndexesNow);
-  const checkParityNow = useAction(api.functions.treeAdmin.checkNodesParityNow);
   const restart = useMutation(api.functions.meaningAdmin.restartMeaningIndexing);
   const [tree, setTree] = useState<TreeIndexRow[] | null>(null);
   const [treeReadAt, setTreeReadAt] = useState<number | null>(null);
@@ -95,14 +94,6 @@ export function IndexesView() {
       return started === 1 ? "Filling 1 sidebar tree. Refresh to see it move." : `Filling ${started} sidebar trees. Refresh to see them move.`;
     });
 
-  const checkParity = () =>
-    act("parity:all", async () => {
-      const { started } = await checkParityNow({});
-      return started === 1
-        ? "Checking 1 Convex tree against its bucket. Refresh to see the result."
-        : `Checking ${started} Convex trees against their buckets. Refresh to see the results.`;
-    });
-
   const restartMeaning = (workspaceId?: string) =>
     act(workspaceId ? `meaning:${workspaceId}` : "meaning:all", async () => {
       const result = await restart(workspaceId ? { workspaceId: workspaceId as Id<"workspaces"> } : {});
@@ -141,12 +132,6 @@ export function IndexesView() {
                     disabled={busy !== null || tree === null || tree.length === 0}
                     onPress={() => void fill()}
                     testID="admin-tree-fill-all"
-                  />
-                  <Button
-                    label={busy === "parity:all" ? "Checking…" : "Check parity"}
-                    disabled={busy !== null || tree === null || tree.length === 0}
-                    onPress={() => void checkParity()}
-                    testID="admin-tree-parity-all"
                   />
                 </>
               ) : index.key === "meaning" ? (

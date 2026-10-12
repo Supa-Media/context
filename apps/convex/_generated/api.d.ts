@@ -103,6 +103,7 @@ import type * as functions_meetings_demoTranscribe from "../functions/meetings/d
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_nodes from "../functions/nodes.js";
+import type * as functions_nodesMigration from "../functions/nodesMigration.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_owners from "../functions/owners.js";
 import type * as functions_obsidianPlugins from "../functions/obsidianPlugins.js";
@@ -244,6 +245,7 @@ declare const fullApi: ApiFromModules<{
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
   "functions/nodes": typeof functions_nodes;
+  "functions/nodesMigration": typeof functions_nodesMigration;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/owners": typeof functions_owners;
   "functions/obsidianPlugins": typeof functions_obsidianPlugins;
