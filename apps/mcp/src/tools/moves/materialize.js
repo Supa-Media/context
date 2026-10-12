@@ -43,6 +43,8 @@ import { loadMoveJobs } from "../../moves/jobs.js";
 import { readForwarding } from "../../forwarding.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { toolError, toolText } from "../results.js";
+import { isContactNote } from "../../../../../packages/communications/src/contacts.js";
+import { isContactNotePath } from "../../../../../packages/communications/src/paths.js";
 
 // Owner-only diagnostics for a wrapped storage failure. Provider exceptions
 // may echo request URLs, object keys or credentials, so return a short redacted
@@ -229,6 +231,37 @@ function generatedCommunicationSource(path, text) {
 }
 
 /**
+ * A page the contact sync renders and keeps writing at its physical key, even
+ * while a logical move of its folder is in flight (the sync does not read the
+ * move overlay). Its newest version is the one the destination should hold,
+ * so a change to it under a move is adopted rather than treated as a conflict
+ * that pauses the move for good. A person's own note is never this.
+ */
+function syncOwnedPage(path, text) {
+  return isContactNotePath(path) && isContactNote(text);
+}
+
+/**
+ * Re-pin a sync-owned pair to its source's current version, and, when the
+ * copy already made is still exactly ours, refresh it to that version.
+ * Returns false (the caller refuses as before) for anything else.
+ */
+async function adoptSyncOwnedChange(store, pair, sourceObject, { copied }) {
+  const text = await sourceObject.text();
+  if (!syncOwnedPage(pair.source, text)) return false;
+  if (copied) {
+    const destination = await getWithLegacyFallback(store, pair.destination);
+    if (!destination || !pair.copied_etag || destination.etag !== pair.copied_etag) return false;
+    const written = await store.put(pair.destination, text, { onlyIf: { etagMatches: destination.etag } });
+    if (!written) return false;
+    pair.copied_etag = written.etag;
+  }
+  pair.etag = sourceObject.etag;
+  pair.size = sourceObject.size ?? new TextEncoder().encode(text).byteLength;
+  return true;
+}
+
+/**
  * The folder a move conflict is backed up into: this context's own archive, so
  * a backup lands where archiving lands. A context that declares none keeps
  * `4-archive`, the folder these backups have always used.
@@ -319,7 +352,8 @@ async function retireMovePair(store, job, pair) {
     let sourceObject = await getWithLegacyFallback(store, pair.source);
     sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
     if (sourceObject === null) return { deleted: true, processed: false };
-    if (!objectMatchesMoveItem(sourceObject, pair)) {
+    if (!objectMatchesMoveItem(sourceObject, pair) &&
+        !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: true })) {
       throw new Error(`source changed before cleanup: ${pair.source}`);
     }
     stage = "reading collaboration heads";
@@ -459,7 +493,9 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, opt
       if (copied.has(pair.source)) continue;
       const sourceObject = await getWithLegacyFallback(store, pair.source);
       if (!sourceObject) throw new Error(`source missing during materialization: ${pair.source}`);
-      if (!objectMatchesMoveItem(sourceObject, pair)) {
+      if (!objectMatchesMoveItem(sourceObject, pair) &&
+          (await getWithLegacyFallback(store, pair.destination) !== null ||
+            !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: false }))) {
         throw new Error(`source changed during materialization: ${pair.source}`);
       }
       // Copy the raw body first. At retirement, a headed note is handed to the
@@ -478,10 +514,13 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, opt
         }
         throw new Error(`destination changed during materialization: ${pair.destination}`);
       }
-      await copyObjectForMove(store, pair);
+      const created = await copyObjectForMove(store, pair);
       if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
         throw new Error(`destination verification failed: ${pair.destination}`);
       }
+      // What this move wrote, so a later sync change to the source can refresh
+      // an untouched copy and never one somebody else changed.
+      if (created?.etag) pair.copied_etag = created.etag;
       copied.add(pair.source);
       copiedThisPass += 1;
       if (copiedThisPass >= batchSize) break;
