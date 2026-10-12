@@ -46,7 +46,11 @@ export function SimplePage() {
     };
   }, []);
   useEffect(() => {
-    if (open) form.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (!open) return;
+    // Into the number field, so the next keystroke is the number and the line
+    // just pressed does not keep a focus ring around it.
+    form.current?.querySelector("input")?.focus({ preventScroll: true });
+    form.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [open]);
   const vars = {
     "--paper": C.paper,
