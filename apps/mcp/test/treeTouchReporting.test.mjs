@@ -108,3 +108,31 @@ test("a change that moves nothing in the tree is not reported as a touch", async
   await settle();
   assert.equal(calls.filter((call) => call.path === "/gateway/tree/touch").length, 0);
 });
+
+test("a visibility change names privacy.md, because that is the file it rewrote", async () => {
+  // The control plane keeps a mirror of the rules and refreshes it only when a
+  // touch names `privacy.md` (`lib/nodes/touch.ts`). `set_visibility` writes
+  // that file and records the *note's* path, so without this the mirror keeps
+  // the old rules until a sweep — and a listing served from the mirror would
+  // go on showing a name the owner just took back.
+  for (const action of ["set_visibility", "set_folder_visibility"]) {
+    const { calls, methods } = controlPlaneRecorder();
+    const { store, settle } = storeWith(methods, "ws_recorded");
+    await recordChange(store, action, "private", ["1-projects/a.md"], {});
+    await settle();
+    const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+    assert.equal(touches.length, 1, `${action} was not reported to the tree`);
+    assert.deepEqual(touches[0].body.paths, ["1-projects/a.md"], action);
+    assert.deepEqual(touches[0].body.files, ["privacy.md"], `${action} did not name privacy.md`);
+    assert.equal(touches[0].body.dirty, false);
+  }
+});
+
+test("a change that did not rewrite privacy.md does not name it", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const { store, settle } = storeWith(methods, "ws_recorded");
+  await recordChange(store, "move_note", "private", ["1-projects/a.md", "2-areas/a.md"], {});
+  await settle();
+  const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+  assert.deepEqual(touches[0].body.files, []);
+});
