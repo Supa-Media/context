@@ -65,6 +65,7 @@ import {
   revokeDropboxToken,
   DropboxOAuthError,
 } from "./lib/dropboxOAuth";
+import { forgetWorkspaceTree } from "./nodesPurge";
 
 /**
  * How long a started connect stays answerable.
@@ -693,13 +694,8 @@ export const applyDropboxBinding = internalMutation({
       revocation above already uses it for.
     */
     if (storageMoved(existing, fields)) {
-      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
-        workspaceId: args.workspaceId,
-      });
-      // The file tree's rows name the old bucket's keys (`nodesPurge.ts`).
-      await ctx.runMutation(internal.functions.nodesPurge.resetForStorage, {
-        workspaceId: args.workspaceId,
-      });
+      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, { workspaceId: args.workspaceId });
+      await forgetWorkspaceTree(ctx, args.workspaceId); // its rows name the old bucket's keys
     }
 
     if (existing === null) {

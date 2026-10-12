@@ -78,6 +78,7 @@ import * as bindingState from "./lib/storage/bindingState";
 import * as gatewayBinding from "./lib/storage/gatewayBinding";
 import * as rekeyWorkspace from "./lib/storage/rekeyWorkspaceSecrets";
 import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
+import { forgetWorkspaceTree } from "./nodesPurge";
 import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
 import * as bindingActions from "./lib/storage/bindingActions";
@@ -451,13 +452,8 @@ export const applyBinding = internalMutation({
       really there.
     */
     if (storageMoved(existing, fields)) {
-      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
-        workspaceId: args.workspaceId,
-      });
-      // The file tree's rows name the old bucket's keys (`nodesPurge.ts`).
-      await ctx.runMutation(internal.functions.nodesPurge.resetForStorage, {
-        workspaceId: args.workspaceId,
-      });
+      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, { workspaceId: args.workspaceId });
+      await forgetWorkspaceTree(ctx, args.workspaceId); // its rows name the old bucket's keys
     }
 
     let bindingId: Id<"storageBindings">;
