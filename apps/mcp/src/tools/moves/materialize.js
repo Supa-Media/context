@@ -246,12 +246,25 @@ function syncOwnedPage(path, text) {
  * copy already made is still exactly ours, refresh it to that version.
  * Returns false (the caller refuses as before) for anything else.
  */
-async function adoptSyncOwnedChange(store, pair, sourceObject, { copied }) {
+async function adoptSyncOwnedChange(store, pair, sourceObject, { copied, job }) {
   const text = await sourceObject.text();
   if (!syncOwnedPage(pair.source, text)) return false;
-  if (copied) {
+  if (copied && !pair.copied_etag) {
+    // Copied before copies were recorded, so whether the destination is still
+    // ours is unknown: leave it as it is, and keep the newest version beside it.
     const destination = await getWithLegacyFallback(store, pair.destination);
-    if (!destination || !pair.copied_etag || destination.etag !== pair.copied_etag) return false;
+    if (!destination) return false;
+    const beside = `${pair.destination.slice(0, -3)}.newer.md`;
+    const kept = await getWithLegacyFallback(store, beside);
+    const ours = job.conflicts?.[pair.source] === beside;
+    if (kept && await kept.text() !== text &&
+        (!ours || !await store.put(beside, text, { onlyIf: { etagMatches: kept.etag } }))) return false;
+    if (!kept && !await store.put(beside, text, { onlyIf: { absent: true } })) return false;
+    job.conflicts ||= {};
+    job.conflicts[pair.source] = beside;
+  } else if (copied) {
+    const destination = await getWithLegacyFallback(store, pair.destination);
+    if (!destination || destination.etag !== pair.copied_etag) return false;
     const written = await store.put(pair.destination, text, { onlyIf: { etagMatches: destination.etag } });
     if (!written) return false;
     pair.copied_etag = written.etag;
@@ -353,7 +366,7 @@ async function retireMovePair(store, job, pair) {
     sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
     if (sourceObject === null) return { deleted: true, processed: false };
     if (!objectMatchesMoveItem(sourceObject, pair) &&
-        !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: true })) {
+        !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: true, job })) {
       throw new Error(`source changed before cleanup: ${pair.source}`);
     }
     stage = "reading collaboration heads";
