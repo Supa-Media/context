@@ -40,6 +40,7 @@ import type { WAITLIST_PLACES } from "./place";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
+import { WaitlistUntold } from "./WaitlistUntold";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
@@ -167,6 +168,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       </View>
 
       <SignupAlerts />
+      <WaitlistUntold onDone={(tone, sentence) => setOutcome({ tone, sentence, invalid: [] })} />
 
       {adding ? (
         <WaitlistAdd

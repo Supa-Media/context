@@ -137,3 +137,61 @@ describe("nobody else is texted", () => {
     expect((await t.run((ctx) => ctx.db.get(id)))?.admittedMailAt).toBeTypeOf("number");
   });
 });
+
+describe("people let in by phone before Let in texted anyone", () => {
+  async function untold(t: TestConvex, phone: string): Promise<Id<"waitlist">> {
+    // How #1557 found them: let in, `admittedMailAt` claimed, nothing sent.
+    return await t.run((ctx) =>
+      ctx.db.insert("waitlist", {
+        phone,
+        status: "admitted",
+        joinedAt: 1,
+        admittedAt: 2,
+        admittedMailAt: 2,
+        source: "login",
+      }),
+    );
+  }
+
+  test("are counted and texted once; anyone already signed in or already texted is left alone", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    await untold(t, "+15555550101");
+    await untold(t, "+15555550102");
+    // Signed in already: they found out.
+    await untold(t, "+15555550103");
+    await t.run((ctx) => ctx.db.insert("users", { phone: "+15555550103", phoneVerificationTime: 1 } as never));
+    // Let in since #1557: already texted.
+    const recent = await phoneRow(t, "+15555550104");
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [recent] });
+    // Still waiting, and an email row: neither is "let in and untold".
+    await phoneRow(t, "+15555550105");
+    await t.run((ctx) =>
+      ctx.db.insert("waitlist", { email: "jon@studio.test", status: "admitted", joinedAt: 1, source: "homepage" }),
+    );
+    await drainScheduled(t);
+    calls = [];
+
+    expect(await as.query(api.functions.admin.untoldPhoneWaitlist, {})).toBe(2);
+    expect(await as.mutation(api.functions.admin.textUntoldPhoneWaitlist, {})).toEqual({ texted: 2, left: 0 });
+    await drainScheduled(t);
+    expect(texts().map((call) => call.body.get("To")).sort()).toEqual(["+15555550101", "+15555550102"]);
+    expect(await as.query(api.functions.admin.untoldPhoneWaitlist, {})).toBe(0);
+    expect(await as.mutation(api.functions.admin.textUntoldPhoneWaitlist, {})).toEqual({ texted: 0, left: 0 });
+    await drainScheduled(t);
+    expect(texts()).toHaveLength(2);
+  });
+
+  test("strangers can neither count nor text them", async () => {
+    const t = setupTest();
+    await untold(t, "+15555550101");
+    const stranger = t.withIdentity({
+      subject: await t.run((ctx) => ctx.db.insert("users", { email: "who@else.test" } as never)),
+    });
+    await expect(stranger.query(api.functions.admin.untoldPhoneWaitlist, {})).rejects.toThrow();
+    await expect(stranger.mutation(api.functions.admin.textUntoldPhoneWaitlist, {})).rejects.toThrow();
+    await expect(t.mutation(api.functions.admin.textUntoldPhoneWaitlist, {})).rejects.toThrow();
+    await drainScheduled(t);
+    expect(texts()).toHaveLength(0);
+  });
+});
