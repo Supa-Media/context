@@ -36,3 +36,22 @@ shimmer while panning.
 **Test:** `apps/mobile/__tests__/liveMapBoard.test.ts` (the board is textured,
 links and dots carry grain, chalk has a halo and pencil does not, the flat
 fallback, and the bow is stable).
+
+### Agents in the middle only while they work; Archive is one icon (2026-10-12)
+
+Dev2 found the all-workspaces middle cluttered by every AI tool ever connected,
+and Archive, usually the biggest folder, crowding each workspace. Both are now
+drawn by what is happening, not by what exists:
+
+- **An agent stands in the middle only while it is at work** (`agentsAtWork`
+  in `mapHub.ts`): one of your own agents with a read or write in the last
+  five minutes, the gateway's own live window (`AGENT_ACTIVITY_WINDOW_MS`), and
+  its dotted lines go only to the workspaces it is working in. In a replay,
+  the agents at the playhead. A connected tool sitting idle is not drawn at all.
+- **Archive is a box icon with its name** (`collapsesToIcon` in
+  `engine/layout.ts`): its notes draw no dots and no links, and all sit on the
+  icon so a note moved into Archive still lands somewhere. Its folder page still
+  lists every note.
+
+Reversing either brings back the clutter Dev2 asked to remove; tests:
+`liveMapHub.test.ts` ("an idle tool is not drawn") and `liveMapArchive.test.ts`.

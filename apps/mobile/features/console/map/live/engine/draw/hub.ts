@@ -26,14 +26,17 @@ const AGENT_GAP = SPACING * 7;
 
 /**
  * Where a line from `from` meets a workspace: the near side of its nearest
- * folder, not of the island's circle. Folders pack to one side of an island
+ * folder (one drawn as an icon only when there is nothing else), not of the
+ * island's circle. Folders pack to one side of an island
  * (Projects in the middle, the rest round it), so the circle's edge can be
  * open ground, and a line that stopped there pointed at nothing.
  */
 export function landingOn(island: IslandPlace, from: Point): Point {
   let best = null as { x: number; y: number; r: number } | null;
   let bestGap = Infinity;
-  for (const f of island.folders) {
+  // An icon (Archive) is where finished things go, not where anyone is working.
+  const open = island.folders.filter((f) => !f.collapsed);
+  for (const f of open.length > 0 ? open : island.folders) {
     const gap = Math.hypot(from.x - f.x, from.y - f.y) - f.r;
     if (gap < bestGap) {
       bestGap = gap;
