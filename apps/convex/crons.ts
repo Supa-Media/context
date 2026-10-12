@@ -97,6 +97,18 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired sign-in alerts",
+  { hours: 1 },
+  internal.functions.signInAlerts.purgeExpiredAlerts,
+);
+
+crons.interval(
+  "add new emails whose seven days are up",
+  { hours: 1 },
+  internal.functions.emailRecovery.finishDue,
+);
+
+crons.interval(
   "sweep expired vault links",
   { hours: 1 },
   internal.functions.vault.purgeExpiredVaultRequests,

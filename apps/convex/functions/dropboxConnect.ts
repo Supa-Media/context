@@ -235,6 +235,9 @@ export const startDropboxConnect = action({
         message: "Only the owner of a context can connect its storage.",
       });
     }
+    // Moving a workspace that already has storage onto Dropbox is a big
+    // change (`lib/emailProof.ts`); a first connect is not.
+    await ctx.runQuery(internal.functions.emailProof.requireProofToRebind, { workspaceId: args.workspaceId });
 
     // Refused here, before anything is parked and before an authorize URL
     // exists. See `dropboxRedirectAllowed`: an arbitrary redirect turns this

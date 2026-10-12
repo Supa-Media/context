@@ -2,6 +2,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { phoneHolder } from "../../phoneSignIn";
 import { foldIn, ownsAnything } from "./foldIn";
+import { confirmedEmailsOf } from "../emailProof";
 
 /**
  * One person, one account, however many emails (Dev2, 2026-10-09: "just
@@ -19,6 +20,12 @@ import { foldIn, ownsAnything } from "./foldIn";
  *    closes into this one and its phone, and texting link, come here.
  *  - `blocked`: both own a workspace. Accounts are never joined, so the
  *    number stays refused.
+ *  - `guarded`: the holder already has a confirmed email (Dev2, 2026-10-12,
+ *    account safety). A texted code proves only the phone, and a phone alone
+ *    must never put another email on an account or take its emails away:
+ *    that is how a SIM swap would take it. The person signs in with the
+ *    phone and adds this email on Account settings, which asks one of the
+ *    holder's own emails first (`functions/signInEmails.ts`).
  *
  * Signing in with that phone already reached the holder, so neither join
  * gives the person anything the phone did not already give them.
@@ -27,14 +34,16 @@ export type PhoneJoin =
   | { kind: "free" }
   | { kind: "into"; holder: Id<"users"> }
   | { kind: "take"; holder: Id<"users"> }
-  | { kind: "blocked" };
+  | { kind: "blocked" }
+  | { kind: "guarded" };
 
 export async function phoneJoinFor(ctx: QueryCtx, userId: Id<"users">, phone: string): Promise<PhoneJoin> {
   const holder = await phoneHolder(ctx, phone);
   if (holder === null || holder === userId) return { kind: "free" };
-  if (!(await ownsAnything(ctx, userId))) return { kind: "into", holder };
-  if (!(await ownsAnything(ctx, holder))) return { kind: "take", holder };
-  return { kind: "blocked" };
+  const mineEmpty = !(await ownsAnything(ctx, userId));
+  if (!mineEmpty && (await ownsAnything(ctx, holder))) return { kind: "blocked" };
+  if ((await confirmedEmailsOf(ctx, holder)).length > 0) return { kind: "guarded" };
+  return mineEmpty ? { kind: "into", holder } : { kind: "take", holder };
 }
 
 /** Carry out a join `phoneJoinFor` allowed, once the code is approved. */

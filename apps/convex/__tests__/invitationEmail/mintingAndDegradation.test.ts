@@ -1,3 +1,4 @@
+import { withoutFixtureSessions } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import {
@@ -79,8 +80,8 @@ describe("what minting a sign-in code does to the users table", () => {
     );
     expect(inviterOwned.length).toBeGreaterThan(0);
 
-    const sessions = await t.run((ctx) =>
-      ctx.db.query("authSessions").collect(),
+    const sessions = withoutFixtureSessions(
+      await t.run((ctx) => ctx.db.query("authSessions").collect()),
     );
     expect(sessions).toEqual([]);
 

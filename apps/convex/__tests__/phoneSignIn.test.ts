@@ -1,3 +1,4 @@
+import { withoutFixtureSessions } from "./fixtures.helpers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -83,7 +84,9 @@ async function signIn(t: TestConvex, phone: string, code: string) {
 
 /** A refused credentials sign-in answers with no tokens rather than throwing. */
 async function sessionUsers(t: TestConvex) {
-  return await t.run(async (ctx) => (await ctx.db.query("authSessions").collect()).map((row) => row.userId));
+  return await t.run(async (ctx) =>
+    withoutFixtureSessions(await ctx.db.query("authSessions").collect()).map((row) => row.userId),
+  );
 }
 
 describe("a phone an account holds", () => {

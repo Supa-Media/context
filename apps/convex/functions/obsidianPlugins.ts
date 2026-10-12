@@ -391,6 +391,8 @@ export const approvePlugin = action({
   returns: grantSummaryValidator,
   handler: async (ctx, args): Promise<GrantSummary> => {
     const actorUserId = await callerId(ctx);
+    // A plugin may read notes and reach the network: a big change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
     await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,

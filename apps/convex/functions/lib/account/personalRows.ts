@@ -5,6 +5,7 @@ import { deleteAccountPhoto } from "../faces/people";
 import { deleteUserPlaces } from "../places";
 import { deleteTextLinksOf } from "../../textLinks";
 import { deleteAccountTimeZoneOf } from "../routines/app";
+import { deleteEmailProofRowsOf } from "../emailProof";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -91,6 +92,10 @@ export async function deletePersonalRows(
 
   // The phone they text the assistant from, and any code waiting to link one.
   await deleteTextLinksOf(ctx, userId);
+
+  // Account safety: emailed-code proofs, sign-in alerts, a paused phone, a
+  // new email waiting out its seven days. Hashes, times and addresses.
+  await deleteEmailProofRowsOf(ctx, userId);
 
   // The time zone their routines fall back to: one IANA name.
   await deleteAccountTimeZoneOf(ctx, userId);

@@ -1,4 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { phoneSignInPaused, requireProofForPhone } from "./lib/emailProof";
 import { ConvexError, v } from "convex/values";
 import {
   action,
@@ -215,6 +216,8 @@ async function storeCode(
   ctx: MutationCtx,
   args: { userId: Id<"users">; phone: string; hashedCode: string; expiresAt: number },
 ): Promise<void> {
+  // A linked phone signs in too, so a different one is a big change.
+  await requireProofForPhone(ctx, args.userId, args.phone);
   await consumeRateLimit(ctx, {
     key: `texts.startLink:${args.userId}`,
     limit: START_LIMIT,
@@ -474,6 +477,8 @@ export const applyTextsGrant = internalMutation({
       .withIndex("by_phone", (q) => q.eq("phone", args.phone))
       .first();
     if (link === null) return "unlinked";
+    // "This wasn't me" stops the assistant answering until it is turned back on.
+    if (await phoneSignInPaused(ctx, link.userId)) return "unlinked";
     const workspaceId = await personalWorkspaceOf(ctx, link.userId);
     if (workspaceId === null) return "unlinked";
 
