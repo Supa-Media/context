@@ -54,7 +54,7 @@ async function signInByPhone(t: TestConvex): Promise<{ userId: Id<"users"> | nul
   const userId = await t.mutation(internal.functions.phoneSignIn.signInUser, { phone: PHONE });
   await drain(t);
   vi.useRealTimers();
-  const link = mails.at(-1)?.text.match(/not-me\?t=([0-9a-f]{64})/);
+  const link = mails.at(-1)?.text.match(/not-me\?token=([0-9a-f]{64})/);
   return { userId, token: link?.[1] };
 }
 

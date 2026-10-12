@@ -64,6 +64,26 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "the URL Dropbox redirects back to",
   },
   {
+    route: "/not-me",
+    file: "app/not-me.tsx",
+    reachable: false,
+    reason:
+      "The \"This wasn't me\" page, opened only from the link in a new-sign-in email. " +
+      "The link carries a single-use token made for that one sign-in, so a control " +
+      "in the app would have no token to put in it (`functions/signInAlerts.ts`).",
+    marker: "from a new-sign-in email",
+  },
+  {
+    route: "/stop-new-email",
+    file: "app/stop-new-email.tsx",
+    reachable: false,
+    reason:
+      "Stops a new email's seven-day wait, opened only from the link mailed to the " +
+      "account's current emails. Its token exists only in that mail; inside the app " +
+      "the same thing is Settings › Account's Stop it (`AccountSafetyCard`).",
+    marker: "stop a new email's seven-day wait",
+  },
+  {
     route: "/connect/google",
     file: "app/connect/google.tsx",
     reachable: false,

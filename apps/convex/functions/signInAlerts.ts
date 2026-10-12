@@ -75,7 +75,7 @@ export const sendAlert = internalAction({
           `If this was you, there's nothing to do.\n\n` +
           `If it wasn't you, open this link and press "This wasn't me". It signs every device out, ` +
           `stops sign-in by phone and stops the assistant answering that number until you turn it back on:\n` +
-          `${appOrigin()}/not-me?t=${token}\n\n` +
+          `${appOrigin()}/not-me?token=${token}\n\n` +
           `Big changes to your account still need a code sent to this email.`,
       });
     }

@@ -62,7 +62,7 @@ async function begin(t: TestConvex) {
   await t.finishInProgressScheduledFunctions();
   expect(confirmed.status).toBe("started");
   const notice = mails.find((m) => m.to === "ada@home.example");
-  const cancelToken = notice?.text.match(/stop-new-email\?t=([0-9a-f]{64})/)?.[1];
+  const cancelToken = notice?.text.match(/stop-new-email\?token=([0-9a-f]{64})/)?.[1];
   return { ada, phone, cancelToken };
 }
 

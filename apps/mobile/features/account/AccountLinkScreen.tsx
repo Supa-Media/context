@@ -13,9 +13,9 @@ import { firstParam } from "../invite/invite";
  * The two links account mail carries, which work without signing in because
  * each only takes access away:
  *
- *  - `/not-me?t=…` from a new-sign-in email (board k3): signs every device
+ *  - `/not-me?token=…` from a new-sign-in email (board k3): signs every device
  *    out and pauses phone sign-in and the texting assistant.
- *  - `/stop-new-email?t=…` from a "new email is being added" notice
+ *  - `/stop-new-email?token=…` from a "new email is being added" notice
  *    (board k4): stops the seven-day wait.
  *
  * Nothing happens on opening the page. Mail scanners open links to check
@@ -64,7 +64,7 @@ function LinkAction(props: {
   act: (token: string) => Promise<boolean>;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const token = firstParam(useLocalSearchParams<{ t?: string | string[] }>().t);
+  const token = firstParam(useLocalSearchParams<{ token?: string | string[] }>().token);
   const [state, setState] = useState<"idle" | "busy" | "done" | "dead">(token === null ? "dead" : "idle");
 
   const [title, body] =

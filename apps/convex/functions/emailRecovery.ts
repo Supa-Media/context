@@ -197,7 +197,7 @@ function noticeText(newEmail: string, finishesAt: number, cancelToken: string, r
     `because they say they can't get into any of the emails on the account.\n\n` +
     `It will be added on ${when}. After that it can confirm big changes, like changing the phone number or ` +
     `moving your notes.\n\n` +
-    `If this isn't you, stop it now:\n${appOrigin()}/stop-new-email?t=${cancelToken}\n\n` +
+    `If this isn't you, stop it now:\n${appOrigin()}/stop-new-email?token=${cancelToken}\n\n` +
     `Then sign in with this email and sign out the devices you don't know. Your phone number may have been ` +
     `moved to someone else's SIM: call your carrier.`
   );
