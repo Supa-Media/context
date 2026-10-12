@@ -208,6 +208,12 @@ async function runPass(
         if (row.path === NODE_PRIVACY_KEY) privacyRow = row;
       }
     }
+    // A page whose keys were all hidden (deleted notes' markers, which the
+    // store does not list) shows nothing yet moves on: resume after the last
+    // key the provider listed, or every pass asks for the same page again.
+    // Ported from the D1 sweep's fix of 2026-10-08 (`apps/mcp/src/tree/sweep.js`).
+    const resumeAfter = (listing as { resumeAfter?: unknown }).resumeAfter;
+    if (jump === null && typeof resumeAfter === "string" && compareKeys(resumeAfter, last) > 0) last = resumeAfter;
     rows += kept.length;
     await observeAll(sink, observedAt, kept);
 

@@ -242,3 +242,38 @@ describe("the write-path re-check", () => {
     expect((await sink.table.byPath(PRIVACY_KEY))?.etag).toBe((await store.get(PRIVACY_KEY))?.etag);
   });
 });
+
+describe("a page whose keys were all hidden", () => {
+  // Deleted notes leave markers the store hides (`logicalDelete.js`): a full
+  // page can list nothing yet say there is more, naming where it got to in
+  // `resumeAfter`. Seen on a real workspace on 2026-10-12, where the sweep
+  // stopped with "said there was more but returned nothing new".
+  function hidingStore(base: Store, hidden: (key: string) => boolean): NodeListingStore {
+    return {
+      list: async (options) => {
+        const listing = await base.list({ ...options, limit: Math.min(options?.limit ?? 1_000, 7) });
+        const objects = (listing.objects ?? []) as { key: string }[];
+        const shown = objects.filter((object) => !hidden(object.key));
+        const last = objects[objects.length - 1]?.key;
+        return { ...listing, objects: shown, ...(last === undefined ? {} : { resumeAfter: last }) };
+      },
+      get: (key) => base.get(key),
+    };
+  }
+
+  test("the sweep resumes after the last key the provider listed and finishes", async () => {
+    const store = await workspace();
+    for (let index = 0; index < 20; index += 1) store.seed(`0-inbox/gone-${String(index).padStart(2, "0")}.md`, "x");
+    const sink = memoryNodeSink();
+    const now = ticker();
+    let complete = false;
+    for (let pass = 0; pass < 50 && !complete; pass += 1) {
+      const result = await sweepNodesPass(hidingStore(store, (key) => key.startsWith("0-inbox/gone-")), sink, { now, maxPages: 2 });
+      expect((await sink.state())?.error).toBeUndefined();
+      complete = result.complete;
+    }
+    expect(complete).toBe(true);
+    expect(livePaths(sink)).toContain("3-resources/r29.md");
+    expect(livePaths(sink).some((path) => path.startsWith("0-inbox/gone-"))).toBe(false);
+  });
+});
