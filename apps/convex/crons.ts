@@ -78,6 +78,19 @@ crons.interval(
   {},
 );
 
+/**
+ * Keep every workspace's Convex copy of its file tree current
+ * (`functions/nodesMigration.ts`): a copy that is due (never started, dirty,
+ * interrupted, failed or an hour old) is swept again, so a workspace nobody
+ * opens and a new one are covered too. Staff can pause it from admin.
+ */
+crons.interval(
+  "keep the Convex copy of each file tree current",
+  { minutes: 15 },
+  internal.functions.nodesMigration.keepCurrent,
+  {},
+);
+
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },

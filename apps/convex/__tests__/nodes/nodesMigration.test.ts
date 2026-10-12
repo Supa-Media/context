@@ -175,3 +175,30 @@ describe("stageOf", () => {
     expect(stageOf({ ...base, status: "ready", parity: { ...parity, privacyMatches: false } })).toBe("differs");
   });
 });
+
+describe("keeping every copy current", () => {
+  test("the cron starts every due copy, retries a failed one, and does nothing while paused", async () => {
+    const t = convexTest(schema, modules);
+    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    await boundWorkspace(t, "fresh");
+    const failed = await boundWorkspace(t, "failed");
+    const current = await boundWorkspace(t, "current");
+    // A pass that failed long enough ago that its lease has run out.
+    await t.mutation(internal.functions.nodes.begin, { workspaceId: failed, at: 1 });
+    await t.mutation(internal.functions.nodes.fail, { workspaceId: failed, label: "Tree sweep failed; inspect service logs" });
+    // One finished a moment ago is not due.
+    await t.mutation(internal.functions.nodes.begin, { workspaceId: current, at: Date.now() - 2 });
+    await t.mutation(internal.functions.nodes.finish, { workspaceId: current, at: Date.now() - 1, files: 0 });
+
+    await staff.mutation(api.functions.nodesMigration.setPaused, { paused: true });
+    expect((await t.mutation(internal.functions.nodesMigration.keepCurrent, {})).started).toBe(0);
+    expect(await scheduledSweeps(t)).toBe(0);
+
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeMigration").first();
+      if (row) await ctx.db.patch(row._id, { paused: false });
+    });
+    expect((await t.mutation(internal.functions.nodesMigration.keepCurrent, {})).started).toBe(2);
+    expect(await scheduledSweeps(t)).toBe(2);
+  });
+});

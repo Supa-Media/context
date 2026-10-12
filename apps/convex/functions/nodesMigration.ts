@@ -15,7 +15,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
 import { migrationPaused } from "./lib/nodes/pause";
@@ -197,13 +197,32 @@ export const setPaused = mutation({
     if (existing === null) await ctx.db.insert("nodeMigration", fields);
     else await ctx.db.patch(existing._id, fields);
     if (paused) return { started: 0 };
-    const { ids } = await boundWorkspaces(ctx);
-    const now = Date.now();
-    const due: Id<"workspaces">[] = [];
-    for (const workspaceId of ids) {
-      if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now)) due.push(workspaceId);
-    }
-    return { started: await startSweeps(ctx, due) };
+    return { started: await startDueSweeps(ctx) };
+  },
+});
+
+/** Start a sweep for every bound workspace whose copy is due: never started, dirty, interrupted, failed or stale. */
+async function startDueSweeps(ctx: MutationCtx): Promise<number> {
+  const { ids } = await boundWorkspaces(ctx);
+  const now = Date.now();
+  const due: Id<"workspaces">[] = [];
+  for (const workspaceId of ids) {
+    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now)) due.push(workspaceId);
+  }
+  return await startSweeps(ctx, due);
+}
+
+/**
+ * The cron that keeps every copy current (`crons.ts`), for workspaces nobody
+ * has opened as well as new ones: a copy that is due is swept again, and one
+ * whose last pass failed is retried. Does nothing while paused.
+ */
+export const keepCurrent = internalMutation({
+  args: {},
+  returns: v.object({ started: v.number() }),
+  handler: async (ctx) => {
+    if (await migrationPaused(ctx.db)) return { started: 0 };
+    return { started: await startDueSweeps(ctx) };
   },
 });
 
