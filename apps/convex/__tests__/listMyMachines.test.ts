@@ -248,6 +248,40 @@ describe("a person's own approved machines", () => {
     expect(await listMachines(t, alice)).toEqual([]);
   });
 
+  test("listGrants marks the desktop app, and only it, as a machine", async () => {
+    // The live map leaves the desktop app out of the AI tools on this flag
+    // (Dev2, 2026-10-12: "Context on <laptop>" stood among the agents).
+    const t: TestConvex = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const workspaceId = await createWorkspace(t, alice, "alfa");
+    await registerMac(t, "mcp_client_laptop", "Context on laptop");
+    await approveMachine(t, alice, "mcp_client_laptop", "alfa");
+    await gatewayPost(t, "/gateway/clients/register", {
+      clientId: "mcp_client_claude",
+      clientName: "Context on a Claude that says so",
+      redirectUris: ["https://claude.example.invalid/callback"],
+      hashedClientSecret: null,
+      tokenEndpointAuthMethod: "none",
+      scope: "context:read context:write",
+      applicationType: "web",
+    });
+    await t.run((ctx) =>
+      ctx.db.insert("oauthGrants", {
+        workspaceId,
+        userId: alice,
+        clientId: "mcp_client_claude",
+        scopes: ["context:read", "context:write"],
+        hashedRefreshToken: fakeHash("refresh:mcp_client_claude"),
+        status: "active",
+        createdAt: Date.now(),
+      }),
+    );
+
+    const rows = await asUser(t, alice).query(api.functions.grants.listGrants, { workspaceId });
+    const byClient = Object.fromEntries(rows.map((r) => [r.clientId, r.isMachine]));
+    expect(byClient).toEqual({ mcp_client_laptop: true, mcp_client_claude: false });
+  });
+
   test("signed out entirely: refused, not an empty list", async () => {
     const t: TestConvex = setupTest();
     const error = await captureError(() =>

@@ -2,7 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 
 import { agentPaint } from "../features/console/map/live/agentKind";
 import { createMapEngine, type MapData } from "../features/console/map/live/engine";
-import { placeAgents } from "../features/console/map/live/engine/draw/hub";
+import { landingOn, placeAgents } from "../features/console/map/live/engine/draw/hub";
 import { buildLayout, HUB_R } from "../features/console/map/live/engine/layout";
 import { SPACING } from "../features/console/map/live/engine/pack";
 import { hubFrom } from "../features/console/map/live/mapHub";
@@ -22,7 +22,10 @@ import { fakeCanvas, para, palette } from "./liveMapFixture";
  * Sabotage record: the old grid in `placeIslands` fails "a ring with the
  * middle clear"; dropping `drawHubLines` from the render fails "you, roads
  * and the agents' lines"; counting notes with a hub fails "who is in it";
- * keeping a colleague's grant fails "only your own tools".
+ * keeping a colleague's grant fails "only your own tools"; ending lines at
+ * the island's circle again fails "every line lands on a folder"; drawing
+ * names without checking each other fails "names never run into each other";
+ * keeping the desktop app fails "the desktop app is not an agent".
  */
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
@@ -133,6 +136,45 @@ describe("all workspaces round you", () => {
     // Claude reaches two workspaces: a line ends at each.
     expect(placed[0]!.to).toHaveLength(2);
   });
+
+  // Dev2, 2026-10-12: dotted lines ended at coloured dots in empty space,
+  // because folders pack to one side of an island and the line stopped at
+  // the island's circle.
+  test("every line lands on a folder, not open ground", () => {
+    const { islands } = buildLayout(graphs());
+    const placed = placeAgents(islands, HUB.agents);
+    const inFolder = (q: { x: number; y: number }) => islands.some((i) => i.folders.some((f) => Math.hypot(q.x - f.x, q.y - f.y) <= f.r));
+    for (const g of placed) for (const t of g.to) expect(inFolder(t)).toBe(true);
+    for (const island of islands) expect(inFolder(landingOn(island, { x: 0, y: 0 }))).toBe(true);
+  });
+
+  test("names never run into each other, and a long one is shortened", () => {
+    const long = "Context on Somebodys-Very-Long-MacBook-Pro";
+    const agents = [
+      ...HUB.agents,
+      ...Array.from({ length: 6 }, (_, k) => ({ id: `a${k}`, name: k === 0 ? long : `Assistant number ${k}`, workspaceIds: ["ws-a"] })),
+    ];
+    const { calls } = frame(data({ hub: { ...HUB, agents } }), 1200, 800);
+    const isName = (t: string) => agents.some((a) => a.name === t || (t.endsWith("…") && a.name.startsWith(t.slice(0, -1))));
+    const names = calls.filter((c) => c.op === "fillText" && String(c.font).startsWith("600 12px") && isName(String(c.args[0])));
+    const rects = names.map((c) => {
+      const text = String(c.args[0]);
+      const w = text.length * 12 * 0.55;
+      return { text, x: Number(c.args[1]) - w / 2, y: Number(c.args[2]) - 12, w, h: 15 };
+    });
+    expect(rects).toHaveLength(agents.length);
+    expect(rects.some((r) => r.text.endsWith("…"))).toBe(true);
+    expect(rects.map((r) => r.text)).not.toContain(long);
+    for (const r of rects) expect(r.w).toBeLessThanOrEqual(120);
+    for (let a = 0; a < rects.length; a += 1) {
+      for (let b = a + 1; b < rects.length; b += 1) {
+        const A = rects[a]!;
+        const B = rects[b]!;
+        const hit = A.x < B.x + B.w && A.x + A.w > B.x && A.y < B.y + B.h && A.y + A.h > B.y;
+        expect(hit ? `${A.text} × ${B.text}` : "").toBe("");
+      }
+    }
+  });
 });
 
 describe("the hub from the console's data", () => {
@@ -155,6 +197,23 @@ describe("the hub from the console's data", () => {
       members: new Map(),
     });
     expect(hub.agents).toEqual([{ id: "agent:Claude", name: "Claude", workspaceIds: ["ws-a", "ws-b"] }]);
+  });
+
+  // Dev2, 2026-10-12: "Context on Seyis-MacBook-Pro" stood among the AIs. It
+  // is the desktop app recording meetings: the person's own hand, like the console.
+  test("the desktop app is not an agent", () => {
+    const hub = hubFrom({
+      you: "@seyi",
+      contexts,
+      clients: [
+        { name: "Context on Seyis-MacBook-Pro", context: "@seyi", mine: true, machine: true },
+        { name: "Context on Old-Laptop", context: "@seyi", mine: true },
+        { name: "Laptop recorder", context: "@seyi", mine: true, machine: true },
+        { name: "ChatGPT", context: "@seyi", mine: true, machine: false },
+      ],
+      members: new Map(),
+    });
+    expect(hub.agents.map((a) => a.name)).toEqual(["ChatGPT"]);
   });
 
   test("people per workspace, faces without you", () => {

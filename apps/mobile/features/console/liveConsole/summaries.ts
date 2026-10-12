@@ -163,6 +163,8 @@ export interface GrantSummary {
    * being told a user id in order to re-derive something it was already sent.
    */
   isMine: boolean;
+  /** The Context desktop app on one of this person's computers, not an AI tool. */
+  isMachine?: boolean;
   lastUsedAt?: number;
 }
 
