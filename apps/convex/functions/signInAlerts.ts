@@ -6,7 +6,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { appOrigin, sendAccountMail } from "./lib/accountMail";
-import { confirmedEmailsOf, phoneSignInPaused, requireEmailProof, signOutSessions } from "./lib/emailProof";
+import {
+  cancelPendingRecoveries,
+  confirmedEmailsOf,
+  phoneSignInPaused,
+  requireEmailProof,
+  signOutSessions,
+} from "./lib/emailProof";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 
 /**
@@ -149,6 +155,9 @@ export async function lockOutPhone(ctx: MutationCtx, userId: Id<"users">): Promi
     await ctx.db.insert("phoneSignInPauses", { userId, pausedAt: Date.now() });
   }
   await signOutSessions(ctx, userId, null);
+  // A new email the intruder started adding goes too: it would otherwise
+  // attach itself a week after the person locked them out.
+  await cancelPendingRecoveries(ctx, userId);
   // The texting assistant's live grant goes too; `applyTextsGrant` refuses a
   // new one while the pause stands.
   const grants = await ctx.db

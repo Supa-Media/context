@@ -172,6 +172,37 @@ export function maskEmail(email: string): string {
   return `${email[0]}•••${email.slice(at)}`;
 }
 
+/**
+ * Stop a new email somebody started adding, and the code for one they have
+ * not confirmed yet.
+ *
+ * "This wasn't me" exists because the phone that just signed in may not be
+ * the person's any more, and it answers by taking every session away and
+ * pausing the phone. A waiting `emailRecoveries` row is the one thing a
+ * phone-only session can start that **outlives the session**: in seven days
+ * it attaches an address, and an attached address confirms big changes. The
+ * person who clicked the alarm has been told their devices are signed out;
+ * leaving the intruder's slow change running behind that is the wrong
+ * failure direction, and the recovery's own cancel link is a second mail
+ * they may never open.
+ *
+ * Cancelling, never deleting: the row is the record that it happened.
+ */
+export async function cancelPendingRecoveries(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
+  const waiting = await ctx.db
+    .query("emailRecoveries")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of waiting) {
+    if (row.status === "waiting") await ctx.db.patch(row._id, { status: "cancelled" });
+  }
+  const codes = await ctx.db
+    .query("emailRecoveryCodes")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const code of codes) await ctx.db.delete(code._id);
+}
+
 /** Account deletion and folding: every row these tables hold for a person. */
 export async function deleteEmailProofRowsOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
   for (const table of [
