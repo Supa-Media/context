@@ -1,9 +1,10 @@
 /**
  * The Indexes view's table (`./IndexesView`): one row per workspace, a column
  * per index, and a row that opens to show the T0/T1/T2 split, what went wrong,
- * and that workspace's Refill and Restart. On a phone a row is the workspace,
- * three dots (tree, fast, meaning) and the reason under it; a tap opens the
- * same detail.
+ * that workspace's Refill and Restart, and its line of the Convex copy (the
+ * backend migration) with Copy again and Check. On a phone a row is the
+ * workspace, four dots (tree, fast, meaning, Convex copy) and the reason under
+ * it; a tap opens the same detail.
  */
 
 import { useState, type ReactNode } from "react";
@@ -12,13 +13,27 @@ import { Button, Dot, Text, space, useThemedStyles, type Colors, type DotTone } 
 import { useCompact } from "./AdminKit";
 import { TableHead, type Column } from "./AdminTable";
 import { whenLabel } from "./agent";
+import { relativeTime } from "./report";
 import { canRestartMeaning } from "./meaningIndexes";
-import { INDEXES, tierLabel, type IndexCell, type IndexHealth, type IndexKey, type WorkspaceIndexes } from "./searchIndexes";
+import {
+  INDEXES,
+  parityWords,
+  tierLabel,
+  type IndexCell,
+  type IndexHealth,
+  type IndexKey,
+  type MigrationRow,
+  type WorkspaceIndexes,
+} from "./searchIndexes";
 
 export type IndexActions = {
   busy: string | null;
   fill: (workspaceId: string) => void;
   restart: (workspaceId: string) => void;
+  /** The whole migration is paused, so a copy cannot start. */
+  migrationPaused: boolean;
+  startMigration: (workspaceId: string) => void;
+  checkMigration: (workspaceId: string) => void;
 };
 
 export function healthTone(health: IndexHealth): DotTone {
@@ -30,6 +45,7 @@ const COLUMNS: readonly Column[] = [
   { label: "Sidebar tree", flex: 1.3 },
   { label: "Fast search", flex: 1.5 },
   { label: "Search by meaning", flex: 1.8 },
+  { label: "Convex copy", flex: 1.4 },
   { label: "Changed", flex: 0.8 },
   { label: "", width: 28, align: "right" },
 ];
@@ -90,10 +106,11 @@ function Row({
               <Text variant="rowTitle" numberOfLines={1} style={styles.grow}>
                 {name(row)}
               </Text>
-              <View style={styles.dots} aria-label="Sidebar tree, fast search, search by meaning">
+              <View style={styles.dots} aria-label="Sidebar tree, fast search, search by meaning, Convex copy">
                 <Dot tone={healthTone(row.tree.health)} />
                 <Dot tone={healthTone(row.fast.health)} />
                 <Dot tone={healthTone(row.meaning.health)} />
+                <Dot tone={healthTone(row.convex.health)} />
               </View>
             </View>
             <Text variant="meta">{compactLine(row)}</Text>
@@ -108,6 +125,7 @@ function Row({
             <CellView cell={row.tree} flex={1.3} />
             <CellView cell={row.fast} flex={1.5} />
             <CellView cell={row.meaning} flex={1.8} />
+            <CellView cell={row.convex} flex={1.4} />
             <View style={[styles.td, { flex: 0.8 }]}>
               <Text variant="rowSub">{row.changedAt === null ? "—" : whenLabel(row.changedAt, now)}</Text>
             </View>
@@ -154,7 +172,7 @@ function compactLine(row: WorkspaceIndexes): string {
   const parts = INDEXES.filter((index) => row[index.key].health === "stuck" || row[index.key].health === "working").map(
     (index) => {
       const cell = row[index.key];
-      const short = index.key === "tree" ? "Tree" : index.key === "fast" ? "Fast" : "Meaning";
+      const short = { tree: "Tree", fast: "Fast", meaning: "Meaning", convex: "Copy" }[index.key];
       const said = `${short} ${cell.label.toLowerCase()}${cell.figure && cell.progress ? ` ${cell.figure}` : ""}`;
       return cell.problem ? `${said}: ${cell.problem}` : said;
     },
@@ -255,8 +273,70 @@ function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions
           </View>
         );
       })}
+      <CopyLine row={row} actions={actions} />
     </View>
   );
+}
+
+/** The Convex copy's line in a row's detail: where it is, what it holds, and its two buttons. */
+function CopyLine({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
+  const styles = useThemedStyles(makeStyles);
+  const id = row.slug ?? row.workspaceId;
+  const copy = row.migrationRow;
+  const cell = row.convex;
+  const button = (key: string, label: string, busyLabel: string, onPress: () => void, testID: string, disabled = false) => (
+    <Button
+      label={actions.busy === key ? busyLabel : label}
+      disabled={actions.busy !== null || disabled}
+      onPress={onPress}
+      testID={testID}
+    />
+  );
+  return (
+    <View style={styles.copyLine} testID={`admin-convex-line-${id}`}>
+      <View style={styles.copyText}>
+        <View style={styles.dhead}>
+          {cell.health === "none" ? null : <Dot tone={healthTone(cell.health)} />}
+          <Text variant="rowTitle">Convex copy</Text>
+          {cell.health === "none" ? null : <Text variant="rowSub" style={styles.strong}>{cell.label}</Text>}
+        </View>
+        <Text variant="meta">{copyNote(copy, Date.now())}</Text>
+        {cell.problem ? (
+          <Text variant="meta" style={styles.problem}>
+            {cell.problem}
+          </Text>
+        ) : null}
+      </View>
+      {copy === null ? null : (
+        <View style={styles.copyButtons}>
+          {button(
+            `convex:start:${row.workspaceId}`,
+            "Copy again",
+            "Starting…",
+            () => actions.startMigration(row.workspaceId),
+            `admin-convex-start-${id}`,
+            actions.migrationPaused,
+          )}
+          {button(
+            `convex:check:${row.workspaceId}`,
+            "Check",
+            "Checking…",
+            () => actions.checkMigration(row.workspaceId),
+            `admin-convex-check-${id}`,
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** One sentence for the Convex copy: the file count, when it was last copied, and what the check said. */
+export function copyNote(copy: MigrationRow | null, now: number): string {
+  if (copy === null) return "Not part of the copy. This workspace has no storage to copy.";
+  const files = `${copy.files.toLocaleString("en-US")} ${copy.files === 1 ? "file" : "files"}`;
+  const copied = copy.sweptAt === null ? "Never copied" : `Last copied ${relativeTime(copy.sweptAt, now)}`;
+  const dirty = copy.dirty ? " A change is waiting for the next copy." : "";
+  return `${files}. ${copied}. ${parityWords(copy.parity)}.${dirty}`;
 }
 
 function Bar({ done, total, tone, wide = false }: { done: number; total: number; tone: DotTone; wide?: boolean }) {
@@ -319,4 +399,17 @@ const makeStyles = (colors: Colors) =>
     crit: { backgroundColor: colors.crit },
     neutral: { backgroundColor: colors.muted },
     num: { fontVariant: ["tabular-nums"] },
+    copyLine: {
+      flexBasis: "100%",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: space.x3,
+      paddingTop: space.x2,
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
+    copyText: { flexGrow: 1, flexShrink: 1, minWidth: 220, gap: 4 },
+    copyButtons: { flexDirection: "row", gap: space.x2 },
   });
