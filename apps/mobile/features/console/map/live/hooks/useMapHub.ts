@@ -13,7 +13,11 @@ import type { MapHub } from "../types";
  * while it is: one `listMembers` per workspace, as `useQueries`, so a list
  * that fails leaves that workspace's people line out rather than the page.
  */
-export function useMapHub(data: ConsoleData, enabled: boolean): MapHub | null {
+export function useMapHub(
+  data: ConsoleData,
+  enabled: boolean,
+  working: ReadonlyArray<{ name: string; workspaceId?: string }>,
+): MapHub | null {
   const ids = useMemo(() => (enabled ? data.contexts.map((c) => c.id) : []), [enabled, data.contexts]);
   const key = ids.join(",");
   const spec = useMemo<RequestForQueries>(() => {
@@ -33,7 +37,7 @@ export function useMapHub(data: ConsoleData, enabled: boolean): MapHub | null {
     const rows = results[id];
     if (Array.isArray(rows)) members.set(id, rows as HubMember[]);
   }
-  const hub = enabled ? hubFrom({ you: data.viewer.name, contexts: data.contexts, clients: data.clients, members }) : null;
+  const hub = enabled ? hubFrom({ you: data.viewer.name, contexts: data.contexts, clients: data.clients, members, working }) : null;
   const said = JSON.stringify(hub);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => hub, [said]);
