@@ -329,6 +329,7 @@ export const gatewayMoves = gatewayRoute(signals.gatewayMovesHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
@@ -871,6 +872,7 @@ http.route({ path: "/gateway/search-index/progress", method: "POST", handler: ga
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
+http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });

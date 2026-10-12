@@ -12,6 +12,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { voidCapabilitiesAddressedTo } from "./addressedTo";
 import { deleteWorkspacePlaces } from "../places";
 import { deleteWorkspaceRoutines } from "../routines/app";
+import { forgetWorkspaceTree } from "../../nodesPurge";
 
 export async function finalizeWorkspaceDeletion(
   ctx: MutationCtx,
@@ -66,6 +67,10 @@ export async function finalizeWorkspaceDeletion(
 
   // Members' pins and open counts in this workspace: paths and counts.
   await deleteWorkspacePlaces(ctx, workspaceId);
+
+  // The file tree's names and parsed privacy rules; the files stay in the
+  // bucket. A large tree finishes deleting in the background.
+  await forgetWorkspaceTree(ctx, workspaceId);
 
   // Where the managed-encryption walk got to. Metadata about a bucket this
   // workspace no longer has; the keys themselves go with `workspaceDataKeys`.

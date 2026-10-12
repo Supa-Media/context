@@ -390,3 +390,63 @@ export async function gatewayWebsiteHandler(
   }
   return answered();
 }
+
+/** The most paths, and the most files, one touch names; more marks the tree dirty instead. */
+const TOUCH_NAMES = 50;
+/** The longest one name a touch may carry. */
+const TOUCH_NAME_LENGTH = 1024;
+
+/** A touch's names: `[]` when absent, `null` when malformed or over the bound. */
+function touchNames(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > TOUCH_NAMES) return null;
+  const names: string[] = [];
+  for (const name of value) {
+    if (typeof name !== "string" || name.length === 0 || name.length > TOUCH_NAME_LENGTH) return null;
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * The gateway's write re-checked in the Convex tree (`lib/nodes/touch.ts`):
+ * the paths and files a change named, or `dirty` where it named too many.
+ *
+ * Names only, never text. A malformed body is a 400: its shape says nothing
+ * about which contexts exist. A well-formed id that names no context is
+ * answered `ok`, as `gatewayTreeHandler` answers one, so the route is not an
+ * oracle. The checks run before any scheduling, and nothing here waits on the
+ * bucket.
+ */
+export async function gatewayTreeTouchHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  const paths = touchNames(body.paths);
+  const files = touchNames(body.files);
+  if (workspaceId === null || paths === null || files === null) return json({ error: "malformed_touch" }, 400);
+  if (body.dirty !== undefined && typeof body.dirty !== "boolean") return json({ error: "malformed_touch" }, 400);
+  const dirty = body.dirty === true;
+  try {
+    const known = await ctx.runQuery(internal.functions.treeSignals.workspaceKnown, {
+      workspaceId: workspaceId as Id<"workspaces">,
+    });
+    if (!known) return answered();
+    if (dirty) {
+      await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: workspaceId as Id<"workspaces"> });
+    } else if (paths.length + files.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: workspaceId as Id<"workspaces">,
+        scope: "private",
+        operation: { kind: "nodesTouch", paths, files },
+      });
+    }
+  } catch {
+    // A workspace id that is not well formed, or a schedule that failed: the
+    // sweep the next walk asks for repairs what this did not record.
+    return json({ error: "malformed_touch" }, 400);
+  }
+  return answered();
+}

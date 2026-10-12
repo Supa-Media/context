@@ -46,6 +46,7 @@ import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
+import { scheduleNodesTouch, startNodesSweepIfDue } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
@@ -199,6 +200,10 @@ export async function manifestSource(
   },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "tree" | "bucket"; since?: number; privacy?: string | null }> {
+  // The Convex tree's shadow starts filling on the first page of any walk (`lib/nodes/run.ts`).
+  if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
+    await startNodesSweepIfDue(ctx, args.workspaceId);
+  }
   if (args.operation.kind === "workspaceGraph") return { store: await withLinkTable(ctx, args, store), source: "bucket" };
   if (args.operation.kind !== "manifest") return { store, source: "bucket" };
   if (args.operation.source !== "tree") {
@@ -415,6 +420,8 @@ export async function keepTreeAndAnnounce(
   change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
 ): Promise<void> {
   const touches = change.paths.length + change.files.length > 0;
+  // The Convex tree is re-checked whether or not this context has a search database.
+  if (touches) await scheduleNodesTouch(ctx, args.workspaceId, { paths: change.paths, files: change.files });
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {
     const scheduled = await ctx.scheduler
       .runAfter(0, internal.functions.files.runFileOperation, {

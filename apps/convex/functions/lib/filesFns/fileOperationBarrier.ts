@@ -45,6 +45,7 @@ import {
   treeStateOf,
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
+import { isNodesOperation, runNodesOperation } from "../nodes/run";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -380,6 +381,8 @@ export async function runFileOperationHandler(
         "This context's bucket configuration could not be used. Reconnect storage.",
     });
   }
+
+  if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
 
   if (treeOperation?.client) {
     return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
