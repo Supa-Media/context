@@ -7,7 +7,7 @@ import { radii } from "../design/tokens";
 import { useColors, useThemedStyles } from "../design/theme";
 import { makeStyles as makeExplorerStyles } from "../console/files/explorer/styles";
 import { useChaosView } from "./ChaosContext";
-import { ChaosFigure } from "./ChaosFigure";
+import { Tex } from "./Tex";
 import { chaosWord, scoreShown, shownScore, trendAgainst } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 
@@ -55,7 +55,7 @@ export function ChaosFootLine({ onOpening }: { onOpening?: () => void }) {
           hoverStyle={explorer.matchHover}
           testID="explorer-chaos"
         >
-          <ChaosFigure chaos={result.score} size={FIGURE} />
+          <Tex chaos={result.score} size={FIGURE} />
           <Text variant="treeMeta" numberOfLines={1}>
             {`Chaos ${shownScore(result.score)}`}
           </Text>

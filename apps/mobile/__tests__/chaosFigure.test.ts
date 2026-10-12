@@ -1,26 +1,33 @@
 /**
- * The chaos figure's geometry, ported from the owner's pick (paper3, the
- * googly-eyed scribble that untangles into a #). Pure: what is drawn at a
- * given chaos, not how.
+ * Tex's geometry, ported from the owner's pick (paper3, the googly-eyed
+ * scribble that untangles into a #) and drawn as approved on the homepage.
+ * Pure: what is drawn at a given chaos, not how.
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { figureParts, scribble, SMALL_FIGURE } from "../features/chaos/figureGeometry";
+import {
+  figureParts,
+  scribble,
+  SMALL_FIGURE,
+} from "../features/chaos/figureGeometry";
 
-const numbers = (d: string): number[] => (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+const numbers = (d: string): number[] =>
+  (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
 
 describe("the eyes", () => {
-  test("googly whenever there is any chaos, two dots only at none", () => {
-    expect(figureParts(0, { small: false }).dots).not.toBeNull();
-    expect(figureParts(0, { small: false }).googly).toBeNull();
-    // paper3 switched at t >= 0.95, which would have been chaos 5; the owner's rule is any chaos at all.
-    expect(figureParts(1, { small: false }).dots).toBeNull();
-    expect(figureParts(1, { small: false }).googly).not.toBeNull();
-    expect(figureParts(4, { small: false }).googly).not.toBeNull();
+  test("googly at every score, calm included: Tex never swaps them for dots", () => {
+    for (const chaos of [0, 0.4, 1, 4, 50, 100]) {
+      expect(figureParts(chaos, { small: false }).googly.whites).toHaveLength(
+        2,
+      );
+    }
+    expect(figureParts(0, { small: false })).not.toHaveProperty("dots");
   });
-  test("by the score as shown: 0.4 is 0, 0.5 is 1", () => {
-    expect(figureParts(0.4, { small: false }).dots).not.toBeNull();
-    expect(figureParts(0.5, { small: false }).googly).not.toBeNull();
+  test("the pupils drift back to centre as it calms down", () => {
+    const [wild] = figureParts(100, { small: false }).googly.pupils;
+    const [calm] = figureParts(0, { small: false }).googly.pupils;
+    expect(wild!.cx).toBe(-42);
+    expect(calm!.cx).toBe(-52);
   });
 });
 
@@ -38,26 +45,19 @@ describe("the scribble", () => {
     const [x0, y0] = numbers(calm.strands[0]!.d);
     expect(x0).toBeCloseTo(340 + (40 - 50) * 4.4, 0);
     expect(y0).toBeCloseTo(380 + (7 - 50) * 4.4, 0);
-    expect(calm.strands[0]!.width).toBeCloseTo(53);
+    // Tex's brush: 13 at full chaos, 16 more once it is the #.
+    expect(calm.strands[0]!.width).toBeCloseTo(29);
   });
-  test("at full chaos it is the thin brush, limbs out, marks and speckles on", () => {
+  test("at full chaos it is the plain brush, limbs out, marks and speckles on", () => {
     const wild = figureParts(100, { small: false });
-    expect(wild.strands[0]!.width).toBe(9);
+    expect(wild.strands[0]!.width).toBe(13);
+    expect(wild.limbs[0]!.width).toBeCloseTo(15.6);
     expect(wild.limbOpacity).toBe(1);
     expect(wild.motion).not.toBeNull();
     expect(wild.speckles).toHaveLength(26);
     const calm = figureParts(0, { small: false });
     expect(calm.limbOpacity).toBe(0);
     expect(calm.motion).toBeNull();
-  });
-});
-
-describe("page a's Tex", () => {
-  test("grows its strands less and keeps its googly eyes even when calm", () => {
-    const tex = figureParts(0, { small: false, width: 13, grow: 16, alwaysGoogly: true });
-    expect(tex.strands[0]!.width).toBeCloseTo(29);
-    expect(tex.googly).not.toBeNull();
-    expect(tex.dots).toBeNull();
   });
 });
 
@@ -69,6 +69,8 @@ describe("small", () => {
     expect(small.strands[0]!.width).toBe(40);
     expect(small.limbs[0]!.width).toBe(40);
     // A stroke already thicker than the floor keeps its own width.
-    expect(figureParts(0, { small: true, minStroke: 40 }).strands[0]!.width).toBeCloseTo(53);
+    expect(
+      figureParts(0, { small: true, minStroke: 20 }).strands[0]!.width,
+    ).toBeCloseTo(29);
   });
 });

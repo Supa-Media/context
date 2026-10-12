@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MutableRefObject,
+} from "react";
+import { Tex } from "../chaos/Tex";
 import { simpleLandingColors as C } from "../design/tokens/landingColors";
 import type { Ink } from "./chaosIcons";
 import { ChaosGraph } from "./ChaosGraph.web";
 import { LandingSignUp } from "./LandingSignUp";
-import { LandingTex } from "./LandingTex.web";
 import { SIMPLE_CSS } from "./simpleCss";
 
 /**
@@ -63,7 +70,12 @@ export function SimplePage() {
     colorScheme: "light",
   } as CSSProperties;
   return (
-    <div className="sp" style={vars} data-landing="a" data-joining={open || undefined}>
+    <div
+      className="sp"
+      style={vars}
+      data-landing="a"
+      data-joining={open || undefined}
+    >
       <style>{SIMPLE_CSS}</style>
       <main className="sp-col">
         <a
@@ -71,27 +83,35 @@ export function SimplePage() {
           href="/"
           aria-label="Context. Tex, the Context mascot, a blue scribble that untangles into a # as the notes below are filed"
         >
-          <Tex register={setTex} />
+          <LiveTex register={setTex} />
         </a>
         <h1 className="sp-p sp-first">
-          Context is an app that gives your brain that feeling you have when your room is clean.
+          Context is an app that gives your brain that feeling you have when
+          your room is clean.
         </h1>
         <ChaosGraph ink={INK} onChaos={onChaos} />
         <p className="sp-p">
-          It's an opinionated way to put everything away in plain notes that you can always edit, export, do whatever
-          you want with it, and so can all your{" "}
+          It's an opinionated way to put everything away in plain notes that you
+          can always edit, export, do whatever you want with it, and so can all
+          your{" "}
           <a className="sp-u" href="/?page=connect-your-ai">
             AI tools
           </a>
           .
         </p>
         <p className="sp-p">
-          Work better with your team by organizing your thoughts, start the nonprofit, write the blog, build your
-          website
+          Work better with your team by organizing your thoughts, start the
+          nonprofit, write the blog, build your website
         </p>
         <p className="sp-p sp-less">with less chaos</p>
         <p className="sp-p">
-          <button type="button" className="sp-cta" aria-expanded={open} aria-controls="join" onClick={() => setOpen(true)}>
+          <button
+            type="button"
+            className="sp-cta"
+            aria-expanded={open}
+            aria-controls="join"
+            onClick={() => setOpen(true)}
+          >
             <span>Join the waitlist</span> ›
           </button>
         </p>
@@ -111,8 +131,12 @@ export function SimplePage() {
 }
 
 /** Tex at the graph's level of chaos, starting as a full scribble. */
-function Tex({ register }: { register: MutableRefObject<(chaos: number) => void> }) {
+function LiveTex({
+  register,
+}: {
+  register: MutableRefObject<(chaos: number) => void>;
+}) {
   const [chaos, setChaos] = useState(100);
   register.current = setChaos;
-  return <LandingTex chaos={chaos} ink={C.blue} eye={C.eye} />;
+  return <Tex chaos={chaos} scheme="light" />;
 }

@@ -4,7 +4,7 @@ import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
-import { ChaosFigure } from "./ChaosFigure";
+import { Tex } from "./Tex";
 import { chipLabel, chipShows, type ChaosFolder } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 
@@ -47,7 +47,7 @@ export function FolderChaosChip({ folder }: { folder: string }) {
       hoverStyle={styles.chipHover}
       testID="folder-chaos-chip"
     >
-      <ChaosFigure chaos={mine.chaos} size={18} />
+      <Tex chaos={mine.chaos} size={18} />
       <Text variant="treeMeta" style={styles.chipText} numberOfLines={1}>
         {label}
       </Text>

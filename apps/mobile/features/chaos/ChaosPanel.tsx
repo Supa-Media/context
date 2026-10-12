@@ -4,7 +4,7 @@ import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { baseName, displayName, parentPath } from "../console/files/paths";
-import { ChaosFigure } from "./ChaosFigure";
+import { Tex } from "./Tex";
 import {
   biggestWins,
   chaosWord,
@@ -47,7 +47,7 @@ export function ChaosPanel({
   return (
     <View style={styles.body} testID="chaos-panel-body">
       <View style={styles.head}>
-        <ChaosFigure chaos={result.score} size={figure} testID="chaos-panel-figure" />
+        <Tex chaos={result.score} size={figure} testID="chaos-panel-figure" />
         <View style={styles.headText}>
           <Text variant="rowTitle" style={styles.score} testID="chaos-panel-score">
             {`Chaos ${score} of 100`}
