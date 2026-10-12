@@ -197,3 +197,19 @@ test("before a full pass there is no score, rather than a wrong one", async () =
   assert.equal(await rescoreChange(client, { files: ["1-projects/a/x.md"], visibleToTeam: everyone, store }), null);
   assert.equal(await chaosSummary(client, { audience: "all" }), null);
 });
+
+test("a contact page's review: question reaches the score from its frontmatter, and clearing it calms it", async () => {
+  const { store, client } = await filled({
+    "index.md": "# Home",
+    "0-inbox/contacts/a/ada-obi.md": "---\nreview: possible duplicate of [[0-inbox/contacts/a/ada]]\n---\n# Ada Obi",
+    "0-inbox/contacts/a/amy.md": "---\nreview: []\n---\n# Amy",
+    "0-inbox/contacts/b/bo.md": "# Bo",
+  });
+  const folder = async (path) => (await client.query("SELECT * FROM tree_chaos WHERE folder = ?1", [path]))[0];
+  const letterA = await folder("0-inbox/contacts/a");
+  assert.equal(Number(letterA.sum) / Number(letterA.weight), 50, "one of two pages under A waits on review");
+  store.write("0-inbox/contacts/a/ada-obi.md", "# Ada Obi");
+  await client.runAll([propWriteStatement("0-inbox/contacts/a/ada-obi.md", store.objects.get("0-inbox/contacts/a/ada-obi.md").etag, "# Ada Obi")]);
+  await chaosFullPass(client, { visibleToTeam: everyone, now: Date.UTC(2026, 9, 10) });
+  assert.equal(Number((await folder("0-inbox/contacts/a")).sum), 0);
+});
