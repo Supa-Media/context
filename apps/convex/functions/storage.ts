@@ -46,6 +46,7 @@
  * credential graph follows every registration here into those modules.
  */
 
+import { requireEmailProof } from "./lib/emailProof";
 import { ConvexError, v, type ObjectType } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
@@ -142,6 +143,10 @@ export const bindStorage = action({
         message: "Not authenticated",
       });
     }
+
+    // Pointing a workspace that already has storage somewhere else moves
+    // where its notes live: a big change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProofToRebind, { workspaceId: args.workspaceId });
 
     assertUsableEndpoint(args.endpoint);
     if (args.bucket.trim().length === 0) {
@@ -260,11 +265,14 @@ async function sealedMoveTarget(
 export const startManagedStorageHandoff = action({
   args: validators.startManagedStorageHandoffArgs,
   returns: validators.startManagedStorageHandoffReturns,
-  handler: async (ctx, args): Promise<{ started: true }> =>
-    await ctx.runMutation(
+  handler: async (ctx, args): Promise<{ started: true }> => {
+    // Copying every note to another bucket is a big change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
+    return await ctx.runMutation(
       internal.functions.managedProvisioning.beginManagedStorageHandoff,
       await sealedMoveTarget(ctx, args),
-    ),
+    );
+  },
 });
 
 /**
@@ -276,11 +284,13 @@ export const startManagedStorageHandoff = action({
 export const startStorageMove = action({
   args: validators.startManagedStorageHandoffArgs,
   returns: validators.startManagedStorageHandoffReturns,
-  handler: async (ctx, args): Promise<{ started: true }> =>
-    await ctx.runMutation(
+  handler: async (ctx, args): Promise<{ started: true }> => {
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
+    return await ctx.runMutation(
       internal.functions.managedHandoff.beginOwnStorageMove,
       await sealedMoveTarget(ctx, args),
-    ),
+    );
+  },
 });
 
 /**
@@ -673,5 +683,10 @@ export const sweepUnprobedCapabilities = internalMutation({
 export const disconnectStorage = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ disconnected: v.boolean() }),
-  handler: bindingActions.disconnectStorageHandler,
+  handler: async (ctx, args) => {
+    // Disconnecting leaves the workspace with nowhere to read its notes from.
+    const userId = await getAuthUserId(ctx);
+    if (userId !== null) await requireEmailProof(ctx, userId);
+    return await bindingActions.disconnectStorageHandler(ctx, args);
+  },
 });

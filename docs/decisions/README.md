@@ -93,6 +93,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sign-in is invite-only, and the lock is on the server
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
+- [Email guards the big changes; a phone alone never takes an account](./identity-and-access/account-safety.md)
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain

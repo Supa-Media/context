@@ -35,6 +35,9 @@ import type * as functions_customDomainsProvision from "../functions/customDomai
 import type * as functions_devlog from "../functions/devlog.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
 import type * as functions_emoji from "../functions/emoji.js";
+import type * as functions_emailProof from "../functions/emailProof.js";
+import type * as functions_signInAlerts from "../functions/signInAlerts.js";
+import type * as functions_emailRecovery from "../functions/emailRecovery.js";
 import type * as functions_faces from "../functions/faces.js";
 import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
@@ -179,6 +182,9 @@ declare const fullApi: ApiFromModules<{
   "functions/devlog": typeof functions_devlog;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
   "functions/emoji": typeof functions_emoji;
+  "functions/emailProof": typeof functions_emailProof;
+  "functions/signInAlerts": typeof functions_signInAlerts;
+  "functions/emailRecovery": typeof functions_emailRecovery;
   "functions/faces": typeof functions_faces;
   "functions/encryptionKeys": typeof functions_encryptionKeys;
   "functions/fastSearch": typeof functions_fastSearch;

@@ -30,6 +30,7 @@ import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { vaultTables } from "./functions/lib/schema/vault";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
+import { emailProofTables } from "./functions/lib/schema/emailProof";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
@@ -97,6 +98,7 @@ const schema = defineSchema({
   ...textLinkTables,
   ...vaultTables,
   ...signInEmailTables,
+  ...emailProofTables,
   ...workspaceDomainTables,
   ...archivedAccountTables,
   ...agentTurnTables,

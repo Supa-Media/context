@@ -225,16 +225,15 @@ export const startDropboxConnect = action({
     args,
   ): Promise<{ authorizeUrl: string; completionSecret: string }> => {
     const userId = await requireActor(ctx);
-    const isOwner: boolean = await ctx.runQuery(
-      internal.functions.dropboxConnect.requireOwner,
-      { workspaceId: args.workspaceId, userId },
-    );
+    const isOwner: boolean = await ctx.runQuery(internal.functions.dropboxConnect.requireOwner, { workspaceId: args.workspaceId, userId });
     if (!isOwner) {
       throw new ConvexError({
         code: "NOT_OWNER",
         message: "Only the owner of a context can connect its storage.",
       });
     }
+    // Moving existing storage onto Dropbox needs an emailed code (`lib/emailProof.ts`); a first connect does not.
+    await ctx.runQuery(internal.functions.emailProof.requireProofToRebind, { workspaceId: args.workspaceId });
 
     // Refused here, before anything is parked and before an authorize URL
     // exists. See `dropboxRedirectAllowed`: an arbitrary redirect turns this

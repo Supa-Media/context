@@ -165,9 +165,17 @@ export function SignInEmailsCard() {
         ) : (
           <Row divided={emails !== undefined && emails.length > 0}>
             <Grow>
-              <Text variant="rowSub">Add a work or school email so things shared with it find you.</Text>
+              <Text variant="rowSub">
+                {emails !== undefined && emails.length === 1
+                  ? "A backup email gets you back in if you lose this one, and work or school mail shared with it finds you."
+                  : "Add a work or school email so things shared with it find you."}
+              </Text>
             </Grow>
-            <Button label="Add an email" onPress={() => setAdding(true)} testID="sign-in-email-add" />
+            <Button
+              label={emails !== undefined && emails.length === 1 ? "Add a backup email" : "Add an email"}
+              onPress={() => setAdding(true)}
+              testID="sign-in-email-add"
+            />
           </Row>
         )}
       </Card>
