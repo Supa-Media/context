@@ -120,6 +120,29 @@ export async function checkSyncOwnedSourceChanges() {
     await cleanup(id, [source, destination]);
   }
 
+  // 3b. Copied before copies were recorded: the copy stays, the newest sits beside it.
+  {
+    const id = "move-sync-owned-unrecorded-copy";
+    const source = "0-inbox/contacts/email-di-example-com.md";
+    const destination = "4-archive/moved-contacts/email-di-example-com.md";
+    const beside = "4-archive/moved-contacts/email-di-example-com.newer.md";
+    const first = contactPage("di");
+    const pinned = await contextStore.put(source, first);
+    await contextStore.put(destination, first);
+    await job(id, "0-inbox/contacts", "4-archive/moved-contacts",
+      [{ source, destination, etag: pinned.etag, size: first.length }],
+      { status: "deleting", copied: [source], copied_objects: 1 });
+    const newest = contactPage("di", "- phone: +15552222222\n");
+    await contextStore.put(source, newest);
+    const result = await run(id);
+    check(
+      "...and one copied before copies were recorded keeps its copy and the newest version beside it",
+      !result.isError && storedText(destination) === first && storedText(beside) === newest &&
+        !objects.has(source)
+    );
+    await cleanup(id, [source, destination, beside]);
+  }
+
   // 4. A person's own note that changed still refuses, exactly as before.
   {
     const id = "move-human-note-changed";
