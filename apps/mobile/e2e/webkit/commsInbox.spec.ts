@@ -94,7 +94,7 @@ async function tapId(page: Page, testId: string): Promise<void> {
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 }
 
-test("the contacts folder is an A–Z index, with no chaos chip", async ({ page }) => {
+test("the contacts folder is an A–Z index", async ({ page }) => {
   await openInbox(page);
   await tapRow(page, "contacts");
 
@@ -105,7 +105,6 @@ test("the contacts folder is an A–Z index, with no chaos chip", async ({ page 
   // …and the letter folders are not rows as well; the legacy folder still is.
   await expect(page.getByTestId("folder-row").filter({ has: page.getByText("a", { exact: true }) })).toHaveCount(0);
   await expect(page.getByLabel("imessage, folder")).toBeVisible();
-  await expect(page.getByTestId("folder-chaos-chip")).toHaveCount(0);
   await snap(page, "contacts-index");
 
   // A letter opens its folder, as its row would have.

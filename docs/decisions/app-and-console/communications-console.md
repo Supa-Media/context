@@ -108,8 +108,9 @@ move). Two small presentation changes, both in
   It is the one exception to *every inbox folder is a regular folder* above,
   and it is held to presentation only: the page, its header, its menus and
   every other row are `FolderView`'s, and a letter opens its folder exactly
-  as its row would have. The contacts folder and its letter folders carry no
-  chaos chip (the owner decided letter folders are not scored).
+  as its row would have. The contacts folder keeps its chaos chip: contacts
+  are scored on hygiene, not count ([chaos score](../chaos-score.md)), so the
+  chip says what is unsorted, unnamed or waiting on review.
 
 **What a revert would cost:** contact pages that look like any other note,
 which is what the owner asked to change, or a second contact page view to

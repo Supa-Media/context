@@ -4,7 +4,6 @@ import {
   CONTACT_LETTERS,
   contactHeaderOf,
   contactsIndex,
-  hidesFolderChaos,
   isContactPagePath,
 } from "../features/console/communications/contactPages";
 import type { FileEntry } from "../features/console/files/types";
@@ -169,20 +168,5 @@ describe("contactsIndex", () => {
   test("any other folder has no index", () => {
     expect(contactsIndex("1-projects", rows)).toBeNull();
     expect(contactsIndex(`${CONTACTS_FOLDER}/a`, rows)).toBeNull();
-  });
-});
-
-describe("hidesFolderChaos", () => {
-  test("the contacts folder and its letter folders are not scored", () => {
-    expect(hidesFolderChaos(CONTACTS_FOLDER)).toBe(true);
-    expect(hidesFolderChaos(`${CONTACTS_FOLDER}/a`)).toBe(true);
-    expect(hidesFolderChaos(`${CONTACTS_FOLDER}/other`)).toBe(true);
-  });
-
-  test("everything else keeps its chip", () => {
-    expect(hidesFolderChaos("0-inbox")).toBe(false);
-    expect(hidesFolderChaos(`${CONTACTS_FOLDER}/imessage`)).toBe(false);
-    expect(hidesFolderChaos(`${CONTACTS_FOLDER}/a/b`)).toBe(false);
-    expect(hidesFolderChaos("1-projects/a")).toBe(false);
   });
 });

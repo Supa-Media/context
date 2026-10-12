@@ -67,15 +67,6 @@ function isLetterFolder(path: string): boolean {
 }
 
 /**
- * The contacts folder and its letter folders carry no chaos chip: the owner
- * decided letter folders are not scored — 27 folders of generated pages are
- * the app's filing, not somebody's mess.
- */
-export function hidesFolderChaos(path: string): boolean {
-  return path === CONTACTS_FOLDER || isLetterFolder(path);
-}
-
-/**
  * The contacts folder's listing split into the A–Z index and the rows that
  * stay rows (legacy folders and flat pages, in the listing's own order).
  * `null` for every other folder.
