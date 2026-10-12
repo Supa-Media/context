@@ -34,9 +34,11 @@ test("/ is page a: Tex, the feeling, a day being sorted, and the phone sign-up u
   await expect.poll(() => graph.evaluate(inked), { timeout: 5_000 }).toBeGreaterThan(2_000);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
-  await expect(page.getByLabel("Phone number")).toHaveCount(0);
+  await expect(page.getByLabel("Your phone number")).toHaveCount(0);
   await page.getByRole("button", { name: /Join the waitlist/ }).click();
-  await expect(page.locator("#join").getByLabel("Phone number")).toBeVisible();
+  // The line itself turns into the field; the graph stays where it is.
+  await expect(page.getByLabel("Your phone number")).toBeFocused();
+  await expect(graph).toBeVisible();
 });
 
 test("page a fits a laptop window with no scrolling, the sign-up open too", async ({ page }) => {
@@ -53,9 +55,9 @@ test("page a fits a laptop window with no scrolling, the sign-up open too", asyn
     const foot = await page.locator(".sp-foot").evaluate((el) => el.getBoundingClientRect().bottom);
     expect(foot).toBeLessThanOrEqual(height);
     await page.getByRole("button", { name: /Join the waitlist/ }).click();
-    await expect(page.locator("#join").getByLabel("Phone number")).toBeFocused();
+    await expect(page.getByLabel("Your phone number")).toBeFocused();
     expect(await overflow()).toBeLessThanOrEqual(1);
-    const send = await page.getByRole("button", { name: "Text me a code" }).evaluate((el) => el.getBoundingClientRect().bottom);
+    const send = await page.getByRole("button", { name: "Join the waitlist" }).evaluate((el) => el.getBoundingClientRect().bottom);
     expect(send).toBeLessThanOrEqual(height);
   }
 });
