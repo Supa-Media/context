@@ -40,7 +40,7 @@ export const fillTreeIndexesNow = action({
   },
 });
 
-/** Check every workspace's Convex tree against its bucket now, or one workspace's when `workspaceId` is left out. */
+/** Check the Convex tree against the bucket now: one workspace's when `workspaceId` is given, every workspace's otherwise. Staff only. */
 export const checkNodesParityNow = action({
   args: { workspaceId: v.optional(v.id("workspaces")) },
   returns: v.object({ started: v.number() }),

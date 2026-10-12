@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 
@@ -40,11 +41,14 @@ async function seed(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspace
 }
 
 async function counts(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspaces">) {
-  return await t.run(async (ctx) => ({
-    nodes: (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
-    trees: (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
+  return await t.run(async (raw) => {
+    const ctx = raw as unknown as MutationCtx;
+      return {
+      nodes: (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
+      trees: (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
     privacy: (await ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
-  }));
+    };
+  });
 }
 
 afterEach(() => {

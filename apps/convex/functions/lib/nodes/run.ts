@@ -33,18 +33,28 @@ export function isNodesOperation(operation: { kind: string }): operation is Node
 
 /** Live rows one `listLive` page reads. */
 const LIVE_PAGE = 2000;
+/** Rounds one observation's vanish scan may take (`VANISH_SCAN` rows each). A bound on a loop, not on a workspace. */
+const OBSERVE_ROUNDS = 5_000;
 
 /** The sweep's `NodeSink`: each method is one call of `functions/nodes.ts`, for this workspace. */
 function sinkFor(ctx: ActionCtx, workspaceId: Id<"workspaces">): NodeSink {
   return {
     state: () => ctx.runQuery(internal.functions.nodes.state, { workspaceId }),
     begin: (at) => ctx.runMutation(internal.functions.nodes.begin, { workspaceId, at }),
-    // `observe` answers `more` when its vanish scan ran out of budget; the
-    // sweep is then not complete, and the pass that owns it is retried.
+    // `observe` answers `more` when its vanish scan ran out of budget, with
+    // where it stopped: the scan resumes there until the prefixes are done.
     observe: async (observation: Observation) => {
-      await ctx.runMutation(internal.functions.nodes.observe, { workspaceId, ...observation });
+      let vanishCursor: { index: number; after?: string } | undefined;
+      for (let round = 0; round < OBSERVE_ROUNDS; round += 1) {
+        const answer = await ctx.runMutation(internal.functions.nodes.observe, { workspaceId, ...observation, vanishCursor });
+        if (!answer.more) return;
+        vanishCursor = answer.vanishCursor;
+      }
+      throw new Error("observe did not settle");
     },
-    progress: (cursor, at) => ctx.runMutation(internal.functions.nodes.progress, { workspaceId, cursor, at }),
+    progress: async (cursor, at) => {
+      await ctx.runMutation(internal.functions.nodes.progress, { workspaceId, cursor, at });
+    },
     prune: (startedAt) => ctx.runMutation(internal.functions.nodes.prune, { workspaceId, startedAt }),
     finish: async (at) => {
       let files = 0;
@@ -57,11 +67,19 @@ function sinkFor(ctx: ActionCtx, workspaceId: Id<"workspaces">): NodeSink {
       }
       await ctx.runMutation(internal.functions.nodes.finish, { workspaceId, at, files });
     },
-    unsupported: () => ctx.runMutation(internal.functions.nodes.unsupported, { workspaceId }),
-    dirty: () => ctx.runMutation(internal.functions.nodes.dirty, { workspaceId }),
-    fail: (label) => ctx.runMutation(internal.functions.nodes.fail, { workspaceId, label }),
+    unsupported: async () => {
+      await ctx.runMutation(internal.functions.nodes.unsupported, { workspaceId });
+    },
+    dirty: async () => {
+      await ctx.runMutation(internal.functions.nodes.dirty, { workspaceId });
+    },
+    fail: async (label) => {
+      await ctx.runMutation(internal.functions.nodes.fail, { workspaceId, label });
+    },
     privacy: () => ctx.runQuery(internal.functions.nodes.privacy, { workspaceId }),
-    savePrivacy: (mirror, at) => ctx.runMutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror, at }),
+    savePrivacy: async (mirror, at) => {
+      await ctx.runMutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror, at });
+    },
   };
 }
 
