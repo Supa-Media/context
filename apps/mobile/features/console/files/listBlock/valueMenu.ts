@@ -233,6 +233,6 @@ export class ValueMenu {
     const at = stops.indexOf(document.activeElement as HTMLElement);
     const next = stops[(at + (event.key === "ArrowDown" ? 1 : stops.length - 1)) % stops.length];
     event.preventDefault();
-    next?.focus();
+    next?.focus({ preventScroll: true });
   }
 }
