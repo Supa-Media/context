@@ -26,9 +26,6 @@ export const IDLE_POLL_MS = 5_000;
 /** The most one Send inserts. The screenshot Worker refuses more. */
 export const MAX_TYPED = 1_000;
 
-/** How far one press of a scroll button moves the page, in CSS pixels. */
-export const SCROLL_STEP = 500;
-
 export function texHref(handle: string): string {
   return `${TEX_ROUTE}/${encodeURIComponent(handle)}`;
 }
@@ -97,16 +94,22 @@ export function texComputerEndpoint(mcpEndpoint: string, route: "frame" | "input
 
 export type TexKey = "Tab" | "Enter" | "Backspace";
 
+/** What the page can ask of the browser; `infra/site-shots/src/view.ts` bounds every field. */
 export type TexAction =
-  | { kind: "tap"; x: number; y: number }
+  | { kind: "tap"; x: number; y: number; button: "left" }
+  | { kind: "move"; x: number; y: number }
   | { kind: "type"; text: string }
   | { kind: "key"; name: TexKey }
-  | { kind: "scroll"; dy: number }
-  | { kind: "back" };
+  | { kind: "scroll"; x: number; y: number; dx: number; dy: number };
 
+/**
+ * What the browser shows. `width` and `height` are its viewport in CSS
+ * pixels, the space every action is in; `scale` is the picture's pixels per
+ * CSS pixel, 1 when the gateway did not say.
+ */
 export type Frame =
   | { running: false }
-  | { running: true; url: string; title: string; width: number; height: number; frame: string };
+  | { running: true; url: string; title: string; width: number; height: number; scale: number; frame: string };
 
 export type FrameRead =
   | { kind: "frame"; frame: Frame }
@@ -121,7 +124,7 @@ export function readFrame(status: number, body: unknown): FrameRead {
   if (status === 401 || status === 403) return { kind: "expired" };
   if (status !== 200 || record === null) return { kind: "failed" };
   if (record.running === false) return { kind: "frame", frame: { running: false } };
-  const { width, height, frame } = record;
+  const { width, height, frame, scale } = record;
   if (
     record.running !== true ||
     typeof frame !== "string" ||
@@ -141,30 +144,13 @@ export function readFrame(status: number, body: unknown): FrameRead {
       title: typeof record.title === "string" ? record.title : "",
       width,
       height,
+      scale: typeof scale === "number" && scale > 0 && Number.isFinite(scale) ? scale : 1,
       frame,
     },
   };
 }
 
-/**
- * Where a tap on the picture lands on the page: the picture is the page's
- * viewport scaled to fit, so a tap scales back by the same ratio. Clamped to
- * the page, so a tap on the picture's very edge is still on it.
- */
-export function tapToPage(
-  point: { x: number; y: number },
-  shown: { width: number; height: number },
-  page: { width: number; height: number },
-): { x: number; y: number } | null {
-  if (!(shown.width > 0) || !(shown.height > 0) || !(page.width > 0) || !(page.height > 0)) return null;
-  const clamp = (value: number, max: number) => Math.min(Math.max(value, 0), max);
-  return {
-    x: Math.round(clamp((point.x / shown.width) * page.width, page.width) * 10) / 10,
-    y: Math.round(clamp((point.y / shown.height) * page.height, page.height) * 10) / 10,
-  };
-}
-
-/** `chatgpt.com` for the line under the picture, or the address itself. */
+/** `chatgpt.com` for the top bar, or the address itself. */
 export function hostOf(url: string): string {
   try {
     return new URL(url).host.replace(/^www\./, "");

@@ -11,10 +11,17 @@
  *     → "refuses anything but the listed keys" fails.
  *  4. The log line carrying the typed text
  *     → "types into the page and never logs or returns the text" fails.
+ *  5. `move` dispatching `mousePressed` as well (a hover that clicks)
+ *     → "moves the pointer without clicking, so hover works" fails.
+ *  6. `button` passed through unread (any string reaching CDP)
+ *     → "refuses unbounded numbers, empty or long text, and unknown kinds"
+ *       fails on `button: "right"`.
+ *  7. The wheel dispatched at the old fixed (10, 10)
+ *     → "scrolls where the cursor is" fails.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase } from "./view";
+import { FRAME_SCALE, MAX_COORDINATE, MAX_SCROLL, MAX_VIEW_TEXT, parseViewAction, viewOnBrowserbase } from "./view";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
@@ -78,10 +85,15 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("parseViewAction", () => {
   it("reads each action field by field", () => {
-    expect(parseViewAction({ kind: "tap", x: 10, y: 20, extra: "x" })).toEqual({ kind: "tap", x: 10, y: 20 });
+    expect(parseViewAction({ kind: "tap", x: 10, y: 20, extra: "x" })).toEqual({ kind: "tap", x: 10, y: 20, button: "left" });
+    expect(parseViewAction({ kind: "tap", x: 10, y: 20, button: "left" })).toEqual({ kind: "tap", x: 10, y: 20, button: "left" });
+    expect(parseViewAction({ kind: "move", x: 5.5, y: 6, button: "left" })).toEqual({ kind: "move", x: 5.5, y: 6 });
+    expect(parseViewAction({ kind: "scroll", x: 300, y: 200, dx: 40, dy: -120 })).toEqual({ kind: "scroll", x: 300, y: 200, dx: 40, dy: -120 });
+    expect(parseViewAction({ kind: "scroll", x: 300, y: 200, dx: 40 })).toEqual({ kind: "scroll", x: 300, y: 200, dx: 40, dy: 0 });
     expect(parseViewAction({ kind: "type", text: "hi" })).toEqual({ kind: "type", text: "hi" });
     expect(parseViewAction({ kind: "key", name: "Backspace" })).toEqual({ kind: "key", name: "Backspace" });
-    expect(parseViewAction({ kind: "scroll", dy: -400 })).toEqual({ kind: "scroll", dy: -400 });
+    // The shape PR #1528 shipped, still read: no position is the page's corner.
+    expect(parseViewAction({ kind: "scroll", dy: -400 })).toEqual({ kind: "scroll", x: 10, y: 10, dx: 0, dy: -400 });
     expect(parseViewAction({ kind: "back" })).toEqual({ kind: "back" });
   });
 
@@ -103,6 +115,18 @@ describe("parseViewAction", () => {
       { kind: "type", text: 42 },
       { kind: "scroll", dy: MAX_SCROLL + 1 },
       { kind: "scroll", dy: 0 },
+      { kind: "scroll", dx: 0, dy: 0, x: 5, y: 5 },
+      { kind: "scroll", dx: MAX_SCROLL + 1, dy: 1 },
+      { kind: "scroll", dx: "10", dy: 1 },
+      { kind: "scroll", dy: 10, x: 5 },
+      { kind: "scroll", dy: 10, x: -1, y: 5 },
+      { kind: "scroll", dy: 10, x: 5, y: MAX_COORDINATE + 1 },
+      { kind: "tap", x: 5, y: 5, button: "right" },
+      { kind: "tap", x: 5, y: 5, button: "middle" },
+      { kind: "tap", x: 5, y: 5, button: 0 },
+      { kind: "move", x: 5 },
+      { kind: "move", x: -5, y: 5 },
+      { kind: "move", x: 5, y: Number.POSITIVE_INFINITY },
       { kind: "goto", url: "https://example.com/" },
       { kind: "evaluate", source: "alert(1)" },
       null,
@@ -144,6 +168,7 @@ describe("viewOnBrowserbase", () => {
       title: "Log in",
       width: 1280,
       height: 860,
+      scale: FRAME_SCALE,
       frame: "SkZJRg==",
     });
     const shot = result.api.sent.find((s) => s.method === "Page.captureScreenshot");
@@ -164,6 +189,20 @@ describe("viewOnBrowserbase", () => {
     expect(mouse.map((m) => m.params.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
     expect(mouse.every((m) => m.params.x === 640.5 && m.params.y === 300)).toBe(true);
     expect(result.body.running).toBe(true);
+  });
+
+  it("moves the pointer without clicking, so hover works", async () => {
+    const result = await call("/view/input", { owner: OWNER, action: { kind: "move", x: 200, y: 120.5 } });
+    expect(result.status).toBe(200);
+    const mouse = result.api.sent.filter((s) => s.method === "Input.dispatchMouseEvent");
+    expect(mouse).toEqual([{ method: "Input.dispatchMouseEvent", params: { type: "mouseMoved", x: 200, y: 120.5 } }]);
+    expect(result.body.running).toBe(true);
+  });
+
+  it("scrolls where the cursor is", async () => {
+    const result = await call("/view/input", { owner: OWNER, action: { kind: "scroll", x: 640, y: 400, dx: -30, dy: 250 } });
+    const wheel = result.api.sent.find((s) => s.method === "Input.dispatchMouseEvent");
+    expect(wheel?.params).toEqual({ type: "mouseWheel", x: 640, y: 400, deltaX: -30, deltaY: 250 });
   });
 
   it("types into the page and never logs or returns the text", async () => {

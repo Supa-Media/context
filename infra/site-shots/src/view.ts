@@ -2,13 +2,15 @@
  * The person's own view of Tex's browser: `context.lc/tex/<handle>`.
  *
  *   POST /view/frame `{ owner }` → `{ running: false }` or
- *        `{ running: true, url, title, width, height, frame }`
+ *        `{ running: true, url, title, width, height, scale, frame }`
  *   POST /view/input `{ owner, action }` → the same, after the action
  *
  * `frame` is a base64 JPEG of what the page shows now; `width` and `height`
- * are the page's viewport in CSS pixels, the space a tap's `x` and `y` are in.
- * An action is one of `tap {x, y}`, `type {text}`, `key {name}` (Tab, Enter,
- * Backspace), `scroll {dy}` and `back`.
+ * are the page's viewport in CSS pixels, the space every `x` and `y` is in,
+ * and `scale` is the JPEG's pixels per CSS pixel. An action is one of
+ * `tap {x, y, button?}` (left only), `move {x, y}` (the pointer, so hover
+ * works), `type {text}`, `key {name}` (Tab, Enter, Backspace),
+ * `scroll {x, y, dx, dy}` (a wheel at the cursor) and `back`.
  *
  * Rules, each the reason for something below:
  *
@@ -34,21 +36,27 @@ import { attachPage, connectCdp, type AttachedPage } from "./cdp";
 
 /** The most one `type` action inserts. A sign-in field, not a document. */
 export const MAX_VIEW_TEXT = 1_000;
-/** A tap's coordinates and a scroll's distance, in CSS pixels. */
+/** A pointer's coordinates and a scroll's distance, in CSS pixels. */
 export const MAX_COORDINATE = 10_000;
 export const MAX_SCROLL = 3_000;
 /** The keys a person can press from the page, and nothing else. */
 export const VIEW_KEYS = { Tab: 9, Enter: 13, Backspace: 8 } as const;
+/** The mouse buttons a tap may press. Left only: a right click opens menus a phone cannot dismiss. */
+export const VIEW_BUTTONS = ["left"] as const;
+/** Where a scroll with no position lands, as PR #1528's `scroll {dy}` did. */
+const DEFAULT_WHEEL_AT = 10;
 /** How a frame is taken: a modest JPEG at reduced scale, for a phone on a cellular link. */
 export const FRAME_QUALITY = 55;
 export const FRAME_SCALE = 0.6;
 
 export type ViewKey = keyof typeof VIEW_KEYS;
+export type ViewButton = (typeof VIEW_BUTTONS)[number];
 export type ViewAction =
-  | { kind: "tap"; x: number; y: number }
+  | { kind: "tap"; x: number; y: number; button: ViewButton }
+  | { kind: "move"; x: number; y: number }
   | { kind: "type"; text: string }
   | { kind: "key"; name: ViewKey }
-  | { kind: "scroll"; dy: number }
+  | { kind: "scroll"; x: number; y: number; dx: number; dy: number }
   | { kind: "back" };
 
 export interface ViewFrame {
@@ -57,6 +65,7 @@ export interface ViewFrame {
   title: string;
   width: number;
   height: number;
+  scale: number;
   frame: string;
 }
 
@@ -69,15 +78,27 @@ function bounded(value: unknown, min: number, max: number): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : null;
 }
 
+/** A point on the page, both coordinates bounded, or null. */
+function pointOf(action: Record<string, unknown>): { x: number; y: number } | null {
+  const x = bounded(action.x, 0, MAX_COORDINATE);
+  const y = bounded(action.y, 0, MAX_COORDINATE);
+  return x === null || y === null ? null : { x, y };
+}
+
 /** One action, field by field, or null. Nothing unrecognised is passed on. */
 export function parseViewAction(raw: unknown): ViewAction | null {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
   const action = raw as Record<string, unknown>;
   switch (action.kind) {
     case "tap": {
-      const x = bounded(action.x, 0, MAX_COORDINATE);
-      const y = bounded(action.y, 0, MAX_COORDINATE);
-      return x === null || y === null ? null : { kind: "tap", x, y };
+      const at = pointOf(action);
+      const button = action.button === undefined ? "left" : action.button;
+      if (at === null || !(VIEW_BUTTONS as readonly unknown[]).includes(button)) return null;
+      return { kind: "tap", ...at, button: button as ViewButton };
+    }
+    case "move": {
+      const at = pointOf(action);
+      return at === null ? null : { kind: "move", ...at };
     }
     case "type": {
       const text = action.text;
@@ -91,8 +112,13 @@ export function parseViewAction(raw: unknown): ViewAction | null {
         : null;
     }
     case "scroll": {
-      const dy = bounded(action.dy, -MAX_SCROLL, MAX_SCROLL);
-      return dy === null || dy === 0 ? null : { kind: "scroll", dy };
+      const dx = action.dx === undefined ? 0 : bounded(action.dx, -MAX_SCROLL, MAX_SCROLL);
+      const dy = action.dy === undefined ? 0 : bounded(action.dy, -MAX_SCROLL, MAX_SCROLL);
+      if (dx === null || dy === null || (dx === 0 && dy === 0)) return null;
+      // No position at all is the page's corner; half of one is a mistake.
+      const unplaced = action.x === undefined && action.y === undefined;
+      const at = unplaced ? { x: DEFAULT_WHEEL_AT, y: DEFAULT_WHEEL_AT } : pointOf(action);
+      return at === null ? null : { kind: "scroll", ...at, dx, dy };
     }
     case "back":
       return { kind: "back" };
@@ -106,9 +132,14 @@ export async function applyAction(page: AttachedPage, action: ViewAction): Promi
   switch (action.kind) {
     case "tap":
       for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
-        await page.send("Input.dispatchMouseEvent", { type, x: action.x, y: action.y, button: "left", clickCount: 1 });
+        await page.send("Input.dispatchMouseEvent", { type, x: action.x, y: action.y, button: action.button, clickCount: 1 });
       }
       await sleep(400);
+      return;
+    case "move":
+      // No button: a pointer that only hovers, so menus and tooltips open as they would.
+      await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: action.x, y: action.y });
+      await sleep(150);
       return;
     case "type":
       await page.send("Input.insertText", { text: action.text });
@@ -129,7 +160,7 @@ export async function applyAction(page: AttachedPage, action: ViewAction): Promi
       return;
     }
     case "scroll":
-      await page.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 10, y: 10, deltaX: 0, deltaY: action.dy });
+      await page.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: action.x, y: action.y, deltaX: action.dx, deltaY: action.dy });
       await sleep(200);
       return;
     case "back":
@@ -158,6 +189,7 @@ export async function captureFrame(page: AttachedPage): Promise<ViewFrame> {
     title: typeof info?.title === "string" ? info.title.slice(0, 200) : "",
     width,
     height,
+    scale: FRAME_SCALE,
     frame: shot.data,
   };
 }

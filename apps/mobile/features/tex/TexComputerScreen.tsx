@@ -1,45 +1,27 @@
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-  useWindowDimensions,
-  type GestureResponderEvent,
-  type LayoutChangeEvent,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { Button } from "../design/components/Button";
-import { Card } from "../design/components/Card";
-import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, pointerType as t, radii } from "../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../design/theme";
-import { useFieldFont } from "../design/fieldFont";
-import { InvitePage, Title } from "../invite/InviteScreen";
+import { leading, pointerType as t, radii } from "../design/tokens";
+import { ThemeProvider, useColors, useThemedStyles, type Colors } from "../design/theme";
+import { dismissKeyboard } from "../design/keyboardSticky";
+import { Screen } from "../app/Screen";
 import { firstParam } from "../invite/invite";
 import { MCP_ENDPOINT } from "../console/placeholderData";
-import {
-  HAND_BACK_NOTICE,
-  MAX_TYPED,
-  SCROLL_STEP,
-  hostOf,
-  resolveTexPage,
-  tapToPage,
-  texHref,
-  type Frame,
-  type TexAction,
-  type TexPageView,
-} from "./texComputer";
+import { HAND_BACK_NOTICE, hostOf, resolveTexPage, texHref, type TexAction, type TexPageView } from "./texComputer";
 import { useTexComputer, type TexComputerState } from "./useTexComputer";
+import type { InputMode } from "./remoteGesture";
+import { TexRemoteStage } from "./TexRemoteStage";
+import { SendTextBar, TexToolbar, type TexMenuId } from "./TexRemoteChrome";
 
 /**
- * `/tex/<handle>`: "your agent's computer". Watch Tex's browser live, take
- * control to sign in, and hand it back.
+ * `/tex/<handle>`: Tex's browser, as Chrome Remote Desktop shows a computer on
+ * a phone. The remote screen edge to edge on a dark ground, a small bar of
+ * icons over it, a cursor on it, and a "Send text" bar under it. Watching and
+ * driving are one screen: it opens on the live picture, and any touch takes
+ * control.
  *
  * Owns its own sign-in gate, like `/texts/<token>`, so a signed-out visitor
  * goes to `/login?next=/tex/<handle>` and comes straight back.
@@ -59,208 +41,144 @@ export function TexComputerScreen() {
   return <TexComputerBody view={view} computer={computer} />;
 }
 
-/** Every state, drawable without a session: the render tests mount this. */
-export function TexComputerBody({ view, computer }: { view: TexPageView; computer: TexComputerState }) {
-  const colors = useColors();
+/**
+ * Every state, drawable without a session: the render tests mount this.
+ * Always the dark palette: a remote screen is looked *through*, and a light
+ * frame around somebody's browser is a frame you look *at*.
+ */
+export function TexComputerBody(props: { view: TexPageView; computer: TexComputerState }) {
+  return (
+    <ThemeProvider scheme="dark">
+      <TexComputerPage {...props} />
+    </ThemeProvider>
+  );
+}
+
+function TexComputerPage({ view, computer }: { view: TexPageView; computer: TexComputerState }) {
   const styles = useThemedStyles(makeStyles);
-  const { width } = useWindowDimensions();
-  const titleSize = clamp(26, 2.9, 34, width);
   const [control, setControl] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [mode, setMode] = useState<InputMode>("trackpad");
+  const [keyboard, setKeyboard] = useState(true);
+  const [focus, setFocus] = useState(false);
+  const { send } = computer;
+
+  // Any touch that does something takes control: there is no button for it.
+  const act = useCallback(
+    (action: TexAction) => {
+      setControl(true);
+      setNotice(null);
+      send(action);
+    },
+    [send],
+  );
 
   if (view.kind === "wait" || view.kind === "signIn") return <View style={styles.ground} />;
-  if (view.kind === "notFound" || view.kind === "notYours") {
+  if (view.kind === "notFound" || view.kind === "notYours" || computer.phase === "notYours") {
+    const own = view.kind === "notYours" ? view.own : null;
     return (
-      <InvitePage testID="tex-not-yours">
-        <Title size={titleSize}>This page isn&rsquo;t yours</Title>
-        <Text variant="heroSub" style={styles.sub}>
-          {view.kind === "notYours" && view.own !== null
-            ? `Each person's agent computer is at their own address. Yours is context.lc${texHref(view.own)}.`
-            : "Each person's agent computer is at their own address, and only they can open it."}
-        </Text>
-      </InvitePage>
-    );
-  }
-  if (computer.phase === "notYours") {
-    return (
-      <InvitePage testID="tex-not-yours">
-        <Title size={titleSize}>This page isn&rsquo;t yours</Title>
-      </InvitePage>
+      <Message
+        testID="tex-not-yours"
+        title="This page isn’t yours"
+        body={
+          own !== null
+            ? `Each person's agent computer is at their own address. Yours is context.lc${texHref(own)}.`
+            : "Each person's agent computer is at their own address, and only they can open it."
+        }
+      />
     );
   }
 
   const frame = computer.frame?.running ? computer.frame : null;
-  const inControl = control && frame !== null;
+  const status =
+    frame !== null
+      ? { tone: control ? ("warn" as const) : ("ok" as const), label: control ? "You're in control" : "Live", where: hostOf(frame.url) || null }
+      : computer.phase === "loading"
+        ? { tone: "neutral" as const, label: "Looking for Tex's browser", where: null }
+        : { tone: "neutral" as const, label: computer.phase === "failed" ? "Can't reach it" : "Not running", where: null };
+
+  const onMenu = (id: TexMenuId) => {
+    setControl(false);
+    dismissKeyboard();
+    if (id === "handBack") setNotice(HAND_BACK_NOTICE);
+    else computer.stop();
+  };
+
   return (
-    <View style={styles.ground} testID="tex-computer-page">
-      <InvitePage>
-        <View style={styles.header}>
-          <Title size={titleSize}>Your agent&rsquo;s computer</Title>
-          {frame !== null ? (
-            <Pill tone={inControl ? "warn" : "ok"} testID="tex-live-pill">
-              {inControl ? "You're in control" : "Live"}
-            </Pill>
-          ) : null}
+    <Screen style={styles.ground} testID="tex-computer-page">
+      <TexToolbar
+        status={status}
+        busy={computer.busy}
+        controls={frame !== null}
+        keyboard={keyboard}
+        mode={mode}
+        onKeyboard={() => {
+          if (keyboard) dismissKeyboard();
+          setFocus(!keyboard);
+          setKeyboard(!keyboard);
+        }}
+        onMode={() => setMode(mode === "trackpad" ? "touch" : "trackpad")}
+        onMenu={onMenu}
+      />
+      {frame !== null ? (
+        <View style={styles.body} testID={control ? "tex-control" : "tex-live"}>
+          <TexRemoteStage frame={frame} mode={mode} onAction={act} />
+          {notice !== null ? <Notice text={notice} /> : null}
+          {keyboard ? <SendTextBar send={act} focus={focus} /> : null}
         </View>
-        {computer.phase === "loading" ? (
-          <Card>
-            <View style={styles.row}>
-              <ActivityIndicator color={colors.text2} size="small" />
-              <Text variant="rowSub">Looking for Tex&rsquo;s browser…</Text>
-            </View>
-          </Card>
-        ) : frame === null ? (
-          <OffState failed={computer.phase === "failed"} notice={notice} />
-        ) : (
-          <LiveState
-            frame={frame}
-            control={inControl}
-            busy={computer.busy}
-            notice={notice}
-            send={computer.send}
-            onTakeControl={() => {
-              setNotice(null);
-              setControl(true);
-            }}
-            onStop={() => {
-              setControl(false);
-              computer.stop();
-            }}
-            onDone={() => {
-              setControl(false);
-              setNotice(HAND_BACK_NOTICE);
-            }}
-          />
-        )}
-      </InvitePage>
-      {inControl ? <TypeBar send={computer.send} busy={computer.busy} /> : null}
-    </View>
-  );
-}
-
-function OffState({ failed, notice }: { failed: boolean; notice: string | null }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View testID="tex-off">
-      <Text variant="rowTitle" style={styles.offTitle}>
-        {failed ? "Tex's computer can't be reached right now" : "Nothing running right now"}
-      </Text>
-      <Text variant="heroSub" style={styles.sub}>
-        {failed
-          ? "Try again in a moment. Nothing on it was changed."
-          : "When Tex needs you to sign in somewhere, it texts you this page. Open it then to watch, or to take over."}
-      </Text>
-      {notice !== null ? (
-        <Text variant="foot" style={styles.notice} testID="tex-notice">
-          {notice}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-function LiveState(props: {
-  frame: Extract<Frame, { running: true }>;
-  control: boolean;
-  busy: boolean;
-  notice: string | null;
-  send: (action: TexAction) => void;
-  onTakeControl: () => void;
-  onStop: () => void;
-  onDone: () => void;
-}) {
-  const { frame, control, busy, send } = props;
-  const styles = useThemedStyles(makeStyles);
-  const [shown, setShown] = useState({ width: 0, height: 0 });
-  const onLayout = useCallback((event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    setShown({ width, height });
-  }, []);
-  const onTap = useCallback(
-    (event: GestureResponderEvent) => {
-      if (!control) return;
-      const at = tapToPage({ x: event.nativeEvent.locationX, y: event.nativeEvent.locationY }, shown, frame);
-      if (at !== null) send({ kind: "tap", ...at });
-    },
-    [control, frame, send, shown],
-  );
-  return (
-    <View testID={control ? "tex-control" : "tex-live"}>
-      <Text variant="rowSub" style={styles.where} numberOfLines={1} testID="tex-where">
-        {frame.title ? `${frame.title} · ${hostOf(frame.url)}` : hostOf(frame.url)}
-      </Text>
-      <Pressable
-        onPress={onTap}
-        disabled={!control}
-        accessibilityRole={control ? "button" : "image"}
-        accessibilityLabel={control ? "Tap to click here on the page" : "What Tex's browser shows now"}
-        style={[styles.frameBox, control ? styles.frameControl : null, { aspectRatio: frame.width / frame.height }]}
-        testID="tex-frame"
-      >
-        <Image
-          source={{ uri: `data:image/jpeg;base64,${frame.frame}` }}
-          style={styles.frameImage}
-          resizeMode="contain"
-          onLayout={onLayout}
-        />
-      </Pressable>
-      {props.notice !== null ? (
-        <Text variant="foot" style={styles.notice} testID="tex-notice">
-          {props.notice}
-        </Text>
-      ) : null}
-      {control ? (
-        <View style={styles.controls}>
-          <View style={styles.keys}>
-            <Button label="Tab" variant="mini" disabled={busy} onPress={() => send({ kind: "key", name: "Tab" })} testID="tex-key-tab" />
-            <Button label="Enter" variant="mini" disabled={busy} onPress={() => send({ kind: "key", name: "Enter" })} testID="tex-key-enter" />
-            <Button label="Delete" variant="mini" disabled={busy} onPress={() => send({ kind: "key", name: "Backspace" })} testID="tex-key-delete" />
-            <Button label="Back" variant="mini" disabled={busy} onPress={() => send({ kind: "back" })} testID="tex-key-back" />
-            <Button label="Scroll up" variant="mini" disabled={busy} onPress={() => send({ kind: "scroll", dy: -SCROLL_STEP })} testID="tex-scroll-up" />
-            <Button label="Scroll down" variant="mini" disabled={busy} onPress={() => send({ kind: "scroll", dy: SCROLL_STEP })} testID="tex-scroll-down" />
-          </View>
-          <Button label="Done, hand back to Tex" variant="decision" onPress={props.onDone} testID="tex-done" />
-          <Text variant="foot" style={styles.foot}>
-            Tap the picture to click there. What you type goes only to this page: Tex never sees it.
-          </Text>
+      ) : computer.phase === "loading" ? (
+        <View style={styles.centre}>
+          <ActivityIndicator size="small" />
         </View>
       ) : (
-        <View style={styles.actions}>
-          <Button label="Take control" variant="accent" onPress={props.onTakeControl} testID="tex-take-control" />
-          <Button label="Stop" variant="danger" disabled={busy} onPress={props.onStop} testID="tex-stop" />
-        </View>
+        <Off failed={computer.phase === "failed"} notice={notice} />
       )}
+    </Screen>
+  );
+}
+
+function Off({ failed, notice }: { failed: boolean; notice: string | null }) {
+  return (
+    <View style={{ flex: 1 }} testID="tex-off">
+      <Message
+        title={failed ? "Tex's computer can't be reached right now" : "Nothing running right now"}
+        body={
+          failed
+            ? "Try again in a moment. Nothing on it was changed."
+            : "When Tex needs you to sign in somewhere, it texts you this page. Open it then to see its browser and take over."
+        }
+      />
+      {notice !== null ? <Notice text={notice} /> : null}
     </View>
   );
 }
 
-/** Always there while in control: what is typed goes into the focused field on the page. */
-function TypeBar({ send, busy }: { send: (action: TexAction) => void; busy: boolean }) {
-  const colors = useColors();
+/** A centred title and a line, on the same dark ground as the remote screen. */
+function Message({ title, body, testID }: { title: string; body: string; testID?: string }) {
   const styles = useThemedStyles(makeStyles);
-  const [text, setText] = useState("");
-  // 16px or more on a phone, so focusing the field does not zoom the page.
-  const fieldFont = useFieldFont(t.body);
-  const submit = () => {
-    if (text.length === 0 || busy) return;
-    send({ kind: "type", text });
-    setText("");
-  };
   return (
-    <View style={styles.typeBar} testID="tex-type-bar">
-      <TextInput
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={submit}
-        placeholder="Type into the page"
-        placeholderTextColor={colors.muted}
-        maxLength={MAX_TYPED}
-        autoCapitalize="none"
-        autoCorrect={false}
-        style={[styles.typeInput, fieldFont]}
-        testID="tex-type-input"
-      />
-      <Button label="Send" variant="accent" disabled={busy || text.length === 0} onPress={submit} testID="tex-type-send" />
+    <Screen style={[styles.ground, styles.centre]} testID={testID}>
+      <View style={styles.message}>
+        <Text variant="rowTitle" style={styles.messageTitle}>
+          {title}
+        </Text>
+        <Text variant="heroSub" style={styles.messageBody}>
+          {body}
+        </Text>
+      </View>
+    </Screen>
+  );
+}
+
+/** What the person is told after handing back: floats over the picture, never pushes it. */
+function Notice({ text }: { text: string }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <View style={styles.noticeRow}>
+      <Text variant="rowSub" style={[styles.notice, { color: colors.text }]} testID="tex-notice">
+        {text}
+      </Text>
     </View>
   );
 }
@@ -268,47 +186,17 @@ function TypeBar({ send, busy }: { send: (action: TexAction) => void; busy: bool
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.ground },
-    header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
-    sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
-    row: { flexDirection: "row", alignItems: "center", gap: 11 },
-    offTitle: { marginTop: 24 },
-    where: { marginTop: 18, marginBottom: 10, color: colors.text2 },
-    frameBox: {
-      width: "100%",
-      borderRadius: radii.card,
-      borderWidth: 2,
-      borderColor: colors.line,
+    body: { flex: 1 },
+    centre: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+    message: { maxWidth: 420, gap: 10 },
+    messageTitle: { color: colors.text, textAlign: "center" },
+    messageBody: { color: colors.text2, textAlign: "center", fontSize: t.body, lineHeight: leading(t.body, 1.55) },
+    noticeRow: { pointerEvents: "none", position: "absolute", top: 12, left: 0, right: 0, alignItems: "center", paddingHorizontal: 16 },
+    notice: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: radii.pill,
+      backgroundColor: colors.surface3,
       overflow: "hidden",
-      backgroundColor: colors.surface2,
-    },
-    // The person is driving: the same amber the "in control" pill wears.
-    frameControl: { borderColor: colors.warn },
-    frameImage: { width: "100%", height: "100%" },
-    notice: { marginTop: 14, color: colors.text2 },
-    actions: { flexDirection: "row", gap: 10, marginTop: 18, flexWrap: "wrap" },
-    controls: { marginTop: 16, gap: 14 },
-    keys: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    foot: { color: colors.muted, lineHeight: leading(12.5, 1.5) },
-    typeBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-      backgroundColor: colors.surface,
-    },
-    typeInput: {
-      flex: 1,
-      minHeight: 44,
-      paddingHorizontal: 12,
-      borderRadius: radii.md,
-      borderWidth: 1,
-      borderColor: colors.warnBorder,
-      backgroundColor: colors.surface2,
-      color: colors.text,
-      fontFamily: fonts.body,
-      fontSize: t.body,
     },
   });

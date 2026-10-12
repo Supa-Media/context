@@ -24,6 +24,10 @@
  *     reach a log" fails.
  *  5. `frameFrom` returning the Worker's body as is → "a frame is passed on
  *     field by field" fails.
+ *  6. `actionFrom` spreading `raw` for the pointer actions → "the pointer
+ *     actions are forwarded by their named fields only" fails.
+ *  7. `frameFrom` passing `scale` through unread → "a scale that is not a
+ *     sane number is left out" fails.
  *
  * Fake names, ids and tokens only.
  */
@@ -58,7 +62,11 @@ const BINDING = {
   capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
 };
 
-async function setUp({ siteShots = true } = {}) {
+let scaleAnswer = 0.6;
+const frameScale = () => scaleAnswer;
+
+async function setUp({ siteShots = true, scale = 0.6 } = {}) {
+  scaleAnswer = scale;
   const controlPlane = createControlPlaneStub();
   const restore = controlPlane.install();
   controlPlane.addWorkspace("ws_alice", "alice", BINDING);
@@ -89,6 +97,7 @@ async function setUp({ siteShots = true } = {}) {
         title: "Log in",
         width: 1280,
         height: 860,
+        scale: frameScale(),
         frame: FRAME,
         // Never for the app: a field the Worker might add for some other reason.
         session: "bb-session-SECRET",
@@ -151,7 +160,8 @@ test("a frame is passed on field by field", async () => {
   const world = await setUp();
   try {
     const answer = await ask(world, "/tex/computer", { token: T.alice, body: { handle: "alice" } });
-    assert.deepEqual(Object.keys(answer.body).sort(), ["frame", "height", "running", "title", "url", "width"]);
+    assert.deepEqual(Object.keys(answer.body).sort(), ["frame", "height", "running", "scale", "title", "url", "width"]);
+    assert.equal(answer.body.scale, 0.6);
     assert.ok(!JSON.stringify(answer.body).includes("SECRET"));
   } finally {
     world.restore();
@@ -249,6 +259,43 @@ test("an action is forwarded by its named fields only, and a malformed one is re
     assert.equal(world.requests.length, 1);
   } finally {
     world.restore();
+  }
+});
+
+test("the pointer actions are forwarded by their named fields only", async () => {
+  const world = await setUp();
+  try {
+    const owner = await browserOwner(world.env, "user_a1x");
+    const extra = { owner: "f".repeat(64), url: "https://evil.example/", expression: "alert(1)" };
+    const actions = [
+      [{ kind: "tap", x: 10, y: 20, button: "left", ...extra }, { kind: "tap", x: 10, y: 20, button: "left" }],
+      [{ kind: "tap", x: 10, y: 20, ...extra }, { kind: "tap", x: 10, y: 20 }],
+      [{ kind: "move", x: 30.5, y: 40, button: "left", ...extra }, { kind: "move", x: 30.5, y: 40 }],
+      [{ kind: "scroll", x: 50, y: 60, dx: -5, dy: 300, ...extra }, { kind: "scroll", x: 50, y: 60, dx: -5, dy: 300 }],
+      [{ kind: "scroll", dy: 300, ...extra }, { kind: "scroll", dy: 300 }],
+    ];
+    for (const [sent] of actions) {
+      assert.equal((await ask(world, "/tex/computer/input", { token: T.alice, body: { handle: "alice", action: sent } })).status, 200);
+    }
+    assert.deepEqual(
+      world.requests.map((r) => r.body),
+      actions.map(([, forwarded]) => ({ owner, action: forwarded })),
+    );
+  } finally {
+    world.restore();
+  }
+});
+
+test("a scale that is not a sane number is left out", async () => {
+  for (const scale of ["0.6", -1, 0, 99, null]) {
+    const world = await setUp({ scale });
+    try {
+      const answer = await ask(world, "/tex/computer", { token: T.alice, body: { handle: "alice" } });
+      assert.equal(answer.status, 200);
+      assert.equal("scale" in answer.body, false, String(scale));
+    } finally {
+      world.restore();
+    }
   }
 });
 
