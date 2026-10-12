@@ -35,19 +35,23 @@ export function useFileActions(deps: FileActionsDeps) {
     pause the migration; any failure asking it falls to the bucket too, which
     gives its own answer, refusals included.
   */
-  const convex = useConvex();
+  // Read through a ref: `listFiles` keeps one identity for the context's whole
+  // life, because the root load re-runs (and resets the tree) whenever it changes.
+  const convexClient = useConvex();
+  const convex = useRef(convexClient);
+  convex.current = convexClient;
   const listFilesAction = useAction(api.functions.files.listFiles);
   const listFiles = useCallback<typeof listFilesAction>(
     async (args) => {
       let fromTree = null;
       try {
-        fromTree = await convex.query(api.functions.nodesListing.listFolder, args);
+        fromTree = await convex.current.query(api.functions.nodesListing.listFolder, args);
       } catch {
         // The bucket answers instead, and says why if it refuses too.
       }
       return fromTree ?? (await listFilesAction(args));
     },
-    [convex, listFilesAction],
+    [listFilesAction],
   );
   const readNote = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
