@@ -148,7 +148,16 @@ export function gmailMessageToEvent(message, options) {
     to: parseAddressList(headerValue(headers, "To")),
     body: text,
     attachments,
+    // A mailing list or a bulk sender: never a reason to start a contact page
+    // (`shouldCreateContactPage`). Present only when true.
+    ...(isBulkMessage(headers) ? { bulk: true } : {}),
   };
+}
+
+/** `List-Unsubscribe`, or `Precedence: bulk|list|junk` — mail a machine sent to many. */
+export function isBulkMessage(headers) {
+  if (headerValue(headers, "List-Unsubscribe")) return true;
+  return /^(?:bulk|list|junk)$/i.test(String(headerValue(headers, "Precedence") ?? "").trim());
 }
 
 /** `YYYY-MM-DD` from an event's `sentAt`. */

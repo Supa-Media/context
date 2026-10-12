@@ -424,6 +424,34 @@ export async function runContactsChecks(check) {
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: "../../etc/passwd" })) === "invalid path"
     );
 
+    /* ------------------- pages filed one folder down ---------------------- */
+
+    const lettered = "0-inbox/contacts/c/claire-dubois.md";
+    bucket.seed(lettered, renderContactNote({
+      name: "Claire Dubois",
+      slug: "claire-dubois",
+      identifiers: [{ kind: "email", value: "claire@example.net" }],
+      now: "2026-10-12T00:00:00.000Z",
+    }), new Date("2026-10-12T10:00:00.000Z"));
+    const importedElsewhere = "0-inbox/contacts/m/mum.md";
+    bucket.seed(importedElsewhere, "---\nrole: communication-contact\n---\n\n# Mum\n\n## Identities\n\n- iMessage: `+15557654321`\n",
+      new Date("2026-10-12T09:00:00.000Z"));
+    const deep = "0-inbox/contacts/c/old/claire.md";
+    bucket.seed(deep, renderContactNote({ name: "Too Deep", slug: "claire", now: "2026-10-12T00:00:00.000Z" }));
+    const listedLettered = await callTool(env, OWNER_TOKEN, "list_contacts", { limit: 25 });
+    check("a page filed under a letter is listed as a contact",
+      listedLettered.includes(lettered) && listedLettered.includes("Claire Dubois"));
+    check("...and an imported page is read as one wherever it was filed, not only under imessage/",
+      listedLettered.includes(importedElsewhere) && listedLettered.includes("Mum · 1 identifier"));
+    check("...but a page two folders down is not a contact", !listedLettered.includes(deep));
+    check("read_contact reads a lettered page",
+      (await callTool(env, OWNER_TOKEN, "read_contact", { path: lettered })).includes("# Claire Dubois"));
+    check("...and refuses one nested deeper",
+      (await callTool(env, OWNER_TOKEN, "read_contact", { path: deep })) === "not a contact page — read it with read_note");
+    await bucket.delete(lettered);
+    await bucket.delete(importedElsewhere);
+    await bucket.delete(deep);
+
     const importedSource = "2-areas/communications/contacts/alex.md";
     const importedPath = "0-inbox/contacts/imessage/alex.md";
     const importedText = "---\ntitle: \"Alex\"\nrole: communication-contact\n---\n\n" +

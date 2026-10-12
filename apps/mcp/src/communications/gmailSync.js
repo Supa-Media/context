@@ -77,3 +77,4 @@ export {
 } from "./gmail/api.js";
 export { renderDay, writeDayPart, writeContactDraft, syncOneDay } from "./gmail/render.js";
 export { dateRange, syncDayFromGmail, runBackfill, runIncrementalSync } from "./gmail/sync.js";
+export { openContactLookup } from "./contactLookup.js";
