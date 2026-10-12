@@ -14,7 +14,8 @@ import { SIMPLE_CSS } from "./simpleCss";
  * chaos, rather than a feature list, and shows it (`ChaosGraph`) rather than
  * saying it. The words are Dev's own, from the shared note they edited
  * (2026-10-11), with typos fixed and nothing else changed. The sign-up opens
- * under the last line rather than sitting on the page as a card.
+ * under the last line on a phone, and in the graph's place on a computer,
+ * where the whole page fits the window without scrolling (Dev2, 2026-10-12).
  *
  * Tex, the mascot, stands where the mark was and untangles as the graph
  * below gets filed. The page is light only and fits Tex, the headline and the
@@ -46,7 +47,11 @@ export function SimplePage() {
     };
   }, []);
   useEffect(() => {
-    if (open) form.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (!open) return;
+    // Into the number field, so the next keystroke is the number and the line
+    // just pressed does not keep a focus ring around it.
+    form.current?.querySelector("input")?.focus({ preventScroll: true });
+    form.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [open]);
   const vars = {
     "--paper": C.paper,
@@ -58,7 +63,7 @@ export function SimplePage() {
     colorScheme: "light",
   } as CSSProperties;
   return (
-    <div className="sp" style={vars} data-landing="a">
+    <div className="sp" style={vars} data-landing="a" data-joining={open || undefined}>
       <style>{SIMPLE_CSS}</style>
       <main className="sp-col">
         <a

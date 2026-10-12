@@ -223,6 +223,10 @@ export function runAppShellChecks(check) {
       menu.includes('label: "Check for Updates..."') && /click: \(\) => checkForUpdatesFromMenu\(\)/.test(menu),
     );
     check(
+      "THE VIEW MENU CAN MAKE THE APP SMALLER, LARGER AND ACTUAL SIZE AGAIN",
+      ["zoomIn", "zoomOut", "resetZoom"].every((role) => roles.includes(role)),
+    );
+    check(
       "...and no developer tools in a shipped build",
       roles.includes("toggleDevTools") === false,
     );

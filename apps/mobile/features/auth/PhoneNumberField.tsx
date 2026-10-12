@@ -204,6 +204,9 @@ const makeStyles = (colors: Colors) =>
       fontSize: t.lede,
       fontFamily: fonts.body,
       color: colors.text,
+      // The row's border already turns accent while the number is being typed;
+      // the browser's own ring on the input inside it drew a second box.
+      outlineWidth: 0,
     },
     scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.scrim },
     stage: {
