@@ -82,6 +82,11 @@ describe("classifyCommsPath", () => {
     expect(classifyCommsPath(contactNotePath(slug))).toEqual({ kind: "contact", slug });
   });
 
+  test("a contact page filed one folder down keeps that folder in its route", () => {
+    expect(classifyCommsPath("0-inbox/contacts/c/claire-dubois.md")).toEqual({ kind: "contact", slug: "c/claire-dubois" });
+    expect(classifyCommsPath("0-inbox/contacts/c/d/claire.md")).toBeNull();
+  });
+
   test("an ordinary note is not a comms route", () => {
     expect(classifyCommsPath("1-projects/plan.md")).toBeNull();
   });

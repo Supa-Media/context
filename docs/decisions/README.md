@@ -475,6 +475,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A firehose is not attention
 - Retention: raw MIME is off by default, and attachments are metadata-only
 - Contacts: one page per person, and a merge never rewrites history
+- A contact page is found by who it is, and filed A–Z (owner, 2026-10-12)
+- A contact page is created only for somebody the owner has written to (owner, 2026-10-12)
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - The forward sync loop: a pull, on a floor of five minutes
