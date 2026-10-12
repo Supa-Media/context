@@ -3,7 +3,8 @@
  * drives for them, for the Context app's page at `context.lc/tex/<handle>`.
  *
  *  - `POST /tex/computer`        `{ handle }` → `{ running: false }` or
- *    `{ running: true, url, title, width, height, frame }` (a base64 JPEG)
+ *    `{ running: true, url, title, width, height, scale?, frame }` (a base64
+ *    JPEG; `scale` is its pixels per CSS pixel)
  *  - `POST /tex/computer/input`  `{ handle, action }` → the same, after it
  *  - `POST /tex/computer/stop`   `{ handle }` → `{ closed: true }`
  *
@@ -41,7 +42,17 @@ export const TEX_COMPUTER_PATHS = new Set(["/tex/computer", "/tex/computer/input
 /** The most one request may carry: a frame request is tiny, typing is capped at 1,000 characters. */
 const MAX_BODY_BYTES = 8_192;
 
-const ACTION_KINDS = new Set(["tap", "type", "key", "scroll", "back"]);
+const ACTION_KINDS = new Set(["tap", "move", "type", "key", "scroll", "back"]);
+
+/** The largest frame scale passed on: a JPEG at more than device pixels is not a frame this Worker takes. */
+const MAX_SCALE = 4;
+
+/** The named fields of `raw` that are present, and nothing else. */
+function pick(raw, names) {
+  const out = {};
+  for (const name of names) if (raw[name] !== undefined) out[name] = raw[name];
+  return out;
+}
 
 /**
  * The handle a person's own page lives at: the slug of the personal workspace
@@ -69,13 +80,15 @@ function actionFrom(raw) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw) || !ACTION_KINDS.has(raw.kind)) return null;
   switch (raw.kind) {
     case "tap":
-      return { kind: "tap", x: raw.x, y: raw.y };
+      return { kind: "tap", x: raw.x, y: raw.y, ...pick(raw, ["button"]) };
+    case "move":
+      return { kind: "move", x: raw.x, y: raw.y };
     case "type":
       return { kind: "type", text: raw.text };
     case "key":
       return { kind: "key", name: raw.name };
     case "scroll":
-      return { kind: "scroll", dy: raw.dy };
+      return { kind: "scroll", ...pick(raw, ["x", "y", "dx", "dy"]) };
     default:
       return { kind: "back" };
   }
@@ -91,6 +104,7 @@ function frameFrom(body) {
     title: typeof body.title === "string" ? body.title : "",
     width: body.width,
     height: body.height,
+    ...(typeof body.scale === "number" && body.scale > 0 && body.scale <= MAX_SCALE ? { scale: body.scale } : {}),
     frame: body.frame,
   };
 }
