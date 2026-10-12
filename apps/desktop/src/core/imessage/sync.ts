@@ -43,16 +43,16 @@ import {
   channelDayNotePath,
   flatDayPath,
   contactDraftsFromCommunication,
-  contactPathForDraft,
-  mergeContactNote,
+  createContactLookup,
   planChannelDay,
+  upsertContactDraft,
   renderChannelDayNote,
   type CommunicationEvent,
 } from "@context/communications";
 import type { ChannelDayPart } from "@context/communications/protocol";
 import { appleNsRangeForUtcDate, appleEpochNsToIso, utcDateOf } from "./appleTime.ts";
 import { advanceCursor, type ImessageCursor } from "./cursor.ts";
-import type { ReadNoteResult, WriteNoteResult } from "./gatewayNotes.ts";
+import type { ListNotesResult, MoveNoteResult, ReadNoteResult, WriteNoteResult } from "./gatewayNotes.ts";
 import { isReactionRow, readChatDbWindow } from "./reader.ts";
 import type { RawAttachmentRow, RawMessageRow, RawParticipantRow } from "./schema.ts";
 import type { MessageWindow } from "./schema.ts";
@@ -63,6 +63,12 @@ export interface ImessageSyncDeps {
   queryParticipants(): Promise<RawParticipantRow[]>;
   readNote(path: string): Promise<ReadNoteResult>;
   writeNote(path: string, content: string, expectedEtag: string | null): Promise<WriteNoteResult>;
+  /** Every note under a prefix — the contacts folder and its archive mirror, for finding a person's page. */
+  listNotes(prefix: string): Promise<ListNotesResult>;
+  /** The gateway's own move, for bringing an archived contact page back. */
+  moveNote(source: string, destination: string): Promise<MoveNoteResult>;
+  /** Where the contact lookup's snapshot is kept between passes, when the caller keeps one. */
+  contactIndex?: { snapshot: unknown };
   /** ISO now, for the `updated` frontmatter field of a note this pass actually writes. */
   now(): string;
   /** A fresh, unguessable nonce for a day that has never been written before. */
@@ -180,30 +186,73 @@ async function upsertPart(
   return { status: "error", message: retryWrite.message };
 }
 
-/** A contact can be updated by several channels; re-merge after every etag conflict. */
-async function upsertContactDraft(
+/** A gateway answer that is not a note, carried out of the lookup's callbacks as the error it is. */
+class GatewayRefusal extends Error {}
+
+/**
+ * One contact lookup for a pass, over the gateway's `list_notes` and
+ * `read_note`. `deps.contactIndex`, when the caller keeps one between passes,
+ * holds its snapshot so a page is read again only when its listed size moved.
+ */
+function openContactLookup(deps: ImessageSyncDeps): ContactLookup {
+  return createContactLookup({
+    snapshot: deps.contactIndex?.snapshot,
+    list: async (prefix: string) => {
+      const listed = await deps.listNotes(prefix);
+      if (!listed.ok) throw new GatewayRefusal(listed.message);
+      return listed.notes;
+    },
+    read: async (path: string) => {
+      const read = await deps.readNote(path);
+      if (!read.ok) throw new GatewayRefusal(read.message);
+      return read.found ? read.content : null;
+    },
+  });
+}
+
+type ContactLookup = ReturnType<typeof createContactLookup>;
+
+/**
+ * A contact is found by its identifiers through the shared lookup, revived
+ * out of the archive with the gateway's own move, and re-merged after every
+ * etag conflict — `upsertContactDraft` in `@context/communications` decides
+ * all of it, so iMessage files a person where Gmail and Chat do.
+ */
+async function upsertContact(
   deps: ImessageSyncDeps,
+  lookup: ContactLookup,
   draft: ReturnType<typeof contactDraftsFromCommunication>[number],
 ): Promise<{ status: "written" | "unchanged" | "error"; message?: string }> {
-  const path = contactPathForDraft(draft);
-  if (path === null) return { status: "unchanged" };
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const existing = await deps.readNote(path);
-    if (!existing.ok) return { status: "error", message: existing.message };
-    const update = mergeContactNote(existing.found ? existing.content : "", draft);
-    if (update === null) return { status: "unchanged" };
-    if (existing.found && existing.content === update.text) return { status: "unchanged" };
-    const result = await deps.writeNote(update.path, update.text, existing.found ? existing.etag : null);
-    if (result.ok) return { status: "written" };
-    if (!result.conflict) return { status: "error", message: result.message };
+  try {
+    const result = await upsertContactDraft(lookup, draft, {
+      read: async (path: string) => {
+        const read = await deps.readNote(path);
+        if (!read.ok) throw new GatewayRefusal(read.message);
+        return read.found ? { text: read.content, etag: read.etag } : null;
+      },
+      write: async (path: string, text: string, etag: string | null) => {
+        const written = await deps.writeNote(path, text, etag);
+        if (written.ok) return { ok: true };
+        return { ok: false, conflict: written.conflict, message: written.message };
+      },
+      move: (source: string, destination: string) => deps.moveNote(source, destination),
+    });
+    if (result.status !== "error") return { status: result.status };
+    return {
+      status: "error",
+      message: result.message ?? "Contact activity changed too many times; it will retry on the next sync.",
+    };
+  } catch (error) {
+    if (error instanceof GatewayRefusal) return { status: "error", message: error.message };
+    throw error;
   }
-  return { status: "error", message: "Contact activity changed too many times; it will retry on the next sync." };
 }
 
 async function syncDay(
   deps: ImessageSyncDeps,
   date: string,
   participants: readonly RawParticipantRow[],
+  contacts: ContactLookup,
 ): Promise<DayOutcome> {
   const range = appleNsRangeForUtcDate(date);
   if (range === null) return { date, status: "error", parts: 0, message: `not a calendar date: ${date}` };
@@ -265,7 +314,7 @@ async function syncDay(
   if (errored) return { date, status: "error", parts: parts.length, message: errored.message };
   const contactOutcomes = [];
   for (const draft of contactDraftsFromCommunication(events, { selfAddresses: deps.selfAddresses })) {
-    contactOutcomes.push(await upsertContactDraft(deps, draft));
+    contactOutcomes.push(await upsertContact(deps, contacts, draft));
     if (contactOutcomes.at(-1)?.status === "error") break;
   }
   const contactError = contactOutcomes.find((outcome) => outcome.status === "error");
@@ -351,14 +400,17 @@ export async function syncImessage(deps: ImessageSyncDeps, cursor: ImessageCurso
   const participants = await deps.queryParticipants();
 
   const days: DayOutcome[] = [];
+  // One lookup for the pass: the contacts folder is listed once, not per day.
+  const contacts = openContactLookup(deps);
   for (const date of dates) {
     // Sequential, deliberately: two days sharing a nonce lookup and a note
     // path prefix is exactly the kind of thing worth not racing against
     // itself, and a personal iMessage history's daily volume makes the
     // serial cost immaterial next to the network round trips it is already
     // paying.
-    days.push(await syncDay(deps, date, participants));
+    days.push(await syncDay(deps, date, participants, contacts));
   }
+  if (deps.contactIndex) deps.contactIndex.snapshot = contacts.snapshot();
 
   const allClean = days.every((day) => day.status !== "error");
   const highest = maxRowId(newRows);

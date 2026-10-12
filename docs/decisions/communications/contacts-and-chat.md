@@ -2,7 +2,8 @@
 
 ### Contacts: one page per person, and a merge never rewrites history
 
-`0-inbox/contacts/<person-slug>.md`, one stable note per canonical person or
+`0-inbox/contacts/<letter>/<page>.md` (filed A–Z since 2026-10-12, below;
+older pages sit flat and keep working), one stable note per canonical person or
 organization, carrying identifiers (addresses, phone numbers, chat handles)
 and an activity section of **links, never content**: dated wikilinks into
 channel-day notes, grouped by year and month in the *body* of the page — which
@@ -80,6 +81,72 @@ indistinguishable from something this context established; sorting on the key
 lists people alphabetically by the address that happened to name their file.
 The checks are `apps/mcp/test/contacts.test.mjs`, with its sabotage record —
 nine edits, every one caught.
+
+### A contact page is found by who it is, and filed A–Z (owner, 2026-10-12)
+
+The owner wants `0-inbox/contacts/` kept tidy by the app as mail and iMessages
+keep arriving: `<letter>/<page>.md`, lowercase single `a`–`z` folders, and
+`other/` for a page whose name has no letter or is only an address or a
+number. Pages will be renamed to `first-last.md` and merged, one page holding a
+person's email *and* phone. Every sync used to recompute a page's key from an
+identifier and read and write there, so the first tidy broke it: a moved or
+renamed page went stale and a duplicate reappeared at the old address, and
+`mergeContactNote` re-chose the key from the merged set, so a hand-merged page
+could still spawn a second one.
+
+**So a page is found by the identifiers written on it, and routing lives in one
+place** — `upsertContactDraft` in `packages/communications/src/contactLookup.js`,
+which the Gmail, Google Chat and desktop iMessage writers all run. A page may
+sit one folder deep, in either format (`type: contact` with `## Identifiers`,
+or the imported `role: communication-contact` with `## Identities`). The draft
+is merged into the page carrying **any** of its identifiers, at that page's
+path; only when none does is a page created, at `<letter>/<slug>.md` (the slug
+unchanged, renaming is a later migration). A flat page from before is found
+the same way and updated in place — no migration. An imported page is found
+and never rewritten, so it is never shadowed either. Frontmatter the renderer
+does not own (`review:`, tags, anything added) is carried through every merge.
+
+**The lookup is a disposable derivative, keyed by the listing.** One prefix
+listing of the contacts folder (and its archive mirror, below) per run, each
+page read only when its listed version moved, the result kept at
+`.context/communications/contacts/identifiers.json` (on the desktop, in memory
+between passes, versioned by the size `list_notes` reports). Deleting it costs
+one rebuild; a stale entry is caught because a found page is re-read and must
+still carry the identifier before anything is written. The tree and props
+tables were the alternative and were not used: they hold keys and front
+matter, not the identifiers in a page's body, and the sync writers run where
+the bucket is, not the search database. A listing that fails holds the cursor
+rather than reading as "nobody has a page".
+
+**Dormant pages come back.** A page with no activity for a year is filed at the
+mirror path `4-archive/0-inbox/contacts/<letter>/<page>.md` (that sweep is a
+separate piece, not built here). The lookup searches the mirror too; a message
+for that person moves the page back to its live path with the gateway's own
+`move_note` — links follow, visibility never widens — and then merges.
+
+**What a simplification costs**: recomputing the key from an identifier brings
+back a duplicate after every tidy, and the test that fails is `a page the owner
+moved and renamed receives the next sync`; dropping the version check reads
+every contact page on every Gmail day; dropping the re-read before writing
+merges a stranger into whatever a stale index named.
+
+### A contact page is created only for somebody the owner has written to (owner, 2026-10-12)
+
+`shouldCreateContactPage` decides, for all three writers: a **new** page only
+for a recipient of a message the owner sent (their address in From, iMessage
+`is_from_me`, their Chat identity as sender), and never for an automated
+address (`noreply`, `donotreply`, `notifications`, `newsletter`,
+`mailer-daemon`, `postmaster`, `bounce`…) or a message carrying
+`List-Unsubscribe` or `Precedence: bulk|list`. An inbound sender with no page
+gets none — their messages still land in the day — and one who already has a
+page is updated as before, so a reply after an inbound message is what starts
+the page. Sync never deletes an existing page. Chat events name no recipients,
+so Chat updates pages and does not start them.
+
+**What reversing it costs**: every newsletter, receipt and one-off sender
+becomes a page, which is the chaos the A–Z folders exist to end; the checks
+that fail are `an inbound-only stranger gets no page` and `an automated
+address never gets a page, even written to`.
 
 ### The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 

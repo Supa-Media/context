@@ -388,18 +388,50 @@ export function contactSlug(name) {
   return slug || "contact";
 }
 
+/** The folder a contact with no usable first letter is filed under. */
+export const CONTACT_OTHER_FOLDER = "other";
+
 /**
- * Where one contact's page lands.
+ * The A–Z folder a *new* contact page is filed in: the first a–z letter of the
+ * display name once accents are stripped, or `other` for a name with no letter
+ * or one that is only an address or a number — the draft's fallback name when a
+ * message carried no display name, which would file every stranger under `e`.
+ *
+ * Only ever consulted for a page that does not exist yet. Where an existing
+ * page lives is decided by finding it (`contactLookup.js`), never by this.
+ */
+export function contactLetterFolder(name) {
+  const text = (typeof name === "string" ? name : "").trim();
+  if (!text || text === "(unnamed contact)" || text.includes("@") || /^[+\d\s().-]+$/.test(text)) {
+    return CONTACT_OTHER_FOLDER;
+  }
+  const letter = /[a-z]/.exec(text.normalize("NFKD").replace(COMBINING_MARKS, "").toLowerCase())?.[0];
+  return letter ?? CONTACT_OTHER_FOLDER;
+}
+
+/**
+ * Where one contact's page lands: `0-inbox/contacts/<slug>.md`, or one folder
+ * down with `folder` — `0-inbox/contacts/<folder>/<slug>.md`.
  *
  * @param {string} slug A value from `contactSlug`.
- * @param {{root?: string}} [options]
+ * @param {{root?: string, folder?: string}} [options]
  */
 export function contactNotePath(slug, options = {}) {
   if (!isMailboxSlug(slug)) throw new TypeError(`not a contact slug: ${slug}`);
-  return `${normalizeRoot(options.root)}${CONTACTS_FOLDER}/${slug}.md`;
+  const folder = options.folder;
+  if (folder !== undefined && !isMailboxSlug(folder)) throw new TypeError(`not a contact folder: ${folder}`);
+  return `${normalizeRoot(options.root)}${CONTACTS_FOLDER}/${folder ? `${folder}/` : ""}${slug}.md`;
 }
 
-/** Is this key a contact page? Same "built from paths" rule as the days. */
+/**
+ * Is this key a contact page? Same "built from paths" rule as the days.
+ *
+ * A page sits in the contacts folder or **one folder below it** — the A–Z
+ * folders, the legacy `imessage/` import, or any folder the owner made — and
+ * every segment is slug-shaped, which is what closes traversal, dot files and
+ * empty segments. Deeper nesting is not a contact: a folder the owner files
+ * whole groups of notes into is theirs, not this package's to scan.
+ */
 export function isContactNotePath(path, options = {}) {
   if (typeof path !== "string") return false;
   const root = normalizeRoot(options.root);
@@ -408,5 +440,27 @@ export function isContactNotePath(path, options = {}) {
   if (!key.startsWith(`${CONTACTS_FOLDER}/`)) return false;
   const rest = key.slice(CONTACTS_FOLDER.length + 1);
   if (!rest.endsWith(".md")) return false;
-  return isMailboxSlug(rest.slice(0, -3));
+  const segments = rest.slice(0, -3).split("/");
+  return segments.length <= 2 && segments.every(isMailboxSlug);
+}
+
+/**
+ * Where a dormant contact page waits: the live path, mirrored under the
+ * archive (`4-archive/0-inbox/contacts/<letter>/<page>.md`), the shape the
+ * owner's archive already gives the rest of the inbox.
+ */
+export const CONTACT_ARCHIVE_FOLDER = "4-archive";
+
+/**
+ * The live path an archived contact page comes back to, or `null` when this
+ * is not one. The two are one prefix apart and nothing else, so a page
+ * revived by a new message lands exactly where it was archived from.
+ */
+export function liveContactPathForArchived(path, options = {}) {
+  if (typeof path !== "string") return null;
+  const root = normalizeRoot(options.root);
+  const archive = `${root}${CONTACT_ARCHIVE_FOLDER}/`;
+  if (!path.startsWith(archive)) return null;
+  const live = `${root}${path.slice(archive.length)}`;
+  return isContactNotePath(live, { root }) ? live : null;
 }

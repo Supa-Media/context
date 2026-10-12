@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { contactNotePath } from "@context/communications";
+import { CONTACTS_FOLDER } from "@context/communications";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
@@ -26,7 +26,10 @@ export function ContactPageView({
   onOpenActivity: (path: string, anchor: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const path = contactNotePath(slug);
+  // `slug` is the page's path under the contacts folder, and may be one folder
+  // deep (`c/claire`): `classifyCommsPath` only hands over what
+  // `isContactNotePath` accepted, so this is the path it came from.
+  const path = `${CONTACTS_FOLDER}/${slug}.md`;
 
   /**
    * `readRaw` is a plain read with no cache of its own (`browser.ts`'s own

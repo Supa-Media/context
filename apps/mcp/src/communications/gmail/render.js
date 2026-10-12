@@ -1,10 +1,9 @@
 import { placeDayParts } from "../dayPlacement.js";
 import {
   contactDraftsFromCommunication,
-  contactPathForDraft,
-  mergeContactNote,
   planChannelDay,
 } from "../../../../../packages/communications/src/index.js";
+import { openContactLookup, writeContactDraft } from "../contactLookup.js";
 import { readManifest, writeManifest, resolveDayAttachments } from "./attachments.js";
 
 /* -------------------------------------------------------------------------- */
@@ -118,39 +117,12 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
   throw new Error(`writeDayPart: gave up after ${maxAttempts} attempts on ${part.path}`);
 }
 
-/** Conflict-safe contact merge: every retry re-merges against the bytes that own the new etag. */
-export async function writeContactDraft(store, draft, options = {}, maxAttempts = 3) {
-  const build = async () => {
-    const path = contactPathForDraft(draft, { root: options.root });
-    if (path === null) return null;
-    const existing = await store.get(path);
-    const existingText = existing ? await existing.text() : "";
-    const update = mergeContactNote(existingText, draft, { root: options.root });
-    if (update === null) return null;
-    return { existing, existingText, update, bytes: new TextEncoder().encode(update.text).length };
-  };
-
-  if (!store.capabilities?.conditionalWrite) {
-    const next = await build();
-    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
-    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
-    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
-    await store.put(next.update.path, next.update.text);
-    return { wrote: true, bytes: next.bytes, quotaExceeded: false };
-  }
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const next = await build();
-    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
-    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
-    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
-    const result = next.existing
-      ? await store.put(next.update.path, next.update.text, { onlyIf: { etagMatches: next.existing.etag } })
-      : await store.put(next.update.path, next.update.text);
-    if (result) return { wrote: true, bytes: next.bytes, quotaExceeded: false };
-  }
-  throw new Error("writeContactDraft: contact did not settle after the bounded retry");
-}
+/*
+  Contacts are found by identifier, not by a path recomputed from one, so the
+  writer lives beside the lookup it runs through. Re-exported here because
+  this is where every caller has always imported it from.
+*/
+export { writeContactDraft };
 
 /**
  * Regenerate and write one day, quota-bound — note text AND, when
@@ -245,19 +217,28 @@ export async function syncOneDay(options) {
     folder: options.folder,
     selfAddresses: [options.address],
   });
-  for (const draft of drafts) {
-    const result = await writeContactDraft(options.store, draft, {
-      root: options.root,
-      remainingQuotaBytes: remaining,
-    });
-    if (result.quotaExceeded) {
-      return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: true };
+  if (!drafts.length) return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: false };
+  // One lookup for the day's drafts — or the run's, when the caller holds one
+  // across days — so the contacts folder is listed once, not once per person.
+  const contacts = options.contacts ?? (await openContactLookup(options.store, { root: options.root }));
+  try {
+    for (const draft of drafts) {
+      const result = await writeContactDraft(options.store, draft, {
+        root: options.root,
+        remainingQuotaBytes: remaining,
+        contacts,
+      });
+      if (result.quotaExceeded) {
+        return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: true };
+      }
+      if (result.wrote) {
+        bytesWritten += result.bytes;
+        remaining -= result.bytes;
+        contactsWritten += 1;
+      }
     }
-    if (result.wrote) {
-      bytesWritten += result.bytes;
-      remaining -= result.bytes;
-      contactsWritten += 1;
-    }
+  } finally {
+    if (!options.contacts) await contacts.save();
   }
   return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: false };
 }

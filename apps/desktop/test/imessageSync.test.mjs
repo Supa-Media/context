@@ -106,6 +106,18 @@ function fakeDeps(rows) {
       notes.set(path, { content, etag });
       return { ok: true, etag };
     },
+    async listNotes(prefix) {
+      return {
+        ok: true,
+        notes: [...notes].filter(([path]) => path.startsWith(prefix)).map(([key, note]) => ({ key, version: String(note.content.length) })),
+      };
+    },
+    async moveNote(source, destination) {
+      if (!notes.has(source) || notes.has(destination)) return { ok: false, retryable: false, message: "refused" };
+      notes.set(destination, notes.get(source));
+      notes.delete(source);
+      return { ok: true };
+    },
     now: () => {
       clock += 1000;
       return new Date(clock).toISOString();
@@ -124,9 +136,8 @@ export async function runImessageSyncChecks(check) {
   check("a first pass reports the new rows it saw", report1.newRows === 1);
   check("the affected day is written", report1.days.length === 1 && report1.days[0].status === "written");
   check("the cursor advances past the highest ROWID seen", report1.cursor.lastRowId === 1);
-  check("the day and its organically-derived contact now exist", deps1.notes.size === 2);
+  check("the day exists, and an inbound-only sender gets no contact page", deps1.notes.size === 1);
   check("the note lands at the fixed iMessage path for that day", deps1.notes.has("0-inbox/imessage/2026/09/2026-09-07.md"));
-  check("the contact links back to the iMessage day instead of copying its body", [...deps1.notes.entries()].some(([path, note]) => path.startsWith("0-inbox/contacts/") && note.content.includes("[[0-inbox/imessage/2026/09/2026-09-07#msg-") && !note.content.includes("\nhello\n")));
 
   // -- re-running with NOTHING new changes no bytes -------------------------
   const before = deps1.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content;
@@ -161,7 +172,8 @@ export async function runImessageSyncChecks(check) {
   check("the OTHER day's stored bytes are untouched", deps2.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content === day1Before);
   check(
     "writeNote is never called for the untouched day (only for the affected one)",
-    deps2.writeCalls.length === writesBeforeR2 + 2,
+    // The new day alone: its sender only wrote in, so there is no contact page to write.
+    deps2.writeCalls.length === writesBeforeR2 + 1,
   );
 
   // -- a day whose only new rows carry no real content advances the cursor too --
@@ -219,7 +231,7 @@ export async function runImessageSyncChecks(check) {
     return realWrite(path, content, expectedEtag);
   };
   const r6 = await syncImessage(deps5, EMPTY_CURSOR);
-  check("a conflicted write is retried once against the freshly re-read note", r6.days[0].status === "written" && writeAttempts === 3);
+  check("a conflicted write is retried once against the freshly re-read note", r6.days[0].status === "written" && writeAttempts === 2);
 
   // -- withoutUpdatedTimestamp: what makes two renders of the same day compare equal --
   const a = 'updated: "2026-09-07T00:00:00.000Z"\ntype: "channel-day"\nbody text';
@@ -404,4 +416,46 @@ export async function runImessageSyncChecks(check) {
     "...and re-reading the settled shrunk day writes nothing at all, orphan included",
     r20.days[0].status === "unchanged" && deps11.writeCalls.length === writesBeforeSettle,
   );
+
+  // -- contacts: created for somebody the owner wrote to, found wherever filed --
+  const withParticipants = (deps) => {
+    deps.queryParticipants = async () => [{ chat_guid: "chat-1", address: "+15551234567" }];
+    return deps;
+  };
+  const contactPaths = (deps) => [...deps.notes.keys()].filter((path) => path.startsWith("0-inbox/contacts/"));
+  const reply = messageRow({ rowid: "2", guid: "g2", is_from_me: 1, sender_address: null, date_ns: NS_2026_09_07_LATER, text: "back at you" });
+  const deps12 = withParticipants(fakeDeps([messageRow(), reply]));
+  const report12 = await syncImessage(deps12, EMPTY_CURSOR);
+  check("a reply creates a page for the person written to, under other/ for a bare number",
+    report12.days[0].status === "written" && contactPaths(deps12).length === 1 && contactPaths(deps12)[0].startsWith("0-inbox/contacts/other/"));
+  const created = contactPaths(deps12)[0];
+  check("...linking back to the day rather than copying it",
+    deps12.notes.get(created).content.includes("[[0-inbox/imessage/2026/09/2026-09-07#msg-") && !deps12.notes.get(created).content.includes("back at you"));
+
+  // The owner files the page by hand; the next message goes there, not to a new one.
+  deps12.notes.set("0-inbox/contacts/m/mum.md", deps12.notes.get(created));
+  deps12.notes.delete(created);
+  deps12.rows.push(messageRow({ rowid: "3", guid: "g3", date_ns: NS_2026_09_08, text: "next day" }));
+  const contactIndex = { snapshot: null };
+  deps12.contactIndex = contactIndex;
+  await syncImessage(deps12, report12.cursor);
+  check("a page the owner moved receives the next iMessage, and no duplicate appears",
+    contactPaths(deps12).length === 1 && deps12.notes.get("0-inbox/contacts/m/mum.md").content.includes("2026-09-08"));
+  check("...and the pass leaves its lookup for the next one", contactIndex.snapshot?.pages?.["0-inbox/contacts/m/mum.md"] !== undefined);
+
+  // Archived for dormancy: the gateway's move brings it back.
+  deps12.notes.set("4-archive/0-inbox/contacts/m/mum.md", deps12.notes.get("0-inbox/contacts/m/mum.md"));
+  deps12.notes.delete("0-inbox/contacts/m/mum.md");
+  deps12.rows.push(messageRow({ rowid: "4", guid: "g4", date_ns: NS_2026_09_08, text: "and again" }));
+  const report13 = await syncImessage(deps12, { lastRowId: 3 });
+  check("an archived page is moved back by the next message and updated at its live path",
+    report13.days.every((day) => day.status !== "error") &&
+      contactPaths(deps12).length === 1 && !deps12.notes.has("4-archive/0-inbox/contacts/m/mum.md") &&
+      deps12.notes.get("0-inbox/contacts/m/mum.md").content.split("2026-09-08 · imessage").length === 3);
+
+  const refusing = withParticipants(fakeDeps([reply]));
+  refusing.listNotes = async () => ({ ok: false, retryable: true, message: "the gateway could not be reached" });
+  const report14 = await syncImessage(refusing, EMPTY_CURSOR);
+  check("a contacts listing that fails holds the cursor rather than creating a page blind",
+    report14.days[0].status === "error" && report14.cursor.lastRowId === 0 && contactPaths(refusing).length === 0);
 }
