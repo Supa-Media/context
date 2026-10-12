@@ -51,7 +51,10 @@ const ops = await import("../functions/lib/filesFns/treeTableOps");
 const WS = "w1" as Id<"workspaces">;
 
 function fakeCtx(options: { target: boolean }) {
+  // The tree's own operations, and the Convex tree's (`lib/nodes/run.ts`), which
+  // every change schedules whether or not this context has a database.
   const scheduled: { operation: { kind: string } }[] = [];
+  const nodes: { operation: { kind: string } }[] = [];
   const marked: { audiences: string[]; rows: string[] }[] = [];
   const ctx = {
     runQuery: vi.fn(async () => (options.target ? { databaseId: "db-1", state: "ready" } : null)),
@@ -65,12 +68,12 @@ function fakeCtx(options: { target: boolean }) {
     }),
     scheduler: {
       runAfter: vi.fn(async (_delay: number, _ref: unknown, args: { operation: { kind: string } }) => {
-        scheduled.push(args);
+        (args.operation.kind.startsWith("nodes") ? nodes : scheduled).push(args);
         return "job";
       }),
     },
   };
-  return { ctx: ctx as never, scheduled, marked, scheduler: ctx.scheduler };
+  return { ctx: ctx as never, scheduled, nodes, marked, scheduler: ctx.scheduler };
 }
 
 function bucket(): MemoryStore & FileStore {
@@ -175,6 +178,13 @@ describe("a console change", () => {
     const without = fakeCtx({ target: false });
     await ops.keepTreeAndAnnounce(without.ctx, ARGS, { paths: ["a.md"], files: [], audiences: ["private"] });
     expect(without.scheduled).toEqual([]);
+    // The Convex tree is re-checked by name in both cases.
+    expect(withTable.nodes.map((args) => args.operation)).toEqual([
+      { kind: "nodesTouch", paths: ["a.md"], files: [] },
+    ]);
+    expect(without.nodes.map((args) => args.operation)).toEqual([
+      { kind: "nodesTouch", paths: ["a.md"], files: [] },
+    ]);
     expect(without.marked.map((mark) => mark.audiences)).toEqual([["private"]]);
   });
 

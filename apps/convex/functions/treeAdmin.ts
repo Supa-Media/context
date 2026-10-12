@@ -39,3 +39,13 @@ export const fillTreeIndexesNow = action({
     return await ctx.runAction(internal.functions.treeAdminInternal.fillTreeIndexes, args);
   },
 });
+
+/** Check every workspace's Convex tree against its bucket now, or one workspace's when `workspaceId` is left out. */
+export const checkNodesParityNow = action({
+  args: { workspaceId: v.optional(v.id("workspaces")) },
+  returns: v.object({ started: v.number() }),
+  handler: async (ctx, args): Promise<{ started: number }> => {
+    await staffOnly(ctx);
+    return await ctx.runAction(internal.functions.treeAdminInternal.checkNodesParity, args);
+  },
+});

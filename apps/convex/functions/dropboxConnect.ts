@@ -696,6 +696,10 @@ export const applyDropboxBinding = internalMutation({
       await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
         workspaceId: args.workspaceId,
       });
+      // The file tree's rows name the old bucket's keys (`nodesPurge.ts`).
+      await ctx.runMutation(internal.functions.nodesPurge.resetForStorage, {
+        workspaceId: args.workspaceId,
+      });
     }
 
     if (existing === null) {

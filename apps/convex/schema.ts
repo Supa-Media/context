@@ -37,11 +37,14 @@ import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
 import { routineTables } from "./functions/lib/schema/routines";
+import { nodeTables } from "./functions/lib/schema/nodes";
 
 /**
  * Control-plane schema for Context.
  *
- * METADATA ONLY. Note content lives exclusively in the customer's own bucket
+ * METADATA ONLY — which, since the owner's decision of 2026-10-12, includes
+ * each workspace's file tree (names, versions) and privacy rules
+ * (`lib/schema/nodes.ts`). Note content lives exclusively in the customer's own bucket
  * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,
@@ -105,6 +108,7 @@ const schema = defineSchema({
   ...searchTimingTables,
   ...meaningTables,
   ...routineTables,
+  ...nodeTables,
 });
 
 export default schema;

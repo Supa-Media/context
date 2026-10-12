@@ -140,6 +140,10 @@ function announceTreeChange(store, action, paths, details) {
   rememberChaos(store, kept);
   const work = (async () => {
     await kept;
+    // The Convex tree re-checks what the change named (`reportTreeTouch`).
+    if (touch !== null && typeof store.reportTreeTouch === "function") {
+      await store.reportTreeTouch({ paths: touch.paths ?? [], files: touch.files ?? [] });
+    }
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);

@@ -1,0 +1,74 @@
+/**
+ * Forgetting a workspace's tree: when the workspace is deleted, and when its
+ * storage moves to a different bucket.
+ *
+ * The rows are names from one bucket (`lib/schema/nodes.ts`). A deleted
+ * workspace's names have no reason to stay with us (the owner's decision of
+ * 2026-10-12 put them here on that condition), and rows from the bucket a
+ * workspace left describe somewhere its notes no longer are. Either way the
+ * rows go, and a tree still in use is rebuilt by the next sweep.
+ *
+ * A large tree is more rows than one mutation may delete, so the first batch
+ * goes with the caller's transaction and the rest are deleted by a chain of
+ * scheduled batches. A sweep of the old bucket still in flight cannot keep
+ * them: its next step finds no bookkeeping row and stops, and the next sweep
+ * of the new bucket removes every row it did not see.
+ */
+
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { internalMutation, type MutationCtx } from "./_generated/server";
+
+/** Rows one batch deletes. */
+const PURGE_BATCH = 1_000;
+
+/** Delete one batch of a workspace's tree rows; schedule the next while any remain. */
+async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const rows = await ctx.db
+    .query("nodes")
+    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+    .take(PURGE_BATCH);
+  for (const row of rows) await ctx.db.delete(row._id);
+  if (rows.length === PURGE_BATCH) {
+    await ctx.scheduler.runAfter(0, internal.functions.nodesPurge.purge, { workspaceId });
+  }
+}
+
+/**
+ * Forget the workspace's tree: its bookkeeping and parsed rules at once, its
+ * rows a batch now and the rest in the background.
+ */
+export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const trees = await ctx.db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of trees) await ctx.db.delete(row._id);
+  const privacy = await ctx.db
+    .query("nodePrivacy")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of privacy) await ctx.db.delete(row._id);
+  await purgeBatch(ctx, workspaceId);
+}
+
+/** The next batch of a purge `forgetWorkspaceTree` started. */
+export const purge = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    await purgeBatch(ctx, workspaceId);
+    return null;
+  },
+});
+
+/** The workspace's storage now names a different bucket: its tree describes the old one. */
+export const resetForStorage = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    await forgetWorkspaceTree(ctx, workspaceId);
+    return null;
+  },
+});

@@ -599,6 +599,8 @@ export async function route(request, env, ctx) {
 function attachChangeReporters(store, workspaceId, controlPlane) {
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
+  store.reportTreeTouch = (touch) =>
+    controlPlane.reportTreeTouch(workspaceId, touch).catch(() => {});
   store.reportWebsiteChange = () =>
     controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
   store.reportRoutineChange = (paths, userId) =>

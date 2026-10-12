@@ -102,6 +102,8 @@ import type * as functions_googleSync from "../functions/googleSync.js";
 import type * as functions_meetings_demoTranscribe from "../functions/meetings/demoTranscribe.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
+import type * as functions_nodes from "../functions/nodes.js";
+import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_owners from "../functions/owners.js";
 import type * as functions_obsidianPlugins from "../functions/obsidianPlugins.js";
 import type * as functions_agentGrant from "../functions/agentGrant.js";
@@ -241,6 +243,8 @@ declare const fullApi: ApiFromModules<{
   "functions/meetings/demoTranscribe": typeof functions_meetings_demoTranscribe;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
+  "functions/nodes": typeof functions_nodes;
+  "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/owners": typeof functions_owners;
   "functions/obsidianPlugins": typeof functions_obsidianPlugins;
   "functions/agentGrant": typeof functions_agentGrant;

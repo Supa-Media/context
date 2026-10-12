@@ -41,6 +41,9 @@ function target(id: string) {
   return { workspaceId: id as Id<"workspaces">, slug: id, databaseId: id, state: "ready" as const };
 }
 
+/** The Convex tree's `nodeTrees` row for each workspace, as `treeAdminInternal.convexTreeOf` reads it. */
+const convexTrees = new Map<string, unknown>();
+
 // The barrier's `treeState`, as `runFileOperation` answers it.
 const ctx = {
   runAction: vi.fn(async (_ref: unknown, args: { workspaceId: string }) => {
@@ -48,6 +51,7 @@ const ctx = {
     if (client === undefined) throw new Error("no database");
     return await treeStateOf(client as never);
   }),
+  runQuery: vi.fn(async (_ref: unknown, args: { workspaceId: string }) => convexTrees.get(args.workspaceId) ?? null),
   scheduler: { runAfter: vi.fn(async () => "job") },
 };
 
@@ -88,6 +92,30 @@ describe("the tree index panel", () => {
     const report = await treeIndexReport(ctx as never, { targets: [target("stuck")], truncated: false });
     expect(report.rows[0]?.error).toBe("Tree fill failed; inspect service logs");
     expect(JSON.stringify(report)).not.toMatch(/2-areas|codes|secret|plan|draft|AccessDenied/);
+  });
+
+  test("each row carries the Convex tree's counts and last parity check, never a path", async () => {
+    const shadowed = sqliteClient();
+    const store = memoryStore();
+    store.seed("1-projects/shadow.md", "# S\n");
+    await sweepTreePass(store, shadowed);
+    databases.set("shadowed", shadowed);
+    convexTrees.set("shadowed", {
+      status: "ready",
+      files: 1,
+      sweptAt: 1_000,
+      parity: { checkedAt: 2_000, clearances: 3, mismatches: 0, privacyMatches: true },
+    });
+
+    const report = await treeIndexReport(ctx as never, { targets: [target("shadowed")], truncated: false });
+    expect(report.rows[0]?.convex).toEqual({
+      status: "ready",
+      files: 1,
+      sweptAt: 1_000,
+      parity: { checkedAt: 2_000, clearances: 3, mismatches: 0, privacyMatches: true },
+    });
+    expect(JSON.stringify(report)).not.toContain("1-projects");
+    convexTrees.delete("shadowed");
   });
 
   test("Fill starts a sweep for every workspace asked about", async () => {

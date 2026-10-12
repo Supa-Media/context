@@ -43,7 +43,10 @@ export async function treeTargetsHandler(ctx: QueryCtx): Promise<{ targets: Tree
 }
 
 async function rowFor(ctx: ActionCtx, target: TreeTarget): Promise<TreeIndexRow> {
-  const base = { workspaceId: target.workspaceId, slug: target.slug };
+  const convex = await ctx
+    .runQuery(internal.functions.treeAdminInternal.convexTreeOf, { workspaceId: target.workspaceId })
+    .catch(() => null);
+  const base = { workspaceId: target.workspaceId, slug: target.slug, convex };
   try {
     // Through the credential barrier, which opens the database and nothing else.
     const answer = await ctx.runAction(internal.functions.files.runFileOperation, {

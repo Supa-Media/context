@@ -73,6 +73,13 @@ export const operationResultValidator = v.union(
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
+  v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
+  v.object({
+    kind: v.literal("nodesParity"),
+    clearances: v.number(),
+    mismatches: v.number(),
+    privacyMatches: v.boolean(),
+  }),
   treeChangesValidator,
   folderNotesValidator,
   chaosScoreValidator,
@@ -270,6 +277,10 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
   /** The tree table's health for the staff panel; no bucket is opened. */
   v.object({ kind: v.literal("treeState") }),
+  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
+  v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("nodesTouch"), paths: v.array(v.string()), files: v.array(v.string()) }),
+  v.object({ kind: v.literal("nodesParity") }),
   v.object({
     kind: v.literal("touchTree"),
     paths: v.array(v.string()),
