@@ -115,6 +115,34 @@ describe("the wait", () => {
     expect((await view.query(api.functions.emailProof.myEmailProof, {})).emails).toContain("a•••@new.example");
   });
 
+  test("\"This wasn't me\" stops the recovery the intruder started", async () => {
+    // The alarm link signs every device out and pauses the phone, and the
+    // person who clicks it has been told that is what it does. A waiting
+    // recovery is the one thing a phone-only session can start that outlives
+    // the session, so it has to go the same way: otherwise the account is
+    // taken a week later by somebody the owner already locked out.
+    const t = setupTest();
+    const { ada } = await begin(t);
+    const token = "f".repeat(64);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ada, { phone: "+15555550100", phoneVerificationTime: Date.now() });
+      await ctx.db.insert("signInAlerts", {
+        userId: ada,
+        hashedToken: await hashToken(token),
+        at: Date.now(),
+        phoneLast4: "0100",
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      });
+    });
+
+    expect(await t.action(api.functions.signInAlerts.reportNotMe, { token })).toEqual({ status: "done" });
+
+    expect(await asUser(t, ada).query(api.functions.emailRecovery.myEmailRecovery, {})).toBeNull();
+    vi.setSystemTime(Date.now() + RECOVERY_WAIT_MS + 60_000);
+    expect(await t.mutation(internal.functions.emailRecovery.finishDue, {})).toEqual({ finished: 0 });
+    expect((await emailsOf(t, ada)).map((e) => e.email)).not.toContain("ada@new.example");
+  });
+
   test("the link in the notice stops it, once", async () => {
     const t = setupTest();
     const { ada, cancelToken } = await begin(t);
