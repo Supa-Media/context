@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { goHome, tap, tapFolderOnHome, tapRow } from "./helpers";
+import { goHome, settledBox, tapFolderOnHome, tapRow } from "./helpers";
 
 /**
  * The board message's own card, never its thread heading — a thread with one
@@ -16,7 +16,9 @@ function boardMessage(page: Page) {
 
 /**
  * The communications console's own walk: Inbox → a channel → a day → an
- * anchor, through the same folder listing every other folder uses, ending on the one message a contact's activity link names.
+ * anchor, through the same folder listing every other folder uses, ending on
+ * the one message a deep link names; and the contacts folder's A–Z index and
+ * a contact page's header.
  *
  * `docs/decisions/testing.md`'s rule for this directory is "reproduced in a
  * real engine, not simulated" — the same reason `editor.spec.ts` exists — and
@@ -77,30 +79,52 @@ test("a channel's days, and a day's messages grouped by thread", async ({ page }
   expect(beforeBox.y).toBeGreaterThan(viewport.height);
 });
 
-test("following a contact's activity link scrolls the channel-day to that message", async ({
-  page,
-}) => {
+/**
+ * A screenshot for review, only when asked for (`E2E_SHOTS_DIR`): a picture
+ * proves nothing on its own, so CI takes none.
+ */
+async function snap(page: Page, name: string): Promise<void> {
+  const dir = process.env.E2E_SHOTS_DIR;
+  if (dir) await page.screenshot({ path: `${dir}/${name}-${test.info().project.name}.png` });
+}
+
+/** Tap something by test id once its page has stopped sliding in. */
+async function tapId(page: Page, testId: string): Promise<void> {
+  const box = await settledBox(page.getByTestId(testId));
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+test("the contacts folder is an A–Z index", async ({ page }) => {
   await openInbox(page);
   await tapRow(page, "contacts");
 
-  // The generic folder listing, showing the one contact page.
+  const index = page.getByTestId("contacts-index");
+  await index.waitFor();
+  // Every letter and Other, whether or not there is a folder for it…
+  await expect(index.locator('[data-testid^="contacts-letter-"]')).toHaveCount(27);
+  // …and the letter folders are not rows as well; the legacy folder still is.
+  await expect(page.getByTestId("folder-row").filter({ has: page.getByText("a", { exact: true }) })).toHaveCount(0);
+  await expect(page.getByLabel("imessage, folder")).toBeVisible();
+  await snap(page, "contacts-index");
+
+  // A letter opens its folder, as its row would have.
+  await tapId(page, "contacts-letter-a");
   await tapRow(page, "adam-okonkwo");
 
-  // The Contact page: identifiers, and one activity link into the day the
-  // board message landed on.
-  await page.getByText("Adam Okonkwo", { exact: true }).first().waitFor();
-  await expect(page.getByText("adam@example.net", { exact: false })).toBeVisible();
-  const activity = page.getByTestId("contact-activity-row");
-  await expect(activity).toHaveCount(1);
+  const header = page.getByTestId("contact-header");
+  await header.waitFor();
+  await expect(page.getByTestId("contact-header-name")).toHaveText("Adam Okonkwo");
+  await expect(header.getByText("Contact", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("contact-chip-email")).toContainText("adam@example.net");
+  // The Markdown body is still the note, below the header.
+  await expect(page.getByText("Production lead for LTN 2026.", { exact: false })).toBeVisible();
+  await snap(page, "contact-header");
+});
 
+/** The board message is on screen because the channel-day scrolled to it, not because it loaded there. */
+async function expectScrolledToBoard(page: Page): Promise<void> {
   const viewport = page.viewportSize();
   if (viewport === null) throw new Error("no viewport to compare against");
-
-  await tap(page, "2026-09-07: Board wants a one-pager");
-
-  // Landed back on the channel-day view, scrolled to the message the link
-  // named — the "anchor" stop of the walk, and the one a scroll target
-  // proves rather than a data shape.
   const board = boardMessage(page);
   await board.first().waitFor();
   await expect
@@ -109,16 +133,60 @@ test("following a contact's activity link scrolls the channel-day to that messag
       timeout: 5_000,
     })
     .toBeLessThan(viewport.height);
-
   const afterBox = await board.first().boundingBox();
   if (afterBox === null) throw new Error("the board message has no box after scrolling");
   expect(afterBox.y).toBeGreaterThanOrEqual(0);
+  // A real scroll moved the container, from 0 on a fresh mount of the day.
+  const scrollTop = await page.getByTestId("channel-day-scroll").evaluate((node) => node.scrollTop);
+  expect(scrollTop).toBeGreaterThan(0);
+}
 
-  // Not merely "the page happened to load already showing it" — a real
-  // scroll actually moved the container. This is a fresh mount of the
-  // channel-day view (a fresh `select`), so `scrollTop` starts at 0 before
-  // `ChannelDayView`'s own effect runs; anything above 0 is that effect
-  // having acted, not a coincidence of layout.
-  const scrollTopAfter = await page.getByTestId("channel-day-scroll").evaluate((node) => node.scrollTop);
-  expect(scrollTopAfter).toBeGreaterThan(0);
+test("a contact's activity link opens the day scrolled to that message", async ({ page }) => {
+  await openInbox(page);
+  await tapRow(page, "contacts");
+  await tapId(page, "contacts-letter-a");
+  await tapRow(page, "adam-okonkwo");
+  await page.getByTestId("contact-header").waitFor();
+
+  // The body's own `[[day#msg-…|Board wants a one-pager]]`, tapped in the
+  // editor — an ordinary wikilink, followed with its anchor.
+  const link = page.locator(".cm-note-link").filter({ hasText: "Board wants a one-pager" });
+  await settledBox(link.first());
+  // The label wraps on a phone, so the middle of its box can be beside the
+  // words rather than on them: tap the middle of its first line.
+  const first = await link.first().evaluate((node) => {
+    const rect = node.getClientRects()[0]!;
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.touchscreen.tap(first.x, first.y);
+
+  await expectScrolledToBoard(page);
+});
+
+test("an imported iMessage contact gets the same header", async ({ page }) => {
+  await openInbox(page);
+  await tapRow(page, "contacts");
+  await tapRow(page, "imessage");
+  await tapRow(page, "sam-reyes");
+
+  await page.getByTestId("contact-header").waitFor();
+  await expect(page.getByTestId("contact-header-name")).toHaveText("Sam Reyes");
+  await expect(page.getByTestId("contact-chip-imessage")).toContainText("+15550100456");
+});
+
+test("a deep link to a message scrolls the channel-day to it", async ({ page }) => {
+  // The anchor, read off the screen rather than imported: the board message's
+  // card carries it as `message-<anchor>`.
+  await openInbox(page);
+  await tapRow(page, "email");
+  await tapRow(page, "name-at-example-com");
+  await tapRow(page, "2026-09-07");
+  const testId = await boardMessage(page).first().getAttribute("data-testid");
+  if (testId === null) throw new Error("the board message has no test id");
+  const anchor = testId.slice("message-".length);
+
+  await page.goto(
+    `/e2e-fixture?note=${encodeURIComponent(`0-inbox/email/name-at-example-com/2026/09/2026-09-07.md#${anchor}`)}`,
+  );
+  await expectScrolledToBoard(page);
 });

@@ -11,12 +11,16 @@ export {
   flatDayPath,
   channelFolder,
   chooseMailboxSlug,
+  CONTACT_ARCHIVE_FOLDER,
+  CONTACT_OTHER_FOLDER,
+  contactLetterFolder,
   contactNotePath,
   contactSlug,
   isCalendarDate,
   isChannelDayNotePath,
   isContactNotePath,
   isMailboxSlug,
+  liveContactPathForArchived,
   normalizeRoot,
   parseChannelDayPath,
   slugifyAddress,
@@ -59,7 +63,10 @@ export {
   canAutoMerge,
   contactDraftsFromCommunication,
   contactPathForDraft,
+  contactSlugForDraft,
+  foreignFrontmatter,
   identifierSet,
+  isAutomatedAddress,
   isContactNote,
   mergeContacts,
   mergeContactNote,
@@ -67,8 +74,19 @@ export {
   parseContactNote,
   parseContactView,
   renderContactNote,
+  shouldCreateContactPage,
   suggestMerge,
 } from "./contacts.js";
+export {
+  CONTACT_INDEX_KEY,
+  CONTACT_INDEX_VERSION,
+  contactPageIdentity,
+  contactPrefixes,
+  createContactLookup,
+  isImportedContactNote,
+  locateContactPage,
+  upsertContactDraft,
+} from "./contactLookup.js";
 // Calendar lives in its own submodule (`./calendar/`) rather than flattened
 // in here: it is a distinct kind of thing (an event, not a message) with its
 // own folder, own frontmatter and own sync bookkeeping, and every name below

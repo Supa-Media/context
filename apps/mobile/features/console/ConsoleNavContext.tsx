@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { NoteLinkOpen } from "./files/noteLinks";
+import type { FollowedAnchor } from "./followedAnchor";
 
 /**
  * Moving between places, shared down to the pane routes.
@@ -29,8 +30,13 @@ import type { NoteLinkOpen } from "./files/noteLinks";
  * is the honest answer for a console that has one note and no tabs.
  */
 export interface ConsoleNav {
-  /** A link in the open note was followed. See `useTabs`. */
-  follow: (path: string, mode: NoteLinkOpen) => void;
+  /**
+   * A link in the open note was followed. See `useTabs`. `anchor` is the place
+   * inside the note the link names, which the note scrolls to (`followed`).
+   */
+  follow: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
+  /** The anchor the last followed link carried, and its note (`followedAnchor.ts`). */
+  followed: FollowedAnchor | null;
   /** Somewhere you were. Dimmed rather than hidden at the ends. */
   back: () => void;
   forward: () => void;

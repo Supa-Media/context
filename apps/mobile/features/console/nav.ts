@@ -165,9 +165,9 @@ export function browseHref(slug: string): string {
  * (`apps/mcp/src/search/CONTRACT.md`, "What a search result carries for a
  * hit, and the deep link": `<notePath>#<anchor>`, the shape a wikilink into
  * one already uses) and the one `splitNoteAnchor`/`noteFromQuery`/
- * `anchorFromQuery` below already read back apart — so a contact's activity
- * link, a channel-day's own message list, and a per-message search hit all
- * produce and consume one link shape rather than three. `encodeURIComponent`
+ * `anchorFromQuery` below already read back apart — so a channel-day's own
+ * message list and a per-message search hit produce and consume one link
+ * shape rather than two. `encodeURIComponent`
  * turns the `#` into `%23`, so it never becomes a literal URL fragment; see
  * `docs/decisions/app-and-console.md`, *A note's anchor is a query
  * parameter, not a URL fragment*. This third argument used to add its own

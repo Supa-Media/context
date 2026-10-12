@@ -39,6 +39,7 @@ import { placeDayParts } from "../../../../mcp/src/communications/dayPlacement.j
 import {
   getProfileHistoryId,
   GmailApiError,
+  openContactLookup,
   runIncrementalSync,
   writeContactDraft,
   writeDayPart,
@@ -317,15 +318,24 @@ async function runGoogleChatForwardSync(
     }
   }
 
+  /*
+   * Contacts are found by the identifiers on their pages, through one lookup
+   * for the pass — the folder listed once, the page the owner moved or merged
+   * written in place — and a page is created only for somebody the owner has
+   * written to (`shouldCreateContactPage`).
+   */
+  const contacts = await openContactLookup(chatStore);
   for (const draft of result.contactDrafts) {
     const written = await writeContactDraft(chatStore, draft, {
       remainingQuotaBytes: Number.MAX_SAFE_INTEGER - bytesWritten,
+      contacts,
     });
     if (written.quotaExceeded) {
       throw new Error("Google Chat Contact exceeded the bounded sync write budget");
     }
     if (written.wrote) bytesWritten += written.bytes;
   }
+  await contacts.save();
 
   /*
    * The cursor is the commit record. It moves last, after the shared daily

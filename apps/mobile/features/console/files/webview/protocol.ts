@@ -398,7 +398,7 @@ export type ToHost =
    * away the note being edited on an ambiguous gesture. A tap is not
    * ambiguous, so both the message and the dialog are gone; see `noteLinks.ts`.
    */
-  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background" }
+  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background"; anchor?: string }
   /**
    * A web link in the note was tapped — `https:`, `http:` or `mailto:`, as
    * `webUrl` in `noteLinks.ts` reads it. The host checks the scheme again and

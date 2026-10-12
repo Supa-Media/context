@@ -23,7 +23,7 @@ import { gatewayBaseFrom } from "../core/sync/connection.ts";
 import { attemptChatDbRead, detectFullDiskAccess, type FullDiskAccessStatus } from "../core/imessage/permission.ts";
 import { defaultChatDbPath, isAllowedChatDbPath } from "../core/imessage/paths.ts";
 import { queryChatDb } from "../core/imessage/sqlite.ts";
-import { readNote, writeNote } from "../core/imessage/gatewayNotes.ts";
+import { listNotes, moveNote, readNote, writeNote } from "../core/imessage/gatewayNotes.ts";
 import { syncImessage, type ImessageSyncDeps } from "../core/imessage/sync.ts";
 import { advanceCursor, type ImessageCursor } from "../core/imessage/cursor.ts";
 import { selectAttachmentsSql, selectMaxRowIdSql, selectMessagesSql, selectParticipantsSql } from "../core/imessage/schema.ts";
@@ -89,6 +89,8 @@ export class ImessageSyncService {
   #generation = 0;
   #syncRequestedAgain = false;
   #syncRequestedRefreshDates = new Set<string>();
+  /** The contact lookup between passes: a cache of what the pages say, rebuilt from them whenever it is lost. */
+  #contactIndex: { snapshot: unknown } = { snapshot: null };
 
   constructor(deps: ImessageSyncServiceDeps) {
     this.#deps = deps;
@@ -280,6 +282,19 @@ export class ImessageSyncService {
           this.#assertCurrent(generation);
           return result;
         },
+        listNotes: async (prefix) => {
+          this.#assertCurrent(generation);
+          const result = await listNotes(notesConfig, prefix);
+          this.#assertCurrent(generation);
+          return result;
+        },
+        moveNote: async (source, destination) => {
+          this.#assertCurrent(generation);
+          const result = await moveNote(notesConfig, source, destination);
+          this.#assertCurrent(generation);
+          return result;
+        },
+        contactIndex: this.#contactIndex,
         now: () => new Date(this.#now()).toISOString(),
         mintNonce: () => mintNonce(),
         // No `selfAddresses`: `chat.db` does not reliably carry which handle is

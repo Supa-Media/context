@@ -16,7 +16,7 @@
  *     `NOTES_REFUSAL`'s fixed sentences                                       4 FAIL
  */
 
-import { readNote, writeNote, NOTES_REFUSAL, NOTES_TIER_REFUSAL } from "../src/core/imessage/gatewayNotes.ts";
+import { listNotes, moveNote, readNote, writeNote, NOTES_REFUSAL, NOTES_TIER_REFUSAL } from "../src/core/imessage/gatewayNotes.ts";
 import { fakeFetch } from "./fakes.mjs";
 
 const GRANT = "context:write context:private";
@@ -199,4 +199,20 @@ export async function runImessageGatewayNotesChecks(check) {
 
   const stillFound = await readNote(config(fakeFetch([{ body: textResult("not found", true) }])), "0-inbox/imessage/2026-09-07.md");
   check("...while `not found` is still classified as 'no note yet' rather than an error", stillFound.ok === true && stillFound.found === false);
+
+  // -- list_notes and move_note, for finding and reviving a contact page ---
+  const listed = await listNotes(config(fakeFetch([{ body: textResult("0-inbox/contacts/a/adam.md (812 bytes)\n0-inbox/contacts/other/x y.md (5 bytes)") }])), "0-inbox/contacts/");
+  check("a listing reads every key with its size as the version",
+    listed.ok && listed.notes.length === 2 && listed.notes[0].key === "0-inbox/contacts/a/adam.md" && listed.notes[0].version === "812" && listed.notes[1].key === "0-inbox/contacts/other/x y.md");
+  const empty = await listNotes(config(fakeFetch([{ body: textResult("(no visible notes under that prefix)") }])), "0-inbox/contacts/");
+  check("...an empty folder is an empty listing", empty.ok && empty.notes.length === 0);
+  const garbled = await listNotes(config(fakeFetch([{ body: textResult("0-inbox/contacts/a/adam.md (812 bytes)\nsomething else") }])), "0-inbox/contacts/");
+  check("...and a listing it cannot read whole is a failure, never a short listing", !garbled.ok && garbled.retryable);
+  const moveFetch = fakeFetch([{ body: textResult("moved: a → b (etag e9)\nvisibility: private") }]);
+  const moved = await moveNote(config(moveFetch), "4-archive/0-inbox/contacts/a/adam.md", "0-inbox/contacts/a/adam.md");
+  const moveArgs = JSON.parse(moveFetch.calls[0].init.body).params;
+  check("a move goes through the gateway's move_note with source and destination",
+    moved.ok && moveArgs.name === "move_note" && moveArgs.arguments.source === "4-archive/0-inbox/contacts/a/adam.md" && moveArgs.arguments.destination === "0-inbox/contacts/a/adam.md");
+  const declined = await moveNote(config(fakeFetch([{ body: textResult("conflict: destination already exists", true) }])), "x.md", "y.md");
+  check("...and a declined move is a refusal, not a retry", !declined.ok && !declined.retryable);
 }

@@ -11,7 +11,6 @@ import { entryAt } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { ContactPageView } from "../../communications/ContactPageView";
 import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
@@ -59,7 +58,6 @@ export function BrowseDocument({
   reading,
   nav,
   commsRoute,
-  handleOpenComms,
   folderMenuFor,
   folderDrag,
   places,
@@ -88,7 +86,6 @@ export function BrowseDocument({
   reading: boolean;
   nav: ReturnType<typeof useConsoleNav>;
   commsRoute: ReturnType<typeof classifyCommsPath> | null;
-  handleOpenComms: (path: string, anchor?: string) => void;
   folderMenuFor: FolderListingState["folderMenuFor"];
   folderDrag: FolderListingState["folderDrag"];
   /** This person's pins and opens, for the phone's Home. */
@@ -389,10 +386,6 @@ export function BrowseDocument({
         files={files}
         anchor={anchor}
       />
-    ) : commsRoute?.kind === "contact" ? (
-      <DocumentPage>
-        <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
-      </DocumentPage>
     ) : selected.kind === "folder" && atContextRoot ? (
       phoneHome
     ) : selected.kind === "folder" ? (

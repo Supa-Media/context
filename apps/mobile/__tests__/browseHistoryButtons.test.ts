@@ -182,6 +182,7 @@ function navWith(over: Partial<ConsoleNav> = {}): ConsoleNav & { went: string[] 
   return {
     went,
     follow: () => {},
+    followed: null,
     back: () => went.push("back"),
     forward: () => went.push("forward"),
     canBack: true,

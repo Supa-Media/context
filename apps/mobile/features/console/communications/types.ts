@@ -1,6 +1,7 @@
 /**
- * Shared shapes for the communications console: one channel-day and one
- * contact. The Inbox and its channel folders are ordinary folders.
+ * Shared shapes for the communications console: one channel-day. The Inbox
+ * and its channel folders are ordinary folders, and a contact page is an
+ * ordinary note with a header (`contactPages.ts`).
  *
  * Every type here is a *view* built from what `FileBrowser` already returns —
  * `FileEntry[]` from a listing, `{text, etag}` from `readRaw` — never a new
@@ -58,28 +59,3 @@ export interface ChannelDayView {
   partial: boolean;
 }
 
-/** One identifier on a contact page. */
-export interface ContactIdentifier {
-  kind: string;
-  value: string;
-}
-
-/** One activity link on a contact page: a day this person appears in. */
-export interface ContactActivity {
-  date: string;
-  channel: string;
-  /** Bucket-relative, with no `.md` — matches what `activityLink` writes. */
-  path: string;
-  anchor: string;
-  label: string;
-}
-
-/** A contact page, parsed for display. */
-export interface ContactView {
-  name: string;
-  organization: string;
-  identifiers: ContactIdentifier[];
-  conflicts: string[];
-  activity: ContactActivity[];
-  notes: string;
-}

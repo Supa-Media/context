@@ -9,6 +9,7 @@ type BrandIconName =
   | "mailOpen"
   | "calendar"
   | "chat"
+  | "phone"
   | "laptop"
   | "card"
   | "sliders"
@@ -106,6 +107,11 @@ export const brandIcons: Record<BrandIconName, DrawFn> = {
       dot("d3", u, c, { cx: 0.66, cy: 0.43, r: 0.055 }),
     ];
   },
+
+  phone: (u, w, c) => [
+    rect("body", u, w, c, { x0: 0.28, y0: 0.08, x1: 0.72, y1: 0.92, radius: 0.12 }),
+    bar("home", u, w, c, { cx: 0.5, cy: 0.78, length: 0.14 }),
+  ],
 
   laptop: (u, w, c) => [
     rect("screen", u, w, c, { x0: 0.16, y0: 0.18, x1: 0.84, y1: 0.66, radius: 0.1 }),
