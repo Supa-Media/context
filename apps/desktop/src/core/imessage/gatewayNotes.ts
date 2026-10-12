@@ -264,3 +264,45 @@ export async function writeNote(
   if (!match?.[1]) return { ok: false, conflict: false, retryable: true, message: "write_note answered with no etag" };
   return { ok: true, etag: match[1] };
 }
+
+/** What a `list_notes` came back with: every key under the prefix, and its size as the version a contact lookup compares. */
+export type ListNotesResult =
+  | { ok: true; notes: { key: string; version: string }[] }
+  | { ok: false; retryable: boolean; message: string };
+
+/** `0-inbox/contacts/a/adam.md (812 bytes)` — one line of `toolListNotes`. */
+const LISTED_PATTERN = /^(.+) \((\d+) bytes\)$/;
+const NOTHING_LISTED = "(no visible notes under that prefix)";
+
+/**
+ * Every note under a prefix, for the contact lookup. The size stands in for a
+ * version: it is what `list_notes` reports, and a page found through it is
+ * still checked against its identifiers before anything is written to it.
+ */
+export async function listNotes(config: NotesGatewayConfig, prefix: string): Promise<ListNotesResult> {
+  const outcome = await callTool(config, "list_notes", { prefix });
+  if (!outcome.ok) return outcome;
+  if (outcome.isError) return { ok: false, retryable: false, message: NOTES_REFUSAL.read };
+  const text = outcome.text ?? "";
+  if (text.trim() === NOTHING_LISTED) return { ok: true, notes: [] };
+  const notes: { key: string; version: string }[] = [];
+  for (const line of text.split("\n")) {
+    const match = LISTED_PATTERN.exec(line.trim());
+    // A listing this cannot read whole is not a short listing: a short one
+    // reads as "nobody has a page" and starts duplicates.
+    if (!match) return { ok: false, retryable: true, message: "list_notes answered in a shape this app cannot read" };
+    notes.push({ key: match[1]!, version: match[2]! });
+  }
+  return { ok: true, notes };
+}
+
+/** What a `move_note` came back with. */
+export type MoveNoteResult = { ok: true } | { ok: false; retryable: boolean; message: string };
+
+/** The gateway's own move, so an archived contact comes back with its links following it. */
+export async function moveNote(config: NotesGatewayConfig, source: string, destination: string): Promise<MoveNoteResult> {
+  const outcome = await callTool(config, "move_note", { source, destination });
+  if (!outcome.ok) return outcome;
+  if (outcome.isError) return { ok: false, retryable: false, message: "the gateway declined to move that contact back" };
+  return { ok: true };
+}
