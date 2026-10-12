@@ -159,7 +159,9 @@ export function mergeContacts(preferred, other) {
     ...other,
     ...preferred,
     identifiers,
-    conflicts,
+    // Once each: a sync repeats the same disagreement on every message, and an
+    // undeduplicated list grew one page to 2,000 copies of one line.
+    conflicts: [...new Set(conflicts)],
     activity,
     notes: singleLine(preferred?.notes) ? preferred.notes : (other?.notes ?? preferred?.notes ?? ""),
   };

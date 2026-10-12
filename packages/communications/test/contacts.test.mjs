@@ -79,6 +79,14 @@ export function runContactChecks(check) {
   check("...and what the import said is recorded rather than dropped", merged.conflicts.some((line) => line.includes("Somewhere Else")));
   check("...and identifiers are unioned without duplicates", merged.identifiers.length === 2);
   check("...and reprocessing the same message does not duplicate its activity", mergeContacts(adam, adam).activity.length === adam.activity.length);
+  // A page whose name differs from its senders' display name used to gain the
+  // same "also known as" line on every sync: 2,000 copies on one real page.
+  let resynced = { ...adam, name: "Adam O.", conflicts: [] };
+  for (let pass = 0; pass < 5; pass += 1) resynced = mergeContacts(resynced, { ...adam, name: "Adam Okonkwo" });
+  check(
+    "THE SAME DISAGREEMENT IS RECORDED ONCE, however many syncs repeat it",
+    resynced.conflicts.filter((line) => line === "name: also known as Adam Okonkwo").length === 1
+  );
 
   // -- organic communication activity ------------------------------------
   const mailEvent = {
