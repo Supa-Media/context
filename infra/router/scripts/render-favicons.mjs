@@ -27,7 +27,7 @@ const svg = readFileSync(
 const OUTPUTS = [
   { file: "favicon-48.png", size: 48, ground: null },
   { file: "favicon-192.png", size: 192, ground: null },
-  { file: "apple-touch-icon.png", size: 180, ground: "#050506" },
+  { file: "apple-touch-icon.png", size: 180, ground: "#EDE4D3" },
 ];
 
 const browser = await chromium.launch();
