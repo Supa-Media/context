@@ -11,6 +11,7 @@ export {
   flatDayPath,
   channelFolder,
   chooseMailboxSlug,
+  archivedContactPath,
   CONTACT_ARCHIVE_FOLDER,
   CONTACT_OTHER_FOLDER,
   contactLetterFolder,
@@ -87,6 +88,16 @@ export {
   locateContactPage,
   upsertContactDraft,
 } from "./contactLookup.js";
+export {
+  CONTACT_DORMANT_DAYS,
+  CONTACT_SWEEP_BATCH,
+  CONTACT_SWEEP_HOLD_DAYS,
+  dormancyCutoff,
+  hasPendingReview,
+  isDormantContactPage,
+  newestActivityDate,
+  sweepDormantContacts,
+} from "./contactDormancy.js";
 // Calendar lives in its own submodule (`./calendar/`) rather than flattened
 // in here: it is a distinct kind of thing (an event, not a message) with its
 // own folder, own frontmatter and own sync bookkeeping, and every name below

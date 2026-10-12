@@ -5,11 +5,19 @@
 // SABOTAGE RECORD
 //   write to contactPathForDraft's answer instead of the found page -> 2 checks failed
 //   move the archived page with a bare put/delete instead of toolMoveNote -> 1 check failed
+//   the Gmail pass never calls sweepDormant                         -> 2 checks failed
+//   sweepDormant lets a throw out (no catch)                        -> 1 check failed
+//   sweepDormant ignores moveSafetyRefusal                          -> 1 check failed
+//   the sweep moves with a bare put/delete instead of toolMoveNote  -> 1 check failed
+//   (the Chat pass: dropping its sweepDormant call fails the Chat
+//   archive test in apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts)
 
 import { CONTACT_INDEX_KEY, renderContactNote } from "../../../../packages/communications/src/index.js";
 import { gmailMessageToEvent } from "../../src/communications/gmail/parsing.js";
 import { openContactLookup, writeContactDraft } from "../../src/communications/contactLookup.js";
 import { syncOneDay } from "../../src/communications/gmail/render.js";
+import { runIncrementalSync } from "../../src/communications/gmail/sync.js";
+import { createFixtureGmail, fixtureMessage } from "./fixtures.mjs";
 
 /** A store with every guard a move asks for: conditional create, write and delete, and a paged list. */
 function guardedStore(seed = {}) {
@@ -125,6 +133,85 @@ export async function runGmailContactChecks(check) {
     check("a List-Unsubscribe message is marked bulk", gmailMessageToEvent(message([{ name: "List-Unsubscribe", value: "<mailto:x@paper.invalid>" }]), { mailboxSlug: "me" }).bulk === true);
     check("...and so is Precedence: bulk or list", gmailMessageToEvent(message([{ name: "Precedence", value: "list" }]), { mailboxSlug: "me" }).bulk === true);
     check("...and ordinary mail is not, with no new field at all", !("bulk" in gmailMessageToEvent(message([]), { mailboxSlug: "me" })));
+  }
+  // -- the dormancy sweep, on the gateway's store and inside the Gmail pass --
+  {
+    const NOW = "2026-10-12T12:00:00.000Z";
+    const dated = (name, email, date) => renderContactNote({
+      name, slug: "x", now: "2026-01-01T00:00:00.000Z",
+      identifiers: [{ kind: "email", value: email }],
+      activity: [{ date, path: `0-inbox/email/me/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`, anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
+    });
+    const seed = () => ({
+      "privacy.md": PRIVACY,
+      "0-inbox/contacts/c/claire.md": dated("Claire", "claire@example.invalid", "2025-06-01"),
+      "0-inbox/contacts/d/dana.md": dated("Dana", "dana@example.invalid", "2026-09-01"),
+      "2-areas/people.md": "# People\n\n- [[0-inbox/contacts/c/claire|Claire]]\n",
+    });
+    {
+      const store = guardedStore(seed());
+      const contacts = await openContactLookup(store);
+      const swept = await contacts.sweepDormant({ now: NOW });
+      check("the gateway sweep archives a dormant page at its mirror path and keeps an active one",
+        swept.archived.length === 1 && store.text("4-archive/0-inbox/contacts/c/claire.md") !== null &&
+          store.text("0-inbox/contacts/c/claire.md") === null && store.text("0-inbox/contacts/d/dana.md") !== null);
+      check("...through the gateway's own move, so a link to it follows",
+        store.text("2-areas/people.md").includes("[[4-archive/0-inbox/contacts/c/claire|Claire]]"));
+      await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000, contacts });
+      check("...and the next message brings it back, with the link, and no duplicate",
+        store.text("0-inbox/contacts/c/claire.md")?.includes("2026-10-12") && store.text("4-archive/0-inbox/contacts/c/claire.md") === null &&
+          store.text("2-areas/people.md").includes("[[0-inbox/contacts/c/claire|Claire]]") && contactKeys(store).length === 2);
+    }
+    {
+      const store = guardedStore(seed());
+      store.capabilities = { conditionalWrite: true };
+      const swept = await (await openContactLookup(store)).sweepDormant({ now: NOW });
+      check("on a bucket that cannot move a note safely the sweep does not try, and the page stays live",
+        swept.failed === 0 && swept.archived.length === 0 && store.text("0-inbox/contacts/c/claire.md") !== null);
+    }
+    {
+      const store = guardedStore(seed());
+      store.list = async () => { throw new Error("listing refused"); };
+      let threw = false;
+      try {
+        await (await openContactLookup(store)).sweepDormant({ now: NOW });
+      } catch {
+        threw = true;
+      }
+      check("a sweep whose listing fails answers rather than throwing", !threw && store.text("0-inbox/contacts/c/claire.md") !== null);
+    }
+    const gmail = () => createFixtureGmail({
+      messages: [fixtureMessage({ id: "i1", threadId: "t1", date: "2026-10-12T09:00:00.000Z", from: "a@example.invalid", to: "me@example.invalid", subject: "x", text: "x" })],
+      history: { pages: [{ history: [{ messagesAdded: [{ message: { id: "i1" } }] }], historyId: "2000" }] },
+    });
+    const pass = (store) => {
+      const fixture = gmail();
+      return runIncrementalSync({
+        store, fetchImpl: fixture.fetchImpl, accessToken: "tok", mailboxSlug: "me", address: "me@example.invalid",
+        folders: ["inbox", "sent"], startHistoryId: "1000", nonce: "n", quotaBytes: 1_000_000, dormancyNow: NOW,
+      });
+    };
+    {
+      const store = guardedStore(seed());
+      const result = await pass(store);
+      check("a Gmail forward pass sweeps dormant contacts after its own writes",
+        result.daysTouched.length === 1 && store.text("4-archive/0-inbox/contacts/c/claire.md") !== null &&
+          store.text("0-inbox/contacts/d/dana.md") !== null);
+      check("...and keeps what the sweep learned in the lookup's snapshot",
+        JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["4-archive/0-inbox/contacts/c/claire.md"] !== undefined);
+    }
+    {
+      const store = guardedStore(seed());
+      store.delete = async () => { throw new Error("store unreachable"); };
+      let threw = false;
+      let result;
+      try {
+        result = await pass(store);
+      } catch {
+        threw = true;
+      }
+      check("a sweep that fails never fails the Gmail pass", !threw && result.historyId === "2000" && result.daysTouched.length === 1);
+    }
   }
   {
     const store = guardedStore();

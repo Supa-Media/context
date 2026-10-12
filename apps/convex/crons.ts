@@ -261,6 +261,15 @@ crons.interval(
  * would make a claimed pass refuse itself — but it is worth stating plainly
  * rather than letting "every gate is re-asked" imply more than is true.
  *
+ * Since 2026-10-12 a Gmail or Chat pass also **moves** notes: it ends with the
+ * dormant-contact sweep, which files up to 25 contact pages with no activity
+ * in a year under `4-archive/` (owner's decision;
+ * `docs/decisions/communications/contacts-and-chat.md`). That is a write into
+ * the bucket on this clock and holds no decision either: each page is re-read
+ * and re-checked from its own bytes against the clock at the moment it moves,
+ * `privacy.md` is read again for the move, the move is the ordinary one, and
+ * the next message for that person brings the page back.
+ *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
  * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
  * Google's push path is deliberately not built (`docs/decisions/communications.md`)

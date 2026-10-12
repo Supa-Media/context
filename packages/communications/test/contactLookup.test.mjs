@@ -25,7 +25,7 @@ import {
 const OWNER = "owner@example.com";
 
 /** A bucket: path → {text, etag}, with the three operations a sync writer has. */
-function memoryBucket(seed = {}) {
+export function memoryBucket(seed = {}) {
   const objects = new Map();
   let counter = 0;
   const put = (path, text) => objects.set(path, { text, etag: `e${(counter += 1)}` });

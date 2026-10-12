@@ -23,6 +23,8 @@
  *                                                                         4 FAIL (after it, re-measured in review)
  *   `retireOrphanParts` skipped, so a shrunk day keeps its old part N    3 FAIL
  *   `advanceCursor`'s backward/non-integer guard removed                 3 FAIL
+ *   the pass never calls the dormant-contact sweep                       2 FAIL
+ *   the sweep runs before the pass's own contact writes                  1 FAIL
  *
  * The orphan-part row is the second one worth reading. Its fixture gives the
  * two big messages *different* timestamps on the same day on purpose: with a
@@ -452,6 +454,30 @@ export async function runImessageSyncChecks(check) {
     report13.days.every((day) => day.status !== "error") &&
       contactPaths(deps12).length === 1 && !deps12.notes.has("4-archive/0-inbox/contacts/m/mum.md") &&
       deps12.notes.get("0-inbox/contacts/m/mum.md").content.split("2026-09-08 · imessage").length === 3);
+
+  // Dormancy: a page nobody has messaged in a year goes to the archive mirror
+  // at the end of a pass, through the gateway's move; this pass's own person stays.
+  const deps15 = withParticipants(fakeDeps([messageRow(), reply]));
+  const stale = (name, phone) =>
+    `---\nupdated: "2024-01-01T00:00:00.000Z"\ntype: "contact"\nslug: "${name}"\n---\n\n# ${name}\n\n## Identifiers\n\n- phone: ${phone}\n\n` +
+    `## Activity\n\n### 2024-01\n\n- 2024-01-01 · imessage — [[0-inbox/imessage/2024/01/2024-01-01#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
+  deps15.notes.set("0-inbox/contacts/z/zed.md", { content: stale("zed", "+15550000000"), etag: "seed-1" });
+  deps15.notes.set("0-inbox/contacts/o/old-friend.md", { content: stale("old-friend", "+15551234567"), etag: "seed-2" });
+  const moved = [];
+  const move15 = deps15.moveNote;
+  deps15.moveNote = async (source, destination) => {
+    moved.push(source);
+    return move15(source, destination);
+  };
+  const report15 = await syncImessage(deps15, EMPTY_CURSOR);
+  check("an iMessage pass archives a contact page with no activity in a year",
+    report15.days.every((day) => day.status !== "error") &&
+      !deps15.notes.has("0-inbox/contacts/z/zed.md") && deps15.notes.has("4-archive/0-inbox/contacts/z/zed.md"));
+  check("...and keeps the page of the person this pass just wrote to",
+    deps15.notes.get("0-inbox/contacts/o/old-friend.md")?.content.includes("2026-09-07") &&
+      !deps15.notes.has("4-archive/0-inbox/contacts/o/old-friend.md"));
+  check("...because the sweep runs after the pass's own writes, so that page is never moved at all",
+    JSON.stringify(moved) === JSON.stringify(["0-inbox/contacts/z/zed.md"]));
 
   const refusing = withParticipants(fakeDeps([reply]));
   refusing.listNotes = async () => ({ ok: false, retryable: true, message: "the gateway could not be reached" });

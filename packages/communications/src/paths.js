@@ -464,3 +464,14 @@ export function liveContactPathForArchived(path, options = {}) {
   const live = `${root}${path.slice(archive.length)}`;
   return isContactNotePath(live, { root }) ? live : null;
 }
+
+/**
+ * Where a live contact page goes when it goes dormant — the same relative path
+ * under the archive, so `liveContactPathForArchived` is its exact inverse — or
+ * `null` when this is not a live contact page.
+ */
+export function archivedContactPath(path, options = {}) {
+  if (!isContactNotePath(path, options)) return null;
+  const root = normalizeRoot(options.root);
+  return `${root}${CONTACT_ARCHIVE_FOLDER}/${path.slice(root.length)}`;
+}
