@@ -39,6 +39,27 @@ test("/ is page a: Tex, the feeling, a day being sorted, and the phone sign-up u
   await expect(page.locator("#join").getByLabel("Phone number")).toBeVisible();
 });
 
+test("page a fits a laptop window with no scrolling, the sign-up open too", async ({ page }) => {
+  // Dev2, 2026-10-12: "everything should fit on the page without scrolling".
+  for (const [width, height] of [
+    [1280, 720],
+    [1440, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto("/");
+    await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
+    const overflow = () => page.locator(".sp").evaluate((el) => el.scrollHeight - el.clientHeight);
+    expect(await overflow()).toBeLessThanOrEqual(1);
+    const foot = await page.locator(".sp-foot").evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(foot).toBeLessThanOrEqual(height);
+    await page.getByRole("button", { name: /Join the waitlist/ }).click();
+    await expect(page.locator("#join").getByLabel("Phone number")).toBeFocused();
+    expect(await overflow()).toBeLessThanOrEqual(1);
+    const send = await page.getByRole("button", { name: "Text me a code" }).evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(send).toBeLessThanOrEqual(height);
+  }
+});
+
 test("/b is the page / showed before, with the map and the real editor playing a demo", async ({ page }) => {
   await page.goto("/b");
   await expect(page.locator("[data-landing=b]")).toBeVisible({ timeout: 15_000 });

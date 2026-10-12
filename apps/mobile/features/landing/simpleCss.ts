@@ -28,5 +28,24 @@ export const SIMPLE_CSS = `
 .sp-foot{width:100%;max-width:704px;margin:0 auto;padding:0 32px 32px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}
 .sp-copy{margin-left:auto}
 .sp-foot a:hover{color:var(--ink)}
+/*
+  A computer's window holds the whole page with no scrolling (Dev2,
+  2026-10-12: "everything should fit on the page without scrolling"): the
+  words on the left, the graph on the right at whatever height is left, and
+  the sign-up taking the graph's place once "Join the waitlist" is pressed.
+  A phone keeps the one column and scrolls.
+*/
+@media (min-width:900px) and (min-height:560px){
+  .sp{overflow-y:hidden}
+  .sp-col{max-width:1180px;min-height:0;display:grid;grid-template-columns:minmax(0,520px) minmax(0,1fr);grid-template-rows:1fr repeat(6,auto) 1fr;column-gap:clamp(40px,5vw,80px);row-gap:.9em;padding:clamp(16px,4vh,40px) 40px clamp(12px,2vh,24px);font-size:clamp(17px,1.3vw,20px)}
+  .sp-col>*{grid-column:1}
+  .sp-col>:nth-child(1){grid-row:2}.sp-col>:nth-child(2){grid-row:3}.sp-col>:nth-child(4){grid-row:4}
+  .sp-col>:nth-child(5){grid-row:5}.sp-col>:nth-child(6){grid-row:6}.sp-col>:nth-child(7){grid-row:7}
+  .sp-col>.sp-figure,.sp-col>.sp-join{grid-column:2;grid-row:1/-1;align-self:center;margin:0}
+  .sp-graph{height:min(560px,calc(100dvh - 150px))}
+  .sp[data-joining] .sp-figure{display:none}
+  .sp-join{max-width:380px;justify-self:start}
+  .sp-foot{max-width:1180px;padding:0 40px clamp(14px,2.5vh,28px)}
+}
 @media (max-width:600px){.sp-col,.sp-foot{padding-left:20px;padding-right:20px}.sp-tex{width:60px;height:60px}.sp-copy{margin-left:0}.sp-graph{height:330px}}
 `;
