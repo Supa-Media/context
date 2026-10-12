@@ -33,6 +33,19 @@ const WRITES = new Set([
   "approve_proposal",
 ]);
 
+/**
+ * Changes whose real effect is in `privacy.md`, not in the path they name.
+ *
+ * `set_visibility` records the note and `set_folder_visibility` the folder,
+ * because that is what a person reads in the activity feed — but the bytes
+ * that changed are the manifest's. The control plane keeps a mirror of the
+ * rules and refreshes it only when a touch names that file
+ * (`lib/nodes/touch.ts`), and from the Convex tree's phase 2 a folder listing
+ * is decided from the mirror. A touch that named only the note would leave
+ * the mirror holding rules the owner has already taken back.
+ */
+const PRIVACY_WRITERS = new Set(["set_visibility", "set_folder_visibility"]);
+
 /** Moves of one note, whose source's visibility before the move the tool records. */
 const ONE_NOTE_MOVES = new Set(["move_note", "archive_note"]);
 
@@ -62,11 +75,16 @@ export function treeTouchOf(action, paths, details) {
   if (sendsTreeHint(action, details)) {
     const pairs = movesOf(action, named, details);
     const moves = pairs.length > 0 ? { moves: pairs } : {};
+    // Carried as a flag rather than a path: the tree table re-checks what the
+    // change named, and only the control plane's mirror needs the manifest.
+    const privacy = PRIVACY_WRITERS.has(action) ? { privacy: true } : {};
     const visibility = details?.source_visibility;
-    if (!ONE_NOTE_MOVES.has(action) || named.length !== 2 || typeof visibility !== "string") return { paths: named, ...moves };
+    if (!ONE_NOTE_MOVES.has(action) || named.length !== 2 || typeof visibility !== "string") {
+      return { paths: named, ...moves, ...privacy };
+    }
     const audiences = ["private"];
     if (visibility === "team" || GROUP_SCOPE_PATTERN.test(visibility)) audiences.push(visibility);
-    return { paths: named, left: [{ path: named[0], audiences }], ...moves };
+    return { paths: named, left: [{ path: named[0], audiences }], ...moves, ...privacy };
   }
   if (WRITES.has(action)) return { files: named };
   return null;
