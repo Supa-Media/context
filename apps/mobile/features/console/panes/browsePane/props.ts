@@ -48,23 +48,10 @@ export type BrowsePaneProps = {
    */
   anchor?: string | null;
   /**
-   * Open a communications path from inside a comms view — a contact's
-   * activity link, today. **Not `files.select`**: an activity link names an
-   * anchor as well as a path, and `select` has no way to carry one. The
-   * caller does a real navigation (`router.push(noteHref(slug, path,
-   * anchor))`), which is the same URL a pasted link or a search result would
-   * use — so this view never invents a second way to reach "note plus
-   * anchor". Absent on a console with no router behind it (the landing
-   * page's demo, `e2e-fixture`'s own wiring), in which case activity links
-   * still open the day — `files.select`, anchor dropped — rather than doing
-   * nothing.
-   */
-  onOpenComms?: (path: string, anchor?: string) => void;
-  /**
    * Go to a console-wide route — the welcome card's Connections and
-   * `/welcome` rows. A prop rather than `useRouter` in the band, for
-   * `onOpenComms`' reason: the demo console and the fixtures have no router,
-   * and without one those rows are drawn as text rather than as dead links.
+   * `/welcome` rows. A prop rather than `useRouter` in the band: the demo
+   * console and the fixtures have no router, and without one those rows are
+   * drawn as text rather than as dead links.
    */
   onNavigate?: (href: string) => void;
   /**

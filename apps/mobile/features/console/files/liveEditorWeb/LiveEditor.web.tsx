@@ -164,7 +164,7 @@ export function LiveEditor({
   links.current = {
     path: notePath ?? null,
     paths: notePaths,
-    onOpen: (path, mode) => onOpenNote?.(path, mode),
+    onOpen: (path, mode, anchor) => onOpenNote?.(path, mode, anchor),
     onOpenUrl: openWebUrl,
   };
 

@@ -131,7 +131,7 @@ export interface NoteEditorProps {
    * and the gesture is a tap now, which is not ambiguous. Nothing is at risk
    * from a tap that was not at risk from a click.
    */
-  onOpenLink?: (path: string, mode: NoteLinkOpen) => void;
+  onOpenLink?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
   /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
   /**

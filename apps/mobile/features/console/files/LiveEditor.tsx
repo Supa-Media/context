@@ -310,7 +310,7 @@ export function LiveEditor({
             navigating to a note relative to whichever note was open when the
             editor mounted.
           */
-          onOpenNote: (path, mode) => handlers.current.onOpenNote?.(path, mode),
+          onOpenNote: (path, mode, anchor) => handlers.current.onOpenNote?.(path, mode, anchor),
           /*
             A web link leaves the app, so it is asked about first, with the
             address shown. The host has already allow-listed the scheme; the

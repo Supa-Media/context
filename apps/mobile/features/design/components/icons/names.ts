@@ -318,6 +318,8 @@ export const ICON_NAMES = [
   "calendar",
   /** Chats: a bubble with a tail and the three dots every platform draws. */
   "chat",
+  /** A phone number, on a contact page's header: a handset, drawn as the slab every phone now is. */
+  "phone",
   /** Your devices — a laptop, because that is the only machine that captures. */
   "laptop",
   /**

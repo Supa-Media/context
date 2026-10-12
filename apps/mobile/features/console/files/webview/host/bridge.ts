@@ -63,7 +63,7 @@ export interface HostSink extends ExtrasSink {
    * `"background"` is a ⌘-click or middle-click and must not move the person:
    * the note opens in a tab behind the one they are reading.
    */
-  onOpenNote?: (path: string, mode: "foreground" | "background") => void;
+  onOpenNote?: (path: string, mode: "foreground" | "background", anchor?: string) => void;
   /**
    * A web link was tapped, and the host has already checked it is `https:`,
    * `http:` or `mailto:`. See the `open-url` case.
@@ -467,7 +467,9 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           following links out of.
         */
         case "open-link":
-          sink.onOpenNote?.(message.path, message.mode);
+          // The anchor only ever finds a place in the note it opens; anything
+          // but a string is dropped rather than trusted.
+          sink.onOpenNote?.(message.path, message.mode, typeof message.anchor === "string" ? message.anchor : undefined);
           return;
         /*
           A web link, and the one message here that leaves the app.

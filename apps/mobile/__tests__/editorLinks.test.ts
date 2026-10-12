@@ -49,6 +49,8 @@
  *   `onLinkText` dropped, so a click beside a link opens it         2
  *   an edge caret counted as inside, so a click on a link edits it  1
  *   a tap asks `editing` again, so a tap on a link edits it          1
+ *   the tap's copy of the link drops its anchor                     1
+ *   `follow` drops the anchor for click and tap alike               2
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -693,5 +695,51 @@ describe("a bare name in a different case", () => {
     missing!.dispatchEvent(mouse("mousedown"));
     expect(mounted.opened).toEqual([]);
     mounted.destroy();
+  });
+});
+
+/**
+ * A link that names a place inside a note opens the note *there*: the anchor
+ * reaches `onOpen` from a click and from a tap alike. The tap keeps its own
+ * copy of the link between `touchstart` and `touchend`, and that copy is
+ * where the anchor was lost — the WebKit case in `commsInbox.spec.ts` found it.
+ */
+describe("the place a link names travels with it", () => {
+  const DAY = "0-inbox/email/a/2026/09/2026-09-07.md";
+  function anchored() {
+    const opened: [string, string | undefined][] = [];
+    const ref = {
+      current: {
+        path: "0-inbox/contacts/a/adam.md",
+        onOpen: (path: string, _mode: NoteLinkOpen, anchor?: string) => opened.push([path, anchor]),
+      } satisfies NoteLinkContext,
+    };
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "[[0-inbox/email/a/2026/09/2026-09-07#msg-0123abcd|Board]] on the day",
+        extensions: [noteLinks(ref)],
+      }),
+      parent,
+    });
+    const link = view.contentDOM.querySelector<HTMLElement>(".cm-note-link")!;
+    return { opened, link, destroy: () => (view.destroy(), parent.remove()) };
+  }
+
+  test("a click", () => {
+    const { opened, link, destroy } = anchored();
+    link.dispatchEvent(mouse("mousedown"));
+    expect(opened).toEqual([[DAY, "msg-0123abcd"]]);
+    destroy();
+  });
+
+  test("a tap", () => {
+    jest.useFakeTimers();
+    const { opened, link, destroy } = anchored();
+    link.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    link.dispatchEvent(touch("touchend", []));
+    expect(opened).toEqual([[DAY, "msg-0123abcd"]]);
+    destroy();
   });
 });
