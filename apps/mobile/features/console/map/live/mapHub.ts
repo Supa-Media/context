@@ -44,12 +44,13 @@ export function hubFrom(input: {
 }
 
 /**
- * The desktop app's own connection, by the flag the server reads from its
- * declared software id, or by the name it registers under for a desktop
- * install from before that flag. Only decides what the map draws.
+ * The app's own connection: the console, by the name only Context registers
+ * under (`normalizeClientName` marks a stranger who tries it), or the desktop
+ * app, by the flag the server derives (`isDesktopShellClient`). The name a
+ * desktop install registers under is recognised there rather than here,
+ * because a name read at this layer is a name a client chose for itself, and
+ * what this decides is whether the map draws the thing at all.
  */
-const DESKTOP_NAME = /^Context on /;
-
 function isAppClient(client: { name: string; machine?: boolean }): boolean {
-  return client.machine === true || client.name === CONSOLE_CLIENT_NAME || DESKTOP_NAME.test(client.name);
+  return client.machine === true || client.name === CONSOLE_CLIENT_NAME;
 }

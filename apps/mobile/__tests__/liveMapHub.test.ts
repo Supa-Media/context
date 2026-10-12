@@ -207,13 +207,31 @@ describe("the hub from the console's data", () => {
       contexts,
       clients: [
         { name: "Context on Seyis-MacBook-Pro", context: "@seyi", mine: true, machine: true },
-        { name: "Context on Old-Laptop", context: "@seyi", mine: true },
+        { name: "Context on Old-Laptop", context: "@seyi", mine: true, machine: true },
         { name: "Laptop recorder", context: "@seyi", mine: true, machine: true },
         { name: "ChatGPT", context: "@seyi", mine: true, machine: false },
       ],
       members: new Map(),
     });
     expect(hub.agents.map((a) => a.name)).toEqual(["ChatGPT"]);
+  });
+
+  // A client name is display text the client chose at registration, so it
+  // cannot decide whether the map draws the thing at all: the server says
+  // which grant is the desktop shell, under a bound a stranger cannot claim.
+  // An install from before that flag still reads as the shell, because the
+  // server recognises the name it registers under — here nothing does.
+  test("a tool named like the desktop app is still drawn as a tool", () => {
+    const hub = hubFrom({
+      you: "@seyi",
+      contexts,
+      clients: [
+        { name: "Context on nothing", context: "@seyi", mine: true, machine: false },
+        { name: "Context on nothing at all", context: "@seyi", mine: true },
+      ],
+      members: new Map(),
+    });
+    expect(hub.agents.map((a) => a.name)).toEqual(["Context on nothing", "Context on nothing at all"]);
   });
 
   test("people per workspace, faces without you", () => {

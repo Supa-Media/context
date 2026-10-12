@@ -26,7 +26,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
-import { DESKTOP_SOFTWARE_ID } from "./lib/machineGrant";
+import { isDesktopShellClient } from "./lib/machineGrant";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 import { RATE_LIMIT_RETENTION_MS, consumeRateLimit } from "./lib/rateLimit";
@@ -73,8 +73,9 @@ const grantSummary = v.object({
   isMine: v.boolean(),
   /**
    * The Context desktop app on one of this person's computers (it records
-   * meetings), not an AI tool. From the client's declared `softwareId`, so it
-   * decides how a row is drawn and never what the grant may do.
+   * meetings), not an AI tool. `isDesktopShellClient` decides, so a client
+   * cannot name or declare its way into it; it decides how a row is drawn and
+   * never what the grant may do.
    */
   isMachine: v.boolean(),
   lastUsedAt: v.optional(v.number()),
@@ -159,7 +160,7 @@ export const listGrants = query({
         scopes: grant.scopes,
         status: grant.status,
         isMine: grant.userId === userId,
-        isMachine: client?.softwareId === DESKTOP_SOFTWARE_ID,
+        isMachine: client !== null && isDesktopShellClient(client),
         lastUsedAt: grant.lastUsedAt,
         createdAt: grant.createdAt,
         revokedAt: grant.revokedAt,
