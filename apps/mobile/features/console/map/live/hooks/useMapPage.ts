@@ -18,6 +18,7 @@ import {
 } from "../engine";
 import { crossMoveRows, liveFeed, nameBook, replayFeed, workingNowLine, type CrossMoveRow, type FeedItem } from "../feed";
 import { setMapFolderCounts } from "../mapCounts";
+import { agentsAtWork } from "../mapHub";
 import { useMapFixtureSource } from "../MapSourceContext";
 import { recallScope, rememberScope } from "../peek/mapMemory";
 import { DAY_MS, replayIdleMs, replayReducer, rollingWindow, startOfDay, type ReplayAction, type ReplayState, type Stretch } from "../replayClock";
@@ -180,7 +181,11 @@ export function useMapPage(data: ConsoleData) {
   const clock: MapClock = replaying
     ? { kind: "replay", from: replay.from, to: replay.to, at: replay.seek, speed: replay.speed, idleMs: replayIdleMs(replay.to - replay.from) }
     : { kind: "live" };
-  const hub = useMapHub(data, scope === "all" && many && remote);
+  const atWork = useMemo(
+    () => agentsAtWork(replaying ? actorsAt(events, replay.at, replayIdleMs(replay.to - replay.from)) : live.actors, replaying ? null : { now }),
+    [replaying, events, replay?.at, replay?.from, replay?.to, live.actors, now],
+  );
+  const hub = useMapHub(data, scope === "all" && many && remote, atWork);
   const palette = useMemo(() => mapPalette(colors, scheme === "dark" ? darkMapColors : lightMapColors), [colors, scheme]);
 
   const mapData: MapData = useMemo(
