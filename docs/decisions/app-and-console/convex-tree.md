@@ -87,6 +87,35 @@ rolled back by reading the old way, because the bucket stays the files' truth.
 7. The D1 tree table, its change log and the duplicated gateway file
    operations are removed.
 
+**Phase 2, as built (2026-10-12).** The console's sidebar and folder pages
+read folders from `nodesListing.listFolder`, a live query, so a change made
+anywhere redraws every open tab that shows the folder. Four rules hold it:
+
+- **The tree answers only where it is proved.** `treeServes`
+  (`lib/nodes/listing.ts`) answers for a workspace whose last parity check
+  matched at every clearance and whose last pass did not fail. Anywhere else,
+  and for everybody while staff have paused the migration, the query answers
+  `null` and the console reads the bucket exactly as before. Pause is
+  therefore the way back for every reader at once. A tree's first finished
+  copy is checked automatically, so new workspaces join on their own.
+- **Privacy is not reimplemented.** The rows and the rules mirror are handed
+  to the unchanged `listFolder` as a store, so `canSee`, the folder test and
+  "a withheld folder answers as an absent one" are the same code the bucket
+  listing runs.
+- **A console change updates the tree before it answers.** The re-check
+  that phase 1 scheduled now runs inside the change (`touchNodesNow`), and a
+  change that rewrote `privacy.md` re-reads the rules too. The tab that made
+  the change never reads the tree from before it. Changes from the gateway
+  and email still re-check on a scheduled job, a second or so later.
+- **A folder is drawn only while something is in it**, as in a bucket
+  listing: a tombstone that leaves a folder empty marks the folder gone, up
+  the chain, and a file observed in it brings it back
+  (`retireEmptyFolders`, `reviveChain` in `observe.ts`).
+
+Still to come in phase 2: Home, pins, recents and the open note's identity.
+The device copy and the tree hint stay for offline, and a tab the tree
+serves no longer walks the bucket on a hint.
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
@@ -119,6 +148,10 @@ What fails if reversed:
   overwrites a newer one.
 - `apps/convex/__tests__/nodes/convexNodes.test.ts`: one workspace never
   reads or changes another's rows.
+- `apps/convex/__tests__/nodes/nodesListing.test.ts`: the live listing
+  refuses strangers, answers `null` unless proved, and shows each clearance
+  what the bucket's listing shows; `inlineTouch.test.ts`: a console change
+  updates the tree before it answers.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.

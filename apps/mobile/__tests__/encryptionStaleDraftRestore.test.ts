@@ -57,6 +57,8 @@ const bound: Record<string, (args: never) => Promise<unknown>> = {};
 jest.mock("convex/react", () => {
   const { getFunctionName } = require("convex/server") as typeof import("convex/server");
   return {
+    useQueries: () => ({}),
+    useConvex: () => ({ query: async () => null }),
     useAction: (ref: never) => {
       const fnName = getFunctionName(ref);
       bound[fnName] ??= (args: never) => actions[fnName]!(args);

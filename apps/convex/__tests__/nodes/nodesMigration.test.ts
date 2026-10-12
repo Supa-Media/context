@@ -92,7 +92,7 @@ describe("migration report", () => {
 
     const report = await staff.query(api.functions.nodesMigration.report, {});
     expect(report.paused).toBe(false);
-    expect(report.phase).toBe(1);
+    expect(report.phase).toBe(2);
     const bySlug = Object.fromEntries(report.rows.map((row) => [row.slug, row]));
     expect(bySlug.copied).toMatchObject({ stage: "copied", files: 1, sweptAt: 20 });
     expect(bySlug.fresh).toMatchObject({ stage: "waiting", files: 0, sweptAt: null });

@@ -231,6 +231,16 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
+    // A tree's first finished copy is checked against its bucket at once, so a
+    // new workspace starts being served (`nodesListing.ts`) without staff
+    // pressing Check. Later checks are staff's to ask for.
+    if (row?.parity === undefined) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "nodesParity" },
+      });
+    }
     return null;
   },
 });

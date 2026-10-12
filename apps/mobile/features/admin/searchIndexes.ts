@@ -44,7 +44,7 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
   {
     key: "convex",
     label: "Convex copy",
-    what: "Phase 1 of the backend migration: each workspace's file tree copied into Convex and checked against its bucket. Nothing reads it yet.",
+    what: "The backend migration: each workspace's file tree copied into Convex and checked against its bucket. Once a check matches, the app's sidebar and folder pages read it live. Pause sends everyone back to the bucket.",
   },
 ];
 
@@ -147,7 +147,7 @@ export function parityWords(parity: MigrationRow["parity"]): string {
 }
 
 /**
- * The Convex copy (phase 1 of the migration). While the whole migration is
+ * The Convex copy (the backend migration). While the whole migration is
  * paused, a copy that has not finished reads as paused, not as stuck: the
  * owner paused it on purpose.
  */

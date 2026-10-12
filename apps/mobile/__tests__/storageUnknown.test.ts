@@ -53,6 +53,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
+
   // An owner picker searches through the client; nothing here opens one.
   useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
