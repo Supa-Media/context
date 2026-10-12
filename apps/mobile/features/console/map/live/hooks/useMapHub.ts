@@ -37,7 +37,7 @@ export function useMapHub(
     const rows = results[id];
     if (Array.isArray(rows)) members.set(id, rows as HubMember[]);
   }
-  const hub = enabled ? hubFrom({ you: data.viewer.name, contexts: data.contexts, clients: data.clients, members, working }) : null;
+  const hub = enabled ? hubFrom({ contexts: data.contexts, clients: data.clients, members, working }) : null;
   const said = JSON.stringify(hub);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => hub, [said]);

@@ -15,13 +15,14 @@ import { fakeCanvas, para, palette } from "./liveMapFixture";
  * workspace, all the other workspaces you're connected to, the agents
  * connected to each workspace… we can market with that").
  *
- * You in the middle, workspaces in a ring round you, each AI tool you
- * connected between the workspaces it reaches with a dotted line in its own
+ * Workspaces in a ring round an empty middle, each of your AI tools at work
+ * between the workspaces it is working in with a dotted line in its own
  * colour, and each workspace saying who is in it rather than how many notes.
+ * No face marked "You" and no roads out to the workspaces (Dev2, 2026-10-12).
  *
  * Sabotage record: the old grid in `placeIslands` fails "a ring with the
- * middle clear"; dropping `drawHubLines` from the render fails "you, roads
- * and the agents' lines"; counting notes with a hub fails "who is in it";
+ * middle clear"; dropping `drawHubLines` from the render fails "the agents'
+ * lines, and no You or roads"; drawing You or the roads again fails it too; counting notes with a hub fails "who is in it";
  * keeping a colleague's grant fails "only your own tools"; ending lines at
  * the island's circle again fails "every line lands on a folder"; drawing
  * names without checking each other fails "names never run into each other";
@@ -34,7 +35,6 @@ const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
 const graphs = () => [para("ws-a", "Personal", 30), para("ws-b", "Supa", 24), para("ws-c", "Public Worship", 18)];
 
 const HUB: MapHub = {
-  you: "@seyi",
   workspaces: { "ws-a": { people: 1, faces: [] }, "ws-b": { people: 13, faces: ["@maya", "@jo", "@ade", "@kim", "@lu"] }, "ws-c": { people: 2, faces: ["@pat"] } },
   agents: [
     { id: "agent:Claude", name: "Claude", workspaceIds: ["ws-a", "ws-b"] },
@@ -88,12 +88,13 @@ describe("all workspaces round you", () => {
     expect([islands[0]!.x, islands[0]!.y]).toEqual([0, 0]);
   });
 
-  test("you, roads and the agents' lines", () => {
+  // Dev2, 2026-10-12: "whats the You icon needed for though?" It is not.
+  test("the agents' lines, and no You or roads", () => {
     const { calls, text } = frame(data());
-    expect(text).toContain("You");
+    expect(text).not.toContain("You");
     expect(text).toContain("Claude");
     expect(text).toContain("Codex");
-    expect(calls.some((c) => c.op === "stroke" && c.strokeStyle === palette.zoneLine)).toBe(true);
+    expect(calls.some((c) => c.op === "stroke" && c.strokeStyle === palette.zoneLine)).toBe(false);
     for (const name of ["Claude", "Codex"]) {
       const tint = agentPaint(name, palette.agent).tint;
       expect(calls.some((c) => c.op === "stroke" && c.strokeStyle === tint)).toBe(true);
@@ -188,7 +189,6 @@ describe("the hub from the console's data", () => {
 
   test("only your own tools, one per tool, the app itself left out", () => {
     const hub = hubFrom({
-      you: "@seyi",
       contexts,
       clients: [
         { name: "Claude", context: "@seyi", mine: true },
@@ -207,7 +207,6 @@ describe("the hub from the console's data", () => {
   // is the desktop app recording meetings: the person's own hand, like the console.
   test("the desktop app is not an agent", () => {
     const hub = hubFrom({
-      you: "@seyi",
       contexts,
       clients: [
         { name: "Context on Seyis-MacBook-Pro", context: "@seyi", mine: true, machine: true },
@@ -228,7 +227,6 @@ describe("the hub from the console's data", () => {
   // server recognises the name it registers under — here nothing does.
   test("a tool named like the desktop app is still drawn as a tool", () => {
     const hub = hubFrom({
-      you: "@seyi",
       contexts,
       clients: [
         { name: "Context on nothing", context: "@seyi", mine: true, machine: false },
@@ -242,7 +240,6 @@ describe("the hub from the console's data", () => {
 
   test("people per workspace, faces without you", () => {
     const hub = hubFrom({
-      you: "@seyi",
       contexts,
       clients: [],
       working: [],
@@ -258,7 +255,6 @@ describe("the hub from the console's data", () => {
   // working in a workspace". Connected is not enough; at work is.
   test("an idle tool is not drawn, and a busy one only to where it works", () => {
     const hub = hubFrom({
-      you: "@seyi",
       contexts,
       clients: [
         { name: "Claude", context: "@seyi", mine: true },
@@ -272,11 +268,11 @@ describe("the hub from the console's data", () => {
     expect(hub.agents).toEqual([{ id: "agent:Claude", name: "Claude", workspaceIds: ["ws-b"] }]);
   });
 
-  test("nobody at work: no agents, the roads and you stay", () => {
-    const hub = hubFrom({ you: "@seyi", contexts, clients: [{ name: "Claude", context: "@seyi", mine: true }], members: new Map(), working: [] });
+  test("nobody at work: an empty middle", () => {
+    const hub = hubFrom({ contexts, clients: [{ name: "Claude", context: "@seyi", mine: true }], members: new Map(), working: [] });
     expect(hub.agents).toEqual([]);
     const { text } = frame(data({ hub }));
-    expect(text).toContain("You");
+    expect(text).not.toContain("You");
     expect(text).not.toContain("Claude");
   });
 

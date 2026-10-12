@@ -53,5 +53,10 @@ drawn by what is happening, not by what exists:
   icon so a note moved into Archive still lands somewhere. Its folder page still
   lists every note.
 
-Reversing either brings back the clutter Dev2 asked to remove; tests:
-`liveMapHub.test.ts` ("an idle tool is not drawn") and `liveMapArchive.test.ts`.
+- **No "You" in the middle, and no roads** (Dev2, 2026-10-12: "whats the You
+  icon needed for though?"). Every workspace in the ring is already one you
+  are in, so the face and its roads out said nothing; the middle stays empty
+  until an agent works.
+
+Reversing any of these brings back the clutter Dev2 asked to remove; tests:
+`liveMapHub.test.ts` ("an idle tool is not drawn", "no You or roads") and `liveMapArchive.test.ts`.

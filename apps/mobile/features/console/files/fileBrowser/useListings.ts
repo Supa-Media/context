@@ -29,12 +29,17 @@ import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 
 type ListingsDeps =
-  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "workspaceId">
+  & Pick<FileActionsValues, "listFiles" | "notePathsAction" | "searchContext" | "reportSearchScreen" | "workspaceId" | "workspaceGenerationRef">
   & Pick<
     BrowserStateValues,
+    | "confirmOnlineMoves"
     | "dispatch"
     | "listedAtRef"
+    | "nextListingStamp"
     | "openRun"
+    | "setBusy"
+    | "setToasts"
+    | "renamingRef"
     | "setClipboard"
     | "setExpanded"
     | "setIndexedPaths"
@@ -48,10 +53,28 @@ type ListingsDeps =
 
 export function useListings(deps: ListingsDeps) {
   const {
-    dispatch, listFiles, listedAtRef, listings, notePathsAction, offlineRef, openRun,
+    confirmOnlineMoves, setBusy, setToasts, renamingRef, dispatch, listFiles, listedAtRef, nextListingStamp, listings, notePathsAction, offlineRef, openRun,
     searchContext, reportSearchScreen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
-    setOpening, setSelectedPath, workspaceId,
+    setOpening, setSelectedPath, workspaceId, workspaceGenerationRef,
   } = deps;
+
+  // Record accepted live answers inside the listing updater, then settle
+  // overlays after the render. Publishing overlay state from an updater
+  // would nest a state update while React is reconciling listings.
+  const liveConfirmations = useRef(new Map<string, {
+    epoch: number; page: FolderListing | null; refused: boolean;
+  }>());
+  const epoch = workspaceGenerationRef.current.epoch;
+  const isCurrent = useCallback(() => workspaceGenerationRef.current.epoch === epoch, [epoch]);
+  useEffect(() => {
+    const accepted = [...liveConfirmations.current];
+    liveConfirmations.current.clear();
+    for (const [folder, answer] of accepted) {
+      if (workspaceGenerationRef.current.epoch === answer.epoch) {
+        confirmOnlineMoves(folder, answer.page, answer.refused);
+      }
+    }
+  });
 
   /**
    * Reload folders, from the bucket where it can be reached and from the device
@@ -70,7 +93,7 @@ export function useListings(deps: ListingsDeps) {
     async (
       folders: readonly string[],
     ): Promise<{ servedFromCache: boolean; pages: Listings }> => {
-      if (workspaceId === null) return { servedFromCache: false, pages: {} };
+      if (workspaceId === null || !isCurrent()) return { servedFromCache: false, pages: {} };
       const offline = offlineRef.current;
       let servedFromCache = false;
       /*
@@ -104,10 +127,12 @@ export function useListings(deps: ListingsDeps) {
         stale entry instead of keeping it.
       */
       const fetched: Listings = {};
-      const started = Date.now();
+      const started = nextListingStamp();
       const commit = (folder: string, page: FolderListing | null, live = false, refused = false) => {
+        if (!isCurrent()) return;
         fetched[folder] = page ?? undefined;
         setListings((current) => {
+          if (!isCurrent()) return current;
           // A page asked for before this console drew a change into the folder
           // (a rename, a move, an undo) describes the folder without it, and
           // landing it would undo the drawing — and close the renamed note's
@@ -119,7 +144,10 @@ export function useListings(deps: ListingsDeps) {
           // queued: outside, a draw queued a moment earlier may not have
           // stamped anything yet.
           if (!refused && (listedAtRef.current.get(folder) ?? 0) > started) return current;
-          if (live) listedAtRef.current.set(folder, started);
+          if (live) {
+            listedAtRef.current.set(folder, started);
+            liveConfirmations.current.set(folder, { epoch, page, refused: refused || page === null });
+          }
           const next = { ...current };
           if (page === null) delete next[folder];
           else next[folder] = page;
@@ -141,10 +169,12 @@ export function useListings(deps: ListingsDeps) {
           }
           try {
             const page = await listFiles({ workspaceId, path: folder });
+            if (!isCurrent()) return;
             offline.rememberListing(page);
             commit(folder, page, true);
             return;
           } catch (error) {
+            if (!isCurrent()) return;
             const failure = toFileError(error);
             // A folder that has become invisible (its visibility changed, or
             // it was moved) is not an error worth shouting about — it is a
@@ -174,7 +204,7 @@ export function useListings(deps: ListingsDeps) {
       );
       return { servedFromCache, pages: fetched };
     },
-    [listFiles, workspaceId],
+    [isCurrent, listFiles, nextListingStamp, workspaceId],
   );
 
   /**
@@ -199,8 +229,8 @@ export function useListings(deps: ListingsDeps) {
    * reload" says less than the refusal it is standing in for.
    */
   const reportRefreshFailure = useCallback((error: unknown) => {
-    setNotice(toFileError(error).message);
-  }, []);
+    if (isCurrent()) setNotice(toFileError(error).message);
+  }, [isCurrent]);
 
   /**
    * `ensureListing` on `FileBrowser`: fetch a folder's listing into the cache
@@ -242,12 +272,13 @@ export function useListings(deps: ListingsDeps) {
     (tree: MirroredTree, options: { fromDevice: boolean }) => {
       const listedAt = listedAtRef.current;
       setListings((current) => {
+        if (!isCurrent()) return current;
         const next = adoptMirroredTree(current, tree, listedAt, options.fromDevice);
         stampLiveFolders(next, tree, listedAt);
         return next;
       });
     },
-    [],
+    [isCurrent],
   );
 
   /**
@@ -267,9 +298,21 @@ export function useListings(deps: ListingsDeps) {
    * request goes out — so by the time a page comes back, the map holds only
    * listings for the context being loaded.
    */
-  const takeRootListing = useCallback((page: FolderListing) => {
-    setListings((current) => ({ ...current, "": page }));
-  }, []);
+  const takeRootListing = useCallback((page: FolderListing, started: number, live = false) => {
+    setListings((current) => {
+      if (!isCurrent()) return current;
+      // A local change or a newer live request can finish while the initial
+      // root request is in flight. Check inside the updater, as refresh does,
+      // so a queued local draw also gets to stamp the folder first. Equal
+      // milliseconds count as newer: this request has not stamped root yet.
+      if ((listedAtRef.current.get("") ?? -Infinity) >= started) return current;
+      if (live) {
+        listedAtRef.current.set("", started);
+        liveConfirmations.current.set("", { epoch, page, refused: false });
+      }
+      return { ...current, "": page };
+    });
+  }, [isCurrent]);
 
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
@@ -289,6 +332,9 @@ export function useListings(deps: ListingsDeps) {
     setOpening(null);
     setClipboard(null);
     setNotice(null);
+    setBusy(false);
+    setToasts([]);
+    renamingRef.current = null;
     dispatch({ type: "closed" });
     setContextId(workspaceId);
     if (workspaceId === null) return;
@@ -306,13 +352,14 @@ export function useListings(deps: ListingsDeps) {
     const root = { refused: false };
     void (async () => {
       const tree = await offlineRef.current.cachedTree(workspaceId).catch(() => null);
-      if (cancelled || tree === null || root.refused) return;
+      if (cancelled || !isCurrent() || tree === null || root.refused) return;
       adoptTree(tree, { fromDevice: true });
       setLoading(false);
     })();
     if (offlineRef.current.reachability !== "offline") requestMirrorRefresh(workspaceId);
     void (async () => {
       const offline = offlineRef.current;
+      const started = nextListingStamp();
       try {
         /*
           Offline, the root is read off the device rather than asked for. Not a
@@ -322,24 +369,22 @@ export function useListings(deps: ListingsDeps) {
         */
         if (offline.reachability === "offline") {
           const cached = await offline.cachedListing("");
-          if (cancelled) return;
+          if (cancelled || !isCurrent()) return;
           if (cached === null) {
             setNotice(
               "You are offline and nothing from this context is on this device yet. Open it once with a connection.",
             );
             return;
           }
-          takeRootListing(cached.value);
+          takeRootListing(cached.value, started);
           return;
         }
-        const started = Date.now();
         const page = await listFiles({ workspaceId, path: "" });
-        if (cancelled) return;
-        listedAtRef.current.set("", started);
+        if (cancelled || !isCurrent()) return;
         offline.rememberListing(page);
-        takeRootListing(page);
+        takeRootListing(page, started, true);
       } catch (error: unknown) {
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         // A refusal is an answer, and the tree is not repainted from the
         // device over one — see `isServerRefusal`. The person gets the
         // server's own sentence instead of a root listing it just declined
@@ -347,23 +392,26 @@ export function useListings(deps: ListingsDeps) {
         // taken down with it.
         if (isServerRefusal(error)) {
           root.refused = true;
+          // Root refusal removes the entire visible tree, so discard every
+          // online overlay before clearing its underlying listings.
+          confirmOnlineMoves("", null, true);
           setListings({});
         }
         const cached = isServerRefusal(error) ? null : await offline.cachedListing("");
-        if (cancelled) return;
+        if (cancelled || !isCurrent()) return;
         if (cached !== null) {
-          takeRootListing(cached.value);
+          takeRootListing(cached.value, started);
           return;
         }
         setNotice(toFileError(error).message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isCurrent()) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [adoptTree, listFiles, takeRootListing, workspaceId]);
+  }, [adoptTree, isCurrent, listFiles, nextListingStamp, takeRootListing, workspaceId]);
 
   /*
     Redraw from the device's tree whenever the mirror commits a new listing of
@@ -380,11 +428,11 @@ export function useListings(deps: ListingsDeps) {
       void offlineRef.current
         .cachedTree(workspaceId)
         .then((tree) => {
-          if (tree !== null && ticket === latest) adoptTree(tree, { fromDevice: false });
+          if (isCurrent() && tree !== null && ticket === latest) adoptTree(tree, { fromDevice: false });
         })
         .catch(() => {});
     });
-  }, [adoptTree, workspaceId]);
+  }, [adoptTree, isCurrent, workspaceId]);
 
   /*
     The hint that somebody changed this context's tree — a colleague, an agent,
@@ -432,7 +480,7 @@ export function useListings(deps: ListingsDeps) {
     void (async () => {
       try {
         const found = await notePathsAction({ workspaceId });
-        if (!cancelled) setIndexedPaths(found.paths);
+        if (!cancelled && isCurrent()) setIndexedPaths(found.paths);
       } catch {
         // Best-effort: a failed or refused fetch leaves link resolution at
         // whatever the file tree already knows, which is exactly what this
@@ -442,7 +490,7 @@ export function useListings(deps: ListingsDeps) {
     return () => {
       cancelled = true;
     };
-  }, [notePathsAction, workspaceId]);
+  }, [isCurrent, notePathsAction, workspaceId]);
 
   const toggleFolder = useCallback(
     (path: string) => {
