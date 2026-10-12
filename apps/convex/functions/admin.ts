@@ -85,6 +85,7 @@ import {
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
+import { textUntoldHandler, untoldCountHandler } from "./lib/adminFns/waitlistUntold";
 import { getSignupAlertsHandler, setSignupAlertsHandler } from "./lib/adminFns/signupAlerts";
 import {
   archiveResultValidator,
@@ -346,6 +347,30 @@ export const addToWaitlist = mutation({
       throw toConvexError(error);
     }
     return await addEmailsHandler(ctx, args.emails, actor);
+  },
+});
+
+/** How many people let in by phone before texts existed were never told. */
+export const untoldPhoneWaitlist = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await untoldCountHandler(ctx);
+  },
+});
+
+/** Text each of them "You're in", once. */
+export const textUntoldPhoneWaitlist = mutation({
+  args: {},
+  returns: v.object({ texted: v.number(), left: v.number() }),
+  handler: async (ctx) => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await textUntoldHandler(ctx);
   },
 });
 

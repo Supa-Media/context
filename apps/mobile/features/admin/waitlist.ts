@@ -82,7 +82,19 @@ export function people(count: number): string {
 /** After Let in, on a row or a selection. */
 export function admittedSentence(changed: number): string {
   if (changed === 0) return "Nobody new to let in.";
-  return `Let ${people(changed)} in. They'll get an email.`;
+  return `Let ${people(changed)} in. They'll get an email, or a text if they joined by phone.`;
+}
+
+/** People let in by phone before Let in texted anyone, and never told. */
+export function untoldSentence(count: number): string {
+  return `${people(count)} let in by phone before we sent texts never heard they're in.`;
+}
+
+/** After Text them; `left` is more than one press could take. */
+export function untoldTextedSentence(texted: number, left: number): string {
+  if (texted === 0) return "Nobody left to text.";
+  const more = left > 0 ? ` ${people(left)} left: press Text them again.` : "";
+  return `Texted ${people(texted)} that they're in.${more}`;
 }
 
 /** After Remove. They are not told, so the sentence does not say they are. */
