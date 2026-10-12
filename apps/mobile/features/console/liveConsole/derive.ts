@@ -145,6 +145,7 @@ export function consoleClientsFrom(
     // what `listGrants` compared the row against the caller, and the console
     // has no business re-deciding it from a user id it would have to be told.
     mine: grant.isMine,
+    machine: grant.isMachine === true,
     status: grantTone(grant.status, grant.lastUsedAt),
     revoke: () => {
       void revoke({ grantId: grant.grantId });
