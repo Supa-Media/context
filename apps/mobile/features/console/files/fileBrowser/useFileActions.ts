@@ -9,7 +9,7 @@
  * before.
  */
 import { useCallback, useRef } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useConvex, useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
@@ -28,7 +28,31 @@ export function useFileActions(deps: FileActionsDeps) {
   }
   const slug = options.slug ?? null;
 
-  const listFiles = useAction(api.functions.files.listFiles);
+  /*
+    One folder's listing: from the Convex tree where it serves this context
+    (phase 2, `nodesListing.listFolder`), and from the bucket otherwise. The
+    tree answers `null` until a parity check has proved it and whenever staff
+    pause the migration; any failure asking it falls to the bucket too, which
+    gives its own answer, refusals included.
+  */
+  // Read through a ref: `listFiles` keeps one identity for the context's whole
+  // life, because the root load re-runs (and resets the tree) whenever it changes.
+  const convexClient = useConvex();
+  const convex = useRef(convexClient);
+  convex.current = convexClient;
+  const listFilesAction = useAction(api.functions.files.listFiles);
+  const listFiles = useCallback<typeof listFilesAction>(
+    async (args) => {
+      let fromTree = null;
+      try {
+        fromTree = await convex.current.query(api.functions.nodesListing.listFolder, args);
+      } catch {
+        // The bucket answers instead, and says why if it refuses too.
+      }
+      return fromTree ?? (await listFilesAction(args));
+    },
+    [listFilesAction],
+  );
   const readNote = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
   const searchContext = useAction(api.functions.files.searchContext);

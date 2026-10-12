@@ -207,6 +207,35 @@ export async function scheduleNodesTouch(
 }
 
 /**
+ * After a console change, with the bucket the barrier already opened: re-check
+ * what it touched **before the change answers**, so the tab that made it, and
+ * every tab subscribed to the folder, reads the new tree the moment the change
+ * returns (phase 2: the console reads this tree). Never throws, and a change
+ * too big to re-check, or one made while staff paused the migration, only
+ * marks the tree for a sweep, as the scheduled re-check does.
+ */
+export async function touchNodesNow(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  store: FileStore,
+  change: { paths: string[]; files: string[] },
+): Promise<void> {
+  const sink = sinkFor(ctx, workspaceId);
+  try {
+    if (await ctx.runQuery(internal.functions.nodes.paused, {})) {
+      await sink.dirty();
+      return;
+    }
+    const { dirty } = await touchNodes(listingOf(workspaceId, store), sink, change);
+    if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
+  } catch {
+    // A shadow never fails a change. The next sweep repairs what this missed.
+    console.error("nodes.touch_failed", { workspaceId });
+    await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
+  }
+}
+
+/**
  * On a walk of the tree, start a sweep if one is due. Errors are swallowed:
  * the walk goes on whether or not the shadow could be started.
  */

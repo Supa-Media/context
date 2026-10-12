@@ -8,7 +8,7 @@
  * that need attention. The rows are `./searchIndexes`; a row's detail and
  * buttons are `./IndexRows`.
  *
- * The fourth card is the Convex copy, phase 1 of the backend migration
+ * The fourth card is the Convex copy, the backend migration
  * (`nodesMigration`). Its card carries the switch that pauses every copy, and
  * the owner asked for it to be clear what state the migration is in.
  *

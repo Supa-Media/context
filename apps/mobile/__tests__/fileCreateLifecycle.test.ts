@@ -23,7 +23,7 @@ jest.mock("convex/react", () => {
     bound[name] ??= (args: never) => actions[name]!(args);
     return bound[name];
   };
-  return { useAction: record, useMutation: record, useQuery: () => undefined };
+  return { useAction: record, useMutation: record, useQuery: () => undefined, useQueries: () => ({}), useConvex: () => ({ query: async () => null }) };
 });
 
 import { useFileBrowser } from "../features/console/files/useFileBrowser";

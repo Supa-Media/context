@@ -71,6 +71,8 @@ export interface NodeTable {
   underPrefix(prefix: string, options: { after?: string; limit: number }): Promise<StoredNode[]>;
   /** Rows with `observedAt < before`, oldest first. At most `limit`. */
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
+  /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
+  hasLiveChild(parentId: string): Promise<boolean>;
 }
 
 /** The sweep's bookkeeping for one workspace (`nodeTrees`). */

@@ -62,6 +62,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },

@@ -88,6 +88,10 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[] } {
         .map(copy);
     },
 
+    async hasLiveChild(parentId) {
+      return all().some((node) => node.parentId === parentId && node.goneAt === undefined);
+    },
+
     rows() {
       return all().sort(byPathOrder).map(copy);
     },

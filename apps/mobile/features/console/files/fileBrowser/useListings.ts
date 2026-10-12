@@ -24,6 +24,7 @@ import type { MirroredTree } from "../../../offline/mirror";
 import type { FolderListing } from "../types";
 import type { Listings } from "./types";
 import { adoptMirroredTree, stampLiveFolders, wantsLiveListing } from "./liveListing";
+import { useLiveTree } from "./useLiveTree";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { OfflineQueueValues } from "./useOfflineQueue";
@@ -34,12 +35,14 @@ type ListingsDeps =
     BrowserStateValues,
     | "confirmOnlineMoves"
     | "dispatch"
+    | "expanded"
     | "listedAtRef"
     | "nextListingStamp"
     | "openRun"
     | "setBusy"
     | "setToasts"
     | "renamingRef"
+    | "selectedPath"
     | "setClipboard"
     | "setExpanded"
     | "setIndexedPaths"
@@ -53,7 +56,7 @@ type ListingsDeps =
 
 export function useListings(deps: ListingsDeps) {
   const {
-    confirmOnlineMoves, setBusy, setToasts, renamingRef, dispatch, listFiles, listedAtRef, nextListingStamp, listings, notePathsAction, offlineRef, openRun,
+    confirmOnlineMoves, setBusy, setToasts, renamingRef, dispatch, expanded, selectedPath, listFiles, listedAtRef, nextListingStamp, listings, notePathsAction, offlineRef, openRun,
     searchContext, reportSearchScreen, setClipboard, setExpanded, setIndexedPaths, setListings, setLoading, setNotice,
     setOpening, setSelectedPath, workspaceId, workspaceGenerationRef,
   } = deps;
@@ -75,6 +78,41 @@ export function useListings(deps: ListingsDeps) {
       }
     }
   });
+
+  /**
+   * Lay one server answer (or a device copy, `live` false) for `folder` over
+   * the listings, unless this console drew a change there after `started`.
+   * Shared by `refresh` and the live tree (`useLiveTree`).
+   */
+  const landPage = useCallback(
+    (folder: string, page: FolderListing | null, started: number, live: boolean, refused: boolean) => {
+      setListings((current) => {
+        if (!isCurrent()) return current;
+        // A page asked for before this console drew a change into the folder
+        // (a rename, a move, an undo) describes the folder without it, and
+        // landing it would undo the drawing — and close the renamed note's
+        // tab with it. The refresh that follows the change started later and
+        // carries the answer. A refusal is the exception: it clears the
+        // folder however old it is, because what it withholds must not stay
+        // drawn. Asked inside the updater, because `drawLocally` stamps the
+        // folder inside its own, and updaters run in the order they were
+        // queued: outside, a draw queued a moment earlier may not have
+        // stamped anything yet.
+        if (!refused && (listedAtRef.current.get(folder) ?? 0) > started) return current;
+        if (live) {
+          listedAtRef.current.set(folder, started);
+          liveConfirmations.current.set(folder, { epoch, page, refused: refused || page === null });
+        }
+        // A refused root takes every listing with it, as the entry load does.
+        if (refused && folder === "") return {};
+        const next = { ...current };
+        if (page === null) delete next[folder];
+        else next[folder] = page;
+        return next;
+      });
+    },
+    [epoch, isCurrent],
+  );
 
   /**
    * Reload folders, from the bucket where it can be reached and from the device
@@ -131,28 +169,7 @@ export function useListings(deps: ListingsDeps) {
       const commit = (folder: string, page: FolderListing | null, live = false, refused = false) => {
         if (!isCurrent()) return;
         fetched[folder] = page ?? undefined;
-        setListings((current) => {
-          if (!isCurrent()) return current;
-          // A page asked for before this console drew a change into the folder
-          // (a rename, a move, an undo) describes the folder without it, and
-          // landing it would undo the drawing — and close the renamed note's
-          // tab with it. The refresh that follows the change started later and
-          // carries the answer. A refusal is the exception: it clears the
-          // folder however old it is, because what it withholds must not stay
-          // drawn. Asked inside the updater, because `drawLocally` stamps the
-          // folder inside its own, and updaters run in the order they were
-          // queued: outside, a draw queued a moment earlier may not have
-          // stamped anything yet.
-          if (!refused && (listedAtRef.current.get(folder) ?? 0) > started) return current;
-          if (live) {
-            listedAtRef.current.set(folder, started);
-            liveConfirmations.current.set(folder, { epoch, page, refused: refused || page === null });
-          }
-          const next = { ...current };
-          if (page === null) delete next[folder];
-          else next[folder] = page;
-          return next;
-        });
+        landPage(folder, page, started, live, refused);
       };
       await Promise.all(
         folders.map(async (folder) => {
@@ -204,7 +221,7 @@ export function useListings(deps: ListingsDeps) {
       );
       return { servedFromCache, pages: fetched };
     },
-    [isCurrent, listFiles, nextListingStamp, workspaceId],
+    [isCurrent, landPage, listFiles, nextListingStamp, workspaceId],
   );
 
   /**
@@ -435,6 +452,28 @@ export function useListings(deps: ListingsDeps) {
   }, [adoptTree, isCurrent, workspaceId]);
 
   /*
+    The folders on screen, live from Convex where the tree serves this
+    context (`useLiveTree`). Each answer lands as the server's own for that
+    folder, and the device keeps it too.
+  */
+  const commitLive = useCallback(
+    (folder: string, page: FolderListing | null, refused: boolean) => {
+      if (workspaceId === null || !isCurrent()) return;
+      if (page !== null) offlineRef.current.rememberListing(page);
+      landPage(folder, page, nextListingStamp(), true, refused);
+    },
+    [isCurrent, landPage, nextListingStamp, workspaceId],
+  );
+  const { served } = useLiveTree({
+    workspaceId,
+    expanded,
+    selectedPath,
+    listings,
+    commitLive,
+    offline: offlineRef.current.reachability === "offline",
+  });
+
+  /*
     The hint that somebody changed this context's tree — a colleague, an agent,
     a meeting, an import — pushed over the Convex connection the console
     already holds (`functions/treeSignals.ts`). It carries a timestamp and
@@ -457,8 +496,11 @@ export function useListings(deps: ListingsDeps) {
     const seen = seenSignal.current;
     seenSignal.current = { workspaceId, value: treeSignal };
     if (seen.workspaceId !== workspaceId || seen.value === undefined || seen.value === treeSignal) return;
+    // Where the live tree answers, Convex has already sent every folder on
+    // screen; a walk of the bucket would only repeat it.
+    if (served) return;
     if (offlineRef.current.reachability !== "offline") requestMirrorRefresh(workspaceId);
-  }, [treeSignal, workspaceId]);
+  }, [served, treeSignal, workspaceId]);
 
   /**
    * The note-path index, fetched once per context — best-effort, and never

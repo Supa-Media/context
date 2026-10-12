@@ -14,6 +14,9 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 const mockMarks: unknown[] = [];
 
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
+  useConvex: () => ({ query: async () => null }),
+
   useMutation: () => async (args: unknown) => {
     mockMarks.push(args);
     return null;

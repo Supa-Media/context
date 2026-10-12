@@ -21,8 +21,8 @@ import { toConvexError } from "./lib/adminFns/errors";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
 
-/** Which migration phase this deployment runs. Phase 1: a shadow nothing reads yet. */
-export const MIGRATION_PHASE = 1;
+/** Which migration phase this deployment runs. Phase 2: the console reads proved trees live. */
+export const MIGRATION_PHASE = 2;
 /** Workspaces one report or one start reads: a bound on a loop, not on any deployment we have. */
 export const MIGRATION_ROWS = 500;
 

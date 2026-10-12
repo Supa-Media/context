@@ -36,7 +36,7 @@ function toStored(doc: Doc<"nodes">): StoredNode {
  * write take a `MutationCtx`).
  */
 export function convexNodeTable(ctx: MutationCtx, workspaceId: Id<"workspaces">): NodeTable;
-export function convexNodeTable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pick<NodeTable, "byPath" | "underPrefix" | "observedBefore">;
+export function convexNodeTable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pick<NodeTable, "byPath" | "underPrefix" | "observedBefore" | "hasLiveChild">;
 export function convexNodeTable(
   ctx: MutationCtx | QueryCtx,
   workspaceId: Id<"workspaces">,
@@ -112,6 +112,15 @@ export function convexNodeTable(
         if (out.length >= limit) break;
       }
       return out;
+    },
+
+    async hasLiveChild(parentId) {
+      const child = await ctx.db
+        .query("nodes")
+        .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", parentId as Id<"nodes">))
+        .filter((q) => q.eq(q.field("goneAt"), undefined))
+        .first();
+      return child !== null;
     },
 
     async observedBefore(before, limit) {

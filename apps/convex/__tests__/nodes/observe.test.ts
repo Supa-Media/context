@@ -142,7 +142,8 @@ describe("applyObservation: tombstones", () => {
     await applyAll(table, obs(10, [{ path: "f/a.md" }]));
     await applyAll(table, obs(30, [], ["f/a.md"]));
     expect(find(table, "f/a.md")).toMatchObject({ goneAt: 30, observedAt: 10 });
-    expect(find(table, "f")?.goneAt).toBeUndefined();
+    // Its folder now holds nothing, and a listing must not draw it (phase 2).
+    expect(find(table, "f")?.goneAt).toBe(30);
   });
 });
 
@@ -164,12 +165,13 @@ describe("applyObservation: vanishedUnder", () => {
     expect(find(table, "p/n.md")?.goneAt).toBeUndefined();
   });
 
-  test("folders under the prefix are never tombstoned", async () => {
+  test("folders a vanish leaves empty are marked gone, up the chain, and keep their rows", async () => {
     const table = memoryNodeTable();
     await applyAll(table, obs(10, [{ path: "p/q/a.md" }]));
     await applyAll(table, obs(20, [], [], ["p/"]));
-    expect(find(table, "p/q")?.goneAt).toBeUndefined();
     expect(find(table, "p/q/a.md")?.goneAt).toBe(20);
+    expect(find(table, "p/q")?.goneAt).toBe(20);
+    expect(find(table, "p")?.goneAt).toBe(20);
   });
 
   test("a scan over more than VANISH_SCAN files answers more, and re-applying completes it", async () => {
@@ -186,7 +188,51 @@ describe("applyObservation: vanishedUnder", () => {
     expect(calls).toBeGreaterThanOrEqual(1);
     const live = table.rows().filter((node) => node.kind === "file" && node.goneAt === undefined);
     expect(live).toHaveLength(0);
-    expect(table.rows().filter((node) => node.goneAt === 20)).toHaveLength(total);
+    expect(table.rows().filter((node) => node.kind === "file" && node.goneAt === 20)).toHaveLength(total);
+    expect(find(table, "big")?.goneAt).toBe(20);
+  });
+});
+
+describe("applyObservation: emptied folders", () => {
+  test("a folder that still holds something stays, and so do its parents", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, obs(10, [{ path: "p/q/a.md" }, { path: "p/b.md" }]));
+    await applyAll(table, obs(20, [], ["p/q/a.md"]));
+    expect(find(table, "p/q")?.goneAt).toBe(20);
+    expect(find(table, "p")?.goneAt).toBeUndefined();
+  });
+
+  test("a folder marker keeps an otherwise empty folder, as the bucket's listing does", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, obs(10, [{ path: "p/a.md" }, { path: "p/" }]));
+    await applyAll(table, obs(20, [], ["p/a.md"]));
+    expect(find(table, "p")?.goneAt).toBeUndefined();
+  });
+
+  test("a file observed in a gone folder brings the whole chain back", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, obs(10, [{ path: "p/q/a.md" }]));
+    await applyAll(table, obs(20, [], [], ["p/"]));
+    await applyAll(table, obs(30, [{ path: "p/q/new.md" }]));
+    expect(find(table, "p/q")?.goneAt).toBeUndefined();
+    expect(find(table, "p")?.goneAt).toBeUndefined();
+  });
+
+  test("an older observation of a file that has since gone does not bring its folder back", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, obs(10, [{ path: "p/a.md" }]));
+    await applyAll(table, obs(30, [], ["p/a.md"]));
+    await applyAll(table, obs(20, [{ path: "p/a.md" }]));
+    expect(find(table, "p/a.md")?.goneAt).toBe(30);
+    expect(find(table, "p")?.goneAt).toBe(30);
+  });
+
+  test("a folder observed after the emptying observation is left alone", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, obs(10, [{ path: "p/a.md" }]));
+    await applyAll(table, obs(40, [{ path: "p/b.md" }]));
+    await applyAll(table, obs(30, [], ["p/b.md"]));
+    expect(find(table, "p")?.goneAt).toBeUndefined();
   });
 });
 

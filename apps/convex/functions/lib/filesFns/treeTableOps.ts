@@ -46,7 +46,8 @@ import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
-import { scheduleNodesTouch, startNodesSweepIfDue } from "../nodes/run";
+import { PRIVACY_KEY } from "../privacy";
+import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
@@ -418,10 +419,15 @@ export async function keepTreeAndAnnounce(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
   change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
+  store?: FileStore,
 ): Promise<void> {
   const touches = change.paths.length + change.files.length > 0;
-  // The Convex tree is re-checked whether or not this context has a search database.
-  if (touches) await scheduleNodesTouch(ctx, args.workspaceId, { paths: change.paths, files: change.files });
+  // The Convex tree is re-checked whether or not this context has a search
+  // database: before the change answers when the bucket is open here, since
+  // the console reads that tree (phase 2), and scheduled otherwise.
+  const nodesChange = { paths: change.paths, files: change.files };
+  if (touches && store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
+  else if (touches) await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {
     const scheduled = await ctx.scheduler
       .runAfter(0, internal.functions.files.runFileOperation, {
@@ -467,7 +473,7 @@ export async function announceTreeChange(
   files: string[] = [],
 ): Promise<void> {
   if (change === null) {
-    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] });
+    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] }, store);
     return;
   }
   try {
@@ -491,7 +497,9 @@ export async function announceTreeChange(
     const left = before === null
       ? []
       : [...gone].map((path) => ({ path, audiences: treeAudiences([path], before.rules, before.overrides) }));
-    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files, audiences, left });
+    // A change that rewrote the rules re-reads them into the tree's mirror too.
+    const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
+    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
   } catch {
     // See above: a hint is never a failed change.
   }
