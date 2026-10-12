@@ -19,14 +19,18 @@
  *   with a number after it (Kings 1 to Kings 30), notes named by date, or
  *   chapters numbered 1 to N with no gaps or repeats. Only up to 30, though:
  *   a run is one item per 30 notes, so a month of daily notes is fine and a
- *   year of them is not.
+ *   year of them is not. Subfolders named by single letters (A to Z, and a
+ *   catch-all such as `other` beside them) are a run the same way.
  * - **Long notes.** Past 1,000 lines a note gains 10 per 100 lines, reaching
  *   100 at 2,000, wherever it sits. A line over 120 characters counts as one
  *   per 120, so a wall of text can't dodge it. Meetings and notes marked
  *   `generated: true` are exempt: nobody wrote them long.
  * - **Never thin.** The root and the built-in folders (Inbox, Projects,
  *   Areas, Resources, Clients, Teams, Products) only count as crowded.
- * - **Never scored.** Archive, at the root and everything under it.
+ * - **Never scored.** Archive, at the root and everything under it, and the
+ *   folders inside contacts: the app files a contact page by name, so how
+ *   full a letter is says nothing about how the person keeps their notes.
+ *   The contacts folder itself is scored but never thin (2026-10-12).
  * - **The workspace.** Every note carries its folder's chaos, or its own
  *   length chaos when that is higher; a subfolder carries its parent's. The
  *   score is the average over all of them, so each folder weighs what it
@@ -37,6 +41,7 @@
  */
 
 import { FRONT_NOTES } from "../lists/grammar.js";
+import { CONTACTS_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
 /** Lines a note may run to before it starts to cost. */
@@ -105,6 +110,12 @@ function isCountedNote(name, { root }) {
   return true;
 }
 
+/** A subfolder named by one letter, which with two others makes an A to Z index. */
+const LETTER_FOLDER = /^[a-z]$/i;
+
+/** The folder an A to Z index keeps for names that start with no letter. */
+const CATCH_ALL_FOLDERS = new Set(["other", "#", "0-9", "_"]);
+
 const DATED = /^\d{4}-\d{2}-\d{2}/;
 const STEM_NUMBER = /^(.*?\D)[\s_-]*(\d+)$/;
 const LEADING_NUMBER = /^(\d{1,3})[\s._-]/;
@@ -147,6 +158,13 @@ function runsOf(names) {
   return runs;
 }
 
+/** An A to Z index among subfolder names: three or more single letters, and the catch-all beside them. */
+function letterRunsOf(folders) {
+  const letters = folders.filter((name) => LETTER_FOLDER.test(name));
+  if (letters.length < 3) return [];
+  return [[...letters, ...folders.filter((name) => CATCH_ALL_FOLDERS.has(name.toLowerCase()))]];
+}
+
 /**
  * How many items a folder holds, runs collapsed.
  *
@@ -159,13 +177,13 @@ export function countItems(notes, folders, { root = false } = {}) {
   const counted = notes.map((note) => note.name).filter((name) => isCountedNote(name, { root }));
   const subfolders = folders.filter((name) => !(root && FRAME_ROLES.has(folderRole(name) ?? "")) && !name.startsWith("."));
   let items = subfolders.length + counted.length;
-  for (const run of runsOf(counted)) items -= run.length - Math.ceil(run.length / RUN_SPAN);
+  for (const run of [...runsOf(counted), ...letterRunsOf(subfolders)]) items -= run.length - Math.ceil(run.length / RUN_SPAN);
   return { items, raw: counted.length + subfolders.length, counted };
 }
 
 /** Whether a folder path is the root or one of the built-in folders, which are never thin. */
 function thinAllowed(path) {
-  if (path === "") return true;
+  if (path === "" || path === CONTACTS_FOLDER) return true;
   if (path.includes("/")) return false;
   return FRAME_ROLES.has(folderRole(path) ?? "");
 }
@@ -173,6 +191,11 @@ function thinAllowed(path) {
 /** Whether a path is in an archive, which is never scored. */
 export function isArchived(path) {
   return ARCHIVE_ROOT.test(String(path).split("/")[0]);
+}
+
+/** Whether a folder sits inside contacts, whose pages the app files and which is never scored. */
+export function isAppFiled(path) {
+  return String(path).startsWith(`${CONTACTS_FOLDER}/`);
 }
 
 /**
@@ -194,6 +217,7 @@ export function scoreFolder({ path, notes, folders }) {
     if (!countedSet.has(note.name)) continue;
     sum += Math.max(base, note.exempt ? 0 : lengthChaos(note.lines));
   }
+  if (isAppFiled(path)) return { path, items, weight: 0, sum: 0, chaos: 0 };
   let weight = raw;
   if (weight === 0 && base > 0) {
     // Nothing but its about note: the folder still counts, once.

@@ -42,7 +42,8 @@ either.
   `Kings 30`), or chapters numbered 1 to N with no gaps or repeats. A run
   needs at least three, and counts one item per 30 notes, so a month of daily
   notes is fine and a year of them is twelve items. Past 30, group them by
-  month or quarter.
+  month or quarter. Folders named by single letters (an A to Z index, with a
+  catch-all like `other`) are a run too.
 - **Long notes.** A note past 1,000 lines adds chaos: 10 more per 100 lines,
   full chaos at 2,000. A line over 120 characters counts once per 120, so a
   wall of text cannot dodge it. Split a long note by section into a folder of
@@ -54,7 +55,9 @@ either.
   thin folder of 2.
 - **Never thin:** the root and the built-in folders (Inbox, Projects, Areas,
   Resources, Clients, Teams, Products). They only count as crowded.
-- **Never scored:** Archive, and everything under it.
+- **Never scored:** Archive, and everything under it, and the letter folders
+  inside `0-inbox/contacts/`: the app files contact pages there by name. The
+  contacts folder itself is never thin. Loose pages in it still count.
 - **The inbox counts.** A full inbox raises the score on purpose. It is the
   reminder that it needs sorting.
 

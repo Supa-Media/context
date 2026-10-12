@@ -15,6 +15,9 @@
  *  5. The workspace score weighs each folder by how much it holds: 20% of
  *     the notes in a calm folder and 80% in a chaotic one is 80% chaotic.
  *  6. Archive is never scored; the main folders are never thin.
+ *  7. Folders named A to Z are one run, like chapters (2026-10-12).
+ *  8. Contacts are the app's to keep: the contacts folder is never thin and
+ *     its letter folders are not scored (2026-10-12).
  */
 
 import { test } from "node:test";
@@ -95,6 +98,35 @@ test("chapters 01 to 10 are a run; a numbered list that reuses numbers is not", 
 test("two notes sharing a stem are not a run: a run needs three", () => {
   assert.equal(countItems(notes("draft-1.md", "draft-2.md"), []).items, 2);
   assert.equal(countItems(notes("draft-1.md", "draft-2.md", "draft-3.md"), []).items, 1);
+});
+
+test("folders named A to Z are one run, with a catch-all beside them", () => {
+  const letters = [..."abcdefghijklmnopqrstuvwxyz"];
+  assert.equal(countItems([], letters).items, 1);
+  assert.equal(countItems([], [...letters.map((l) => l.toUpperCase()), "other"]).items, 1);
+  assert.equal(countItems([], ["a", "b", "c", "other", "imessage"]).items, 2);
+  assert.equal(countItems(notes("x.md"), ["a", "b"]).items, 3, "two letters are not a run: a run needs three");
+  assert.equal(countItems([], ["other", "misc", "x1"]).items, 3, "a catch-all alone is not a run");
+});
+
+test("contacts are the app's to keep: the folder is never thin, its letter folders are not scored", () => {
+  const rows = [
+    ...Array.from({ length: 80 }, (_, i) => ({ path: `0-inbox/contacts/a/person-${String.fromCharCode(97 + (i % 26))}${i}.md` })),
+    ...Array.from({ length: 40 }, (_, i) => ({ path: `0-inbox/contacts/b/person-${i}x.md` })),
+    { path: "0-inbox/contacts/other/phone-15551234567.md" },
+  ];
+  const tree = scoreTree(rows);
+  const byPath = new Map(tree.folders.map((f) => [f.path, f]));
+  assert.equal(byPath.get("0-inbox/contacts/a").weight, 0);
+  assert.equal(byPath.get("0-inbox/contacts/a").chaos, 0);
+  assert.equal(byPath.get("0-inbox/contacts").chaos, 0, "a, b and other are one run, and contacts is never thin");
+  assert.equal(tree.score, 0);
+  // Pages still lying loose in contacts count as before: sorting them is the point.
+  const loose = scoreTree(Array.from({ length: 40 }, (_, i) => ({ path: `0-inbox/contacts/email-p${i}x-example-com.md` })));
+  assert.equal(loose.folders.find((f) => f.path === "0-inbox/contacts").chaos, 100);
+  // Only contacts: letter folders elsewhere are scored like any folder.
+  const elsewhere = scoreTree(Array.from({ length: 40 }, (_, i) => ({ path: `3-resources/a/n${i}x.md` })));
+  assert.ok(elsewhere.folders.find((f) => f.path === "3-resources/a").chaos > 0);
 });
 
 test("subfolders are items", () => {

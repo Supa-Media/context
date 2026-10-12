@@ -121,8 +121,8 @@ export function biggestWins(result: ChaosScore): ChaosFolder[] {
 export const HOW_SCORED =
   "Each folder is scored by what is directly in it. Four or five items is calm, ten is average, and more climbs from there. " +
   "Thin folders count too: one or two items would sit better somewhere else. " +
-  "A run of up to 30 dated or numbered notes counts as one item. " +
-  "Notes past 1,000 lines count on their own, except meetings. Archive is never scored. " +
+  "A run of up to 30 dated or numbered notes, or of A to Z folders, counts as one item. " +
+  "Notes past 1,000 lines count on their own, except meetings. Archive is never scored, nor are the letter folders in Contacts. " +
   "The workspace's number is the average over every note, so a big folder weighs what it holds.";
 
 /**

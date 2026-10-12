@@ -28,13 +28,26 @@ The rules, all the owner's:
   nobody wrote them long.
 - Archive is never scored. The inbox is: a full inbox should raise the score,
   as the reminder to sort it.
+- Folders named A to Z are a run, like chapters: three or more single-letter
+  subfolders, with a catch-all (`other`, `#`, `0-9`) beside them, count as one
+  item (2026-10-12).
+- Contacts are the app's to keep (2026-10-12). The owner wants the contacts
+  folder an A to Z index the app files every page into, and "should never get
+  to the point where it's chaotic". So `0-inbox/contacts` is never thin and the
+  folders inside it are not scored: a full letter says nothing about how the
+  person keeps their notes, and the owner does not yet know what a better rule
+  for it would be. Pages still lying loose in contacts count as before, since
+  sorting them is the point. Reversing this makes every person who receives
+  mail chaotic through no choice of theirs.
 - The workspace score weighs each folder by what it holds: 20% of the notes in
   a calm folder and 80% in a chaotic one is 80% chaos.
 - Lower is better, and it is called the chaos score. The owner chose both "for
   now, and we'll see how users react", so renaming it or flipping it to a
   "calm score" is their call, not a copy edit.
 
-Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule.
+Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule; the A to Z and
+contacts rules are "folders named A to Z are one run" and "contacts are the
+app's to keep".
 
 ## It reports; it never tidies
 
