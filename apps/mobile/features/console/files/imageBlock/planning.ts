@@ -236,6 +236,30 @@ export function imageFilesFrom(data: DataTransfer | null): File[] {
   );
 }
 
+/**
+ * The images a **paste** should upload: none when the clipboard also carries
+ * text.
+ *
+ * Word, Excel, Numbers, Pages and Google Sheets put a picture of what was
+ * copied on the clipboard beside the text itself. Taking the picture whenever
+ * there was one meant copying a paragraph or a few cells out of those apps
+ * pasted an image of them, and the words never arrived (Dev2, 2026-10-11, in
+ * the paste report). A screenshot, or "Copy image" in a browser, carries no
+ * plain text, so it still pastes as an image. A drop keeps `imageFilesFrom`:
+ * dragging a file in is asking for the file.
+ */
+export function pastedImagesFrom(data: DataTransfer | null): File[] {
+  if (data === null) return [];
+  let text = "";
+  try {
+    text = data.getData?.("text/plain") ?? "";
+  } catch {
+    text = "";
+  }
+  if (text.trim() !== "") return [];
+  return imageFilesFrom(data);
+}
+
 /** Set alt text on image `index` of `row`. */
 export function planAlt(
   state: EditorState,

@@ -464,7 +464,7 @@ export class FormWidget extends WidgetType {
       button.disabled = false;
       button.textContent = "Save changes";
       say("Editing your response.", "quiet");
-      inputs.values().next().value?.focus();
+      inputs.values().next().value?.focus({ preventScroll: true });
     };
 
     const reloadResponses = this.drawResponses(wrap, config, edit);
