@@ -249,7 +249,7 @@ function entryFor(input) {
     n: count,
     vis: meta.team_visible === true ? "team" : "private",
     by: actor && typeof actor.name === "string" ? actor.name : null,
-    via: actor && typeof actor.client === "string" ? actor.client : null,
+    via: actor ? clientOf(actor.client) : null,
     note: normalizeSummary(meta.summary),
     ...(moves.length ? { moves } : {}),
   };
@@ -319,7 +319,7 @@ function mergeable(existing, entry, windowMs) {
     (existing.kind === "added" && entry.kind === "revised");
   if (!sameWork) return false;
   if ((existing.by || null) !== (entry.by || null)) return false;
-  if ((existing.via || null) !== (entry.via || null)) return false;
+  if (clientOf(existing.via) !== clientOf(entry.via)) return false;
   const gap = Date.parse(entry.at) - Date.parse(existing.at);
   if (!Number.isFinite(gap) || gap < 0 || gap > windowMs) return false;
   if (existing.paths.includes(entry.paths[0])) return true;
@@ -450,6 +450,28 @@ function dayKey(iso) {
 }
 
 /**
+ * The name the app's own console is registered under (`CONSOLE_CLIENT_NAME`
+ * in `apps/convex/functions/agentGrant.ts`). The gateway refuses it to anyone
+ * else at registration (`FIRST_PARTY_NAMES` in `oauth/registration.js`).
+ */
+const CONSOLE_CLIENT_NAME = "Context (this app)";
+
+/**
+ * The AI client a change came through, or null when it was a person's own hand.
+ *
+ * The console reads and writes through the gateway with a grant of its own, so
+ * a change made in the app arrives naming "Context (this app)" as its client.
+ * It is still the person at their keyboard (the owner, 2026-10-12): "@seyi
+ * revised README", never "@seyi's Context (this app) revised README". Folded
+ * here, where an entry is built and where it is read back, so lines written
+ * before this rule read the same way and merge with the person's own.
+ */
+function clientOf(via) {
+  if (typeof via !== "string" || via === "") return null;
+  return via === CONSOLE_CLIENT_NAME ? null : via;
+}
+
+/**
  * Who a line is about, in the possessive form the meeting asked for.
  *
  * "@sayo's Claude" rather than a client id, because the distinction that
@@ -458,7 +480,7 @@ function dayKey(iso) {
  */
 function actorLabel(entry) {
   const by = entry.by || null;
-  const via = entry.via || null;
+  const via = clientOf(entry.via);
   if (by && via) return `${by}'s ${via}`;
   if (by) return by;
   if (via) return via;
@@ -537,7 +559,7 @@ function decodeEntry(raw) {
       n: Number.isFinite(value.n) && value.n > 0 ? Math.floor(value.n) : 1,
       vis: value.vis === "team" ? "team" : "private",
       by: typeof value.by === "string" ? value.by : null,
-      via: typeof value.via === "string" ? value.via : null,
+      via: clientOf(value.via),
       note: typeof value.note === "string" ? value.note : null,
       ...(moves.length ? { moves } : {}),
     };
@@ -755,6 +777,7 @@ function nextFile(currentText, change) {
 module.exports = {
   ACTIVITY_PATH,
   BEGIN_MARKER,
+  CONSOLE_CLIENT_NAME,
   END_MARKER,
   GROUP_WINDOW_MS,
   KINDS,
@@ -768,6 +791,7 @@ module.exports = {
   SUBSTANCE,
   actorLabel,
   applyEntry,
+  clientOf,
   describeEntry,
   entryFor,
   folderOf,
