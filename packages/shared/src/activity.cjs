@@ -113,6 +113,7 @@ const MAX_ENTRY_PATHS = 5;
 const MAX_SUMMARY_LENGTH = 140;
 
 const { KINDS, SUBSTANCE } = require("./activityVocabulary.cjs");
+const { CONSOLE_CLIENT_NAME, actorLabel, clientOf } = require("./activityActors.cjs");
 const { decodeMoves, mergeMoves, movePairsOf } = require("./activityMoves.cjs");
 const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.cjs");
 
@@ -447,44 +448,6 @@ function clockOf(iso) {
 function dayKey(iso) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
-}
-
-/**
- * The name the app's own console is registered under (`CONSOLE_CLIENT_NAME`
- * in `apps/convex/functions/agentGrant.ts`). The gateway refuses it to anyone
- * else at registration (`FIRST_PARTY_NAMES` in `oauth/registration.js`).
- */
-const CONSOLE_CLIENT_NAME = "Context (this app)";
-
-/**
- * The AI client a change came through, or null when it was a person's own hand.
- *
- * The console reads and writes through the gateway with a grant of its own, so
- * a change made in the app arrives naming "Context (this app)" as its client.
- * It is still the person at their keyboard (the owner, 2026-10-12): "@seyi
- * revised README", never "@seyi's Context (this app) revised README". Folded
- * here, where an entry is built and where it is read back, so lines written
- * before this rule read the same way and merge with the person's own.
- */
-function clientOf(via) {
-  if (typeof via !== "string" || via === "") return null;
-  return via === CONSOLE_CLIENT_NAME ? null : via;
-}
-
-/**
- * Who a line is about, in the possessive form the meeting asked for.
- *
- * "@sayo's Claude" rather than a client id, because the distinction that
- * matters to a reader is a person's own hand versus the assistant they pointed
- * at the context — "oh, Shyoh's Claude did this".
- */
-function actorLabel(entry) {
-  const by = entry.by || null;
-  const via = clientOf(entry.via);
-  if (by && via) return `${by}'s ${via}`;
-  if (by) return by;
-  if (via) return via;
-  return "Someone";
 }
 
 function code(text) {
