@@ -14,9 +14,9 @@
  *    After a change, only the folders that change touched are refetched, which
  *    is what stops an expanded tree from collapsing and reloading itself every
  *    time somebody renames a file.
- *  - **Nothing is applied optimistically.** A rename that failed but already
- *    moved on screen is a console telling you your bucket contains something
- *    it does not, which is the one thing this product cannot afford to do.
+ *  - **Structural changes are drawn immediately.** Pending renames overlay
+ *    live listings until storage and a confirming listing settle them. Reads
+ *    of their destination wait for the move rather than opening a missing file.
  */
 
 import type { FileBrowser } from "./browser";
@@ -72,7 +72,7 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
     iconOf: folderIcons.iconOf,
     setIcon: folderIcons.setIcon,
   };
-  const withBrowserState = { ...bound, ...useBrowserState() };
+  const withBrowserState = { ...bound, ...useBrowserState(bound.workspaceGenerationRef) };
   const withWritesAndImages = { ...withBrowserState, ...useWritesAndImages(withBrowserState) };
   const withOfflineQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };
   const withNoteReads = { ...withOfflineQueue, ...useNoteReads(withOfflineQueue) };

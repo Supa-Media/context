@@ -38,7 +38,8 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   const lo = toWorld(cam, vp, { x: -120, y: -120 });
   const hi = toWorld(cam, vp, { x: vp.w + 120, y: vp.h + 120 });
   const near: NotePlace[] = [];
-  for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key)) near.push(n);
+  // A folder drawn as an icon (Archive) keeps its notes out of sight.
+  for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key) && !n.sub.folder.collapsed) near.push(n);
   const env: DrawEnv = {
     ctx,
     style: opts.style,

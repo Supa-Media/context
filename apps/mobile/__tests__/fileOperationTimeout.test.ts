@@ -226,7 +226,7 @@ describe("a file operation that never comes back", () => {
     act(() => pending!.resolve({ to: "other copy.md" }));
     await settle();
     expect(browser.busy).toBe(false);
-    expect(browser.notice).toBeNull();
+    expect(browser.notice).toBe("Duplicated as other copy.");
 
     // Now the first operation finally answers, a minute late.
     act(() => abandoned.resolve({ to: "note copy.md" }));
@@ -234,7 +234,7 @@ describe("a file operation that never comes back", () => {
 
     // It owns nothing any more: no notice of its own, no busy flag.
     expect(browser.busy).toBe(false);
-    expect(browser.notice).toBeNull();
+    expect(browser.notice).toBe("Duplicated as other copy.");
   });
 
   test("an operation that answers in time is unaffected, and its timer cannot fire later", async () => {
@@ -246,7 +246,7 @@ describe("a file operation that never comes back", () => {
     await settle();
 
     expect(browser.busy).toBe(false);
-    expect(browser.notice).toBeNull();
+    expect(browser.notice).toBe("Duplicated as note copy.");
     expect(listCalls).toBeGreaterThan(1);
 
     // The timer it cancelled must not fire later and put a timeout message on
@@ -255,7 +255,7 @@ describe("a file operation that never comes back", () => {
       jest.advanceTimersByTime(OPERATION_TIMEOUT_MS * 2);
     });
     expect(browser.busy).toBe(false);
-    expect(browser.notice).toBeNull();
+    expect(browser.notice).toBe("Duplicated as note copy.");
   });
 
   test("a real failure is still reported as a failure", async () => {

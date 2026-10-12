@@ -8,10 +8,11 @@ import type { DrawEnv } from "./env";
 import { circle, drawFace, FACE_R, fitText, fontOf, haloText } from "./primitives";
 
 /**
- * "All workspaces" as a picture of one person's estate: you in the middle,
- * a road out to each workspace you are in, and the AI tools you connected
- * standing between the workspaces they reach, with a dotted line in their
- * own colour to each (Dev2's board, 2026-10-10).
+ * "All workspaces" with your AI tools at work standing between the
+ * workspaces they are working in, with a dotted line in their own colour to
+ * each (Dev2's board, 2026-10-10). The middle is otherwise empty: the face
+ * marked "You" and its roads out to every workspace said nothing the ring
+ * did not, and came out (Dev2, 2026-10-12).
  *
  * Drawn only in the all-workspaces scope with a hub to draw, and only while
  * framed out far enough to see the ring: it fades with the paths between
@@ -19,21 +20,24 @@ import { circle, drawFace, FACE_R, fitText, fontOf, haloText } from "./primitive
  */
 
 export type HubAgent = { id: string; name: string; at: Point; to: Point[] };
-export type HubMarks = { alpha: number; you: Point; name: string; agents: HubAgent[] };
+export type HubMarks = { alpha: number; agents: HubAgent[] };
 
 /** The least distance between two agents' faces, in world units; more on a big map. */
 const AGENT_GAP = SPACING * 7;
 
 /**
  * Where a line from `from` meets a workspace: the near side of its nearest
- * folder, not of the island's circle. Folders pack to one side of an island
+ * folder (one drawn as an icon only when there is nothing else), not of the
+ * island's circle. Folders pack to one side of an island
  * (Projects in the middle, the rest round it), so the circle's edge can be
  * open ground, and a line that stopped there pointed at nothing.
  */
 export function landingOn(island: IslandPlace, from: Point): Point {
   let best = null as { x: number; y: number; r: number } | null;
   let bestGap = Infinity;
-  for (const f of island.folders) {
+  // An icon (Archive) is where finished things go, not where anyone is working.
+  const open = island.folders.filter((f) => !f.collapsed);
+  for (const f of open.length > 0 ? open : island.folders) {
     const gap = Math.hypot(from.x - f.x, from.y - f.y) - f.r;
     if (gap < bestGap) {
       bestGap = gap;
@@ -65,7 +69,7 @@ export function placeAgents(islands: readonly IslandPlace[], agents: ReadonlyArr
       ux += i.x / d;
       uy += i.y / d;
     }
-    // Workspaces straight across from each other: above you, between them.
+    // Workspaces straight across from each other: above the middle, between them.
     let ang = Math.hypot(ux, uy) < 1e-6 ? Math.atan2(reach[0]!.y, reach[0]!.x) - Math.PI / 2 : Math.atan2(uy, ux);
     // Halfway from the middle to the nearest edge of what it reaches.
     const inner = Math.min(...reach.map((i) => Math.hypot(i.x, i.y) - i.r));
@@ -73,7 +77,7 @@ export function placeAgents(islands: readonly IslandPlace[], agents: ReadonlyArr
     // One workspace only: off its road, to one side or the other.
     if (reach.length === 1) ang += ((k % 2 === 0 ? 1 : -1) * gap * 0.6) / rr;
     const want: Point = { x: Math.cos(ang) * rr, y: Math.sin(ang) * rr };
-    // Taken, or too near you or inside a workspace: the free spot nearest
+    // Taken, or too near the middle or inside a workspace: the free spot nearest
     // where it wanted to be, along the ring or nearer its workspaces.
     const free = (q: Point) =>
       Math.hypot(q.x, q.y) >= gap * 0.8 &&
@@ -107,24 +111,8 @@ export function drawHubLines(env: DrawEnv): HubMarks | null {
   const alpha = highwayAlpha(biggest, Math.min(env.vp.w, env.vp.h));
   if (alpha <= 0) return null;
   const C = style.palette;
-  const you = env.screen({ x: 0, y: 0 });
-
-  // A road from you to the near side of each workspace, bowed a little.
   ctx.globalAlpha = alpha;
-  ctx.strokeStyle = C.zoneLine;
-  ctx.lineWidth = 1.8;
   ctx.lineCap = "round";
-  for (const island of islands) {
-    const end = env.screen(landingOn(island, { x: 0, y: 0 }));
-    const mx = (you.x + end.x) / 2;
-    const my = (you.y + end.y) / 2;
-    const len = Math.hypot(end.x - you.x, end.y - you.y);
-    const bow = len * 0.12;
-    ctx.beginPath();
-    ctx.moveTo(you.x, you.y);
-    ctx.quadraticCurveTo(mx - ((end.y - you.y) / (len || 1)) * bow, my + ((end.x - you.x) / (len || 1)) * bow, end.x, end.y);
-    ctx.stroke();
-  }
 
   // Each agent's dotted line to every workspace it reaches, in its colour.
   const agents = placeAgents(islands, hub.agents);
@@ -153,9 +141,7 @@ export function drawHubLines(env: DrawEnv): HubMarks | null {
   ctx.globalAlpha = 1;
 
   // Claimed now, so no name or flag is put on a face.
-  const youR = FACE_R * 2;
-  env.occ.claim({ x: you.x - youR - 6, y: you.y - youR - 6, w: youR * 2 + 12, h: youR * 2 + 30 });
-  const marks: HubMarks = { alpha, you, name: hub.you, agents: agents.map((g) => ({ ...g, at: env.screen(g.at) })) };
+  const marks: HubMarks = { alpha, agents: agents.map((g) => ({ ...g, at: env.screen(g.at) })) };
   for (const g of marks.agents) env.occ.claim({ x: g.at.x - 40, y: g.at.y - 20, w: 80, h: 48 });
   return marks;
 }
@@ -164,21 +150,17 @@ export function drawHubLines(env: DrawEnv): HubMarks | null {
 const NAME_MAX = 120;
 const NAME_SIZE = 12;
 
-/** You and the agents, over the notes and names. */
+/** The agents, over the notes and names. */
 export function drawHubFaces(env: DrawEnv, marks: HubMarks | null): void {
   if (!marks) return;
   const { ctx, style } = env;
   const C = style.palette;
   ctx.globalAlpha = marks.alpha;
-  drawFace(ctx, { kind: "person", id: "you", name: marks.name }, marks.you.x, marks.you.y, 2, style);
-  const youBase = marks.you.y + FACE_R * 2 + 18;
-  haloText(ctx, style, "You", marks.you.x, youBase, 14, 700, C.text, C.ground);
-  // Faces and "You" first, so a name never runs over one; then each name
-  // under its face, or over it or beside it when that is taken, or not at all.
-  const taken: Rect[] = [{ x: marks.you.x - 20, y: youBase - 14, w: 40, h: 18 }];
+  // Faces first, so a name never runs over one; then each name under its
+  // face, or over it or beside it when that is taken, or not at all.
+  const taken: Rect[] = [];
   const faceR = FACE_R * 1.3;
   for (const g of marks.agents) taken.push({ x: g.at.x - faceR, y: g.at.y - faceR, w: faceR * 2, h: faceR * 2 });
-  taken.push({ x: marks.you.x - FACE_R * 2, y: marks.you.y - FACE_R * 2, w: FACE_R * 4, h: FACE_R * 4 });
   for (const g of marks.agents) {
     drawFace(ctx, { kind: "agent", id: g.id, name: g.name }, g.at.x, g.at.y, 1.3, style);
     ctx.font = fontOf(style, NAME_SIZE, 600);
