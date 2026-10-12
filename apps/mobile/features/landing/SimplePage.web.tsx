@@ -10,7 +10,7 @@ import { Tex } from "../chaos/Tex";
 import { simpleLandingColors as C } from "../design/tokens/landingColors";
 import type { Ink } from "./chaosIcons";
 import { ChaosGraph } from "./ChaosGraph.web";
-import { LandingSignUp } from "./LandingSignUp";
+import { InlineSignUp } from "./InlineSignUp.web";
 import { SIMPLE_CSS } from "./simpleCss";
 
 /**
@@ -20,9 +20,9 @@ import { SIMPLE_CSS } from "./simpleCss";
  * one call to action written as a line of text. It sells a feeling, less
  * chaos, rather than a feature list, and shows it (`ChaosGraph`) rather than
  * saying it. The words are Dev's own, from the shared note they edited
- * (2026-10-11), with typos fixed and nothing else changed. The sign-up opens
- * under the last line on a phone, and in the graph's place on a computer,
- * where the whole page fits the window without scrolling (Dev2, 2026-10-12).
+ * (2026-10-11), with typos fixed and nothing else changed. The sign-up is
+ * written into its own last line (`InlineSignUp`), and on a computer the
+ * whole page fits the window without scrolling (Dev2, 2026-10-12).
  *
  * Tex, the mascot, stands where the mark was and untangles as the graph
  * below gets filed. The page is light only and fits Tex, the headline and the
@@ -41,11 +41,9 @@ const INK: Ink = {
 };
 
 export function SimplePage() {
-  const [open, setOpen] = useState(false);
   // The graph reports every frame; only Tex redraws, not the page.
   const setTex = useRef<(chaos: number) => void>(() => {});
   const onChaos = useCallback((chaos: number) => setTex.current(chaos), []);
-  const form = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const title = document.title;
     document.title = "Context";
@@ -53,13 +51,6 @@ export function SimplePage() {
       document.title = title;
     };
   }, []);
-  useEffect(() => {
-    if (!open) return;
-    // Into the number field, so the next keystroke is the number and the line
-    // just pressed does not keep a focus ring around it.
-    form.current?.querySelector("input")?.focus({ preventScroll: true });
-    form.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [open]);
   const vars = {
     "--paper": C.paper,
     "--ink": C.ink,
@@ -67,6 +58,7 @@ export function SimplePage() {
     "--hair": C.hair,
     "--mark": C.mark,
     "--card": C.card,
+    "--bad": C.bad,
     colorScheme: "light",
   } as CSSProperties;
   return (
@@ -74,7 +66,6 @@ export function SimplePage() {
       className="sp"
       style={vars}
       data-landing="a"
-      data-joining={open || undefined}
     >
       <style>{SIMPLE_CSS}</style>
       <main className="sp-col">
@@ -104,20 +95,7 @@ export function SimplePage() {
           nonprofit, write the blog, build your website
         </p>
         <p className="sp-p sp-less">with less chaos</p>
-        <p className="sp-p">
-          <button
-            type="button"
-            className="sp-cta"
-            aria-expanded={open}
-            aria-controls="join"
-            onClick={() => setOpen(true)}
-          >
-            <span>Join the waitlist</span> ›
-          </button>
-        </p>
-        <div id="join" ref={form} className="sp-join" hidden={!open}>
-          {open ? <LandingSignUp /> : null}
-        </div>
+        <InlineSignUp />
       </main>
       <footer className="sp-foot">
         <a href="/login">Sign in</a>

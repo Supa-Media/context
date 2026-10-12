@@ -18,9 +18,26 @@ export const SIMPLE_CSS = `
 .sp-u:hover{text-decoration-color:var(--ink)}
 .sp-cta{all:unset;cursor:pointer;font:inherit;color:var(--ink)}
 .sp-cta span{background:linear-gradient(transparent 52%,var(--mark) 52%,var(--mark) 94%,transparent 94%)}
-.sp-cta:focus-visible,.sp-tidy:focus-visible,.sp a:focus-visible{outline:2px solid var(--ink);outline-offset:4px;border-radius:2px}
-.sp-join{max-width:360px;margin-top:.2em;font-size:16px;line-height:1.4;scroll-margin-bottom:32px}
-.sp-join[hidden]{display:none}
+.sp-cta:focus-visible,.sp-tidy:focus-visible,.sp a:focus-visible,.sp-go:focus-visible,.sp-link:focus-visible,.sp-cc:focus-within{outline:2px solid var(--ink);outline-offset:4px;border-radius:2px}
+.sp-in{display:flex;flex-direction:column;gap:.45em;max-width:520px}
+.sp-hint{font-family:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--ink2)}
+.sp-line{display:flex;flex-wrap:wrap;align-items:center;gap:.15em .45em;margin:0}
+.sp-lead{flex:none;color:var(--ink)}
+.sp-entry{flex:1 1 11em;min-width:0;max-width:15em;display:flex;align-items:center;gap:.15em}
+.sp-field{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
+.sp-field[data-bad],.sp-code[data-bad]{border-bottom-color:var(--bad)}
+.sp-field input::placeholder{color:#7A766E;opacity:1}
+.sp-field input,.sp-code{all:unset;flex:1;min-width:0;font:inherit;font-size:max(16px,1em);color:var(--ink)}
+.sp-code{flex:0 1 6.5em;letter-spacing:.18em;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
+.sp-cc{position:relative;flex:none;margin-right:.35em;color:var(--ink2);white-space:nowrap}
+.sp-cc select{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:16px}
+.sp-go{all:unset;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-10px -8px;border-radius:50%;font:inherit;color:var(--ink)}
+.sp-go:disabled{cursor:default;opacity:.4}
+.sp-small,.sp-err{margin:0;font-family:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.45;color:var(--ink2)}
+.sp-err{color:var(--bad)}
+.sp-link{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;text-decoration-color:var(--hair);text-underline-offset:.2em}
+.sp-link:hover{text-decoration-color:var(--ink)}
+.sp-email{max-width:400px;font-size:16px;line-height:1.4}
 .sp-figure{margin:.4em 0 .6em}
 .sp-graph{display:block;width:100%;height:320px}
 .sp-tidy{all:unset;cursor:pointer;margin-top:6px;font-size:16px;color:var(--ink);text-decoration:underline;text-decoration-color:var(--hair);text-underline-offset:.2em}
@@ -41,10 +58,8 @@ export const SIMPLE_CSS = `
   .sp-col>*{grid-column:1}
   .sp-col>:nth-child(1){grid-row:2}.sp-col>:nth-child(2){grid-row:3}.sp-col>:nth-child(4){grid-row:4}
   .sp-col>:nth-child(5){grid-row:5}.sp-col>:nth-child(6){grid-row:6}.sp-col>:nth-child(7){grid-row:7}
-  .sp-col>.sp-figure,.sp-col>.sp-join{grid-column:2;grid-row:1/-1;align-self:center;margin:0}
+  .sp-col>.sp-figure{grid-column:2;grid-row:1/-1;align-self:center;margin:0}
   .sp-graph{height:min(560px,calc(100dvh - 150px))}
-  .sp[data-joining] .sp-figure{display:none}
-  .sp-join{max-width:380px;justify-self:start}
   .sp-foot{max-width:1180px;padding:0 40px clamp(14px,2.5vh,28px)}
 }
 @media (max-width:600px){.sp-col,.sp-foot{padding-left:20px;padding-right:20px}.sp-tex{width:60px;height:60px}.sp-copy{margin-left:0}.sp-graph{height:330px}}

@@ -51,6 +51,8 @@ export const simpleLandingColors = {
   hair: "#C9C6BC",
   mark: "#DDD1BE",
   card: "#FAF9F5",
+  /** A sign-up problem: a number or code that did not work. */
+  bad: "#9A2B1F",
   blue: texColors.light.ink,
   agent1: "#C4572F",
   agent2: "#167A5E",
