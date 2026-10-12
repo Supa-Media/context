@@ -50,10 +50,12 @@ function is pure, fed `FileEntry[]`/`{text, etag}` shapes a fixture builds by
 hand, with no `FileBrowser`, no Convex client and no bucket anywhere in the
 test.
 
-#### Every inbox folder is a regular folder; only two note shapes get a view
+#### Every inbox folder is a regular folder; only a channel-day gets a view
 
-`classifyCommsPath` routes exactly two kinds of *note* to a view of their own:
-a channel-day (`ChannelDayView`) and a contact page (`ContactPageView`). It
+`classifyCommsPath` routes exactly one kind of *note* to a view of its own:
+a channel-day (`ChannelDayView`). A contact page used to be the second
+(`ContactPageView`); it is an ordinary note now — see *Contacts are a header
+over the note, and an A–Z index over the letter folders* below. It
 answers `null` for every *folder*, so `0-inbox`, `0-inbox/meetings`,
 `0-inbox/contacts`, each mailbox, `0-inbox/google-chat` and `0-inbox/imessage`
 are all drawn by the same `FolderView` as every other folder in the app.
@@ -76,6 +78,45 @@ there is no channel-day shape for them.
 `FolderView`. The check is `commsPaths.test.ts`'s "is a regular folder, never a
 comms route" cases, one per inbox folder.
 
+#### Contacts are a header over the note, and an A–Z index over the letter folders
+
+The owner, 2026-10-12: contacts should read as a first-party part of the app,
+"a little bit of difference in UI for the contacts page — not too crazy", as
+contact pages moved into letter folders (`0-inbox/contacts/<a..z|other>/`,
+with flat pages and the legacy `imessage/` folder still present during the
+move). Two small presentation changes, both in
+`features/console/communications/` and both decided by the pure
+`contactPages.ts`:
+
+- **A contact page opens in the editor like any note**, with `ContactHeader`
+  over the body: the name, the email / phone / iMessage identifiers as chips,
+  and a quiet "Contact" mark. Both formats get it — sync pages
+  (`type: "contact"`, read with `parseContactView`) and imported iMessage
+  pages (`role: communication-contact`, `## Identities`) — flat or one
+  folder down, and the frontmatter decides, so a person's own note filed
+  there gets none. This **retired `ContactPageView`**, which replaced the
+  editor for flat pages only: a page moved into `a/` would otherwise have
+  looked like a different product from the same page still flat, and the
+  person's `## Notes` could not be edited from the console at all. What went
+  with it is the activity list's jump to the exact message — the body's
+  `[[day#anchor|label]]` wikilinks open the day, not the anchor. The anchor
+  scroll itself stays (a `?note=path#anchor` URL), and `commsInbox.spec.ts`
+  still proves it through the fixture's own `?note=`.
+- **The contacts folder draws its letter folders as an A–Z index** — one
+  wrapping row of letters, `Other` last, a letter with no folder drawn dim —
+  above the ordinary rows for everything else (legacy folders, flat pages).
+  It is the one exception to *every inbox folder is a regular folder* above,
+  and it is held to presentation only: the page, its header, its menus and
+  every other row are `FolderView`'s, and a letter opens its folder exactly
+  as its row would have. The contacts folder and its letter folders carry no
+  chaos chip (the owner decided letter folders are not scored).
+
+**What a revert would cost:** contact pages that look like any other note,
+which is what the owner asked to change, or a second contact page view to
+keep in step with the editor. The checks are `contactPages.test.ts` (which
+paths and texts are contact pages, the index's letters and leftovers, which
+folders hide the chip) and `commsInbox.spec.ts`'s contacts cases.
+
 #### A note's anchor is a query parameter, not a URL fragment
 
 `noteHref(slug, path, anchor)` writes `/console/@slug?note=<path>&anchor=<id>`
@@ -94,9 +135,9 @@ address storage (only to find a heading already on the page), so it does not
 need `safeNotePath`'s path-traversal refusals.
 
 **This is the routing contract the task named "expose the anchor scroll as
-the routing contract they can use."** A contact's activity link
-(`ContactPageView`'s `onOpenActivity`) and a future per-anchor search result
-call the identical function with the identical two arguments; there is
+the routing contract they can use."** A per-anchor search result (and,
+until contact pages became ordinary notes, a contact's activity link) calls
+the identical function with the identical two arguments; there is
 exactly one way in this console to say "open this note and scroll to this
 place in it," and it is `noteHref`'s third argument.
 
@@ -179,6 +220,10 @@ package imports and parses under jsdom, and that the polyfill is what makes
 `TextEncoder` present there at all.
 
 #### An activity link's path has no `.md`, and the console puts it back at the one seam that needs it
+
+_Historical: `ContactPageView` was retired on 2026-10-12 (see *Contacts are a
+header over the note* above). Kept for the lesson, which applies to any
+future reader of `parseContactView`'s activity paths._
 
 `activityLink` (in `@context/communications`) writes `[[path#anchor|label]]`
 with the `.md` stripped, because it is writing an Obsidian wikilink target
