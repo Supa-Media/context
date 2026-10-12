@@ -22,6 +22,10 @@ export function useFileActions(deps: FileActionsDeps) {
   const { moved } = folderIcons;
 
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
+  const workspaceGenerationRef = useRef({ workspaceId, epoch: 0 });
+  if (workspaceGenerationRef.current.workspaceId !== workspaceId) {
+    workspaceGenerationRef.current = { workspaceId, epoch: workspaceGenerationRef.current.epoch + 1 };
+  }
   const slug = options.slug ?? null;
 
   const listFiles = useAction(api.functions.files.listFiles);
@@ -107,7 +111,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
-    workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
+    workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,

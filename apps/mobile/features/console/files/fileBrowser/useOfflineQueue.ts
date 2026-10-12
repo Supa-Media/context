@@ -46,13 +46,14 @@ type OfflineQueueDeps =
     | "editor"
     | "editorRef"
     | "openRun"
+    | "overlayOnlineMoves"
   >
   & Pick<WritesAndImagesValues, "sendQueued">;
 
 export function useOfflineQueue(deps: OfflineQueueDeps) {
   const {
     options, archiveEntry, bucketListings, collaborationPaths, createDirectory, dispatch, editor,
-    editorRef, moveEntry, openRun, readNote, sendQueued, trashEntry, workspaceId,
+    editorRef, moveEntry, openRun, overlayOnlineMoves, readNote, sendQueued, trashEntry, workspaceId,
   } = deps;
 
   /**
@@ -246,8 +247,8 @@ export function useOfflineQueue(deps: OfflineQueueDeps) {
   }
   const shapedOutbox = overlayShape.current.outbox;
   const listings = useMemo(
-    () => overlayListings(bucketListings, shapedOutbox),
-    [bucketListings, shapedOutbox],
+    () => overlayOnlineMoves(overlayListings(bucketListings, shapedOutbox)),
+    [bucketListings, shapedOutbox, overlayOnlineMoves],
   );
 
   /*
