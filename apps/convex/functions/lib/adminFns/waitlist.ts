@@ -5,9 +5,9 @@
  * with `requireAdmin` inline before calling one of these — see that file's
  * header and `__tests__/adminSurface.test.ts`.
  *
- * Letting somebody in claims their "you're in" mail in the same transaction,
- * so pressing Let in twice, or on a whole selection that overlaps, mails each
- * person once.
+ * Letting somebody in claims their "you're in" mail, or their text when they
+ * joined with a phone, in the same transaction, so pressing Let in twice, or
+ * on a whole selection that overlaps, tells each person once.
  */
 
 import { v } from "convex/values";
@@ -124,18 +124,24 @@ export async function landingCountsHandler(ctx: QueryCtx) {
 async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActor): Promise<boolean> {
   if (row.status === "admitted") return false;
   const now = Date.now();
-  const mail = row.admittedMailAt === undefined;
+  // A row joined with a phone is told by text, one with an address by mail.
+  const text = row.phone !== undefined && row.email === undefined && row.admittedTextAt === undefined;
+  const mail = row.email !== undefined && row.admittedMailAt === undefined;
   await ctx.db.patch(row._id, {
     status: "admitted",
     admittedAt: now,
     admittedBy: actor.userId,
     ...(mail ? { admittedMailAt: now } : {}),
+    ...(text ? { admittedTextAt: now } : {}),
   });
   if (mail) {
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, {
       waitlistId: row._id,
       kind: "admitted",
     });
+  }
+  if (text) {
+    await ctx.scheduler.runAfter(0, internal.functions.waitlistText.sendAdmitted, { waitlistId: row._id });
   }
   return true;
 }
