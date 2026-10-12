@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { AccountBlock } from "./AccountBlock";
 import { SwitcherMenu } from "./SwitcherMenu";
@@ -19,6 +19,7 @@ import { atName } from "./format";
 import { selectedContext, type ConsoleData } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
 import { entryAt } from "./files/tree";
+import { anchorFromQuery, noteFromQuery } from "./nav";
 import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
 import type { VoicePage } from "../voice/VoiceButton";
 
@@ -74,17 +75,6 @@ import type { VoicePage } from "../voice/VoiceButton";
  * through `switcher-settings` in that menu, which is the control the product
  * actually has there.
  *
- * ## `onOpenComms`, without a router
- *
- * The real route implements this by pushing `noteHref(slug, path, anchor)` —
- * a genuine navigation, because a contact's activity link names an anchor
- * `files.select` has no way to carry (see `BrowsePane`'s own comment on the
- * prop). There is no `expo-router` here to push through, so this keeps the
- * one thing that navigation actually *does* to the browser and the screen: it
- * selects the path and remembers the anchor in local state, which
- * `BrowsePane` reads back exactly as it would read `?anchor=` off a URL. A
- * context switch clears it the same way a fresh URL would.
- *
  * ## Settings, without a URL
  *
  * `SettingsOverlay` had no browser-reachable surface anywhere in this
@@ -120,11 +110,25 @@ import type { VoicePage } from "../voice/VoiceButton";
  */
 export function E2EFixtureScreen({
   returned = null,
+  note = null,
 }: {
   /** What a return from Stripe said, read by the route and handed down. */
   returned?: CheckoutOutcome | null;
+  /**
+   * `?note=<path>#<anchor>`, read the way the real route reads it
+   * (`noteFromQuery`/`anchorFromQuery`): the note opened on arrival, and the
+   * message a channel-day scrolls to — `commsInbox.spec.ts`'s anchor case.
+   */
+  note?: string | null;
 } = {}) {
   const data = useE2EFixtureConsoleData();
+  const notePath = noteFromQuery(note ?? undefined);
+  const anchor = anchorFromQuery(note ?? undefined);
+  const select = data.files.select;
+  useEffect(() => {
+    if (notePath !== null) select(notePath);
+    // On arrival only, as a URL is read once; `select` is stable per fixture.
+  }, [notePath]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = selectedContext(data);
   /**
    * Following a link, and a history with nowhere to go.
@@ -154,7 +158,6 @@ export function E2EFixtureScreen({
     }),
     [data.files],
   );
-  const [anchor, setAnchor] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsSectionKey | null>(null);
   /*
     The density, decided the way the product decides it — `densityFor`, not a
@@ -257,8 +260,7 @@ export function E2EFixtureScreen({
             <View style={styles.account}>
               {/*
                 The product's top-left on a page below Home: ‹ back, naming the
-                page above (`consoleAccountSlot`). Going up clears an anchor the
-                way the product's navigation does.
+                page above (`consoleAccountSlot`).
               */}
               {back === null ? (
                 /*
@@ -270,17 +272,13 @@ export function E2EFixtureScreen({
                   data={data}
                   label={current === null ? "Your context" : atName(current.slug)}
                   trigger="phone"
-                  onOpenContext={(slug) => {
-                    setAnchor(null);
-                    openContext(slug);
-                  }}
+                  onOpenContext={openContext}
                   onOpenSettings={openSettings}
                 />
               ) : (
                 <PhoneBack
                   target={back}
                   onBack={() => {
-                    setAnchor(null);
                     if (back.folder === null) data.files.deselect();
                     else data.files.select(back.folder);
                   }}
@@ -304,10 +302,6 @@ export function E2EFixtureScreen({
               data={data}
               onOpenSettings={openSettings}
               anchor={anchor}
-              onOpenComms={(path, targetAnchor) => {
-                setAnchor(targetAnchor ?? null);
-                data.files.select(path);
-              }}
             />
             </ConsoleNavProvider>
             </VoiceHostProvider>
@@ -325,10 +319,7 @@ export function E2EFixtureScreen({
                 them. It is the same substitution the rest of this file makes:
                 keep what the navigation *does* to this browser's state.
               */
-              onOpenContext={(slug) => {
-                setAnchor(null);
-                openContext(slug);
-              }}
+              onOpenContext={openContext}
               onOpenSettings={openSettings}
             />
           </View>
@@ -347,10 +338,7 @@ export function E2EFixtureScreen({
           */
           returned={returned}
           onSelect={setSettings}
-          onSwitchContext={(slug) => {
-            setAnchor(null);
-            openContext(slug);
-          }}
+          onSwitchContext={openContext}
           onDismiss={() => setSettings(null)}
         />
       )}

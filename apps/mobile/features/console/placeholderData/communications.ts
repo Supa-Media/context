@@ -1,6 +1,6 @@
 import {
+  CONTACTS_FOLDER,
   channelDayNotePath,
-  contactNotePath,
   contactSlug,
   messageAnchor,
   renderChannelDayNote,
@@ -15,11 +15,9 @@ import { file, folder, listing } from "./treeHelpers";
 // Real notes, rendered by the same package the gateway renders a customer's
 // mail with — `renderChannelDayNote` and `renderContactNote` from
 // `@context/communications` — never hand-typed markdown standing in for them.
-// That is what lets `apps/mobile/e2e/webkit` walk Inbox → a channel → a day →
-// a contact's activity link and land back on that exact day at the exact
-// message the link named: the anchor on the fixture's contact page and the
-// anchor on the rendered message are the same `messageAnchor(event)` call,
-// not two numbers somebody kept in sync by hand.
+// The anchor on the fixture's contact page and the anchor on the rendered
+// message are the same `messageAnchor(event)` call, not two numbers somebody
+// kept in sync by hand.
 //
 // `@seyi` is the fixture `useDemoConsoleData` selects by default, so this is
 // the one tree that carries them.
@@ -189,8 +187,31 @@ const ADAM_CONTACT = {
   notes: "Production lead for LTN 2026.",
   now: "2026-09-07T18:04:11.221Z",
 };
+/**
+ * Contacts as they now land: one page per person under its letter folder
+ * (`0-inbox/contacts/a/…`), with the legacy imported iMessage folder beside
+ * the letters — the shape the contacts folder's A–Z index and a contact
+ * page's header (`communications/contactPages.ts`) are drawn from.
+ */
 const ADAM_CONTACT_SLUG = contactSlug(ADAM_CONTACT.name);
-const ADAM_CONTACT_PATH = contactNotePath(ADAM_CONTACT_SLUG);
+const ADAM_CONTACT_PATH = `${CONTACTS_FOLDER}/a/${ADAM_CONTACT_SLUG}.md`;
+const MARA_CONTACT = {
+  name: "Mara Lindqvist",
+  identifiers: [
+    { kind: "email", value: "mara@example.org" },
+    { kind: "phone", value: "+15550100123" },
+  ],
+  activity: [],
+  notes: "",
+  now: "2026-09-06T09:12:00.000Z",
+};
+const MARA_CONTACT_PATH = `${CONTACTS_FOLDER}/m/${contactSlug(MARA_CONTACT.name)}.md`;
+/** The imported iMessage format: `role: communication-contact` and `## Identities`. */
+const SAM_IMPORTED_PATH = `${CONTACTS_FOLDER}/imessage/sam-reyes.md`;
+const SAM_IMPORTED =
+  "---\ntitle: \"Sam Reyes\"\nrole: communication-contact\n---\n\n" +
+  "# Sam Reyes\n\n## Identities\n\n- iMessage: `+15550100456`\n\n" +
+  "## iMessage threads\n\n- 2026-08\n";
 
 export const COMMS_LISTINGS: Record<string, FolderListing> = {
   "0-inbox/email": listing("0-inbox/email", "private", [
@@ -202,9 +223,18 @@ export const COMMS_LISTINGS: Record<string, FolderListing> = {
     [file(EMAIL_DAY_EARLIER_PATH), file(EMAIL_DAY_PATH)],
   ),
   "0-inbox/google-chat": listing("0-inbox/google-chat", "private", [file(GOOGLE_CHAT_DAY_PATH)]),
-  "0-inbox/contacts": listing("0-inbox/contacts", "private", [
+  [CONTACTS_FOLDER]: listing(CONTACTS_FOLDER, "private", [
+    folder(`${CONTACTS_FOLDER}/a`, "private"),
+    folder(`${CONTACTS_FOLDER}/m`, "private"),
+    folder(`${CONTACTS_FOLDER}/imessage`, "private"),
+  ]),
+  [`${CONTACTS_FOLDER}/a`]: listing(`${CONTACTS_FOLDER}/a`, "private", [
     file(ADAM_CONTACT_PATH, { updatedAt: Date.parse(ADAM_CONTACT.now) }),
   ]),
+  [`${CONTACTS_FOLDER}/m`]: listing(`${CONTACTS_FOLDER}/m`, "private", [
+    file(MARA_CONTACT_PATH, { updatedAt: Date.parse(MARA_CONTACT.now) }),
+  ]),
+  [`${CONTACTS_FOLDER}/imessage`]: listing(`${CONTACTS_FOLDER}/imessage`, "private", [file(SAM_IMPORTED_PATH)]),
 };
 
 export const COMMS_NOTES: Record<string, string> = {
@@ -212,4 +242,6 @@ export const COMMS_NOTES: Record<string, string> = {
   [EMAIL_DAY_EARLIER_PATH]: renderChannelDayNote(EMAIL_DAY_EARLIER),
   [GOOGLE_CHAT_DAY_PATH]: renderChannelDayNote(GOOGLE_CHAT_DAY),
   [ADAM_CONTACT_PATH]: renderContactNote(ADAM_CONTACT),
+  [MARA_CONTACT_PATH]: renderContactNote(MARA_CONTACT),
+  [SAM_IMPORTED_PATH]: SAM_IMPORTED,
 };

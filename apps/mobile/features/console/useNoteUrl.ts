@@ -28,8 +28,7 @@ import { browseHref, noteHref } from "./nav";
  * surely as from the first.
  *
  * So a **navigation** — somebody opened a note — is `router.push`, which is a
- * history entry and is the same call `onOpenComms` already makes for an
- * activity link. A **correction** — a rename moving the path under an open
+ * history entry. A **correction** — a rename moving the path under an open
  * note, a refused close being put back — stays `setParams`: nobody went
  * anywhere, and an entry for it is a back button that returns to a place
  * nobody chose, or to a path that no longer exists. `noteAddress.ts` decides
@@ -50,8 +49,7 @@ import { browseHref, noteHref } from "./nav";
  * above the route in `useFileBrowser` and so survives. What it does *not*
  * touch is the file tree, the listings, the tab strip or the open draft: all
  * of those are the console layout's, and the layout does not remount. The
- * same call is already what an activity link and a meeting's note make
- * (`onOpenComms`, `onOpenNote`), so this is the route's established behaviour
+ * same call is already what a meeting's note makes (`onOpenNote`), so this is the route's established behaviour
  * rather than a new one — it is now simply what every navigation does.
  *
  * ## `useNavigation`'s `setParams`, not `useRouter`'s
@@ -84,10 +82,9 @@ import { browseHref, noteHref } from "./nav";
  * behind. This is the *reconciliation* path — the browser's own selection
  * moved (a tapped row, a wikilink, an unsaved-changes guard settling) and the
  * URL is catching up with a fresh navigation, always to a plain path with no
- * anchor of its own. The one path that means to open a specific message is
- * `onOpenComms` (a contact's activity link, or a search result), and that
- * goes through a real `router.push(noteHref(slug, path, anchor))` instead of
- * this hook.
+ * anchor of its own. An address that names a specific message is built by
+ * `noteHref(slug, path, anchor)` and arrives as a URL, never through this
+ * hook.
  */
 export function useNoteUrl(
   /**

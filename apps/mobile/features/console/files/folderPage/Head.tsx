@@ -26,6 +26,7 @@ import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { FolderChaosChip } from "../../../chaos/FolderChaosChip";
+import { hidesFolderChaos } from "../../communications/contactPages";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -155,7 +156,8 @@ export function FolderHead({
         {switcher}
         {actions}
       </View>
-      {folder === undefined ? null : <FolderChaosChip folder={folder} />}
+      {/* Contacts' letter folders are the app's filing and are not scored (`hidesFolderChaos`). */}
+      {folder === undefined || hidesFolderChaos(folder) ? null : <FolderChaosChip folder={folder} />}
       {children}
     </>
   );

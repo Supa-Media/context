@@ -76,7 +76,6 @@ export function BrowsePane({
   onOpenSettings,
   pendingNote,
   anchor,
-  onOpenComms,
   onNavigate,
   onConnectAgent,
   summary,
@@ -300,12 +299,6 @@ export function BrowsePane({
   // And so does the live map, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
 
-  const handleOpenComms =
-    onOpenComms ??
-    ((path: string) => {
-      files.select(path);
-    });
-
   const openDocument = (
     <BrowseDocument
       data={data}
@@ -322,7 +315,6 @@ export function BrowsePane({
       reading={reading}
       nav={nav}
       commsRoute={commsRoute}
-      handleOpenComms={handleOpenComms}
       folderMenuFor={folderMenuFor}
       folderDrag={folderDrag}
       setFolderDialog={setFolderDialog}

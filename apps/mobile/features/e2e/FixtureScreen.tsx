@@ -28,7 +28,8 @@ import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
 export interface FixtureParams {
   /**
    * `screen=collaboration`: which note. `screen=resume&surface=menu`: `0` draws
-   * the console with no meeting note open.
+   * the console with no meeting note open. No `screen`: the console opened on
+   * this note, `#anchor` and all, as the real route's `?note=` is read.
    */
   note?: string | string[];
   user?: string | string[];
@@ -124,5 +125,10 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   }
 
   // The console, and whatever a return from Stripe said on the way in.
-  return <E2EFixtureScreen returned={checkoutOutcomeFrom(first(params[CHECKOUT_PARAM]))} />;
+  return (
+    <E2EFixtureScreen
+      returned={checkoutOutcomeFrom(first(params[CHECKOUT_PARAM]))}
+      note={first(params.note) ?? null}
+    />
+  );
 }
