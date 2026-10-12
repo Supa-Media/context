@@ -200,6 +200,23 @@ function stubFetch({ beforeRequest = null, failWrites = false } = {}) {
       notes.set(args.path, { content: args.content, etag });
       return answer(`written: ${args.path} (etag ${etag})`);
     }
+    if (name === "list_notes") {
+      // The real tool's shape (`apps/mcp/src/tools/notes/read.js`), which the
+      // contact lookup reads before it files anybody.
+      const prefix = String(args.prefix ?? "").replace(/\/+$/, "");
+      const lines = [...notes.keys()]
+        .filter((path) => prefix === "" || path.startsWith(`${prefix}/`))
+        .sort()
+        .map((path) => `${path} (${new TextEncoder().encode(notes.get(path).content).length} bytes)`);
+      return answer(lines.length ? lines.join("\n") : "(no visible notes under that prefix)");
+    }
+    if (name === "move_note") {
+      const stored = notes.get(args.source);
+      if (stored === undefined || notes.has(args.destination)) return answer("move refused", true);
+      notes.delete(args.source);
+      notes.set(args.destination, stored);
+      return answer(`moved: ${args.source} -> ${args.destination}`);
+    }
     return answer(`unknown tool ${name}`, true);
   };
   return { impl, requests, notes };
