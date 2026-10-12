@@ -371,3 +371,14 @@ item, and a plan that budgets CASA against Gmail alone under-budgets it. So
 **the Chat connect flow sits behind the same flag as Gmail's**, off until that
 verification lands, for the same reason: v1 runs on fixtures precisely because
 a restricted scope cannot reach real user data before Google grants it.
+
+## A folder move the sync writes into still finishes (2026-10-12)
+
+The contact sync writes a page at its physical key and does not read the
+logical-move overlay, so a message arriving while `0-inbox/contacts/` was being
+moved changed a pinned source and paused the move for good, refusing every
+later write under the folder. The materializer now adopts such a change for a
+page the sync renders (contact path, `type: "contact"`): before its copy it
+moves the newest version; after its copy it refreshes the copy only when the
+copy is still exactly what the move wrote (`copied_etag`). A person's own note
+that changes under a move still pauses it. Tests: `apps/mcp/test/moveSyncOwnedChecks.mjs`.
