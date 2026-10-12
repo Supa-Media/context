@@ -523,6 +523,16 @@ export const lightGraphColors: GraphColors = {
 };
 
 /**
+ * Categorical chart series, in a fixed order: slot 1 is always the first
+ * series, never re-dealt when one drops out. Checked for colour-vision
+ * separation against each theme's surface (dataviz validator, 2026-10-10);
+ * the light set is under 3:1 against the surface for slots 3 to 5, so a chart
+ * using them also shows its numbers as text.
+ */
+export const lightSeriesColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"] as const;
+export const darkSeriesColors = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"] as const;
+
+/**
  * The live workspace map's own shades (`features/console/map/live/engine`),
  * the ones the app palette has no word for: the paper of a workspace island,
  * a resting note, a link, a folder's bubble and its dashed rim, and `ink`,

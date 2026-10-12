@@ -59,6 +59,9 @@ export const USAGE_METRICS = [
   // dashboard. Bumped by `recordHourly` only, so they cover Premium workspaces.
   ...familyMetrics("mcp.request_tokens"),
   ...familyMetrics("mcp.response_tokens"),
+  // And the calls behind them, so the dashboard can divide tokens by calls
+  // over the same Premium workspaces. Failed calls count: they return tokens too.
+  ...familyMetrics("mcp.calls"),
 ] as const;
 
 export function clientFamily(clientName: string | undefined): ClientFamily {

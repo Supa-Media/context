@@ -94,13 +94,29 @@ not ours to keep.
 
 ## What the admin dashboard sees
 
-Platform-wide daily totals of tokens into and out of Context, by client family
-(Claude, ChatGPT, Codex, Gemini, other), across Premium workspaces. No workspace,
-person, model or hour. A workspace that opts in to sharing will expose its full
-breakdown to the admin view; that switch is a later change.
+Platform-wide daily totals of tokens into Context, tokens out of it and tool
+calls, by client family (Claude, ChatGPT, Codex, Gemini, other), across Premium
+workspaces. No workspace, person, model or hour. The calls are counted over the
+same Premium workspaces as the tokens, failed calls included, so tokens per call
+divides like by like.
+
+The Activity tab draws them as one Token usage panel, not as Events rows:
+
+- **Headline numbers:** tokens in, tokens out, and tokens returned per tool
+  call, each against the period before.
+- **Per call, stacked by agent:** daily stacked bars where each agent's
+  segment is its tokens out over all of that day's calls. The segments add up
+  to the overall average. A stack of each agent's own average would not, so
+  each agent's own average lives in the table instead.
+- **Tokens out, stacked by agent:** daily stacked bars on the same axis.
+- **By agent:** calls, tokens in, tokens out, out per call, and share of out.
+
+A workspace that opts in to sharing will expose its full breakdown to the admin
+view; that switch is a later change.
 
 ## Tests that fail if this is reversed
 
 - `apps/convex/__tests__/usageHourly.test.ts`
 - `apps/mcp/test/usageReporting.test.mjs` (the breakdown section)
 - `apps/mcp/test/tokens.test.mjs`
+- `apps/mobile/__tests__/adminTokens.test.ts`

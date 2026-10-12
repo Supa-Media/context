@@ -236,12 +236,28 @@ describe("recordHourly", () => {
     expect(rows[0].workspaceId).toBe(paid.workspaceId);
   });
 
-  test("non-token metrics do not touch the family totals", async () => {
+  test("calls, failed or not, add up to one family call total", async () => {
+    const t = setupTest();
+    const { workspaceId } = await workspace(t, "fcalls", true);
+    await client(t, "client-gpt", "ChatGPT");
+    await t.mutation(internal.functions.usage.recordHourly, {
+      events: [
+        event(workspaceId, { clientId: "client-gpt", metric: "mcp.calls", method: "count", count: 1 }),
+        event(workspaceId, { clientId: "client-gpt", metric: "mcp.failed_calls", method: "count", count: 1 }),
+      ],
+      at: AT,
+    });
+    const totals = await daily(t);
+    expect(totals).toHaveLength(1);
+    expect(totals[0]).toMatchObject({ metric: "mcp.calls.chatgpt", count: 2 });
+  });
+
+  test("images and writes do not touch the family totals", async () => {
     const t = setupTest();
     const { workspaceId } = await workspace(t, "counts", true);
     await t.mutation(internal.functions.usage.recordHourly, {
       events: [
-        event(workspaceId, { metric: "mcp.calls", method: "count", count: 1 }),
+        event(workspaceId, { metric: "mcp.images", method: "count", count: 1 }),
         event(workspaceId, { metric: "note.write", method: "count", count: 1 }),
       ],
       at: AT,

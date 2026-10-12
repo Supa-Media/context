@@ -246,6 +246,14 @@ export const reportAppSession = mutation({
   },
 });
 
+/** Which hourly metrics roll up into a platform-wide total per client family, and under which name. */
+const FAMILY_TOTALS = new Map<string, string>([
+  ["mcp.request_tokens", "mcp.request_tokens"],
+  ["mcp.response_tokens", "mcp.response_tokens"],
+  ["mcp.calls", "mcp.calls"],
+  ["mcp.failed_calls", "mcp.calls"],
+]);
+
 /** How much one hourly report may add at once, for the same reason as `MAX_BATCH_EVENTS`. */
 export const MAX_HOURLY_BATCH_EVENTS = 50;
 
@@ -311,7 +319,8 @@ export const recordHourly = internalMutation({
         method: event.method,
       }, count);
 
-      if (event.metric === "mcp.request_tokens" || event.metric === "mcp.response_tokens") {
+      const familyTotal = FAMILY_TOTALS.get(event.metric);
+      if (familyTotal !== undefined) {
         if (!families.has(event.clientId)) {
           const client = await ctx.db
             .query("oauthClients")
@@ -319,7 +328,7 @@ export const recordHourly = internalMutation({
             .first();
           families.set(event.clientId, clientFamily(client?.clientName));
         }
-        const total = `${event.metric}.${families.get(event.clientId)}` as UsageMetric;
+        const total = `${familyTotal}.${families.get(event.clientId)}` as UsageMetric;
         await bump(ctx, day, total, undefined, count);
       }
       applied += 1;

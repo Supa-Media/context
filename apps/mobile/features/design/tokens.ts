@@ -17,6 +17,8 @@ export {
   type GraphKind,
   type GraphColors,
   lightGraphColors,
+  lightSeriesColors,
+  darkSeriesColors,
   presenceColors,
   castChatLooks,
   type CastChatLookColors,

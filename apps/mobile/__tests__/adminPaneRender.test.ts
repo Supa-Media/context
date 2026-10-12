@@ -477,6 +477,34 @@ describe("the tabs separate the errands", () => {
     expect(has(container, "admin-stat-accounts")).toBe(false);
   });
 
+  test("token counters draw the Token usage panel, never Events rows", () => {
+    mockAnswers.set("functions/admin:usageReport", {
+      ...usage(),
+      series: [
+        { metric: "mcp.tool_call", points: points([4, 9]), total: 13 },
+        { metric: "mcp.calls.claude", points: points([2, 4]), total: 6 },
+        { metric: "mcp.request_tokens.claude", points: points([100, 200]), total: 300 },
+        { metric: "mcp.response_tokens.claude", points: points([1000, 3000]), total: 4000 },
+      ],
+    });
+    const container = mount();
+    click(container, "admin-tab-activity");
+    expect(has(container, "admin-tokens")).toBe(true);
+    expect(has(container, "admin-tokens-per-call")).toBe(true);
+    expect(has(container, "admin-tokens-agent-claude")).toBe(true);
+    expect(has(container, "admin-metric-mcp.tool_call")).toBe(true);
+    expect(has(container, "admin-metric-mcp.calls.claude")).toBe(false);
+    expect(has(container, "admin-metric-mcp.response_tokens.claude")).toBe(false);
+    // An agent with no traffic gets no table row.
+    expect(has(container, "admin-tokens-agent-gemini")).toBe(false);
+  });
+
+  test("no token traffic is an empty state, not zeros", () => {
+    const container = mount();
+    click(container, "admin-tab-activity");
+    expect(container.textContent).toContain("No token usage yet");
+  });
+
   test("credentials carries the form and no figures", () => {
     const container = mount();
     click(container, "admin-tab-credentials");
