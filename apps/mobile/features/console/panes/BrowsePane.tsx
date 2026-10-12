@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
+import { anchorOnScreen } from "../followedAnchor";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
 import { Menu } from "../../design/components/Menu";
@@ -309,7 +310,8 @@ export function BrowsePane({
       compact={compact}
       contextLabel={contextLabel}
       pendingNote={pendingNote}
-      anchor={anchor}
+      // The address's own anchor, else a followed link's (`followedAnchor.ts`).
+      anchor={anchorOnScreen(selected?.path ?? null, anchor ?? null, nav?.followed ?? null)}
       presence={presence}
       drawingCollaboration={drawingCollaboration}
       reading={reading}

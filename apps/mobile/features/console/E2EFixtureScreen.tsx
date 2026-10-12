@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import { useFollowedAnchor } from "./followedAnchor";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { AccountBlock } from "./AccountBlock";
 import { SwitcherMenu } from "./SwitcherMenu";
@@ -146,17 +147,23 @@ export function E2EFixtureScreen({
    * console layout — so they are honestly unavailable here rather than
    * simulated, and at compact density the breadcrumb draws neither anyway.
    */
+  const open = useCallback(
+    (path: string) => {
+      data.files.select(path);
+    },
+    [data.files],
+  );
+  const { follow, followed } = useFollowedAnchor(open, data.files);
   const nav = useMemo<ConsoleNav>(
     () => ({
-      follow: (path) => {
-        data.files.select(path);
-      },
+      follow,
+      followed,
       back: () => {},
       forward: () => {},
       canBack: false,
       canForward: false,
     }),
-    [data.files],
+    [follow, followed],
   );
   const [settings, setSettings] = useState<SettingsSectionKey | null>(null);
   /*

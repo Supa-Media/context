@@ -97,11 +97,18 @@ move). Two small presentation changes, both in
   there gets none. This **retired `ContactPageView`**, which replaced the
   editor for flat pages only: a page moved into `a/` would otherwise have
   looked like a different product from the same page still flat, and the
-  person's `## Notes` could not be edited from the console at all. What went
-  with it is the activity list's jump to the exact message — the body's
-  `[[day#anchor|label]]` wikilinks open the day, not the anchor. The anchor
-  scroll itself stays (a `?note=path#anchor` URL), and `commsInbox.spec.ts`
-  still proves it through the fixture's own `?note=`.
+  person's `## Notes` could not be edited from the console at all. The
+  activity list's jump to the exact message is kept by a generic fix rather
+  than a contacts one: **following any `[[note#anchor]]` link keeps the
+  anchor** (`linkAnchor` in `@context/shared`'s links → `NoteLinkSpan.anchor`
+  → the editor's `onOpenLink` → `ConsoleNav.follow`, and over the native
+  bridge's `open-link`). `follow` still opens through `select`, so tabs and
+  the unsaved-draft guard are untouched, and `followedAnchor.ts` holds the
+  anchor beside the selection — the address's own `?note=path#anchor` wins,
+  and a followed one counts only while its note is on screen. Only a
+  channel-day acts on an anchor today. A followed anchor is not written into
+  the URL, so a reload lands at the top. `commsInbox.spec.ts` proves both:
+  tapping a contact's activity link, and the fixture's own `?note=`.
 - **The contacts folder draws its letter folders as an A–Z index** — one
   wrapping row of letters, `Other` last, a letter with no folder drawn dim —
   above the ordinary rows for everything else (legacy folders, flat pages).

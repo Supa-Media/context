@@ -358,6 +358,15 @@ function splitAnchor(target: string): { file: string; anchor: string } {
   return { file: target.slice(0, hash), anchor: target.slice(hash) };
 }
 
+/**
+ * The place inside a note a link points at — `heading` from `note#heading` —
+ * decoded, or `""` for none. `splitAnchor`'s answer, so what a reader follows
+ * and what a rewrite carries are one reading of the target.
+ */
+export function linkAnchor(target: string): string {
+  return safeDecode(splitAnchor(target).anchor.slice(1)).trim();
+}
+
 /** `a/b/c.md` → `a/b`; a note at the root → `""`. */
 export function dirOf(path: string): string {
   const slash = path.lastIndexOf("/");

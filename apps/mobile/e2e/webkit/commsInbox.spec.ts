@@ -121,6 +121,48 @@ test("the contacts folder is an A–Z index", async ({ page }) => {
   await snap(page, "contact-header");
 });
 
+/** The board message is on screen because the channel-day scrolled to it, not because it loaded there. */
+async function expectScrolledToBoard(page: Page): Promise<void> {
+  const viewport = page.viewportSize();
+  if (viewport === null) throw new Error("no viewport to compare against");
+  const board = boardMessage(page);
+  await board.first().waitFor();
+  await expect
+    .poll(async () => (await board.first().boundingBox())?.y ?? Number.POSITIVE_INFINITY, {
+      message: "the linked message should scroll into the visible viewport",
+      timeout: 5_000,
+    })
+    .toBeLessThan(viewport.height);
+  const afterBox = await board.first().boundingBox();
+  if (afterBox === null) throw new Error("the board message has no box after scrolling");
+  expect(afterBox.y).toBeGreaterThanOrEqual(0);
+  // A real scroll moved the container, from 0 on a fresh mount of the day.
+  const scrollTop = await page.getByTestId("channel-day-scroll").evaluate((node) => node.scrollTop);
+  expect(scrollTop).toBeGreaterThan(0);
+}
+
+test("a contact's activity link opens the day scrolled to that message", async ({ page }) => {
+  await openInbox(page);
+  await tapRow(page, "contacts");
+  await tapId(page, "contacts-letter-a");
+  await tapRow(page, "adam-okonkwo");
+  await page.getByTestId("contact-header").waitFor();
+
+  // The body's own `[[day#msg-…|Board wants a one-pager]]`, tapped in the
+  // editor — an ordinary wikilink, followed with its anchor.
+  const link = page.locator(".cm-note-link").filter({ hasText: "Board wants a one-pager" });
+  await settledBox(link.first());
+  // The label wraps on a phone, so the middle of its box can be beside the
+  // words rather than on them: tap the middle of its first line.
+  const first = await link.first().evaluate((node) => {
+    const rect = node.getClientRects()[0]!;
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.touchscreen.tap(first.x, first.y);
+
+  await expectScrolledToBoard(page);
+});
+
 test("an imported iMessage contact gets the same header", async ({ page }) => {
   await openInbox(page);
   await tapRow(page, "contacts");
@@ -146,24 +188,5 @@ test("a deep link to a message scrolls the channel-day to it", async ({ page }) 
   await page.goto(
     `/e2e-fixture?note=${encodeURIComponent(`0-inbox/email/name-at-example-com/2026/09/2026-09-07.md#${anchor}`)}`,
   );
-  const viewport = page.viewportSize();
-  if (viewport === null) throw new Error("no viewport to compare against");
-
-  const board = boardMessage(page);
-  await board.first().waitFor();
-  await expect
-    .poll(async () => (await board.first().boundingBox())?.y ?? Number.POSITIVE_INFINITY, {
-      message: "the linked message should scroll into the visible viewport",
-      timeout: 5_000,
-    })
-    .toBeLessThan(viewport.height);
-
-  const afterBox = await board.first().boundingBox();
-  if (afterBox === null) throw new Error("the board message has no box after scrolling");
-  expect(afterBox.y).toBeGreaterThanOrEqual(0);
-
-  // Not merely "the page happened to load already showing it" — a real
-  // scroll moved the container, from 0 on a fresh mount of the day.
-  const scrollTopAfter = await page.getByTestId("channel-day-scroll").evaluate((node) => node.scrollTop);
-  expect(scrollTopAfter).toBeGreaterThan(0);
+  await expectScrolledToBoard(page);
 });
