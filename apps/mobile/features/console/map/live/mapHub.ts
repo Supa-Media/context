@@ -5,7 +5,7 @@ import type { MapHub } from "./types";
 export type HubMember = { userId: string; name?: string; isMe: boolean };
 
 /**
- * The all-workspaces hub from the console's data: you, how many people are
+ * The all-workspaces hub from the console's data: how many people are
  * in each workspace with a few of their faces, and the AI tools you
  * connected that are at work right now, one per tool, with every workspace
  * it is working in. A tool sitting idle is not drawn at all.
@@ -17,7 +17,6 @@ export type HubMember = { userId: string; name?: string; isMe: boolean };
  * so it is left out.
  */
 export function hubFrom(input: {
-  you: string;
   contexts: ReadonlyArray<{ id: string; slug: string }>;
   clients: ReadonlyArray<{ name: string; context: string; mine: boolean; machine?: boolean }>;
   /** Members per workspace id; a workspace whose list has not come yet is left out. */
@@ -50,7 +49,7 @@ export function hubFrom(input: {
     if (!tool.workspaceIds.includes(workspaceId)) tool.workspaceIds.push(workspaceId);
     tools.set(name, tool);
   }
-  return { you: input.you, workspaces, agents: [...tools.values()] };
+  return { workspaces, agents: [...tools.values()] };
 }
 
 /**
