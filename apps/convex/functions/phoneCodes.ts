@@ -59,7 +59,7 @@ export function canTextCodes(): boolean {
 }
 
 /** The deployment's sender, else the one staff set in the console, else none. */
-async function smsKeys(ctx: ActionCtx) {
+export async function smsKeys(ctx: ActionCtx) {
   const fromDeployment = twilioSmsKeys();
   if (fromDeployment !== null) return fromDeployment;
   const stored: string | null = await ctx.runQuery(internal.functions.phoneCodes.storedSender, {});
