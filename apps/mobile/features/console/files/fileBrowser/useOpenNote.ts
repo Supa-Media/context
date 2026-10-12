@@ -16,6 +16,7 @@ import { useCallback, useRef } from "react";
 import { isServerRefusal, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
+import { rekeyPath } from "../optimistic";
 import { raceTimeout } from "../../storage/timeout";
 import { isUnreadable } from "../unreadable";
 import { restoreFor } from "../../../offline/restore";
@@ -31,9 +32,12 @@ import type { ListingsValues } from "./useListings";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 
 type OpenNoteDeps =
-  & Pick<FileActionsValues, "readNote" | "workspaceId">
+  & Pick<FileActionsValues, "readNote" | "workspaceId" | "workspaceGenerationRef">
   & Pick<
     BrowserStateValues,
+    | "pendingMoveTo"
+    | "pendingCreateTo"
+    | "renamingRef"
     | "autosave"
     | "collaborationPaths"
     | "dispatch"
@@ -56,7 +60,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
-    settleOpening, workspaceId,
+    settleOpening, workspaceId, workspaceGenerationRef, pendingMoveTo, pendingCreateTo, renamingRef,
   } = deps;
 
   /*
@@ -91,7 +95,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     // at the new name is the authority there, not this draft.
     if (collaborationPaths.current.has(from)) return undefined;
     const shown = editorRef.current;
-    if (shown.path !== from || shown.draft === note.text) return undefined;
+    if ((shown.path !== from && shown.path !== note.path) || shown.draft === note.text || shown.draft === shown.baseline) return undefined;
     return { text: shown.draft, status: "dirty" };
   };
 
@@ -358,6 +362,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
   const prefetch = useCallback(
     (path: string): void => {
       if (workspaceId === null || !isMarkdown(path)) return;
+      if (pendingMoveTo(path) !== undefined || pendingCreateTo(path) !== undefined) return;
       const offline = offlineRef.current;
       if (offline.reachability === "offline" || offline.pendingCreate(path) !== undefined) return;
       if (editorRef.current.path === path) return;
@@ -391,6 +396,37 @@ export function useOpenNote(deps: OpenNoteDeps) {
         guard first would only make the ordering look load-bearing when it is
         not.
       */
+      const pending = pendingMoveTo(path) ?? pendingCreateTo(path);
+      if (pending !== undefined) {
+        // A destination row is a promise, not a readable storage path yet.
+        if ("from" in pending && editorRef.current.path === pending.from) return true;
+        autosave.flush();
+        const guard = guardLeaving(editorRef.current);
+        if (!guard.allowed) {
+          setNotice(guard.prompt ?? null);
+          return false;
+        }
+        const epoch = workspaceGenerationRef.current.epoch;
+        const mine = ++openRun.current;
+        setSelectedPath(path);
+        setNavigations((count) => count + 1);
+        setOpening(path);
+        setNotice(null);
+        setUnreadable(null);
+        void pending.done.then((committed) => {
+          if (workspaceGenerationRef.current.epoch !== epoch || openRun.current !== mine) return;
+          const resolved = committed || !("from" in pending) ? path : rekeyPath(path, pending.to, pending.from)!;
+          if (!committed && !("from" in pending)) {
+            setSelectedPath(null);
+            setOpening(null);
+            return;
+          }
+          // Reuse ordinary folder/note navigation after the promise settles.
+          // A renamed folder has a listing, not a readable note body.
+          select(resolved);
+        });
+        return true;
+      }
       autosave.flush();
       const guard = guardLeaving(editorRef.current);
       if (!guard.allowed) {
@@ -525,12 +561,49 @@ export function useOpenNote(deps: OpenNoteDeps) {
    * as a second note at the old name, and vanished from the one on screen.
    */
   const followRename = useCallback(
-    (from: string, to: string): void => {
-      if (workspaceId === null) return;
+    (from: string, to: string, prepare?: () => Promise<void>, onLeave?: (path: string, text: string) => Promise<void>): void => {
+      if (workspaceId === null || editorRef.current.path !== from) return;
+      const epoch = workspaceGenerationRef.current.epoch;
+      const mine = ++openRun.current;
+      const shown = editorRef.current;
+      // Identity follows the committed move immediately. Keep its content
+      // until the canonical destination read can carry/rebase the draft.
+      editorRef.current = { ...shown, path: to };
+      dispatch({ type: "renamed", from, to });
       setSelectedPath(to);
-      void openNote(to, from);
+      const hold = { path: to, held: shown.draft !== shown.baseline ? shown.draft : null };
+      renamingRef.current = hold;
+      void (async () => {
+        try {
+          if (prepare !== undefined) await raceTimeout(prepare(), {
+            ms: 10_000,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          if (workspaceGenerationRef.current.epoch !== epoch || openRun.current !== mine) return;
+          const reading = openNote(to, from);
+          const readRun = openRun.current;
+          const reread = await raceTimeout(reading, {
+            ms: 10_000,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          if (reread.kind === "timeout" && workspaceGenerationRef.current.epoch === epoch && openRun.current === readRun) {
+            // The move is committed; a lost confirmation read must not hold
+            // all future typing or overwrite it if the old read answers later.
+            openRun.current += 1;
+            settleOpening(to);
+          }
+        } finally {
+          if (workspaceGenerationRef.current.epoch === epoch) {
+            if (renamingRef.current === hold) renamingRef.current = null;
+            if (editorRef.current.path === to && editorRef.current.status === "dirty") autosave.edited(to);
+            else if (editorRef.current.path !== to && hold.held !== null) void onLeave?.(to, hold.held);
+          }
+        }
+      })();
     },
-    [openNote, workspaceId],
+    [openNote, workspaceId, workspaceGenerationRef, autosave],
   );
 
   return { openNote, prefetch, select, deselect, followRename };
