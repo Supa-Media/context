@@ -80,7 +80,7 @@ Three sub-agents implemented separate portions and reviewed one another's change
 
 The new suites are `fileLifecycle.test.ts`, `fileCreateLifecycle.test.ts`, `runOperation.test.ts`, and `onlineChanges.test.ts`. They exercise real browser/tab/address hooks where relevant and controlled storage promises to force the adverse orderings. Live validation of the repaired code still requires a deployment; staging's bucket configuration remains a separate issue.
 
-## Final repair validation
+## Initial repair validation
 
 - **44 suites, 665 tests passed** across file lifecycle, creation, rename/title linking, tabs, operation timeouts, optimistic updates, offline work, guards and bulk operations.
 - ESLint passed all modified application and test files; `git diff --check` passed.
@@ -92,3 +92,11 @@ From `apps/mobile`:
 ```sh
 pnpm exec jest --runInBand --watchman=false --silent --testPathPattern='(fileLifecycle|runOperation|fileOperationTimeout|fileBrowserGuards|quickNoteCreate|fileCreateLifecycle|untitledTitleAdoption|linkedTitleRename|renameOpenNote|onlineChanges|optimistic.*|offline.*|fileTabs|tabsContextSwitch|linkedNote|fileErrorCallSites|bulkFileOps)\.test\.ts$'
 ```
+
+## Production follow-up — October 12, 2026
+
+PR #1546 merged and production release [38281573610](https://github.com/Supa-Media/context/actions/runs/38281573610) succeeded, including mobile OTA publication. The live bundle contains the repair. In the isolated `@agent` Dropbox workspace, creating and immediately opening a pending note worked, and saved text survived a refused title rename. Rename and trash returned `STORAGE_FAILED`; duplicate subsequently returned the same code (request `861cca754f9a8e52`). The duplicate request's server trace confirms authorization and storage binding succeeded before `runFileOperation` failed. No provider credentials or note contents were collected in diagnostics.
+
+Local reproduction identified a preexisting adapter mismatch: `isFolder` lists `file.md/`; Dropbox strips the trailing slash and returns HTTP 409 tagged `path/not_folder` for `list_folder` on an existing file. The adapter threw, preventing file move, duplicate and trash before their mutations. This is a code defect, not evidence that the owner must reconnect storage. The production error wrapper hides the underlying provider tag, so the exact live provider tag is inferred from this deterministic reproduction rather than exposed in logs.
+
+The follow-up fix treats only an initial listing's exact HTTP 409 `path/not_folder` as an empty prefix. It preserves continuation errors, permissions, restricted-content errors and read failures. Adapter and file-operation regression tests cover this distinction. Successful live rename/duplicate/undo and removal of the disposable `untitled-2026-10-12.md` remain pending deployment of this follow-up.

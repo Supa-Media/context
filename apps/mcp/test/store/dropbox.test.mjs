@@ -525,6 +525,40 @@ export async function runStoreDropboxChecks(check) {
   }
 
   {
+    const store = dropbox(() => dbxTagged("path/not_folder", 409));
+    const page = await store.list({ prefix: "note.md/", limit: 1_000 });
+    check(
+      "a file prefix has no children when Dropbox reports path/not_folder",
+      page.objects.length === 0 && page.delimitedPrefixes.length === 0 && page.truncated === false
+    );
+    let failure;
+    try { await store.list({ prefix: "note.md/", cursor: "existing-cursor" }); } catch (error) { failure = error; }
+    check("a continuation not_folder error is not an empty listing", failure instanceof Error);
+  }
+
+  {
+    for (const tag of ["restricted_content", "no_permission"]) {
+      const store = dropbox(() => dbxTagged(`path/${tag}`, 409));
+      let failure;
+      try { await store.list({ prefix: "note.md/" }); } catch (error) { failure = error; }
+      check(`a ${tag} listing refusal is never mistaken for an empty prefix`, failure instanceof Error);
+    }
+  }
+
+  {
+    for (const [tag, status] of [["path/not_folder", 403], ["path/not_folder", 500], ["path/not_folder/other", 409]]) {
+      const store = dropbox(() => dbxTagged(tag, status));
+      let failure;
+      try { await store.list({ prefix: "note.md/" }); } catch (error) { failure = error; }
+      check(`listing ${status} ${tag} remains a failure`, failure instanceof Error);
+    }
+    const store = dropbox(() => dbxTagged("path/not_folder", 409));
+    let failure;
+    try { await store.get("note.md"); } catch (error) { failure = error; }
+    check("a read not_folder error is never treated as absence", failure instanceof Error);
+  }
+
+  {
     // Many small files is the normal shape of a context sync, so a 429 is an
     // expected condition rather than an outage.
     let calls = 0;
