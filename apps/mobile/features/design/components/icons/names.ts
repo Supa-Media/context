@@ -391,6 +391,16 @@ export const ICON_NAMES = [
   "smile",
   /** The General settings row: the workspace itself. */
   "home",
+
+  /*
+    The remote screen at `/tex/<handle>` (`icons/remote.tsx`): the top bar's
+    keyboard and its trackpad/touch toggle, and the send-text bar's keys.
+  */
+  "keyboard",
+  "mouse",
+  "touch",
+  "backspace",
+  "enter",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];

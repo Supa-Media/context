@@ -17,6 +17,7 @@ export interface TexComputerState {
   frame: Frame | null;
   /** True while an action or a stop is in flight. */
   busy: boolean;
+  /** One action, sent after every action sent before it has answered: text, then its Enter. */
   send: (action: TexAction) => void;
   stop: () => void;
 }
@@ -44,6 +45,9 @@ export function useTexComputer(options: {
   const [busy, setBusy] = useState(false);
   const epoch = useRef(0);
   const poke = useRef<() => void>(() => {});
+  // Actions in order: a typed word and the Enter after it must not race each other to the page.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const pending = useRef(0);
 
   const request = useCallback(
     async (route: "frame" | "input" | "stop", extra: Record<string, unknown> = {}) => {
@@ -131,9 +135,12 @@ export function useTexComputer(options: {
   const send = useCallback(
     (action: TexAction) => {
       const mine = epoch.current;
+      pending.current += 1;
       setBusy(true);
-      void request("input", { action }).then((answer) => {
-        setBusy(false);
+      queue.current = queue.current.then(async () => {
+        const answer = await request("input", { action });
+        pending.current -= 1;
+        if (pending.current === 0) setBusy(false);
         apply(answer, mine);
       });
     },

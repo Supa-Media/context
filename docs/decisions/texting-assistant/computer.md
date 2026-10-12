@@ -30,13 +30,25 @@ into on a phone, and drives the browser for whoever holds it. Instead:
   `/view/input` look up the session by the tag and never start one; nothing
   running is `{ running: false }`. The page polls about once a second while
   a browser runs and every five seconds otherwise, never in a hidden tab.
-- **Take control** sends a tap (mapped from the picture to the page's
-  viewport), text from an always-on bar, Tab, Enter, Backspace, history back
-  and scroll, each bounded and whitelisted in the Worker before anything
-  reaches the browser. What the person types goes to the page only: never
-  logged, returned, put before the model or written to the bucket. "Done,
-  hand back to Tex" returns to watching and tells them to text "done"; it
-  does not text for them. "Stop" releases the browser.
+- **It is a remote desktop, not a page about one** (the owner, 2026-10-12,
+  after trying the first version on his phone, with Chrome Remote Desktop
+  as the reference). The picture fills the screen on a dark ground with
+  pinch to zoom and pan; a cursor is drawn over it. In trackpad mode (the
+  default) one finger moves the cursor and a tap clicks where it is; in
+  touch mode a tap clicks where it lands. Two fingers dragged scroll the
+  page under the cursor. The top bar is three icons (keyboard, mode, and a
+  menu holding "Hand back to Tex" and "Stop browser"); a "Send text" bar
+  sends text then Enter, and has Backspace and Return keys. Any touch takes
+  control; there is no button for it. The geometry (`remoteView.ts`) and
+  what a finger means (`remoteGesture.ts`) are pure and unit-tested.
+- **Every action is bounded and whitelisted in the Worker** before anything
+  reaches the browser: tap `{x, y, button}` (left only), move `{x, y}` (hover,
+  no button), type, key (Tab, Enter, Backspace), scroll `{x, y, dx, dy}` (a
+  wheel at the cursor) and back. The gateway rebuilds each from its named
+  fields. What the person types goes to the page only: never logged,
+  returned, put before the model or written to the bucket. "Hand back to
+  Tex" tells them to text "done"; it does not text for them. "Stop browser"
+  releases the browser.
 
 **What a simplification would cost:** texting the vendor's live-view link
 again hands a bearer link to the person's signed-in browser to anyone the

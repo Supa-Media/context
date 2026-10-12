@@ -1,7 +1,8 @@
 /**
  * `/tex/<handle>`'s rules, without a renderer: who the page opens for, how
- * the gateway's answer is read, and where a tap lands on the page.
- * `texComputerRender.test.ts` proves the screen uses them.
+ * and the gateway's answer is read. Where a touch lands on the page is
+ * `texRemoteView.test.ts`; `texComputerRender.test.ts` proves the screen
+ * uses both.
  *
  * ## Sabotage record
  *
@@ -18,7 +19,6 @@ import {
   normalizeHandle,
   readFrame,
   resolveTexPage,
-  tapToPage,
   texComputerEndpoint,
   texHref,
   type WorkspaceRow,
@@ -77,7 +77,14 @@ describe("the gateway's answer", () => {
 
   test("an answer is read field by field", () => {
     const read = readFrame(200, { running: true, url: "https://chatgpt.com/", title: "ChatGPT", width: 1280, height: 860, frame: "QQ==", session: "SECRET" });
-    expect(read).toEqual({ kind: "frame", frame: { running: true, url: "https://chatgpt.com/", title: "ChatGPT", width: 1280, height: 860, frame: "QQ==" } });
+    expect(read).toEqual({ kind: "frame", frame: { running: true, url: "https://chatgpt.com/", title: "ChatGPT", width: 1280, height: 860, scale: 1, frame: "QQ==" } });
+    // The picture's scale when the gateway says it, and 1 when it says nothing sane.
+    const scaled = readFrame(200, { running: true, width: 1280, height: 860, scale: 0.6, frame: "QQ==" });
+    expect(scaled.kind === "frame" && scaled.frame.running && scaled.frame.scale).toBe(0.6);
+    for (const scale of ["0.6", -1, 0, Number.POSITIVE_INFINITY]) {
+      const read = readFrame(200, { running: true, width: 1280, height: 860, scale, frame: "QQ==" });
+      expect(read.kind === "frame" && read.frame.running && read.frame.scale).toBe(1);
+    }
     expect(readFrame(200, { running: false })).toEqual({ kind: "frame", frame: { running: false } });
   });
 
@@ -89,17 +96,6 @@ describe("the gateway's answer", () => {
     expect(readFrame(200, { running: true, frame: "", width: 1, height: 1 })).toEqual({ kind: "failed" });
     expect(readFrame(200, { running: true, frame: "QQ==", width: 0, height: 1 })).toEqual({ kind: "failed" });
     expect(readFrame(200, [])).toEqual({ kind: "failed" });
-  });
-});
-
-describe("where a tap lands", () => {
-  test("scales from the picture to the page's viewport", () => {
-    expect(tapToPage({ x: 195, y: 100 }, { width: 390, height: 262 }, { width: 1280, height: 860 })).toEqual({ x: 640, y: 328.2 });
-  });
-
-  test("is clamped to the page and refused with no size", () => {
-    expect(tapToPage({ x: 500, y: -4 }, { width: 390, height: 262 }, { width: 1280, height: 860 })).toEqual({ x: 1280, y: 0 });
-    expect(tapToPage({ x: 1, y: 1 }, { width: 0, height: 0 }, { width: 1280, height: 860 })).toBeNull();
   });
 });
 
