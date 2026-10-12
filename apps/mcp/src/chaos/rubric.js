@@ -27,10 +27,10 @@
  *   `generated: true` are exempt: nobody wrote them long.
  * - **Never thin.** The root and the built-in folders (Inbox, Projects,
  *   Areas, Resources, Clients, Teams, Products) only count as crowded.
- * - **Never scored.** Archive, at the root and everything under it, and the
- *   folders inside contacts: the app files a contact page by name, so how
- *   full a letter is says nothing about how the person keeps their notes.
- *   The contacts folder itself is scored but never thin (2026-10-12).
+ * - **Never scored.** Archive, at the root and everything under it.
+ * - **Contacts** are scored on hygiene, never on count: each page carries
+ *   its own chaos (`contacts.js`), and the folders are never thin
+ *   (2026-10-12).
  * - **The workspace.** Every note carries its folder's chaos, or its own
  *   length chaos when that is higher; a subfolder carries its parent's. The
  *   score is the average over all of them, so each folder weighs what it
@@ -41,7 +41,7 @@
  */
 
 import { FRONT_NOTES } from "../lists/grammar.js";
-import { CONTACTS_FOLDER } from "../../../../packages/communications/src/protocol.js";
+import { contactChaos, isContactsFolder } from "./contacts.js";
 import { folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
 /** Lines a note may run to before it starts to cost. */
@@ -183,7 +183,7 @@ export function countItems(notes, folders, { root = false } = {}) {
 
 /** Whether a folder path is the root or one of the built-in folders, which are never thin. */
 function thinAllowed(path) {
-  if (path === "" || path === CONTACTS_FOLDER) return true;
+  if (path === "" || isContactsFolder(path)) return true;
   if (path.includes("/")) return false;
   return FRAME_ROLES.has(folderRole(path) ?? "");
 }
@@ -193,15 +193,10 @@ export function isArchived(path) {
   return ARCHIVE_ROOT.test(String(path).split("/")[0]);
 }
 
-/** Whether a folder sits inside contacts, whose pages the app files and which is never scored. */
-export function isAppFiled(path) {
-  return String(path).startsWith(`${CONTACTS_FOLDER}/`);
-}
-
 /**
  * One folder's score.
  *
- * @param {{ path: string, notes: { name: string, lines?: number | null, exempt?: boolean }[], folders: string[] }} folder
+ * @param {{ path: string, notes: { name: string, lines?: number | null, exempt?: boolean, review?: boolean }[], folders: string[] }} folder
  * @returns {{ path: string, items: number, weight: number, sum: number, chaos: number }}
  *   `weight` is how much the folder counts toward the workspace and `sum` its
  *   share of chaos in it, so `chaos = sum / weight` and the workspace score is
@@ -210,15 +205,17 @@ export function isAppFiled(path) {
 export function scoreFolder({ path, notes, folders }) {
   const root = path === "";
   const { items, raw, counted } = countItems(notes, folders, { root });
-  const base = folderChaos(items, { thinAllowed: thinAllowed(path) });
+  const contacts = isContactsFolder(path);
+  const base = contacts ? 0 : folderChaos(items, { thinAllowed: thinAllowed(path) });
   const countedSet = new Set(counted);
-  let sum = (raw - counted.length) * base;
+  // In contacts a subfolder weighs nothing: its pages carry their own chaos.
+  let sum = contacts ? 0 : (raw - counted.length) * base;
   for (const note of notes) {
     if (!countedSet.has(note.name)) continue;
-    sum += Math.max(base, note.exempt ? 0 : lengthChaos(note.lines));
+    const own = contacts ? contactChaos(path, note) : base;
+    sum += Math.max(own, note.exempt ? 0 : lengthChaos(note.lines));
   }
-  if (isAppFiled(path)) return { path, items, weight: 0, sum: 0, chaos: 0 };
-  let weight = raw;
+  let weight = contacts ? counted.length : raw;
   if (weight === 0 && base > 0) {
     // Nothing but its about note: the folder still counts, once.
     weight = 1;
@@ -277,7 +274,12 @@ export function treeShape(rows) {
     const name = parts[parts.length - 1];
     // Pictures and attachments are never items, and a folder holding only them is a note's attachments.
     if (!name.toLowerCase().endsWith(".md")) continue;
-    ensure(parts.slice(0, -1).join("/")).notes.push({ name, lines: row.lines ?? null, exempt: row.exempt === true });
+    ensure(parts.slice(0, -1).join("/")).notes.push({
+      name,
+      lines: row.lines ?? null,
+      exempt: row.exempt === true,
+      review: row.review === true,
+    });
     // Every folder above a note exists.
     for (let depth = parts.length - 1; depth >= 1; depth -= 1) {
       ensure(parts.slice(0, depth - 1).join("/")).folders.add(parts[depth - 1]);

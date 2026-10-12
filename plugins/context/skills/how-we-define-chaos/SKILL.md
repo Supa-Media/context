@@ -55,9 +55,13 @@ either.
   thin folder of 2.
 - **Never thin:** the root and the built-in folders (Inbox, Projects, Areas,
   Resources, Clients, Teams, Products). They only count as crowded.
-- **Never scored:** Archive, and everything under it, and the letter folders
-  inside `0-inbox/contacts/`: the app files contact pages there by name. The
-  contacts folder itself is never thin. Loose pages in it still count.
+- **Never scored:** Archive, and everything under it.
+- **Contacts are scored on hygiene, not count.** In `0-inbox/contacts/` a page
+  filed under its letter is calm however many there are. A page under
+  `other/` (no name yet) is half chaos: find the person's name. A page loose
+  in contacts or in a non-letter folder is unsorted. A page whose frontmatter
+  `review:` holds a question (a possible duplicate) is chaos until the owner
+  answers it: never clear one yourself.
 - **The inbox counts.** A full inbox raises the score on purpose. It is the
   reminder that it needs sorting.
 
