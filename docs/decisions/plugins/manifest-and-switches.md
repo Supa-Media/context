@@ -46,7 +46,9 @@ difference is the one that rule names: `list_contacts` and `read_contact` are
 a capability, so turning them off removes something.
 
 **The switch governs the reading and says so.** The syncs do not consult this
-file and keep writing pages with contacts turned off, so an `offMeans`
+file and keep writing pages with contacts turned off — and filing dormant ones
+under `4-archive/`, which is the same writer's housekeeping
+([contacts-and-chat](../communications/contacts-and-chat.md)) — so an `offMeans`
 promising that contacts stop being collected would be a promise the product
 does not keep, printed at the moment somebody is deciding. It names the Email
 and Chats connection screens instead, the way Chat history's entry does.

@@ -335,6 +335,15 @@ async function runGoogleChatForwardSync(
     }
     if (written.wrote) bytesWritten += written.bytes;
   }
+  /*
+   * Then pages nobody has written to in a year go to the archive mirror,
+   * with this pass's lookup and after its own drafts, so a message in this
+   * pass keeps its page live. No decision is held here: each page is re-read
+   * and re-checked against the wall clock immediately before it moves, and
+   * `privacy.md` is read again for the move. Bounded, and it never throws —
+   * see `sweepDormant` and `docs/decisions/communications/contacts-and-chat.md`.
+   */
+  await contacts.sweepDormant();
   await contacts.save();
 
   /*

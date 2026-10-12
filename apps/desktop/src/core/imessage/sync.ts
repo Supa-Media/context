@@ -47,6 +47,7 @@ import {
   planChannelDay,
   upsertContactDraft,
   renderChannelDayNote,
+  sweepDormantContacts,
   type CommunicationEvent,
 } from "@context/communications";
 import type { ChannelDayPart } from "@context/communications/protocol";
@@ -248,6 +249,29 @@ async function upsertContact(
   }
 }
 
+/**
+ * Contact pages nobody has messaged in a year go to the archive mirror, with
+ * this pass's lookup, after its own drafts — so a person messaged in this pass
+ * stays — and through the gateway's `move_note`, as revival does. Each page is
+ * re-read and re-checked against `deps.now()` before it moves
+ * (`sweepDormantContacts`). Never the reason a pass fails or its cursor holds:
+ * a page left live is simply tried by a later pass.
+ */
+async function sweepDormant(deps: ImessageSyncDeps, lookup: ContactLookup): Promise<void> {
+  try {
+    await sweepDormantContacts(lookup, {
+      read: async (path: string) => {
+        const read = await deps.readNote(path);
+        if (!read.ok) throw new GatewayRefusal(read.message);
+        return read.found ? { text: read.content, etag: read.etag } : null;
+      },
+      move: (source: string, destination: string) => deps.moveNote(source, destination),
+    }, { now: deps.now() });
+  } catch {
+    // A listing the gateway refused; the next pass lists again.
+  }
+}
+
 async function syncDay(
   deps: ImessageSyncDeps,
   date: string,
@@ -410,6 +434,7 @@ export async function syncImessage(deps: ImessageSyncDeps, cursor: ImessageCurso
     // paying.
     days.push(await syncDay(deps, date, participants, contacts));
   }
+  await sweepDormant(deps, contacts);
   if (deps.contactIndex) deps.contactIndex.snapshot = contacts.snapshot();
 
   const allClean = days.every((day) => day.status !== "error");

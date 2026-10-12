@@ -234,6 +234,11 @@ export async function runIncrementalSync(options) {
       break;
     }
   }
+  // Pages nobody has written to in a year go to the archive, with the lookup
+  // this pass already holds; the next message brings one back. Last, so this
+  // pass's own drafts count as activity. Never throws.
+  // `docs/decisions/communications/contacts-and-chat.md`.
+  await contacts.sweepDormant({ now: options.dormancyNow });
   // A cache: a run that threw before here only costs the next one a rebuild.
   await contacts.save();
   return {

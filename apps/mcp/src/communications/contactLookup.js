@@ -1,6 +1,7 @@
 /**
  * The contact lookup (`packages/communications/src/contactLookup.js`) on the
- * gateway's own store, for the Gmail and Google Chat sync writers.
+ * gateway's own store, for the Gmail and Google Chat sync writers — and the
+ * dormancy sweep those passes run at their end (`sweepDormant`).
  *
  * One lookup per sync run: one listing of the contacts folder and one of its
  * archive mirror, and the snapshot at `CONTACT_INDEX_KEY` so a page is only
@@ -12,8 +13,10 @@
 import {
   CONTACT_INDEX_KEY,
   createContactLookup,
+  sweepDormantContacts,
   upsertContactDraft,
 } from "../../../../packages/communications/src/index.js";
+import { moveSafetyRefusal } from "../moves/objects.js";
 import { listAllKeys } from "../notes/storage.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { toolMoveNote } from "../tools/moves/note.js";
@@ -51,6 +54,28 @@ export async function openContactLookup(store, options = {}) {
   });
   return {
     lookup,
+    /**
+     * Archive up to a batch of contact pages with no activity in a year
+     * (`sweepDormantContacts`), through the same move that revives them. Run
+     * once at the end of a pass, after its own drafts, with this pass's
+     * lookup. Never throws: a page it could not move stays live until a later
+     * pass, and the sync it rides on is never the thing that pays for it.
+     *
+     * @param {{now?: Date|string|number, limit?: number}} [sweep] `now` is the wall clock when absent.
+     */
+    async sweepDormant(sweep = {}) {
+      // A bucket that cannot move a note safely (no conditional create, as
+      // on B2 or Wasabi) has every move refused; the sweep does not knock.
+      if (moveSafetyRefusal(store) !== null) return { archived: [], kept: 0, failed: 0 };
+      try {
+        return await sweepDormantContacts(lookup, {
+          read: (path) => readPage(store, path),
+          move: (from, to) => moveContactPage(store, from, to),
+        }, { now: sweep.now ?? new Date(), limit: sweep.limit, root: options.root });
+      } catch {
+        return { archived: [], kept: 0, failed: 1 };
+      }
+    },
     /** Keep the lookup for the next run. Best effort: losing it costs one rebuild. */
     async save() {
       const text = JSON.stringify(lookup.snapshot());
@@ -65,10 +90,17 @@ export async function openContactLookup(store, options = {}) {
   };
 }
 
+async function readPage(store, path) {
+  const object = await store.get(path);
+  return object ? { text: await object.text(), etag: object.etag } : null;
+}
+
 /**
- * The gateway's move, as the owner's own, so an archived contact comes back
- * the way `move_note` would bring it: links rewritten, forwarding recorded,
- * visibility never widened (`toolMoveNote` takes the narrower of the two).
+ * The gateway's move, as the owner's own, so a contact goes into the archive
+ * and comes back the way `move_note` would move it: links rewritten,
+ * forwarding recorded, visibility never widened (`toolMoveNote` takes the
+ * narrower of the two). `privacy.md` is read again for every move, so a rule
+ * the owner changed since the pass began is the rule it moves under.
  */
 async function moveContactPage(store, from, to) {
   const privacy = await loadPrivacyState(store);
@@ -76,11 +108,14 @@ async function moveContactPage(store, from, to) {
   /*
     No expected etag. The tool compares it against the collaboration
     document's version where the store keeps one, which is not the object
-    etag this read saw; and nothing here needs the guard — whatever the page
-    holds when it moves is what is read back at the live path and merged.
+    etag this read saw. Revival needs no guard — whatever the page holds when
+    it moves is what is read back at the live path and merged. The sweep
+    re-reads and re-checks the page immediately before calling this; a
+    message landing inside that window leaves a page archived with fresh
+    activity, which the next message for that person brings back.
   */
   const result = await toolMoveNote(store, "private", privacy.rules, privacy.overrides, from, to);
-  return result.isError ? { ok: false, message: "an archived contact could not be moved back" } : { ok: true };
+  return result.isError ? { ok: false, message: "a contact page could not be moved" } : { ok: true };
 }
 
 /**
@@ -97,10 +132,7 @@ export async function writeContactDraft(store, draft, options = {}) {
   const conditional = Boolean(store.capabilities?.conditionalWrite);
   let bytes = 0;
   const result = await upsertContactDraft(opened.lookup, draft, {
-    read: async (path) => {
-      const object = await store.get(path);
-      return object ? { text: await object.text(), etag: object.etag } : null;
-    },
+    read: (path) => readPage(store, path),
     write: async (path, text, etag) => {
       bytes = new TextEncoder().encode(text).length;
       if (bytes > options.remainingQuotaBytes) return { ok: false, stop: "quota" };

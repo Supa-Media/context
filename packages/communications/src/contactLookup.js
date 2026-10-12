@@ -25,7 +25,8 @@
 // bucket disagrees with.
 //
 // The archive is searched too. A page with no activity for a year is filed at
-// the same path under `4-archive/` (owner, 2026-10-12), and a message for that
+// the same path under `4-archive/` (owner, 2026-10-12; the sweep that files it
+// is `contactDormancy.js`, fed by what this map remembers), and a message for that
 // person moves it back — through the caller's ordinary move, so links follow —
 // before merging, rather than starting them a second, empty page.
 //
@@ -44,12 +45,13 @@ import {
   parseContactView,
   shouldCreateContactPage,
 } from "./contacts.js";
+import { hasPendingReview, newestActivityDate } from "./contactDormancy.js";
 
 /** Where the gateway keeps the lookup's snapshot between runs. Plumbing, rebuildable, never the only copy. */
 export const CONTACT_INDEX_KEY = ".context/communications/contacts/identifiers.json";
 
 /** The snapshot format. A snapshot of any other version is ignored, which costs one rebuild. */
-export const CONTACT_INDEX_VERSION = 1;
+export const CONTACT_INDEX_VERSION = 2;
 
 /** How many pages one refresh reads at once. */
 const READ_BATCH = 10;
@@ -85,10 +87,27 @@ export function contactPageIdentity(text) {
   return { kind: "imported", ids };
 }
 
+/**
+ * What the lookup remembers of one page: its listed version, kind and
+ * identifiers, and — for a page this package renders — its newest activity
+ * date (`a`) and whether it waits on a `review:` (`r`), so the dormancy sweep
+ * finds candidates without reading every page. `h`, when present, is the day
+ * the sweep's move of this page was refused (`holdBack`).
+ */
 function entryFor(text, version) {
   const identity = text === null ? null : contactPageIdentity(text);
-  return { v: String(version ?? ""), k: identity?.kind ?? "other", ids: identity?.ids ?? [] };
+  const contact = identity?.kind === "contact";
+  return {
+    v: String(version ?? ""),
+    k: identity?.kind ?? "other",
+    ids: identity?.ids ?? [],
+    a: contact ? (newestActivityDate(text) ?? "") : "",
+    r: contact ? hasPendingReview(text) : false,
+  };
 }
+
+/** A remembered day, or `""` for none. */
+const SNAPSHOT_DATE = /^(\d{4}-\d{2}-\d{2})?$/;
 
 /** Is this key one the lookup indexes — a live contact page, or one archived at its mirror path? */
 function isIndexedPath(path, root) {
@@ -103,7 +122,11 @@ function pagesFromSnapshot(snapshot, root) {
     if (!isIndexedPath(path, root)) continue;
     if (typeof entry?.v !== "string" || !["contact", "imported", "other"].includes(entry.k)) continue;
     if (!Array.isArray(entry.ids) || !entry.ids.every((id) => typeof id === "string")) continue;
-    pages.set(path, { v: entry.v, k: entry.k, ids: entry.ids });
+    const a = entry.a ?? "";
+    const h = entry.h ?? "";
+    if (typeof a !== "string" || !SNAPSHOT_DATE.test(a) || typeof h !== "string" || !SNAPSHOT_DATE.test(h)) continue;
+    const kept = { v: entry.v, k: entry.k, ids: entry.ids, a, r: entry.r === true };
+    pages.set(path, h ? { ...kept, h } : kept);
   }
   return pages;
 }
@@ -194,6 +217,32 @@ export function createContactLookup({ list, read, root, snapshot }) {
       const path = contactPathForDraft(draft, { root });
       if (path === null || pages.has(path)) return null;
       return { path, found: false };
+    },
+
+    /**
+     * Live pages this package renders whose remembered newest activity is
+     * before `cutoff` (`YYYY-MM-DD`), with no pending review, oldest first —
+     * skipping a page held back on or after `heldBefore`. Candidates only:
+     * the sweep re-reads each one before it moves anything.
+     *
+     * @returns {Promise<string[]>}
+     */
+    async dormantPages(cutoff, heldBefore = "") {
+      refreshed ??= refresh();
+      await refreshed;
+      return [...pages]
+        .filter(([path, entry]) =>
+          entry.k === "contact" && !entry.r && entry.a !== "" && entry.a < cutoff &&
+          !(entry.h && entry.h >= heldBefore) &&
+          liveContactPathForArchived(path, { root }) === null)
+        .sort(([pathA, a], [pathB, b]) => a.a.localeCompare(b.a) || pathA.localeCompare(pathB))
+        .map(([path]) => path);
+    },
+
+    /** The sweep's move of this page was refused on `day`: skipped for a while, or until the page changes. */
+    holdBack(path, day) {
+      const entry = pages.get(path);
+      if (entry && typeof day === "string" && SNAPSHOT_DATE.test(day)) pages.set(path, { ...entry, h: day });
     },
 
     /** What a page now holds — after this run wrote or moved it, or found the index wrong. `null` text: gone. */

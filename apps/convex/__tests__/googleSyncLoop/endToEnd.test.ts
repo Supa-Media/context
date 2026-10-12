@@ -206,6 +206,54 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(written[filed]).toContain('review: "possible duplicate"');
   });
 
+  test.each([
+    ["archives a contact page nobody has written to in a year, after its own writes", true],
+    ["leaves it live on a bucket that cannot move a note safely, and still syncs", false],
+  ])("a Chat pass %s", async (_, movable) => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({
+      capabilities: movable
+        ? { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true }
+        : { conditionalWrite: true },
+    });
+    await patchConnection(t, connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed",
+        cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
+      },
+    });
+    const page = (slug: string, name: string, id: string, date: string) =>
+      `---\nupdated: "2020-01-01T00:00:00.000Z"\ntype: "contact"\nslug: "${slug}"\n---\n\n# ${name}\n\n` +
+      `## Identifiers\n\n- provider-user: ${id}\n\n## Activity\n\n### ${date.slice(0, 7)}\n\n` +
+      `- ${date} · google-chat — [[0-inbox/google-chat/${date}#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
+    // The pass measures against the wall clock; 2020 is dormant under any clock that runs this.
+    backend.seed("0-inbox/contacts/z/zoe.md", page("zoe", "Zoe", "users/zoe", "2020-01-01"));
+    // Adam's last activity is just as old, but this pass carries a message from him.
+    backend.seed("0-inbox/contacts/a/adam-okonkwo.md", page("adam-okonkwo", "Adam Okonkwo", "users/adam", "2020-01-01"));
+    const google = chatAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({ status: "synced", cursorAdvanced: true });
+    const written = backend.snapshot();
+    if (movable) {
+      // Retired the way every move retires its source on this bucket.
+      expect(isLogicalDeleteMarker(written["0-inbox/contacts/z/zoe.md"])).toBe(true);
+      expect(written["4-archive/0-inbox/contacts/z/zoe.md"]).toContain("# Zoe");
+    } else {
+      expect(written["0-inbox/contacts/z/zoe.md"]).toContain("# Zoe");
+      expect(written["4-archive/0-inbox/contacts/z/zoe.md"]).toBeUndefined();
+    }
+    expect(written["0-inbox/contacts/a/adam-okonkwo.md"]).toContain("2026-09-12 · google-chat");
+    expect(written["4-archive/0-inbox/contacts/a/adam-okonkwo.md"]).toBeUndefined();
+  });
+
   test("a Calendar cursor advances only after its shared day is written", async () => {
     // Keep this fixture's event inside the full-sync horizon regardless of
     // the wall-clock date on which the suite runs.

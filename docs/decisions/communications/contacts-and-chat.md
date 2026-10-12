@@ -119,8 +119,8 @@ the bucket is, not the search database. A listing that fails holds the cursor
 rather than reading as "nobody has a page".
 
 **Dormant pages come back.** A page with no activity for a year is filed at the
-mirror path `4-archive/0-inbox/contacts/<letter>/<page>.md` (that sweep is a
-separate piece, not built here). The lookup searches the mirror too; a message
+mirror path `4-archive/0-inbox/contacts/<letter>/<page>.md` (the sweep that
+files it is the next section). The lookup searches the mirror too; a message
 for that person moves the page back to its live path with the gateway's own
 `move_note` — links follow, visibility never widens — and then merges.
 
@@ -129,6 +129,94 @@ back a duplicate after every tidy, and the test that fails is `a page the owner
 moved and renamed receives the next sync`; dropping the version check reads
 every contact page on every Gmail day; dropping the re-read before writing
 merges a stranger into whatever a stale index named.
+
+### A contact nobody has written to in a year is archived by the sync that would revive it (owner, 2026-10-12)
+
+The owner wants the live contacts folder to be the people they are in touch
+with: a page whose **newest dated activity entry is more than 365 days before
+now** moves to its archive mirror, `4-archive/0-inbox/contacts/<same relative
+path>`, which the chaos score never reads. The next message for that person
+brings it back (above), so the archive is a resting place, not a deletion.
+
+**Where it runs: at the end of every sync pass that already holds the contact
+lookup, not on a clock of its own.** That is the Gmail forward pass
+(`runIncrementalSync`, when it touched a day), the Google Chat forward pass
+(`runGoogleChatForwardSync`), and the desktop iMessage pass (`syncImessage`) —
+the three writers `upsertContactDraft` serves. The lookup already lists both
+folders each pass and re-reads only the pages whose version moved; it now also
+remembers each page's newest activity date and whether it waits on a review
+(snapshot version 2, so a version-1 snapshot costs one rebuild), so finding
+candidates costs no extra read and no extra listing. A new cron was the
+alternative and was not used: it would list and read the folder a second time
+on its own schedule, need its own store and credential barrier, and — because
+`crons.ts` already admits one job that writes into a customer's bucket — be a
+fourth such job owing its own argument for something the sync passes can do
+for free. Running last in the pass is deliberate: a message in this pass counts
+as activity before anything is judged dormant, and a page archived now cannot
+be needed by a revival later in the same pass. All three writers run it, so a
+workspace with only iMessage, or only Chat, is swept too; two passes racing on
+one page is harmless (the second move finds no source, or a destination, and
+is refused). A Gmail pass with no new mail opens no lookup and sweeps nothing,
+which is fine at a one-year granularity.
+
+**It holds no decision; it re-asks at the moment it acts** (`crons.ts`'s rule
+for anything that writes into a bucket on a clock). The lookup's remembered
+date only nominates. Each candidate is re-read immediately before its move and
+judged again from its own bytes against the clock passed in then: still
+`type: "contact"` (`isContactNote`), no non-empty `review:`, dated activity,
+none of it since the cutoff. The move is the gateway's ordinary `move_note`
+(on the desktop, the gateway's tool), so links into the page follow it,
+forwarding is recorded, `privacy.md` is read again for the move and the result
+is the narrower of the two folders' visibility — never wider. The tool takes no
+expected etag here, for the same reason revival passes none; a message landing
+in the milliseconds between the re-read and the move leaves a page archived
+with fresh activity, which that person's next message revives. A round trip
+can only ever **narrow**: where `4-archive/` is narrower than the contacts
+folder, the page keeps the narrower visibility when it comes back (the move
+records it as the page's own), and the owner widens it again by hand — the
+privacy engine's rule, unchanged here.
+
+**What is never swept**: imported pages (`role: communication-contact`) and
+anything hand-written in the folder — only pages this package renders, the
+same rule revival uses; a page with a non-empty `review:`, because it is
+waiting on the owner and the archive would hide the question; a page with no
+dated activity, because there is nothing to measure. **A page whose `## Notes`
+holds the owner's own words is swept** like any other: those words travel
+with the page into the archive, stay searchable there, and come back with it
+on revival, so archiving costs them nothing, while exempting them would keep
+every page the owner ever annotated in the live folder forever.
+
+**Bounded and quiet.** At most 25 pages are considered per pass, oldest
+activity first, so a first run over a large folder drains over several passes.
+A page whose move is refused (an older copy already sits at the mirror path)
+is held back for a week — remembered on the lookup entry until the page
+changes — so it cannot take a place in every batch. A bucket that cannot move
+a note safely (no conditional create) is not swept at all rather than refused
+25 times a pass. A failure ends the sweep, never the sync: it does not hold a
+cursor, fail a pass or change what the pass reports.
+
+**The contacts plugin switch does not stop it.** The switch governs reading —
+`list_contacts` and `read_contact` — and the syncs keep writing and reviving
+pages with it off ([manifest-and-switches](../plugins/manifest-and-switches.md)).
+The sweep is the same writer's housekeeping of the same pages, and the archive
+is reversible, so it follows the writer: with contacts off the folder still
+fills, and a switch that stopped the tidying but not the filling would leave
+the owner a growing, unsorted folder the moment they turned contacts back on.
+
+**What reverting costs**: without the sweep, every person the owner ever
+replied to stays in the live folder forever, the chaos the A–Z folders were
+built to end. Moving the decision into the lookup — archiving from the
+remembered date without the re-read — archives a page that gained a message
+or a review since it was listed; the checks that fail are `a page that gained
+activity between listing and move is kept` and `a review: added between
+listing and move keeps the page too`. Dropping the `isContactNote` gate
+archives an owner's own note that happens to have dated lines; dropping the
+bound turns a first sweep into thousands of moves inside one pass (`one pass
+archives no more than its batch`). The tests are in
+`packages/communications/test/contactDormancy.test.mjs`,
+`apps/mcp/test/gmailSync/contacts.test.mjs`, the Chat pass in
+`apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts` and the iMessage pass
+in `apps/desktop/test/imessageSync.test.mjs`.
 
 ### A contact page is created only for somebody the owner has written to (owner, 2026-10-12)
 
