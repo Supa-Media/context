@@ -24,7 +24,7 @@
 // happened; this page is a view of them. So an unmerge is deleting and
 // regenerating one file rather than unpicking a year of edits.
 
-import { contactNotePath, contactSlug, channelDayNotePath } from "./paths.js";
+import { contactLetterFolder, contactNotePath, contactSlug, channelDayNotePath, isContactNotePath } from "./paths.js";
 import { messageAnchor } from "./anchors.js";
 import { defangOutsideFence, singleLine } from "./note.js";
 
@@ -165,11 +165,26 @@ export function mergeContacts(preferred, other) {
   };
 }
 
-/** The stable contact-page path for a draft, keyed by identity rather than a mutable display name. */
-export function contactPathForDraft(contact, options = {}) {
+/** A new contact page's name: its alphabetically-first identifier, so it does not follow a display name. */
+export function contactSlugForDraft(contact) {
   const keys = [...identifierSet(contact)].sort();
   if (!keys.length) return null;
-  return contactNotePath(contactSlug(keys[0].replace(":", "-")), options);
+  return contactSlug(keys[0].replace(":", "-"));
+}
+
+/**
+ * Where a **new** page for this draft is created: `<letter>/<slug>.md` under
+ * the contacts folder, the letter from the display name.
+ *
+ * Never where an existing page is looked for. A person's page is found by the
+ * identifiers it carries (`contactLookup.js`), wherever the owner has since
+ * moved, renamed or merged it; recomputing a path here is what used to put a
+ * second page back at the old address after every tidy.
+ */
+export function contactPathForDraft(contact, options = {}) {
+  const slug = contactSlugForDraft(contact);
+  if (slug === null) return null;
+  return contactNotePath(slug, { root: options.root, folder: contactLetterFolder(contact?.name) });
 }
 
 function identifierForPerson(person) {
@@ -202,16 +217,24 @@ export function contactDraftsFromCommunication(events, options = {}) {
       day,
       { root: options.root, folder: options.folder },
     );
+    const isSelf = (person) => {
+      const identifier = identifierForPerson(person);
+      if (identifier?.kind === "email" && own.has(String(identifier.value).trim().toLowerCase())) return true;
+      if (identifier?.kind === "provider-user" && ownProviderUsers.has(String(identifier.value).trim().toLowerCase())) return true;
+      return singleLine(person?.name).toLowerCase() === "you" && !singleLine(person?.address);
+    };
+    // The owner wrote this one, so everybody it went to is somebody they wrote to.
+    const outbound = isSelf(event?.from);
     const people = [event?.from, ...(Array.isArray(event?.to) ? event.to : [])];
     for (const person of people) {
       const identifier = identifierForPerson(person);
       if (identifier === null) continue;
       const normalized = normalizeIdentifier(identifier);
       if (normalized === null) continue;
-      if (identifier.kind === "email" && own.has(String(identifier.value).trim().toLowerCase())) continue;
-      if (identifier.kind === "provider-user" && ownProviderUsers.has(String(identifier.value).trim().toLowerCase())) continue;
-      if (singleLine(person?.name).toLowerCase() === "you" && !singleLine(person?.address)) continue;
+      if (isSelf(person)) continue;
       drafts.push({
+        wroteTo: outbound && person !== event?.from,
+        bulk: event?.bulk === true,
         name: singleLine(person?.name) || singleLine(person?.address) || "(unnamed contact)",
         identifiers: [identifier],
         activity: [{
@@ -228,6 +251,35 @@ export function contactDraftsFromCommunication(events, options = {}) {
   return drafts;
 }
 
+/** The local parts a machine sends from. Matched on the whole word, so `noreply+x@` is one and `norene@` is not. */
+const AUTOMATED_LOCAL_PART =
+  /^(?:no-?reply|do-?not-?reply|donotreply|notifications?|newsletters?|mailer-daemon|postmaster|bounces?)(?:$|[+._-])/;
+
+/** Is this an address nobody reads — a no-reply, a notifier, a bounce? */
+export function isAutomatedAddress(value) {
+  const address = singleLine(value).toLowerCase();
+  const at = address.lastIndexOf("@");
+  if (at <= 0) return false;
+  return AUTOMATED_LOCAL_PART.test(address.slice(0, at));
+}
+
+/**
+ * May sync create a **new** page for this draft? (Owner, 2026-10-12.)
+ *
+ * Only for somebody the owner has written to — a recipient of a message they
+ * sent — and never for a machine: a no-reply or notification address, or a
+ * message marked bulk (`List-Unsubscribe`, `Precedence: bulk|list`). Everybody
+ * else still lands in the day notes, and a page that already exists is still
+ * found and updated whoever it belongs to; this only decides creation, so a
+ * reply after an inbound message is what makes the page.
+ */
+export function shouldCreateContactPage(draft) {
+  if (draft?.wroteTo !== true || draft?.bulk === true) return false;
+  return !(draft.identifiers ?? []).some(
+    (identifier) => identifier?.kind === "email" && isAutomatedAddress(identifier.value)
+  );
+}
+
 function existingUpdatedAt(text) {
   const raw = /^updated:\s*(.+)$/m.exec(String(text ?? ""))?.[1]?.trim();
   if (!raw) return "";
@@ -241,7 +293,7 @@ function existingUpdatedAt(text) {
 /**
  * Is this the text of a contact page *this package rendered*?
  *
- * A contact's key is `contactPathForDraft`'s answer, and its input is an
+ * A new contact's key is `contactPathForDraft`'s answer, and its input is an
  * identifier a **sender** supplied — so the note already at that key is not
  * necessarily one this package wrote. `parseContactView` reads anything
  * without complaining (it is a lenient reader by design), which would turn
@@ -279,22 +331,58 @@ export function isContactNote(text) {
 }
 
 /**
- * Merge one generated draft into an existing editable contact page and return
+ * Merge one generated draft into the contact page at `options.path` and return
  * stable bytes, or `null` to leave the key alone — which is the answer
  * whenever the bytes there are not a contact page this package wrote.
+ *
+ * `path` is the page that was **found** (or a new page's, from
+ * `contactPathForDraft`) and the output goes back to it unchanged. It used to
+ * be recomputed from the merged identifiers, so a page holding an email and a
+ * phone answered to whichever sorted first, and the other channel's next sync
+ * created a second page.
+ *
+ * @param {{path: string, root?: string}} options
  */
 export function mergeContactNote(existingText, draft, options = {}) {
   if (existingText && !isContactNote(existingText)) return null;
+  const path = options.path;
+  if (!isContactNotePath(path, { root: options.root })) return null;
+  if (identifierSet(draft).size === 0) return null;
   const existing = existingText ? parseContactView(existingText) : null;
   const merged = existing === null ? draft : mergeContacts(existing, draft);
-  const path = contactPathForDraft(merged, options);
-  if (path === null) return null;
   const slug = path.slice(path.lastIndexOf("/") + 1, -3);
   const updated = [existingUpdatedAt(existingText), String(draft?.updatedAt ?? "")]
     .filter(Boolean)
     .sort()
     .at(-1) ?? new Date(0).toISOString();
-  return { path, text: renderContactNote({ ...merged, slug, now: updated }) };
+  const frontmatter = foreignFrontmatter(existingText);
+  return { path, text: renderContactNote({ ...merged, slug, now: updated, frontmatter }) };
+}
+
+/** The frontmatter keys the renderer writes; every other key on a page belongs to somebody else. */
+const OWNED_FRONTMATTER = new Set(["updated", "type", "slug"]);
+
+/**
+ * Every frontmatter entry the renderer does not own, as the lines it was
+ * written in — a `review:` question waiting on the owner, a tag, anything a
+ * person or another tool added. A top-level key and the indented lines under
+ * it travel together, so a YAML list survives whole. Regeneration used to
+ * write only its own three keys and dropped the rest.
+ */
+export function foreignFrontmatter(text) {
+  const source = String(text ?? "");
+  if (!source.startsWith("---\n")) return [];
+  const end = source.indexOf("\n---", 3);
+  if (end === -1) return [];
+  const kept = [];
+  let keep = false;
+  for (const line of source.slice(4, end).split("\n")) {
+    if (line.trim() === "") continue;
+    const key = /^([^\s:#-][^:]*):/.exec(line)?.[1]?.trim();
+    if (key !== undefined) keep = !OWNED_FRONTMATTER.has(key);
+    if (keep) kept.push(line);
+  }
+  return kept;
 }
 
 /**
@@ -351,6 +439,8 @@ export function renderContactNote(contact) {
     `updated: ${JSON.stringify(singleLine(contact.now ?? new Date().toISOString()))}`,
     `type: ${JSON.stringify(CONTACT_TYPE)}`,
     `slug: ${JSON.stringify(singleLine(slug))}`,
+    // Copied through from the page this merges into, never from a message.
+    ...(Array.isArray(contact.frontmatter) ? contact.frontmatter.map(String).filter((line) => !/^---/.test(line)) : []),
     "---",
     "",
     `# ${defangOutsideFence(name)}`,

@@ -96,12 +96,14 @@ export function runContactChecks(check) {
   check("an email sync derives its sender as a contact", organic.length === 1 && organic[0].name === "Adam Okonkwo");
   check("the owner's own mailbox is not made into a contact", !organic.some((draft) => draft.name === "Owner"));
   check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026/09/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
-  check("a contact path is stable on the identifier rather than the display name", contactPathForDraft(organic[0]) === contactPathForDraft({ ...organic[0], name: "A new display name" }));
-  const generated = mergeContactNote("", organic[0]);
-  const regenerated = mergeContactNote(generated.text, organic[0]);
+  check("a new contact page is named by its identifier, filed under the letter of the name", contactPathForDraft(organic[0]) === "0-inbox/contacts/a/email-adam-example-net.md");
+  check("...so a new display name changes only the folder, never the page name", contactPathForDraft({ ...organic[0], name: "Zed" }) === "0-inbox/contacts/z/email-adam-example-net.md");
+  const adamPath = contactPathForDraft(organic[0]);
+  const generated = mergeContactNote("", organic[0], { path: adamPath });
+  const regenerated = mergeContactNote(generated.text, organic[0], { path: adamPath });
   check("reprocessing the same provider event produces the same contact bytes", regenerated.text === generated.text);
   const edited = generated.text.replace("## Notes\n\n", "## Notes\n\nCall on Fridays.");
-  check("regeneration preserves the person's own contact notes", mergeContactNote(edited, organic[0]).text.includes("Call on Fridays."));
+  check("regeneration preserves the person's own contact notes", mergeContactNote(edited, organic[0], { path: adamPath }).text.includes("Call on Fridays."));
 
   const chatDraft = contactDraftsFromCommunication([{
     ...mailEvent,
@@ -282,11 +284,11 @@ export function runContactChecks(check) {
   };
   check(
     "a hand-written note at a contact's key is left alone, not replaced by a generated page",
-    mergeContactNote("# People I owe a reply\n\nkept by hand.\n", stranger) === null
+    mergeContactNote("# People I owe a reply\n\nkept by hand.\n", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   check(
     "a note this package cannot read as a contact page is never rewritten as plaintext",
-    mergeContactNote("-----BEGIN CONTEXT ENCRYPTED NOTE-----\nopaque\n", stranger) === null
+    mergeContactNote("-----BEGIN CONTEXT ENCRYPTED NOTE-----\nopaque\n", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   // Frontmatter is not the test — `type: contact` is. A person note the owner
   // keeps by hand very often carries frontmatter of its own, so a guard that
@@ -294,22 +296,22 @@ export function runContactChecks(check) {
   // this is the check that would not notice.
   check(
     "an owner's note with frontmatter of its own is not mistaken for a contact page",
-    mergeContactNote('---\ntype: "person"\ntags: [crm]\n---\n\n# Stranger\n\nmine.\n', stranger) === null
+    mergeContactNote('---\ntype: "person"\ntags: [crm]\n---\n\n# Stranger\n\nmine.\n', stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" }) === null
   );
   check(
     "an empty key is still a contact page waiting to be written",
-    mergeContactNote("", stranger)?.path === "0-inbox/contacts/email-stranger-example-com.md"
+    mergeContactNote("", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" })?.path === "0-inbox/contacts/s/email-stranger-example-com.md"
   );
   check(
     "...and a contact page this package did write is still merged into",
     (() => {
-      const first = mergeContactNote("", stranger);
+      const first = mergeContactNote("", stranger, { path: "0-inbox/contacts/s/email-stranger-example-com.md" });
       const second = mergeContactNote(first.text, {
         ...stranger,
         identifiers: [{ kind: "email", value: "stranger@example.com" }],
         activity: [{ date: "2026-09-08", path: "0-inbox/email/x/2026-09-08.md", anchor: "msg-0123456789abcdee", label: "again", channel: "email" }],
         updatedAt: "2026-09-08T09:00:00.000Z",
-      });
+      }, { path: "0-inbox/contacts/s/email-stranger-example-com.md" });
       return second !== null && second.text.includes("2026-09-08") && second.text.includes("2026-09-07");
     })()
   );
