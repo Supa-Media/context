@@ -130,7 +130,13 @@ our own workspaces, workspaces staff pick, or all. Its states are:
   encrypted workspace plain.**
 
 A rollout over all workspaces also takes in every workspace that gets a
-managed bucket afterwards.
+managed bucket afterwards. Its walk waits, polling every 15 seconds, while
+the new bucket's binding is still `unverified`: R2 makes a freshly minted key
+usable only eventually (`R2_CREDENTIAL_SETTLE_MS`), and a walk that started at
+once met the refusal, failed the workspace and paused the rollout, until a
+Retry minutes later worked unchanged. A binding still unverified five minutes
+after it was written is not settling, so the walk runs and fails visibly
+rather than waiting forever (`managedEncryptionNewBucket.test.ts`).
 
 ### Rollback, restore, rotation, deletion
 

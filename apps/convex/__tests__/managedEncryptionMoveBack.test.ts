@@ -30,6 +30,7 @@ import { managedBucketName } from "../functions/lib/managedStorage";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { asUser, createWorkspace, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import {
+  CUTOVER_PROBE,
   MANAGED_ENDPOINT,
   bindingOf,
   cancelLaterJobs,
@@ -99,7 +100,7 @@ describe("switching back within the week", () => {
       endpoint: MANAGED_ENDPOINT,
     });
     await expect(
-      t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours }),
+      t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours, ...CUTOVER_PROBE }),
     ).resolves.toEqual({ cutover: true });
     await cancelLaterJobs(t);
 
@@ -157,7 +158,7 @@ describe("the kept bucket after a move out", () => {
       bucket: managedBucketName(ours),
       endpoint: MANAGED_ENDPOINT,
     });
-    await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours });
+    await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours, ...CUTOVER_PROBE });
     await cancelLaterJobs(t);
     await t.mutation(internal.functions.managedEncryption.forgetKeptBucket, { workspaceId: ours });
     expect(await row(t, ours)).not.toBeNull();
