@@ -14,7 +14,9 @@
 
 import { afterEach, describe, expect, test } from "@jest/globals";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { act, createElement, type ReactElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -22,7 +24,8 @@ import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 import { Explorer } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
 import { ChaosProvider, useConsoleChaos } from "../features/chaos/ChaosContext";
-import { ChaosFigure } from "../features/chaos/ChaosFigure";
+import { Tex } from "../features/chaos/Tex";
+import { texColors } from "../features/design/tokens/landingColors";
 import { ChaosHomeLine } from "../features/chaos/ChaosHomeLine";
 import { ChaosSheet } from "../features/chaos/ChaosPopover";
 import { FolderChaosChip } from "../features/chaos/FolderChaosChip";
@@ -34,7 +37,8 @@ const METRICS: Metrics = {
   insets: { top: 0, left: 0, right: 0, bottom: 0 },
 };
 
-const strip = (text: string | null | undefined): string => (text ?? "").replace(/[\u2066-\u2069]/g, "");
+const strip = (text: string | null | undefined): string =>
+  (text ?? "").replace(/[\u2066-\u2069]/g, "");
 
 const SCORED: ChaosScore = {
   kind: "chaosScore",
@@ -50,9 +54,21 @@ const SCORED: ChaosScore = {
   longNotes: [{ path: "2-areas/journal/2026.md", lines: 1420 }],
   folder: null,
 };
-const UNSCORED: ChaosScore = { ...SCORED, available: false, score: null, word: null, weekAgo: null, folders: [], longNotes: [] };
+const UNSCORED: ChaosScore = {
+  ...SCORED,
+  available: false,
+  score: null,
+  word: null,
+  weekAgo: null,
+  folders: [],
+  longNotes: [],
+};
 
-function source(result: ChaosScore | null, folder: ChaosScore["folder"] = null, asked: string[] = []): ChaosSource {
+function source(
+  result: ChaosScore | null,
+  folder: ChaosScore["folder"] = null,
+  asked: string[] = [],
+): ChaosSource {
   return {
     result,
     version: 1,
@@ -65,9 +81,22 @@ function source(result: ChaosScore | null, folder: ChaosScore["folder"] = null, 
 }
 
 /** The layout's provider, with its real panel state, around `children`. */
-function Harness({ src, opened, children }: { src: ChaosSource | undefined; opened: string[]; children: ReactNode }) {
+function Harness({
+  src,
+  opened,
+  children,
+}: {
+  src: ChaosSource | undefined;
+  opened: string[];
+  children: ReactNode;
+}) {
   const view = useConsoleChaos(src, (path) => opened.push(path));
-  return createElement(ChaosProvider, { value: view }, children, createElement(ChaosSheet));
+  return createElement(
+    ChaosProvider,
+    { value: view },
+    children,
+    createElement(ChaosSheet),
+  );
 }
 
 function browser(): FileBrowser {
@@ -76,7 +105,9 @@ function browser(): FileBrowser {
     contextId: "w1",
     loading: false,
     busy: false,
-    listings: { "": { path: "", entries: [], manifestUsable: true, truncated: false } },
+    listings: {
+      "": { path: "", entries: [], manifestUsable: true, truncated: false },
+    },
     expanded: new Set<string>(),
     toggleFolder: () => {},
     collapseAll: () => {},
@@ -94,17 +125,29 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function mount(element: ReactElement, src?: ChaosSource, opened: string[] = []): Promise<HTMLElement> {
+async function mount(
+  element: ReactElement,
+  src?: ChaosSource,
+  opened: string[] = [],
+): Promise<HTMLElement> {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   roots.push(() => {
     act(() => root.unmount());
     container.remove();
   });
-  const inner = src === undefined ? element : createElement(Harness, { src, opened, children: element });
+  const inner =
+    src === undefined
+      ? element
+      : createElement(Harness, { src, opened, children: element });
   await act(async () => {
-    root.render(createElement(SafeAreaProvider, { initialMetrics: METRICS }, inner));
+    root.render(
+      createElement(SafeAreaProvider, { initialMetrics: METRICS }, inner),
+    );
   });
   return container;
 }
@@ -116,7 +159,8 @@ const press = async (element: Element | null) => {
     element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 };
-const explorer = () => createElement(Explorer, { files: browser(), contextLabel: "@seyi" });
+const explorer = () =>
+  createElement(Explorer, { files: browser(), contextLabel: "@seyi" });
 
 describe("the tree's foot line", () => {
   test("no score, or not scored yet: the foot is the one it always was", async () => {
@@ -134,7 +178,9 @@ describe("the tree's foot line", () => {
     const line = byId("explorer-chaos");
     expect(line?.textContent).toContain("Chaos 34");
     expect(line?.textContent).toContain("crowded ↓");
-    expect(line?.getAttribute("aria-label")).toContain("down 7 from a week ago");
+    expect(line?.getAttribute("aria-label")).toContain(
+      "down 7 from a week ago",
+    );
     expect(line?.querySelector("svg")).not.toBeNull();
   });
 
@@ -176,7 +222,9 @@ describe("the panel", () => {
   test("reports and does not nag: no tidy button anywhere", async () => {
     await mount(explorer(), source(SCORED));
     await press(byId("explorer-chaos"));
-    expect(strip(byId("chaos-panel")?.textContent).toLowerCase()).not.toMatch(/tidy|clean up|you should/);
+    expect(strip(byId("chaos-panel")?.textContent).toLowerCase()).not.toMatch(
+      /tidy|clean up|you should/,
+    );
   });
 
   test("a folder or a note opens it, and the panel closes", async () => {
@@ -192,41 +240,65 @@ describe("the panel", () => {
   });
 
   test("lists at most five wins", async () => {
-    const folders = Array.from({ length: 8 }, (_, i) => ({ folder: `f${i}`, items: 20, chaos: 65 - i }));
+    const folders = Array.from({ length: 8 }, (_, i) => ({
+      folder: `f${i}`,
+      items: 20,
+      chaos: 65 - i,
+    }));
     await mount(explorer(), source({ ...SCORED, folders }));
     await press(byId("explorer-chaos"));
-    expect(document.querySelectorAll('[data-testid^="chaos-win-"]')).toHaveLength(5);
+    expect(
+      document.querySelectorAll('[data-testid^="chaos-win-"]'),
+    ).toHaveLength(5);
   });
 });
 
 describe("a folder page's chip", () => {
-  const chip = (folder = "0-inbox") => createElement(FolderChaosChip, { folder });
+  const chip = (folder = "0-inbox") =>
+    createElement(FolderChaosChip, { folder });
 
   test("asks about its own folder, and shows the count and word past fine", async () => {
     const asked: string[] = [];
-    await mount(chip(), source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }, asked));
+    await mount(
+      chip(),
+      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }, asked),
+    );
     expect(asked).toEqual(["0-inbox"]);
     expect(byId("folder-chaos-chip")?.textContent).toBe("12 items · crowded");
   });
 
   test("thin shows as thin", async () => {
-    await mount(chip(), source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }));
+    await mount(
+      chip(),
+      source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }),
+    );
     expect(byId("folder-chaos-chip")?.textContent).toBe("2 items · thin");
   });
 
   test("a calm or fine folder, an unscored workspace, or no score: no chip", async () => {
-    await mount(chip(), source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }));
+    await mount(
+      chip(),
+      source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }),
+    );
     expect(byId("folder-chaos-chip")).toBeNull();
-    await mount(chip(), source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }));
+    await mount(
+      chip(),
+      source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }),
+    );
     expect(byId("folder-chaos-chip")).toBeNull();
     await mount(chip());
     expect(byId("folder-chaos-chip")).toBeNull();
   });
 
   test("pressing it opens the panel as a sheet", async () => {
-    await mount(chip(), source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }));
+    await mount(
+      chip(),
+      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
+    );
     await press(byId("folder-chaos-chip"));
-    expect(strip(byId("chaos-panel")?.textContent)).toContain("Chaos 34 of 100");
+    expect(strip(byId("chaos-panel")?.textContent)).toContain(
+      "Chaos 34 of 100",
+    );
   });
 });
 
@@ -249,22 +321,40 @@ describe("the phone's Home", () => {
 });
 
 describe("the figure", () => {
-  const figure = (chaos: number, size = 120) => createElement(ChaosFigure, { chaos, size, testID: "fig" });
-  const within = (container: HTMLElement, id: string) => container.querySelector(`[data-testid="${id}"]`);
+  const figure = (chaos: number, size = 120) =>
+    createElement(Tex, { chaos, size, testID: "fig" });
+  const within = (container: HTMLElement, id: string) =>
+    container.querySelector(`[data-testid="${id}"]`);
 
-  test("two calm dots at 0, googly eyes at 1", async () => {
-    const calm = await mount(figure(0));
-    expect(within(calm, "fig-dots")).not.toBeNull();
-    expect(within(calm, "fig-googly")).toBeNull();
-    const one = await mount(figure(1));
-    expect(within(one, "fig-dots")).toBeNull();
-    expect(within(one, "fig-googly")).not.toBeNull();
+  test("googly eyes at 0 and at 1: one Tex, calm or not", async () => {
+    for (const chaos of [0, 1]) {
+      const drawn = await mount(figure(chaos));
+      expect(within(drawn, "fig-googly")).not.toBeNull();
+      expect(within(drawn, "fig-dots")).toBeNull();
+    }
+  });
+
+  test("Tex's blue, lifted in dark mode", async () => {
+    const light = await mount(
+      createElement(Tex, { chaos: 50, size: 120, scheme: "light" }),
+    );
+    expect(light.querySelector("path")?.getAttribute("stroke")).toBe(
+      texColors.light.ink,
+    );
+    const dark = await mount(
+      createElement(Tex, { chaos: 50, size: 120, scheme: "dark" }),
+    );
+    expect(dark.querySelector("path")?.getAttribute("stroke")).toBe(
+      texColors.dark.ink,
+    );
   });
 
   test("the brush edge in a browser, and plain strokes when tiny", async () => {
     const big = await mount(figure(60));
     expect(within(big, "chaos-figure-rough")).not.toBeNull();
-    expect(big.querySelector("filter")?.innerHTML.toLowerCase()).toContain("fedisplacementmap");
+    expect(big.querySelector("filter")?.innerHTML.toLowerCase()).toContain(
+      "fedisplacementmap",
+    );
     const tiny = await mount(figure(60, 18));
     expect(within(tiny, "chaos-figure-rough")).toBeNull();
     expect(tiny.querySelector("svg")).not.toBeNull();

@@ -46,6 +46,16 @@ before and after, the app shows the number and the figure, and none of them
 suggest a change or carry a "tidy now" button. A "simplification" that brings
 automatic tidying back is the feature the owner just removed.
 
+## The figure is Tex, drawn once
+
+Every chaos score in the app (web, desktop and phone) and the homepage's
+mascot draw the same component, `apps/mobile/features/chaos/Tex.tsx`, from
+`figureGeometry.ts`: the brand-blue scribble that untangles into the app
+icon's #, with googly eyes at every score, calm included (Dev2, 2026-10-12:
+the app had drifted to a thinner black variant with dots at 0, and the
+character "is not consistent"). A per-surface variant is that drift again;
+`chaosFigure.test.ts` pins the brush and the eyes.
+
 ## Every write answers with the change
 
 `write_note`, `move_note`, `move_notes`, `move_folder` and `archive_note` end

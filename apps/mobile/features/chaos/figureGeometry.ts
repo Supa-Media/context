@@ -1,6 +1,7 @@
 /**
- * The chaos figure's geometry: a googly-eyed paper-ink scribble that
- * untangles into the app icon's # as a workspace calms down.
+ * Tex's geometry: the googly-eyed paper-ink scribble that untangles into the
+ * app icon's # as a workspace calms down. Every Tex in the product, the app's
+ * chaos score and the homepage's mascot alike, is drawn from here.
  *
  * The owner's pick (2026-10-10), ported faithfully from the board it was
  * chosen on (`texting-assistant-boards/mascots-v7-googly-dots/source/
@@ -9,14 +10,16 @@
  * stroke of the #, thickening as they go, with a dry second pass beside each.
  * Legs, a waving arm and motion marks fade out on the way.
  *
- * One change of the owner's: the eyes stay googly while there is any chaos at
- * all, and become two calm dots only at a score of 0 as shown — not at paper3's
- * `t >= 0.95`, which would have called a workspace scoring 4 calm-eyed.
+ * Drawn as Tex was approved on the homepage preview (Dev, 2026-10-11): a
+ * heavier brush that thickens less on its way to the #, and googly eyes that
+ * stay on even when everything is sorted. The app's chaos score first drew a
+ * thinner variant that swapped its eyes for two dots at 0; Dev2 asked
+ * (2026-10-12) for the app to use the real Tex, so there is one drawing now.
  *
- * Pure: points and path strings, no React. `ChaosFigure` draws them.
+ * Pure: points and path strings, no React. `Tex.tsx` draws them.
  */
 
-import { chaosToT, shownScore } from "./chaosModel";
+import { chaosToT } from "./chaosModel";
 
 /** Paper3's canvas: the figure is drawn about (CX, CY) in a 680 × 820 board. */
 const N = 720;
@@ -36,7 +39,8 @@ const rng = (seed: number) => {
   let s = seed;
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
 };
-const ease = (x: number) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+const ease = (x: number) =>
+  x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
 
 /** A Catmull-Rom spline through `pts`, sampled at `n` evenly spaced parameter steps. */
 function catmull(pts: readonly Point[], n: number): Point[] {
@@ -48,7 +52,11 @@ function catmull(pts: readonly Point[], n: number): Point[] {
     const u = f - s;
     const [p0, p1, p2, p3] = [pts[s]!, pts[s + 1]!, pts[s + 2]!, pts[s + 3]!];
     const c = (a: number, b: number, c2: number, d: number) =>
-      0.5 * (2 * b + (-a + c2) * u + (2 * a - 5 * b + 4 * c2 - d) * u * u + (-a + 3 * b - 3 * c2 + d) * u * u * u);
+      0.5 *
+      (2 * b +
+        (-a + c2) * u +
+        (2 * a - 5 * b + 4 * c2 - d) * u * u +
+        (-a + 3 * b - 3 * c2 + d) * u * u * u);
     out.push([c(p0[0], p1[0], p2[0], p3[0]), c(p0[1], p1[1], p2[1], p3[1])]);
   }
   return out;
@@ -57,7 +65,11 @@ function catmull(pts: readonly Point[], n: number): Point[] {
 const scribbles = new Map<number, readonly Point[]>();
 
 /** The seeded tangle, computed once per seed and kept: every figure with that seed shares it. */
-export function scribble(seed: number, count = 64, radius = 190): readonly Point[] {
+export function scribble(
+  seed: number,
+  count = 64,
+  radius = 190,
+): readonly Point[] {
   const cached = scribbles.get(seed);
   if (cached !== undefined) return cached;
   const r = rng(seed);
@@ -74,17 +86,41 @@ export function scribble(seed: number, count = 64, radius = 190): readonly Point
 
 /** The app icon's # (viewBox 100), scaled up about the figure's centre. */
 function hashStrokes(): [Point, Point][] {
-  const m = ([x, y]: Point): Point => [CX + (x - 50) * 4.4, CY + (y - 50) * 4.4];
+  const m = ([x, y]: Point): Point => [
+    CX + (x - 50) * 4.4,
+    CY + (y - 50) * 4.4,
+  ];
   const strokes: [Point, Point][] = [
-    [[40, 7], [30, 93]],
-    [[70, 7], [60, 93]],
-    [[13, 36], [93, 36]],
-    [[7, 66], [87, 66]],
+    [
+      [40, 7],
+      [30, 93],
+    ],
+    [
+      [70, 7],
+      [60, 93],
+    ],
+    [
+      [13, 36],
+      [93, 36],
+    ],
+    [
+      [7, 66],
+      [87, 66],
+    ],
   ];
   return strokes.map(([a, b]) => [m(a), m(b)]);
 }
 
-const pathOf = (pts: readonly Point[]) => "M" + pts.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L");
+/** Tex's brush: a stroke this wide at full chaos, `GROW` wider once it is the #. */
+export const TEX_WIDTH = 13;
+const GROW = 16;
+/** Legs and arm never thinner than this, so they read beside the heavier strands. */
+const LIMB_WIDTH = TEX_WIDTH * 1.2;
+/** The eyes' outline. */
+const EYE_OUTLINE = TEX_WIDTH * 0.9;
+
+const pathOf = (pts: readonly Point[]) =>
+  "M" + pts.map((p) => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join("L");
 
 export interface FigureParts {
   /** The four strands, each with its dry second pass, at their stroke width. */
@@ -93,7 +129,7 @@ export interface FigureParts {
   limbOpacity: number;
   speckles: { cx: number; cy: number; r: number; opacity: number }[];
   motion: { d: string[]; width: number; opacity: number } | null;
-  /** The googly eyes, about (CX, CY - 10) at `scale`; `null` once there is no chaos. */
+  /** The googly eyes, about (CX, CY - 10) at `scale`. Tex keeps them even when calm. */
   googly: {
     x: number;
     y: number;
@@ -101,20 +137,15 @@ export interface FigureParts {
     outline: number;
     whites: { cx: number; cy: number; rx: number; ry: number }[];
     pupils: { cx: number; cy: number; r: number }[];
-  } | null;
-  /** The two calm dots, only at a score of 0. */
-  dots: { cx: number; cy: number; r: number }[] | null;
+  };
   viewBox: string;
 }
 
 /**
- * Everything the figure draws at `chaos` (0 to 100).
+ * Everything Tex draws at `chaos` (0 to 100).
  *
  * `small` drops the speckles and motion marks; `minStroke` (in the board's
- * units) is the thinnest any line may be, so a 20px figure still reads.
- * `grow` is how much thicker a strand gets on its way to the #, and
- * `alwaysGoogly` keeps the googly eyes on the calm # too: page a's mascot,
- * Tex, is drawn with 16 and true (Dev, 2026-10-11, approved on the preview).
+ * units) is the thinnest any line may be, so a 20px Tex still reads.
  */
 export function figureParts(
   chaos: number,
@@ -122,10 +153,7 @@ export function figureParts(
     small,
     minStroke = 0,
     seed = 7,
-    width = 9,
-    grow = 44,
-    alwaysGoogly = false,
-  }: { small: boolean; minStroke?: number; seed?: number; width?: number; grow?: number; alwaysGoogly?: boolean },
+  }: { small: boolean; minStroke?: number; seed?: number },
 ): FigureParts {
   const t = chaosToT(chaos);
   const k = ease(t);
@@ -140,15 +168,26 @@ export function figureParts(
       const ty = y0 + (y1 - y0) * u + (y0 === y1 ? wob : 0);
       return [p[0] + (tx - p[0]) * k, p[1] + (ty - p[1]) * k];
     });
-    const w = Math.max(width + grow * k * k * k, minStroke);
+    const w = Math.max(TEX_WIDTH + GROW * k * k * k, minStroke);
     // A dry second pass slightly offset, like a brush going over twice.
-    return { d: pathOf(strand), dry: pathOf(strand.map((p): Point => [p[0] + 3, p[1] - 2])), width: w };
+    return {
+      d: pathOf(strand),
+      dry: pathOf(strand.map((p): Point => [p[0] + 3, p[1] - 2])),
+      width: w,
+    };
   });
 
   // Legs and a waving arm fade out as it becomes a #.
   const limbOpacity = 1 - Math.min(1, t / 0.85);
-  const limbWidth = Math.max(11, minStroke);
-  const limb = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => ({
+  const limbWidth = Math.max(LIMB_WIDTH, minStroke);
+  const limb = (
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+  ) => ({
     d: `M${x0} ${y0} Q${x1} ${y1} ${x2} ${y2}`,
     width: limbWidth,
   });
@@ -165,7 +204,12 @@ export function figureParts(
     const a = r() * Math.PI * 2;
     const dd = 200 + r() * 90;
     const cy = CY + 290 + r() * 20 - (i < 12 ? 0 : 300 + dd * Math.sin(a));
-    speckles.push({ cx: CX + dd * Math.cos(a), cy, r: 1 + r() * 3, opacity: (i < 12 ? 0.8 : 0.35) * (1 - k * 0.7) });
+    speckles.push({
+      cx: CX + dd * Math.cos(a),
+      cy,
+      r: 1 + r() * 3,
+      opacity: (i < 12 ? 0.8 : 0.35) * (1 - k * 0.7),
+    });
   }
 
   // Motion marks by the waving side.
@@ -174,38 +218,31 @@ export function figureParts(
     small || motionOpacity <= 0
       ? null
       : {
-          d: [`M${CX + 250} ${CY - 215} l18 -30`, `M${CX + 272} ${CY - 180} l30 -16`, `M${CX + 280} ${CY - 145} l32 -2`],
+          d: [
+            `M${CX + 250} ${CY - 215} l18 -30`,
+            `M${CX + 272} ${CY - 180} l30 -16`,
+            `M${CX + 280} ${CY - 145} l32 -2`,
+          ],
           width: 9,
           opacity: motionOpacity,
         };
 
-  // Googly while any chaos is left; two calm dots once there is none.
-  const calm = !alwaysGoogly && shownScore(chaos) === 0;
-  const j = 1 - k; // pupils drift back to centre as it calms down
-  const googly = calm
-    ? null
-    : {
-        x: CX,
-        y: CY - 10,
-        scale: 1 - 0.25 * k,
-        outline: Math.max(8, minStroke * 0.6),
-        whites: [
-          { cx: -52, cy: 0, rx: 44, ry: 48 },
-          { cx: 50, cy: 4, rx: 36, ry: 40 },
-        ],
-        pupils: [
-          { cx: -52 + 10 * j, cy: 10 * j, r: 17 },
-          { cx: 50 + 8 * j, cy: 4 + 10 * j, r: 14 },
-        ],
-      };
-  // A small figure's dots grow with its strokes, or they vanish under a pixel.
-  const dotR = Math.max(17, minStroke * 0.9);
-  const dots = calm
-    ? [
-        { cx: CX - Math.max(24, dotR * 1.3), cy: CY, r: dotR },
-        { cx: CX + Math.max(22, dotR * 1.3), cy: CY, r: dotR },
-      ]
-    : null;
+  // Googly, the pupils drifting back to centre as it calms down.
+  const j = 1 - k;
+  const googly = {
+    x: CX,
+    y: CY - 10,
+    scale: 1 - 0.25 * k,
+    outline: Math.max(EYE_OUTLINE, minStroke * 0.6),
+    whites: [
+      { cx: -52, cy: 0, rx: 44, ry: 48 },
+      { cx: 50, cy: 4, rx: 36, ry: 40 },
+    ],
+    pupils: [
+      { cx: -52 + 10 * j, cy: 10 * j, r: 17 },
+      { cx: 50 + 8 * j, cy: 4 + 10 * j, r: 14 },
+    ],
+  };
 
   const box = small ? SMALL_VIEW_BOX : VIEW_BOX;
   return {
@@ -215,7 +252,6 @@ export function figureParts(
     speckles: small ? [] : speckles,
     motion,
     googly,
-    dots,
     viewBox: `${box.x} ${box.y} ${box.size} ${box.size}`,
   };
 }

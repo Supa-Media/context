@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { Text } from "../../features/design/components/Text";
-import { ChaosFigure } from "../../features/chaos/ChaosFigure";
+import { Tex } from "../../features/chaos/Tex";
 import type { ChaosScore } from "../../features/chaos/chaosModel";
 import type { ChaosSource } from "../../features/chaos/useChaosScore";
 
@@ -147,7 +147,7 @@ export function FigureStrip() {
       <View style={{ flexDirection: "row", gap: 24 }}>
         {STRIP.map((chaos) => (
           <View key={chaos} style={{ alignItems: "center", gap: 8 }}>
-            <ChaosFigure chaos={chaos} size={150} />
+            <Tex chaos={chaos} size={150} />
             <Text variant="tree">{`chaos ${chaos}`}</Text>
           </View>
         ))}
@@ -156,9 +156,9 @@ export function FigureStrip() {
         {STRIP.map((chaos) => (
           <View key={chaos} style={{ width: 150, alignItems: "center", gap: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 12 }}>
-              <ChaosFigure chaos={chaos} size={88} />
-              <ChaosFigure chaos={chaos} size={36} />
-              <ChaosFigure chaos={chaos} size={18} />
+              <Tex chaos={chaos} size={88} />
+              <Tex chaos={chaos} size={36} />
+              <Tex chaos={chaos} size={18} />
             </View>
             <Text variant="treeMeta">88 · 36 · 18 px</Text>
           </View>
