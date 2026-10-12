@@ -19,16 +19,19 @@ export const SIMPLE_CSS = `
 .sp-cta{all:unset;cursor:pointer;font:inherit;color:var(--ink)}
 .sp-cta span{background:linear-gradient(transparent 52%,var(--mark) 52%,var(--mark) 94%,transparent 94%)}
 .sp-cta:focus-visible,.sp-tidy:focus-visible,.sp a:focus-visible,.sp-go:focus-visible,.sp-link:focus-visible,.sp-cc:focus-within{outline:2px solid var(--ink);outline-offset:4px;border-radius:2px}
-.sp-in{display:flex;flex-direction:column;gap:.45em;max-width:440px}
+.sp-in{display:flex;flex-direction:column;gap:.45em;max-width:520px}
 .sp-hint{font-family:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--ink2)}
-.sp-line{display:flex;align-items:center;gap:.15em;margin:0}
-.sp-field{flex:0 1 13em;min-width:0;display:flex;align-items:baseline;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
+.sp-line{display:flex;flex-wrap:wrap;align-items:center;gap:.15em .45em;margin:0}
+.sp-lead{flex:none;color:var(--ink)}
+.sp-entry{flex:1 1 11em;min-width:0;max-width:15em;display:flex;align-items:center;gap:.15em}
+.sp-field{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
 .sp-field[data-bad],.sp-code[data-bad]{border-bottom-color:var(--bad)}
+.sp-field input::placeholder{color:#7A766E;opacity:1}
 .sp-field input,.sp-code{all:unset;flex:1;min-width:0;font:inherit;font-size:max(16px,1em);color:var(--ink)}
 .sp-code{flex:0 1 6.5em;letter-spacing:.18em;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
 .sp-cc{position:relative;flex:none;margin-right:.35em;color:var(--ink2);white-space:nowrap}
 .sp-cc select{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:16px}
-.sp-go{all:unset;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-10px 0;border-radius:50%;font:inherit;color:var(--ink)}
+.sp-go{all:unset;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-10px -8px;border-radius:50%;font:inherit;color:var(--ink)}
 .sp-go:disabled{cursor:default;opacity:.4}
 .sp-small,.sp-err{margin:0;font-family:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.45;color:var(--ink2)}
 .sp-err{color:var(--bad)}

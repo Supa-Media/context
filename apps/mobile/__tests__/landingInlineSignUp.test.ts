@@ -5,8 +5,9 @@ import { describe, expect, jest, test } from "@jest/globals";
 
 /**
  * Page a's sign-up, written into its own last line (Dev2, 2026-10-12, board A
- * of the inline boards). Driven end to end against a stubbed backend: the line
- * opens into a number field, a new number lands on the list in place, a number
+ * of the inline boards, then board B: "just like a line"). Driven end to end
+ * against a stubbed backend: the line is the number field from the start, with
+ * +1 in front of it, a new number lands on the list in place, a number
  * that is in gets the code on the same line, and each problem says so there.
  */
 
@@ -89,37 +90,36 @@ function mount() {
 }
 
 describe("the inline sign-up on page a", () => {
-  test("is one line until pressed, then that line is a labelled number field with the caret in it", async () => {
+  test("is one line from the start: Join the waitlist, +1, the number, and ›, without grabbing the keyboard", async () => {
     const view = mount();
-    expect(view.q("input")).toBeNull();
-    expect(view.text()).toContain("Join the waitlist");
-    await view.press("Join the waitlist");
     const input = view.q<HTMLInputElement>("#sp-phone")!;
-    expect(document.activeElement).toBe(input);
-    expect(view.q("label[for=sp-phone]")!.textContent).toBe("Your phone number");
+    expect(input).not.toBeNull();
     expect(input.type).toBe("tel");
+    expect(document.activeElement).not.toBe(input);
+    expect(view.q("label[for=sp-phone]")!.textContent).toBe("Join the waitlist");
+    expect(view.q(".sp-cc")!.textContent).toContain("+1");
+    expect(view.q<HTMLSelectElement>("select")!.value).toBe("US");
+    expect(view.button("Join")).toBeDefined();
     expect(view.text()).toContain("Invite only for now");
     view.unmount();
   });
 
-  test("a new number joins the list in place", async () => {
+  test("a new number joins the list in place, and a different number puts the caret back in the line", async () => {
     mockStart = { status: "joined" };
     const view = mount();
-    await view.press("Join the waitlist");
     await view.type(view.q<HTMLInputElement>("#sp-phone")!, "(202) 615-0407");
     await view.submit();
     expect(mockStarted).toEqual([{ phone: "+12026150407" }]);
     expect(view.text()).toContain("You're on the list.");
     expect(view.text()).toContain("this number is how you sign in");
     await view.press("Use a different number");
-    expect(view.q("#sp-phone")).not.toBeNull();
+    expect(document.activeElement).toBe(view.q("#sp-phone"));
     view.unmount();
   });
 
   test("the country in front of the number is what it is sent with", async () => {
     mockStart = { status: "joined" };
     const view = mount();
-    await view.press("Join the waitlist");
     await view.type(view.q<HTMLSelectElement>("select")!, "GB");
     expect(view.q(".sp-cc")!.textContent).toContain("+44");
     await view.type(view.q<HTMLInputElement>("#sp-phone")!, "07700 900123");
@@ -132,7 +132,6 @@ describe("the inline sign-up on page a", () => {
     mockStart = { status: "sent", phone: "+15555550100" };
     mockSigningIn = true;
     const view = mount();
-    await view.press("Join the waitlist");
     await view.type(view.q<HTMLInputElement>("#sp-phone")!, "555 555 0100");
     await view.submit();
     expect(view.text()).toContain("Check your texts.");
@@ -149,7 +148,6 @@ describe("the inline sign-up on page a", () => {
     mockStart = { status: "sent", phone: "+15555550100" };
     mockSigningIn = false;
     const view = mount();
-    await view.press("Join the waitlist");
     await view.type(view.q<HTMLInputElement>("#sp-phone")!, "555 555 0100");
     await view.submit();
     await view.type(view.q<HTMLInputElement>("#sp-code")!, "000000");
@@ -166,7 +164,6 @@ describe("the inline sign-up on page a", () => {
 
   test("an empty line sends nothing", async () => {
     const view = mount();
-    await view.press("Join the waitlist");
     await view.submit();
     expect(mockStarted).toEqual([]);
     view.unmount();

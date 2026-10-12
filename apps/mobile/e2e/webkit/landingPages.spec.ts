@@ -34,14 +34,12 @@ test("/ is page a: Tex, the feeling, a day being sorted, and the phone sign-up u
   await expect.poll(() => graph.evaluate(inked), { timeout: 5_000 }).toBeGreaterThan(2_000);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
-  await expect(page.getByLabel("Your phone number")).toHaveCount(0);
-  await page.getByRole("button", { name: /Join the waitlist/ }).click();
-  // The line itself turns into the field; the graph stays where it is.
-  await expect(page.getByLabel("Your phone number")).toBeFocused();
-  await expect(graph).toBeVisible();
+  // The last line is the sign-up itself, open from the start, +1 already there.
+  await expect(page.getByLabel("Join the waitlist")).toBeVisible();
+  await expect(page.locator(".sp-cc")).toContainText("+1");
 });
 
-test("page a fits a laptop window with no scrolling, the sign-up open too", async ({ page }) => {
+test("page a fits a laptop window with no scrolling, the sign-up line included", async ({ page }) => {
   // Dev2, 2026-10-12: "everything should fit on the page without scrolling".
   for (const [width, height] of [
     [1280, 720],
@@ -54,10 +52,7 @@ test("page a fits a laptop window with no scrolling, the sign-up open too", asyn
     expect(await overflow()).toBeLessThanOrEqual(1);
     const foot = await page.locator(".sp-foot").evaluate((el) => el.getBoundingClientRect().bottom);
     expect(foot).toBeLessThanOrEqual(height);
-    await page.getByRole("button", { name: /Join the waitlist/ }).click();
-    await expect(page.getByLabel("Your phone number")).toBeFocused();
-    expect(await overflow()).toBeLessThanOrEqual(1);
-    const send = await page.getByRole("button", { name: "Join the waitlist" }).evaluate((el) => el.getBoundingClientRect().bottom);
+    const send = await page.getByRole("button", { name: "Join", exact: true }).evaluate((el) => el.getBoundingClientRect().bottom);
     expect(send).toBeLessThanOrEqual(height);
   }
 });
