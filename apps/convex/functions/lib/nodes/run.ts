@@ -9,6 +9,8 @@
  *    big to re-check asks for a sweep instead.
  *  - `nodesParity`: compare the rows with the bucket at every clearance
  *    (`parity.ts`) and keep the answer on the workspace's `nodeTrees` row.
+ *  - `nodesPrivacyExport`: write `privacy.md` from the rules, where they are
+ *    the authority and the last write of the file is owed (phase 3).
  *
  * Phase 1 of `docs/decisions/app-and-console/convex-tree.md` is a shadow: the
  * scheduling helpers here swallow every error, because a shadow must never
@@ -26,10 +28,18 @@ import { touchNodes } from "./touch";
 import { followPlacesAfter } from "./followPlaces";
 import { type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
-export type NodesOperation = Extract<FileOperation, { kind: "nodesSweep" | "nodesTouch" | "nodesParity" }>;
+export type NodesOperation = Extract<
+  FileOperation,
+  { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesPrivacyExport" }
+>;
 
 export function isNodesOperation(operation: { kind: string }): operation is NodesOperation {
-  return operation.kind === "nodesSweep" || operation.kind === "nodesTouch" || operation.kind === "nodesParity";
+  return (
+    operation.kind === "nodesSweep" ||
+    operation.kind === "nodesTouch" ||
+    operation.kind === "nodesParity" ||
+    operation.kind === "nodesPrivacyExport"
+  );
 }
 
 /** Live rows one `listLive` page reads. */
@@ -126,6 +136,23 @@ export async function runNodesOperation(
   const { workspaceId, operation } = args;
   const sink = sinkFor(ctx, workspaceId);
   const listing = listingOf(workspaceId, store);
+
+  // Who sees what is not part of the copy, so a pause never holds it back.
+  if (operation.kind === "nodesPrivacyExport") {
+    const exportPrivacy = (store as FileStore & { exportPrivacy?: () => Promise<unknown> }).exportPrivacy;
+    // Settled since it was asked for (the writer exported, or a later export did): nothing to write.
+    if (!(await ctx.runQuery(internal.functions.nodesPrivacy.exportOwedNow, { workspaceId }))) {
+      return { kind: "nodesKept", complete: true };
+    }
+    try {
+      await exportPrivacy?.();
+      return { kind: "nodesKept", complete: true };
+    } catch {
+      // The store has already marked it owed and asked for a retry.
+      console.error("nodes.privacy_export_failed", { workspaceId });
+      return { kind: "nodesKept", complete: false };
+    }
+  }
 
   // Paused by staff: a sweep stops here (its chain with it) and a re-check
   // only marks the tree dirty, so resuming catches up. Parity still runs.

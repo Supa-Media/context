@@ -19,6 +19,8 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
+import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
+import { storePrivacyAuthority } from "../nodes/storeAuthority";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -399,6 +401,11 @@ export async function runFileOperationHandler(
         "This context's bucket configuration could not be used. Reconnect storage.",
     });
   }
+
+  // `privacy.md` decided by the rules held as the authority, where they are
+  // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
+  // below goes through this, the console's and the gateway's alike.
+  store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);

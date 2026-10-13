@@ -105,6 +105,9 @@ export function createSessionMethods({ post, required }) {
         // Queued folder moves the tree draws already (`moves/queued.js`), a
         // seventh: absent unless one is pending, which is nearly always.
         pendingMoves: Array.isArray(parsed.pendingMoves) ? parsed.pendingMoves : [],
+        // Phase 3, an eighth sibling: the privacy rules while they are the
+        // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
+        privacy: parsed.privacy ?? null,
       };
     },
 

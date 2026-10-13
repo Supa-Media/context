@@ -49,7 +49,7 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
   {
     key: "files",
     label: "File tree",
-    what: "What the sidebar, folder pages, Home and AI clients list notes from. Keeps itself current; Check compares it with the bucket.",
+    what: "What the sidebar, folder pages, Home and AI clients list notes from. Keeps itself current; Check compares it with the bucket. Rules from Convex makes the privacy rules held there decide who sees what, with each privacy.md written from them.",
   },
   { key: "fast", label: "Fast search", what: "Word search, in the app and for AI clients." },
   { key: "meaning", label: "Search by meaning", what: "Finds notes on the same topic in different words." },

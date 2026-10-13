@@ -9,6 +9,7 @@ import { MOVE_AUTOMATIC_BATCH } from "./limits.js";
 import { moveErrorForControlPlane, moveProgressFromText } from "./jobs.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { storeForOpenedBinding } from "../session.js";
+import { withPrivacyAuthority } from "../store/privacyAuthority.js";
 import { toolMaterializeMove } from "../tools/moves/materialize.js";
 
 // A control-plane or storage failure can happen after the ticket was claimed.
@@ -49,7 +50,12 @@ export async function handleGatewayJobMessage(message, env) {
       return;
     }
     const { job } = opened;
-    const store = storeForOpenedBinding(opened, job.workspaceId, env);
+    // A move rewrites `privacy.md`'s rules, so it writes them through the
+    // control plane's while those are the authority (`store/privacyAuthority.js`).
+    const store = withPrivacyAuthority(
+      storeForOpenedBinding(opened, job.workspaceId, env),
+      controlPlane.privacyAuthority?.({ ticket }, job.workspaceId, opened.privacy ?? null),
+    );
     store.searchSubrequestBudget = searchBudgetFor(env);
     store.actor = {
       workspaceId: job.workspaceId,

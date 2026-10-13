@@ -84,6 +84,12 @@ export async function gatewayBindingHandler(
     ? await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: boundTo as Id<"workspaces"> }).catch(() => null)
     : [];
   if (pendingMoves === null) return json({ binding: null });
+  // Phase 3: the workspace's privacy rules, while they are the authority
+  // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
+  // one the grant opened, never one the request named.
+  const privacy = await ctx
+    .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
+    .catch(() => null);
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -114,5 +120,8 @@ export async function gatewayBindingHandler(
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
     pendingMoves: pendingMoves.length > 0 ? pendingMoves : undefined,
+    // Eighth: the rules `privacy.md` is written from, while they are the
+    // authority. Absent otherwise, and then the gateway reads the file.
+    ...(privacy === null ? {} : { privacy }),
   });
 }

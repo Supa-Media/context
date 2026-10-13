@@ -8,6 +8,7 @@ import { createFeedbackMethods } from "./feedback.js";
 import { createSiteMethods } from "./site.js";
 import { createVaultMethods } from "./vault.js";
 import { createTreeMethods } from "./tree.js";
+import { createPrivacyMethods } from "./privacy.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -32,5 +33,6 @@ export function createControlPlane(env, options = {}) {
     ...createSiteMethods({ post, required }),
     ...createVaultMethods({ post, required }),
     ...createTreeMethods({ post }),
+    ...createPrivacyMethods({ post }),
   };
 }

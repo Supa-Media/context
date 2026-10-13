@@ -83,6 +83,7 @@ export function IndexesView() {
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
   const startMigration = useMutation(api.functions.nodesMigration.start);
   const checkMigration = useMutation(api.functions.nodesMigration.checkParity);
+  const setPrivacyAuthority = useMutation(api.functions.nodesMigration.setPrivacyAuthority);
   const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
   const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
@@ -153,6 +154,16 @@ export function IndexesView() {
     });
   };
 
+  const togglePrivacy = () => {
+    const next = !(migration?.privacyAuthority ?? false);
+    return act("convex:privacy", async () => {
+      await setPrivacyAuthority({ on: next });
+      return next
+        ? "Privacy rules now come from Convex. Each privacy.md is written from them."
+        : "Privacy rules come from each privacy.md again.";
+    });
+  };
+
   const checkAll = () =>
     act("convex:check:all", async () => checkingLine((await checkMigration({})).started));
 
@@ -206,6 +217,8 @@ export function IndexesView() {
                           ? "Everyone reads from the bucket"
                           : `Everyone reads from the bucket since ${whenLabel(migration.changedAt, Date.now())}`
                         : "Served live to everyone"}
+                      {migration.privacyAuthority ? " · rules from Convex" : " · rules from privacy.md"}
+                      {migration.owedExports > 0 ? ` (${migration.owedExports} files being written)` : ""}
                     </Text>
                     <Button
                       label={busy === "convex:pause" ? "Saving…" : paused ? "Serve from the tree" : "Serve from bucket"}
@@ -218,6 +231,18 @@ export function IndexesView() {
                       disabled={busy !== null || migration.rows.length === 0}
                       onPress={() => void checkAll()}
                       testID="admin-files-check-all"
+                    />
+                    <Button
+                      label={
+                        busy === "convex:privacy"
+                          ? "Saving…"
+                          : migration.privacyAuthority
+                            ? "Rules back to privacy.md"
+                            : "Rules from Convex"
+                      }
+                      disabled={busy !== null}
+                      onPress={() => void togglePrivacy()}
+                      testID="admin-convex-privacy"
                     />
                   </>
                 )
