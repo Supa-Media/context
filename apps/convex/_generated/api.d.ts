@@ -111,6 +111,7 @@ import type * as functions_nodeChaos from "../functions/nodeChaos.js";
 import type * as functions_nodeFacts from "../functions/nodeFacts.js";
 import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
+import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_owners from "../functions/owners.js";
 import type * as functions_obsidianPlugins from "../functions/obsidianPlugins.js";
@@ -261,6 +262,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodeFacts": typeof functions_nodeFacts;
   "functions/nodeMoves": typeof functions_nodeMoves;
   "functions/nodeMovesAdmin": typeof functions_nodeMovesAdmin;
+  "functions/nodesPrivacy": typeof functions_nodesPrivacy;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/owners": typeof functions_owners;
   "functions/obsidianPlugins": typeof functions_obsidianPlugins;

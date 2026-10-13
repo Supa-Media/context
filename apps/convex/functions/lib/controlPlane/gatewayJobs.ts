@@ -11,7 +11,7 @@
 
 import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
-import type { MutationCtx } from "../../../_generated/server";
+import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "../crypto";
 import { getMembership } from "../workspaceAuth";
@@ -56,6 +56,12 @@ export interface OpenedGatewayJob {
   rotation?: GatewayKeyRotation;
   /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */
   managedEncryption?: { mode: "migrating" | "encrypted" | "decrypting" };
+  /** The privacy rules while they are the authority, as on `/gateway/binding` (phase 3). */
+  privacy?: {
+    etag: string;
+    folders: { prefix: string; visibility: string }[];
+    notes: { path: string; visibility: string }[];
+  };
 }
 
 export function gatewayJobError(message: string | undefined): string | undefined {
@@ -245,4 +251,26 @@ export async function reportGatewayJobHandler(
       : {}),
   });
   return true;
+}
+
+/**
+ * The workspace a job's ticket may act on while it holds its lease: a job
+ * that is running, not stale, and whose actor still owns the workspace. The
+ * privacy authority's route takes this as its proof for a queued move, which
+ * has a ticket and no person's token (`gatewayRoutes/privacy.ts`).
+ */
+export async function leasedGatewayJobWorkspace(
+  ctx: QueryCtx,
+  hashedTicket: string,
+): Promise<Id<"workspaces"> | null> {
+  if (!TOKEN_HASH_PATTERN.test(hashedTicket)) return null;
+  const job = await ctx.db
+    .query("gatewayJobs")
+    .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", hashedTicket))
+    .unique();
+  const now = Date.now();
+  if (job === null || job.status !== "running" || job.expiresAt <= now) return null;
+  if (typeof job.leasedAt !== "number" || job.leasedAt + GATEWAY_JOB_LEASE_MS <= now) return null;
+  const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
+  return membership?.role === "owner" ? job.workspaceId : null;
 }

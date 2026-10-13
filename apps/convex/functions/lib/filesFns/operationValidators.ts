@@ -299,6 +299,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("nodesMoveWork") }),
+  v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({
     kind: v.literal("touchTree"),
     paths: v.array(v.string()),

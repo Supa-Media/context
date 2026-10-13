@@ -30,8 +30,10 @@ import {
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { mirrorFollowsFile, noticePrivacyListing } from "./lib/nodes/privacyAuthority";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
+  NODE_PRIVACY_KEY,
   NODE_EDIT_LOST_MS,
   NODE_EDIT_SETTLE_MS,
   NODE_TOUCH_PATHS,
@@ -187,6 +189,8 @@ export const observe = internalMutation({
     if (args.gone.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_GONE" });
     if (args.vanishedUnder.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_PREFIXES" });
     const table = convexNodeTable(ctx, args.workspaceId);
+    const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
+    if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
     const result = await applyObservation(
       table,
       { at: args.at, rows: args.rows, gone: args.gone, vanishedUnder: args.vanishedUnder },
@@ -393,7 +397,10 @@ export const savePrivacy = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
     if (doc !== null && !privacyIsNewer(doc.observedAt, at)) return null;
-    const fields = { ...mirror, observedAt: at };
+    // Once the rules are the authority, the file is their export and is never read back.
+    if (!(await mirrorFollowsFile(ctx, workspaceId))) return null;
+    // This read is of the file the rules now follow, so they are no longer behind it.
+    const fields = { ...mirror, observedAt: at, fileAhead: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
     return null;

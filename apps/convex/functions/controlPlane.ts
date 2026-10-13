@@ -601,6 +601,11 @@ export const openGatewayJob = internalAction({
       return null;
     }
 
+    // Phase 3: a queued move rewrites `privacy.md`, so it writes through the rules too.
+    const privacy = await ctx
+      .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
+      .then((held) => held ?? undefined);
+
     if (credential.provider === "dropbox") {
       return {
         job: claimed,
@@ -617,6 +622,7 @@ export const openGatewayJob = internalAction({
         encryptionKey,
         rotation,
         managedEncryption,
+        privacy,
       };
     }
     return {
@@ -639,6 +645,7 @@ export const openGatewayJob = internalAction({
       encryptionKey,
       rotation,
       managedEncryption,
+      privacy,
     };
   },
 });
