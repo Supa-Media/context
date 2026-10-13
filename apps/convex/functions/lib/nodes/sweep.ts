@@ -28,6 +28,7 @@ import {
   NODE_SWEEP_PAGES,
   OBSERVE_BATCH,
   nodeKey,
+  type LeftAudiences,
   type NodeRow,
   type NodeSink,
   type Observation,
@@ -115,6 +116,7 @@ export async function observeAll(
   rows: readonly NodeRow[],
   gone: readonly string[] = [],
   vanishedUnder: readonly string[] = [],
+  left: readonly LeftAudiences[] = [],
 ): Promise<void> {
   if (rows.length === 0 && gone.length === 0 && vanishedUnder.length === 0) return;
   const pieces: NodeRow[][] = [];
@@ -128,6 +130,8 @@ export async function observeAll(
       rows: pieces[index]!,
       gone: index === 0 ? [...gone] : [],
       vanishedUnder: index === pieces.length - 1 ? [...vanishedUnder] : [],
+      // Every piece: a vanish scan in the last one may log a key leaving too.
+      ...(left.length === 0 ? {} : { left: [...left] }),
     });
   }
 }

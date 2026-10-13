@@ -187,7 +187,11 @@ export function createReportingMethods({ post }) {
      * together, so their new versions reach the tree, and the devices that
      * follow its change log, without a re-check per typing pause.
      *
-     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[], edited?: string[]}} touch
+     * `left` says who could see each key a move took away, before it: the
+     * move clears the source's exception first, so the tree's gone rows
+     * narrow to this rather than the rules after the move.
+     *
+     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[], edited?: string[], left?: {path: string, audiences: string[]}[]}} touch
      */
     async reportTreeTouch(workspaceId, touch) {
       if (typeof workspaceId !== "string" || !workspaceId || !touch) return null;
@@ -198,6 +202,10 @@ export function createReportingMethods({ post }) {
           .map(({ from, to }) => ({ from, to }))
         : [];
       const edited = Array.isArray(touch.edited) ? touch.edited.filter((file) => typeof file === "string") : [];
+      const left = Array.isArray(touch.left)
+        ? touch.left.filter((entry) => typeof entry?.path === "string" && Array.isArray(entry.audiences))
+          .map(({ path, audiences }) => ({ path, audiences: audiences.filter((audience) => typeof audience === "string") }))
+        : [];
       if (paths.length === 0 && files.length === 0 && edited.length === 0) return null;
       const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES || edited.length > TREE_TOUCH_NAMES;
       return await post("/gateway/tree/touch", {
@@ -207,6 +215,8 @@ export function createReportingMethods({ post }) {
         dirty,
         ...(moves.length === 0 || moves.length > TREE_TOUCH_NAMES ? {} : { moves }),
         ...(dirty || edited.length === 0 ? {} : { edited }),
+        // Only narrows the gone rows of what left; a sweep judges by the rules alone.
+        ...(dirty || left.length === 0 || left.length > TREE_TOUCH_NAMES ? {} : { left }),
       });
     },
 

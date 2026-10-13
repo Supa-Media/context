@@ -116,7 +116,14 @@ export type FileOperation =
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
   | { kind: "nodesSweep"; passes?: number }
   | { kind: "nodesFactFill"; passes?: number }
-  | { kind: "nodesTouch"; paths: string[]; files: string[]; moves?: { from: string; to: string }[] }
+  | {
+      kind: "nodesTouch";
+      paths: string[];
+      files: string[];
+      moves?: { from: string; to: string }[];
+      /** Who could see each key the change took away, before it (`lib/nodes/convexTable.ts`). */
+      left?: { path: string; audiences: string[] }[];
+    }
   | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
   | { kind: "nodesMoveStart"; from: string; to: string }

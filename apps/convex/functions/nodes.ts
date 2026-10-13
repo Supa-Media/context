@@ -182,13 +182,16 @@ export const observe = internalMutation({
     gone: v.array(v.string()),
     vanishedUnder: v.array(v.string()),
     vanishCursor: v.optional(vanishCursorValidator),
+    /** Who could see each key a change took away, before it: gone rows narrow to it (`convexTable.ts`). */
+    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   },
   returns: v.object({ more: v.boolean(), vanishCursor: v.optional(vanishCursorValidator) }),
   handler: async (ctx, args): Promise<{ more: boolean; vanishCursor?: { index: number; after?: string } }> => {
     if (args.rows.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_ROWS" });
     if (args.gone.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_GONE" });
     if (args.vanishedUnder.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_PREFIXES" });
-    const table = convexNodeTable(ctx, args.workspaceId);
+    if ((args.left?.length ?? 0) > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_LEFT" });
+    const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
     const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
     if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
     const result = await applyObservation(
