@@ -8,7 +8,7 @@
 import { canSee } from "../privacy/engine.js";
 import { treeClientOf } from "../tree/record.js";
 import { chaosOn, chaosReady, chaosSummary } from "./table.js";
-import { chaosExtras, liveSummary, liveTotals, scoreKeys } from "./live.js";
+import { chaosExtras, extrasAtTreeNames, liveSummary, liveTotals, scoreKeys } from "./live.js";
 import { factChaos } from "../tree/facts.js";
 import { chaosWord } from "./rubric.js";
 import { within } from "./report.js";
@@ -68,13 +68,14 @@ export async function factSection(store, audience, visible, rules, overrides) {
     if (keys === null) return null;
     const facts = await factChaos(store);
     if (facts === null) return null;
-    const folders = scoreKeys(keys, facts.extras, (path) => canSee(path, "team", rules, overrides));
+    const extras = extrasAtTreeNames(facts.extras, store.pendingMoves);
+    const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides));
     if (audience === "all") {
       const keep = () => factChaos(store, liveTotals(folders)).catch(() => null);
       if (typeof store.defer === "function") store.defer(keep);
       else void keep();
     }
-    return liveSummary(folders, facts.extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo: facts.weekAgo });
+    return liveSummary(folders, extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo: facts.weekAgo });
   } catch {
     return null;
   }
@@ -91,7 +92,8 @@ export async function liveSection(store, client, audience, visible, rules, overr
   if (typeof store.treeKeys !== "function") return null;
   try {
     if (!(await chaosReady(client))) return null;
-    const [keys, extras] = await Promise.all([store.treeKeys(), chaosExtras(client)]);
+    const [keys, filed] = await Promise.all([store.treeKeys(), chaosExtras(client)]);
+    const extras = extrasAtTreeNames(filed, store.pendingMoves);
     if (keys === null) return null;
     const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides));
     const weekAgo = await chaosOn(client, 7, audience);

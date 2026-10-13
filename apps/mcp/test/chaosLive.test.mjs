@@ -108,3 +108,17 @@ test("orient counts from the keys where the call is served, and only then", asyn
   assert.ok(near(served.score, table.score));
   assert.equal(served.folders.length, Math.min(4, table.folders.length));
 });
+
+test("orient names a moving folder's long notes at its new name, as the app does", async () => {
+  // The table files notes at bucket keys; the served keys are drawn through
+  // the pending move. Sabotage: drop `extrasAtTreeNames` in `liveSection`
+  // and the long note is not named at all.
+  const { keys, client } = await filled(workspace());
+  const moves = [{ from: "1-projects/big", to: "3-resources/big" }];
+  const drawn = keys.map((key) => key.replace(/^1-projects\/big\//, "3-resources/big/"));
+  const store = { treeKeys: async () => drawn };
+  Object.defineProperty(store, "pendingMoves", { value: moves, enumerable: false });
+  const served = await liveSection(store, client, "all", () => true, [], new Map());
+  assert.match(served.longNotes.map((n) => n.path).join(","), /3-resources\/big\/novel\.md/);
+  assert.doesNotMatch(served.longNotes.map((n) => n.path).join(","), /1-projects\/big\//);
+});
