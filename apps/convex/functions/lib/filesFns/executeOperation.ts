@@ -599,10 +599,8 @@ export async function executeOperation(
       }
       case "indexNotes": {
         // Scope-blind, like `maintainIndex` above, and for the same reason.
-        const pass = await indexChangedNotes(store, {
-          written: operation.written,
-          gone: operation.gone,
-        });
+        // And the search database, where it is `ready` (`fileOps/search.ts`).
+        const pass = await indexChangedNotes(store, operation, projection);
         return { kind: "indexMaintained", ...pass };
       }
       case "write": {

@@ -267,6 +267,8 @@ export const operationValidator = v.union(
     kind: v.literal("indexNotes"),
     written: v.array(v.string()),
     gone: v.array(v.string()),
+    moved: v.optional(v.array(v.array(v.string()))),
+    queued: v.optional(v.boolean()),
   }),
   /**
    * Copy a pass's worth of this context's notes into its search database.
