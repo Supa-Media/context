@@ -9,6 +9,7 @@
 
 /** Every file in this repository that went into the bundle, by SHA-256. */
 export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
+  "../../../../../../home/user/context/packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
   "apps/mobile/features/console/faces/defaultFace.ts": "d972b3dc29783816949cc83822f3c9c927d78c0c1a5cabbb7c5dcde5b1dd7662",
   "apps/mobile/features/console/faces/faceLogo.ts": "cebe3d642ae8b0be944765770d2c743cb0449b2cb6cf773d1c33f408b5275762",
   "apps/mobile/features/console/map/live/agentKind.ts": "5845d2348f56f9dfb4b79f93953a134728b32efd64b32a656a6729f30c5b5706",
@@ -42,8 +43,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/map/live/webview/entry.ts": "2b5a304a2fc06ca8f00cc99e06ec8baa526f6733e3778323c9927e00145e8f73",
   "apps/mobile/features/console/map/live/webview/guest.ts": "fd2415a9e01ee27988e27f629de725b75b4c8451033f20120a8d348e36b38dd8",
   "apps/mobile/features/console/map/live/webview/protocol.ts": "428baea2302c909d3027e255450111b35efea85f1dd76cbe90e9d7f9dff49cbd",
-  "apps/mobile/features/design/tokens/colors.ts": "386b2ac8e7649fd1e0b6bcea0eeb0828783b3fdbc2d4baec89c8545d261d2e66",
-  "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50"
+  "apps/mobile/features/design/tokens/colors.ts": "386b2ac8e7649fd1e0b6bcea0eeb0828783b3fdbc2d4baec89c8545d261d2e66"
 };
 
 /** Every npm package that went into the bundle, at the version it was built from. */
