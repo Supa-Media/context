@@ -362,7 +362,7 @@ export type OperationResult =
     }
   | ({
       kind: "manifest";
-      source?: "tree" | "bucket";
+      source?: "tree" | "bucket" | "nodes";
       /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
       since?: number;
       /** The `privacy.md` version the walk was judged by, read before it started. */

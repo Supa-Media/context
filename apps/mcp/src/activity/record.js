@@ -42,7 +42,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
-  announceWebsiteChange(store, paths);
+  announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
 }
@@ -258,6 +258,33 @@ function touchesWebsite(path) {
   return normalized === WEBSITE_ROOT || normalized.startsWith(`${WEBSITE_ROOT}/`);
 }
 
+/** Changes that can take a note away from whoever could read it: a move, or a privacy change. */
+const NARROWING_ACTIONS = new Set([
+  "move_note",
+  "move_notes",
+  "move_folder",
+  "materialize_move",
+  "archive_note",
+  "set_visibility",
+  "set_folder_visibility",
+]);
+
+/** At most this many paths go in one website report, the control plane's own bound. */
+const MAX_WEBSITE_PATHS = 50;
+
+/**
+ * The paths of a change that may narrow a site from outside `website/`, or
+ * `[]`. A page can publish a folder it names with `folder:`, which this
+ * Worker cannot see, so it names the paths and the control plane asks its
+ * route index whether they reach the site. `privacy.md` written by any
+ * action decides every page.
+ */
+function websiteNarrowingPaths(action, paths) {
+  const named = paths.map((path) => String(path).replace(/^\/+|\/+$/g, "")).filter((path) => path !== "");
+  if (!NARROWING_ACTIONS.has(action) && !named.includes(PRIVACY_KEY)) return [];
+  return named.length > MAX_WEBSITE_PATHS ? [PRIVACY_KEY] : named;
+}
+
 /**
  * Tell the control plane its route index no longer describes the bucket.
  *
@@ -272,17 +299,20 @@ function touchesWebsite(path) {
  * moved *out* of the folder has to invalidate too. So this reads the raw paths
  * and asks one question of them.
  *
- * **Both ends, and only this folder.** The control plane rebuilds the whole
- * index when it hears this, and since that scan reads every published page,
+ * **Both ends, and only this folder** — or a move or privacy change
+ * anywhere, with its paths (`websiteNarrowingPaths`), which the control plane
+ * checks against the notes the site publishes. It rebuilds the whole index
+ * when it hears this, and since that scan reads every published page,
  * reporting an ordinary note write would be a full scan after every save.
  *
  * Deferred, best-effort and unable to fail the change, like its neighbours: a
  * missed report costs the freshness the quarter-hourly sweep restores.
  */
-function announceWebsiteChange(store, paths) {
-  if (typeof store.reportWebsiteChange !== "function") return;
-  if (!Array.isArray(paths) || !paths.some(touchesWebsite)) return;
-  const work = Promise.resolve(store.reportWebsiteChange()).catch(() => {});
+function announceWebsiteChange(store, action, paths) {
+  if (typeof store.reportWebsiteChange !== "function" || !Array.isArray(paths)) return;
+  const named = websiteNarrowingPaths(action, paths);
+  if (named.length === 0 && !paths.some(touchesWebsite)) return;
+  const work = Promise.resolve(store.reportWebsiteChange(named.length === 0 ? undefined : named)).catch(() => {});
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);

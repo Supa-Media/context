@@ -248,6 +248,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes
+- A scan while a folder move is queued reads the tree's names
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
 - [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)

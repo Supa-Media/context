@@ -167,6 +167,10 @@ folder at its new name at once, and the bucket catches up behind it.
   reads as it is; a write to an emptied old name is refused.
 - **Old names are reserved while a move is pending**, and forward for 30 days
   after, through the existing forwarding ledger.
+- **A website scan lists the tree while a move is pending**, and fails as
+  incomplete where it cannot; a move drawn, undone or finished that reaches
+  the site marks its index stale
+  ([websites](../websites.md#a-scan-while-a-folder-move-is-queued-reads-the-trees-names)).
 - **Staff can Retry and Undo** in admin › Search › Indexes, on the
   workspace's row under File tree (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
   backs off from 30 seconds to 15 minutes and retries for ever; it shows as
