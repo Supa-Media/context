@@ -369,6 +369,78 @@ export async function runSiteActionChecks(check) {
     const disabled = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "publish" } });
     check("a site that is off is refused with the control plane's reason", disabled.isError && disabled.text.includes("Turn the website on"));
 
+    // -- status links: the page to write in the app, and the settings to turn a site on
+    answer = {
+      ...STATUS,
+      settingsUrl: "https://context.lc/console/@studio?settings=website",
+      pages: STATUS.pages.map((page) => ({ ...page, editUrl: `https://context.lc/note/@studio/${page.path}` })),
+    };
+    const linked = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status" } });
+    check("status names each page's link in the app, for a person to write it, and not a layout's",
+      linked.text.includes("website/about.md https://context.lc/note/@studio/website/about.md") &&
+      !linked.text.includes("note/@studio/website/layout.html.md") &&
+      linked.text.includes("website settings (domain, turning it off): https://context.lc/console/@studio?settings=website"));
+    answer = { ...STATUS, enabled: false, draft: null, pages: [], removed: [], settingsUrl: "https://context.lc/console/@studio?settings=website" };
+    const offLinked = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status" } });
+    check("a site that is off says so with the link where its owner turns it on",
+      offLinked.text.includes("the website is off") && offLinked.text.includes("turn it on: https://context.lc/console/@studio?settings=website"));
+
+    // -- domain
+    const DOMAIN = {
+      action: "domain",
+      available: true,
+      paying: true,
+      owner: true,
+      settingsUrl: "https://context.lc/console/@studio?settings=website",
+      domain: {
+        id: "dom_1",
+        hostname: "studio-test.com",
+        apex: true,
+        status: "pending",
+        stage: "ownership",
+        ownershipVerified: false,
+        routingVerified: false,
+        httpsReady: false,
+        problem: null,
+        homeSlug: null,
+        checkedAt: null,
+        checkingSince: 0,
+        records: [
+          { purpose: "routing", type: "ALIAS", name: "studio-test.com", host: "@", value: "customers.context.lc", done: false },
+          { purpose: "ownership", type: "TXT", name: "_context.studio-test.com", host: "_context", value: "context-verification=abc", done: true },
+        ],
+        oneClick: { provider: "GoDaddy", url: "https://dcc.godaddy.example/apply" },
+        www: { hostname: "www.studio-test.com", live: false, stage: "ownership", problem: null },
+      },
+    };
+    answer = DOMAIN;
+    const connected = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "domain", hostname: " Studio-Test.com " } });
+    check("a domain call carries the hostname, trimmed, and nothing else the agent did not pass",
+      sent()?.action === "domain" && sent()?.hostname === "Studio-Test.com" && !("draft" in sent()) && !("path" in sent()));
+    check("...and lists each record to add with what is found and what is missing",
+      !connected.isError &&
+      connected.text.includes("domain: studio-test.com · waiting for the records to show up in DNS") &&
+      connected.text.includes("1 still missing") &&
+      connected.text.includes("- missing: type ALIAS, host @, value customers.context.lc") &&
+      connected.text.includes("- found: type TXT, host _context, value context-verification=abc"));
+    check("...says what an ALIAS is called elsewhere, and offers the one-click setup",
+      connected.text.includes("ANAME or CNAME flattening") &&
+      connected.text.includes("one-click setup at GoDaddy: https://dcc.godaddy.example/apply"));
+    const looked = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "domain" } });
+    check("a domain call without a hostname sends none", !looked.isError && !("hostname" in sent()));
+    answer = { ...DOMAIN, owner: false, domain: null, message: "Only the workspace's owner can connect a domain." };
+    const refusedDomain = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "domain", hostname: "studio-test.com" } });
+    check("a connect the control plane refused says why, as an error",
+      refusedDomain.isError && refusedDomain.text.includes("not done: Only the workspace's owner can connect a domain."));
+    answer = { ...DOMAIN, domain: { ...DOMAIN.domain, status: "active", stage: "live", records: DOMAIN.domain.records.map((r) => ({ ...r, done: true })), oneClick: null } };
+    const live = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "domain" } });
+    check("a live domain says so, with its address", live.text.includes("domain: studio-test.com · live") &&
+      live.text.includes("every DNS record is in place.") && live.text.includes("served at https://studio-test.com"));
+    const domainCalls = controlPlane.siteCalls.length;
+    const misplaced = await call(env, EDITOR_TOKEN, { path: "website/index.md", site: { action: "status", hostname: "studio-test.com" } });
+    check("a hostname on any other action is refused before anything is sent",
+      misplaced.isError && controlPlane.siteCalls.length === domainCalls);
+
     // -- refusals
     const callsBefore = controlPlane.siteCalls.length;
     const member = await call(env, MEMBER_TOKEN, { path: "website/index.md", site: { action: "publish" } });

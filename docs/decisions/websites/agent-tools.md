@@ -109,3 +109,39 @@ rollback": a copy of a page someone just made private or encrypted is the
 plaintext they asked to withdraw. `websiteHistory.test.ts`,
 `websiteNarrowing.test.ts` and `controlPlane/siteHistory.test.ts` fail if a
 held-back or encrypted page survives in any kept version or is handed back.
+
+## An owner's agent connects the domain; buying one stays in the person's own account
+
+_Asked for by the owner, 2026-10-13_: people should be able to text Tex for a
+website, down to "purchasing domains if they don't have one, and setting up
+dns if they already have one". Tex sets the site up and hands the person a
+link to write it (`status` now names each page's link in the app and the
+Website settings link, built by the control plane from `APP_ORIGIN`, as the
+console builds them), rather than writing the words for them.
+
+`site: { action: "domain", hostname? }` is the settings screen's custom
+domain, for an agent (`lib/websites/agentDomain.ts`). It answers with the view
+the screen draws (`domainViewFor`): the stage, the problem, the records to add
+(owner only), a one-click setup link when the provider offers one, and the
+`www.` companion. With a `hostname`, an owner connects it through the same
+`connectDomainAs` the Connect button runs, so the owner-only, Premium-only and
+one-domain rules and the `domain.connected` audit line cannot drift; asking
+again for the connected domain is "Check again". An editor's agent sees the
+domain without its records and cannot connect one. A domain is a second
+address for what the site already publishes, so this widens nothing and the
+egress gate does not hold it.
+
+**Buying a domain is not a gateway action.** It spends the person's money and
+cannot be undone, so Tex buys it with its browser in the person's own
+registrar account, only after they say yes to the exact domain and price
+(`ai/production/skills/website-domain.md`, golden task 7). The domain is
+registered to them, which is non-negotiable #1's exit for the address as well
+as the notes. A registrar API that buys on Context's account (Cloudflare's
+Registrar API) would need our billing profile, our registrant contact and a
+way to charge the person: that is a billing decision for the owner, not a
+default.
+
+The simplification to resist is letting an editor's agent connect a domain
+because it may publish: choosing an address is the owner's call, as minting a
+link is. `controlPlane/siteDomain.test.ts` fails if a member, a stranger or an
+editor connects one, or if the agent's records differ from the screen's.

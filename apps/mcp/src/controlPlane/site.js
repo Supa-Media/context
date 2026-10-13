@@ -7,7 +7,7 @@ import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 export function createSiteMethods({ post, required }) {
   return {
     /**
-     * `{ action: "status" | "check" | "publish" | "screenshot" | "history", draft?, inspect?, page?, revision? }` in; the control plane's
+     * `{ action: "status" | "check" | "publish" | "screenshot" | "history" | "domain", draft?, inspect?, page?, revision?, hostname? }` in; the control plane's
      * answer out, or `null` for every refusal — not an owner or editor, no
      * write scope, no such workspace — so nothing here can tell them apart.
      */
@@ -20,6 +20,7 @@ export function createSiteMethods({ post, required }) {
         ...(typeof request.inspect === "string" ? { path: request.inspect } : {}),
         ...(typeof request.page === "string" ? { path: request.page } : {}),
         ...(typeof request.revision === "number" ? { revision: request.revision } : {}),
+        ...(typeof request.hostname === "string" ? { hostname: request.hostname } : {}),
       }, { timeoutMs: CONTROL_PLANE_SITE_TIMEOUT_MS });
       const site = required(parsed, "site");
       if (site === null) return null;
