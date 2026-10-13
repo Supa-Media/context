@@ -32,7 +32,7 @@ import { keysUnder, isFolder } from "./walk";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
 import { mutateManifest, remapPrivacy } from "./privacyRewrite";
-import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
+import { remapFolderIcons, remapIcons } from "@context/shared/src/folderIcons.cjs";
 
 export interface MoveResult {
   from: string;
@@ -452,8 +452,10 @@ export async function movePath(
     folderMove,
     survivors: walk.withheld,
   });
-  // Its icon, and the icons of the folders inside it, go where it went.
+  // Its icon, and the icons of the folders and notes inside it, go where it
+  // went. A note's own icon is keyed by its path the same way (`folderIcons.cjs`).
   if (folderMove !== null) await remapFolderIcons(store, from, to);
+  else await remapIcons(store, pairs.map((pair) => ({ from: pair.source, to: pair.destination })));
 
   /*
     A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.

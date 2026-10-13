@@ -32,6 +32,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
+import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
@@ -268,6 +269,8 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     store,
     preflight.map((move) => ({ from: move.source, to: move.destination, kind: "note" }))
   );
+  // Each note's icon follows it, in one write (`folderIcons.cjs`); never fails the move.
+  await remapIcons(store, preflight.map((move) => ({ from: move.source, to: move.destination })));
   const references = await rewriteReferencesOrQueue(
     store,
     scope,

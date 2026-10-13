@@ -14,6 +14,8 @@ interface IconStore {
 
 export declare const FOLDER_ICONS_KEY: string;
 export declare const FOLDER_ICONS_VERSION: number;
+export declare const DEFAULT_FOLDER_ICONS: Readonly<Record<string, string>>;
+export declare function defaultFolderIcon(path: string): string | null;
 export declare function parseFolderIcons(text: string | null | undefined): FolderIcons;
 export declare function serializeFolderIcons(icons: FolderIcons): string;
 export declare function iconsAfterMove(icons: FolderIcons, from: string, to: string): FolderIcons | null;
@@ -24,4 +26,8 @@ export declare function updateFolderIcons(
   change: (icons: FolderIcons) => FolderIcons | null,
 ): Promise<FolderIcons | null>;
 export declare function remapFolderIcons(store: IconStore, from: string, to: string): Promise<FolderIcons | null>;
+export declare function remapIcons(
+  store: IconStore,
+  moves: ReadonlyArray<{ from: string; to: string }>,
+): Promise<FolderIcons | null>;
 export declare function dropFolderIcons(store: IconStore, path: string): Promise<FolderIcons | null>;

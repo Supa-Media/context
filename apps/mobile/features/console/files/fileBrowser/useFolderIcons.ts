@@ -16,11 +16,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { iconFor, iconMapOf, movedIcons, removedIcons, withIcon, type IconMap } from "../folderIcons";
+import { iconFor, iconMapOf, movedIcons, removedIcons, shownIcon, withIcon, type IconMap } from "../folderIcons";
 import type { FileBrowserOptions } from "./types";
 
 export interface FolderIconsValues {
-  /** The emoji a folder was given, or `null` for the plain folder icon. */
+  /**
+   * The emoji a folder or note was given, else a built-in folder's default,
+   * else `null` (the plain folder icon, or nothing beside a note).
+   */
   iconOf: (path: string) => string | null;
   /**
    * Give `path` an emoji, or remove its icon with `null`. Shows the new icon at
@@ -90,7 +93,7 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
 
   const removed = useCallback((path: string) => apply(removedIcons(current.current, path)), [apply]);
 
-  const iconOf = useCallback((path: string) => iconFor(icons, path), [icons]);
+  const iconOf = useCallback((path: string) => shownIcon(icons, path), [icons]);
 
   return { iconOf, setIcon, moved, removed };
 }
