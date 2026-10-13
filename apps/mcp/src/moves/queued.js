@@ -93,6 +93,37 @@ export function relocated(key, moves) {
   return logicalPath(key, moves) !== key;
 }
 
+/**
+ * Whether a read of `key` is a read of a name a move has carried away, which
+ * is no longer an address for the note.
+ *
+ * Every listing draws a pending move at once and judges each name by the
+ * rules at the name it draws. The bucket catches up behind that, so a move
+ * that narrows — a `team` folder moved somewhere private — would otherwise go
+ * on serving each note at its old key, judged by the old key's rules, for as
+ * long as the move takes, while every screen says it is done. The rules at
+ * the old name are kept deliberately (`lib/nodes/movePrivacy.ts`): an object
+ * still sitting there has to be readable by the worker carrying it.
+ *
+ * The console never had that window, because its barrier promotes the path a
+ * read opens before the read (`storeWithMoves`), so the old key is gone and
+ * the miss is forwarded, where `canSee` is asked again at the destination.
+ * This is the same answer without the copy, and it is the one the move engine
+ * before this gives for a path under a job's source (`notes/visibleKeys.js`).
+ *
+ * Plumbing is excluded, as it is from promotion: the tree never carries it.
+ */
+function isOldName(key, moves) {
+  return typeof key === "string" && key !== "" && !isPlumbing(key) && relocated(key, moves);
+}
+
+/**
+ * What each read answers for a name a move has carried away: not found, in
+ * that method's own shape. `delete` is not a read and is absent, so it still
+ * reaches the object where it is.
+ */
+const AWAY_ANSWER = { get: null, head: null, exists: false, existsMetadata: false };
+
 /** A conflict a move cannot settle by itself; the worker counts it and retries. */
 export class MoveObjectConflict extends Error {
   constructor(reason) {
@@ -240,7 +271,9 @@ export function withPendingMoves(store, moves, options = {}) {
   for (const method of ["get", "head", "exists", "existsMetadata", "delete"]) {
     if (typeof store[method] !== "function") continue;
     const original = store[method].bind(store);
+    const away = AWAY_ANSWER[method];
     wrapped[method] = async (key, ...rest) => {
+      if (away !== undefined && isOldName(key, pending)) return away;
       await promoteDestination(key);
       return await original(key, ...rest);
     };
