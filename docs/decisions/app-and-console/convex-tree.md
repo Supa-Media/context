@@ -164,8 +164,8 @@ folder at its new name at once, and the bucket catches up behind it.
   reads as it is; a write to an emptied old name is refused.
 - **Old names are reserved while a move is pending**, and forward for 30 days
   after, through the existing forwarding ledger.
-- **Staff can Retry and Undo** in admin › Search › Indexes, Moves
-  (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
+- **Staff can Retry and Undo** in admin › Search › Indexes, on the
+  workspace's row under File tree (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
   backs off from 30 seconds to 15 minutes and retries for ever; it shows as
   stuck after three. Undo turns the same row around, and is refused while a
   pass holds it or a later move depends on its names.
@@ -327,9 +327,14 @@ phase 4. Phase 1 still stores each row's full `path`, because the bucket is
 still where moves happen.
 
 **Staff can see it and stop it** (asked for by the owner, 2026-10-12). Admin ›
-Search › Indexes has a Convex copy column and card: each workspace's stage
-(not started, copying, copied, matches, differs, stuck, skipped), Pause /
-Resume, Start all and Check all (`functions/nodesMigration.ts`). The switch
+Search › Indexes has a File tree column and card: each workspace's stage
+(not started, copying, copied, matches, differs, stuck, skipped), Serve from
+bucket / Serve from the tree, and Check all (`functions/nodesMigration.ts`).
+Since 2026-10-13 (the owner approved the board) that column also carries the
+old Sidebar tree's D1 health, as "Lists, Boards and map details", and the
+folder moves still copying; Start all and Fill all went, because
+`keepCurrent` copies every due workspace every 15 minutes and a row's Repair
+covers the rest. The switch
 is one `nodeMigration` row. A pause is obeyed before anything is scheduled and
 again at the top of every scheduled pass, so a running sweep stops at its
 next pass, and a change made while paused marks the tree dirty for the resume
