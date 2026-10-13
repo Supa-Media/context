@@ -54,6 +54,8 @@ export interface FolderSummary {
   /** That title as the note has it, even a repeat: the heading the about note's words sit under. */
   readonly heading?: string | null;
   readonly properties: Readonly<Record<string, PropertyValue>>;
+  /** The `#tags` written in the note's text; `allTagsOf` adds them to its `tags:`. */
+  readonly inlineTags?: readonly string[];
   /** The front note's first paragraph, when the device has read one. */
   readonly lede: string | null;
   /** The newest save anywhere inside, or null when nothing has a time. */
@@ -166,6 +168,7 @@ export function summarizeFolder(folder: string, notes: readonly ListNote[]): Fol
     title: folderTitle(folder, titleOf(front)),
     heading: titleOf(front),
     properties: front?.properties ?? {},
+    ...(front?.inlineTags?.length ? { inlineTags: front.inlineTags } : {}),
     lede: front?.lede ?? null,
     updatedAt: newest,
   };
@@ -236,6 +239,7 @@ export function folderItems(
       creates: false,
       title,
       properties,
+      ...(note?.inlineTags?.length ? { inlineTags: note.inlineTags } : {}),
       lede: note?.lede ?? null,
       updatedAt: note?.updatedAt ?? entry.updatedAt ?? null,
       path: entry.path,

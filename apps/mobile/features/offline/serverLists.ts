@@ -1,4 +1,4 @@
-import { noteHeading, noteProperties } from "../../../mcp/src/lists.js";
+import { inlineTags, noteHeading, noteProperties } from "../../../mcp/src/lists.js";
 import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
 import { noteLede } from "../console/files/folderPage/lede";
 import { isNotePath } from "./mirror";
@@ -65,11 +65,17 @@ export async function tableListNotes(
     const answer = await io.folderNotes(folder, subfolders, cursor);
     if (!answer.available) return null;
     for (const row of answer.notes) {
-      const parsed = JSON.parse(row.props) as { properties?: Record<string, PropertyValue>; heading?: string | null; lede?: string | null };
+      const parsed = JSON.parse(row.props) as {
+        properties?: Record<string, PropertyValue>;
+        inlineTags?: string[];
+        heading?: string | null;
+        lede?: string | null;
+      };
       notes.push({
         path: row.path,
         ...(row.updatedAt === undefined ? {} : { updatedAt: row.updatedAt }),
         properties: parsed.properties ?? {},
+        ...(Array.isArray(parsed.inlineTags) && parsed.inlineTags.length > 0 ? { inlineTags: parsed.inlineTags } : {}),
         heading: parsed.heading ?? null,
         lede: parsed.lede ?? null,
       });
@@ -102,6 +108,7 @@ export function parseListNote(path: string, body: string, updatedAt?: number): L
     path,
     ...(updatedAt === undefined ? {} : { updatedAt }),
     properties: noteProperties(body) as Record<string, PropertyValue>,
+    inlineTags: inlineTags(body),
     heading: noteHeading(body) as string | null,
     lede: noteLede(body),
   };

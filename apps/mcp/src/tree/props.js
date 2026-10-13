@@ -38,6 +38,7 @@
  */
 
 import { noteHeading, noteProperties } from "../lists/properties.js";
+import { inlineTags } from "../lists/inlineTags.js";
 import { noteLede } from "../lists/lede.js";
 import { isEncryptedNote } from "../encryption/format.js";
 import { countLines } from "../chaos/rubric.js";
@@ -73,13 +74,15 @@ const IS_NOTE_SQL = "substr(t.path, -3) = '.md'";
  * paragraph, or `null` for an encrypted note.
  *
  * @param {string} text
- * @returns {{ properties: Record<string, unknown>, heading: string | null, lede: string | null, lines?: number } | null}
+ * @returns {{ properties: Record<string, unknown>, inlineTags: string[], heading: string | null, lede: string | null, lines?: number } | null}
  */
 export function propsOf(text) {
-  if (typeof text !== "string") return { properties: {}, heading: null, lede: null, lines: 0 };
+  if (typeof text !== "string") return { properties: {}, inlineTags: [], heading: null, lede: null, lines: 0 };
   if (isEncryptedNote(text)) return null;
   return {
     properties: { ...noteProperties(text) },
+    // The `#tags` in its text, kept beside the front matter (`lists/inlineTags.js`).
+    inlineTags: inlineTags(text),
     heading: noteHeading(text),
     lede: noteLede(text),
     // The chaos score's long-note rule (`chaos/rubric.js`).
@@ -112,8 +115,12 @@ export const PRUNE_PROP_STATEMENTS = Object.freeze([
  * A tree row with no version cannot say it changed, so any parse counts.
  */
 const STALE_SQL = "(p.path IS NULL OR (t.etag IS NOT NULL AND t.etag IS NOT p.version))";
-/** A row parsed before notes' lengths were kept, read once more for the chaos score. */
-const NO_LINES_SQL = "(p.encrypted = 0 AND json_extract(p.props, '$.lines') IS NULL)";
+/**
+ * A row parsed before a field it now carries was kept, read once more: notes'
+ * lengths for the chaos score, and their inline `#tags` (2026-10-13).
+ */
+const NO_LINES_SQL =
+  "(p.encrypted = 0 AND (json_extract(p.props, '$.lines') IS NULL OR json_extract(p.props, '$.inlineTags') IS NULL))";
 const UNPARSED_SQL = `FROM tree AS t LEFT JOIN tree_props AS p ON p.path = t.path
   WHERE ${IS_NOTE_SQL} AND (${STALE_SQL} OR ${NO_LINES_SQL})`;
 

@@ -28,6 +28,7 @@
  */
 
 import type { PropertyValue } from "../listBlock/model";
+import { mergeTags } from "../../../../../mcp/src/lists/inlineTags.js";
 
 export type Priority = 0 | 1 | 2 | 3;
 
@@ -79,9 +80,17 @@ export function ownersOf(properties: Properties): string[] {
   return words(properties.owner, false);
 }
 
-/** Free words, as a list or one comma-separated line; each once. */
+/**
+ * Free words, as a list or one comma-separated line; each once. Only the
+ * front matter's: this is what an edit of `tags:` starts from.
+ */
 export function tagsOf(properties: Properties): string[] {
   return words(properties.tags, true);
+}
+
+/** Every tag a note carries: its `tags:` and then the `#tags` written in its text. */
+export function allTagsOf(note: { readonly properties: Properties; readonly inlineTags?: readonly string[] }): string[] {
+  return mergeTags(tagsOf(note.properties), note.inlineTags ?? []) as string[];
 }
 
 export interface Due {
