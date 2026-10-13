@@ -201,4 +201,40 @@ describe("keeping every copy current", () => {
     expect((await t.mutation(internal.functions.nodesMigration.keepCurrent, {})).started).toBe(2);
     expect(await scheduledSweeps(t)).toBe(2);
   });
+
+  test("the cron starts the facts fill where a served tree's facts are behind, and only there", async () => {
+    const t = convexTest(schema, modules);
+    const serve = async (slug: string) => {
+      const workspaceId = await boundWorkspace(t, slug);
+      await t.mutation(internal.functions.nodes.observe, { workspaceId, at: 10, rows: [{ path: "a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+      await t.mutation(internal.functions.nodes.savePrivacy, {
+        workspaceId,
+        mirror: { etag: "p1", invalid: false, folders: [], notes: [] },
+        at: 10,
+      });
+      await t.mutation(internal.functions.nodes.begin, { workspaceId, at: Date.now() - 2 });
+      await t.mutation(internal.functions.nodes.finish, { workspaceId, at: Date.now() - 1, files: 1 });
+      await t.mutation(internal.functions.nodes.saveParity, {
+        workspaceId,
+        parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
+      });
+      return workspaceId;
+    };
+    const never = await serve("never-filled");
+    const current = await serve("caught-up");
+    const held = await serve("held");
+    await boundWorkspace(t, "not-served");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeFactState", { workspaceId: current, ready: true, seq: Number.MAX_SAFE_INTEGER });
+      await ctx.db.insert("nodeFactState", { workspaceId: held, ready: false, seq: 0, leaseAt: Date.now() });
+    });
+    await t.mutation(internal.functions.nodesMigration.keepCurrent, {});
+    const fills = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter((job) => (job.args[0] as { operation?: { kind?: string } })?.operation?.kind === "nodesFactFill")
+        .map((job) => (job.args[0] as { workspaceId: Id<"workspaces"> }).workspaceId),
+    );
+    expect(fills).toEqual([never]);
+  });
 });
+

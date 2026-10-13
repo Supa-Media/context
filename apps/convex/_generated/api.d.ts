@@ -107,6 +107,8 @@ import type * as functions_nodesGateway from "../functions/nodesGateway.js";
 import type * as functions_nodesListing from "../functions/nodesListing.js";
 import type * as functions_nodesMigration from "../functions/nodesMigration.js";
 import type * as functions_nodesFeed from "../functions/nodesFeed.js";
+import type * as functions_nodeChaos from "../functions/nodeChaos.js";
+import type * as functions_nodeFacts from "../functions/nodeFacts.js";
 import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
@@ -255,6 +257,8 @@ declare const fullApi: ApiFromModules<{
   "functions/nodesListing": typeof functions_nodesListing;
   "functions/nodesMigration": typeof functions_nodesMigration;
   "functions/nodesFeed": typeof functions_nodesFeed;
+  "functions/nodeChaos": typeof functions_nodeChaos;
+  "functions/nodeFacts": typeof functions_nodeFacts;
   "functions/nodeMoves": typeof functions_nodeMoves;
   "functions/nodeMovesAdmin": typeof functions_nodeMovesAdmin;
   "functions/nodesPurge": typeof functions_nodesPurge;

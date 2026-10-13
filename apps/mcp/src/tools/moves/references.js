@@ -14,6 +14,7 @@ import { MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 import { linkCandidates } from "../../tree/links.js";
+import { factCandidates } from "../../tree/facts.js";
 import { servedListingStore } from "../../tree/served.js";
 import { treeClientOf } from "../../tree/record.js";
 
@@ -307,13 +308,20 @@ export async function rewriteReferencesOrQueue(store, scope, rules, overrides, r
 }
 
 /**
- * The notes that can hold a link to what moved, from the tree's link table,
- * as `rewriteReferences` options; `null` where this context has no table or
- * it cannot be trusted yet, and the rewrite walks every note as before.
+ * The notes that can hold a link to what moved, as `rewriteReferences`
+ * options: from the Convex tree's facts where it serves (`tree/facts.js`),
+ * else the search database's link table; `null` where neither can be trusted
+ * yet, and the rewrite walks every note as before.
  */
 export async function referenceCandidates(store, renames) {
+  if (renames.size === 0) return null;
+  const fromFacts = await factCandidates(store, renames);
+  if (fromFacts !== null) {
+    const inventory = await treeNoteInventory(store, renames);
+    if (inventory !== null) return { inventoryKeys: inventory, candidates: fromFacts };
+  }
   const client = treeClientOf(store);
-  if (client === null || renames.size === 0) return null;
+  if (client === null) return null;
   const found = await linkCandidates(client, renames);
   if (found === null) return null;
   // Which notes exist comes from the Convex tree where it serves; the link

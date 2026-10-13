@@ -9,6 +9,8 @@
  *    big to re-check asks for a sweep instead.
  *  - `nodesParity`: compare the rows with the bucket at every clearance
  *    (`parity.ts`) and keep the answer on the workspace's `nodeTrees` row.
+ *  - `nodesFactFill`: read the notes that changed and record their links and
+ *    front matter (`factFill.ts`).
  *
  * Phase 1 of `docs/decisions/app-and-console/convex-tree.md` is a shadow: the
  * scheduling helpers here swallow every error, because a shadow must never
@@ -24,12 +26,18 @@ import { checkParity } from "./parity";
 import { type NodeListingStore, sweepNodesPass } from "./sweep";
 import { touchNodes } from "./touch";
 import { followPlacesAfter } from "./followPlaces";
+import { runFactFill, scheduleFactFill } from "./factFill";
 import { type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
-export type NodesOperation = Extract<FileOperation, { kind: "nodesSweep" | "nodesTouch" | "nodesParity" }>;
+export type NodesOperation = Extract<FileOperation, { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesFactFill" }>;
 
 export function isNodesOperation(operation: { kind: string }): operation is NodesOperation {
-  return operation.kind === "nodesSweep" || operation.kind === "nodesTouch" || operation.kind === "nodesParity";
+  return (
+    operation.kind === "nodesSweep" ||
+    operation.kind === "nodesTouch" ||
+    operation.kind === "nodesParity" ||
+    operation.kind === "nodesFactFill"
+  );
 }
 
 /** Live rows one `listLive` page reads. */
@@ -134,6 +142,8 @@ export async function runNodesOperation(
     return { kind: "nodesKept", complete: false };
   }
 
+  if (operation.kind === "nodesFactFill") return await runFactFill(ctx, workspaceId, store, Math.floor(operation.passes ?? 0));
+
   if (operation.kind === "nodesSweep") {
     const passes = Math.floor(operation.passes ?? 0);
     let pass: Awaited<ReturnType<typeof sweepNodesPass>>;
@@ -144,6 +154,8 @@ export async function runNodesOperation(
       await sink.fail("Tree sweep failed; inspect service logs").catch(() => {});
       return { kind: "nodesKept", complete: false };
     }
+    // A finished sweep goes on to what the notes say.
+    if (pass.complete) await scheduleFactFill(ctx, workspaceId);
     if (!pass.complete && !pass.unsupported && pass.rows + pass.pages > 0 && passes + 1 < NODE_SWEEP_CHAIN) {
       await ctx.scheduler
         .runAfter(0, internal.functions.files.runFileOperation, {
@@ -160,6 +172,9 @@ export async function runNodesOperation(
     try {
       const { dirty } = await touchNodes(listing, sink, { paths: operation.paths, files: operation.files });
       if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
+      // What the changed notes now say, their links and front matter, read
+      // with the bucket this re-check already opened.
+      else await runFactFill(ctx, workspaceId, store, 0).catch(() => {});
       // An agent's moves: pins and recents follow them, as they follow the app's.
       await followPlacesAfter(ctx, workspaceId, store, operation.moves ?? []);
       return { kind: "nodesKept", complete: !dirty };
@@ -255,6 +270,8 @@ export async function touchNodesNow(
     }
     const { dirty } = await touchNodes(listingOf(workspaceId, store), sink, change);
     if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
+    // What the changed notes now say is read after the change answers.
+    else await scheduleFactFill(ctx, workspaceId);
   } catch {
     // A shadow never fails a change. The next sweep repairs what this missed.
     console.error("nodes.touch_failed", { workspaceId });

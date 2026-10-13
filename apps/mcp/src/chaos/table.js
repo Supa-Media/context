@@ -268,6 +268,24 @@ async function recordDaily(client, totals, now) {
   await client.runAll(setStateStatements({ [CHAOS_STATE.daily]: JSON.stringify(trimmed) }));
 }
 
+/**
+ * Every recorded day as `{ day, all, team }`, oldest first, for the Convex
+ * facts to carry over the first time they keep the history
+ * (`apps/convex/functions/nodeChaos.ts`). Empty when none can be read.
+ */
+export async function chaosDays(client) {
+  try {
+    const [row] = await client.query("SELECT value FROM index_state WHERE key = ?1", [CHAOS_STATE.daily]);
+    const daily = row?.value ? JSON.parse(row.value) : {};
+    return Object.keys(daily)
+      .sort()
+      .filter((day) => Array.isArray(daily[day]) && Number.isFinite(daily[day][0]) && Number.isFinite(daily[day][1]))
+      .map((day) => ({ day, all: daily[day][0], team: daily[day][1] }));
+  } catch {
+    return [];
+  }
+}
+
 /** The score some days ago (the closest recorded day at or before then), or null. */
 export async function chaosOn(client, daysAgo, audience, now = Date.now()) {
   try {

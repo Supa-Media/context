@@ -21,8 +21,11 @@ breaking one, stop and say so rather than working around it.
    control plane holds metadata only — accounts, workspaces, bindings, grants,
    audit, and each workspace's file tree (file and folder names, versions) and
    privacy rules (decided by the owner, 2026-10-12;
-   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)) — and
-   **never** note content. Who holds the bucket's key is a billing
+   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)), plus, as
+   rebuildable derivatives on each note's row, its links and the front
+   matter, heading and first paragraph a List shows (decided by the owner,
+   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md))
+   — and **never** a note's body or the only copy of anything. Who holds the bucket's key is a billing
    question: on the free plan it is the customer's own bucket and revoking our
    credential leaves them a complete, usable context; on **managed storage** we
    create and pay for the bucket, and the equivalent guarantee is that

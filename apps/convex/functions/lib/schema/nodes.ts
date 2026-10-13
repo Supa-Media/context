@@ -48,8 +48,28 @@ export const nodeTables = {
     uploaded: v.optional(v.number()),
     observedAt: v.number(),
     goneAt: v.optional(v.number()),
+    /**
+     * What a note's text says about it, read by the facts fill
+     * (`lib/nodes/facts.ts`, decided by the owner, 2026-10-13): `props` is its
+     * front matter, first heading, first paragraph, inline tags and length as
+     * JSON (`propsOf` in `apps/mcp/src/tree/props.js`), what Lists, Boards and
+     * the chaos score read. `parsed` is the version it was read at: a row
+     * whose `etag` has moved on since is stale, and a reader reads that note
+     * again rather than trust it.
+     */
+    parsed: v.optional(v.string()),
+    props: v.optional(v.string()),
+    /** The note is sealed (`indexableText` cannot read it): it keeps no props and no links. */
+    sealed: v.optional(v.boolean()),
+    /**
+     * Set on the few notes the chaos score needs more than a key for (a note
+     * past the long-note line, or a contact page waiting on review), so the
+     * score reads them by index instead of every row's props.
+     */
+    chaosNote: v.optional(v.boolean()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"]),
 
@@ -188,6 +208,59 @@ export const nodeTables = {
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_next", ["nextAt"]),
+
+  /**
+   * Which note links to which (decided by the owner, 2026-10-13: the tree's
+   * link table moves from the workspace's search database into Convex). A
+   * note's links were read at its row's `parsed` version.
+   *
+   * One row per link a note's text holds, parsed by the same `linkRowsOf` a
+   * move's link rewrite runs (`apps/mcp/src/tree/links.js`): `source` is the
+   * note's bucket key, `kind` is `path` for a link that names a path (relative
+   * links resolved against the note's folder) or `name` for a bare
+   * `[[name]]`, resolved only when read. Names of notes, as the `nodes` rows
+   * are; **never note text**, and never who may see either end: the map and a
+   * move judge that with `canSee` when they read.
+   */
+  nodeLinks: defineTable({
+    workspaceId: v.id("workspaces"),
+    source: v.string(),
+    kind: v.union(v.literal("path"), v.literal("name")),
+    target: v.string(),
+  })
+    .index("by_workspace_source", ["workspaceId", "source"])
+    .index("by_workspace_target", ["workspaceId", "target", "kind"]),
+
+  /**
+   * How far the facts fill (links and front matter) has followed the tree. A
+   * first fill walks every note (`after` is the last key it reached,
+   * `startSeq` the change log's position when it began); after that, `seq` is
+   * the last change-log row whose note has been read. Positions, never text.
+   */
+  nodeFactState: defineTable({
+    workspaceId: v.id("workspaces"),
+    ready: v.boolean(),
+    seq: v.number(),
+    after: v.optional(v.string()),
+    startSeq: v.optional(v.number()),
+    /** A pass that ran this recently holds the fill. */
+    leaseAt: v.optional(v.number()),
+    /** Notes whose read failed, tried again by the next pass and counted as unparsed until then. */
+    retry: v.optional(v.array(v.string())),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The chaos score's closing number each day, for both audiences, so the
+   * app and `orient` can say what it was a week ago (moved from the search
+   * database's `chaos_daily` with the facts, 2026-10-13). Numbers only.
+   */
+  nodeChaosDays: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** `YYYY-MM-DD`, UTC. */
+    day: v.string(),
+    all: v.number(),
+    team: v.number(),
+  }).index("by_workspace_day", ["workspaceId", "day"]),
 
   /**
    * The migration's one switch, a single row (absent means running). Staff

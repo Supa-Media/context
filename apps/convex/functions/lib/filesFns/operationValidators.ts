@@ -288,6 +288,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("treeState") }),
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
   v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("nodesFactFill"), passes: v.optional(v.number()) }),
   v.object({
     kind: v.literal("nodesTouch"),
     paths: v.array(v.string()),

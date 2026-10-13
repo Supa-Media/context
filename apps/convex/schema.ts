@@ -44,7 +44,9 @@ import { nodeTables } from "./functions/lib/schema/nodes";
  *
  * METADATA ONLY — which, since the owner's decision of 2026-10-12, includes
  * each workspace's file tree (names, versions) and privacy rules
- * (`lib/schema/nodes.ts`). Note content lives exclusively in the customer's own bucket
+ * (`lib/schema/nodes.ts`), and since 2026-10-13 each note's links and the
+ * front matter, heading and first paragraph a List shows, as derivatives
+ * rebuilt from the bucket (`lib/nodes/facts.ts`). Note bodies live exclusively in the customer's own bucket
  * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,

@@ -40,5 +40,33 @@ export function createTreeMethods({ post }) {
       }
       return { served: true, entries: parsed.entries, cursor: parsed.cursor };
     },
+
+    /**
+     * The tree's facts for this grant (`/gateway/tree/facts`): a move's link
+     * candidates (`{ ask: "links", sources, names }`) or the chaos score's
+     * extras and history (`{ ask: "chaos", today? }`). `{ served: false }`
+     * where the tree does not serve it, and for every refusal.
+     *
+     * @param {string} accessToken
+     * @param {string} expectedWorkspaceId
+     * @param {{ask: "links", sources: string[], names: string[]} | {ask: "chaos", today?: {all: number, team: number}}} request
+     */
+    async readTreeFacts(accessToken, expectedWorkspaceId, request) {
+      const parsed = await post(
+        "/gateway/tree/facts",
+        {
+          ask: request?.ask,
+          ...(Array.isArray(request?.sources) ? { sources: request.sources } : {}),
+          ...(Array.isArray(request?.names) ? { names: request.names } : {}),
+          ...(request?.today ? { today: request.today } : {}),
+          // Last, so nothing in the request can stand in for the person's token.
+          accessToken,
+          expectedWorkspaceId,
+        },
+        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS }
+      );
+      if (!parsed || parsed.served !== true) return { served: false };
+      return parsed;
+    },
   };
 }
