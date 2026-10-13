@@ -22,7 +22,7 @@ import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
 import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
-import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { keepTreeTable, treeEditsOf, treeTouchOf } from "../tree/record.js";
 import { rememberChaos } from "../chaos/report.js";
 import { keepHistoryActivityLater } from "../history/record.js";
 
@@ -133,8 +133,9 @@ function treeAudiencesOf(paths, known, rules, overrides) {
 function announceTreeChange(store, action, paths, details) {
   // The tree table first, so a console told to look again reads the change.
   const touch = treeTouchOf(action, paths, details);
+  const edited = treeEditsOf(action, paths, details);
   const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
-  if (touch === null && !reports) return;
+  if (touch === null && edited.length === 0 && !reports) return;
   // Started now, so the tool's answer can report the chaos score (`chaos/report.js`).
   const kept = keepTreeTable(store, touch).catch(() => null);
   rememberChaos(store, kept);
@@ -152,6 +153,9 @@ function announceTreeChange(store, action, paths, details) {
         // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
         ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
       });
+    } else if (edited.length > 0 && typeof store.reportTreeTouch === "function") {
+      // A save of a note's text: its new version, gathered with others (`treeEditsOf`).
+      await store.reportTreeTouch({ paths: [], files: [], edited });
     }
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);

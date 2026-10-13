@@ -79,6 +79,14 @@ export const nodeTables = {
     files: v.number(),
     /** A fixed, path-free label for a failing pass (never a raw storage error). */
     error: v.optional(v.string()),
+    /**
+     * Notes whose text alone changed (a save in the editor), gathered for a
+     * few seconds and then re-checked together (`nodes.queueEdits`), so a
+     * typing pause is not a bucket listing each.
+     */
+    edits: v.optional(v.array(v.string())),
+    /** When the gathered `edits` are due to be re-checked; set while a flush is scheduled. */
+    editsDueAt: v.optional(v.number()),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
       v.object({

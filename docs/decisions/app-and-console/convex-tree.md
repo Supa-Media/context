@@ -335,6 +335,37 @@ again at the top of every scheduled pass, so a running sweep stops at its
 next pass, and a change made while paused marks the tree dirty for the resume
 to catch up.
 
+**How the tree stays equal to the bucket, and how we know** (2026-10-13).
+Four things write the rows, and one thing decides whether they may be served.
+
+- **A change made through us is re-checked by name.** The console's changes
+  before they answer (`touchNodesNow`); the gateway's on `/gateway/tree/touch`
+  a second or so after (`treeTouchOf`); email asks for a sweep. A save of a
+  note's text alone (`update_note`, encrypt, decrypt) is sent as `edited`,
+  gathered on the tree's row for three seconds and re-checked together
+  (`nodes.queueEdits`, `flushEdits`), so a burst of typing pauses is one
+  listing a note. Until 2026-10-13 nothing sent those saves: a row kept the
+  version from its last sweep for up to an hour, so the desktop and phone
+  apps, which follow the change log, never heard of a web edit until then.
+- **A change made past us** (Obsidian, S3 tools) is found by the sweep: the
+  cron starts one wherever a tree is due (dirty, failed, or an hour old), so
+  such a change can take up to about 75 minutes to show.
+- **Serving is earned, and keeps being earned.** `treeServes` needs the last
+  parity check to have matched. A finished sweep checks again when the tree
+  was never checked, when its last check differed, or when its last proof is
+  a day old (`nodeParityDue`). A check that finds differences asks once more
+  thirty seconds later before it records them, because a write landing
+  between its walk of the bucket and its walk of the tree reads as one; a
+  difference that stays is recorded, stops the tree serving (the bucket
+  answers, exactly as before), and marks the tree dirty, so the cron sweeps it
+  and the sweep's check can restore it. Until 2026-10-13 only a tree's first
+  check ran: a tree proved once served for ever, and one that a single write
+  in flight made differ never served again until staff pressed Check.
+- **Where it shows.** Admin › Search › Indexes, the Convex copy card: each
+  workspace's stage (matches, differs, stuck, copying), mismatches and when it
+  was last checked. Nobody else sees a difference: the reader that asked
+  simply reads the bucket.
+
 **What a "simplification" would cost.**
 
 - Storing visibility on each row makes Convex a second privacy engine that
@@ -376,6 +407,12 @@ What fails if reversed:
   map draws a moving folder's links at its new name.
 - `apps/mobile/__tests__/followMoves.test.ts`: the open note follows a move
   made elsewhere, and never this tab's own.
+- `apps/convex/__tests__/gatewayTreeTouch.test.ts` and
+  `apps/mcp/test/treeTouchReporting.test.mjs`: a save of a note's text reaches
+  the tree, gathered; `nodes/convexNodes.test.ts` and
+  `nodesOperationRouting.test.ts`: a finished sweep re-checks a stale or
+  differing proof, and a difference is confirmed before it stops the tree
+  serving.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.
