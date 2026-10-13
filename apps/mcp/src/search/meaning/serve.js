@@ -29,6 +29,7 @@ import { createMeaningClient } from "./client.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+import { logicalPath, pendingMovesOf } from "../../moves/queued.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -245,5 +246,51 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return await withMeaning(store, found, matches, shape);
+  return atTreeNames(await withMeaning(store, found, matches, shape), store?.pendingMoves, {
+    isVisible: options.isVisible,
+    prefix: options.prefix,
+    keyField: shape.keyField,
+  });
+}
+
+/**
+ * An answer at the names the tree draws while queued folder moves are still
+ * copying (phase 4 of `docs/decisions/app-and-console/convex-tree.md`).
+ *
+ * Both indexes hold notes at their bucket keys, and a queued move leaves those
+ * keys where they are until its copy lands. So each hit is folded through the
+ * session's pending moves (`logicalPath`, the same fold every listing draws
+ * with) and judged again by the caller's own `isVisible` at its new name: a
+ * folder moved somewhere narrower takes its notes out of a team member's
+ * answer at once, rather than when the copy finishes. A hit moving out of a
+ * folder search's prefix leaves it, and a note found at both names (an index
+ * that has seen the copy land and one that has not) is listed once. The count
+ * drops by what was dropped, never below what is shown.
+ */
+export function atTreeNames(found, moves, { isVisible, prefix = "", keyField = "key" } = {}) {
+  const pending = pendingMovesOf(moves);
+  if (pending.length === 0 || !Array.isArray(found?.hits)) return found;
+  const hits = [];
+  const evidence = {};
+  const shown = new Set();
+  for (const hit of found.hits) {
+    const key = hit[keyField];
+    const named = typeof key === "string" ? logicalPath(key, pending) : key;
+    if (named !== key) {
+      if (typeof isVisible === "function" && !isVisible(named)) continue;
+      if (prefix && !named.startsWith(prefix)) continue;
+    }
+    if (shown.has(named)) continue;
+    shown.add(named);
+    hits.push(named === key ? hit : { ...hit, [keyField]: named });
+    if (found.evidence && key in found.evidence) evidence[named] = found.evidence[key];
+  }
+  const dropped = found.hits.length - hits.length;
+  if (dropped === 0 && hits.every((hit, index) => hit === found.hits[index])) return found;
+  return {
+    ...found,
+    hits,
+    ...(found.evidence ? { evidence } : {}),
+    ...(typeof found.matchCount === "number" ? { matchCount: Math.max(hits.length, found.matchCount - dropped) } : {}),
+  };
 }
