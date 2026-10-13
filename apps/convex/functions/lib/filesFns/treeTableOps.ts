@@ -44,7 +44,7 @@ import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionCli
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { isServedStore, servedMoves, servedNodesStore } from "../nodes/manifestStore";
+import { isServedStore, servedNodesStore } from "../nodes/manifestStore";
 import { attachLinkTable, convexLinkTable, d1LinkTable } from "../nodes/linkTable";
 import { scheduleFactFill } from "../nodes/factFill";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
@@ -327,21 +327,22 @@ export async function runTreeOperation(
 ): Promise<OperationResult> {
   const operation = args.operation;
   if (operation.kind === "folderNotes") {
-    // Which notes are in the folder: the Convex tree where it serves and no
-    // move is pending (a note then reads at its old key), else the search
-    // database. Their front matter: the rows' own once the facts have read
-    // every note, else the search database's.
+    // Which notes are in the folder: the Convex tree where it serves, at the
+    // names it draws while a move is pending, else the search database.
+    // Their front matter: the rows' own once the facts have read every note,
+    // else the search database's, either looked up where each note still
+    // sits (`folderNotesFromNodes`). The D1 table never answers for a served
+    // tree: its rows are at bucket keys, judged by the old names' rules.
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-    const listable = served !== null && servedMoves(served).length === 0 ? served : null;
-    if (listable !== null && (await factsReady(ctx, args.workspaceId))) {
-      const answer = await folderNotesFromNodes(listable, factPropSource(ctx, args.workspaceId), operation, clearance);
+    if (served !== null && (await factsReady(ctx, args.workspaceId))) {
+      const answer = await folderNotesFromNodes(served, factPropSource(ctx, args.workspaceId), operation, clearance);
       if (answer.available) return answer;
     }
     if (client === null) return noTreeTable(operation);
     const answer =
-      listable !== null
-        ? await folderNotesFromNodes(listable, tablePropSource(client), operation, clearance)
+      served !== null
+        ? await folderNotesFromNodes(served, tablePropSource(client), operation, clearance)
         : await folderNotesFromTable(store, client, operation, clearance);
     if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
     return answer;
