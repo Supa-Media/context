@@ -49,6 +49,7 @@ import { isNodesOperation, runNodesOperation } from "../nodes/run";
 import { servedReadAnswer } from "../nodes/servedReads";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
+import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
@@ -455,6 +456,7 @@ export async function runFileOperationHandler(
   attachQueueMove(ctx, args, listing.store, bucket);
   attachTreeListing(ctx, args.workspaceId, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
+  if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),

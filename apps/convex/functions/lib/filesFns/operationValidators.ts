@@ -295,7 +295,7 @@ export const operationValidator = v.union(
     /** An agent's moves, old name to new, so pins and recents follow (`placesFollow.ts`). */
     moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
   }),
-  v.object({ kind: v.literal("nodesParity") }),
+  v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("nodesMoveWork") }),
   v.object({

@@ -47,6 +47,7 @@ import {
 } from "./lib/scaffold";
 import { scaffoldStep } from "./lib/scaffold/step";
 import { countNotes } from "./lib/noteCount";
+import { servedNoteCount } from "./lib/nodes/servedCount";
 import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
   type ProbeResult,
@@ -566,22 +567,9 @@ export const recountNotes = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    let credential: GatewayCredential | null;
-    try {
-      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
-        workspaceId: args.workspaceId,
-      });
-    } catch {
-      return null;
-    }
-    if (credential === null) return null;
-    let store: ScaffoldStore;
-    try {
-      store = storeForBinding(credential) as unknown as ScaffoldStore;
-    } catch {
-      return null;
-    }
-    const counted = await countNotes(store);
+    // Where the Convex tree serves this workspace, its rows are the count and
+    // the bucket is never opened (`lib/nodes/servedCount.ts`).
+    const counted = (await servedNoteCount(ctx, args.workspaceId)) ?? (await countBucketNotes(ctx, args.workspaceId));
     if (counted === null) return null;
     try {
       await ctx.runMutation(internal.functions.storage.recordNoteCount, {
@@ -595,6 +583,24 @@ export const recountNotes = internalAction({
     return null;
   },
 });
+
+/** The bucket's own count, for a workspace the tree does not serve yet. */
+async function countBucketNotes(ctx: ActionCtx, workspaceId: Id<"workspaces">) {
+  let credential: GatewayCredential | null;
+  try {
+    credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId });
+  } catch {
+    return null;
+  }
+  if (credential === null) return null;
+  let store: ScaffoldStore;
+  try {
+    store = storeForBinding(credential) as unknown as ScaffoldStore;
+  } catch {
+    return null;
+  }
+  return await countNotes(store);
+}
 
 /**
  * Persist the outcome and hand it back.

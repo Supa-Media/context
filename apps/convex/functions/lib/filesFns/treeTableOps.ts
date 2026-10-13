@@ -237,14 +237,19 @@ export async function manifestSource(
     if (args.operation.cursor === undefined) await startSweepIfDue(ctx, args).catch(() => {});
     return { store, source: "bucket" };
   }
-  // The Convex tree, where it serves: the rows the live listings read.
+  // The Convex tree, where it serves: the rows the live listings read. The
+  // first page says where a catch-up from the tree's change log starts
+  // (`nodesFeed.ts`), read before the rows: a move or a rules change landing
+  // in between leaves the copy judged by the older version, which walks again,
+  // rather than claiming a version the rows were not read under.
+  const start = args.operation.cursor === undefined
+    ? await ctx
+      .runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() })
+      .catch(() => null)
+    : null;
   const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
   if (served !== null) {
     if (args.operation.cursor !== undefined) return { store: served, source: "nodes" };
-    // The first page says where a catch-up from the tree's change log starts (`nodesFeed.ts`).
-    const start = await ctx
-      .runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() })
-      .catch(() => null);
     return { store: served, source: "nodes", ...(start === null ? {} : start) };
   }
   try {

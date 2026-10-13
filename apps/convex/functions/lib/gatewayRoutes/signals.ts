@@ -425,6 +425,8 @@ function touchMoves(value: unknown): { from: string; to: string }[] | null {
 /**
  * The gateway's write re-checked in the Convex tree (`lib/nodes/touch.ts`):
  * the paths and files a change named, or `dirty` where it named too many.
+ * `edited` names notes whose text alone changed, gathered before their
+ * re-check (`nodes.queueEdits`).
  *
  * Names only, never text. A malformed body is a 400: its shape says nothing
  * about which contexts exist. A well-formed id that names no context is
@@ -441,7 +443,10 @@ export async function gatewayTreeTouchHandler(
   const paths = touchNames(body.paths);
   const files = touchNames(body.files);
   const moves = touchMoves(body.moves);
-  if (workspaceId === null || paths === null || files === null || moves === null) return json({ error: "malformed_touch" }, 400);
+  const edited = touchNames(body.edited);
+  if (workspaceId === null || paths === null || files === null || moves === null || edited === null) {
+    return json({ error: "malformed_touch" }, 400);
+  }
   if (body.dirty !== undefined && typeof body.dirty !== "boolean") return json({ error: "malformed_touch" }, 400);
   const dirty = body.dirty === true;
   try {
@@ -451,6 +456,13 @@ export async function gatewayTreeTouchHandler(
     if (!known) return answered();
     if (dirty) {
       await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: workspaceId as Id<"workspaces"> });
+    }
+    // Notes whose text alone changed: gathered for a few seconds, then re-checked together.
+    if (!dirty && edited.length > 0) {
+      await ctx.runMutation(internal.functions.nodes.queueEdits, {
+        workspaceId: workspaceId as Id<"workspaces">,
+        files: edited,
+      });
     }
     // Moves ride a touch even when the names went to a sweep: pins and recents follow them.
     if ((!dirty && paths.length + files.length > 0) || moves.length > 0) {

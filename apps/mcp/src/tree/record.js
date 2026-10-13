@@ -46,6 +46,17 @@ const WRITES = new Set([
  */
 const PRIVACY_WRITERS = new Set(["set_visibility", "set_folder_visibility"]);
 
+/**
+ * Saves that change only a note's text, so its version and size, and nothing
+ * of the tree's shape. The D1 table hears of them through the search
+ * projection (`writeProjection.js`); the Convex tree hears of them as
+ * `edited` (`treeEditsOf`), which the control plane gathers for a few seconds
+ * before re-checking. Without it the Convex rows kept the version from the
+ * last sweep (up to an hour), so the desktop and phone apps, which follow its
+ * change log, never heard of an edit made on the web until then.
+ */
+const TEXT_SAVES = new Set(["update_note", "encrypt_note", "decrypt_note"]);
+
 /** Moves of one note, whose source's visibility before the move the tool records. */
 const ONE_NOTE_MOVES = new Set(["move_note", "archive_note"]);
 
@@ -88,6 +99,17 @@ export function treeTouchOf(action, paths, details) {
   }
   if (WRITES.has(action)) return { files: named };
   return null;
+}
+
+/**
+ * The notes a text-only save changed, for the Convex tree's gathered re-check,
+ * or none. A save that `treeTouchOf` already re-checks (front matter changed)
+ * is not named twice.
+ */
+export function treeEditsOf(action, paths, details) {
+  if (!TEXT_SAVES.has(action) || !Array.isArray(paths)) return [];
+  if (treeTouchOf(action, paths, details) !== null) return [];
+  return paths.filter((path) => typeof path === "string" && path !== "");
 }
 
 /** This context's database, or null where fast search has none. */
