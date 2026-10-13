@@ -5,8 +5,10 @@
  * every five minutes.
  *
  *  - `head` is a live query each device subscribes to. Its answer moves when
- *    a change this reader may hear of lands, or the rules change, and that is
- *    the device's cue to catch up. A change they may not hear of moves
+ *    a change this reader may hear of lands, the rules change, or a queued
+ *    folder move starts, finishes or is undone, and that is the device's cue
+ *    to catch up. A move is answered with a walk (`movesMark`), because it
+ *    renames everything under it without a log row. A change they may not hear of moves
  *    nothing.
  *  - `changes` is the catch-up itself: what changed after a `seq`, judged for
  *    the reader (`lib/nodes/log.ts`). `treeChanges.ts` asks it before the D1
@@ -25,6 +27,7 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { treeChangesValidator } from "./lib/filesFns/validators";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { MOVES_PER_WORKSPACE } from "./lib/nodes/moveOverlay";
 import {
   NODE_HEAD_SCAN,
   NODE_LOG_PAGE,
@@ -32,12 +35,29 @@ import {
   judgeRows,
   logReachesBack,
   mirrorRules,
+  movesMark,
   newestTold,
   seqAt,
   settleFolders,
   NODE_LOG_OVERLAP_MS,
+  underPendingMove,
   type CurrentFile,
+  type FeedMove,
 } from "./lib/nodes/log";
+
+/**
+ * The queued folder moves every listing draws already (`moving`; a
+ * `preparing` row is drawn nowhere yet), as the feed reads them.
+ */
+async function feedMoves(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<FeedMove[]> {
+  const rows = await ctx.db
+    .query("moveQueue")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(MOVES_PER_WORKSPACE * 2);
+  return rows
+    .filter((row) => row.state === "moving")
+    .map((row) => ({ id: row._id, from: row.from, to: row.to, ...(row.undone === true ? { undone: true } : {}) }));
+}
 
 async function nodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
   return await ctx.db
@@ -59,14 +79,16 @@ export const head = query({
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const mirror = await readMirror(ctx.db, workspaceId);
-    const privacy = feedToken(mirror);
+    const moves = await feedMoves(ctx, workspaceId);
+    const privacy = feedToken(mirror, movesMark(moves));
     if (privacy === null) return null;
     const newest = await ctx.db
       .query("nodeLog")
       .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
       .order("desc")
       .take(NODE_HEAD_SCAN);
-    const told = newestTold(newest, clearanceOf(scope, grantedNames), await mirrorRules(mirror));
+    const skip = (path: string) => underPendingMove(path, moves);
+    const told = newestTold(newest, clearanceOf(scope, grantedNames), await mirrorRules(mirror), skip);
     return { token: `${privacy}|${told ?? ""}` };
   },
 });
@@ -82,7 +104,8 @@ export const walkStart = internalQuery({
   returns: v.union(v.null(), v.object({ since: v.number(), privacy: v.string() })),
   handler: async (ctx, { workspaceId, now }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const privacy = feedToken(await readMirror(ctx.db, workspaceId));
+    const moves = movesMark(await feedMoves(ctx, workspaceId));
+    const privacy = feedToken(await readMirror(ctx.db, workspaceId), moves);
     if (privacy === null) return null;
     return { since: seqAt(now - NODE_LOG_OVERLAP_MS), privacy };
   },
@@ -112,7 +135,8 @@ export const changes = internalQuery({
     });
     if (!(await treeServesNow(ctx.db, args.workspaceId))) return null;
     const mirror = await readMirror(ctx.db, args.workspaceId);
-    const privacy = feedToken(mirror);
+    const moves = await feedMoves(ctx, args.workspaceId);
+    const privacy = feedToken(mirror, movesMark(moves));
     const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
     const full: TreeChangesResult = {
       kind: "treeChanges",
@@ -135,8 +159,9 @@ export const changes = internalQuery({
       .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", args.workspaceId).gt("seq", args.since))
       .take(limit);
     const current = new Map<string, CurrentFile | null>();
+    const skip = (path: string) => underPendingMove(path, moves);
     for (const row of rows) {
-      if (row.gone || current.has(row.path)) continue;
+      if (row.gone || current.has(row.path) || skip(row.path)) continue;
       const node = await nodeAt(ctx, args.workspaceId, row.path);
       current.set(
         row.path,
@@ -155,6 +180,7 @@ export const changes = internalQuery({
       since: args.since,
       now: args.now,
       reachedHead: rows.length < limit,
+      skip,
     });
     if (page.since === null) return full;
     const live = new Set<string>();
