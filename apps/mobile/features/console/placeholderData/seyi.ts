@@ -209,6 +209,9 @@ export const SEYI_TREE: DemoContextTree = {
          enforce iframe sandboxing at all;
        - a plain ```` ```html ```` fence below it, which must stay a code block.
          Opting in is the whole convention.
+       - a ```` ```mermaid ```` fence at the end, which
+         `e2e/webkit/mermaid.spec.ts` asserts is drawn as a diagram by the
+         sandboxed frame.
 
       The `<script>` is inert everywhere this file is read: it is inside a
       fenced code block in a string in a TypeScript module, and the only thing
@@ -250,6 +253,14 @@ export const SEYI_TREE: DemoContextTree = {
       "",
       "```html",
       "<div>quoted, never drawn</div>",
+      "```",
+      "",
+      "And the same path as a chart:",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      '  A["AI client"] --> G["Gateway"]',
+      '  G --> B["Your bucket"]',
       "```",
       "",
     ].join("\n"),

@@ -35,17 +35,19 @@ export async function settledBox(target: Locator): Promise<{ x: number; y: numbe
 }
 
 /**
- * Back to Home the way a person on a phone gets there: the top-left ‹ until
- * there is no page above to go back to. The path row this used to tap is gone
- * (2026-10-01), and each press goes up one folder, as Apple Notes' does.
+ * Back to Home the way a person on a phone gets there: the top-left ‹, then
+ * Home, the first row of the levels it opens (2026-10-13). A page at the top of
+ * the workspace has no menu, and ‹ goes Home at once.
  */
 export async function goHome(page: Page): Promise<void> {
   const back = page.getByTestId("phone-back");
-  for (let i = 0; i < 6 && (await back.count()) > 0; i += 1) {
+  if ((await back.count()) > 0) {
     const box = await back.boundingBox();
-    if (box === null) break;
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(350);
+    if (box !== null) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    // Either Home is already on screen, or the menu is, with Home first.
+    const home = page.getByTestId("phone-back-level-home");
+    await home.or(page.getByTestId("phone-home")).first().waitFor();
+    if (await home.isVisible()) await home.tap();
   }
   await page.getByTestId("phone-home").waitFor();
 }

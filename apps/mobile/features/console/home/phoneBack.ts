@@ -17,7 +17,7 @@ import { scopeLabel } from "../layout/SearchScope";
  * after a search or a link is a place nobody remembers being; up is always the
  * same answer for the same page.
  *
- * `null` on Home itself, where the slot is the workspace's own button.
+ * Nothing on Home itself, where the slot is the workspace's own button.
  */
 export interface PhoneBackTarget {
   /** The folder to open, or `null` for Home. */
@@ -28,13 +28,30 @@ export interface PhoneBackTarget {
 
 export const HOME_LABEL = "Home";
 
-export function phoneBackTarget(selectedPath: string | null, mapOpen = false): PhoneBackTarget | null {
-  // The map is a place on Home, so its way back is Home whatever is selected under it.
-  if (mapOpen) return { folder: null, label: HOME_LABEL };
-  if (selectedPath === null || selectedPath === "") return null;
-  const parent = parentPath(selectedPath);
-  if (parent === "") return { folder: null, label: HOME_LABEL };
-  return { folder: parent, label: scopeLabel(parent) };
+/**
+ * Every place ‹ can take you, Home first and the page's own folder last.
+ *
+ * The owner's pick for the note's top bar (2026-10-13): pressing ‹ opens a
+ * short menu of the levels above the page — *"I like the idea of clicking back
+ * and then the menu opening"* — instead of a capsule that spelled out one
+ * folder's name. Home is always the first row, which is how the bar gets its
+ * Home button without a second one.
+ *
+ * `[]` on Home. A page at the top of the workspace has one level, Home, and the
+ * button goes straight there: a menu with one row is a press that asks you to
+ * press again.
+ */
+export function phoneBackLevels(selectedPath: string | null, mapOpen = false): PhoneBackTarget[] {
+  const home: PhoneBackTarget = { folder: null, label: HOME_LABEL };
+  if (mapOpen) return [home];
+  if (selectedPath === null || selectedPath === "") return [];
+  const levels = [home];
+  const segments = parentPath(selectedPath).split("/").filter(Boolean);
+  segments.forEach((_, index) => {
+    const folder = segments.slice(0, index + 1).join("/");
+    levels.push({ folder, label: scopeLabel(folder) });
+  });
+  return levels;
 }
 
 /**

@@ -7,6 +7,7 @@
 
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
+import { useNoteIntent } from "./noteIntent";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -70,7 +71,7 @@ export function FolderRow({
    * only a folder has a chevron. Only in the card.
    */
   phone?: PhoneRowMeta;
-  /** The emoji this folder was given, drawn in place of the folder icon in a card and of the chevron outside one. `null` for the plain one. */
+  /** The emoji this folder or note was given (or a built-in folder's default), drawn in place of its glyph in a card and of the chevron outside one. `null` for the plain one. */
   folderIcon?: string | null;
 }) {
   const colors = useColors();
@@ -120,6 +121,7 @@ export function FolderRow({
     onDragEnd: drag?.onDragEnd ?? noopVoid,
   });
   const isDropTarget = drag !== undefined && drag.target === row.path;
+  const intent = useNoteIntent();
   return (
     <View
       ref={interactions.ref as never}
@@ -128,6 +130,7 @@ export function FolderRow({
     >
     <PressRow
       onPress={() => onSelect(row.path)}
+      onIntent={intent !== undefined && row.kind === "file" && picked === undefined ? () => intent(row.path) : undefined}
       style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
@@ -175,14 +178,19 @@ export function FolderRow({
           // A phone's List: the status dot takes the glyph's slot (board 13).
           <RowExtraLead extra={extra} />
         ) : card ? (
-          row.kind === "folder" && folderIcon !== null ? (
+          folderIcon !== null ? (
             // Sized to the glyph it replaces, so the name beside it does not move.
+            // A note's emoji (2026-10-13) replaces its file glyph the same way.
             <EmojiGlyph
               emoji={folderIcon}
               size={home === null ? 16 : 20}
               textStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone}
               fallback={
-                <Icon name="folder" size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} />
+                <Icon
+                  name={row.kind === "folder" ? "folder" : "file"}
+                  size={home === null ? 16 : 20}
+                  color={home === null ? colors.muted : colors.text2}
+                />
               }
               testID="folder-row-emoji"
             />
@@ -212,6 +220,15 @@ export function FolderRow({
           ) : (
             <Icon name="chevronRight" size={15} color={colors.muted} />
           )
+        ) : folderIcon !== null ? (
+          // A note somebody gave an emoji shows it in the same gutter (2026-10-13).
+          <EmojiGlyph
+            emoji={folderIcon}
+            size={15}
+            textStyle={styles.cardEmojiPointer}
+            fallback={<View />}
+            testID="folder-row-emoji"
+          />
         ) : null}
       </View>
       {extra === undefined || card ? null : <RowExtraLead extra={extra} />}

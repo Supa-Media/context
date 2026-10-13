@@ -30,6 +30,7 @@ import {
 import { bytesFromBase64 } from "../../imageBytes";
 import { hostExtras, type ExtrasSink, type HostExtras } from "./extras";
 import { webUrl } from "../../webUrl";
+import { isTagBody } from "../../../../../../mcp/src/lists/inlineTags.js";
 
 export { bytesFromBase64 };
 
@@ -63,12 +64,14 @@ export interface HostSink extends ExtrasSink {
    * `"background"` is a ⌘-click or middle-click and must not move the person:
    * the note opens in a tab behind the one they are reading.
    */
-  onOpenNote?: (path: string, mode: "foreground" | "background") => void;
+  onOpenNote?: (path: string, mode: "foreground" | "background", anchor?: string) => void;
   /**
    * A web link was tapped, and the host has already checked it is `https:`,
    * `http:` or `mailto:`. See the `open-url` case.
    */
   onOpenUrl?: (url: string) => void;
+  /** A drawn `#tag` was tapped. See the `open-tag` case. */
+  onOpenTag?: (tag: string) => void;
   /** The link key was pressed over these words. See the `link-request` case. */
   onLinkRequest?: (text: string) => void;
   /**
@@ -467,7 +470,9 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           following links out of.
         */
         case "open-link":
-          sink.onOpenNote?.(message.path, message.mode);
+          // The anchor only ever finds a place in the note it opens; anything
+          // but a string is dropped rather than trusted.
+          sink.onOpenNote?.(message.path, message.mode, typeof message.anchor === "string" ? message.anchor : undefined);
           return;
         /*
           A web link, and the one message here that leaves the app.
@@ -487,6 +492,16 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         case "open-url":
           if (typeof message.url !== "string" || webUrl(message.url) !== message.url) return;
           sink.onOpenUrl?.(message.url);
+          return;
+        /*
+          Only something that reads as a tag is passed on: all it does is show
+          the notes carrying it, but a guest is the side that would be
+          compromised, and a "tag" that is not one has no business reaching
+          a search.
+        */
+        case "open-tag":
+          if (typeof message.tag !== "string" || message.tag.length > 200 || !isTagBody(message.tag)) return;
+          sink.onOpenTag?.(message.tag);
           return;
         /*
           Gated on `editable` like `save`: it opens a sheet whose only outcome

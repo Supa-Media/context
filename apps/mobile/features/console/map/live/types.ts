@@ -81,14 +81,12 @@ export type MapEvent =
 export type ActorRef = { id: string; kind: "person" | "agent"; name: string };
 
 /**
- * The middle of the all-workspaces view: you, how many people are in each
+ * The middle of the all-workspaces view: how many people are in each
  * workspace (with a few of their faces), and your own AI tools with the
  * workspaces each one is connected to. Only the viewer's own tools: a
  * workspace's other members' tools are theirs to show (`listGrants`).
  */
 export type MapHub = {
-  /** The viewer's name, for their face. */
-  you: string;
   /** By workspace id. A workspace missing here is labelled by its note count instead. */
   workspaces: Record<string, { people: number; faces: string[] }>;
   agents: Array<{ id: string; name: string; workspaceIds: string[] }>;

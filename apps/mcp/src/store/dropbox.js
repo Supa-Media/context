@@ -510,11 +510,17 @@ export class DropboxStore {
           limit: limit || undefined,
         });
 
-    // A folder that does not exist yet lists as empty rather than throwing:
-    // this is the first thing a freshly connected, untouched context does.
+    // Object-store prefixes have no children when they name a file. The file
+    // operation engine probes `${path}/` to distinguish files from folders;
+    // Dropbox's list_folder instead returns path/not_folder for that probe.
+    // Only an initial listing can answer not_folder this way: that error for
+    // a cursor remains a failed listing, never proof that a prefix is empty.
     if (!response.ok) {
       const tag = await errorTagPath(response);
-      if (response.status === 409 && tag.split("/").includes("not_found")) {
+      if (response.status === 409 && (
+        tag.split("/").includes("not_found") ||
+        (!cursor && tag === "path/not_folder")
+      )) {
         return { objects: [], delimitedPrefixes: [], truncated: false };
       }
       return this._fail(response.status, "list", tag);

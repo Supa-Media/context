@@ -77,9 +77,12 @@ describe("classifyCommsPath", () => {
     expect(classifyCommsPath("0-inbox/email/name-at-example-com/2025/01/2026-09-07.md")).toBeNull();
   });
 
-  test("a contact page", () => {
+  // A contact page is an ordinary note in the editor, with a header over it
+  // (`contactPages.ts`) — flat or in its letter folder, never a view of its own.
+  test("a contact page is a note, not a comms route", () => {
     const slug = contactSlug("Adam Okonkwo");
-    expect(classifyCommsPath(contactNotePath(slug))).toEqual({ kind: "contact", slug });
+    expect(classifyCommsPath(contactNotePath(slug))).toBeNull();
+    expect(classifyCommsPath(`${CONTACTS_FOLDER}/a/${slug}.md`)).toBeNull();
   });
 
   test("an ordinary note is not a comms route", () => {

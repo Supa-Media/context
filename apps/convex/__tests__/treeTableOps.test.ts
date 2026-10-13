@@ -11,6 +11,7 @@
 
 import { createRequire } from "node:module";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import type { Id } from "../_generated/dataModel";
 import type { FileStore } from "../functions/lib/fileOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
@@ -51,10 +52,16 @@ const ops = await import("../functions/lib/filesFns/treeTableOps");
 const WS = "w1" as Id<"workspaces">;
 
 function fakeCtx(options: { target: boolean }) {
+  // The tree's own operations, and the Convex tree's (`lib/nodes/run.ts`), which
+  // every change schedules whether or not this context has a database.
   const scheduled: { operation: { kind: string } }[] = [];
+  const nodes: { operation: { kind: string } }[] = [];
   const marked: { audiences: string[]; rows: string[] }[] = [];
   const ctx = {
-    runQuery: vi.fn(async () => (options.target ? { databaseId: "db-1", state: "ready" } : null)),
+    // The Convex tree never serves here (`nodes.served`): these cases are the table's.
+    runQuery: vi.fn(async (ref: unknown) =>
+      getFunctionName(ref as never) === "functions/nodes:served" ? null : options.target ? { databaseId: "db-1", state: "ready" } : null,
+    ),
     runAction: vi.fn(async () => "configured"),
     runMutation: vi.fn(async (_ref: unknown, args: { audiences: string[] }) => {
       const rows = (await database.query("SELECT path FROM tree ORDER BY path").catch(() => [])).map(
@@ -65,12 +72,12 @@ function fakeCtx(options: { target: boolean }) {
     }),
     scheduler: {
       runAfter: vi.fn(async (_delay: number, _ref: unknown, args: { operation: { kind: string } }) => {
-        scheduled.push(args);
+        (args.operation.kind.startsWith("nodes") ? nodes : scheduled).push(args);
         return "job";
       }),
     },
   };
-  return { ctx: ctx as never, scheduled, marked, scheduler: ctx.scheduler };
+  return { ctx: ctx as never, scheduled, nodes, marked, scheduler: ctx.scheduler };
 }
 
 function bucket(): MemoryStore & FileStore {
@@ -148,6 +155,22 @@ describe("which store a sidebar walk reads", () => {
     const listed = await answer.store.list({ prefix: "" });
     expect(listed.objects.map((object) => object.key)).toEqual(["1-projects/a.md", "2-areas/b.md"]);
   });
+
+  test("where the Convex tree serves, its rows are walked, not the table or the bucket", async () => {
+    const { ctx } = fakeCtx({ target: true });
+    (ctx as unknown as { runQuery: ReturnType<typeof vi.fn> }).runQuery.mockImplementation(async (ref: unknown) => {
+      const name = getFunctionName(ref as never);
+      if (name === "functions/nodes:served") return { mirror: null };
+      if (name === "functions/nodes:listLive") return { rows: [{ path: "only/in-convex.md" }], cursor: null };
+      // No folder move pending: the walk pages the rows as they are (`foldedPages` otherwise).
+      if (name === "functions/nodeMoves:active") return [];
+      throw new Error(`unexpected ${name}`);
+    });
+    const answer = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", source: "tree" } }, bucket());
+    expect(answer.source).toBe("nodes");
+    const listed = await answer.store.list({ prefix: "" });
+    expect(listed.objects.map((object) => object.key)).toEqual(["only/in-convex.md"]);
+  });
 });
 
 describe("a console change", () => {
@@ -175,6 +198,13 @@ describe("a console change", () => {
     const without = fakeCtx({ target: false });
     await ops.keepTreeAndAnnounce(without.ctx, ARGS, { paths: ["a.md"], files: [], audiences: ["private"] });
     expect(without.scheduled).toEqual([]);
+    // The Convex tree is re-checked by name in both cases.
+    expect(withTable.nodes.map((args) => args.operation)).toEqual([
+      { kind: "nodesTouch", paths: ["a.md"], files: [] },
+    ]);
+    expect(without.nodes.map((args) => args.operation)).toEqual([
+      { kind: "nodesTouch", paths: ["a.md"], files: [] },
+    ]);
     expect(without.marked.map((mark) => mark.audiences)).toEqual([["private"]]);
   });
 

@@ -7,7 +7,8 @@
 
 import { canSee } from "../privacy/engine.js";
 import { treeClientOf } from "../tree/record.js";
-import { chaosSummary } from "./table.js";
+import { chaosOn, chaosReady, chaosSummary } from "./table.js";
+import { chaosExtras, liveSummary, scoreKeys } from "./live.js";
 import { chaosWord } from "./rubric.js";
 import { within } from "./report.js";
 
@@ -28,8 +29,11 @@ export async function chaosSection(store, scope, rules, overrides) {
   const client = treeClientOf(store);
   if (client === null) return null;
   const audience = scope === "private" ? "all" : "team";
+  const visible = (path) => canSee(path, scope, rules, overrides);
   const summary = await within(
-    chaosSummary(client, { audience, limit: 4, visible: (path) => canSee(path, scope, rules, overrides) }),
+    liveSection(store, client, audience, visible, rules, overrides).then(
+      (live) => live ?? chaosSummary(client, { audience, limit: 4, visible }),
+    ),
     2500,
   );
   if (!summary) return null;
@@ -49,4 +53,25 @@ export async function chaosSection(store, scope, rules, overrides) {
   }
   lines.push(CHAOS_RULES);
   return lines.join("\n\n");
+}
+
+/**
+ * The summary counted from the Convex tree's keys (`live.js`) where this call
+ * is served from it (`tree/served.js`), or null when it is not and the
+ * table's numbers answer. The keys are the grant's; the team numbers count
+ * only what the team may open, so an owner and a member are told what the
+ * table would tell them.
+ */
+export async function liveSection(store, client, audience, visible, rules, overrides) {
+  if (typeof store.treeKeys !== "function") return null;
+  try {
+    if (!(await chaosReady(client))) return null;
+    const [keys, extras] = await Promise.all([store.treeKeys(), chaosExtras(client)]);
+    if (keys === null) return null;
+    const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides));
+    const weekAgo = await chaosOn(client, 7, audience);
+    return liveSummary(folders, extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo });
+  } catch {
+    return null;
+  }
 }

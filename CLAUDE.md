@@ -19,7 +19,10 @@ breaking one, stop and say so rather than working around it.
 1. **The customer owns the content, and can always leave with it.** Canonical
    Markdown and attachments live in a bucket dedicated to one workspace; the
    control plane holds metadata only — accounts, workspaces, bindings, grants,
-   audit — and **never** note content. Who holds the bucket's key is a billing
+   audit, and each workspace's file tree (file and folder names, versions) and
+   privacy rules (decided by the owner, 2026-10-12;
+   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)) — and
+   **never** note content. Who holds the bucket's key is a billing
    question: on the free plan it is the customer's own bucket and revoking our
    credential leaves them a complete, usable context; on **managed storage** we
    create and pay for the bucket, and the equivalent guarantee is that
@@ -73,10 +76,14 @@ breaking one, stop and say so rather than working around it.
    completed save/export must include them. This is the explicit exception
    approved for automatic collaboration; see [collaboration](./docs/decisions/collaboration.md).
    Search indexes, caches and embeddings are **disposable derivatives**,
-   rebuildable from the files, never the only copy of anything. The on-bucket
-   layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
-   `.context/`, and user-selected folders — is a versioned stable format, not
-   an internal detail; changing it requires dual reads and an idempotent,
+   rebuildable from the files, never the only copy of anything. Once the
+   Convex tree migration reaches its phase 3, `privacy.md` is written from
+   rules held in the control plane and never read back as the authority; it
+   stays in the bucket, in the same format, so the exit keeps who-sees-what
+   (decided by the owner, 2026-10-12). The on-bucket layout — `index.md` and
+   `privacy.md` at root, Context-owned plumbing under `.context/`, and
+   user-selected folders — is a versioned stable format, not an internal
+   detail; changing it requires dual reads and an idempotent,
    verified migration with a rollback window.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
@@ -122,7 +129,8 @@ address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
 
 ```
 apps/convex/     control plane: accounts, workspaces, usernames, storage
-                 bindings, OAuth clients + grants, audit events
+                 bindings, OAuth clients + grants, audit events, the file
+                 tree (names only) and privacy rules
 apps/mobile/     Expo (iOS/Android/web): onboarding, dashboard, health
 apps/web/        landing page
 apps/agent/      Cloudflare Worker: the assistant people text (Linq iMessage

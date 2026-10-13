@@ -223,8 +223,8 @@ describe("the switch", () => {
     // The listing is called Notes: "Files" was a word for the storage, not for what is in it.
     expect(strip(one("folder-view-files").textContent)).toBe("Notes");
     await press(one("folder-view-board"));
-    // Every status in the folder's list is somewhere to drop, empty or not — Backlog as the rail — and notes are not cards.
-    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 0");
+    // Every status in the folder's list is somewhere to drop, empty or not — Backlog as its box — and notes are not cards.
+    expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 0");
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
       "To do, 0",
       "In progress, 0",
@@ -648,7 +648,7 @@ describe("opening a board before the device has the folder's notes", () => {
     expect(all("folder-card")).toHaveLength(0);
     await arrive();
     expect(all("folder-waiting")).toHaveLength(0);
-    expect(one("folder-board-rail").getAttribute("aria-label")).toBe("Backlog, 0");
+    expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 0");
     expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
       "To do, 0",
       "In progress, 0",

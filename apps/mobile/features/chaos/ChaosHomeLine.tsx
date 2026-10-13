@@ -3,7 +3,7 @@ import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
-import { ChaosFigure } from "./ChaosFigure";
+import { Tex } from "./Tex";
 import { chaosWord, scoreShown, shownScore, trendAgainst } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 
@@ -30,7 +30,7 @@ export function ChaosHomeLine() {
       style={({ pressed }) => [styles.homeLine, pressed ? styles.pressed : null]}
       testID="phone-home-chaos"
     >
-      <ChaosFigure chaos={result.score} size={36} />
+      <Tex chaos={result.score} size={36} />
       <View style={styles.rowText}>
         <Text variant="treeTouch" numberOfLines={1}>
           {`Chaos ${score} · ${word}`}

@@ -37,23 +37,14 @@ function mergeDays(a: Doc<"placeOpens">["days"], b: Doc<"placeOpens">["days"]) {
 const isAtOrUnder = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
 
 /**
- * Move the mover's own places from `from` to `to` in one workspace, after
- * they moved, renamed, archived or restored the entry through the app. A
- * place that lands on one they already have is merged into it: one pin,
+ * Move one person's places from `from` to `to` in one workspace, after a move.
+ * A place that lands on one they already have is merged into it: one pin,
  * summed opens.
  *
- * **Only the mover's, never another member's.** The mover could see both
- * ends of the move; another member may not see where it went — a note moved
- * into the owner's private folder — and rewriting their pin would hand them
- * that folder's path, which `privacy.md` keeps from them. A Convex query
- * cannot ask the bucket's `privacy.md` who may see a path, so the only safe
- * rewrite is the one whose reader already could. Other members' places stay
- * where they were: the phone intersects every place with the tree that
- * person can see, so a stale one simply stops showing, and comes back if the
- * move is undone.
- *
- * Moves made outside the app (an agent, a sync tool) do not come through
- * here, and are handled by that same intersection.
+ * `allow` says which new names this person may be shown; a place whose new
+ * name is not stays where it was, and stops showing because readers intersect
+ * every place with the tree that person can see. Who may see what is decided
+ * by the caller, `lib/placesFollow.ts`, under the rules after the move.
  */
 export async function retargetPlaces(
   ctx: MutationCtx,
@@ -61,11 +52,14 @@ export async function retargetPlaces(
   workspaceId: Id<"workspaces">,
   from: string,
   to: string,
+  /** Which new names this person may be shown; a row whose new name is not stays put. */
+  allow: (path: string) => boolean = () => true,
 ): Promise<void> {
   // A folder cannot move into itself, so this is never a real move; refusing
   // it here keeps the loops below from meeting the rows they just wrote.
   if (from === to || isAtOrUnder(to, from)) return;
   const rename = (path: string) => to + path.slice(from.length);
+  const follows = (path: string) => isAtOrUnder(path, from) && allow(rename(path));
 
   const pins = await ctx.db
     .query("placePins")
@@ -73,7 +67,7 @@ export async function retargetPlaces(
     .collect();
   const pinned = new Set(pins.map((row) => row.path));
   for (const row of pins) {
-    if (!isAtOrUnder(row.path, from)) continue;
+    if (!follows(row.path)) continue;
     const path = rename(row.path);
     if (pinned.has(path)) {
       await ctx.db.delete(row._id);
@@ -90,7 +84,7 @@ export async function retargetPlaces(
     .collect();
   const byPath = new Map(opens.map((row) => [row.path, row]));
   for (const row of opens) {
-    if (!isAtOrUnder(row.path, from)) continue;
+    if (!follows(row.path)) continue;
     const path = rename(row.path);
     const existing = byPath.get(path);
     byPath.delete(row.path);
@@ -111,7 +105,7 @@ export async function retargetPlaces(
     .collect();
   const recentAt = new Map(recents.map((row) => [row.path, row]));
   for (const row of recents) {
-    if (!isAtOrUnder(row.path, from)) continue;
+    if (!follows(row.path)) continue;
     const path = rename(row.path);
     const existing = recentAt.get(path);
     recentAt.delete(row.path);

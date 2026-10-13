@@ -21,7 +21,7 @@ export const WEBSITE_GUIDE = [
   "- A code note holds exactly one fenced block in the language its name says (```html, ```css); prose around the block is notes for people and agents, never published.",
   "- Layout fields: `{ content }`, `{ site.name }`, `{ page.title }`, `{ page.description }`, `{ page.intro }`, and loops `{ each item in site.nav }…{ item.link } { item.title } { item.current }…{ end }`, `{ each s in page.sections }…{ s.heading } { s.text } { s.link } { s.content }…{ end }` (one section per `##`).",
   "- HTML and CSS are cleaned before they are drawn: no scripts, event handlers, forms, iframes or SVG; pictures only from this workspace: attach them with write_note `images` in the same write, and `src=\"logo.png\"` or `url(logo.png)` is pointed at the stored copy; no remote `url()`.",
-  "- Published at `context.lc/@<handle>`, `<handle>.ctxlc.site`, and any domain the owner connected.",
+  "- Published at `context.lc/@<handle>`, `<handle>.ctxlc.site`, and the owner's domain (site `domain`).",
   "- **Scripts run sealed, or not at all.** Site scripts are not available yet, and when they are, each one runs sealed in its own box on the page: fine for a calculator, quiz or chart, never touching the rest of the page. Tell the person this when they ask for a site: no analytics or tracking snippets, chat bubbles, cookie banners or third-party scripts, nothing that changes the whole page. Do sticky headers, scroll effects, menus and dark mode in CSS instead.",
 ].join("\n");
 

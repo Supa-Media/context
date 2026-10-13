@@ -5,6 +5,7 @@ import { canGoBack, canGoForward, type HistoryState } from "../files/history";
 import { closeIntent, isTabDirty } from "../files/tabs";
 import type { useTabs } from "../files/useTabs";
 import type { ConsoleData } from "../types";
+import { useFollowedAnchor } from "../followedAnchor";
 
 /**
  * The console's `nav` — the verbs the panes below `<Slot/>` reach through
@@ -33,15 +34,17 @@ export function useConsoleCommands({
    * are needed inside `BrowsePane`, which is a separate route. See
    * `ConsoleNavContext`.
    */
+  const { follow, followed } = useFollowedAnchor(tabs.follow, data.files);
   const nav = useMemo<ConsoleNav>(
     () => ({
-      follow: tabs.follow,
+      follow,
+      followed,
       back: () => step(-1),
       forward: () => step(1),
       canBack: canGoBack(history),
       canForward: canGoForward(history),
     }),
-    [tabs.follow, step, history],
+    [follow, followed, step, history],
   );
 
   /**

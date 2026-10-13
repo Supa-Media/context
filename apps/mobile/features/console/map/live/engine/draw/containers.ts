@@ -1,6 +1,7 @@
 import type { Rect } from "../labels";
 import { folderLabelAlpha, islandLabelAlpha, subLabelAlpha } from "../lod";
 import { clamp } from "../math";
+import { folderIconRadius } from "./base";
 import type { DrawEnv } from "./env";
 import { drawFace, FACE_R, fillText, fontOf, haloText, roundRect } from "./primitives";
 
@@ -97,15 +98,17 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
       const q = env.screen(f);
       const fr = f.r * s;
       if (!env.onScreen(q, fr)) continue;
-      const a = f.label ? folderLabelAlpha(fr) : 0;
+      // An icon's name shows as soon as its neighbours' do, and sits clear of the icon.
+      const ir = f.collapsed ? folderIconRadius(s) : 0;
+      const a = f.label ? folderLabelAlpha(f.collapsed ? Math.max(fr, ir * 2) : fr) : 0;
       if (a > 0) {
-        const size = clamp(fr / 9, 10, 13);
+        const size = f.collapsed ? 10 : clamp(fr / 9, 10, 13);
         cands.push({
           x: q.x,
           y: q.y,
-          rr: fr,
-          top: env.screen({ x: f.x, y: f.top }).y - 9,
-          bottom: env.screen({ x: f.x, y: f.bottom }).y + size + 8,
+          rr: f.collapsed ? ir : fr,
+          top: f.collapsed ? q.y - ir - 9 : env.screen({ x: f.x, y: f.top }).y - 9,
+          bottom: f.collapsed ? q.y + ir + size + 9 : env.screen({ x: f.x, y: f.bottom }).y + size + 8,
           size,
           weight: 700,
           text: f.label.toUpperCase(),
@@ -116,7 +119,7 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
         });
       }
       for (const sub of f.subs) {
-        if (sub.name === "") continue;
+        if (sub.name === "" || f.collapsed) continue;
         const sq = env.screen(sub);
         const sr = sub.r * s;
         const sa = subLabelAlpha(sr);

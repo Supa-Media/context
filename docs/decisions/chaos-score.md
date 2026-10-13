@@ -28,13 +28,35 @@ The rules, all the owner's:
   nobody wrote them long.
 - Archive is never scored. The inbox is: a full inbox should raise the score,
   as the reminder to sort it.
+- Folders named A to Z are a run, like chapters: three or more single-letter
+  subfolders, with a catch-all (`other`, `#`, `0-9`) beside them, count as one
+  item (2026-10-12).
+- Contacts are scored on hygiene, never on count (2026-10-12). The owner wants
+  contacts to be the app's to keep, an A to Z index it files every page into,
+  that "should never get to the point where it's chaotic" however many people
+  write. Counting items would make everyone who receives mail chaotic through
+  no choice of theirs, so in `0-inbox/contacts` each page carries its own
+  chaos instead (`apps/mcp/src/chaos/contacts.js`):
+  - filed under a letter: 0;
+  - filed under `other/`, the app's place for a page with no name: 50;
+  - loose in contacts, or in any folder that is not a letter (the legacy
+    `imessage/` import): 100, unsorted;
+  - frontmatter `review:` holding a question, such as a possible duplicate the
+    merge swarm left for the owner: 100, until it is answered.
+  The folders are never thin and weigh nothing themselves. What the score
+  asks for is what a person or an agent can actually fix: sort, name, review.
+  The owner chose this over leaving contacts unscored, which measured nothing.
 - The workspace score weighs each folder by what it holds: 20% of the notes in
   a calm folder and 80% in a chaotic one is 80% chaos.
 - Lower is better, and it is called the chaos score. The owner chose both "for
   now, and we'll see how users react", so renaming it or flipping it to a
   "calm score" is their call, not a copy edit.
 
-Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule.
+Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule; the A to Z and
+contacts rules are "folders named A to Z are one run" and "contacts are scored
+on hygiene, not on how many there are". "a contact page's review: question
+reaches the score" in `chaosTable.test.mjs` proves the flag travels from
+frontmatter through the tree database.
 
 ## It reports; it never tidies
 
@@ -43,8 +65,31 @@ on 2026-10-10 as not useful. Keeping a workspace organized is the person's job,
 or an agent's they asked. So nothing acts on the score by itself: `orient`
 shows it and the biggest wins, every write and move answer shows the score
 before and after, the app shows the number and the figure, and none of them
-suggest a change or carry a "tidy now" button. A "simplification" that brings
-automatic tidying back is the feature the owner just removed.
+carry a "tidy now" button. A "simplification" that brings automatic tidying
+back is the feature the owner just removed.
+
+One surface gives advice, because the owner asked for it (2026-10-13): a
+crowded or thin folder's page has Tex beside its title, and pressing Tex has
+it say how that folder could be calmer, in words from this rubric ("find two
+to five themes", "move these notes up into the folder above"). Words only:
+nothing it says comes with a button that moves a note, and it speaks only
+when pressed. The tree's foot is Tex alone, its score in its label and in
+the panel it opens (the owner's pick of board 04, "Showing the chaos
+score").
+
+## The figure is Tex, drawn once
+
+Every chaos score in the app (web, desktop and phone) and the homepage's
+mascot draw the same component, `apps/mobile/features/chaos/Tex.tsx`, from
+`figureGeometry.ts`: the brand-blue scribble that untangles into the app
+icon's #, with googly eyes at every score, calm included (Dev2, 2026-10-12:
+the app had drifted to a thinner black variant with dots at 0, and the
+character "is not consistent"). A per-surface variant is that drift again;
+`chaosFigure.test.ts` pins the brush and the eyes. On a folder's page Tex
+moves: stressed, one hand on its head, hauling a strand of its own yarn in
+two pulls and a rest (`figureParts`' `tug`, timed by `useTug`; still under
+reduced motion). That is the same drawing in motion, not a variant: without
+`tug` it is the figure every other surface draws.
 
 ## Every write answers with the change
 

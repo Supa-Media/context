@@ -11,6 +11,7 @@ import { leaveDroppedDomains } from "./lib/domainMembership";
 import { parseInvitee } from "./lib/invitees";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
+import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -154,6 +155,7 @@ export const prepareCode = internalMutation({
     v.literal("too_many"),
   ),
   handler: async (ctx, { userId, email, hashedCode }) => {
+    await requireProofToAddEmail(ctx, userId);
     const standing = await standingOf(ctx, userId, email);
     if (standing.kind === "mine") return "already_yours";
     if (standing.kind === "blocked" && (await moveTarget(ctx, userId, standing)) === null) return "has_own_workspace";
@@ -295,6 +297,7 @@ export const consumeCode = internalMutation({
       return "wrong";
     }
     await ctx.db.delete(row._id);
+    await requireProofToAddEmail(ctx, userId);
 
     const standing = await standingOf(ctx, userId, email);
     if (standing.kind === "mine") return "added";
@@ -348,6 +351,18 @@ export const confirmAddEmail = action({
 });
 
 
+/**
+ * Adding an address is a big change once the account has one: the new
+ * address could then confirm every other big change (`lib/emailProof.ts`).
+ * The very first address, the one an account made by a phone is asked for,
+ * has nothing to confirm with, so it is not asked; a person who has lost
+ * every address uses the seven-day wait instead (`emailRecovery.ts`).
+ */
+async function requireProofToAddEmail(ctx: QueryCtx, userId: Id<"users">): Promise<void> {
+  if ((await confirmedEmailsOf(ctx, userId)).length === 0) return;
+  await requireEmailProof(ctx, userId);
+}
+
 // ── Changing ───────────────────────────────────────────────────────────────
 
 /** Stop signing in with an extra address. The mail address cannot be removed. */
@@ -356,6 +371,7 @@ export const removeEmail = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
+    await requireEmailProof(ctx, userId);
     const email = args.email.trim().toLowerCase();
     const row = await ctx.db
       .query("signInEmails")
@@ -378,6 +394,7 @@ export const setMailEmail = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = requireSignedIn((await getAuthUserId(ctx)) as Id<"users"> | null);
+    await requireEmailProof(ctx, userId);
     const email = args.email.trim().toLowerCase();
     const row = await ctx.db
       .query("signInEmails")

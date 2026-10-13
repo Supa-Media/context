@@ -15,6 +15,7 @@ import { GFM } from "@lezer/markdown";
 import { tags } from "@lezer/highlight";
 import { castGrammar } from "./castGrammar";
 import { highlightGrammar } from "./highlightGrammar";
+import { tagGrammar } from "./tagGrammar";
 
 /**
  * The Markdown dialect this editor parses.
@@ -35,13 +36,14 @@ import { highlightGrammar } from "./highlightGrammar";
  * ```` ```cast ```` fence is a line of text rather than a code block that runs
  * to the end of the note — see `castGrammar.ts`. `highlightGrammar`: Obsidian's
  * `==highlight==`, which GFM does not have — see `highlightGrammar.ts`.
+ * `tagGrammar`: a `#tag` written in the text — see `tagGrammar.ts`.
  *
  * Exported so `__tests__/livePreview.test.ts` builds its states with the same
  * configuration the editor ships. A test that parsed a different dialect from
  * the product would be asserting against a grammar nobody uses.
  */
 export function markdownLanguage() {
-  return markdown({ extensions: [GFM, castGrammar, highlightGrammar], codeLanguages: FENCE_LANGUAGES });
+  return markdown({ extensions: [GFM, castGrammar, highlightGrammar, tagGrammar], codeLanguages: FENCE_LANGUAGES });
 }
 
 /**

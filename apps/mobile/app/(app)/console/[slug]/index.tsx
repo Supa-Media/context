@@ -6,7 +6,6 @@ import {
   anchorFromQuery,
   contextIdForSlug,
   noteFromQuery,
-  noteHref,
 } from "../../../../features/console/nav";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -217,18 +216,6 @@ export default function ContextBrowseRoute() {
         onConnectAgent={connectAgent}
         pendingNote={note}
         anchor={anchor}
-        /*
-          A contact's activity link names a path *and* an anchor, which
-          `files.select` has no way to carry — so this is a real navigation
-          rather than a selection, the same URL a pasted link or a search
-          result would use. `noteHref` with no anchor is exactly `noteHref`
-          without one, so this never behaves differently for a plain link.
-        */
-        onOpenComms={
-          slug === null
-            ? undefined
-            : (path, targetAnchor) => router.push(noteHref(slug, path, targetAnchor))
-        }
       />
       {/* The first run's second half — see `SetupWidgetHost`. */}
       <SetupWidgetHost

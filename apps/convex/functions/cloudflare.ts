@@ -171,6 +171,8 @@ export const provisionCloudflareR2 = action({
         message: "Not authenticated",
       });
     }
+    // Rebinding a workspace that already has storage is a big change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProofToRebind, { workspaceId: args.workspaceId });
     return await provisionCloudflareR2Handler(ctx, userId as Id<"users">, args);
   },
 });

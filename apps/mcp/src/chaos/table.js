@@ -68,21 +68,31 @@ export const RESCORE_FOLDERS = 40;
 const ensure = () => [...TREE_STATEMENTS, ...PROP_STATEMENTS, ...CHAOS_STATEMENTS].map((sql) => ({ sql, params: [] }));
 
 /** Whether a note is exempt from the long-note rule: meetings and generated notes. */
-function isExempt(path, type, generated) {
+export function isExempt(path, type, generated) {
   if (type === "meeting" || isMeetingNotePath(path)) return true;
   return generated === 1 || generated === true || generated === "true";
+}
+
+/** Whether a `review:` property holds a question: any non-empty value. */
+export function hasReview(value) {
+  if (value === null || value === undefined || value === false || value === 0) return false;
+  if (typeof value === "string") return value.trim() !== "" && value.trim() !== "[]";
+  return true;
 }
 
 const ROW_COLUMNS = `t.path AS path,
   json_extract(p.props, '$.lines') AS lines,
   json_extract(p.props, '$.properties.type') AS type,
-  json_extract(p.props, '$.properties.generated') AS generated`;
+  json_extract(p.props, '$.properties.generated') AS generated,
+  json_extract(p.props, '$.properties.review') AS review`;
 
 function rowFrom(row) {
   return {
     path: row.path,
     lines: Number.isFinite(row.lines) ? row.lines : null,
     exempt: isExempt(row.path, row.type, row.generated),
+    // A contact page waiting on the owner's review (`contacts.js`).
+    review: hasReview(row.review),
   };
 }
 
@@ -200,7 +210,7 @@ async function rescoreOne(client, folder, visibleToTeam) {
     if (previous) await client.runAll(removeSubtree(folder));
     return { existed: previous !== undefined, exists: false, before: previous ?? null, after: null };
   }
-  const asNote = (row) => ({ name: nameOf(row.path), lines: row.lines, exempt: row.exempt });
+  const asNote = (row) => ({ name: nameOf(row.path), lines: row.lines, exempt: row.exempt, review: row.review });
   const all = scoreFolder({ path: folder, notes: notes.map(asNote), folders: subfolders.map((row) => nameOf(row.folder)) });
   const teamNotes = notes.filter((row) => visibleToTeam(row.path));
   const teamFolders = subfolders.filter((row) => Number(row.team_exists) === 1);

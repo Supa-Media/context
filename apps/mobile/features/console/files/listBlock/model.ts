@@ -69,6 +69,11 @@ export interface ListNote {
   readonly path: string;
   readonly updatedAt?: number;
   readonly properties: Readonly<Record<string, PropertyValue>>;
+  /**
+   * The `#tags` written in the note's text, kept apart from `properties` so an
+   * edit of `tags:` never copies them into front matter (`lists/inlineTags.js`).
+   */
+  readonly inlineTags?: readonly string[];
   /** The note's first heading, which names a project with no `title`. */
   readonly heading?: string | null;
   /** The note's first paragraph, which a folder page draws under its title. */

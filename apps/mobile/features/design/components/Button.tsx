@@ -11,6 +11,7 @@ import {
 import { radii } from "../tokens";
 import { useThemedStyles, type Colors } from "../theme";
 import { FocusRing } from "./FocusRing";
+import { useHoverIntent } from "../useHoverIntent";
 import { Text, type TextVariant } from "./Text";
 
 /**
@@ -358,9 +359,17 @@ export function PressRow({
   disabled,
   onLongPress,
   delayLongPress,
+  onIntent,
 }: {
   children: ReactNode;
   onPress?: (event: GestureResponderEvent) => void;
+  /**
+   * The row is probably about to be pressed: a pointer rested on it, or a
+   * finger went down on it (`useHoverIntent`). Fired before `onPress`, so
+   * whatever the press will need can start on its way — a note's read, from
+   * the file tree.
+   */
+  onIntent?: () => void;
   /**
    * A press held. Passed straight to `Pressable`.
    *
@@ -450,6 +459,7 @@ export function PressRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const intent = useHoverIntent(onIntent);
 
   return (
     <Pressable
@@ -476,8 +486,15 @@ export function PressRow({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={delayLongPress}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
+      onHoverIn={() => {
+        setHovered(true);
+        intent.hoverIn();
+      }}
+      onHoverOut={() => {
+        setHovered(false);
+        intent.hoverOut();
+      }}
+      onPressIn={onIntent === undefined ? undefined : intent.pressIn}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       testID={testID}

@@ -13,6 +13,8 @@ import { scheduleMetaConversion } from "./metaConversions";
 import { WAITLIST_JOINS_PER_HOUR } from "./waitlist";
 import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
 import { waitlistConversionId } from "./lib/xConversion";
+import { phoneSignInPaused } from "./lib/emailProof";
+import { scheduleSignInAlert } from "./signInAlerts";
 
 /**
  * Signing in, and joining the waitlist, with a phone (Dev2, 2026-10-09:
@@ -56,6 +58,7 @@ const startStatus = v.union(
   v.literal("too_many"),
   v.literal("unavailable"),
   v.literal("failed"),
+  v.literal("paused"),
 );
 type StartStatus = typeof startStatus.type;
 
@@ -75,7 +78,7 @@ export async function phoneHolder(ctx: QueryCtx, phone: string): Promise<Id<"use
 }
 
 const reservedValidator = v.object({
-  status: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many")),
+  status: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many"), v.literal("paused")),
   // On `joined` only: the id the page's X and Meta pixel events report.
   conversionId: v.optional(v.string()),
 });
@@ -118,9 +121,12 @@ export const reserveSend = internalMutation({
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
       return { status: "too_many" };
     }
-    if ((await phoneHolder(ctx, phone)) === null && !(await isPhoneAdmitted(ctx.db, phone))) {
+    const holder = await phoneHolder(ctx, phone);
+    if (holder === null && !(await isPhoneAdmitted(ctx.db, phone))) {
       return await joinWaitlist(ctx, phone, origin);
     }
+    // Paused by "This wasn't me": no text is spent on it.
+    if (holder !== null && (await phoneSignInPaused(ctx, holder))) return { status: "paused" };
     if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.sendTo:${phone}`, limit: SEND_PER_PHONE, windowMs: WINDOW_MS }))) {
       return { status: "too_many" };
     }
@@ -143,7 +149,14 @@ export const signInUser = internalMutation({
   returns: v.union(v.id("users"), v.null()),
   handler: async (ctx, { phone }) => {
     const held = await phoneHolder(ctx, phone);
-    if (held !== null) return held;
+    if (held !== null) {
+      // "This wasn't me" paused this phone: it signs nobody in until the
+      // person turns it back on from an email sign-in (`signInAlerts.ts`).
+      if (await phoneSignInPaused(ctx, held)) return null;
+      // Every email on the account hears about it (board k3).
+      await scheduleSignInAlert(ctx, held, phone);
+      return held;
+    }
     if (!(await isPhoneAdmitted(ctx.db, phone))) return null;
     const now = Date.now();
     const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });

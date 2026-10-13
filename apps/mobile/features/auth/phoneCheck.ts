@@ -6,8 +6,8 @@
  * only the words, kept here so they can be read and tested without a screen.
  */
 
-export type SendStatus = "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed";
-export type ConfirmStatus = "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed";
+export type SendStatus = "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed" | "has_account";
+export type ConfirmStatus = "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed" | "has_account";
 
 export const PHONE_CHECK_TITLE = "Add your phone number";
 export const PHONE_CHECK_WHY =
@@ -26,6 +26,12 @@ export const JOINED_BODY =
  */
 const TAKEN =
   "That number already signs in to another Context account that has its own workspace. Use a different number, or sign out and sign in with your phone.";
+/**
+ * The number's account already has an email (Dev2, 2026-10-12): a texted code
+ * alone never puts another email on it, so this email is added from there.
+ */
+const HAS_ACCOUNT =
+  "That number already has a Context account. Sign out, sign in with your phone, then add this email in Settings › Account.";
 const TOO_MANY = "Too many tries for now. Wait a bit, then try again.";
 const FAILED = "We couldn't send a text just now. Try again in a minute.";
 
@@ -38,6 +44,8 @@ export function sendError(status: SendStatus): string | null {
       return "That number doesn't look right. Check it and the country beside it.";
     case "taken":
       return TAKEN;
+    case "has_account":
+      return HAS_ACCOUNT;
     case "too_many":
       return TOO_MANY;
     case "failed":
@@ -54,6 +62,8 @@ export function confirmError(status: ConfirmStatus): string | null {
       return "That code didn't work. Check the text, or send a new code.";
     case "taken":
       return TAKEN;
+    case "has_account":
+      return HAS_ACCOUNT;
     case "too_many":
       return TOO_MANY;
     case "failed":

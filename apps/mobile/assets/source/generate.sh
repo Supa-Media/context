@@ -19,8 +19,7 @@
 # same reason, even though the surface it dresses is not the mobile app.
 #
 # Requires librsvg and ImageMagick:  brew install librsvg imagemagick
-# The .icns additionally needs iconutil, which ships with macOS — on Linux the
-# four PNGs are still regenerated and only the .icns step is skipped.
+# The .icns is packed by iconutil on macOS and by icns.mjs (node) elsewhere.
 set -euo pipefail
 cd "$(dirname "$0")"
 out=..
@@ -34,7 +33,9 @@ need magick
 # channel: App Store Connect rejects an icon with transparency, and rsvg emits
 # RGBA regardless of whether anything in the drawing is actually translucent.
 rsvg-convert -w 1024 -h 1024 icon.svg -o "$out/icon.png"
-magick "$out/icon.png" -background "#050506" -alpha remove -alpha off "$out/icon.png"
+magick "$out/icon.png" -background "#EDE4D3" -alpha remove -alpha off "$out/icon.png"
+# The installed web app's icon (public/manifest.webmanifest) is the same picture.
+cp "$out/icon.png" ../../public/icon.png
 
 # Android adaptive foreground. Keeps its alpha — the ground is supplied by
 # android.adaptiveIcon.backgroundColor in app.config.js.
@@ -57,20 +58,21 @@ rsvg-convert -w 256 -h 256 favicon.svg -o "$out/favicon.png"
 # Every rung is rendered from the vector at its final size rather than resampled
 # from the 1024: at 16px the difference between rasterising the strokes and
 # shrinking them is the difference between a readable # and a grey smudge.
+iconset="$(mktemp -d)/icon.iconset"
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+  rsvg-convert -w "$size" -h "$size" desktop-icon.svg -o "$iconset/icon_${size}x${size}.png"
+  rsvg-convert -w "$((size * 2))" -h "$((size * 2))" desktop-icon.svg -o "$iconset/icon_${size}x${size}@2x.png"
+done
+mkdir -p "$desktop"
 if command -v iconutil >/dev/null; then
-  iconset="$(mktemp -d)/icon.iconset"
-  mkdir -p "$iconset"
-  for size in 16 32 128 256 512; do
-    rsvg-convert -w "$size" -h "$size" desktop-icon.svg -o "$iconset/icon_${size}x${size}.png"
-    rsvg-convert -w "$((size * 2))" -h "$((size * 2))" desktop-icon.svg -o "$iconset/icon_${size}x${size}@2x.png"
-  done
-  mkdir -p "$desktop"
   iconutil -c icns "$iconset" -o "$desktop/icon.icns"
   icns_members=$(find "$iconset" -name '*.png' | wc -l | tr -d ' ')
-  rm -rf "$(dirname "$iconset")"
 else
-  echo "note: iconutil not found (not macOS) — skipped the desktop .icns" >&2
+  # Not macOS: the same iconset, packed by a few lines of node instead.
+  icns_members=$(node icns.mjs "$iconset" "$desktop/icon.icns")
 fi
+rm -rf "$(dirname "$iconset")"
 
 echo "Regenerated:"
 for f in icon adaptive-icon splash favicon; do

@@ -104,6 +104,38 @@ test asserting "the note's `<script>` did not run" would pass with
 `apps/mobile/e2e/webkit/htmlPreview.spec.ts` against a real engine; the jsdom
 suite asserts only what it can actually see, which is the markup that was built.
 
+### A Mermaid chart is drawn by our script in a frame the note cannot leave
+
+A fence tagged `mermaid` is drawn as the diagram it describes (2026-10-11,
+reported by the owner when an org chart came out as code). Mermaid is the
+syntax GitHub, GitLab and Obsidian all draw, so this is the same "the fence tag
+is the entire convention" rule as `html-preview`, and the file stays a labelled
+code block everywhere else.
+
+**It is the one fence that runs script, and that is right rather than an
+exception to the rule above.** `html-preview` forbids `allow-scripts` because
+the script would be the note's. Here the script is Mermaid, ours, and the note
+is data handed to it by `postMessage`. Mermaid has shipped XSS fixes before, so
+it never runs in the console's document: each fence is an `<iframe
+sandbox="allow-scripts">` — **never `allow-same-origin`** — loading
+`/drawing-assets/diagram/index.html`, whose CSP is `script-src 'self'` and
+nothing that fetches. A bug in Mermaid lands in an opaque origin with no
+cookies, storage, network or way into the console, and can say only a clamped
+height or a short complaint back (`readFrameMessage`).
+
+**A page, not a chunk**, for the reason the drawing editor is one: Metro does
+not split a dynamic `import()`, and Mermaid is 3.5MB. `build-drawing-editor.mjs`
+builds it beside the editor, so every workflow that deploys the console already
+builds it, and the console's own bundle does not change.
+
+**Only where a host says so.** The phone's `WebView` editor is `about:blank`
+behind `default-src 'none'`, so it configures no `diagramHost` and the fence
+stays a code block there; shared website pages likewise. A frame that cannot
+draw (offline, a parse error) falls back to the source as text, with Mermaid's
+first line of complaint under it. No card or tint around a drawn chart: it sits
+on the note in the note's own `--lp-*` ink, redrawn when the palette changes.
+`mermaidFences.test.ts` and `e2e/webkit/mermaid.spec.ts` stand behind this.
+
 ### A phone gets Recent, because it could never get a second tab
 
 The console's bottom toolbar carried a **tab count** — Obsidian's, Safari's and

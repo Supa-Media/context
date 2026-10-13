@@ -358,3 +358,28 @@ describe("bare names, matched loosely", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * A link that names a place inside a note — `[[day#msg-…|label]]`, which is
+ * what every contact page's activity line is — opens that note *at* that
+ * place. The anchor used to be dropped on the way to `onOpen`, so a contact's
+ * activity link opened the day at its top.
+ */
+describe("a link's anchor travels with it", () => {
+  test("a wikilink's anchor, alias and all", () => {
+    const [span] = linksIn("x [[../../2-products/context-lc/overview#msg-0123abcd|the board]] y");
+    expect(span).toMatchObject({ path: "2-products/context-lc/overview.md", anchor: "msg-0123abcd" });
+  });
+
+  test("an inline link's anchor, decoded", () => {
+    const [span] = linksIn("x [it](../../2-products/context-lc/overview.md#a%20heading) y");
+    expect(span).toMatchObject({ path: "2-products/context-lc/overview.md", anchor: "a heading" });
+  });
+
+  test("a link with no anchor carries none", () => {
+    const [span] = linksIn("x [[../../2-products/context-lc/overview]] y");
+    expect(span).not.toHaveProperty("anchor");
+    const [empty] = linksIn("x [[../../2-products/context-lc/overview#]] y");
+    expect(empty).not.toHaveProperty("anchor");
+  });
+});

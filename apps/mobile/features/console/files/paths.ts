@@ -154,6 +154,20 @@ export function displayPath(path: string): string {
  * themselves. **A folder keeps its extension**: a folder called `notes.md` is
  * a folder called `notes.md`.
  */
+/**
+ * Whether a folder's front-note heading is only its name on disk, sort number
+ * and all — "1-areas" over `2-areas`, a README older folders were made with.
+ * Such a heading is the number the label exists to hide, so a folder page
+ * keeps its label instead (`folderPage/model.ts`). A heading with no sort
+ * number is somebody's own wording, however close to the name, and is kept.
+ */
+export function repeatsFolderName(folder: string, heading: string): boolean {
+  const said = heading.replace(/[\u2066-\u2069]/g, "").trim();
+  if (withoutSortPrefix(said) === said) return false;
+  const words = (name: string) => withoutSortPrefix(name).toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  return words(said) === words(baseName(folder));
+}
+
 export function folderLabel(name: string): string {
   return isolateForDisplay(withoutSortPrefix(name));
 }

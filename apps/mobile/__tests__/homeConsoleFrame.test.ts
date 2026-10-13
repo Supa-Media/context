@@ -64,6 +64,7 @@ jest.mock("expo-router", () => ({
   worse, one that succeeds.
 */
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
   useConvex: () => ({
     query: async () => {
       mockServer.push("query");
@@ -295,9 +296,10 @@ describe("the homepage is the console's frame", () => {
   */
   test("a phone gets the console's phone chrome, and its Copy link copies too", async () => {
     const home = mountHome(390);
-    expect(home.find("note-read")).not.toBeNull();
     expect(home.find("note-share")).toBeNull();
     home.press(home.find("note-actions"));
+    // A visitor can still read the page without its markup: ••• carries it.
+    expect(home.find("note-action-read")).not.toBeNull();
     expect(home.find("note-action-share")).toBeNull();
     expect(home.find("note-action-archive")).toBeNull();
     home.press(home.find("note-action-copy-link"));

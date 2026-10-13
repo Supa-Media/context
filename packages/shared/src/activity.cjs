@@ -113,6 +113,7 @@ const MAX_ENTRY_PATHS = 5;
 const MAX_SUMMARY_LENGTH = 140;
 
 const { KINDS, SUBSTANCE } = require("./activityVocabulary.cjs");
+const { CONSOLE_CLIENT_NAME, actorLabel, clientOf } = require("./activityActors.cjs");
 const { decodeMoves, mergeMoves, movePairsOf } = require("./activityMoves.cjs");
 const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.cjs");
 
@@ -249,7 +250,7 @@ function entryFor(input) {
     n: count,
     vis: meta.team_visible === true ? "team" : "private",
     by: actor && typeof actor.name === "string" ? actor.name : null,
-    via: actor && typeof actor.client === "string" ? actor.client : null,
+    via: actor ? clientOf(actor.client) : null,
     note: normalizeSummary(meta.summary),
     ...(moves.length ? { moves } : {}),
   };
@@ -319,7 +320,7 @@ function mergeable(existing, entry, windowMs) {
     (existing.kind === "added" && entry.kind === "revised");
   if (!sameWork) return false;
   if ((existing.by || null) !== (entry.by || null)) return false;
-  if ((existing.via || null) !== (entry.via || null)) return false;
+  if (clientOf(existing.via) !== clientOf(entry.via)) return false;
   const gap = Date.parse(entry.at) - Date.parse(existing.at);
   if (!Number.isFinite(gap) || gap < 0 || gap > windowMs) return false;
   if (existing.paths.includes(entry.paths[0])) return true;
@@ -449,22 +450,6 @@ function dayKey(iso) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
-/**
- * Who a line is about, in the possessive form the meeting asked for.
- *
- * "@sayo's Claude" rather than a client id, because the distinction that
- * matters to a reader is a person's own hand versus the assistant they pointed
- * at the context — "oh, Shyoh's Claude did this".
- */
-function actorLabel(entry) {
-  const by = entry.by || null;
-  const via = entry.via || null;
-  if (by && via) return `${by}'s ${via}`;
-  if (by) return by;
-  if (via) return via;
-  return "Someone";
-}
-
 function code(text) {
   return `\`${stripMarkup(text)}\``;
 }
@@ -537,7 +522,7 @@ function decodeEntry(raw) {
       n: Number.isFinite(value.n) && value.n > 0 ? Math.floor(value.n) : 1,
       vis: value.vis === "team" ? "team" : "private",
       by: typeof value.by === "string" ? value.by : null,
-      via: typeof value.via === "string" ? value.via : null,
+      via: clientOf(value.via),
       note: typeof value.note === "string" ? value.note : null,
       ...(moves.length ? { moves } : {}),
     };
@@ -755,6 +740,7 @@ function nextFile(currentText, change) {
 module.exports = {
   ACTIVITY_PATH,
   BEGIN_MARKER,
+  CONSOLE_CLIENT_NAME,
   END_MARKER,
   GROUP_WINDOW_MS,
   KINDS,
@@ -768,6 +754,7 @@ module.exports = {
   SUBSTANCE,
   actorLabel,
   applyEntry,
+  clientOf,
   describeEntry,
   entryFor,
   folderOf,

@@ -102,6 +102,10 @@ Moved to [A front matter change is a hint too, and an open project page fetches 
 
 Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
 
+### A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files
+
+Moved to [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md#a-workspaces-tree-and-its-privacy-rules-live-in-convex-and-the-bucket-keeps-the-files).
+
 ### Links live beside the tree, and "who links here" is one query
 
 Moved to [Links live beside the tree, and "who links here" is one query](./app-and-console/tree-table.md#links-live-beside-the-tree-and-who-links-here-is-one-query).
@@ -245,6 +249,10 @@ Moved to [The breadcrumb head stopped being a switcher pill when it moved rows](
 ### A diagram lives in the note, and the browser is the only thing that makes it safe
 
 Moved to [A diagram lives in the note, and the browser is the only thing that makes it safe](./app-and-console/diagrams-recent-and-sharing.md#a-diagram-lives-in-the-note-and-the-browser-is-the-only-thing-that-makes-it-safe).
+
+### A Mermaid chart is drawn by our script in a frame the note cannot leave
+
+Moved to [A Mermaid chart is drawn by our script in a frame the note cannot leave](./app-and-console/diagrams-recent-and-sharing.md#a-mermaid-chart-is-drawn-by-our-script-in-a-frame-the-note-cannot-leave).
 
 ### A phone gets Recent, because it could never get a second tab
 

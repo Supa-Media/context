@@ -159,7 +159,7 @@ export function createControlPlaneStub(options = {}) {
     );
     if (!named || (named.role !== "owner" && named.role !== "editor")) return null;
     if (!grant.scopes.includes("context:write")) return null;
-    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId, role: named.role };
   }
 
   /** One row as the real route reports it: URLs, and never the token. */
@@ -694,7 +694,7 @@ export function createControlPlaneStub(options = {}) {
         // its answer as `options.site(cleared, body)`, and every call is kept.
         const cleared = await clearedEditor(body);
         siteCalls.push({ ...body, cleared });
-        if (!cleared || !["status", "check", "publish", "screenshot", "history"].includes(body.action)) return ok({ site: null });
+        if (!cleared || !["status", "check", "publish", "screenshot", "history", "domain"].includes(body.action)) return ok({ site: null });
         return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
       }
 

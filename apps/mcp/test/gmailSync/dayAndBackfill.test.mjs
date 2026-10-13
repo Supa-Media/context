@@ -13,7 +13,8 @@ export async function runGmailDayAndBackfillChecks(check) {
 
   const dayMessages = [
     fixtureMessage({ id: "d1", threadId: "t1", date: "2026-09-07T09:00:00.000Z", from: "a@example.invalid", to: "person@example.invalid", subject: "One", text: "first" }),
-    fixtureMessage({ id: "d2", threadId: "t2", date: "2026-09-07T15:00:00.000Z", from: "b@example.invalid", to: "person@example.invalid", subject: "Two", text: "second" }),
+    // Sent BY the owner: the one correspondent who gets a contact page.
+    fixtureMessage({ id: "d2", threadId: "t2", date: "2026-09-07T15:00:00.000Z", from: "person@example.invalid", to: "b@example.invalid", subject: "Two", text: "second" }),
     // A different day — must NOT show up when syncing 2026-09-07.
     fixtureMessage({ id: "d3", threadId: "t3", date: "2026-09-08T09:00:00.000Z", from: "c@example.invalid", to: "person@example.invalid", subject: "Three", text: "third" }),
   ];
@@ -36,7 +37,8 @@ export async function runGmailDayAndBackfillChecks(check) {
   const dayNoteParsed = parseChannelDayNote(await dayNote.text());
   check("the OTHER day's message is not in this day's note", dayNoteParsed.messages.length === 2);
   const contactPaths = (await dayStore.list({ prefix: "0-inbox/contacts/" })).objects.map((item) => item.key);
-  check("Gmail sync organically creates one contact per correspondent", contactPaths.length === 2);
+  check("Gmail sync creates a contact page for somebody the owner wrote to, and not for an inbound-only sender",
+    contactPaths.length === 1 && contactPaths[0] === "0-inbox/contacts/other/email-b-example-invalid.md");
   const firstContact = await dayStore.get(contactPaths[0]);
   check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026/09/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
 

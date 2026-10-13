@@ -6,6 +6,7 @@ import { CONTACT_ACTIVITY_PREVIEW, CONTACT_PROVENANCE } from "./communicationsSu
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { getVisibleMovedNote, listVisibleNoteKeysWithMoves } from "../notes/visibleKeys.js";
 import { isContactNote, parseContactView } from "../../../../packages/communications/src/contacts.js";
+import { isImportedContactNote } from "../../../../packages/communications/src/contactLookup.js";
 import { isContactNotePath, parseChannelDayPath } from "../../../../packages/communications/src/paths.js";
 import { isEncryptedNote } from "../encryption.js";
 import { listAllKeys, mapInBatches, probeWithLegacyFallback } from "../notes/storage.js";
@@ -13,16 +14,15 @@ import { normalizePath } from "../notes/paths.js";
 import { parseChannelDayNote } from "../../../../packages/communications/src/note.js";
 import { toolError, toolText } from "./results.js";
 
-const IMPORTED_IMESSAGE_CONTACTS = `${CONTACTS_FOLDER}/imessage/`;
-
-function isImportedImessageContactPath(path) {
-  return path.startsWith(IMPORTED_IMESSAGE_CONTACTS) &&
-    isContactNotePath(`${CONTACTS_FOLDER}/${path.slice(IMPORTED_IMESSAGE_CONTACTS.length)}`);
-}
-
+/*
+  A contact page is any page one folder deep under the contacts folder — the
+  A–Z folders, the legacy `imessage/` import, a folder the owner made — in
+  either format: one this package renders (`type: contact`), or one from the
+  earlier iMessage import (`role: communication-contact`), told apart by its
+  bytes rather than by the folder it happens to sit in.
+*/
 function importedImessageContact(text) {
-  const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text)?.[1];
-  if (!frontmatter || !/^role:\s*["']?communication-contact["']?\s*$/m.test(frontmatter)) return null;
+  if (!isImportedContactNote(text)) return null;
   const name = /^#\s+(.+)$/m.exec(text)?.[1]?.trim() || "";
   const identifiers = [...text.matchAll(/^- iMessage:\s*`([^`]+)`\s*$/gm)]
     .map((match) => ({ kind: "iMessage", value: match[1] }));
@@ -214,7 +214,7 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
     return Number.isFinite(instant) ? instant : 0;
   };
   const visible = listed
-    .filter(({ key }) => isContactNotePath(key) || isImportedImessageContactPath(key))
+    .filter(({ key }) => isContactNotePath(key))
     .sort((a, b) => touchedAt(b.uploaded) - touchedAt(a.uploaded) || a.key.localeCompare(b.key));
   const page = visible.slice(0, limit);
 
@@ -236,7 +236,7 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
       whether to offer to open it.
     */
     if (isEncryptedNote(text)) return `(encrypted)\n  ${key}`;
-    const imported = isImportedImessageContactPath(key) ? importedImessageContact(text) : null;
+    const imported = importedImessageContact(text);
     if (!isContactNote(text) && !imported) return `(a note of your own)\n  ${key}`;
     const view = imported || parseContactView(text);
     const parts = [view.name || "(unnamed contact)"];
@@ -280,7 +280,7 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
 export async function toolReadContact(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!isContactNotePath(path) && !isImportedImessageContactPath(path)) {
+  if (!isContactNotePath(path)) {
     return toolError("not a contact page — read it with read_note");
   }
   // Both questions asked, then decided, so the refusal for a note being held
@@ -298,7 +298,7 @@ export async function toolReadContact(store, scope, rules, overrides, args = {})
     `etag: ${object.etag}\npath: ${path}\n` +
     `visibility: ${effectiveVisibility(path, rules, overrides)}`;
 
-  const imported = isImportedImessageContactPath(path) ? importedImessageContact(text) : null;
+  const imported = importedImessageContact(text);
   if (imported) return toolText(`${header}\n\n${text}`);
   if (!isContactNote(text)) {
     /*

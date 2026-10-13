@@ -97,16 +97,44 @@ type TextEdit = { kind: "insert"; at: number; text: string } | { kind: "delete";
  * wrong Yjs items. Myers' shortest edit script keeps the operation anchored to
  * the snapshot's item IDs when its update is applied to the live document.
  */
-function textEdits(from: string, to: string): TextEdit[] {
+export function textEdits(from: string, to: string): TextEdit[] {
   if (from === to) return [];
   // Y.Text indexes strings in UTF-16 code units, but diffing individual code
   // units can split a surrogate pair (😀 -> 😎 would preserve the high half
   // and replace only the low half). Diff by code point, then convert each
   // edit's coordinate/count back to UTF-16 for Yjs.
-  const fromPoints = Array.from(from);
-  const toPoints = Array.from(to);
+  const allFrom = Array.from(from);
+  const allTo = Array.from(to);
+  /*
+    **The unchanged ends are set aside before the search, not instead of it.**
+
+    The search costs the length times the size of the edit, and keeps one
+    frontier per step, so a paste of a few thousand characters held the page
+    for seconds (5 KB: ~1.7 s, 10 KB: ~12 s) inside the keystroke that made
+    it. Every edit a person makes touches one place, so trimming what both
+    sides share at the start and at the end leaves the search only the part
+    that changed, and a paste becomes one insert. The shared start is exactly
+    the diagonal the search would have walked first; the shared end only
+    picks, among equally short scripts, the one that keeps the text after
+    the edit. Whatever is left in the middle still goes through Myers, so the
+    warning above about a wholesale replacement still holds.
+  */
+  let head = 0;
+  while (head < allFrom.length && head < allTo.length && allFrom[head] === allTo[head]) head += 1;
+  let tail = 0;
+  while (
+    tail < allFrom.length - head &&
+    tail < allTo.length - head &&
+    allFrom[allFrom.length - 1 - tail] === allTo[allTo.length - 1 - tail]
+  ) tail += 1;
+  const offset = allFrom.slice(0, head).join("").length;
+  const fromPoints = allFrom.slice(head, allFrom.length - tail);
+  const toPoints = allTo.slice(head, allTo.length - tail);
   const n = fromPoints.length;
   const m = toPoints.length;
+  // Only one side left: a plain insert or delete, with nothing to search.
+  if (n === 0) return [{ kind: "insert", at: offset, text: toPoints.join("") }];
+  if (m === 0) return [{ kind: "delete", at: offset, count: fromPoints.join("").length }];
   const max = n + m;
   let vector = new Map<number, number>([[1, 0]]);
   const trace: Map<number, number>[] = [];
@@ -164,7 +192,7 @@ function textEdits(from: string, to: string): TextEdit[] {
   primitive.reverse();
 
   const edits: TextEdit[] = [];
-  let at = 0;
+  let at = offset;
   for (const part of primitive) {
     if (part.kind === "equal") {
       at += part.text.length;

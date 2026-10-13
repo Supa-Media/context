@@ -26,7 +26,7 @@ import { clearanceOf } from "../clearance";
 import { messageFor } from "../d1";
 import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
-import { recordWrites } from "../treeAnnounce";
+import { recordTreeChange, recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf } from "./access";
 import {
   operationMayRestrictWebsite,
@@ -45,6 +45,11 @@ import {
   treeStateOf,
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
+import { isNodesOperation, runNodesOperation } from "../nodes/run";
+import { servedReadAnswer } from "../nodes/servedReads";
+import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
+import { attachPlacesFollower } from "../nodes/followPlaces";
+import { attachTreeListing } from "../nodes/treeNames";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -264,6 +269,26 @@ export async function runFileOperationHandler(
   const treeOperation = await treeOperationClient(ctx, args);
   if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
   if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
+  // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
+  const served = await servedReadAnswer(ctx, args);
+  if (served !== null) return served;
+
+  /*
+    The three lookups a store is built from, asked together. Each is its own
+    function call on the control plane, and asked one after another they were
+    a visible share of every note open: the person waits on all three before a
+    byte of the note is read. None depends on another, and each is still
+    answered (and refused) exactly as before — only the waiting overlaps.
+    A failure is caught where it is started and decided below, in the order
+    the code always decided them, so an unconnected bucket still says so
+    before a key problem does.
+  */
+  const capLookup = ctx
+    .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
+    .catch(() => null);
+  const encryptionLookup = managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+  // Queued moves the tree draws already (`lib/nodes/moveBarrier.ts`); a failed read fails the operation.
+  const movesLookup = pendingMovesLookup(ctx, args.workspaceId);
 
   let credential: GatewayCredential | null;
   try {
@@ -304,13 +329,11 @@ export async function runFileOperationHandler(
   // The free managed tier's cap, the same number `/gateway/binding` sends, so
   // the console and an AI client are refused at the same count. A failed read
   // is no cap: a billing lookup must never cost somebody their notes.
-  const noteCap = await ctx
-    .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
-    .catch(() => null);
+  const noteCap = await capLookup;
 
   // Managed-storage encryption, or null for plain. A mode with no usable key
   // is a refusal, never a plain store over sealed bytes.
-  const managedEncryption = await managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
+  const managedEncryption = await encryptionLookup;
   if (managedEncryption === undefined) {
     const refusal = encryptedUnreadable();
     if (args.operation.kind !== "googleForwardSync") throw refusal;
@@ -368,9 +391,16 @@ export async function runFileOperationHandler(
     });
   }
 
+  if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
+  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
+
   if (treeOperation?.client) {
     return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
   }
+
+  // While moves are pending, a note is moved to where the tree draws it before it is read or written.
+  const bucket = store;
+  store = await storeWithMoves(ctx, args, store, await movesLookup);
 
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
@@ -404,14 +434,19 @@ export async function runFileOperationHandler(
     Read before the operation because afterwards the answer is gone: a note
     made private is, by then, private. See `announceTreeChange`.
   */
+  // The organizer decides its paths inside itself, so they are read off the store as it writes.
+  const organizerChange = args.operation.kind === "organizer" ? recordTreeChange(store) : null;
   const treeChange = treeChangeOf(args.operation as FileOperation);
   const privacyBefore =
-    treeChange?.narrows === true ? await loadPrivacyState(store).catch(() => null) : null;
+    treeChange?.narrows === true || organizerChange !== null ? await loadPrivacyState(store).catch(() => null) : null;
   // A move inside this context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
   // capped.
   const listing = await manifestSource(ctx, args, store);
+  attachQueueMove(ctx, args, listing.store, bucket);
+  attachTreeListing(ctx, args.workspaceId, listing.store);
+  const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -499,7 +534,8 @@ export async function runFileOperationHandler(
   }
 
   const indexChange = indexChangeOf(args.operation as FileOperation);
-  await announceTreeChange(ctx, store, args, treeChange, result, privacyBefore, indexChange?.written);
+  await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
+  await followPlaces();
 
   /*
     The notes this operation changed, re-indexed now rather than whenever a

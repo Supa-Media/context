@@ -1,7 +1,10 @@
 /**
  * Folder icons: an emoji somebody chose for a folder, from "Set icon…" in its
  * menu (decided by the owner, 2026-10-08: no folder gets a special icon; any
- * folder can be given one).
+ * folder can be given one). Since 2026-10-13 a note can have one too, keyed by
+ * its own path (`todo.md`), and the built-in folders show a default emoji when
+ * nobody chose one (`defaultFolderIcon`). The file keeps its name: it is a
+ * stable on-bucket format, and a note's icon is one more key in it.
  *
  * ## Where they live
  *
@@ -22,14 +25,16 @@
  * ## Paths, not ids
  *
  * A folder has no id, only a path, so a move has to carry its icon along:
- * `remapFolderIcons` runs after every folder move, in the console and through
- * an MCP client alike, and `dropFolderIcons` after a folder is deleted for
- * good. Both are best-effort by design. An icon is decoration; a move must
+ * `remapFolderIcons` runs after every folder move and `remapIcons` after every
+ * note move, in the console and through an MCP client alike, and
+ * `dropFolderIcons` after a folder or note is deleted for good. Both are best-effort by design. An icon is decoration; a move must
  * never fail, or half-happen, because the decoration could not be written.
  *
  * Pure parsing plus two store helpers that take any adapter with `get` and
  * `put`, so the gateway and the control plane share one engine.
  */
+
+const { topLevelRole } = require("./folderRoles.cjs");
 
 const FOLDER_ICONS_KEY = ".context/folder-icons.json";
 const FOLDER_ICONS_VERSION = 1;
@@ -60,6 +65,39 @@ function plainIcon(icon) {
   // never lets anything long or control-character-bearing through to a row.
   if (typeof icon === "string" && CUSTOM_ICON.test(icon)) return true;
   return typeof icon === "string" && icon.length > 0 && icon.length <= MAX_ICON_LENGTH && !/[\u0000-\u001f\u202a-\u202e\u2066-\u2069]/.test(icon);
+}
+
+/**
+ * The emoji a built-in folder shows when nobody chose one (decided by the
+ * owner, 2026-10-13, reversing "no special icons" of 2026-10-08 for the
+ * built-in folders only). Read from the folder's name like its role
+ * (`folderRoles.cjs`), so `0-inbox`, `inbox` and `Inbox` all get 📥, and only
+ * at the top level: `1-projects/inbox` is somebody's own folder.
+ *
+ * Drawn, never written: nothing goes into `folder-icons.json`, so every
+ * workspace, old ones included, gets them without a migration, and a chosen
+ * icon always wins. Removing a chosen icon brings the default back.
+ */
+const DEFAULT_FOLDER_ICONS = Object.freeze({
+  inbox: "📥",
+  projects: "🏗️",
+  areas: "🛠️",
+  resources: "📚",
+  clients: "🤝",
+  teams: "👥",
+  products: "📦",
+  archive: "🗄️",
+});
+/** The website folder is not a PARA role, but it is built in: `websiteRoutes.ts`'s `DEFAULT_WEBSITE_ROOT`. */
+const WEBSITE_FOLDER = "website";
+const WEBSITE_ICON = "🖥️";
+
+/** The default emoji for the folder at `path`, or `null` for one with none. */
+function defaultFolderIcon(path) {
+  if (typeof path !== "string") return null;
+  if (path === WEBSITE_FOLDER) return WEBSITE_ICON;
+  const role = topLevelRole(path);
+  return role === null ? null : DEFAULT_FOLDER_ICONS[role] ?? null;
 }
 
 /**
@@ -164,6 +202,31 @@ async function remapFolderIcons(store, from, to) {
   }
 }
 
+/**
+ * Carry icons along with several moves at once (a batch of notes), in one
+ * read and at most one write. Each move is applied to the map the previous
+ * one left. Never throws.
+ */
+async function remapIcons(store, moves) {
+  if (!Array.isArray(moves) || moves.length === 0) return null;
+  try {
+    return await updateFolderIcons(store, (icons) => {
+      let next = icons;
+      let changed = false;
+      for (const { from, to } of moves) {
+        const after = iconsAfterMove(next, from, to);
+        if (after !== null) {
+          next = after;
+          changed = true;
+        }
+      }
+      return changed ? next : null;
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Forget the icons of a folder deleted for good. Never throws. */
 async function dropFolderIcons(store, path) {
   try {
@@ -176,6 +239,8 @@ async function dropFolderIcons(store, path) {
 module.exports = {
   FOLDER_ICONS_KEY,
   FOLDER_ICONS_VERSION,
+  DEFAULT_FOLDER_ICONS,
+  defaultFolderIcon,
   parseFolderIcons,
   serializeFolderIcons,
   iconsAfterMove,
@@ -183,5 +248,6 @@ module.exports = {
   readFolderIcons,
   updateFolderIcons,
   remapFolderIcons,
+  remapIcons,
   dropFolderIcons,
 };

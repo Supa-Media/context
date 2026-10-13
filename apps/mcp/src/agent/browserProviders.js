@@ -11,8 +11,10 @@
  *   Browserbase first, and a Worker without its key answers 501, after which
  *   this isolate uses Cloudflare's browser. Its browser outlives the question
  *   (up to 15 minutes, `infra/site-shots/src/browserbase.ts`), found again by
- *   the person's tag, so a person can sign in through the live-view link and
- *   text Tex to carry on.
+ *   the person's tag, so a person can sign in on it and text Tex to carry on.
+ *   They take it over at `viewer`, their own `context.lc/tex/<handle>` page
+ *   (`http/texComputer.js`), signed in; Browserbase's live-view link, which
+ *   drives the browser for whoever holds it, is never asked for.
  *
  * The tag is an HMAC of the person's user id under `GATEWAY_SECRET`: the
  * screenshot Worker and Browserbase see a value that names nobody and cannot
@@ -48,12 +50,16 @@ async function post(binding, path, body) {
 async function browseResult(response) {
   const body = await response.json().catch(() => null);
   if (typeof body?.session === "string") {
-    return response.ok ? body : { session: body.session, ran: [], page: null };
+    if (!response.ok) return { session: body.session, ran: [], page: null };
+    // A link to hand over is the gateway's to make (`viewer`), never the
+    // Worker's: an older one answered with Browserbase's live-view link here.
+    const { liveUrl: _liveUrl, handoffUrl: _handoffUrl, ...result } = body;
+    return result;
   }
   throw new Error("browser unavailable");
 }
 
-export function siteShotsComputer(env, { owner = null } = {}) {
+export function siteShotsComputer(env, { owner = null, viewer = null } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
@@ -73,10 +79,14 @@ export function siteShotsComputer(env, { owner = null } = {}) {
 
     async browse(session, steps, { handoff = false } = {}) {
       if (browserbaseWanted()) {
+        // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
+        // the person is being handed this browser; it asks Browserbase for nothing.
         const response = await post(binding, "/browse", { provider: "browserbase", owner, steps, ...(handoff ? { handoff: true } : {}) });
         if (response.status !== 501) {
           onBrowserbase = true;
-          return await browseResult(response);
+          const result = await browseResult(response);
+          // The person's own page, never a link to the browser itself.
+          return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
         }
         browserbaseMissing = true;
       }
@@ -85,8 +95,8 @@ export function siteShotsComputer(env, { owner = null } = {}) {
 
     /** Whether a question may carry on in a browser an earlier one opened. */
     mayResume: () => browserbaseWanted(),
-    /** Whether a person can be handed this browser to sign in. */
-    canHandOff: () => browserbaseWanted(),
+    /** Whether a person can be handed this browser to sign in: Browserbase, and a page of theirs to do it on. */
+    canHandOff: () => browserbaseWanted() && typeof viewer === "string" && viewer.length > 0,
     /**
      * Cloudflare's browser closes with the question. Browserbase's stays for
      * the next one, ending itself, so a sign-in can be carried on from.

@@ -99,6 +99,8 @@ import { baseName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
 import { aboutNoteOf, listedEntries } from "./tree";
+import { ContactsIndex } from "../communications/ContactsIndex";
+import { contactsIndex } from "../communications/contactPages";
 import type { FileEntry, FolderListing } from "./types";
 
 /**
@@ -277,6 +279,10 @@ export function FolderView({
   */
   const descending = useListingOrder();
   const rows = listedEntries(listing?.entries ?? [], { descending });
+  // The contacts folder: its letter folders as an A–Z index, everything else
+  // as rows (`communications/ContactsIndex.tsx`). `null` for every other folder.
+  const contacts = contactsIndex(entry.path, rows);
+  const listedRows = contacts?.rest ?? rows;
   /*
     The phone's select mode: a Select button over the listing and a long
     press on a row as the way in. Only on a phone — a pointer layout has the
@@ -430,7 +436,10 @@ export function FolderView({
                     onActions={(picked) => void onSelection!(picked, { x: 0, y: 0 })}
                   />
                 ) : null}
-                {groupsOf(rows, compact ? phoneRows : undefined).map((group) => (
+                {contacts === null ? null : (
+                  <ContactsIndex letters={contacts.letters} onSelect={onSelect} compact={compact} />
+                )}
+                {groupsOf(listedRows, compact ? phoneRows : undefined).map((group) => (
                 <View key={group.label ?? "all"} style={group.label === null ? undefined : styles.group}>
                 {group.label === null ? null : (
                   <Text variant="eyebrow" style={styles.groupLabel} accessibilityRole="header">
@@ -467,7 +476,7 @@ export function FolderView({
                               : selection.start
                         }
                         phone={compact ? phoneRows?.(row) : undefined}
-                        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
+                        folderIcon={iconOf?.(row.path) ?? null}
                       />
                     </Fragment>
                   ))}

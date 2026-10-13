@@ -3,6 +3,7 @@ import { Menu } from "../../design/components/Menu";
 import { writeClipboard } from "../../design/clipboard";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { displayName, parentPath } from "../files/paths";
+import { setReadMode, useReadMode } from "../files/readMode";
 import { findEntry, treeRowFor } from "../files/tree";
 import type { FileEntry } from "../files/types";
 import type { ConsoleData } from "../types";
@@ -29,15 +30,18 @@ export function NoteActionsSheet({
 }) {
   const files = data.files;
   const visitor = data.visitor;
+  const reading = useReadMode();
   const items = noteActionItems({
     entry,
     canEdit: files.canEdit,
     canShare: files.canShare,
     visitor: visitor !== undefined,
+    reading,
   });
 
   const run = (id: NoteActionId) => {
     onDismiss();
+    if (id === "read") return setReadMode(!reading);
     runNoteAction(id, { data, entry, contextLabel, setBarDialog });
   };
 
@@ -57,7 +61,8 @@ export function NoteActionsSheet({
  * the two cannot disagree about what Share or Move does.
  */
 export function runNoteAction(
-  id: NoteActionId,
+  /** Reading mode is the sheet's own row (`NoteActionsSheet`), not an operation on the note. */
+  id: Exclude<NoteActionId, "read">,
   {
     data,
     entry,

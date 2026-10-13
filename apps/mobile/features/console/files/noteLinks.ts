@@ -8,9 +8,10 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
-import { indexByName, parseLinks, resolveLink, styleOf } from "@context/shared/src/links";
+import { indexByName, linkAnchor, parseLinks, resolveLink, styleOf } from "@context/shared/src/links";
 
 import { webUrl } from "./webUrl";
+import { tagUnder } from "./tagUnder";
 
 export { webUrl } from "./webUrl";
 export {
@@ -136,14 +137,23 @@ export interface NoteLinkContext {
    * module comment.
    */
   paths?: readonly string[];
-  /** A click, a ⌘-click, a middle-click, or a tap. */
-  onOpen: (path: string, mode: NoteLinkOpen) => void;
+  /**
+   * A click, a ⌘-click, a middle-click, or a tap. `anchor` is the place inside
+   * the note the link names (`[[day#msg-…]]`), for the note to scroll to.
+   */
+  onOpen: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
   /**
    * A link out of the bucket was clicked — a web page or an email address,
    * already checked by `webUrl`. Absent means this surface cannot open one,
    * and such a link then takes the caret like any other text.
    */
   onOpenUrl?: (url: string) => void;
+  /**
+   * A `#tag` written in the note was clicked or tapped (`tagGrammar.ts`), to
+   * show the notes carrying it. Absent means this surface has nowhere to show
+   * them, and the tag takes the caret like any other text.
+   */
+  onOpenTag?: (tag: string) => void;
 }
 
 /**
@@ -162,6 +172,8 @@ export interface NoteLinkSpan {
   to: number;
   /** Where it points, already resolved to a path this context holds. */
   path: string;
+  /** The place inside that note it names — `msg-…` of `[[day#msg-…]]` — when it names one. */
+  anchor?: string;
 }
 
 /**
@@ -200,7 +212,8 @@ export function noteLinksIn(
     if (link.kind === "inline" && webUrl(link.target) !== null) continue;
     const path = resolveLink(link, context.path, byName);
     if (path === null) continue;
-    spans.push({ ...widen(text, link), path });
+    const anchor = linkAnchor(link.target);
+    spans.push(anchor === "" ? { ...widen(text, link), path } : { ...widen(text, link), path, anchor });
   }
   return spans;
 }
@@ -417,11 +430,11 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   const targetUnder = (
     view: EditorView,
     under: EventTarget | null,
-  ): { from: number; to: number; path?: string; url?: string } | null => {
+  ): { from: number; to: number; path?: string; anchor?: string; url?: string; tag?: string } | null => {
     // Only the link's words are the link (`onLinkText`), and the words say
     // which link they are; see `linkTextPos` for why not the coordinates.
     const pos = linkTextPos(view, under);
-    if (pos === null) return null;
+    if (pos === null) return ref.current.onOpenTag === undefined ? null : tagUnder(view, under);
     const note = noteLinkAt(spansOf(view), pos);
     if (note !== null) return note;
     if (ref.current.onOpenUrl === undefined) return null;
@@ -429,9 +442,10 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   };
 
   /** Follow what `targetUnder` found. */
-  const follow = (target: { path?: string; url?: string }, mode: NoteLinkOpen): void => {
-    if (target.path !== undefined) ref.current.onOpen(target.path, mode);
+  const follow = (target: { path?: string; anchor?: string; url?: string; tag?: string }, mode: NoteLinkOpen): void => {
+    if (target.path !== undefined) ref.current.onOpen(target.path, mode, target.anchor);
     else if (target.url !== undefined) ref.current.onOpenUrl?.(target.url);
+    else if (target.tag !== undefined) ref.current.onOpenTag?.(target.tag);
   };
 
   /*
@@ -449,7 +463,8 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     recognisers has an opinion, and it is not ambiguous, so there is nothing to
     ask about.
   */
-  let tap: { x: number; y: number; path?: string; url?: string; startedAt: number } | null = null;
+  let tap: { x: number; y: number; path?: string; anchor?: string; url?: string; tag?: string; startedAt: number } | null =
+    null;
   const forget = () => {
     tap = null;
   };
@@ -508,7 +523,9 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         x: touch.clientX,
         y: touch.clientY,
         path: span.path,
+        anchor: span.anchor,
         url: span.url,
+        tag: span.tag,
         startedAt: Date.now(),
       };
       // Deliberately `false`: the touch keeps behaving like a touch — the note

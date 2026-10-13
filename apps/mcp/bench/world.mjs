@@ -23,6 +23,7 @@ import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
 import { createWeb } from "./sites.mjs";
+import { createBenchSite } from "./siteStub.mjs";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
 import { rmSync } from "node:fs";
@@ -170,7 +171,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   // A write a turn makes is stamped on the world's clock, so it reads as just written.
   const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
-  const controlPlane = createControlPlaneStub();
+  // The website and domain `write_note` `site` answers for (`siteStub.mjs`),
+  // read from the buckets placed below.
+  let site = null;
+  const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
   // A warmed world answers searches from a copy of the snapshot's database.
   const copies = [];
   const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;
@@ -209,6 +213,12 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, meaning: vectorize !== null, prepared });
 
+  const nameOf = new Map([...ids].map(([name, id]) => [id, name]));
+  site = createBenchSite({
+    bucketOf: (id) => (nameOf.has(id) ? s3.bucketFor(`bench-${nameOf.get(id)}`) : null),
+    handleOf: (id) => nameOf.get(id) ?? null,
+  });
+
   controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", 999), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
   pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
@@ -236,6 +246,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // Where the person's own pages live, as in production: a handoff texts
+    // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
+    // the browser cannot be handed over at all.
+    APP_ORIGIN: "https://app.bench.invalid",
     // The deployed Worker's search budget (wrangler.toml). The free-tier default
     // of 40 is spent by one bucket scan, and every read, listing and orient in the
     // same turn then fails: the 2026-10-08 results measured exactly that.
@@ -336,7 +350,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
     browser() {
-      return web ? web.events() : [];
+      return [...(web ? web.events() : []), ...site.events()];
     },
 
     /** What the conversation changed in the invented workspaces, as a list. */

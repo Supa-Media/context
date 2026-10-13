@@ -71,6 +71,7 @@ export {
   cutBlock,
   planInsert,
   imageFilesFrom,
+  pastedImagesFrom,
   planAlt,
   planReplace,
   planRemove,

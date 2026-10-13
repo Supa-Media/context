@@ -11,7 +11,7 @@ import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
-import { phoneBackTarget } from "../home/phoneBack";
+import { phoneBackLevels } from "../home/phoneBack";
 import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import { selectedContext, type ConsoleData } from "../types";
@@ -60,7 +60,8 @@ export function consoleSyncSlot({
 
 /**
  * The phone's top-left: the workspace's own button on Home, and ‹ back on
- * every page below it (owner, 2026-10-01). See `home/phoneBack.ts`.
+ * every page below it (owner, 2026-10-01), which opens the levels above the
+ * page (owner, 2026-10-13). See `home/phoneBack.ts`.
  *
  * A signed-out visitor keeps Sign in beside the back button: it is the one call
  * to action the top bar carries, and the homepage opens on a page, not on Home.
@@ -81,12 +82,12 @@ export function consoleAccountSlot({
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
   const mapOpen = map?.open === true;
-  const target = phone && browsing ? phoneBackTarget(data.files.selectedPath, mapOpen) : null;
-  if (target === null) return account;
+  const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen) : [];
+  if (levels.length === 0) return account;
   return (
     <PhoneBack
-      target={target}
-      onBack={() => {
+      levels={levels}
+      onGo={(target) => {
         if (mapOpen) map?.closeMap();
         if (target.folder === null) data.files.deselect();
         else data.files.select(target.folder);

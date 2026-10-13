@@ -170,6 +170,12 @@ export interface ConsoleClient {
    * direction this must not fail in — so a producer has to say.
    */
   mine: boolean;
+  /**
+   * The Context desktop app on one of this person's computers ("Context on
+   * Seyis-MacBook-Pro"), which records meetings. It is the app, not an AI, so
+   * the map does not draw it as one.
+   */
+  machine?: boolean;
   status: StatusTone;
   /** Absent in the demo — a demo console must not offer a Revoke that lies. */
   revoke?: () => void;

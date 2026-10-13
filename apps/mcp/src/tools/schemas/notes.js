@@ -57,7 +57,10 @@ export function noteWriteToolDefinitions() {
         "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
         "Then pass site: { action: \"publish\", draft } with the draft that status or check named: exactly that draft goes live, or you are told the folder changed since you checked. Answers name the published revision and the live addresses. " +
         "After publishing, site: { action: \"screenshot\", page: \"/about\" } photographs a public page as a signed-out visitor sees it at phone, tablet and desktop widths, and reports sideways scroll, whether the bottom can be scrolled to, boxes that hide content and pictures that did not load. " +
-        "To roll back, site: { action: \"history\" } lists the last 5 published versions and site: { action: \"history\", revision } returns one's files as they were published: write them back with write_note to make them the draft, then check and publish.",
+        "To roll back, site: { action: \"history\" } lists the last 5 published versions and site: { action: \"history\", revision } returns one's files as they were published: write them back with write_note to make them the draft, then check and publish. " +
+        "A site that is off says so with the link to the app's Website settings, where its owner turns it on. " +
+        "site: { action: \"domain\" } shows the workspace's own domain (the DNS records to add at the person's DNS provider, which are found and which are still missing, a one-click setup link when their provider offers one, and whether it is live), and checks a domain still on its way again; " +
+        "an owner's site: { action: \"domain\", hostname: \"example.com\" } connects that domain, which they must already own; the answer says why when this workspace cannot have one.",
       inputSchema: {
         type: "object",
         properties: {
@@ -68,11 +71,11 @@ export function noteWriteToolDefinitions() {
             additionalProperties: false,
             description:
               "Read, check or publish this context's website instead of writing a note; pass it with path \"website/index.md\" and no content. " +
-              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since; history lists and returns the last 5 published versions, to roll back.",
+              "status names the draft Publish would release; check finds broken links, missing pictures and code the cleaner removes; publish releases the draft, and given that draft refuses if the folder changed since; history lists and returns the last 5 published versions, to roll back; domain shows or connects the site's own domain and the DNS records it needs.",
             properties: {
               // A plain string, not an enum: a client that cached this list
               // keeps it, and a new action has to reach it all the same.
-              action: { type: "string", description: "status, check, publish, screenshot or history." },
+              action: { type: "string", description: "status, check, publish, screenshot, history or domain." },
               draft: { type: "string", description: "publish: the draft a status or check returned, so only what you checked goes live." },
               page: { type: "string", description: "screenshot: the published address to photograph, e.g. \"/\" or \"/about\"." },
               sizes: {
@@ -87,6 +90,10 @@ export function noteWriteToolDefinitions() {
                   "history with a revision: one page of that version, when the version is too long for one answer.",
               },
               revision: { type: "integer", description: "history: the published revision whose files to return." },
+              hostname: {
+                type: "string",
+                description: "domain: the domain to connect, e.g. \"example.com\" or \"blog.example.com\"; owners only. Leave it out to see the connected one.",
+              },
             },
             required: ["action"],
           },

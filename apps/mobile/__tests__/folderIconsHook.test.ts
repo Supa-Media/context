@@ -37,7 +37,7 @@ jest.mock("convex/react", () => {
     };
     return bound[name];
   };
-  return { useAction: record, useMutation: record, useQuery: () => undefined };
+  return { useAction: record, useMutation: record, useQuery: () => undefined, useQueries: () => ({}), useConvex: () => ({ query: async () => null }) };
 });
 
 const bound: Record<string, (args: never) => Promise<unknown>> = {};
@@ -108,7 +108,9 @@ describe("reading the icons", () => {
     await settle();
     expect(listed("list")).toEqual([{ workspaceId: "w1" }]);
     expect(api.icons.iconOf("2-areas/cooking")).toBe("🍳");
-    expect(api.icons.iconOf("2-areas")).toBeNull();
+    // A built-in folder nobody chose an icon for draws its default.
+    expect(api.icons.iconOf("2-areas")).toBe("🛠️");
+    expect(api.icons.iconOf("2-areas/plain")).toBeNull();
   });
 
   test("a rerender with the same workspace does not read it again", async () => {
@@ -213,7 +215,7 @@ describe("a folder's icon follows it", () => {
     act(() => api.icons.moved("1-projects", "4-archive/1-projects"));
     expect(api.icons.iconOf("4-archive/1-projects")).toBe("🚀");
     expect(api.icons.iconOf("4-archive/1-projects/site")).toBe("🌐");
-    expect(api.icons.iconOf("1-projects")).toBeNull();
+    expect(api.icons.iconOf("1-projects")).toBe("🏗️"); // the built-in default, back
   });
 
   test("removed() drops the icon of a folder that is gone", async () => {
@@ -221,7 +223,7 @@ describe("a folder's icon follows it", () => {
     unmount = m.unmount;
     await settle();
     act(() => api.icons.removed("1-projects"));
-    expect(api.icons.iconOf("1-projects")).toBeNull();
+    expect(api.icons.iconOf("1-projects")).toBe("🏗️"); // the built-in default, back
     expect(api.icons.iconOf("1-projects/site")).toBeNull();
     expect(api.icons.iconOf("2-areas/cooking")).toBe("🍳");
   });
@@ -268,6 +270,6 @@ describe("a folder's icon follows it", () => {
       await api.actions.archiveEntry({ workspaceId: "w1", path: "1-projects" } as never);
     });
     expect(api.icons.iconOf("4-archive/2024-01-01/1-projects")).toBe("🚀");
-    expect(api.icons.iconOf("1-projects")).toBeNull();
+    expect(api.icons.iconOf("1-projects")).toBe("🏗️"); // the built-in default, back
   });
 });

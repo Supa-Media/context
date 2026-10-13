@@ -9,6 +9,7 @@ import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
 import { changeProperty } from "./propertyEdit";
 import { NoteRoutineBar, type NoteEdit } from "../../routines/RoutineBar";
+import { ContactHeader } from "../../communications/ContactHeader";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
 import type { NoteView } from "./view";
@@ -67,6 +68,7 @@ export function noteDocument(view: NoteView) {
     offset,
     notePaths,
     onOpenLink,
+    onOpenTag,
     onSuggest,
     onPickSuggestion,
     voice,
@@ -160,6 +162,14 @@ export function noteDocument(view: NoteView) {
           it was the first thing a new person saw on a note that had no
           frontmatter at all. Who can read a note is the Share dialog's answer.
         */}
+        {/*
+          A contact page's name, identifiers and "Contact" mark, over its
+          Properties and body (`communications/ContactHeader.tsx`). Nothing
+          for any other note.
+        */}
+        {passphraseLocked || drawing || activityList ? null : (
+          <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
+        )}
         <Reveal open={!passphraseLocked && frontmatter !== ""}>
         {!passphraseLocked && frontmatter !== "" ? (
           <Properties
@@ -386,6 +396,7 @@ export function noteDocument(view: NoteView) {
             which is what stops the editor underlining text it cannot act on.
           */
           onOpenNote={onOpenLink === undefined ? undefined : onOpenLink}
+          onOpenTag={onOpenTag}
           onSuggest={onSuggest}
           onPickSuggestion={onPickSuggestion}
           /*

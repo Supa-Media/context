@@ -59,7 +59,7 @@ async function siteFixture() {
 
 type Site = Record<string, unknown> & {
   draft: string;
-  pages: Array<{ path: string; address: string | null; changed: boolean; problems: string[] }>;
+  pages: Array<{ path: string; address: string | null; editUrl: string | null; changed: boolean; problems: string[] }>;
 };
 
 async function site(f: Awaited<ReturnType<typeof siteFixture>>, accessToken: string, body: Record<string, unknown>) {
@@ -102,6 +102,18 @@ describe("/gateway/site", () => {
     expect(after!.pages.filter((page) => page.changed).map((page) => page.path)).toEqual(["website/about.md"]);
     expect(after!.pages.find((page) => page.path === "website/about.md")!.address).toBe("/about");
     expect(after!.publishedRevision).toBe(before!.publishedRevision);
+  });
+
+  test("status names the app's Website settings and each page, for a person to open and write", async () => {
+    const f = await siteFixture();
+    f.backend.seed("website/our story.md", "---\ntitle: Our story\n---\n\nWords\n");
+    const status = await site(f, EDITOR, { action: "status" });
+    expect(status!.settingsUrl).toBe("https://context.lc/console/@atlas?settings=website");
+    const editUrls = Object.fromEntries(
+      status!.pages.map((page) => [page.path, page.editUrl]),
+    );
+    expect(editUrls["website/about.md"]).toBe("https://context.lc/note/@atlas/website/about.md");
+    expect(editUrls["website/our story.md"]).toBe("https://context.lc/note/@atlas/website/our%20story.md");
   });
 
   test("publish releases the draft it was checked against, and a stale draft is a conflict", async () => {

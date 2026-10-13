@@ -398,7 +398,7 @@ export type ToHost =
    * away the note being edited on an ambiguous gesture. A tap is not
    * ambiguous, so both the message and the dialog are gone; see `noteLinks.ts`.
    */
-  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background" }
+  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background"; anchor?: string }
   /**
    * A web link in the note was tapped — `https:`, `http:` or `mailto:`, as
    * `webUrl` in `noteLinks.ts` reads it. The host checks the scheme again and
@@ -406,6 +406,11 @@ export type ToHost =
    * `host.ts` for why this one is not simply opened.
    */
   | { v: number; type: "open-url"; url: string }
+  /**
+   * A `#tag` drawn in the note was tapped, to show the notes carrying it. The
+   * host checks it is a tag before acting; see the `open-tag` case.
+   */
+  | { v: number; type: "open-tag"; tag: string }
   /**
    * The link key was pressed over these words, and the selection is saved in
    * the guest until an `applyLink` or `cancelLink` command answers. Sent only
@@ -625,6 +630,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "failed",
   "open-link",
   "open-url",
+  "open-tag",
   "link-request",
   "form-submit",
   "form-responses",

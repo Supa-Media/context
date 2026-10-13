@@ -401,7 +401,7 @@ export class ListView {
     const anchor = this.menuAnchor;
     this.menuAnchor = null;
     anchor?.setAttribute("aria-expanded", "false");
-    if (refocus && anchor?.isConnected) anchor.focus();
+    if (refocus && anchor?.isConnected) anchor.focus({ preventScroll: true });
   }
 
   /**
@@ -460,7 +460,7 @@ export class ListView {
     this.dom.classList.remove("cm-lp-list-open");
     this.caption.setAttribute("aria-expanded", "false");
     this.dom.ownerDocument.removeEventListener("mousedown", this.outside, true);
-    if (refocus) this.caption.focus();
+    if (refocus) this.caption.focus({ preventScroll: true });
   }
 
   /** Rewrite the block this drawing stands for. */

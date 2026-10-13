@@ -549,6 +549,11 @@ export const recordIngestion = internalMutation({
     */
     if (args.outcome === "captured") {
       await stampTreeAudiences(ctx, ticket.workspaceId, ["private"]);
+      // The email worker does not send the path, so the Convex tree learns of
+      // the new note by a sweep rather than a re-check.
+      await ctx.scheduler
+        .runAfter(0, internal.functions.nodes.requestSweep, { workspaceId: ticket.workspaceId })
+        .catch(() => {});
     }
     return true;
   },

@@ -113,6 +113,13 @@ export type FileOperation =
     }
   /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
   | { kind: "treeState" }
+  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
+  | { kind: "nodesSweep"; passes?: number }
+  | { kind: "nodesTouch"; paths: string[]; files: string[]; moves?: { from: string; to: string }[] }
+  | { kind: "nodesParity" }
+  /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
+  | { kind: "nodesMoveStart"; from: string; to: string }
+  | { kind: "nodesMoveWork" }
   /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
   | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
   /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
@@ -373,6 +380,10 @@ export type OperationResult =
       privacy?: string | null;
     } & SyncManifest)
   | { kind: "treeKept"; complete: boolean }
+  | { kind: "nodesKept"; complete: boolean }
+  /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
+  | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
+  | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult
   | ChaosScoreResult

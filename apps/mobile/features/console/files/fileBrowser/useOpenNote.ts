@@ -12,10 +12,11 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { isServerRefusal, toFileError } from "../browser";
 import { guardLeaving } from "../editor";
 import { isMarkdown, parentPath } from "../paths";
+import { rekeyPath } from "../optimistic";
 import { raceTimeout } from "../../storage/timeout";
 import { isUnreadable } from "../unreadable";
 import { restoreFor } from "../../../offline/restore";
@@ -24,15 +25,19 @@ import { findEntry } from "../tree";
 import type { OpenNote } from "../types";
 import type { RestoredDraft } from "../editor";
 import { INSTANT_OPEN_MS } from "./timing";
+import { createNotePrefetch, type NotePrefetch } from "./notePrefetch";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
 import type { OfflineQueueValues } from "./useOfflineQueue";
 
 type OpenNoteDeps =
-  & Pick<FileActionsValues, "readNote" | "workspaceId">
+  & Pick<FileActionsValues, "readNote" | "workspaceId" | "workspaceGenerationRef">
   & Pick<
     BrowserStateValues,
+    | "pendingMoveTo"
+    | "pendingCreateTo"
+    | "renamingRef"
     | "autosave"
     | "collaborationPaths"
     | "dispatch"
@@ -48,12 +53,23 @@ type OpenNoteDeps =
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "ensureListing" | "refresh" | "reportRefreshFailure">;
 
+/** What one `readNote` answers. */
+type NoteRead = Awaited<ReturnType<FileActionsValues["readNote"]>>;
+
 export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
-    settleOpening, workspaceId,
+    settleOpening, workspaceId, workspaceGenerationRef, pendingMoveTo, pendingCreateTo, renamingRef,
   } = deps;
+
+  /*
+    Reads asked for before the press (`notePrefetch.ts`), keyed by context and
+    the path the bucket knows the note by.
+  */
+  const readAhead = useRef<NotePrefetch<NoteRead> | null>(null);
+  if (readAhead.current === null) readAhead.current = createNotePrefetch<NoteRead>();
+  const earlyKey = (path: string) => `${workspaceId ?? ""}\n${path}`;
 
   /*
     A note that is in storage and can't be opened (`../unreadable.ts`) closes
@@ -79,7 +95,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     // at the new name is the authority there, not this draft.
     if (collaborationPaths.current.has(from)) return undefined;
     const shown = editorRef.current;
-    if (shown.path !== from || shown.draft === note.text) return undefined;
+    if ((shown.path !== from && shown.path !== note.path) || shown.draft === note.text || shown.draft === shown.baseline) return undefined;
     return { text: shown.draft, status: "dirty" };
   };
 
@@ -176,7 +192,14 @@ export function useOpenNote(deps: OpenNoteDeps) {
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
         } else {
-          const reading = readNote({ workspaceId, path: source });
+          /*
+            A read already asked for when the pointer reached this note's row
+            is this open's read, unless the editor is on this note already:
+            then it may predate what is on screen, and is dropped.
+          */
+          const asked = readAhead.current?.take(earlyKey(source));
+          const reusable = carriedFrom === undefined && editorRef.current.path !== path;
+          const reading = (reusable ? asked : undefined) ?? readNote({ workspaceId, path: source });
           /*
             Online, the mirror answers first when the bucket is slow.
 
@@ -331,6 +354,24 @@ export function useOpenNote(deps: OpenNoteDeps) {
     [readNote, settleOpening, workspaceId],
   );
 
+  /**
+   * Start reading a note somebody is about to open — see `notePrefetch.ts`.
+   * Only where `openNote` would ask the bucket anyway: online, a note that
+   * exists there, and not the one the editor is holding.
+   */
+  const prefetch = useCallback(
+    (path: string): void => {
+      if (workspaceId === null || !isMarkdown(path)) return;
+      if (pendingMoveTo(path) !== undefined || pendingCreateTo(path) !== undefined) return;
+      const offline = offlineRef.current;
+      if (offline.reachability === "offline" || offline.pendingCreate(path) !== undefined) return;
+      if (editorRef.current.path === path) return;
+      const source = offline.serverPathOf(path);
+      readAhead.current?.prefetch(earlyKey(source), () => readNote({ workspaceId, path: source }));
+    },
+    [readNote, workspaceId],
+  );
+
   const select = useCallback(
     /**
      * `written`: the note as a write that has just created it left it. A note
@@ -355,6 +396,37 @@ export function useOpenNote(deps: OpenNoteDeps) {
         guard first would only make the ordering look load-bearing when it is
         not.
       */
+      const pending = pendingMoveTo(path) ?? pendingCreateTo(path);
+      if (pending !== undefined) {
+        // A destination row is a promise, not a readable storage path yet.
+        if ("from" in pending && editorRef.current.path === pending.from) return true;
+        autosave.flush();
+        const guard = guardLeaving(editorRef.current);
+        if (!guard.allowed) {
+          setNotice(guard.prompt ?? null);
+          return false;
+        }
+        const epoch = workspaceGenerationRef.current.epoch;
+        const mine = ++openRun.current;
+        setSelectedPath(path);
+        setNavigations((count) => count + 1);
+        setOpening(path);
+        setNotice(null);
+        setUnreadable(null);
+        void pending.done.then((committed) => {
+          if (workspaceGenerationRef.current.epoch !== epoch || openRun.current !== mine) return;
+          const resolved = committed || !("from" in pending) ? path : rekeyPath(path, pending.to, pending.from)!;
+          if (!committed && !("from" in pending)) {
+            setSelectedPath(null);
+            setOpening(null);
+            return;
+          }
+          // Reuse ordinary folder/note navigation after the promise settles.
+          // A renamed folder has a listing, not a readable note body.
+          select(resolved);
+        });
+        return true;
+      }
       autosave.flush();
       const guard = guardLeaving(editorRef.current);
       if (!guard.allowed) {
@@ -489,15 +561,52 @@ export function useOpenNote(deps: OpenNoteDeps) {
    * as a second note at the old name, and vanished from the one on screen.
    */
   const followRename = useCallback(
-    (from: string, to: string): void => {
-      if (workspaceId === null) return;
+    (from: string, to: string, prepare?: () => Promise<void>, onLeave?: (path: string, text: string) => Promise<void>): void => {
+      if (workspaceId === null || editorRef.current.path !== from) return;
+      const epoch = workspaceGenerationRef.current.epoch;
+      const mine = ++openRun.current;
+      const shown = editorRef.current;
+      // Identity follows the committed move immediately. Keep its content
+      // until the canonical destination read can carry/rebase the draft.
+      editorRef.current = { ...shown, path: to };
+      dispatch({ type: "renamed", from, to });
       setSelectedPath(to);
-      void openNote(to, from);
+      const hold = { path: to, held: shown.draft !== shown.baseline ? shown.draft : null };
+      renamingRef.current = hold;
+      void (async () => {
+        try {
+          if (prepare !== undefined) await raceTimeout(prepare(), {
+            ms: 10_000,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          if (workspaceGenerationRef.current.epoch !== epoch || openRun.current !== mine) return;
+          const reading = openNote(to, from);
+          const readRun = openRun.current;
+          const reread = await raceTimeout(reading, {
+            ms: 10_000,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          if (reread.kind === "timeout" && workspaceGenerationRef.current.epoch === epoch && openRun.current === readRun) {
+            // The move is committed; a lost confirmation read must not hold
+            // all future typing or overwrite it if the old read answers later.
+            openRun.current += 1;
+            settleOpening(to);
+          }
+        } finally {
+          if (workspaceGenerationRef.current.epoch === epoch) {
+            if (renamingRef.current === hold) renamingRef.current = null;
+            if (editorRef.current.path === to && editorRef.current.status === "dirty") autosave.edited(to);
+            else if (editorRef.current.path !== to && hold.held !== null) void onLeave?.(to, hold.held);
+          }
+        }
+      })();
     },
-    [openNote, workspaceId],
+    [openNote, workspaceId, workspaceGenerationRef, autosave],
   );
 
-  return { openNote, select, deselect, followRename };
+  return { openNote, prefetch, select, deselect, followRename };
 }
 
 export type OpenNoteValues = ReturnType<typeof useOpenNote>;

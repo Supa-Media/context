@@ -47,6 +47,8 @@ const bound: Record<string, (args: never) => Promise<unknown>> = {};
 jest.mock("convex/react", () => {
   const { getFunctionName } = require("convex/server") as typeof import("convex/server");
   return {
+    useQueries: () => ({}),
+    useConvex: () => ({ query: async () => null }),
     useAction: (ref: never) => {
       const name = getFunctionName(ref);
       // Memoised by name. A fresh closure per render would make every callback

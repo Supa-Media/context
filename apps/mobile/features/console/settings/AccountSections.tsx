@@ -17,6 +17,8 @@ import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
+import { AccountSafetyCard } from "./panels/AccountSafetyCard";
+import { PhoneCard } from "./panels/PhoneCard";
 import { YourPicture } from "./panels/YourPicture";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
@@ -189,6 +191,14 @@ export function AccountSection({
       {/* Every email this person signs in with (Dev2, 2026-10-09). */}
       <View style={styles.spaced}>
         <SignInEmailsCard />
+      </View>
+      {/* The phone, which changes only after an emailed code (Dev2, 2026-10-12). */}
+      <View style={styles.spaced}>
+        <PhoneCard />
+      </View>
+      {/* Who is signed in, and what "This wasn't me" left paused (Dev2, 2026-10-12). */}
+      <View style={styles.spaced}>
+        <AccountSafetyCard />
       </View>
       {/*
         The Macs, at the foot of the person they belong to. Drawn only when

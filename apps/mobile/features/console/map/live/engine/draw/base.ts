@@ -1,12 +1,12 @@
 import { toWorld } from "../camera";
 import { LAYER } from "../hit";
-import type { IslandPlace } from "../layout";
+import { ICON_R, type IslandPlace } from "../layout";
 import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
 import { BOW, bowOf, grain } from "./board";
 import type { DrawEnv } from "./env";
-import { circle, fontOf } from "./primitives";
+import { circle, fontOf, roundRect } from "./primitives";
 
 /** How strongly a link between two folders is drawn, against one inside a folder. */
 export const CROSS_FOLDER_LINK = 0.35;
@@ -35,6 +35,12 @@ export function drawGround(env: DrawEnv): void {
       const p = env.screen(f);
       const pr = f.r * s;
       if (!env.onScreen(p, pr)) continue;
+      if (f.collapsed) {
+        const ir = drawFolderIcon(env, p);
+        env.occ.claim({ x: p.x - ir - 2, y: p.y - ir - 2, w: ir * 2 + 4, h: ir * 2 + 4 });
+        env.hit.circle(p.x, p.y, ir + 4, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
+        continue;
+      }
       if (f.name !== "") env.hit.circle(p.x, p.y, pr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
       for (const sub of f.subs) {
         if (sub.name === "") continue;
@@ -45,6 +51,42 @@ export function drawGround(env: DrawEnv): void {
       }
     }
   }
+}
+
+/** How big a folder's icon is on screen, in pixels from its centre: readable far out, never a blot up close. */
+export function folderIconRadius(s: number): number {
+  return clamp(ICON_R * s, 9, 20);
+}
+
+/** A folder drawn as one icon (Archive): a lidded box with a handle slot, in the folder names' colour. */
+function drawFolderIcon(env: DrawEnv, p: Point): number {
+  const { ctx, style, s } = env;
+  const C = style.palette;
+  const r = folderIconRadius(s);
+  const w = r * 1.7;
+  const lidH = r * 0.5;
+  const bodyH = r * 1.05;
+  const x = p.x - w / 2;
+  const top = p.y - (lidH + bodyH) / 2;
+  ctx.globalAlpha = env.dim ? 0.5 : 1;
+  ctx.lineWidth = Math.max(1.2, r / 9);
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = C.muted;
+  ctx.fillStyle = C.ground;
+  roundRect(ctx, x, top, w, lidH, r * 0.12);
+  ctx.fill();
+  ctx.stroke();
+  roundRect(ctx, x + w * 0.07, top + lidH, w * 0.86, bodyH, r * 0.12);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x - w * 0.16, top + lidH + bodyH * 0.32);
+  ctx.lineTo(p.x + w * 0.16, top + lidH + bodyH * 0.32);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.lineJoin = "miter";
+  ctx.globalAlpha = 1;
+  return r;
 }
 
 /** Dashed paths between workspaces that notes moved along today, with a count that bumps. */
@@ -129,6 +171,8 @@ export function drawLinks(env: DrawEnv): void {
         if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
         const na = notes.get(ka)!;
         const nb = notes.get(kb)!;
+        // Links into a folder drawn as an icon would all meet on it: left out.
+        if (na.sub.folder.collapsed || nb.sub.folder.collapsed) continue;
         if ((na.sub.folder !== nb.sub.folder) !== across) continue;
         // A note moving within its workspace takes its links with it.
         const fa = env.flyingAt.get(ka);
@@ -296,7 +340,7 @@ export function drawNotes(env: DrawEnv): void {
   for (const key of marked) {
     if (!scene.present.has(key) || scene.hidden.has(key) || popping.has(key)) continue;
     const n = model.layout.notes.get(key);
-    if (!n) continue;
+    if (!n || n.sub.folder.collapsed) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
     const R = dotRadius(s, n.deg);

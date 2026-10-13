@@ -56,6 +56,9 @@ import {
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
 import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
+import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
+import { isServedStore, servedKeys, servedMoves } from "../nodes/manifestStore";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 
@@ -198,10 +201,16 @@ export async function workspaceGraph(
   // first drawn note is round trips to the bucket, not bytes. Where the tree's
   // link table has read every note once, it answers both the notes and the
   // links in two queries and the search index is not read at all.
-  const [state, tableRows, jobs] = await Promise.all([
+  // Where the Convex tree serves, it says which notes exist and where they are
+  // drawn now, pending moves folded in; the table or the index only says
+  // what links to what.
+  const [state, tableRows, jobs, treePaths] = await Promise.all([
     loadPrivacyState(store),
     table === null ? Promise.resolve(null) : readLinkTable(table),
     loadMoveJobs(store),
+    isServedStore(store)
+      ? servedKeys(store).then((keys) => keys.filter((key) => isIndexableNote(key)), () => null)
+      : Promise.resolve(null),
   ]);
   const found =
     tableRows === null
@@ -211,7 +220,7 @@ export async function workspaceGraph(
     !isPlumbing(path) &&
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
 
-  if (tableRows === null && found === null) {
+  if (treePaths === null && tableRows === null && found === null) {
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
@@ -226,14 +235,20 @@ export async function workspaceGraph(
       sourceOf.set(item.destination, item.source);
     }
   }
-  const logicalPath = (path: string) => destinationOf.get(path) ?? path;
+  // The links name bucket keys, and a queued move draws them elsewhere already (`moveOverlay.ts`).
+  const queued = servedMoves(store);
+  const logicalPath = (path: string) => {
+    const moved = destinationOf.get(path) ?? path;
+    return queued.length === 0 ? moved : (queuedLogicalPath(moved, queued) as string);
+  };
   const mayDraw = (path: string) => {
     const logical = logicalPath(path);
     return isVisible(logical) && isVisible(sourceOf.get(logical) ?? path);
   };
 
   const visible = new Set<string>();
-  const physicalPaths = tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
+  const physicalPaths =
+    treePaths !== null ? [treePaths] : tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
   for (const paths of physicalPaths) {
     for (const path of paths) if (mayDraw(path)) visible.add(logicalPath(path));
   }
@@ -289,8 +304,11 @@ export async function workspaceGraph(
       if (source === undefined) continue;
       addEdge(source, kind === "name" ? namedTarget(physical, target) : targetOf(target));
     }
+  } else if (found !== null) {
+    behind = await shardEdges(store, budget, found, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
   } else {
-    behind = await shardEdges(store, budget, found!, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
+    // Notes from the tree, and nothing yet that says what links to what.
+    behind = true;
   }
 
   const sortedEdges = [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);

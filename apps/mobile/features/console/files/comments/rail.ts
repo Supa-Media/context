@@ -244,7 +244,10 @@ class Rail implements PluginValue {
         this.dom.append(node);
       }
       this.cards.set(spec.id, { node, signature: spec.signature, pos: spec.pos, thread: spec.thread });
-      if (spec.id === DRAFT && !existing) queueMicrotask(() => node.querySelector("textarea")?.focus());
+      // Without moving the page: the card has not been placed beside its line
+      // yet, so the browser would scroll to where it first stands, the top of
+      // the note (Dev2, 2026-10-11). `place` keeps it on screen instead.
+      if (spec.id === DRAFT && !existing) queueMicrotask(() => node.querySelector("textarea")?.focus({ preventScroll: true }));
     }
     this.view.requestMeasure({ key: this, read: () => this.measure(), write: (layout) => this.place(layout) });
   }

@@ -220,7 +220,7 @@ export class ListPanel {
       this.orderSection(names),
       this.showSection(names),
     );
-    if (focused !== null) this.field(focused)?.focus();
+    if (focused !== null) this.field(focused)?.focus({ preventScroll: true });
   }
 
   /**
@@ -403,7 +403,7 @@ export class ListPanel {
     add.addEventListener("click", () => {
       this.draft.where.push({ property: "", op: "is", value: "" });
       this.paint();
-      this.field(`where-${this.draft.where.length - 1}-property`)?.focus();
+      this.field(`where-${this.draft.where.length - 1}-property`)?.focus({ preventScroll: true });
     });
     section.append(add);
     return section;
