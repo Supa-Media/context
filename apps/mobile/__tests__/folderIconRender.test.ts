@@ -78,7 +78,7 @@ function file(path: string, depth = 0): TreeRow {
 
 function tree(iconOf?: (path: string) => string | null) {
   return createElement(FileTree, {
-    rows: [folder("2-areas"), folder("2-areas/cooking", 1), file("2-areas/plan.md", 1)],
+    rows: [folder("2-areas"), folder("2-areas/cooking", 1), file("2-areas/plan.md", 1), file("2-areas/photo.png", 1)],
     canSetVisibility: false,
     onSelect: () => {},
     onToggle: () => {},
@@ -110,9 +110,35 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     expect(row?.textContent).toContain("cooking");
   });
 
-  test("a file never draws an emoji, even where its folder has one", () => {
+  test("a note draws its own emoji in the same slot (2-areas/plan.md)", () => {
+    const container = mount(tree((path) => (path === "2-areas/plan.md" ? ICON : null)));
+    expect(emojiOn(container, "plan.md")).toBe(ICON);
+    expect(emojiOn(container, "cooking, folder")).toBeNull();
+  });
+
+  test("a file that is not a note never draws one, whatever the source says", () => {
     const container = mount(tree(() => ICON));
-    expect(emojiOn(container, "plan.md")).toBeNull();
+    expect(emojiOn(container, "photo.png")).toBeNull();
+  });
+
+  test("a note with no emoji draws nothing, and for an editor only a hover-only way in", () => {
+    const container = mount(
+      createElement(FileTree, {
+        rows: [file("plan.md")],
+        canSetVisibility: false,
+        onSelect: () => {},
+        onToggle: () => {},
+        onCycleVisibility: () => {},
+        iconOf: () => null,
+        onIconPress: () => {},
+      }),
+    );
+    expect(container.querySelector("[data-testid='tree-folder-emoji']")).toBeNull();
+    const ghost = container.querySelector("[data-testid='tree-note-icon-ghost']");
+    expect(ghost).not.toBeNull();
+    // Nothing is drawn in it until the pointer is on it.
+    expect(ghost?.textContent).toBe("");
+    expect(ghost?.querySelector("svg")).toBeNull();
   });
 
   test("with no icon source at all, every folder draws the plain icon", () => {
@@ -141,11 +167,17 @@ describe("a folder listing's card draws the icon in place of the folder glyph", 
     expect(plain.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
   });
 
-  test("a note never draws one", () => {
-    const container = mount(
+  test("a note draws its own in place of the file glyph, in a card and outside one", () => {
+    const card = mount(
       createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, card: true, folderIcon: ICON }),
     );
-    expect(container.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
+    expect(card.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    const listing = mount(
+      createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, folderIcon: ICON }),
+    );
+    expect(listing.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    const plain = mount(createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, card: true }));
+    expect(plain.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
   });
 });
 

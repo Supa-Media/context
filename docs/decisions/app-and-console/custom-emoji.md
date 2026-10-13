@@ -81,3 +81,32 @@ listing rows, Home, the folder page's title) draws it through `EmojiGlyph`.
 workspace emoji's picture rather than its name would copy bytes the image store
 already holds. `folderIcons.test.ts` (Convex) and `folderIconRender.test.ts`
 (app) fail if either the `:name:` rule or the drawing goes.
+
+## Built-in folders have a default emoji, and notes can have one
+
+Decided by the owner, 2026-10-13 ("can we make default emojis for these
+folders, also can we add emojis to plain notes like activity"), reversing the
+2026-10-08 "no folder gets a special icon" for the built-in folders only.
+
+- **Defaults are drawn, never written.** `defaultFolderIcon` in
+  `folderIcons.cjs` gives a top-level folder its role's emoji (Inbox 📥,
+  Projects 🏗️, Areas 🛠️, Resources 📚, Clients 🤝, Teams 👥, Products 📦,
+  Archive 🗄️, and `website` 🖥️). Nothing goes into the bucket, so every
+  workspace has them without a migration, an icon somebody chose always wins,
+  and removing it ("Use default 📥") brings the default back. Somebody's own
+  folders keep the plain folder glyph.
+- **A note's icon is one more key in the same file**, the note's own path
+  (`todo.md`). The file keeps its name because it is a stable on-bucket format.
+  A note's icon is read back only when the note itself is visible (`canSee`),
+  never on the strength of its folder: a note held back inside a shared folder
+  must not leak through its emoji. It follows the note through every move, in
+  the console and through `move_note`, `move_notes` and `archive_note`
+  (`remapIcons`, one write per batch), and goes when the note is deleted for
+  good. Only Markdown notes can have one; a picture or a PDF cannot.
+- In the tree a note's emoji sits in the folder glyph's slot; a note with none
+  draws nothing, and an editor's pointer on that slot shows a faint smile that
+  opens the picker. Folder pages draw it in place of the file glyph.
+
+**Reversing the visibility rule** (a note's icon shown with its folder) leaks
+held-back notes' names; `folderIcons.test.ts`'s "a member never sees the icon
+of a note held back" fails.

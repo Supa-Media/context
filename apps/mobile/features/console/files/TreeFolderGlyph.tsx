@@ -21,15 +21,23 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * always has, and the row's menu key still offers "Set icon…". A ⌘/ctrl- or
  * shift-click is the row's pick before it reaches here (`rowInteractions.web`
  * listens in the capture phase), so the icon never steals a multi-selection.
+ *
+ * A note (2026-10-13) draws its emoji in the same box, or nothing: notes had
+ * no glyph before and most still have none. For somebody who may give it one,
+ * the empty box holds a faint smile that shows only while the pointer is on
+ * it, so the tree does not gain a column of smiles.
  */
 export function TreeFolderGlyph({
   label,
   icon,
   onPress,
+  note = false,
 }: {
+  /** A note's glyph rather than a folder's: no folder icon when it has no emoji. */
+  note?: boolean;
   /** The folder's name, for the button's accessible name. */
   label: string;
-  /** Its emoji, or `null` for the plain folder icon. */
+  /** Its emoji, or `null` for the plain folder icon (a note: nothing). */
   icon: string | null;
   /** Open the picker at this window point. Absent where the icon cannot be changed: the glyph is then only drawn. */
   onPress?: (anchor: { x: number; y: number }) => void;
@@ -37,19 +45,21 @@ export function TreeFolderGlyph({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
+  const plain = note ? null : <Icon name="folder" size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (
-      <Icon name="folder" size={14} color={colors.chromeMuted} />
+      plain
     ) : (
       <EmojiGlyph
         emoji={icon}
         size={14}
         textStyle={styles.emoji}
-        fallback={<Icon name="folder" size={14} color={colors.chromeMuted} />}
+        fallback={plain ?? <View />}
         testID="tree-folder-emoji"
       />
     );
   if (onPress === undefined) return glyph;
+  const ghost = note && icon === null;
 
   function open(event: GestureResponderEvent) {
     const fallback = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY + 8 };
@@ -75,9 +85,12 @@ export function TreeFolderGlyph({
       onPress={open}
       hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
-      testID="tree-folder-icon-button"
+      testID={ghost ? "tree-note-icon-ghost" : "tree-folder-icon-button"}
     >
-      {glyph}
+      {ghost
+        ? ({ hovered }: { hovered?: boolean; pressed: boolean }) =>
+            hovered ? <Icon name="smile" size={12} color={colors.chromeMuted} /> : null
+        : glyph}
     </Pressable>
   );
 }
