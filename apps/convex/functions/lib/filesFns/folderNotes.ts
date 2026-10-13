@@ -26,6 +26,8 @@ import { requireFolderPath } from "../fileOps/paths";
 import { readTreeState } from "../../../../mcp/src/tree/table.js";
 import { FOLDER_PAGE_ROWS, folderPropRows, propRowsOf, propWriteStatement, propsOf } from "../../../../mcp/src/tree/props.js";
 import type { ProjectionClient } from "../fileOps";
+import { servedMoves } from "../nodes/manifestStore";
+import { physicalCandidates } from "../../../../mcp/src/moves/queued.js";
 
 /** Stale rows one page may re-read before the table is not worth asking. */
 export const STALE_READ_CAP = 200;
@@ -144,9 +146,25 @@ export async function folderNotesFromNodes(
       inFolder(object.key, prefix, operation.subfolders) &&
       canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names),
   );
+  // While a folder move is pending the rows are listed at the names the tree
+  // draws, and a note's front matter is still filed under the key it sits at
+  // in the bucket: each is looked up at every key it may still sit at, so a
+  // List of a moving folder answers from the facts rather than re-reading
+  // every note (and promoting it) or falling back to the D1 table.
+  const moves = servedMoves(served);
+  const candidates = new Map(
+    tree.map((object) => [object.key, moves.length === 0 ? [object.key] : (physicalCandidates(object.key, [...moves]) as string[])]),
+  );
   let props: Awaited<ReturnType<PropSource["rows"]>>;
   try {
-    props = await source.rows(tree.map((object) => object.key));
+    const found = await source.rows([...new Set([...candidates.values()].flat())]);
+    props = new Map();
+    for (const object of tree) {
+      const etag = (object as { etag?: unknown }).etag;
+      const held = candidates.get(object.key)!.map((key) => found.get(key)).filter((row) => row !== undefined);
+      const row = held.find((candidate) => candidate!.version === etag) ?? held[0];
+      if (row !== undefined) props.set(object.key, row);
+    }
   } catch {
     // No props yet, or a source that cannot be read: the bucket answers.
     return unavailable(true);
