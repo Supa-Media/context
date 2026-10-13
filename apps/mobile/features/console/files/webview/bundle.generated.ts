@@ -14,22 +14,6 @@
 
 /** Every file in this repository that went into the bundle, by SHA-256. */
 export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
-  "../../../../../../home/user/context/packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
-  "../../../../../../home/user/context/packages/drawings/src/excalidraw.js": "d190b7c15675c34e0ad07b8d83a4766c1cdc661b50322f5e6112be5084ac9e1b",
-  "../../../../../../home/user/context/packages/drawings/src/index.js": "451d7003cf2dea1669a0aba7164a15401e03b0dd087c89055a471b2612044dd9",
-  "../../../../../../home/user/context/packages/drawings/src/lzstring.js": "8c1c9e3bb2f221e0debbfa29229da5759edfb57050cac1424850a7ea9a35166d",
-  "../../../../../../home/user/context/packages/drawings/src/scaffold.js": "e79a24748f10a678bf9a3a2fbcf046d140fd58c90dfafd631ca33806a51edc82",
-  "../../../../../../home/user/context/packages/drawings/src/scene.js": "224563103ef00ad0637d43178d19ea89d260642413e59df9c7115b1801bd7806",
-  "../../../../../../home/user/context/packages/drawings/src/serialize.js": "b405f218fe4b28938af15a43a4ec36d2e2e3275991a0dfa60d2fff60bc901cdc",
-  "../../../../../../home/user/context/packages/shared/src/castNames.ts": "0877f9a75e476c57b494a415d7130848281e2d05a4f599a0a70d1c7292088cf8",
-  "../../../../../../home/user/context/packages/shared/src/castTerminal.ts": "2e4f5fdb3c660d70a42286d93ddef4b38d89ba8dcdc26a2babbfd45823051f1e",
-  "../../../../../../home/user/context/packages/shared/src/comments.cjs": "67ea8cf56cc97c8ed363882f9044d624be79ba06009c6d3be9b9dbbedcef8639",
-  "../../../../../../home/user/context/packages/shared/src/customEmoji.ts": "e0e4f6b54f6bec2730b5b49a7966e839a5e68087adf3888980a1026088b9e8e0",
-  "../../../../../../home/user/context/packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
-  "../../../../../../home/user/context/packages/shared/src/folderRoles.cjs": "2836044e0f1ea83192591c5fdf711e01955637a6d9189c381d96d9d6ec121aa8",
-  "../../../../../../home/user/context/packages/shared/src/links.ts": "6ab36cf688cefea27d1606fc55efaa93174f763f18b06e29a68d48126062fe4c",
-  "../../../../../../home/user/context/packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
-  "../../../../../../home/user/context/packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235",
   "apps/mcp/src/forms.js": "c0a83b615bc4a700306ebdd64565519a06fd9a8f5ca487ffd349170399c1e1ce",
   "apps/mcp/src/forms/config.js": "87702a2e6cca7b079c80014415a144f2b544858e37d5a64c5d1689391aee9328",
   "apps/mcp/src/forms/grammar.js": "3acfb9b9f0a40fbbbe87d55c0d6e98c0a706e400d3bf83adae04b80338a5578e",
@@ -135,7 +119,23 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/styles.ts": "c374dd59290e0e42957e5b7e1d0da74745c842ef909881767e4e9049c10e0977",
   "apps/mobile/features/console/presence/agentName.ts": "10578c78a2c1d5c31046a5f6d076d1827699fdbbbe061ceecaaa7ca761604bf9",
   "apps/mobile/features/design/tokens/colors.ts": "386b2ac8e7649fd1e0b6bcea0eeb0828783b3fdbc2d4baec89c8545d261d2e66",
-  "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64"
+  "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64",
+  "packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
+  "packages/drawings/src/excalidraw.js": "d190b7c15675c34e0ad07b8d83a4766c1cdc661b50322f5e6112be5084ac9e1b",
+  "packages/drawings/src/index.js": "451d7003cf2dea1669a0aba7164a15401e03b0dd087c89055a471b2612044dd9",
+  "packages/drawings/src/lzstring.js": "8c1c9e3bb2f221e0debbfa29229da5759edfb57050cac1424850a7ea9a35166d",
+  "packages/drawings/src/scaffold.js": "e79a24748f10a678bf9a3a2fbcf046d140fd58c90dfafd631ca33806a51edc82",
+  "packages/drawings/src/scene.js": "224563103ef00ad0637d43178d19ea89d260642413e59df9c7115b1801bd7806",
+  "packages/drawings/src/serialize.js": "b405f218fe4b28938af15a43a4ec36d2e2e3275991a0dfa60d2fff60bc901cdc",
+  "packages/shared/src/castNames.ts": "0877f9a75e476c57b494a415d7130848281e2d05a4f599a0a70d1c7292088cf8",
+  "packages/shared/src/castTerminal.ts": "2e4f5fdb3c660d70a42286d93ddef4b38d89ba8dcdc26a2babbfd45823051f1e",
+  "packages/shared/src/comments.cjs": "67ea8cf56cc97c8ed363882f9044d624be79ba06009c6d3be9b9dbbedcef8639",
+  "packages/shared/src/customEmoji.ts": "e0e4f6b54f6bec2730b5b49a7966e839a5e68087adf3888980a1026088b9e8e0",
+  "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
+  "packages/shared/src/folderRoles.cjs": "2836044e0f1ea83192591c5fdf711e01955637a6d9189c381d96d9d6ec121aa8",
+  "packages/shared/src/links.ts": "6ab36cf688cefea27d1606fc55efaa93174f763f18b06e29a68d48126062fe4c",
+  "packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
+  "packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235"
 };
 
 /** Every npm package that went into the bundle, at the version it was built from. */
