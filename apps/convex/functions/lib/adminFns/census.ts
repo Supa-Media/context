@@ -385,6 +385,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     aiSpendMicroUsd: number;
     aiSpendPartial: boolean;
     letInAt: number | null;
+    phone: string | null;
   }[] = [];
 
   for (const account of accountsPage.rows) {
@@ -428,6 +429,7 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
         ),
         aiSpendPartial: ownedKeys.some((id) => aiSpend.partial.has(id)),
         letInAt,
+        phone: await rosterPhone(ctx, account),
       });
     }
   }
@@ -509,4 +511,21 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
     roster,
     waitlist: waitlistSummary(admitted, accountEmails, waitlistFacts),
   };
+}
+
+/**
+ * The number shown under an account's address, and the one its Tex access
+ * switch puts on Linq's list: the phone linked for texting (the one Tex hears
+ * from) when there is one, else the phone the account signs in with.
+ */
+async function rosterPhone(
+  ctx: QueryCtx,
+  account: { _id: Id<"users">; phone?: string; phoneVerificationTime?: number },
+): Promise<string | null> {
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_user", (q) => q.eq("userId", account._id))
+    .first();
+  if (link !== null) return link.phone;
+  return account.phone !== undefined && account.phoneVerificationTime !== undefined ? account.phone : null;
 }
