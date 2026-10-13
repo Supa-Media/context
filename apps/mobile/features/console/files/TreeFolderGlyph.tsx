@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { pointerType, radii } from "../../design/tokens";
@@ -58,8 +58,10 @@ export function TreeFolderGlyph({
         testID="tree-folder-emoji"
       />
     );
-  if (onPress === undefined) return glyph;
   const ghost = note && icon === null;
+  // On a touch screen the faint smile could never show, and an invisible
+  // button would take taps meant to open the note: the menu is the way in there.
+  if (onPress === undefined || (ghost && !canHover())) return glyph;
 
   function open(event: GestureResponderEvent) {
     const fallback = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY + 8 };
@@ -93,6 +95,12 @@ export function TreeFolderGlyph({
         : glyph}
     </Pressable>
   );
+}
+
+/** A pointer that can hover (a mouse or trackpad), so a hover-only control can be found. */
+function canHover(): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(hover: hover)").matches;
 }
 
 const makeStyles = (colors: Colors) =>
