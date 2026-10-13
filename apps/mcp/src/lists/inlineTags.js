@@ -32,9 +32,22 @@
  * Zero dependencies: imported by the gateway, the control plane and the app.
  */
 
-const FRONT_MATTER = /^﻿?---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+const FRONT_MATTER = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 const FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/;
 const TAG = /(^|[\s(])#([\p{L}\p{N}_\-/]+)/gu;
+
+/** One character a tag may hold after its `#`. The editor's grammar reads tags with this too. */
+export const TAG_CHAR = /[\p{L}\p{N}_\-/]/u;
+
+/** Whether the characters after a `#` make a tag: tag characters only, and not all digits (`#2026` is a number). */
+export function isTagBody(body) {
+  return (
+    typeof body === "string" &&
+    /^[\p{L}\p{N}_\-/]+$/u.test(body) &&
+    body.replace(/\/+$/, "") !== "" &&
+    /[^\p{N}/]/u.test(body)
+  );
+}
 
 /** Notes are short, but a pasted log is not: past this, a note's tags are its first part's. */
 const MAX_SCANNED = 200_000;
@@ -60,8 +73,7 @@ export function inlineTags(text) {
     }
     if (fence !== null || !line.includes("#")) continue;
     for (const match of plain(line).matchAll(TAG)) {
-      const tag = match[2].replace(/\/+$/, "");
-      if (tag !== "" && /[^\p{N}/]/u.test(tag)) found.push(tag);
+      if (isTagBody(match[2])) found.push(match[2].replace(/\/+$/, ""));
     }
   }
   return mergeTags([], found);
