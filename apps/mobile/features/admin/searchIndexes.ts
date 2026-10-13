@@ -1,21 +1,29 @@
 /**
- * The Search tab's Indexes view (`./IndexesView`) as data: the four
- * per-workspace indexes (the sidebar's tree, fast search, search by meaning,
- * and the Convex copy of the migration) joined into one row per workspace,
- * each reduced to a health the eye can scan.
+ * The Search tab's Indexes view (`./IndexesView`) as data: three
+ * per-workspace indexes (the file tree, fast search and search by meaning)
+ * joined into one row per workspace, each reduced to a health the eye can scan.
  *
  * Asked for by the owner, 2026-10-08 ("the search page literally has a bunch
  * of different things like tree index, search by meaning etc … not the best
  * UI"): three stacked tables became one, opening on what needs attention.
- * Pure, so the rules are pinned by `adminSearchIndexes.test.ts`.
+ *
+ * The file tree column folds three sources into one (the owner approved the
+ * board, 2026-10-13, once every reader had moved to the Convex tree): the
+ * Convex copy itself, which the sidebar, folder pages, Home and agents read;
+ * the workspace's own D1 tables, which now only hold the front matter, links
+ * and chaos history that Lists, Boards and the map read; and the folder moves
+ * still copying behind the tree. Pure, so the rules are pinned by
+ * `adminSearchIndexes.test.ts`.
  */
 
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@context/convex/_generated/api";
+import type { DotTone } from "../design";
 import { meaningFailureLine, meaningStatePill, type MeaningIndexRow } from "./meaningIndexes";
 
 export type TreeIndexRow = FunctionReturnType<typeof api.functions.treeAdmin.treeIndexes>["rows"][number];
 export type MigrationRow = FunctionReturnType<typeof api.functions.nodesMigration.report>["rows"][number];
+export type MoveRow = FunctionReturnType<typeof api.functions.nodeMovesAdmin.report>["rows"][number];
 type Priorities = MeaningIndexRow["priorities"];
 
 /** `ok` is done, `working` is on its way, `stuck` wants a person, `off` is meant, `none` has nothing. */
@@ -35,33 +43,43 @@ export type IndexCell = {
   tiers: Priorities;
 };
 
-export type IndexKey = "tree" | "fast" | "meaning" | "convex";
+export type IndexKey = "files" | "fast" | "meaning";
 
 export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] = [
-  { key: "tree", label: "Sidebar tree", what: "What the sidebar is drawn from. Without it the sidebar still works, just slower." },
+  {
+    key: "files",
+    label: "File tree",
+    what: "What the sidebar, folder pages, Home and AI clients list notes from. Keeps itself current; Check compares it with the bucket.",
+  },
   { key: "fast", label: "Fast search", what: "Word search, in the app and for AI clients." },
   { key: "meaning", label: "Search by meaning", what: "Finds notes on the same topic in different words." },
-  {
-    key: "convex",
-    label: "Convex copy",
-    what: "The backend migration: each workspace's file tree copied into Convex and checked against its bucket. Once a check matches, the app reads it live: the sidebar, folder pages, Home and the open note. Pause sends everyone back to the bucket.",
-  },
 ];
 
 export type WorkspaceIndexes = {
   workspaceId: string;
   slug: string | null;
-  tree: IndexCell;
+  /** The file tree column: the copy, its details and its moves, worst first. */
+  files: IndexCell;
   fast: IndexCell;
   meaning: IndexCell;
+  /** The Convex copy alone, for the row's detail. */
   convex: IndexCell;
-  /** Newest change we know of across the four, for the Changed column. */
+  /** The D1 tables behind Lists, Boards and the map, for the row's detail. */
+  details: IndexCell;
+  /** Newest change we know of across them, for the Changed column. */
   changedAt: number | null;
   /** The raw rows, for the buttons that act on them. */
   treeRow: TreeIndexRow | null;
   meaningRow: MeaningIndexRow | null;
   migrationRow: MigrationRow | null;
+  /** Folder moves still copying in this workspace. */
+  moves: readonly MoveRow[];
 };
+
+/** The dot colour for a health. */
+export function healthTone(health: IndexHealth): DotTone {
+  return health === "ok" ? "ok" : health === "working" ? "warn" : health === "stuck" ? "crit" : "neutral";
+}
 
 const NONE: IndexCell = { health: "none", label: "—", figure: null, progress: null, problem: null, tiers: null };
 
@@ -174,9 +192,46 @@ export function convexCell(row: MigrationRow | null, paused = false): IndexCell 
 
 const RANK: Record<IndexHealth, number> = { stuck: 0, working: 1, ok: 2, off: 3, none: 3 };
 
+/** "1 move copying", "2 moves copying". */
+export function movesLabel(count: number): string {
+  return `${count} ${count === 1 ? "move" : "moves"} copying`;
+}
+
+/**
+ * The file tree column. The copy decides it, because the copy is what people
+ * see. The D1 details can only make it worse, and only when they are stuck,
+ * since a stuck fill leaves Lists, Boards and the map without front matter or
+ * links. A folder move still copying is work on its way, and a stuck one wants
+ * a person.
+ */
+export function filesCell(copy: IndexCell, details: IndexCell, moves: readonly MoveRow[]): IndexCell {
+  let cell = copy;
+  if (details.health === "stuck" && RANK[cell.health] > RANK.stuck) {
+    cell = {
+      ...cell,
+      health: "stuck",
+      label: cell.health === "none" ? details.label : cell.label,
+      problem: `Lists, Boards and map details: ${details.problem ?? details.label.toLowerCase()}`,
+    };
+  }
+  if (moves.length > 0) {
+    const stuck = moves.find((move) => move.stuck);
+    const figure = [cell.figure, movesLabel(moves.length)].filter(Boolean).join(" · ");
+    if (stuck && RANK[cell.health] > RANK.stuck) {
+      cell = { ...cell, health: "stuck", figure, problem: `A folder move is stuck${stuck.lastError ? `: ${stuck.lastError}` : ""}` };
+    } else if (!stuck && RANK[cell.health] > RANK.working) {
+      cell = { ...cell, health: "working", figure };
+    } else {
+      cell = { ...cell, figure };
+    }
+  }
+  return cell;
+}
+
+
 /** The worst of a row's three, which decides its order and whether it needs attention. */
 export function worstHealth(row: Pick<WorkspaceIndexes, IndexKey>): IndexHealth {
-  return [row.tree.health, row.fast.health, row.meaning.health, row.convex.health].reduce((worst, each) =>
+  return [row.files.health, row.fast.health, row.meaning.health].reduce((worst, each) =>
     RANK[each] < RANK[worst] ? each : worst,
   );
 }
@@ -187,16 +242,18 @@ export function needsAttention(row: Pick<WorkspaceIndexes, IndexKey>): boolean {
 }
 
 /**
- * One row per workspace that has any of the four. `tree` is null until the
- * tree read lands (it is an action, read on open), and the rows show without
- * it rather than wait. `migration` is null while its report loads; `paused`
- * is the whole migration's switch.
+ * One row per workspace that has any of them. `tree` (the D1 details) is null
+ * until its read lands (it is an action, read on open), and the rows show
+ * without it rather than wait. `migration` is null while its report loads;
+ * `paused` is the whole copy's switch; `moves` are the folder moves still
+ * copying.
  */
 export function joinIndexes(
   tree: readonly TreeIndexRow[] | null,
   meaning: readonly MeaningIndexRow[],
   migration: readonly MigrationRow[] | null = null,
   paused = false,
+  moves: readonly MoveRow[] = [],
 ): WorkspaceIndexes[] {
   const byId = new Map<string, { slug: string | null; tree: TreeIndexRow | null; meaning: MeaningIndexRow | null }>();
   for (const row of meaning) byId.set(row.workspaceId, { slug: row.slug, tree: null, meaning: row });
@@ -205,26 +262,33 @@ export function joinIndexes(
     if (found) found.tree = row;
     else byId.set(row.workspaceId, { slug: row.slug, tree: row, meaning: null });
   }
-  for (const row of migration ?? []) {
+  for (const row of [...(migration ?? []), ...moves]) {
     if (!byId.has(row.workspaceId)) byId.set(row.workspaceId, { slug: row.slug, tree: null, meaning: null });
   }
+  const movesOf = new Map<string, MoveRow[]>();
+  for (const move of moves) movesOf.set(move.workspaceId, [...(movesOf.get(move.workspaceId) ?? []), move]);
   const copies = new Map<string, MigrationRow>((migration ?? []).map((row) => [row.workspaceId, row] as const));
   const rows = [...byId.entries()].map(([workspaceId, entry]): WorkspaceIndexes => {
     const copy = copies.get(workspaceId) ?? null;
     const changed = [entry.meaning?.updatedAt ?? null, entry.tree?.sweptAt ?? null, copy?.sweptAt ?? null].filter(
       (n): n is number => n !== null,
     );
+    const convex = convexCell(copy, paused);
+    const details = treeCell(entry.tree);
+    const pending = movesOf.get(workspaceId) ?? [];
     return {
       workspaceId,
       slug: entry.slug ?? entry.tree?.slug ?? null,
-      tree: treeCell(entry.tree),
+      files: filesCell(convex, details, pending),
       fast: fastCell(entry.meaning?.fastSearch ?? null),
       meaning: meaningCell(entry.meaning),
-      convex: convexCell(copy, paused),
+      convex,
+      details,
       changedAt: changed.length === 0 ? null : Math.max(...changed),
       treeRow: entry.tree,
       meaningRow: entry.meaning,
       migrationRow: copy,
+      moves: pending,
     };
   });
   return rows.sort(
@@ -242,10 +306,9 @@ export function healthCounts(rows: readonly WorkspaceIndexes[], key: IndexKey): 
 /** `ready`, `indexing` and so on for a summary card, in the index's own words; only the non-zero ones. */
 export function countParts(key: IndexKey, counts: Record<IndexHealth, number>): { health: IndexHealth; text: string }[] {
   const words: Record<IndexKey, Record<"ok" | "working" | "stuck" | "off", string>> = {
-    tree: { ok: "ready", working: "filling", stuck: "stuck or not filled", off: "can't fill" },
+    files: { ok: "ready", working: "copying", stuck: "stuck or differ", off: "paused or skipped" },
     fast: { ok: "ready", working: "indexing", stuck: "failed", off: "off" },
     meaning: { ok: "ready", working: "indexing", stuck: "failed", off: "off" },
-    convex: { ok: "match or copied", working: "copying or not started", stuck: "stuck or differ", off: "paused or skipped" },
   };
   return (["ok", "working", "stuck", "off"] as const)
     .filter((health) => counts[health] > 0)
