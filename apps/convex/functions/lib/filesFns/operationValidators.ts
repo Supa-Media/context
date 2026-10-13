@@ -281,6 +281,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
   v.object({ kind: v.literal("nodesTouch"), paths: v.array(v.string()), files: v.array(v.string()) }),
   v.object({ kind: v.literal("nodesParity") }),
+  v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({
     kind: v.literal("touchTree"),
     paths: v.array(v.string()),

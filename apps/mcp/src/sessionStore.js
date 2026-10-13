@@ -13,6 +13,7 @@
 
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
+import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 
 /**
@@ -88,7 +89,16 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env, { noteCap, managedEncryption: managedEncryptionForStore(opened, binding) });
+  // `privacy.md` decided by the control plane's rules where they are the
+  // authority, and every write of it reported there (`store/privacyAuthority.js`).
+  const authority =
+    typeof controlPlane.privacyAuthority === "function"
+      ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
+      : null;
+  const store = withPrivacyAuthority(
+    storeForBinding(binding, env, { noteCap, managedEncryption: managedEncryptionForStore(opened, binding) }),
+    authority,
+  );
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint
   // reached over HTTP are not the same round trip — so a timing that does not

@@ -92,7 +92,8 @@ describe("migration report", () => {
 
     const report = await staff.query(api.functions.nodesMigration.report, {});
     expect(report.paused).toBe(false);
-    expect(report.phase).toBe(2);
+    expect(report.phase).toBe(3);
+    expect(report).toMatchObject({ privacyAuthority: false, owedExports: 0 });
     const bySlug = Object.fromEntries(report.rows.map((row) => [row.slug, row]));
     expect(bySlug.copied).toMatchObject({ stage: "copied", files: 1, sweptAt: 20 });
     expect(bySlug.fresh).toMatchObject({ stage: "waiting", files: 0, sweptAt: null });
@@ -107,6 +108,7 @@ describe("migration report", () => {
       await expect(caller.mutation(api.functions.nodesMigration.setPaused, { paused: true })).rejects.toThrow();
       await expect(caller.mutation(api.functions.nodesMigration.start, {})).rejects.toThrow();
       await expect(caller.mutation(api.functions.nodesMigration.checkParity, {})).rejects.toThrow();
+      await expect(caller.mutation(api.functions.nodesMigration.setPrivacyAuthority, { on: true })).rejects.toThrow();
     }
     expect(await t.run(async (ctx) => await ctx.db.query("nodeMigration").first())).toBeNull();
   });

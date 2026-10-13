@@ -105,6 +105,14 @@ export const nodeTables = {
     folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
     notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
     observedAt: v.number(),
+    /**
+     * Phase 3, while these rules are the authority: the bucket version of the
+     * last `privacy.md` written from them. A listing that shows another
+     * version means the file was edited past us, and it is written again.
+     */
+    exportedEtag: v.optional(v.string()),
+    /** The rules changed and the bucket's `privacy.md` has not been written from them yet. */
+    exportOwed: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**
@@ -114,6 +122,12 @@ export const nodeTables = {
    */
   nodeMigration: defineTable({
     paused: v.boolean(),
+    /**
+     * Phase 3: the rules in `nodePrivacy` are the authority, and `privacy.md`
+     * is written from them (`lib/nodes/privacyAuthority.ts`). Absent or false:
+     * the file is, and the rules follow it.
+     */
+    privacyAuthority: v.optional(v.boolean()),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),

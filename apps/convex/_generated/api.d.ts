@@ -105,6 +105,7 @@ import type * as functions_names from "../functions/names.js";
 import type * as functions_nodes from "../functions/nodes.js";
 import type * as functions_nodesListing from "../functions/nodesListing.js";
 import type * as functions_nodesMigration from "../functions/nodesMigration.js";
+import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
 import type * as functions_nodesPurge from "../functions/nodesPurge.js";
 import type * as functions_owners from "../functions/owners.js";
 import type * as functions_obsidianPlugins from "../functions/obsidianPlugins.js";
@@ -249,6 +250,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodes": typeof functions_nodes;
   "functions/nodesListing": typeof functions_nodesListing;
   "functions/nodesMigration": typeof functions_nodesMigration;
+  "functions/nodesPrivacy": typeof functions_nodesPrivacy;
   "functions/nodesPurge": typeof functions_nodesPurge;
   "functions/owners": typeof functions_owners;
   "functions/obsidianPlugins": typeof functions_obsidianPlugins;

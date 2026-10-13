@@ -119,6 +119,7 @@ import {
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
+import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
@@ -298,6 +299,7 @@ export const gatewaySessionsByGrant = gatewayRoute(
 /* -------------------------------------------------------------------------- */
 
 export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
+export const gatewayPrivacy = gatewayRoute(privacyRoute.gatewayPrivacyHandler);
 
 /** The built-in model's gate and meter: the only model the assistant runs on. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
@@ -863,6 +865,7 @@ export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTiming
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/sessions/by-grant", method: "POST", handler: gatewaySessionsByGrant });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
+http.route({ path: "/gateway/privacy", method: "POST", handler: gatewayPrivacy });
 http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
 http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
 http.route({ path: "/gateway/meeting-summary", method: "POST", handler: gatewayMeetingSummary });

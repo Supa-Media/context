@@ -27,6 +27,7 @@ describe("isNodesOperation", () => {
     expect(isNodesOperation({ kind: "nodesSweep" })).toBe(true);
     expect(isNodesOperation({ kind: "nodesTouch" })).toBe(true);
     expect(isNodesOperation({ kind: "nodesParity" })).toBe(true);
+    expect(isNodesOperation({ kind: "nodesPrivacyExport" })).toBe(true);
   });
 
   test("leaves every other operation to the barrier's own routes", () => {
@@ -39,7 +40,7 @@ describe("isNodesOperation", () => {
 describe("runFileOperation's validators name the Convex tree operations", () => {
   test("the operation argument accepts each of them", () => {
     const kinds = kindsOf(operationValidator);
-    expect(kinds).toEqual(expect.arrayContaining(["nodesSweep", "nodesTouch", "nodesParity"]));
+    expect(kinds).toEqual(expect.arrayContaining(["nodesSweep", "nodesTouch", "nodesParity", "nodesPrivacyExport"]));
   });
 
   test("the result returns each of their answers", () => {
@@ -86,5 +87,30 @@ describe("a paused migration", () => {
     );
     expect(result).toEqual({ kind: "nodesKept", complete: false });
     expect(mutations).toEqual([{ workspaceId }]);
+  });
+});
+
+describe("the privacy export", () => {
+  const workspaceId = "w" as never;
+  const operation = { kind: "nodesPrivacyExport" } as const;
+  function exportCtx(owed: boolean) {
+    const exports: number[] = [];
+    // The only query asked is whether the export is owed; a pause is never consulted.
+    const ctx = { runQuery: async () => owed, runMutation: async () => null, scheduler: { runAfter: async () => "job" } };
+    const store = { exportPrivacy: async () => exports.push(1), list: async () => ({ objects: [] }), get: async () => null };
+    return { ctx, store, exports };
+  }
+
+  test("writes the file while it is owed", async () => {
+    const { ctx, store, exports } = exportCtx(true);
+    const result = await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation }, store as never);
+    expect(result).toEqual({ kind: "nodesKept", complete: true });
+    expect(exports).toEqual([1]);
+  });
+
+  test("writes nothing once the export settled", async () => {
+    const { ctx, store, exports } = exportCtx(false);
+    await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation }, store as never);
+    expect(exports).toEqual([]);
   });
 });

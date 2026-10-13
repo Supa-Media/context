@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
@@ -73,6 +74,12 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
+  // Phase 3: the workspace's privacy rules, while they are the authority
+  // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
+  // one the grant opened, never one the request named.
+  const privacy = await ctx
+    .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
+    .catch(() => null);
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -102,5 +109,8 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
+    // Seventh: the rules `privacy.md` is written from, while they are the
+    // authority. Absent otherwise, and then the gateway reads the file.
+    ...(privacy === null ? {} : { privacy }),
   });
 }

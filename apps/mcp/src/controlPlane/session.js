@@ -102,6 +102,9 @@ export function createSessionMethods({ post, required }) {
         // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
+        // Phase 3, a seventh sibling: the privacy rules while they are the
+        // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
+        privacy: parsed.privacy ?? null,
       };
     },
 

@@ -201,6 +201,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/session": "gatewaySession",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
+    "/gateway/privacy": "gatewayPrivacy",
     "/gateway/search-index/progress": "gatewaySearchIndexProgress",
     "/gateway/jobs/create": "gatewayJobsCreate",
     "/gateway/jobs/open": "gatewayJobsOpen",

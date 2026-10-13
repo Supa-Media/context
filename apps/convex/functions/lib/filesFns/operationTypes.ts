@@ -117,6 +117,8 @@ export type FileOperation =
   | { kind: "nodesSweep"; passes?: number }
   | { kind: "nodesTouch"; paths: string[]; files: string[] }
   | { kind: "nodesParity" }
+  /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
+  | { kind: "nodesPrivacyExport" }
   /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
   | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
   /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */

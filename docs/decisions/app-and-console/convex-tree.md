@@ -133,6 +133,39 @@ The rest of phase 2 (2026-10-13):
 Pins and recents still name paths, so a move made by somebody else drops
 them from Home until phase 4 gives a moved note one identity.
 
+**Phase 3, as built (2026-10-13).** The rules in `nodePrivacy` become the
+authority when staff turn on **Rules from Convex** in admin › Search ›
+Indexes (`nodeMigration.privacyAuthority`), for each workspace whose rules
+were read from a `privacy.md` that parsed. A workspace with no file, or a
+broken one, keeps the file, so its fail-closed answer (everything private)
+stands. The authority moves at one seam, the store, so none of the hundred-odd
+readers of `privacy.md` changes (`apps/mcp/src/store/privacyAuthority.js`,
+wrapped around the store in the console's credential barrier, the gateway's
+session store and the queued move worker):
+
+- **Reading `privacy.md`** answers the bucket file's prose with its managed
+  block rendered from the held rules, under their version (`ctx-…`, which no
+  bucket etag can equal). A rule edited into the file is never read.
+- **Writing it** is a compare-and-swap on that version (`nodesPrivacy.write`),
+  and only then is the file written to the bucket as the export. An export
+  that fails is owed and retried a minute later (`nodesPrivacyExport`); an
+  export that lands after a newer change is written over again. A text whose
+  rules will not parse is refused, never stored.
+- **A file edited past the rules is put back.** A listing that sees
+  `privacy.md` at a version other than the last export owes the export, so
+  the rules overwrite it within a sweep. That is sooner than "the next change
+  made in the app", and it is the same promise: the file is never the
+  authority.
+- **Nothing is lost at the flip.** Before it, every successful write of the
+  file reports its rules and the version it replaced (`nodesPrivacy.written`);
+  after it, a report is kept only as the direct successor of the held
+  version, which is a write that began just before the flip.
+- **The gateway proves itself per call.** `/gateway/privacy` takes the
+  gateway secret and the person's token (or a queued move's ticket while its
+  job holds the lease), and acts only on the workspace that proof reaches.
+- **The way back** is the same switch, refused while any export is owed, so
+  the file it hands back to is current.
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
@@ -172,6 +205,11 @@ What fails if reversed:
   rows hands every clearance what a walk of the bucket hands it.
 - `apps/mobile/__tests__/followMoves.test.ts`: the open note follows a move
   made elsewhere, and never this tab's own.
+- `apps/convex/__tests__/nodes/privacyAuthority.test.ts`: a change is a
+  compare-and-swap, a file written past the rules is put back, the route
+  never reaches another workspace, and the switch hands back only a current
+  file; `apps/mcp/test/privacyAuthority.test.mjs`: every privacy decision
+  reads the held rules, never a rule edited into the file.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.
