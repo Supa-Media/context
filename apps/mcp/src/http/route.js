@@ -601,8 +601,8 @@ function attachChangeReporters(store, workspaceId, controlPlane) {
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
   store.reportTreeTouch = (touch) =>
     controlPlane.reportTreeTouch(workspaceId, touch).catch(() => {});
-  store.reportWebsiteChange = () =>
-    controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
+  store.reportWebsiteChange = (paths) =>
+    controlPlane.reportWebsiteChange(workspaceId, paths).catch(() => {});
   store.reportRoutineChange = (paths, userId) =>
     controlPlane.reportRoutineChange(workspaceId, userId, paths).catch(() => {});
   // A note leaving this context for another: the console map's record of it.

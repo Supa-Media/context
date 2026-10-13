@@ -18,6 +18,7 @@ import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
 import { followMovesForMembers } from "./lib/placesFollow";
+import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
 
 const ruleListValidator = v.object({
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
@@ -193,6 +194,8 @@ export const activate = internalMutation({
     });
     // Every screen draws the new name from here, so pins and recents go there now (`placesFollow.ts`).
     await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
+    // The pages it carries are at new names for every reader now, the site's scan included.
+    await markWebsiteMoved(ctx, row.workspaceId, row);
     await scheduleWork(ctx, row.workspaceId);
     return true;
   },
@@ -304,6 +307,8 @@ export const complete = internalMutation({
     const row = await ctx.db.get(id);
     if (row === null) return null;
     await ctx.db.delete(id);
+    // The copy is done and the old name's rules are gone: the site is rebuilt from where its pages now sit.
+    await markWebsiteMoved(ctx, row.workspaceId, row);
     const rest = (await queueOf(ctx, row.workspaceId)).filter((other) => other.state === "moving");
     if (rest.length > 0) await scheduleWork(ctx, row.workspaceId);
     return null;

@@ -30,10 +30,7 @@ import { type FileStore, loadPrivacyState, type ProjectionClient } from "../file
 import type { FormNotifyMaterial } from "../formOps";
 import { recordTreeChange, recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf } from "./access";
-import {
-  operationMayRestrictWebsite,
-  operationTouchesWebsite,
-} from "../websites/changes";
+import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import {
@@ -493,22 +490,9 @@ export async function runFileOperationHandler(
   ).catch(rethrowUnreadable);
   if (result.kind === "manifest") Object.assign(result, { source: listing.source }, listing.since === undefined ? {} : { since: listing.since, privacy: listing.privacy ?? null });
 
-  // Website rows are a derivative of bucket bytes. Mark a complete snapshot
-  // stale after the canonical write lands; failure here never rewrites the
-  // already-successful storage answer, and the periodic reconciler repairs it.
-  if (
-    operationTouchesWebsite(args.operation as FileOperation, result)
-  ) {
-    await ctx
-      .runMutation(internal.functions.websites.recordRouteChange, {
-        workspaceId: args.workspaceId,
-        unsafe: operationMayRestrictWebsite(
-          args.operation as FileOperation,
-          result,
-        ),
-      })
-      .catch(() => {});
-  }
+  // Website rows are a derivative of bucket bytes: mark them stale after the
+  // canonical write lands. Best effort; the periodic reconciler repairs a miss.
+  await markWebsiteAfterOperation(ctx, args.workspaceId, args.operation as FileOperation, result);
 
   // Routine rows are a derivative of `routines/` too. The person who acted is
   // named by `actorName`, the handle `authorizeFileAccess` resolved from live

@@ -379,7 +379,19 @@ export async function gatewayWebsiteHandler(
   const answered = () => json({ ok: true });
   const workspaceId = stringField(body, "workspaceId");
   if (workspaceId === null) return answered();
+  // A change that may narrow (a privacy change, a move, `privacy.md` written)
+  // names its paths, which may be outside `website/`: the route index decides
+  // whether they reach the site (`websites/routeChangeAt.ts`).
+  const paths = body.paths === undefined ? [] : touchNames(body.paths);
   try {
+    if (paths !== null && paths.length > 0) {
+      await ctx.runMutation(internal.functions.websites.recordRouteChangeAt, {
+        workspaceId: workspaceId as Id<"workspaces">,
+        paths,
+        unsafe: true,
+      });
+      return answered();
+    }
     // Refuses unless the index is currently complete, and schedules the one
     // rebuild that a burst of saves shares. A site that is off does nothing.
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {

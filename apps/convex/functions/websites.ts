@@ -19,6 +19,7 @@ import {
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
+import { recordRouteChangeAtHandler } from "./lib/websites/routeChangeAt";
 import {
   resolveWebsiteAddressHandler,
   websiteAddressPlanHandler,
@@ -452,6 +453,17 @@ export const recordRouteChange = internalMutation({
   },
   returns: v.boolean(),
   handler: recordRouteChangeHandler,
+});
+
+/** A change named by its paths, outside `website/` too: recorded only when it reaches the site. */
+export const recordRouteChangeAt = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paths: v.array(v.string()),
+    unsafe: v.optional(v.boolean()),
+  },
+  returns: v.boolean(),
+  handler: recordRouteChangeAtHandler,
 });
 
 export const websiteStarterRepairNeeded = internalQuery({
