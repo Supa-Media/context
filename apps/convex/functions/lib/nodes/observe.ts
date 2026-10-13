@@ -88,6 +88,7 @@ export async function applyObservation(
     if (node === null || node.kind !== "file" || node.goneAt !== undefined) continue;
     if (node.observedAt > obs.at) continue;
     await table.patch(node.id, { goneAt: obs.at });
+    await table.logChange?.(path, true);
     cache.set(path, { ...node, goneAt: obs.at });
     tombstone(path);
   }
@@ -111,6 +112,7 @@ export async function applyObservation(
         if (node.kind !== "file" || node.goneAt !== undefined) continue;
         if (node.observedAt >= obs.at || observed.has(node.path)) continue;
         await table.patch(node.id, { goneAt: obs.at });
+        await table.logChange?.(node.path, true);
         cache.delete(node.path);
         tombstone(node.path);
       }
@@ -189,6 +191,7 @@ async function applyRow(
       observedAt: at,
     });
     cache.set(path, { id, path, parentId, name: nameOf(path), kind: "file", etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at });
+    await table.logChange?.(path, false);
     await reviveChain(table, lookup, cache, path);
     return;
   }
@@ -197,7 +200,10 @@ async function applyRow(
   if (existing.observedAt > at) return;
   if (existing.goneAt !== undefined && existing.goneAt > at) return;
   const fields = { etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at, goneAt: undefined };
+  // Only a change is logged: a sweep that re-sees a file as it was writes nothing there.
+  const changed = existing.goneAt !== undefined || existing.etag !== row.etag || existing.size !== row.size;
   await table.patch(existing.id, fields);
+  if (changed) await table.logChange?.(path, false);
   cache.set(path, { ...existing, ...fields });
   await reviveChain(table, lookup, cache, path);
 }
@@ -266,6 +272,8 @@ export async function pruneUnobserved(
   const batch = await table.observedBefore(startedAt, PRUNE_BATCH);
   let removedFiles = 0;
   for (const node of batch) {
+    // A live file nobody saw leaves the tree here; a tombstone was logged when it was laid.
+    if (node.kind === "file" && node.goneAt === undefined) await table.logChange?.(node.path, true);
     await table.remove(node.id);
     if (node.kind === "file") removedFiles += 1;
   }

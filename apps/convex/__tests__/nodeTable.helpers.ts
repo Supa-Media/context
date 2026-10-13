@@ -36,7 +36,8 @@ function byPathOrder(a: StoredNode, b: StoredNode): number {
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
-export function memoryNodeTable(): NodeTable & { rows(): StoredNode[] } {
+export function memoryNodeTable(): NodeTable & { rows(): StoredNode[]; log(): { path: string; gone: boolean }[] } {
+  const changes: { path: string; gone: boolean }[] = [];
   const byId = new Map<string, StoredNode>();
   const idByPath = new Map<string, string>();
   let counter = 0;
@@ -92,8 +93,16 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[] } {
       return all().some((node) => node.parentId === parentId && node.goneAt === undefined);
     },
 
+    async logChange(path, gone) {
+      changes.push({ path, gone });
+    },
+
     rows() {
       return all().sort(byPathOrder).map(copy);
+    },
+
+    log() {
+      return changes.map((change) => ({ ...change }));
     },
   };
 }

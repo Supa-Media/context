@@ -157,6 +157,19 @@ export async function listContext(
  */
 export const FULL_WALK_MS = 60 * 60_000;
 
+/**
+ * The same, for a copy catching up from the Convex tree's change log
+ * (`nodesFeed.ts`). Every row that leaves there records who could see it, so
+ * a member is told of everything they could see leave, and the walk is only
+ * a backstop.
+ */
+export const NODES_FULL_WALK_MS = 24 * 60 * 60_000;
+
+/** How long a copy may catch up from this cursor before it is walked whole. */
+export function fullWalkAfter(cursor: ChangeCursor): number {
+  return cursor.privacy.startsWith("nodes:") ? NODES_FULL_WALK_MS : FULL_WALK_MS;
+}
+
 /** Change-log pages one catch-up will follow before committing what it has. */
 export const MAX_CHANGE_PAGES = 20;
 
@@ -175,7 +188,7 @@ export async function listForSync(
     cursor !== undefined &&
     index?.complete === true &&
     index.listedComplete === true &&
-    deps.now() - cursor.walkedAt < FULL_WALK_MS;
+    deps.now() - cursor.walkedAt < fullWalkAfter(cursor);
   if (!caughtUp) return await listContext(deps, target);
   const delta = await listChanges(deps, target, cursor);
   return delta === "walk" ? await listContext(deps, target) : delta;
