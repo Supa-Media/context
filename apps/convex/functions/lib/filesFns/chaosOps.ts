@@ -26,7 +26,7 @@
  */
 
 import { chaosFullPass, chaosOn, chaosReady, chaosSummary, rescoreChange } from "../../../../mcp/src/chaos/table.js";
-import { chaosExtras, folderNumbers, liveSummary, scoreKeys } from "../../../../mcp/src/chaos/live.js";
+import { chaosExtras, folderNumbers, liveSummary, liveTotals, scoreKeys } from "../../../../mcp/src/chaos/live.js";
 import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
 import { servedKeys, servedMoves } from "../nodes/manifestStore";
 import { chaosWord } from "../../../../mcp/src/chaos/rubric.js";
@@ -151,24 +151,46 @@ export async function chaosScoreOf(
 }
 
 /**
+ * Where a live count reads what the keys cannot say: the long notes, meetings
+ * and contact reviews (`extras`, by bucket key), and the score some days ago.
+ * The Convex facts since 2026-10-13 (`functions/nodeChaos.ts`), else the
+ * search database's.
+ */
+export interface ChaosSource {
+  extras(): Promise<Map<string, { lines: number | null; exempt: boolean; review: boolean }> | null>;
+  weekAgo(audience: "all" | "team"): Promise<number | null>;
+  /** Keep today's closing score for both audiences, where this source keeps it. */
+  record?(totals: { all: number; team: number }): Promise<void>;
+}
+
+/** The search database, as a `ChaosSource`: `null` extras until it has scored once. */
+export function tableChaosSource(client: ProjectionClient): ChaosSource {
+  return {
+    extras: async () => ((await chaosReady(client)) ? await chaosExtras(client) : null),
+    weekAgo: (audience) => chaosOn(client, 7, audience),
+  };
+}
+
+/**
  * The app's answer counted from the Convex tree's keys where it serves the
  * workspace (`apps/mcp/src/chaos/live.js`): the shape as drawn now, pending
  * moves folded in, with the rules from the tree's mirror. Only long notes,
- * meetings and contact reviews come from the database. `null` when this
- * cannot answer (not scored yet, rules that do not parse), and the table's
- * numbers answer instead.
+ * meetings and contact reviews, and the score a week ago, come from
+ * `source`. `null` when this cannot answer (not scored yet, rules that do not
+ * parse), and the table's numbers answer instead.
  */
 export async function liveChaosScoreOf(
   served: FileStore,
-  client: ProjectionClient,
+  source: ChaosSource,
   operation: { folder?: string },
   clearance: Clearance,
 ): Promise<ChaosScoreResult | null> {
-  if (!(await chaosReady(client))) return null;
+  const found = await source.extras();
+  if (found === null) return null;
   const state = await loadPrivacyState(served);
   if (state.invalid) return null;
-  const [keys, found] = await Promise.all([servedKeys(served), chaosExtras(client)]);
-  // The database names notes by bucket key; the keys are drawn through pending moves.
+  const keys = await servedKeys(served);
+  // The facts name notes by bucket key; the keys are drawn through pending moves.
   const moves = servedMoves(served);
   const extras = new Map<string, { lines: number | null; exempt: boolean; review: boolean }>();
   for (const [path, extra] of found) extras.set(moves.length === 0 ? path : (queuedLogicalPath(path, moves) as string), extra);
@@ -176,7 +198,8 @@ export async function liveChaosScoreOf(
   const folders = scoreKeys(keys, extras, visibleToTeam);
   const team = clearance.scope !== "private";
   const visible = (path: string) => canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
-  const weekAgo = await chaosOn(client, 7, team ? "team" : "all");
+  const weekAgo = await source.weekAgo(team ? "team" : "all");
+  if (source.record !== undefined) await source.record(liveTotals(folders)).catch(() => {});
   const summary = liveSummary(folders, extras, { team, present: new Set(keys), visible, weekAgo });
   const folder =
     operation.folder === undefined ? null : folderNumbers(folders, operation.folder.replace(/^\/+|\/+$/g, ""), team);

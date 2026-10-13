@@ -43,6 +43,7 @@ import {
   searchDatabaseClient,
   type TreeOperation,
   treeOperationClient,
+  answersWithoutTable,
   noTreeTable,
   treeStateOf,
 } from "./treeTableOps";
@@ -278,7 +279,9 @@ export async function runFileOperationHandler(
 
   // A tree operation asks for its database before the bucket's credential, as a projection pass does.
   const treeOperation = await treeOperationClient(ctx, args);
-  if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
+  if (treeOperation !== null && treeOperation.client === null && !answersWithoutTable(args.operation)) {
+    return noTreeTable(args.operation as TreeOperation);
+  }
   if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
   // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
   const served = await servedReadAnswer(ctx, args);
@@ -410,7 +413,7 @@ export async function runFileOperationHandler(
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
 
-  if (treeOperation?.client) {
+  if (treeOperation !== null) {
     return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
   }
 

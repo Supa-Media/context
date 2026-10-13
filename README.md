@@ -55,12 +55,16 @@ That's not a feature we might remove later. It's the architecture:
                             │  (Cloudflare Worker) │OAuth │  privacy.md        │
                             └──────────────────────┘/keys │  .context/         │
                                                           └────────────────────┘
-     control plane holds metadata only — never your notes, never a second copy
+   control plane holds names, links and List front matter — never a note's body
 ```
 
 Two planes, and the split is the whole point. The **control plane** knows who
 you are, which storage serves the workspace, and which AI clients you've
-authorized. The **data plane** is one bucket per workspace, either operated by
+authorized. To draw your tree, map and Lists without reading every file, it
+also keeps each note's name, its links, and the front matter, heading and
+first paragraph a List card shows: copies derived from your files, rebuilt
+from them, and deleted with your workspace. Your notes themselves stay in the
+bucket. The **data plane** is one bucket per workspace, either operated by
 Context or controlled by you. On customer-owned storage, deleting your Context
 account removes the control plane metadata and leaves the bucket untouched.
 

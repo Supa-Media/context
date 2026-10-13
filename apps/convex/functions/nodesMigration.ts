@@ -18,6 +18,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
+import { factsDue } from "./lib/nodes/facts";
+import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
 
@@ -270,9 +272,31 @@ export const keepCurrent = internalMutation({
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
     if (await migrationPaused(ctx.db)) return { started: 0 };
-    return { started: await startDueSweeps(ctx) };
+    const started = await startDueSweeps(ctx);
+    await startDueFactFills(ctx);
+    return { started };
   },
 });
+
+/**
+ * Start the facts fill (`lib/nodes/facts.ts`) wherever a served tree's links
+ * and front matter are behind it and no pass holds them: a backstop for the
+ * fills each change and sweep schedule, and the first fill of every tree
+ * served before the facts existed.
+ */
+async function startDueFactFills(ctx: MutationCtx): Promise<void> {
+  const { ids } = await boundWorkspaces(ctx);
+  const now = Date.now();
+  for (const workspaceId of ids) {
+    if (!(await treeServesNow(ctx.db, workspaceId))) continue;
+    if (!(await factsDue(ctx.db, workspaceId, now))) continue;
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesFactFill" },
+    });
+  }
+}
 
 /** Copy one workspace's tree again now, or every workspace's when `workspaceId` is left out. */
 export const start = mutation({

@@ -8,7 +8,8 @@
 import { canSee } from "../privacy/engine.js";
 import { treeClientOf } from "../tree/record.js";
 import { chaosOn, chaosReady, chaosSummary } from "./table.js";
-import { chaosExtras, liveSummary, scoreKeys } from "./live.js";
+import { chaosExtras, liveSummary, liveTotals, scoreKeys } from "./live.js";
+import { factChaos } from "../tree/facts.js";
 import { chaosWord } from "./rubric.js";
 import { within } from "./report.js";
 
@@ -27,13 +28,12 @@ export const CHAOS_RULES =
  */
 export async function chaosSection(store, scope, rules, overrides) {
   const client = treeClientOf(store);
-  if (client === null) return null;
   const audience = scope === "private" ? "all" : "team";
   const visible = (path) => canSee(path, scope, rules, overrides);
   const summary = await within(
-    liveSection(store, client, audience, visible, rules, overrides).then(
-      (live) => live ?? chaosSummary(client, { audience, limit: 4, visible }),
-    ),
+    factSection(store, audience, visible, rules, overrides)
+      .then((live) => live ?? (client === null ? null : liveSection(store, client, audience, visible, rules, overrides)))
+      .then((live) => live ?? (client === null ? null : chaosSummary(client, { audience, limit: 4, visible }))),
     2500,
   );
   if (!summary) return null;
@@ -53,6 +53,31 @@ export async function chaosSection(store, scope, rules, overrides) {
   }
   lines.push(CHAOS_RULES);
   return lines.join("\n\n");
+}
+
+/**
+ * The summary counted from the Convex tree's keys, with what the keys cannot
+ * say from its facts (`tree/facts.js`), or null where either cannot answer.
+ * An owner reading privately counts both audiences, so their read keeps
+ * today's score for "a week ago" later.
+ */
+export async function factSection(store, audience, visible, rules, overrides) {
+  if (typeof store.treeKeys !== "function" || typeof store.treeFacts !== "function") return null;
+  try {
+    const keys = await store.treeKeys();
+    if (keys === null) return null;
+    const facts = await factChaos(store);
+    if (facts === null) return null;
+    const folders = scoreKeys(keys, facts.extras, (path) => canSee(path, "team", rules, overrides));
+    if (audience === "all") {
+      const keep = () => factChaos(store, liveTotals(folders)).catch(() => null);
+      if (typeof store.defer === "function") store.defer(keep);
+      else void keep();
+    }
+    return liveSummary(folders, facts.extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo: facts.weekAgo });
+  } catch {
+    return null;
+  }
 }
 
 /**

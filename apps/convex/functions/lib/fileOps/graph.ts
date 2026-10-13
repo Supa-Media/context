@@ -55,10 +55,10 @@ import {
   indexIsBehind,
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
-import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
 import { isServedStore, servedKeys, servedMoves } from "../nodes/manifestStore";
+import { linkTableOf, type LinkTable } from "../nodes/linkTable";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 
@@ -165,23 +165,10 @@ export function linksBehind(unparsed: number, notes: number): boolean {
   return unparsed > 0 && unparsed >= Math.max(LINKS_BEHIND_MIN, notes * LINKS_BEHIND_SHARE);
 }
 
-/** The tree's link table, as the barrier attaches it to the map's store (`treeTableOps.ts`). */
-interface LinkTable {
-  client: Parameters<typeof treeNotePaths>[0];
-  /** Notes changed since their links were read: the map is "catching up". */
-  unparsed: number;
-}
-
-function linkTableOf(store: FileStore): LinkTable | null {
-  const table = (store as unknown as { linkTable?: LinkTable }).linkTable;
-  return table && typeof table === "object" ? table : null;
-}
-
 /** Every note path and every link, from the table; `null` when it cannot be read. */
 async function readLinkTable(table: LinkTable): Promise<{ paths: string[]; links: string[][] } | null> {
   try {
-    const [paths, links] = await Promise.all([treeNotePaths(table.client), treeLinkRows(table.client)]);
-    return { paths, links };
+    return await table.read();
   } catch {
     return null;
   }

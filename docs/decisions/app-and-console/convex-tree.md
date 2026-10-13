@@ -35,8 +35,10 @@ per-workspace database would have meant writing both ourselves.
 
   Those are names and metadata.
 - **Never into the control plane:**
-  - **note text**: bodies, front matter values, attachments, collaboration
-    history;
+  - **note text**: bodies, attachments, collaboration history (front matter
+    values, a note's first heading and paragraph, and its links joined the
+    rows on 2026-10-13 as rebuildable derivatives; see
+    [convex-facts](./convex-facts.md));
   - the search indexes, which are built from note text.
 
   These stay in the customer's bucket and in the per-workspace database. That
@@ -364,7 +366,8 @@ app that asks only *which notes exist and where* reads the rows where
   keys through the pending moves, so a moving folder is drawn, links and
   all, at its new name.
 - **A folder's Lists and Boards** take the folder's notes and versions from
-  the rows and only the front matter from the workspace's database
+  the rows and, since 2026-10-13, the front matter from each row too
+  ([convex-facts](./convex-facts.md)), else the workspace's database
   (`folderNotesFromNodes`); a props row at another version than the row's is
   read again, as before. While a move is pending they read the table as
   before, since a note's front matter is still filed under its old key.

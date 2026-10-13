@@ -34,7 +34,10 @@ async function seed(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspace
     for (let index = 0; index < files; index += 1) {
       const path = `notes/${String(index).padStart(5, "0")}.md`;
       await ctx.db.insert("nodes", { workspaceId, path, name: path.slice(6), kind: "file", observedAt: 1 });
+      await ctx.db.insert("nodeLinks", { workspaceId, source: path, kind: "name", target: "index" });
     }
+    await ctx.db.insert("nodeFactState", { workspaceId, ready: true, seq: 1 });
+    await ctx.db.insert("nodeChaosDays", { workspaceId, day: "2026-10-01", all: 40, team: 20 });
     await ctx.db.insert("nodeTrees", { workspaceId, status: "ready", dirty: false, files, sweptAt: 1 });
     await ctx.db.insert("nodePrivacy", { workspaceId, invalid: false, folders: [], notes: [], observedAt: 1 });
   });
@@ -47,6 +50,10 @@ async function counts(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspa
       nodes: (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
       trees: (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
     privacy: (await ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
+      links: (await ctx.db.query("nodeLinks").withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
+      facts:
+        (await ctx.db.query("nodeFactState").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length +
+        (await ctx.db.query("nodeChaosDays").withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
     };
   });
 }
@@ -69,15 +76,15 @@ describe("nodesPurge", () => {
     expect((await counts(t, moved)).nodes).toBe(1_300);
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-    expect(await counts(t, moved)).toEqual({ nodes: 0, trees: 0, privacy: 0 });
-    expect(await counts(t, other)).toEqual({ nodes: 3, trees: 1, privacy: 1 });
+    expect(await counts(t, moved)).toEqual({ nodes: 0, trees: 0, privacy: 0, links: 0, facts: 0 });
+    expect(await counts(t, other)).toEqual({ nodes: 3, trees: 1, privacy: 1, links: 3, facts: 2 });
   });
 
   test("an empty tree is forgotten without scheduling anything", async () => {
     const t = convexTest(schema, modules);
     const ws = await workspace(t, "empty");
     await t.mutation(internal.functions.nodesPurge.resetForStorage, { workspaceId: ws });
-    expect(await counts(t, ws)).toEqual({ nodes: 0, trees: 0, privacy: 0 });
+    expect(await counts(t, ws)).toEqual({ nodes: 0, trees: 0, privacy: 0, links: 0, facts: 0 });
     const scheduled = await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect());
     expect(scheduled).toHaveLength(0);
   });

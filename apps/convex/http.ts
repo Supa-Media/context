@@ -122,6 +122,7 @@ import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
+import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
@@ -338,6 +339,7 @@ export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler)
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
+export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
@@ -884,6 +886,7 @@ http.route({ path: "/gateway/moves/start", method: "POST", handler: gatewayMoveS
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
+http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });

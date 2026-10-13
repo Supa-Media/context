@@ -23,7 +23,11 @@ import { type FileStore, listFolder, setExactVisibility, setFolderVisibility, se
 import { listFolderPaths } from "../../functions/lib/fileOps/contextMoveExport";
 import { notePathIndex } from "../../functions/lib/fileOps/search";
 import { workspaceGraph } from "../../functions/lib/fileOps/graph";
-import { folderNotesFromNodes, folderNotesFromTable } from "../../functions/lib/filesFns/folderNotes";
+import { attachLinkTable, d1LinkTable } from "../../functions/lib/nodes/linkTable";
+import { folderNotesFromNodes, folderNotesFromTable, tablePropSource, type PropSource } from "../../functions/lib/filesFns/folderNotes";
+import { factPropSource } from "../../functions/lib/nodes/factSources";
+import { convexLinkRows } from "../../functions/lib/nodes/linkTable";
+import { factCtx, fillAll, observeBucket, tester, workspace as convexWorkspace } from "./facts.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import {
@@ -198,14 +202,14 @@ describe("link completion", () => {
 /** Every page of a List read from the rows, as the app pages it. */
 async function allPages(
   served: FileStore,
-  client: Client,
+  client: Client | PropSource,
   operation: { folder: string; subfolders: boolean },
   clearance: Clearance,
 ): Promise<Awaited<ReturnType<typeof folderNotesFromNodes>>> {
   const notes: Awaited<ReturnType<typeof folderNotesFromNodes>>["notes"] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 50; page += 1) {
-    const answer = await folderNotesFromNodes(served, client, { ...operation, ...(cursor === undefined ? {} : { cursor }) }, clearance);
+    const answer = await folderNotesFromNodes(served, "rows" in client ? client : tablePropSource(client), { ...operation, ...(cursor === undefined ? {} : { cursor }) }, clearance);
     if (!answer.available) return answer;
     notes.push(...answer.notes);
     if (answer.cursor === null) return { ...answer, notes };
@@ -262,13 +266,78 @@ describe("a folder's List from the rows", () => {
   });
 });
 
+describe("a folder's List from the Convex facts", () => {
+  const byPath = (result: Awaited<ReturnType<typeof folderNotesFromTable>>) =>
+    Object.fromEntries(result.notes.map((note) => [note.path, JSON.parse(note.props)]));
+
+  async function withFacts(bucket: Store) {
+    const t = tester();
+    const ws = await convexWorkspace(t, "lists");
+    await observeBucket(t, ws, bucket);
+    await fillAll(t, ws, bucket);
+    return { t, ws, source: factPropSource(factCtx(t).ctx, ws) };
+  }
+
+  test("says what the table's List says, at every clearance", async () => {
+    const bucket = await workspace();
+    const client = await filled(bucket);
+    const { source } = await withFacts(bucket);
+    const served = await servedOf(bucket);
+    for (const clearance of CLEARANCES) {
+      for (const subfolders of [true, false]) {
+        const operation = { folder: "1-projects", subfolders };
+        const fromFacts = await allPages(served, source, operation, clearance);
+        expect(fromFacts.available).toBe(true);
+        expect(byPath(fromFacts)).toEqual(byPath(await allPages(served, client, operation, clearance)));
+      }
+    }
+    const team = byPath(await allPages(served, source, { folder: "1-projects", subfolders: true }, TEAM));
+    expect(Object.keys(team)).not.toContain("1-projects/pay.md");
+  });
+
+  test("an edit the facts have not read yet is read again from the bucket, never served stale", async () => {
+    const bucket = await workspace();
+    const { source } = await withFacts(bucket);
+    await bucket.put("1-projects/alpha/task-one.md", "---\nstatus: doing\n---\n# Task one\n");
+    const served = await servedOf(bucket);
+    const notes = byPath(await allPages(served, source, { folder: "1-projects", subfolders: true }, OWNER));
+    expect(notes["1-projects/alpha/task-one.md"]?.properties).toEqual({ status: "doing" });
+  });
+});
+
 describe("the map from the rows", () => {
+  test("the Convex facts' links draw what the table's draw, at every clearance, a moving folder too", async () => {
+    const bucket = await workspace();
+    const client = await filled(bucket);
+    const t = tester();
+    const ws = await convexWorkspace(t, "map");
+    await observeBucket(t, ws, bucket);
+    await fillAll(t, ws, bucket);
+    const { ctx } = factCtx(t);
+    const named = (graph: Awaited<ReturnType<typeof workspaceGraph>>) => ({
+      nodes: graph.nodes.map((node) => node.path),
+      edges: graph.edges.map(([from, to]) => `${graph.nodes[from]!.path} > ${graph.nodes[to]!.path}`).sort(),
+    });
+    for (const moves of [[], [{ from: "1-projects/alpha", to: "2-areas/alpha" }]]) {
+      for (const clearance of CLEARANCES) {
+        const fromTable = attachLinkTable(await servedOf(bucket, { moves }), d1LinkTable(client, 0));
+        const fromFacts = attachLinkTable(await servedOf(bucket, { moves }), {
+          unparsed: 0,
+          read: async () => ({ paths: (await rowsOf(bucket)).map((row) => row.path).filter((path) => path.endsWith(".md")), links: await convexLinkRows(ctx, ws) }),
+        });
+        const drawn = named(await workspaceGraph(fromFacts, clearance));
+        expect(drawn).toEqual(named(await workspaceGraph(fromTable, clearance)));
+        if (clearance === OWNER) expect(drawn.edges.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   test("draws a moving folder at its new name, links included, before a byte is copied", async () => {
     const bucket = await workspace();
     const client = await filled(bucket);
     const moves = [{ from: "1-projects/alpha", to: "2-areas/alpha" }];
     const served = await servedOf(bucket, { moves });
-    Object.defineProperty(served, "linkTable", { value: { client, unparsed: 0 }, enumerable: false, configurable: true });
+    attachLinkTable(served, d1LinkTable(client, 0));
     const graph = await workspaceGraph(served, OWNER);
     const paths = graph.nodes.map((node) => node.path);
     expect(paths).toContain("2-areas/alpha/overview.md");
@@ -284,7 +353,7 @@ describe("the map from the rows", () => {
     const client = await filled(bucket);
     bucket.seed("1-projects/gamma.md", "# Gamma\n");
     const served = await servedOf(bucket);
-    Object.defineProperty(served, "linkTable", { value: { client, unparsed: 1 }, enumerable: false, configurable: true });
+    attachLinkTable(served, d1LinkTable(client, 1));
     const team = await workspaceGraph(served, TEAM);
     const paths = team.nodes.map((node) => node.path);
     expect(paths).toContain("1-projects/gamma.md");

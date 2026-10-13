@@ -77,6 +77,26 @@ export function scoreKeys(keys, extras, visibleToTeam) {
 
 const ratio = (sum, weight) => (weight > 0 ? sum / weight : 0);
 
+/**
+ * Both audiences' whole-workspace score from `scoreKeys`, as `liveSummary`
+ * counts the one it is asked for: what the daily history keeps.
+ *
+ * @param {ReturnType<typeof scoreKeys>} folders
+ */
+export function liveTotals(folders) {
+  let allSum = 0;
+  let allWeight = 0;
+  let teamSum = 0;
+  let teamWeight = 0;
+  for (const entry of folders.values()) {
+    allSum += entry.all.sum;
+    allWeight += entry.all.weight;
+    teamSum += entry.team.sum;
+    teamWeight += entry.team.weight;
+  }
+  return { all: ratio(allSum, allWeight), team: ratio(teamSum, teamWeight) };
+}
+
 /** One folder's numbers for this audience, or null when it is not to be named to them. */
 export function folderNumbers(folders, path, team) {
   const entry = folders.get(path);

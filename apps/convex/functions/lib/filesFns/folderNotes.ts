@@ -91,19 +91,38 @@ export async function folderNotesFromTable(
       inFolder(row.path, prefix, operation.subfolders) &&
       canSee(row.path, clearance.scope, state.rules, state.overrides, clearance.names),
   );
-  return await answerRows(store, client, visible, cursor, clearance);
+  return await answerRows(store, tablePropSource(client).save, visible, cursor, clearance);
+}
+
+/** Where a note's front matter is read from, for a List whose notes the Convex tree names. */
+export interface PropSource {
+  /** The rows of exactly these notes, keyed by path; a note with none is absent. */
+  rows(paths: string[]): Promise<Map<string, { version: string | null; encrypted: boolean; props: string | null }>>;
+  /** Keep what a stale row's re-read found, where the source keeps it (the search database does). */
+  save?(writes: { sql: string; params: unknown[] }[]): Promise<void>;
+}
+
+/** The search database's `tree_props`, as a `PropSource`. */
+export function tablePropSource(client: ProjectionClient): PropSource {
+  return {
+    rows: (paths) => propRowsOf(client, paths),
+    save: async (writes) => {
+      await client.runAll(writes);
+    },
+  };
 }
 
 /**
  * The same answer with the notes taken from the Convex tree (`servedNodesStore`):
  * which notes sit in the folder, and at which version, are the rows; only the
- * front matter comes from this database, and a row parsed at another version
- * than the tree's is read again, exactly as above. `privacy.md` is the
- * tree's mirror, through the store.
+ * front matter comes from `source` (the rows' own props since 2026-10-13,
+ * `lib/nodes/facts.ts`, else the search database), and a row parsed at
+ * another version than the tree's is read again, exactly as above.
+ * `privacy.md` is the tree's mirror, through the store.
  */
 export async function folderNotesFromNodes(
   served: FileStore,
-  client: ProjectionClient,
+  source: PropSource,
   operation: { folder: string; subfolders: boolean; cursor?: string },
   clearance: Clearance,
 ): Promise<FolderNotesResult> {
@@ -125,11 +144,11 @@ export async function folderNotesFromNodes(
       inFolder(object.key, prefix, operation.subfolders) &&
       canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names),
   );
-  let props: Awaited<ReturnType<typeof propRowsOf>>;
+  let props: Awaited<ReturnType<PropSource["rows"]>>;
   try {
-    props = await propRowsOf(client, tree.map((object) => object.key));
+    props = await source.rows(tree.map((object) => object.key));
   } catch {
-    // No props table yet, or a database that cannot be read: the bucket answers.
+    // No props yet, or a source that cannot be read: the bucket answers.
     return unavailable(true);
   }
   const visible: PropRow[] = tree.map((object) => {
@@ -146,7 +165,7 @@ export async function folderNotesFromNodes(
       props: row?.props ?? null,
     };
   });
-  return await answerRows(served, client, visible, cursor, clearance);
+  return await answerRows(served, source.save, visible, cursor, clearance);
 }
 
 type PropRow = Awaited<ReturnType<typeof folderPropRows>>[number];
@@ -154,7 +173,7 @@ type PropRow = Awaited<ReturnType<typeof folderPropRows>>[number];
 /** Visible rows to an answer: stale ones read again and their rows fixed. */
 async function answerRows(
   store: FileStore,
-  client: ProjectionClient,
+  save: PropSource["save"],
   visible: PropRow[],
   cursor: string | null,
   clearance: Clearance,
@@ -191,7 +210,8 @@ async function answerRows(
     }
   };
   await Promise.all(Array.from({ length: Math.min(STALE_READ_PARALLEL, batches.length) }, reader));
-  if (writes.length > 0) await client.runAll(writes).catch(() => {});
+  // The Convex rows are kept by the facts fill, which the change already started.
+  if (writes.length > 0 && save !== undefined) await save(writes).catch(() => {});
 
   const notes: FolderNotesResult["notes"] = [];
   for (const row of visible) {

@@ -36,7 +36,13 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
     .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
     .take(PURGE_BATCH);
   for (const row of logged) await ctx.db.delete(row._id);
-  if (rows.length === PURGE_BATCH || logged.length === PURGE_BATCH) {
+  // So do the links between them.
+  const links = await ctx.db
+    .query("nodeLinks")
+    .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId))
+    .take(PURGE_BATCH);
+  for (const row of links) await ctx.db.delete(row._id);
+  if ([rows, logged, links].some((batch) => batch.length === PURGE_BATCH)) {
     await ctx.scheduler.runAfter(0, internal.functions.nodesPurge.purge, { workspaceId });
   }
 }
@@ -62,6 +68,16 @@ export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"wor
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of moves) await ctx.db.delete(row._id);
+  const factState = await ctx.db
+    .query("nodeFactState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of factState) await ctx.db.delete(row._id);
+  const days = await ctx.db
+    .query("nodeChaosDays")
+    .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of days) await ctx.db.delete(row._id);
   await purgeBatch(ctx, workspaceId);
 }
 

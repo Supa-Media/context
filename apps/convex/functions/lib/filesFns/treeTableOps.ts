@@ -35,15 +35,18 @@ import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
-import { folderNotesFromNodes, folderNotesFromTable } from "./folderNotes";
-import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
+import { folderNotesFromNodes, folderNotesFromTable, tablePropSource } from "./folderNotes";
+import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, NO_CHAOS, rescoreTouched, tableChaosSource } from "./chaosOps";
+import { factChaosSource, factPropSource, factsReady } from "../nodes/factSources";
 import { clearanceOf } from "../clearance";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { servedMoves, servedNodesStore } from "../nodes/manifestStore";
+import { isServedStore, servedMoves, servedNodesStore } from "../nodes/manifestStore";
+import { attachLinkTable, convexLinkTable, d1LinkTable } from "../nodes/linkTable";
+import { scheduleFactFill } from "../nodes/factFill";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
@@ -63,6 +66,11 @@ export function isTreeOperation(operation: { kind: string }): operation is TreeO
     operation.kind === "folderNotes" ||
     operation.kind === "chaosScore"
   );
+}
+
+/** A tree operation the Convex tree's facts can answer for a context with no search database. */
+export function answersWithoutTable(operation: { kind: string }): boolean {
+  return operation.kind === "folderNotes" || operation.kind === "chaosScore";
 }
 
 /** What a tree operation answers for a context with no table to ask. */
@@ -241,16 +249,23 @@ export async function manifestSource(
 }
 
 /**
- * The map's store: the same bucket, carrying the tree's link table where it
- * has parsed every note once (`linkTable`, read by `workspaceGraph`). Where
- * it has not, or notes have changed since, a fill pass is scheduled and the
- * map reads the search index meanwhile, or draws from the table as "behind".
+ * The map's store: the same bucket, carrying a link table where one has
+ * parsed every note once (`lib/nodes/linkTable.ts`). Where the Convex tree
+ * serves, its facts (`lib/nodes/facts.ts`); until they have read every note,
+ * and wherever the tree does not serve, the search database's. Where neither
+ * has, or notes have changed since, a fill is started and the map reads the
+ * search index meanwhile, or draws from the table as "behind".
  */
 async function withLinkTable(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
   store: FileStore,
 ): Promise<FileStore> {
+  if (isServedStore(store)) {
+    const table = await convexLinkTable(ctx, args.workspaceId, store).catch(() => null);
+    if (table === null || table.unparsed > 0) await scheduleFactFill(ctx, args.workspaceId);
+    if (table !== null) return attachLinkTable(store, table);
+  }
   try {
     const client = await treeClient(ctx, args.workspaceId);
     if (client === null) return store;
@@ -261,10 +276,7 @@ async function withLinkTable(
     }
     if (!links.ready || (links.unparsed ?? 0) > 0) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
     if (!links.ready) return store;
-    const linkTable = { client, unparsed: links.unparsed ?? 0 };
-    // Non-enumerable, as the meaning index is attached: nothing that walks the store carries it out.
-    Object.defineProperty(store, "linkTable", { value: linkTable, enumerable: false, configurable: true });
-    return store;
+    return attachLinkTable(store, d1LinkTable(client, links.unparsed ?? 0));
   } catch {
     return store;
   }
@@ -302,33 +314,55 @@ async function startFillIfIdle(
   await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
 }
 
-/** Run a `sweepTree` or `touchTree` with the bucket the barrier opened. */
+/**
+ * Run a tree operation with the bucket the barrier opened. `client` is the
+ * search database, `null` where the context has none: a List and the chaos
+ * score can still answer from the Convex tree's facts, and nothing else runs.
+ */
 export async function runTreeOperation(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; grantedNames?: string[]; operation: TreeOperation },
   store: FileStore,
-  client: ProjectionClient,
+  client: ProjectionClient | null,
 ): Promise<OperationResult> {
   const operation = args.operation;
   if (operation.kind === "folderNotes") {
     // Which notes are in the folder: the Convex tree where it serves and no
-    // move is pending (a note then reads at its old key), else this table.
+    // move is pending (a note then reads at its old key), else the search
+    // database. Their front matter: the rows' own once the facts have read
+    // every note, else the search database's.
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const listable = served !== null && servedMoves(served).length === 0 ? served : null;
+    if (listable !== null && (await factsReady(ctx, args.workspaceId))) {
+      const answer = await folderNotesFromNodes(listable, factPropSource(ctx, args.workspaceId), operation, clearance);
+      if (answer.available) return answer;
+    }
+    if (client === null) return noTreeTable(operation);
     const answer =
-      served !== null && servedMoves(served).length === 0
-        ? await folderNotesFromNodes(served, client, operation, clearance)
+      listable !== null
+        ? await folderNotesFromNodes(listable, tablePropSource(client), operation, clearance)
         : await folderNotesFromTable(store, client, operation, clearance);
     if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
     return answer;
   }
   if (operation.kind === "chaosScore") {
-    // Counted from the Convex tree's keys where it serves, else the table's numbers.
+    // Counted from the Convex tree's keys where it serves, with its facts once
+    // they have read every note, else the search database's; else the
+    // database's own numbers.
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-    const live = served === null ? null : await liveChaosScoreOf(served, client, operation, clearance).catch(() => null);
-    return live ?? (await chaosScoreOf(store, client, operation, clearance));
+    const sources = [
+      ...(served !== null ? [factChaosSource(ctx, args.workspaceId, client)] : []),
+      ...(served !== null && client !== null ? [tableChaosSource(client)] : []),
+    ];
+    for (const source of sources) {
+      const live = await liveChaosScoreOf(served!, source, operation, clearance).catch(() => null);
+      if (live !== null) return live;
+    }
+    return client === null ? NO_CHAOS : await chaosScoreOf(store, client, operation, clearance);
   }
+  if (client === null) return noTreeTable(operation);
   if (operation.kind === "touchTree") {
     try {
       await touchTree(store, client, { paths: operation.paths, files: operation.files });

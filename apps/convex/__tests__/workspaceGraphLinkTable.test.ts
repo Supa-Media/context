@@ -22,6 +22,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { sweepTreePass } from "../../mcp/src/tree/sweep.js";
 import { linkFillPass } from "../../mcp/src/tree/links.js";
+import { attachLinkTable, d1LinkTable } from "../functions/lib/nodes/linkTable";
 import { DOCMAP_KEY } from "../../mcp/src/search/shards/constants.js";
 
 // Through `require`: Vite cannot resolve the `node:sqlite` builtin as an import.
@@ -71,7 +72,7 @@ async function withTable(store: Bucket): Promise<Bucket> {
   const client = sqliteClient();
   while (!(await sweepTreePass(store, client)).complete);
   for (let pass = 0; pass < 20; pass += 1) if ((await linkFillPass(store, client)).ready) break;
-  Object.defineProperty(store, "linkTable", { value: { client, unparsed: 0 }, enumerable: false, configurable: true });
+  attachLinkTable(store, d1LinkTable(client, 0));
   return store;
 }
 
