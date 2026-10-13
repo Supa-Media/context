@@ -296,7 +296,33 @@ export function withPendingMoves(store, moves, options = {}) {
     };
   }
   Object.defineProperty(wrapped, "pendingMoves", { value: pending, enumerable: false, configurable: true });
+  // The object still sitting at an old name, read without moving it: for a
+  // reader that holds an index's bucket key and has already asked `canSee` at
+  // the name the tree draws (`readAtTreeName`). Never an address a person
+  // gave: that read goes through `get`, which answers "not found".
+  if (typeof store.get === "function") {
+    Object.defineProperty(wrapped, "getStillAt", { value: store.get.bind(store), enumerable: false, configurable: true });
+  }
   return wrapped;
+}
+
+/**
+ * Read what an index holds at bucket key `key`, judged at the name the tree
+ * draws it under: `null` when the caller may not see that name. A key no
+ * pending move carries is read as it always was. Search snippets come from
+ * here, so a note inside a folder whose queued move is still copying is found,
+ * shown at its new name, and never shown to anyone the move took it from.
+ *
+ * @param {{ get: (key: string) => Promise<any>, getStillAt?: (key: string) => Promise<any>, pendingMoves?: unknown }} store
+ * @param {string} key
+ * @param {(path: string) => boolean} [isVisible]
+ */
+export async function readAtTreeName(store, key, isVisible) {
+  const pending = pendingMovesOf(store?.pendingMoves);
+  const named = pending.length > 0 ? logicalPath(key, pending) : key;
+  if (named === key) return await store.get(key);
+  if (typeof isVisible === "function" && !isVisible(named)) return null;
+  return typeof store.getStillAt === "function" ? await store.getStillAt(key) : await store.get(key);
 }
 
 /**

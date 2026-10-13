@@ -18,7 +18,7 @@ import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { followChange } from "../../../../mcp/src/search/d1/follow.js";
 import { effectiveVisibility } from "../privacy";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
-import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
+import { atTreeNames, meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
@@ -320,9 +320,14 @@ export async function searchNotes(
     const wordsMs = Date.now() - started;
     // `evidence` (the word rank and closeness behind each hit) is for the
     // gateway's search across workspaces; a console answer carries hits only.
-    const { meaning: _meaning, evidence: _evidence, ...results } = await withMeaning(store, found, await meaningPending, {
-      keyField: "path",
-    });
+    // Shown at the names the tree draws while a queued folder move copies,
+    // judged again there, as `search_notes` answers (`atTreeNames`).
+    const withMoves = atTreeNames(
+      await withMeaning(store, found, await meaningPending, { keyField: "path" }),
+      (store as { pendingMoves?: unknown }).pendingMoves,
+      { isVisible, prefix: underFolder, keyField: "path" },
+    );
+    const { meaning: _meaning, evidence: _evidence, ...results } = withMoves;
     return { ...(results as SearchResults), timing: timed(wordsMs) };
   };
 
