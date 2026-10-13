@@ -113,7 +113,7 @@ async function fixture(id) {
     return entry ? entry.text() : undefined;
   };
   await a.bucket.put("privacy.md", PRIVACY);
-  return { a, call, read, readLogical, restore, workspaceId: `ws_${id}` };
+  return { a, call, read, readLogical, restore, controlPlane, workspaceId: `ws_${id}` };
 }
 
 /*
@@ -320,6 +320,32 @@ export async function runRotationCursorAdversarialChecks(check) {
         (key) => key.endsWith(".md") && !isPlumbingPath(key) && generationOf(f.read(key)) === "k1",
       );
       check("...and the walk still completes with nothing left on the outgoing generation", done && left.length === 0);
+    } finally {
+      f.restore();
+    }
+  }
+
+  /* -- (5) every re-wrapped note reaches the Convex tree --------------------- */
+  {
+    // A re-wrap rewrites the note's frontmatter, so its version changes. The
+    // walk recorded its change with no paths, so the tree (and the device
+    // change log that follows it) kept each note's old version until a sweep.
+    // Sabotage: drop `reportRewrapped` after the completing call's
+    // recordChange in `rotate.js` and this fails.
+    const f = await fixture("advtree");
+    try {
+      await seed(f, 3);
+      const done = await driveToCompletion(f);
+      // The report is deferred behind the answer; let it land.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const edited = f.controlPlane.calls
+        .filter((entry) => entry.path === "/gateway/tree/touch")
+        .flatMap((entry) => entry.body?.edited ?? []);
+      const notes = [0, 1, 2].map((i) => `1-projects/adv-${String(i).padStart(5, "0")}.md`);
+      check(
+        "every note a rotation re-wrapped is reported to the Convex tree as edited",
+        done && notes.every((note) => edited.includes(note)),
+      );
     } finally {
       f.restore();
     }

@@ -367,4 +367,7 @@ export async function runWalkHandler(
   }
   const more: boolean = await ctx.runMutation(internal.functions.managedEncryption.recordPage, result);
   if (more) await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, args);
+  // The walk rewrote objects without naming them, so their versions reach the
+  // Convex tree by one sweep once it ends rather than a sweep per page.
+  else await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
 }
