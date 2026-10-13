@@ -67,7 +67,7 @@ export const BROWSE_DEFINITION = {
     "Use a web browser to do things on a site: open a page, click, type, choose options, go back, scroll. " +
     "Each reading numbers what you can press or type into, like [7]; steps name those numbers as ref. " +
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
-    "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name. " +
+    "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. " +
     "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. " +
     HANDOFF_SENTENCE +
     "Use open_page instead when you only need to read.",
@@ -155,8 +155,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   let session = null;
   let origin = null;
   let steps = 0;
-  // The live-view link, never the model's: texted the moment it exists when
-  // the turn can text mid-task (`say`), else added to the reply by the gateway.
+  // The person's own page for taking the browser over (`context.lc/tex/<handle>`),
+  // never the model's and never a link to the browser itself: texted the
+  // moment it exists when the turn can text mid-task (`say`), else added to
+  // the reply by the gateway.
   let handoffLink = null;
   let handoffSaid = false;
   // A handoff the model asked for that never produced a link.
@@ -186,7 +188,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
 
   async function run(planned, { handoff = false } = {}) {
     const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
-    if (typeof result?.liveUrl === "string" && result.liveUrl.startsWith("https://")) handoffLink = result.liveUrl;
+    if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
     if (!reading) return null;
@@ -232,7 +234,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
-            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site (no ?query added). Otherwise ask them for the address.", true);
+            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
           }
           gotos += 1;
           planned.push({ do: "goto", url });
@@ -294,7 +296,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       return textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
     },
 
-    /** The live-view link a handoff made this question and has not texted yet, for the gateway's reply. */
+    /** The take-over link a handoff made this question and has not texted yet, for the gateway's reply. */
     handoffLink: () => (handoffSaid ? null : handoffLink),
     /**
      * The gateway's own sentence for a link it is about to append, or null.

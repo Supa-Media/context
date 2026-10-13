@@ -24,7 +24,7 @@ import { type FileStore, READ_BATCH_PATHS, loadPrivacyState, readFiles } from ".
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import { readTreeState } from "../../../../mcp/src/tree/table.js";
-import { FOLDER_PAGE_ROWS, folderPropRows, propWriteStatement, propsOf } from "../../../../mcp/src/tree/props.js";
+import { FOLDER_PAGE_ROWS, folderPropRows, propRowsOf, propWriteStatement, propsOf } from "../../../../mcp/src/tree/props.js";
 import type { ProjectionClient } from "../fileOps";
 
 /** Stale rows one page may re-read before the table is not worth asking. */
@@ -91,6 +91,74 @@ export async function folderNotesFromTable(
       inFolder(row.path, prefix, operation.subfolders) &&
       canSee(row.path, clearance.scope, state.rules, state.overrides, clearance.names),
   );
+  return await answerRows(store, client, visible, cursor, clearance);
+}
+
+/**
+ * The same answer with the notes taken from the Convex tree (`servedNodesStore`):
+ * which notes sit in the folder, and at which version, are the rows; only the
+ * front matter comes from this database, and a row parsed at another version
+ * than the tree's is read again, exactly as above. `privacy.md` is the
+ * tree's mirror, through the store.
+ */
+export async function folderNotesFromNodes(
+  served: FileStore,
+  client: ProjectionClient,
+  operation: { folder: string; subfolders: boolean; cursor?: string },
+  clearance: Clearance,
+): Promise<FolderNotesResult> {
+  const folder = requireFolderPath(operation.folder);
+  const prefix = folder === "" ? "" : `${folder}/`;
+  const state = await loadPrivacyState(served);
+  if (folder !== "" && !folderVisibleAtScope(folder, clearance, state.rules, state.overrides)) {
+    return { kind: "folderNotes", available: true, notes: [], cursor: null, missing: [], fill: false };
+  }
+  const listing = await served.list({
+    prefix,
+    limit: FOLDER_PAGE_ROWS,
+    ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
+  });
+  const cursor = listing.truncated && typeof listing.cursor === "string" ? listing.cursor : null;
+  const tree = (listing.objects ?? []).filter(
+    (object) =>
+      object.key.endsWith(".md") &&
+      inFolder(object.key, prefix, operation.subfolders) &&
+      canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names),
+  );
+  let props: Awaited<ReturnType<typeof propRowsOf>>;
+  try {
+    props = await propRowsOf(client, tree.map((object) => object.key));
+  } catch {
+    // No props table yet, or a database that cannot be read: the bucket answers.
+    return unavailable(true);
+  }
+  const visible: PropRow[] = tree.map((object) => {
+    const meta = object as { key: string; etag?: unknown; uploaded?: Date };
+    const etag = typeof meta.etag === "string" ? meta.etag : null;
+    const uploaded = meta.uploaded;
+    const row = props.get(object.key);
+    return {
+      path: object.key,
+      etag,
+      uploaded: uploaded === undefined ? null : new Date(uploaded).getTime(),
+      stale: row === undefined || (etag !== null && etag !== row.version),
+      encrypted: row?.encrypted === true,
+      props: row?.props ?? null,
+    };
+  });
+  return await answerRows(served, client, visible, cursor, clearance);
+}
+
+type PropRow = Awaited<ReturnType<typeof folderPropRows>>[number];
+
+/** Visible rows to an answer: stale ones read again and their rows fixed. */
+async function answerRows(
+  store: FileStore,
+  client: ProjectionClient,
+  visible: PropRow[],
+  cursor: string | null,
+  clearance: Clearance,
+): Promise<FolderNotesResult> {
   const stale = visible.filter((row) => row.stale);
   if (stale.length > STALE_READ_CAP) return unavailable(true);
 

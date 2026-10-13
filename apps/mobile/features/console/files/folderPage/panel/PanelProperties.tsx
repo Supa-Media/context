@@ -24,7 +24,7 @@ import { NEW_FRONT_NOTE, type FolderItem } from "../model";
 import { OwnerPicker } from "../OwnerPicker";
 import { PropertyValue } from "../PropertyValue";
 import { faceFor } from "../taskFace";
-import { dueOf, estimateOf, ESTIMATE_HINTS, NO_ESTIMATE, ownersOf, priorityWord, tagsOf } from "../taskProps";
+import { dueOf, estimateOf, ESTIMATE_HINTS, NO_ESTIMATE, ownersOf, priorityWord, tagsOf, allTagsOf } from "../taskProps";
 import { estimateChoices } from "../EstimateCell";
 import { DuePanel, TagPanel, type Anchor } from "../tasks/QuickAddParts";
 import { DUE_PRESET_LABELS, PRIORITIES, duePreset, type DuePreset } from "../tasks/taskWords";
@@ -60,6 +60,8 @@ export function PanelProperties({
   const [panel, setPanel] = useState<"tag" | "due" | null>(null);
   const owners = ownersOf(item.properties);
   const tags = tagsOf(item.properties);
+  // `#tags` written in the note: shown with the rest, changed only by editing its text.
+  const written = allTagsOf(item).filter((tag) => !tags.some((each) => each.toLowerCase() === tag.toLowerCase()));
   const due = dueOf(item.properties);
   const estimate = estimateOf(item.properties);
   const label = (owner: string) => isolateForDisplay(ownerLabel(actions.owners, owner));
@@ -138,7 +140,7 @@ export function PanelProperties({
       </Row>
       <Row label="Tags" testID="task-panel-tags">
         <View style={styles.wrap}>
-          {tags.length === 0 && write === null ? (
+          {tags.length === 0 && written.length === 0 && write === null ? (
             <Text variant="tree" style={styles.muted}>
               No tags
             </Text>
@@ -153,6 +155,13 @@ export function PanelProperties({
               )}
             </View>
           ))}
+          {written.map((tag) => (
+            <View key={`#${tag.toLowerCase()}`} style={[styles.chip, styles.tag]} accessibilityLabel={`Tag ${tag}, written in the note`}>
+              <Text variant="meta" numberOfLines={1} style={styles.tagText}>
+                {isolateForDisplay(`#${tag}`)}
+              </Text>
+            </View>
+          ))}
           {write === null ? null : (
             <Value editable onOpen={() => setPanel(panel === "tag" ? null : "tag")} label="Add a tag" testID="task-panel-tag-add">
               <Icon name="plus" size={14} color={colors.chromeMuted} />
@@ -163,7 +172,7 @@ export function PanelProperties({
       {panel === "tag" && write !== null ? (
         <View style={styles.inline}>
           <TagPanel
-            suggestions={tagSuggestions.filter((tag) => !tags.some((each) => each.toLowerCase() === tag.toLowerCase()))}
+            suggestions={tagSuggestions.filter((tag) => ![...tags, ...written].some((each) => each.toLowerCase() === tag.toLowerCase()))}
             onAdd={(tag) => {
               if (!tags.some((each) => each.toLowerCase() === tag.toLowerCase())) write("tags", [...tags, tag]);
             }}

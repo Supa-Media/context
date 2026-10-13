@@ -65,7 +65,7 @@ export function htmlPreviewHeight(info: string): number | undefined {
 }
 
 /** A fence's whole info string, trimmed, or `""`. */
-function fenceInfo(
+export function fenceInfo(
   doc: { sliceString: (from: number, to: number) => string },
   fence: SyntaxNode,
 ): string {
@@ -74,7 +74,7 @@ function fenceInfo(
 }
 
 /** The first word of a fence's info string, lower-cased, or `null`. */
-function fenceTag(
+export function fenceTag(
   doc: { sliceString: (from: number, to: number) => string },
   fence: SyntaxNode,
 ): string | null {
@@ -97,7 +97,7 @@ function fenceTag(
  * typing one — has a single `CodeMark`, and its body runs to the end of the
  * node.
  */
-function fenceBody(
+export function fenceBody(
   doc: { lineAt: (pos: number) => { from: number; to: number }; length: number; sliceString: (from: number, to: number) => string },
   fence: SyntaxNode,
 ): string {

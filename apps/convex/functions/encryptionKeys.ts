@@ -395,6 +395,8 @@ export const exportEncryptionKeys = action({
     if (userId === null) {
       throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Sign in required" });
     }
+    // The keys open every note in a managed bucket: a big change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
     await ctx.runMutation(internal.functions.encryptionKeys.authorizeEncryptionExport, {
       workspaceId: args.workspaceId,
       userId,

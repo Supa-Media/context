@@ -15,12 +15,14 @@
  *   - must type: https://mcp.context.lc/mcp   typed into any box
  *   - must choose: Read-only tools: Always allow   an option picked in a list
  *   - must set: connected chatgpt    a flag a scripted button set
+ *   - must publish: website          a site publish that went through (`siteStub.mjs`)
+ *   - must connect: mayaruns.com     a domain connected to the workspace's site
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
  */
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -48,6 +50,10 @@ function happened(check, answer) {
       return events.some((event) => event.startsWith("select ") && event.toLowerCase().endsWith(`"${value}"`));
     case "set":
       return events.some((event) => event.toLowerCase() === `set ${value}`);
+    case "publish":
+      return events.includes("publish");
+    case "connect":
+      return events.some((event) => event.toLowerCase() === `connect ${value}`);
     default:
       return false;
   }

@@ -1,4 +1,4 @@
-# Pins and "You open most" live on the account, and follow only the mover's moves (2026-09-30)
+# Pins and "You open most" live on the account, and follow a move for whoever may see it (2026-09-30, revised 2026-10-13)
 
 The phone's new Home (Apple Notes style, approved by the owner on
 2026-09-30) shows **Pinned** tiles and a **You open most** rail. The owner
@@ -20,20 +20,20 @@ same on every phone and browser.
   the tree the person can see now, so a note that moved out of reach, or was
   made private, simply stops showing.
 
-## Only the mover's places follow a move
+## Places follow a move for whoever may see where it went (revised 2026-10-13)
 
-`moveEntry`, `archiveEntry`, `trashEntry` and `restoreTrashEntry` rewrite the
-**mover's** places to the new path. Another member's are left where they
-were. The mover saw both ends of the move; another member may not be able to
-see where the entry went (a note moved into the owner's private folder), and
-rewriting their pin would hand them a path `privacy.md` keeps from them. A
-Convex query cannot ask the bucket who may see a path, so the one safe rewrite
-is the one whose reader already could. The cost is that another member's pin
-on a renamed shared folder stops showing until they pin it again; an undo
-brings it back.
+Until 2026-10-13 only the **mover's** places followed a move made in the app,
+because a Convex query could not ask the bucket who may see a path, and
+rewriting another member's pin could hand them a path `privacy.md` keeps from
+them. The Convex tree now mirrors the rules, so every member's places follow
+a move (made in the app, by an agent, by the organizer, or queued) where that
+member may see each place's new name, judged one place at a time; anybody
+else's stay put and stop showing, and an undo brings them back. See phase 4
+B2 in [convex-tree](./convex-tree.md).
 
-Reversing it means a pin that leaks a private folder's name to a team member.
-`places.test.ts` ("another member's places are never rewritten") fails.
+Reversing the per-place check means a pin that leaks a private folder's name
+to a team member: `places.test.ts` ("a member who may not see where it went
+keeps the old path") and `nodes/treeNamesAndPlaces.test.ts` fail.
 
 ## The phone's Home, and a bottom bar that is Apple Notes' (2026-09-30)
 
@@ -93,8 +93,8 @@ edits pushed out the note you had just been in.
 
 - **Recent is a fourth kind of place**, `placeRecents`: a path and a time per
   note, on the account, private to the person, at most 50 per workspace (the
-  oldest goes). The same rules as pins and opens: paths never text, only the
-  mover's rows follow a move, the tree decides what is drawn.
+  oldest goes). The same rules as pins and opens: paths never text, rows follow a move
+  for whoever may see where it went, the tree decides what is drawn.
 - **Opening a note counts, and so does typing in it**, at most once a minute
   (`useRecordRecent`), on every layout, so a note written on a laptop is in
   Recent on the phone. Another person, or an agent, changing a note never
@@ -105,3 +105,23 @@ edits pushed out the note you had just been in.
 
 Reversing it brings back the bug. `phoneHome.test.ts`,
 `recordRecent.test.ts` and `apps/convex/__tests__/placeRecents.test.ts` fail.
+
+## The note's top bar: ‹ opens the levels, ••• holds reading (2026-10-13)
+
+The owner, on an iPhone: the eye "doesn't seem too important", there should be
+a Home button somewhere, and "‹ health" — the back capsule spelling out the
+folder — "looks ugly". Of the boards (`/note-top-bar/` in the project files),
+they picked pressing back and having a menu open.
+
+So the top-left below Home is a round ‹, the same key as ••• on the right. On a
+page with folders above it, pressing it opens the levels: **Home first**, then
+each folder down to the page's own (`phoneBackLevels`). That first row is the
+bar's Home button; there is no second one. A page at the top of the workspace
+has only Home above it, and ‹ goes there at once, because a one-row menu is a
+press that asks for another press. Reading mode is the first row of the •••
+sheet (`noteActionItems`' `read`), offered to anybody who can open the note,
+and never on the note's bottom bar.
+
+Reversing either brings back what was asked away: the folder's name in the
+corner, or an eye on the bar. `noteChrome/pathBar.test.ts` presses ‹ and a
+level; `noteChrome/topRowGroup.test.ts` asserts no eye and reading first in •••.

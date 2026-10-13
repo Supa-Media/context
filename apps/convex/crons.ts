@@ -78,6 +78,19 @@ crons.interval(
   {},
 );
 
+/**
+ * Keep every workspace's Convex copy of its file tree current
+ * (`functions/nodesMigration.ts`): a copy that is due (never started, dirty,
+ * interrupted, failed or an hour old) is swept again, so a workspace nobody
+ * opens and a new one are covered too. Staff can pause it from admin.
+ */
+crons.interval(
+  "keep the Convex copy of each file tree current",
+  { minutes: 15 },
+  internal.functions.nodesMigration.keepCurrent,
+  {},
+);
+
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },
@@ -94,6 +107,18 @@ crons.interval(
   "sweep expired texted sign-in links",
   { hours: 1 },
   internal.functions.textLinks.purgeExpiredPhoneLinkInvites,
+);
+
+crons.interval(
+  "sweep expired sign-in alerts",
+  { hours: 1 },
+  internal.functions.signInAlerts.purgeExpiredAlerts,
+);
+
+crons.interval(
+  "add new emails whose seven days are up",
+  { hours: 1 },
+  internal.functions.emailRecovery.finishDue,
 );
 
 crons.interval(
@@ -261,6 +286,15 @@ crons.interval(
  * would make a claimed pass refuse itself — but it is worth stating plainly
  * rather than letting "every gate is re-asked" imply more than is true.
  *
+ * Since 2026-10-12 a Gmail or Chat pass also **moves** notes: it ends with the
+ * dormant-contact sweep, which files up to 25 contact pages with no activity
+ * in a year under `4-archive/` (owner's decision;
+ * `docs/decisions/communications/contacts-and-chat.md`). That is a write into
+ * the bucket on this clock and holds no decision either: each page is re-read
+ * and re-checked from its own bytes against the clock at the moment it moves,
+ * `privacy.md` is read again for the move, the move is the ordinary one, and
+ * the next message for that person brings the page back.
+ *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
  * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
  * Google's push path is deliberately not built (`docs/decisions/communications.md`)
@@ -345,6 +379,19 @@ crons.interval(
  * the owner's clearance from live membership. Hourly, with at most one sweep a
  * day per workspace (`SWEEP_EVERY_MS`).
  */
+/**
+ * Queued folder moves whose chain of passes stopped (a deployment, a lost
+ * schedule) are picked up again once their lease lapses
+ * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
+ * safety net, and it does nothing when no move is pending.
+ */
+crons.interval(
+  "resume queued moves",
+  { minutes: 5 },
+  internal.functions.nodeMoves.resume,
+  {},
+);
+
 crons.interval(
   "auto-organize sweeps",
   { hours: 1 },

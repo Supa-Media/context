@@ -157,7 +157,7 @@ function PlaceRows({
       <Text variant="rowSub" style={styles.none} testID="search-places-none">
         {look === "folders"
           ? typed ? "No folder is called that." : "No folders yet."
-          : typed ? "No tag is called that." : "No notes are tagged yet. Tags come from a note's tags: line."}
+          : typed ? "No tag is called that." : "No notes are tagged yet. Tags come from a #word in a note, or its tags: line."}
       </Text>
     );
   }

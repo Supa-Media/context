@@ -26,6 +26,7 @@ import type { LinkedTitleValues } from "./useLinkedTitle";
 import type { ListingsValues } from "./useListings";
 import type { NoteReadsValues } from "./useNoteReads";
 import type { OfflineQueueValues } from "./useOfflineQueue";
+import type { OpenNoteValues } from "./useOpenNote";
 import type { BesideNoteValues } from "./useBesideNote";
 import type { PendingOpsValues } from "./usePendingOps";
 import type { RowCommandsValues } from "./useRowCommands";
@@ -130,7 +131,8 @@ type FileBrowserValueDeps =
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
   & Pick<FolderIconsValues, "iconOf" | "setIcon">
-  & Pick<BuiltInFoldersValues, "addBuiltInFolder">;
+  & Pick<BuiltInFoldersValues, "addBuiltInFolder">
+  & Pick<OpenNoteValues, "prefetch">;
 
 export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
   const {
@@ -148,7 +150,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon,
-    addBuiltInFolder,
+    addBuiltInFolder, prefetch,
   } = deps;
 
   return useMemo(
@@ -175,6 +177,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       selectedPath,
       opening,
       select,
+      prefetch,
       navigations,
       renamed,
       deselect,
@@ -361,6 +364,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       applyPluginNoteWrite,
       search,
       select,
+      prefetch,
       navigations,
       renamed,
       deselect,

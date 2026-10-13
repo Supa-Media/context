@@ -1,3 +1,6 @@
+/** Names one tree touch carries per kind; more is sent as `dirty`. */
+const TREE_TOUCH_NAMES = 50;
+
 /**
  * Fire-and-forget reporting calls: usage counters, search-index progress,
  * activity, tree-change and form-submission notices. Every one of these is a
@@ -149,6 +152,8 @@ export function createReportingMethods({ post }) {
      * nothing else: no path, no count, no content (non-negotiable #1). The
      * control plane takes the timestamp itself. See `announceTreeChange`.
      *
+     * Labels only, as before. The names a change touched go by `reportTreeTouch`.
+     *
      * @param {string} workspaceId
      * @param {string[]} audiences
      */
@@ -159,6 +164,43 @@ export function createReportingMethods({ post }) {
         : [];
       if (labels.length === 0) return null;
       return await post("/gateway/tree", { workspaceId, audiences: labels });
+    },
+
+    /**
+     * Say which paths and files a recorded change named, so the Convex tree
+     * (`apps/convex/functions/lib/nodes/`) re-checks them.
+     *
+     * **Names now cross this call, for the tree.** That is the owner's decision
+     * of 2026-10-12 (`docs/decisions/app-and-console/convex-tree.md`): the
+     * control plane keeps each workspace's file and folder names, and this is
+     * how a write of ours reaches that copy. Note text never crosses it, and no
+     * field here takes it. More than 50 names of either kind sends no names at
+     * all and `dirty: true`, which asks for a sweep instead.
+     *
+     * `moves` are the change's moves, old name to new, so pins and recents
+     * follow them; past the same cap they are left out, and those places
+     * simply stop showing.
+     *
+     * @param {string} workspaceId
+     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[]}} touch
+     */
+    async reportTreeTouch(workspaceId, touch) {
+      if (typeof workspaceId !== "string" || !workspaceId || !touch) return null;
+      const paths = Array.isArray(touch.paths) ? touch.paths.filter((path) => typeof path === "string") : [];
+      const files = Array.isArray(touch.files) ? touch.files.filter((file) => typeof file === "string") : [];
+      const moves = Array.isArray(touch.moves)
+        ? touch.moves.filter((move) => typeof move?.from === "string" && typeof move?.to === "string")
+          .map(({ from, to }) => ({ from, to }))
+        : [];
+      if (paths.length === 0 && files.length === 0) return null;
+      const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES;
+      return await post("/gateway/tree/touch", {
+        workspaceId,
+        paths: dirty ? [] : paths,
+        files: dirty ? [] : files,
+        dirty,
+        ...(moves.length === 0 || moves.length > TREE_TOUCH_NAMES ? {} : { moves }),
+      });
     },
 
     /**

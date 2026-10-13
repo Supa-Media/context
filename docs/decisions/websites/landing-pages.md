@@ -28,13 +28,31 @@ for all of them.
   The words are Dev's own, written in the shared note
   `@supa/1-projects/premium/landing-a-copy.md`, built with typos fixed and
   nothing else changed; Dev chose their own phrasing over the unslop rules
-  for this page. The one picture is a new graph (`ChaosGraph.web.tsx`):
-  emails, meetings, notes and a side project land on the page faster than
-  anyone could file them, two AI helpers go to each in turn, and each becomes
-  a dot linked into its folder, with a new folder growing for the side
-  project. It loops while on screen, has a Pause button, and holds still on
-  the filed state when the visitor asks for less motion. Adding a feature
-  list, a hero image or a second animation back is reversing this decision.
+  for this page. The headline says what it is: "Context is an app that gives
+  your brain that feeling you have when your room is clean."
+- **a's picture tells one story, and fits the first screen.** Settled with
+  Dev over eighteen rounds of a preview (2026-10-11), with Sayo's feedback.
+  Tex, the mascot (the app's chaos figure in brand blue, googly eyes always
+  on), stands where the mark was and untangles as the graph under the
+  headline gets sorted. The graph (`ChaosGraph.web.tsx`, story in
+  `chaosStory.ts`, drawn by `chaosDraw.ts` on one canvas) starts cluttered,
+  about sixty loose notes drawn as what they came in as (emails, texts,
+  invites, meetings, chats, docs), with new ones trickling in throughout. AI
+  helpers, drawn as collaborators' cursors with a name flag and nothing else
+  ("cursors look a lot better"), sort them into a **Personal workspace**
+  laid out as Inbox, Projects, Areas, Resources and Archive; Archive is a
+  closed box that never shows its notes. A side project grows in Personal
+  from "New app" into "Friend hangout app", and only when the first
+  co-founder joins does the graph split, Personal on the left and the new
+  **Hangg** shared workspace on the right, side by side on every screen. The
+  app's notes move over, and the co-founders' own assistants ("Maya's
+  Codex", "Jon's Claude") start working on the notes they bring. Each
+  workspace is a faint dotted outline, not a box. Only a note being moved
+  shows its title; there is no count. The page is light only, and Tex, the
+  headline, the graph and its Pause fit a laptop's first screen. It loops
+  while on screen and holds the sorted end state, Tex calm, when the
+  visitor asks for less motion. Adding a feature list, a hero image or a
+  second animation back is reversing this decision.
 - **b is the page `/` showed until 2026-10-11, unchanged** ("b/ should be the
   current default page"): tab.bot's shape in our colours, the live map behind
   "Less chaos", the real editor playing a demo, the prose, and the sign-up
@@ -77,10 +95,12 @@ for all of them.
 
 Test: `apps/mobile/__tests__/landingRoute.test.ts` and `landingPages.test.ts`
 (which address is which page, and how a campaign is read and cleaned),
-`landingEditorScene.test.ts` (b's editor scene), `adCampaign.test.ts`,
+`landingEditorScene.test.ts` (b's editor scene), `landingChaosStory.test.ts`
+(a's story: Hangg is made only when a co-founder joins, no helper reads two
+notes at once, links stay inside a workspace), `chaosFigure.test.ts` (Tex), `adCampaign.test.ts`,
 `loginScreen.test.ts` (a phone join fires both pixels),
 `adminWaitlistRender.test.ts`, the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`, and
-`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, its graph files a day and
-can be paused, and its line opens the sign-up, b is the old page with its map and editor, c is the shell,
+`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, Tex and the graph fit the first
+screen, the graph draws and can be paused, and its line opens the sign-up, b is the old page with its map and editor, c is the shell,
 retired letters go home).

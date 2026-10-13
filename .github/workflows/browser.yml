@@ -82,6 +82,7 @@ jobs:
             apps/mobile/e2e/webkit/callouts.spec.ts
             apps/mobile/e2e/webkit/tables.spec.ts
             apps/mobile/e2e/webkit/comments.spec.ts
+            apps/mobile/e2e/webkit/pasting.spec.ts
             apps/mobile/e2e/webkit/helpers.ts
             apps/mobile/e2e/webkit/playwright.config.ts
             apps/mobile/e2e/webkit/static-server.mjs
@@ -259,7 +260,7 @@ jobs:
         run: >-
           pnpm exec playwright test --config e2e/webkit/playwright.config.ts --project=webkit --reporter=list
           e2e/webkit/editor.spec.ts e2e/webkit/editorFormatting.spec.ts e2e/webkit/callouts.spec.ts
-          e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts
+          e2e/webkit/tables.spec.ts e2e/webkit/comments.spec.ts e2e/webkit/pasting.spec.ts
       - name: Keep editor failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

@@ -15,6 +15,10 @@
  *  5. The workspace score weighs each folder by how much it holds: 20% of
  *     the notes in a calm folder and 80% in a chaotic one is 80% chaotic.
  *  6. Archive is never scored; the main folders are never thin.
+ *  7. Folders named A to Z are one run, like chapters (2026-10-12).
+ *  8. Contacts are the app's to keep, so they are scored on hygiene: a page
+ *     not filed under a letter, with no name, or waiting on review costs;
+ *     how many there are never does (2026-10-12).
  */
 
 import { test } from "node:test";
@@ -95,6 +99,44 @@ test("chapters 01 to 10 are a run; a numbered list that reuses numbers is not", 
 test("two notes sharing a stem are not a run: a run needs three", () => {
   assert.equal(countItems(notes("draft-1.md", "draft-2.md"), []).items, 2);
   assert.equal(countItems(notes("draft-1.md", "draft-2.md", "draft-3.md"), []).items, 1);
+});
+
+test("folders named A to Z are one run, with a catch-all beside them", () => {
+  const letters = [..."abcdefghijklmnopqrstuvwxyz"];
+  assert.equal(countItems([], letters).items, 1);
+  assert.equal(countItems([], [...letters.map((l) => l.toUpperCase()), "other"]).items, 1);
+  assert.equal(countItems([], ["a", "b", "c", "other", "imessage"]).items, 2);
+  assert.equal(countItems(notes("x.md"), ["a", "b"]).items, 3, "two letters are not a run: a run needs three");
+  assert.equal(countItems([], ["other", "misc", "x1"]).items, 3, "a catch-all alone is not a run");
+});
+
+test("contacts are scored on hygiene, not on how many there are", () => {
+  const filed = Array.from({ length: 120 }, (_, i) => ({ path: `0-inbox/contacts/${"abc"[i % 3]}/person-${i}x.md` }));
+  const calm = scoreTree(filed);
+  assert.equal(calm.score, 0, "a hundred people filed under their letters is calm");
+  assert.equal(calm.folders.find((f) => f.path === "0-inbox/contacts").chaos, 0, "never thin");
+
+  const score = (rows) => scoreTree(rows).folders.find((f) => f.path === rows[0].path.split("/").slice(0, -1).join("/")).chaos;
+  assert.equal(score([{ path: "0-inbox/contacts/email-p-example-com.md" }]), 100, "a page lying loose is unsorted");
+  assert.equal(score([{ path: "0-inbox/contacts/imessage/tunde--7277a688.md" }]), 100, "a legacy folder is unsorted");
+  assert.equal(score([{ path: "0-inbox/contacts/other/phone-15551234567.md" }]), 50, "a page with no name is half done");
+  assert.equal(score([{ path: "0-inbox/contacts/a/ada.md", review: true }]), 100, "a possible duplicate waiting on review");
+  assert.equal(score([{ path: "0-inbox/contacts/a/ada.md", lines: 2000 }]), 100, "the long-note rule still holds");
+
+  // Each page carries its own chaos: one of the two in A is waiting on review.
+  const mixed = scoreTree([
+    { path: "0-inbox/contacts/a/ada.md", review: true },
+    { path: "0-inbox/contacts/a/amy.md" },
+    { path: "0-inbox/contacts/b/bo.md" },
+    { path: "0-inbox/contacts/c/cy.md" },
+  ]);
+  assert.equal(mixed.folders.find((f) => f.path === "0-inbox/contacts/a").chaos, 50);
+  assert.equal(mixed.folders.find((f) => f.path === "0-inbox/contacts").weight, 0, "letter folders weigh through their pages");
+  assert.equal(mixed.sum, 100);
+
+  // Only contacts: letter folders elsewhere are scored like any folder.
+  const elsewhere = scoreTree(Array.from({ length: 40 }, (_, i) => ({ path: `3-resources/a/n${i}x.md` })));
+  assert.ok(elsewhere.folders.find((f) => f.path === "3-resources/a").chaos > 0);
 });
 
 test("subfolders are items", () => {

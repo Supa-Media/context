@@ -93,6 +93,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sign-in is invite-only, and the lock is on the server
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
+- [Email guards the big changes; a phone alone never takes an account](./identity-and-access/account-safety.md)
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain
@@ -250,6 +251,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
 - [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)
+- [An owner's agent connects the domain; buying one stays in the person's own account](./websites/agent-tools.md#an-owners-agent-connects-the-domain-buying-one-stays-in-the-persons-own-account)
 - Every site's pages are kept at the edge per Publish
 - A fallback never reverses an explicit restriction
 - The index may lag on widening, never on narrowing
@@ -335,6 +337,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
+- [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -369,6 +372,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
 - A diagram lives in the note, and the browser is the only thing that makes it safe
+- A Mermaid chart is drawn by our script in a frame the note cannot leave
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
 - Reading mode is the whole rule for a block that replaces its own source
@@ -404,9 +408,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
-- [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
+- [Pins and "You open most" live on the account, and follow a move for whoever may see it](./app-and-console/phone-home-places.md)
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
 - [The map is drawn on paper and a blackboard; its words are not](./app-and-console/live-map-board.md)
+- [Agents in the middle only while they work; Archive is one icon](./app-and-console/live-map-board.md#agents-in-the-middle-only-while-they-work-archive-is-one-icon-2026-10-12)
 - [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md)
 - [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07)
 - [A replay is served from a history index in the context's own database](./app-and-console/live-map-history.md#a-replay-is-served-from-a-history-index-in-the-contexts-own-database-2026-10-09)
@@ -474,6 +479,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A firehose is not attention
 - Retention: raw MIME is off by default, and attachments are metadata-only
 - Contacts: one page per person, and a merge never rewrites history
+- A contact page is found by who it is, and filed A–Z (owner, 2026-10-12)
+- A contact nobody has written to in a year is archived by the sync that would revive it (owner, 2026-10-12)
+- A contact page is created only for somebody the owner has written to (owner, 2026-10-12)
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - The forward sync loop: a pull, on a floor of five minutes
@@ -629,6 +637,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
+- [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`

@@ -14,6 +14,7 @@ import { MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 import { linkCandidates } from "../../tree/links.js";
+import { servedListingStore } from "../../tree/served.js";
 import { treeClientOf } from "../../tree/record.js";
 
 /**
@@ -68,7 +69,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
 
   let keys;
   try {
-    keys = (inventoryKeys || (await listAllNoteKeys(store)).map(({ key }) => key))
+    keys = (inventoryKeys || (await noteInventory(store, renames)))
       .filter((key) => canSee(key, scope, rules, overrides));
   } catch {
     // `listAllKeys` throws rather than truncate. A walk that could not be
@@ -314,5 +315,43 @@ export async function referenceCandidates(store, renames) {
   const client = treeClientOf(store);
   if (client === null || renames.size === 0) return null;
   const found = await linkCandidates(client, renames);
-  return found === null ? null : { inventoryKeys: found.inventory, candidates: found.candidates };
+  if (found === null) return null;
+  // Which notes exist comes from the Convex tree where it serves; the link
+  // table still says which of them point at what moved.
+  const inventory = await treeNoteInventory(store, renames);
+  return { inventoryKeys: inventory ?? found.inventory, candidates: found.candidates };
+}
+
+/**
+ * Every note key, with this move's renames applied: what a bare link's name
+ * is resolved against. Listed from the Convex tree where it serves the
+ * workspace (`tree/served.js`), one request instead of a bucket walk, else
+ * from the bucket. The tree may not have heard of this move yet, so an old
+ * name is dropped and its new one counted; against a bucket that has already
+ * moved that changes nothing.
+ */
+async function noteInventory(store, renames) {
+  return withRenames((await listAllNoteKeys(servedListingStore(store))).map(({ key }) => key), renames);
+}
+
+/** `noteInventory`, but `null` unless the Convex tree answered it. */
+async function treeNoteInventory(store, renames) {
+  let served = false;
+  const listing = servedListingStore(store, { onServed: (answer) => { served = answer; } });
+  if (listing === store) return null;
+  try {
+    const keys = (await listAllNoteKeys(listing)).map(({ key }) => key);
+    return served ? withRenames(keys, renames) : null;
+  } catch {
+    return null;
+  }
+}
+
+function withRenames(keys, renames) {
+  const found = new Set(keys);
+  for (const [source, destination] of renames) {
+    found.delete(source);
+    if (destination.endsWith(".md")) found.add(destination);
+  }
+  return [...found];
 }

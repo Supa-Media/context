@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OPEN_PAGE_TOOL, webSession } from "../src/agent/computer.js";
 import { parseSetup } from "../src/agent/production.js";
-import { OpenableAddresses, onTrustedSite, readTrustedSites } from "../src/agent/trustedSites.js";
+import { OpenableAddresses, onOpenWeb, onTrustedSite, readTrustedSites } from "../src/agent/trustedSites.js";
 
 const SITES = ["chatgpt.com", "openai.com", "claude.ai", "context.lc"];
 
@@ -92,6 +92,59 @@ for (const [name, url] of [
     assert.equal(onTrustedSite(url, SITES), false);
   });
 }
+
+/* ---------------- a route, not a payload ---------------- */
+
+test("a trusted site carries a route the model chose, never a payload in the path", () => {
+  // The query is one place to write notes into an address. The path is the
+  // other, and it is the half a server logs: a `?` is refused above while
+  // `chatgpt.com/<the notes>` was not, so this guard read one syntactic
+  // position and not the other.
+  const note = "Runway is 4 months. Seyi is raising at 12 post. Board wants a bridge.";
+  const payload = Buffer.from(note).toString("base64url");
+
+  // The routes the feature exists for.
+  assert.equal(onTrustedSite("https://chatgpt.com/auth/login", SITES), true);
+  assert.equal(onTrustedSite("https://auth.openai.com/log-in", SITES), true);
+  assert.equal(onTrustedSite("https://claude.ai/customize/connectors", SITES), true);
+  assert.equal(onTrustedSite("https://chatgpt.com/", SITES), true);
+
+  // And what a route is not.
+  assert.equal(onTrustedSite(`https://chatgpt.com/${payload}`, SITES), false, "base64 in one segment");
+  assert.equal(onTrustedSite(`https://chatgpt.com/${encodeURIComponent(note)}`, SITES), false, "percent-encoded");
+  assert.equal(onTrustedSite(`https://auth.openai.com/${payload}/${payload}`, SITES), false, "spread over segments");
+  assert.equal(onTrustedSite(`https://chatgpt.com/${"a".repeat(1900)}`, SITES), false, "a long path");
+  assert.equal(onTrustedSite("https://chatgpt.com/a/b/c/d/e/f/g/h", SITES), false, "more segments than a route has");
+});
+
+test("open_page refuses a payload in a trusted site's path", async () => {
+  const computer = fakeComputer();
+  const session = webSession(computer, "connect my ChatGPT");
+  session.trust(SITES);
+  const payload = Buffer.from("Seyi is raising at 12 post; runway 4 months").toString("base64url");
+  const result = await session.call(OPEN_PAGE_TOOL, { urls: [`https://chatgpt.com/${payload}`] });
+  assert.equal(result.isError, true);
+  assert.deepEqual(computer.opened, []);
+});
+
+test("and what a route still carries, which is the part a rule cannot take away", () => {
+  // Stated rather than left to be discovered. A route may legitimately be
+  // opaque — ChatGPT's own addresses carry ids like `/g/g-p-68a1b2c3` — so no
+  // rule here can tell a short id from a short secret, and 64 characters of
+  // model-chosen route is 64 characters. This is the same residual as the
+  // model choosing *which* trusted site to open, and the guard's job is bulk.
+  assert.equal(onTrustedSite("https://chatgpt.com/g/g-p-68a1b2c3/project", SITES), true, "a real opaque route still opens");
+  assert.equal(onTrustedSite(`https://chatgpt.com/${Buffer.from("120k").toString("base64url")}`, SITES), true, "and so does a short string");
+});
+
+test("the route rule is the trusted-site rule, and leaves open_web as the owner set it", () => {
+  // `open_web: yes` is the owner accepting this class of risk on purpose.
+  // Narrowing trusted sites must not quietly narrow that too, or the setting
+  // would stop meaning what its decision note says.
+  const payload = Buffer.from("Seyi is raising at 12 post").toString("base64url");
+  assert.equal(onOpenWeb(`https://anywhere.example/${payload}`), true);
+  assert.equal(onTrustedSite(`https://chatgpt.com/${payload}`, SITES), false);
+});
 
 test("OpenableAddresses keeps exact addresses and adds trusted sites only once trusted", () => {
   const allowed = new OpenableAddresses(["https://example.com/given"]);

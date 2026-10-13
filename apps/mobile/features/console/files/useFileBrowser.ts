@@ -14,9 +14,9 @@
  *    After a change, only the folders that change touched are refetched, which
  *    is what stops an expanded tree from collapsing and reloading itself every
  *    time somebody renames a file.
- *  - **Nothing is applied optimistically.** A rename that failed but already
- *    moved on screen is a console telling you your bucket contains something
- *    it does not, which is the one thing this product cannot afford to do.
+ *  - **Structural changes are drawn immediately.** Pending renames overlay
+ *    live listings until storage and a confirming listing settle them. Reads
+ *    of their destination wait for the move rather than opening a missing file.
  */
 
 import type { FileBrowser } from "./browser";
@@ -30,6 +30,7 @@ import { useWritesAndImages } from "./fileBrowser/useWritesAndImages";
 import { useOfflineQueue } from "./fileBrowser/useOfflineQueue";
 import { useNoteReads } from "./fileBrowser/useNoteReads";
 import { useListings } from "./fileBrowser/useListings";
+import { useFollowMoves } from "./fileBrowser/useFollowMoves";
 import { useOpenNote } from "./fileBrowser/useOpenNote";
 import { useBesideNote } from "./fileBrowser/useBesideNote";
 import { useRunOperation } from "./fileBrowser/useRunOperation";
@@ -72,7 +73,7 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
     iconOf: folderIcons.iconOf,
     setIcon: folderIcons.setIcon,
   };
-  const withBrowserState = { ...bound, ...useBrowserState() };
+  const withBrowserState = { ...bound, ...useBrowserState(bound.workspaceGenerationRef) };
   const withWritesAndImages = { ...withBrowserState, ...useWritesAndImages(withBrowserState) };
   const withOfflineQueue = { ...withWritesAndImages, ...useOfflineQueue(withWritesAndImages) };
   const withNoteReads = { ...withOfflineQueue, ...useNoteReads(withOfflineQueue) };
@@ -80,6 +81,8 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   // "Add a folder" needs the listings to refresh the root, and nothing after it.
   const withBuiltInFolders = { ...withListings, ...useBuiltInFolders(withListings) };
   const withOpenNote = { ...withBuiltInFolders, ...useOpenNote(withBuiltInFolders) };
+  // A move of the open note made anywhere else: the editor follows it.
+  useFollowMoves(withOpenNote);
   // The peek's loan of the editor; its `select` and `deselect` replace the ones above for every part after.
   const withBeside = { ...withOpenNote, ...useBesideNote(withOpenNote) };
   const withRunOperation = { ...withBeside, ...useRunOperation(withBeside) };

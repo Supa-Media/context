@@ -422,7 +422,7 @@ export class ImageRowWidget extends WidgetType {
     hint.textContent = "Read aloud, searchable, and what a reader that cannot fetch the file shows.";
     panel.append(hint);
     figure.append(panel);
-    field.focus();
+    field.focus({ preventScroll: true });
     const commit = (): void => {
       const value = field.value;
       panel.remove();

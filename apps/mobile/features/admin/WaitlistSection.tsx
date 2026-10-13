@@ -40,6 +40,7 @@ import type { WAITLIST_PLACES } from "./place";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
+import { WaitlistUntold } from "./WaitlistUntold";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
@@ -149,7 +150,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
             Waitlist
           </Text>
           <Text variant="meta" style={compact ? styles.textCompact : null}>
-            People who asked to be let in, by email or phone. Letting someone in by email sends them an email.
+            People who asked to be let in, by email or phone. Letting someone in tells them: an email, or a text if they joined by phone.
           </Text>
         </View>
         {adding || friends ? null : (
@@ -167,6 +168,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       </View>
 
       <SignupAlerts />
+      <WaitlistUntold onDone={(tone, sentence) => setOutcome({ tone, sentence, invalid: [] })} />
 
       {adding ? (
         <WaitlistAdd

@@ -28,6 +28,7 @@ import { selectTitle, titleLine } from "./titleLine";
 import { comments } from "../comments/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
+import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
 
 export function mountEditor({
   host,
@@ -158,6 +159,8 @@ export function mountEditor({
         */
         images,
         emoji,
+        // Mermaid fences, drawn by the frame page this origin serves beside the drawing editor.
+        diagrams: { frameUrl: DIAGRAM_FRAME_PATH },
         ...(onImageProblem === undefined ? {} : { reportImage: onImageProblem }),
         /*
           A plugin's in-editor suggestions.

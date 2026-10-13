@@ -251,7 +251,7 @@ describe.each([
       { name: "functions/admin:admitWaitlist", args: { ids: ["wl_two"] } },
     ]);
     expect(find("admin-waitlist-outcome")?.textContent).toContain(
-      "Let 1 person in. They'll get an email.",
+      "Let 1 person in. They'll get an email, or a text if they joined by phone.",
     );
   });
 
@@ -289,8 +289,26 @@ describe.each([
     ]);
     expect(find("admin-waitlist-add")).toBeNull();
     const said = find("admin-waitlist-outcome")?.textContent ?? "";
-    expect(said).toContain("Let 2 people in. They'll get an email.");
+    expect(said).toContain("Let 2 people in. They'll get an email, or a text if they joined by phone.");
     expect(said).toContain("Not an email or a phone with its country code, so skipped: not-an-email.");
+  });
+
+  test("Never told shows only while someone is untold, and Text them texts them", async () => {
+    mount();
+    click("admin-tab-waitlist");
+    expect(find("admin-waitlist-untold")).toBeNull();
+    roots.pop()!();
+    mockAnswers.set("functions/admin:untoldPhoneWaitlist", 3);
+    mount();
+    click("admin-tab-waitlist");
+    expect(find("admin-waitlist-untold")?.textContent).toContain(
+      "3 people let in by phone before we sent texts never heard they're in.",
+    );
+    mockCall = async () => ({ texted: 3, left: 0 });
+    click("admin-waitlist-untold-text");
+    await settle();
+    expect(mockCalls).toEqual([{ name: "functions/admin:textUntoldPhoneWaitlist", args: {} }]);
+    expect(find("admin-waitlist-outcome")?.textContent).toContain("Texted 3 people that they're in.");
   });
 
   test("the signup-alerts switch names the address and turns alerts on", async () => {

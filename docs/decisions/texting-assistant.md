@@ -412,11 +412,21 @@ So the model never chooses an address:
 - Trusted sites (owner, 2026-10-11, after Tex refused chatgpt.com/auth/login
   mid-setup): the production setup may name up to 20 sites in
   `trusted_sites:` (`trustedSites.js`), and the model may open any page on
-  one of them or its subdomains without being given the address. It may never
-  add a query string there, so a trusted site cannot carry notes either
-  (`chatgpt.com/?q=…` is refused); lookalike hosts, ports and credentials are
+  one of them or its subdomains without being given the address. It may add
+  nothing of its own to that address: no query string (`chatgpt.com/?q=…` is
+  refused) and no payload in the path — the path has to be a plain route, at
+  most four word-shaped segments and 64 characters (`isRoute`), because the
+  path is the half a server logs and refusing only the query left
+  `chatgpt.com/<the notes>` open. Lookalike hosts, ports and credentials are
   refused too. A trusted site is one staff chose in the pinned workspace,
   never a stranger, and the list is edited like the skills.
+
+  What it does not close, stated so nobody reads more into it: a real route
+  may be opaque (`/g/g-p-68a1b2c3`), so no rule here tells a short id from a
+  short secret, and 64 characters of route is 64 characters the model chose —
+  the same residual as its choosing which trusted site to open. The test that
+  fails if this is reversed is "a trusted site carries a route the model
+  chose, never a payload in the path" in `agentTrustedSites.test.mjs`.
 - Open web (owner, 2026-10-11: "let's accept the risk like these products",
   after learning that Instinct and OpenAI's agents browse freely): with
   `open_web: yes` in the production setup, the model may open any public
@@ -470,9 +480,10 @@ outlives the question, capped at 15 minutes of life, and is found again by a
 tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
 ours stores a session id and no one can name another person's browser. When
 the person must act themselves (sign in, a code, a captcha), the model asks
-for a `handoff`; the gateway adds the live-view link to the text itself, so
-the model never holds it, and it is kept out of the saved conversation,
-because whoever opens it drives a browser the person may be signed in on.
+for a `handoff`; the gateway adds the link to the text itself, so the model
+never holds it, and it is kept out of the saved conversation. Since
+2026-10-11 that link is the person's own page, not Browserbase's live view:
+[Tex's computer](./texting-assistant/computer.md).
 
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The

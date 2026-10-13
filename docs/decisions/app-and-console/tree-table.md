@@ -1,5 +1,8 @@
 # App and console — the tree table
 
+> **Being replaced (owner, 2026-10-12).** The tree moves into Convex in seven
+> phases; this table is retired in the last one. See [convex-tree](./convex-tree.md).
+
 ### A workspace's tree is a table in its own database, and the bucket stays the truth
 
 Decided by the owner, 2026-10-08 ("Build it"), after the side panel stayed slow

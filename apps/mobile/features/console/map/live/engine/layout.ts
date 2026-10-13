@@ -53,6 +53,11 @@ export type FolderPlace = {
   /** The highest and lowest note, in world units: where its name goes, with no rim to hang it on. */
   top: number;
   bottom: number;
+  /**
+   * Drawn as one icon, its notes not spread out: Archive (`collapsesToIcon`).
+   * Its notes all sit on the icon, so a move into it still lands somewhere.
+   */
+  collapsed?: boolean;
 };
 
 export type IslandPlace = {
@@ -99,6 +104,18 @@ const PARA_ANGLE: Record<number, number> = {
 
 /** Empty space between neighbouring root folders, in world units. */
 export const ROOT_GAP = SPACING * 5;
+
+/** How much room a folder drawn as an icon takes, in world units. */
+export const ICON_R = SPACING * 2.4;
+
+/**
+ * Archive is where finished things go: its notes are not spread out on the
+ * map, it is one icon with its name (Dev2, 2026-10-12: "reduced to just an
+ * icon, that way it doesnt clutter the map"). The folder page still lists them.
+ */
+export function collapsesToIcon(root: string): boolean {
+  return root !== "" && paraRank(root) === 4;
+}
 
 type Raw = { workspaceId: string; path: string; title: string; deg: number };
 
@@ -153,7 +170,7 @@ export function buildLayout(
           folder.bottom = Math.max(folder.bottom, note.y);
         }
       }
-      if (folder.top > folder.bottom) folder.top = folder.bottom = folder.y;
+      if (folder.top > folder.bottom || folder.collapsed) folder.top = folder.bottom = folder.y;
       island.top = Math.min(island.top, folder.top);
       island.bottom = Math.max(island.bottom, folder.bottom);
     }
@@ -211,6 +228,12 @@ function buildIsland(
       top: 0,
       bottom: 0,
     };
+    if (collapsesToIcon(root)) {
+      collapseFolder(folder, bySub, notes, subs);
+      island.folders.push(folder);
+      folders.set(folder.key, folder);
+      continue;
+    }
     const subNames = [...bySub.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a < b ? -1 : a > b ? 1 : 0));
     const bubbles: Bubble[] = [];
     for (const name of subNames) {
@@ -273,7 +296,8 @@ function buildIsland(
     if (projects >= 0) return projects;
     let best = 0;
     order.forEach((f, i) => {
-      if (f.size > order[best]!.size) best = i;
+      // An icon is never the middle, however much it holds.
+      if (!f.collapsed && (order[best]!.collapsed || f.size > order[best]!.size)) best = i;
     });
     return best;
   })();
@@ -296,6 +320,33 @@ function buildIsland(
   }
   island.r = Math.max(packed.r + SPACING * 1.5, discRadius(1));
   return island;
+}
+
+/** A folder drawn as an icon: every note and subfolder on its centre, nothing scattered. */
+function collapseFolder(folder: FolderPlace, bySub: Map<string, Raw[]>, notes: Map<string, NotePlace>, subs: Map<string, SubPlace>): void {
+  folder.collapsed = true;
+  folder.r = ICON_R;
+  for (const name of [...bySub.keys()].sort()) {
+    const members = bySub.get(name)!;
+    const sub: SubPlace = {
+      key: subKey(folder.workspaceId, folder.name, name),
+      name,
+      label: name === "" ? "" : folderLabel(name),
+      x: 0,
+      y: 0,
+      r: ICON_R,
+      folder,
+      notes: [],
+    };
+    for (const m of members) {
+      const note: NotePlace = { key: noteKey(m.workspaceId, m.path), workspaceId: m.workspaceId, path: m.path, title: m.title, x: 0, y: 0, deg: m.deg, sub };
+      sub.notes.push(note);
+      notes.set(note.key, note);
+    }
+    folder.subs.push(sub);
+    folder.size += members.length;
+    subs.set(sub.key, sub);
+  }
 }
 
 /** The clear round space in the middle of "all workspaces", where you stand. */

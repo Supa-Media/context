@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "@jest/globals";
 import { currentEpoch } from "../features/offline/epoch";
 import { mirroredNote, readIndex } from "../features/offline/mirror";
-import { FULL_WALK_MS } from "../features/offline/mirrorListing";
+import { FULL_WALK_MS, NODES_FULL_WALK_MS } from "../features/offline/mirrorListing";
 import { memoryMirrorStore, type MirrorStore } from "../features/offline/mirrorStoreCore";
 import {
   syncContext,
@@ -199,6 +199,31 @@ describe("a catch-up", () => {
     await syncContext(deps(), target);
     expect(calls[0]).toBe("manifest");
     expect((await readIndex(store, "private", W))?.changes?.walkedAt).toBe(clock);
+  });
+
+  test("a copy fed from the Convex tree's log catches up past the hour, and walks after a day", async () => {
+    const walkFromNodes = deps({
+      manifest: async (_workspaceId, cursor) => {
+        calls.push("manifest");
+        return {
+          entries: bucket.map(entryOf),
+          cursor: null,
+          truncated: false,
+          manifestUsable: true,
+          ...(cursor === undefined ? { since: 100, privacy: "nodes:e1" } : {}),
+        };
+      },
+    });
+    await syncContext(walkFromNodes, target);
+    calls = [];
+    clock = 1_000 + FULL_WALK_MS;
+    changePages = [page({ privacy: "nodes:e1" })];
+    await syncContext(walkFromNodes, target);
+    expect(calls[0]).toBe("changes:100::nodes:e1");
+    calls = [];
+    clock = 1_000 + NODES_FULL_WALK_MS;
+    await syncContext(walkFromNodes, target);
+    expect(calls[0]).toBe("manifest");
   });
 
   test("a log that cannot be reached changes nothing", async () => {

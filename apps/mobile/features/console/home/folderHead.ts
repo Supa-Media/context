@@ -1,4 +1,4 @@
-import { relativeWhen, rowText, targetOf, type ActivityEntry } from "../activity/activity";
+import { clientOf, relativeWhen, rowText, targetOf, type ActivityEntry } from "../activity/activity";
 
 /**
  * What the phone's folder page says under its title (board 07 of the Home
@@ -39,7 +39,8 @@ export function isInside(path: string, folder: string): boolean {
 const isPlumbing = (path: string) => path.split("/").some((segment) => segment.startsWith("."));
 
 function actorOf(entry: ActivityEntry): FolderActor {
-  if (entry.via) return { key: `agent:${entry.by ?? ""}:${entry.via}`, name: entry.via, agent: true };
+  const via = clientOf(entry.via);
+  if (via) return { key: `agent:${entry.by ?? ""}:${via}`, name: via, agent: true };
   return { key: `person:${entry.by ?? ""}`, name: entry.by, agent: false };
 }
 

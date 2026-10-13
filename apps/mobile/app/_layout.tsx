@@ -16,6 +16,7 @@ import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
 import { SiteRoot } from "../features/site/SiteRoot";
+import { EmailProofHost } from "../features/account/EmailProofDialog";
 import { siteHostname } from "../features/site/host";
 
 /** Read once: a page does not change host. */
@@ -177,7 +178,15 @@ function AppGround() {
               no console, sign-in or settings screen can render on somebody
               else's origin. See `features/site/SiteRoot.tsx`.
             */}
-            {SITE_HOSTNAME !== null ? <SiteRoot hostname={SITE_HOSTNAME} /> : <Slot />}
+            {SITE_HOSTNAME !== null ? (
+              <SiteRoot hostname={SITE_HOSTNAME} />
+            ) : (
+              <>
+                <Slot />
+                {/* "Check it's you" for big changes, from any screen. See `features/account/emailProofGate.ts`. */}
+                <EmailProofHost />
+              </>
+            )}
           </ErrorBoundary>
         </View>
       </View>

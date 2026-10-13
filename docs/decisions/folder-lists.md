@@ -178,17 +178,23 @@ The Board has a column for every status in the folder's status list, headed
 in its group's tint, and a column for each other word in use where its group
 puts it — so a folder where everything is `in progress` can still move
 something to `finished` without typing a word. **Backlog is not a column but a
-slim rail at the left** (decided by the owner, 2026-09-28): its count and name
-down its length, somewhere to drop a card to park it (the drop writes the
-list's Backlog word, as any column drop writes its word), and pressed, it
-opens into a column that folds back. A list with no Backlog word has no rail,
+small box above the columns** (a slim full-height rail from 2026-09-28; the
+owner replaced it on 2026-10-11 because its sideways "Backlog: ideas and later
+work" was hard to read and looked ugly, and picked the small box from six
+boards): "Backlog" and its count, somewhere to drop a card to park it (the
+drop writes the list's Backlog word, as any column drop writes its word), and
+pressed, it opens Backlog as the first column, pressed again it folds. While a
+card is in the air a tall drop place opens at the left of the columns, so
+parking never means aiming at a small button; it opens a beat after the lift,
+because changing the layout inside `dragstart` can cancel the drag. A list
+with no Backlog word has no box,
 unless a task still says `backlog` or the page has a Backlog folder — the
 same rule that draws the List's Backlog band (see "Backlog as a folder"): the
-folder's children are the rail's cards, a drop on the rail moves a card in,
+folder's children are the box's cards, a drop on the box moves a card in,
 and a parked card dropped on a column moves out and takes its word. A card leads with its priority glyph and first tag, then its
 name, a progress bar and "2 of 4 done" for a task holding subtasks, its due
 day and its first owner's face; a long Done column shows five and "Show N
-more". The group headings above the columns went with the rail: a column's
+more". The group headings above the columns went with the rail of 2026-09-28: a column's
 tint already says its group. It draws tasks only: there is no "No status"
 column, and clearing a status (which turns a task back into a note) is the
 status menu's "No status". On web a card is dragged to
@@ -203,8 +209,8 @@ pointer. While a choice is on its way the page says "Saving…".
 road, if a note becomes a card, if a member's card moves, or if a drag that
 is not a card is taken; `folderPageModel.test.ts` pins the columns and what a
 drop writes; `folderBoard.test.ts` fails if Backlog becomes a column again,
-if a drop on the rail writes anything but the Backlog word, if a list with no
-Backlog word grows a rail, or if a card says `p0`.
+if a drop on the box or the drop place writes anything but the Backlog word,
+if a list with no Backlog word grows a box, or if a card says `p0`.
 
 A project folder's page is titled by its front note (the title opens it) and
 says `status · owner · updated` under the title, with the note's first
@@ -314,7 +320,7 @@ project called Backlog, with nowhere to drop.
   park" — when the page has the word or the folder; a reader sees it only when
   something is in it, as a band with nothing to do is noise to somebody who
   may not drop.
-- **The Board's rail is the same place**: the folder's children are its
+- **The Board's Backlog box is the same place**: the folder's children are its
   cards, and its drops are the List's.
 
 Only owners and editors drag, and a move is the host's own (`TaskHost.io`),
@@ -419,6 +425,21 @@ says rather than keeping a second copy.
   properties. A single line is one owner even with a comma in it.
 - **`tags: [a, b]`** are free words, drawn as small chips (two, then "+N");
   kinds of work (bug, feature) are tags, not a type property.
+- **A `#word` written in the text is a tag too** (the owner, 2026-10-13,
+  reversing the earlier "inline `#tags` are not tags"). Obsidian's rule decides
+  which words count: after whitespace or a line's start, letters, digits,
+  `_ - /`, not all digits; headings (`# `), links, web addresses, code and
+  comments never hold one. `lists/inlineTags.js` reads them and every place
+  that counts tags (list conditions and columns, search's tags field, cards,
+  Home's tag filter, the organizer) takes them with the front matter's. They
+  are kept **beside** `properties`, never inside it (`inlineTags` on a list
+  note and a props row): `noteProperties` is also what a `tags:` edit starts
+  from and reads back, so merged there, the first edit of a note's tags would
+  copy every `#tag` into its front matter. The side panel draws them with
+  their `#` and no remove button, since only the text can take one away.
+  `inlineTags.test.mjs` and `folderNotesTable.test.ts` fail if a link,
+  heading or code holds a tag, if a list stops counting them, or if a props
+  row parsed before them is never read again.
 - **`due: 2026-10-03`** is a calendar day, read in the reader's own calendar:
   "Today", a weekday for the six days after ("Fri"), else "Oct 3" (with the
   year when it is not this one). A day already gone is never a weekday.

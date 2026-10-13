@@ -274,7 +274,7 @@ function showMenu(
     if (event.key !== "Escape") return;
     event.preventDefault();
     dismiss();
-    button.focus();
+    button.focus({ preventScroll: true });
   };
 
   items.forEach((item, index) => {
@@ -302,7 +302,7 @@ function showMenu(
       event.preventDefault();
       const rows = [...menu.querySelectorAll<HTMLElement>(".cm-lp-grid-menu-item")];
       const next = rows[(index + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length];
-      next?.focus();
+      next?.focus({ preventScroll: true });
     });
     menu.append(row);
   });
@@ -360,5 +360,5 @@ function showMenu(
   document_.addEventListener("keydown", onKey, true);
   document_.defaultView?.addEventListener("scroll", dismiss, true);
   document_.defaultView?.addEventListener("resize", dismiss);
-  menu.querySelector<HTMLElement>(".cm-lp-grid-menu-item")?.focus();
+  menu.querySelector<HTMLElement>(".cm-lp-grid-menu-item")?.focus({ preventScroll: true });
 }

@@ -41,6 +41,7 @@ import {
 import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
+import { diagramHost, type DiagramHost } from "./livePreview/diagram";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import { emojiHost, type EmojiHostRef } from "./emoji/host";
@@ -587,6 +588,12 @@ export function editorExtensions(options: {
    * it, and standard emoji still work there.
    */
   emoji?: EmojiHostRef;
+  /**
+   * Where ```` ```mermaid ```` fences are drawn from. Absent on a surface with
+   * no frame page behind it — the native editor's `WebView` guest — and the
+   * fence then stays a code block. See `livePreview/diagram.ts`.
+   */
+  diagrams?: DiagramHost;
 }): Extension[] {
   const {
     editable,
@@ -599,6 +606,7 @@ export function editorExtensions(options: {
     images,
     reportImage,
     emoji,
+    diagrams,
   } = options;
   return [
     markdownLanguage(),
@@ -637,6 +645,7 @@ export function editorExtensions(options: {
       — see `formHost`.
     */
     ...(forms === undefined ? [] : [formHost.of(forms)]),
+    ...(diagrams === undefined ? [] : [diagramHost.of(diagrams)]),
     /*
       Images: the host a row reads its bytes from, plus the paste and drop
       handlers that put one in the bucket. One extension so a surface cannot

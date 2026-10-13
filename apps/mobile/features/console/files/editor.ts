@@ -212,6 +212,7 @@ export type EditorAction =
       unsent?: boolean;
     }
   | { type: "closed" }
+  | { type: "renamed"; from: string; to: string }
   | { type: "edited"; text: string }
   | {
       type: "collaboration";
@@ -323,6 +324,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         inherited: action.note.inherited,
         exception: action.note.exception,
       };
+
+    case "renamed":
+      return state.path === action.from ? { ...state, path: action.to } : state;
 
     case "closed":
       return emptyEditor;

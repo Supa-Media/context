@@ -115,6 +115,14 @@ describe("what is new to this reader", () => {
     expect(unseenCount(entries, NOW)).toBe(0);
   });
 
+  test("an edit you made in this app is your own hand, not news; your ChatGPT's is", () => {
+    const mine = [
+      entry({ by: "@seyi", via: "Context (this app)" }),
+      entry({ by: "@seyi", via: "ChatGPT" }),
+    ];
+    expect(unseenCount(mine, null, "@seyi")).toBe(1);
+  });
+
   test("only note paths are offered to the tree", () => {
     const paths = unseenNotePaths(
       [entry({ paths: ["1-projects/triage", "1-projects/backlog/triage"] }), entry()],
@@ -292,6 +300,11 @@ describe("a row", () => {
     // And named the way the tree names it: no sort number, no `.md`.
     expect(meta).toBe("projects/alpha");
     expect(title).not.toContain("`");
+  });
+
+  test("an edit made in the app reads as the person, never as the app", () => {
+    const { title } = rowText(entry({ kind: "revised", by: "@seyi", via: "Context (this app)", paths: ["1-projects/README.md"] }));
+    expect(title).toBe("@seyi revised README");
   });
 
   test("a meeting names the meeting, not the folder it landed in", () => {

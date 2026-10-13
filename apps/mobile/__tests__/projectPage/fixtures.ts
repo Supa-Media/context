@@ -209,6 +209,7 @@ function FrameWith({ tree, children }: { tree: Tree; children: ReactNode }) {
 export function navRecording(opened: [string, string][]): ConsoleNav {
   return {
     follow: (path, mode) => void opened.push([path, mode]),
+    followed: null,
     back: () => {},
     forward: () => {},
     canBack: false,

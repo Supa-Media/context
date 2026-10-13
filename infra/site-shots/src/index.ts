@@ -32,6 +32,10 @@
  *   Either with `provider: "browserbase"` drives the person's Browserbase
  *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
  *   one secret, the Browserbase key, which never leaves this Worker.
+ *   POST /view/frame `{ owner }`, /view/input `{ owner, action }`: the
+ *   person's own look at, and hands on, that browser, for the Context app's
+ *   `/tex/<handle>` page through the gateway (./view.ts). They find a
+ *   browser and never start one.
  *   anything else 404
  */
 
@@ -40,6 +44,7 @@ import { fetchPage } from "./fetchText";
 import { parseReadRequest, read } from "./read";
 import type { BrowserbaseEnv } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
+import { viewOnBrowserbase } from "./view";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
@@ -58,6 +63,9 @@ export default {
       const body = await request.json().catch(() => null);
       if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body);
       return await browse(env, url.pathname, body);
+    }
+    if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
+      return await viewOnBrowserbase(env, url.pathname, await request.json().catch(() => null));
     }
     if (request.method !== "POST" || (url.pathname !== "/shoot" && url.pathname !== "/read")) {
       return new Response(null, { status: 404 });

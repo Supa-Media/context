@@ -30,9 +30,70 @@ export function setupTest(): TestConvex {
   return convexTest(schema, modules);
 }
 
-/** A signed-in view of the world for one user. */
+const ISSUER = "https://test.invalid";
+/** Far enough out that no fake clock in this suite reaches it. */
+const FIXTURE_FOREVER = Date.UTC(2100, 0, 1);
+
+/**
+ * A signed-in view of the world for one user, as somebody who has confirmed an
+ * emailed code on this device: every big change is open to them, which is
+ * what nearly every test means by "the owner does X".
+ *
+ * This is the fixture's one deliberate shortcut past real code (alongside
+ * `addMember`): it writes a session and an email proof directly. The guard
+ * itself is proven where it matters, with `asPhoneOnly` below, in
+ * `emailProof*.test.ts`. A deleted session is recreated, so a test that signs
+ * everyone out and acts again still acts as a proven person.
+ */
 export function asUser(t: TestConvex, userId: Id<"users">) {
-  return t.withIdentity({ subject: userId, issuer: "https://test.invalid" });
+  const identity = async () => {
+    const sessionId = await provenSessionFor(t, userId);
+    return t.withIdentity({ subject: `${userId}|${sessionId}`, issuer: ISSUER });
+  };
+  return {
+    query: (async (...args: unknown[]) => ((await identity()).query as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["query"],
+    mutation: (async (...args: unknown[]) => ((await identity()).mutation as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["mutation"],
+    action: (async (...args: unknown[]) => ((await identity()).action as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["action"],
+    fetch: (async (...args: unknown[]) => ((await identity()).fetch as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["fetch"],
+  };
+}
+
+/**
+ * Sessions a test made for itself, without the ones `asUser` wrote: for the
+ * tests that count what a sign-in or a deletion left behind.
+ */
+export function withoutFixtureSessions<T extends { expirationTime: number }>(rows: T[]): T[] {
+  return rows.filter((row) => row.expirationTime !== FIXTURE_FOREVER);
+}
+
+const provenSessions = new WeakMap<TestConvex, Map<string, Id<"authSessions">>>();
+
+export async function provenSessionFor(t: TestConvex, userId: Id<"users">): Promise<Id<"authSessions">> {
+  let byUser = provenSessions.get(t);
+  if (byUser === undefined) {
+    byUser = new Map();
+    provenSessions.set(t, byUser);
+  }
+  const known = byUser.get(userId);
+  const sessionId = await t.run(async (ctx) => {
+    if (known !== undefined && (await ctx.db.get(known)) !== null) return known;
+    const id = await ctx.db.insert("authSessions", { userId, expirationTime: FIXTURE_FOREVER });
+    await ctx.db.insert("emailProofs", { userId, sessionId: id, until: FIXTURE_FOREVER });
+    return id;
+  });
+  byUser.set(userId, sessionId);
+  return sessionId;
+}
+
+/** A device signed in with a texted code and nothing else: no email confirmed. */
+export async function asPhoneOnly(t: TestConvex, userId: Id<"users">) {
+  const sessionId = await t.run((ctx) => ctx.db.insert("authSessions", { userId, expirationTime: FIXTURE_FOREVER }));
+  return { sessionId, view: t.withIdentity({ subject: `${userId}|${sessionId}`, issuer: ISSUER }) };
+}
+
+/** A token with no session in it at all, as the older fixtures made. */
+export function asSessionless(t: TestConvex, userId: Id<"users">) {
+  return t.withIdentity({ subject: userId, issuer: ISSUER });
 }
 
 export async function createUser(

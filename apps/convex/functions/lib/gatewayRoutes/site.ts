@@ -1,5 +1,5 @@
 /**
- * `POST /gateway/site` — a website's status, check, publish, screenshot or history, for an agent on an
+ * `POST /gateway/site` — a website's status, check, publish, screenshot, history or domain, for an agent on an
  * owner's or editor's connection (`lib/websites/agentSite.ts`).
  *
  * Registered in `http.ts` by the same factory as every gateway route, so the
@@ -21,6 +21,7 @@ export async function gatewaySiteHandler(
   const action = stringField(body, "action");
   const draft = stringField(body, "draft");
   const path = stringField(body, "path");
+  const hostname = stringField(body, "hostname");
   const revision =
     typeof body.revision === "number" && Number.isSafeInteger(body.revision) && body.revision >= 0
       ? body.revision
@@ -33,6 +34,7 @@ export async function gatewaySiteHandler(
     ...(draft === null ? {} : { draft }),
     ...(path === null ? {} : { path }),
     ...(revision === null ? {} : { revision }),
+    ...(hostname === null ? {} : { hostname }),
   });
   return json({ site });
 }

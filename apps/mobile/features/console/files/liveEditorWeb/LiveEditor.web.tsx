@@ -69,6 +69,7 @@ import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
 import { hasMargin } from "../comments/model";
+import { redrawDiagrams } from "../livePreview/diagram";
 
 export function LiveEditor({
   value,
@@ -86,6 +87,7 @@ export function LiveEditor({
   titleNote,
   accessibilityLabel,
   onOpenNote,
+  onOpenTag,
   notePath,
   notePaths,
   onSubmitForm,
@@ -163,8 +165,9 @@ export function LiveEditor({
   links.current = {
     path: notePath ?? null,
     paths: notePaths,
-    onOpen: (path, mode) => onOpenNote?.(path, mode),
+    onOpen: (path, mode, anchor) => onOpenNote?.(path, mode, anchor),
     onOpenUrl: openWebUrl,
+    onOpenTag,
   };
 
   /*
@@ -267,6 +270,8 @@ export function LiveEditor({
    */
   useEffect(() => {
     ensureStyles(colors);
+    // Diagrams are drawn in a frame the stylesheet cannot reach; tell them.
+    redrawDiagrams();
   }, [colors]);
 
   /**

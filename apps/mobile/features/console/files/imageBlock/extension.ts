@@ -18,7 +18,7 @@ import {
   type ImagePick,
   type ImageRow,
 } from "./model";
-import { imageFilesFrom, planInsert } from "./planning";
+import { imageFilesFrom, pastedImagesFrom, planInsert } from "./planning";
 import { ImageRowWidget } from "./widget";
 
 /** The decoration a row becomes: a block widget over the whole line. */
@@ -46,9 +46,10 @@ export function handleImageDrop(
   view: EditorView,
   data: DataTransfer | null,
   report: (message: string) => void,
+  kind: "paste" | "drop" = "drop",
 ): boolean {
   if (view.state.readOnly) return false;
-  const files = imageFilesFrom(data);
+  const files = kind === "paste" ? pastedImagesFrom(data) : imageFilesFrom(data);
   if (files.length === 0) return false;
   const host = view.state.facet(imageHost)?.current ?? null;
   if (host === null) return false;
@@ -96,7 +97,7 @@ export function imageBlock(
       ),
     ),
     EditorView.domEventHandlers({
-      paste: (event, view) => handleImageDrop(view, event.clipboardData, report),
+      paste: (event, view) => handleImageDrop(view, event.clipboardData, report, "paste"),
       drop: (event, view) => {
         const took = handleImageDrop(view, event.dataTransfer, report);
         if (took) event.preventDefault();

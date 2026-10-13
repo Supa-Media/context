@@ -107,6 +107,8 @@ describe("folder notes from the properties table", () => {
     ]);
     expect(notes["1-projects/alpha/overview.md"]).toEqual({
       properties: { status: "doing", owner: "@seyi" },
+      // The `#tags` in its text, kept apart from front matter (`lists/inlineTags.js`).
+      inlineTags: [],
       heading: "Alpha",
       lede: "Ship the alpha.",
       // The note's length, for the chaos score's long-note rule (`chaos/rubric.js`).
@@ -115,6 +117,24 @@ describe("folder notes from the properties table", () => {
     // privacy.md only: no note was opened.
     expect(gets).toEqual([PRIVACY_KEY]);
     expect(result.missing).toEqual([]);
+  });
+
+  test("a row parsed before inline #tags were kept is read once more and gains them", async () => {
+    const store = await workspace();
+    store.seed("1-projects/alpha/task-one.md", "---\nstatus: done\n---\n# Task one\n\n#bible-character\n");
+    const client = await filled(store);
+    // As a row written before 2026-10-13 looks: no `inlineTags` key.
+    const [row] = await client.query("SELECT props FROM tree_props WHERE path = ?1", ["1-projects/alpha/task-one.md"]);
+    const old = JSON.parse(String(row.props));
+    delete old.inlineTags;
+    await client.runAll([
+      { sql: "UPDATE tree_props SET props = ?1 WHERE path = ?2", params: [JSON.stringify(old), "1-projects/alpha/task-one.md"] },
+    ]);
+    const gets = countingGets(store);
+    await propFillPass(store, client);
+    expect(gets).toEqual(["1-projects/alpha/task-one.md"]);
+    const result = await folderNotesFromTable(store, client, { folder: "1-projects/alpha", subfolders: false }, OWNER);
+    expect(byPath(result)["1-projects/alpha/task-one.md"].inlineTags).toEqual(["bible-character"]);
   });
 
   test("a team reader is never handed a private note, its path or its values", async () => {

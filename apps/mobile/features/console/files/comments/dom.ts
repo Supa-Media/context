@@ -69,7 +69,7 @@ export function message(author: string, at: string, text: string, deletion?: Del
       ask.hidden = true;
       main.append(confirmDelete(deletion, () => {
         ask.hidden = false;
-        ask.focus();
+        ask.focus({ preventScroll: true });
       }));
     });
     ask.setAttribute("aria-label", deletion.thread ? "Delete this thread" : "Delete this comment");
@@ -102,7 +102,7 @@ function confirmDelete(deletion: Deletion, onCancel: () => void): HTMLElement {
   });
   box.append(question, el("span", "cm-cmt-confirm-actions"));
   box.lastElementChild!.append(no, yes);
-  queueMicrotask(() => no.focus());
+  queueMicrotask(() => no.focus({ preventScroll: true }));
   return box;
 }
 
@@ -172,7 +172,7 @@ export function carryOver(from: HTMLElement, to: HTMLElement) {
   if (document.activeElement === before) {
     const { selectionStart, selectionEnd } = before;
     queueMicrotask(() => {
-      after.focus();
+      after.focus({ preventScroll: true });
       after.setSelectionRange(selectionStart, selectionEnd);
     });
   }

@@ -20,6 +20,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { browserOwner } from "./browserProviders.js";
+import { texViewerUrl } from "../http/texComputer.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
@@ -260,7 +261,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
-  const computer = texting ? computerFor(env, { owner: await browserOwner(env, session.actorUserId) }) : null;
+  // A handoff texts their own `/tex/<handle>` page, never the browser's link.
+  const computer = texting
+    ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session) })
+    : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.
   const search = texting ? searcherFor(env) : null;
@@ -505,9 +509,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const answer = ledger.asked.length === 0 ? turn.answer : `${turn.answer}\n\n${askLine(ledger.asked)}`;
     /*
       A browser handed to the person goes out as a link the gateway adds, so
-      the model never holds it; and it stays out of the saved conversation
-      below, because whoever opens it drives a browser the person may be
-      signed in on. It ends itself within minutes either way.
+      the model never holds it. The link is their own `/tex/<handle>` page,
+      which only they can open, signed in; it still stays out of the saved
+      conversation below, because the line is the gateway's and not an answer
+      the model gave.
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;

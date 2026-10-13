@@ -1,3 +1,4 @@
+import { asPhoneOnly } from "./fixtures.helpers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -223,12 +224,12 @@ describe("one phone, one account", () => {
 });
 
 describe("one person, one account: a held number joins the two", () => {
-  test("a new email account typing a number an account holds closes into it, email and all", async () => {
+  test("a new email account typing a number an account without email holds closes into it", async () => {
     const t = setupTest();
-    const ada = await createUser(t, "ada@example.invalid");
-    await createWorkspace(t, ada, "ada-notes");
-    await send(t, ada);
-    await confirm(t, ada);
+    const byPhone = await t.run(
+      async (ctx) => await ctx.db.insert("users", { phone: PHONE, phoneVerificationTime: Date.now(), createdAt: Date.now() }),
+    );
+    await createWorkspace(t, byPhone, "ada-notes");
     const fresh = await createUser(t, "ada@work.example.invalid");
     expect(await send(t, fresh)).toEqual({ status: "sent", phone: PHONE });
     expect(await confirm(t, fresh)).toEqual({ status: "joined" });
@@ -236,10 +237,50 @@ describe("one person, one account: a held number joins the two", () => {
       expect(await ctx.db.get(fresh)).toBeNull();
       const emails = await ctx.db
         .query("signInEmails")
-        .withIndex("by_user", (q) => q.eq("userId", ada))
+        .withIndex("by_user", (q) => q.eq("userId", byPhone))
         .collect();
       expect(emails.map((row) => row.email)).toEqual(["ada@work.example.invalid"]);
     });
+  });
+
+  /**
+   * SIM swap (Dev2, 2026-10-12): somebody holding Ada's number, signed in to
+   * an email account of their own, must not get that email onto Ada's account
+   * with a texted code. Ada's account has an email, so nothing joins.
+   */
+  test("a number whose account has an email joins nothing, before or after the code", async () => {
+    const t = setupTest();
+    const ada = await createUser(t, "ada@example.invalid");
+    await createWorkspace(t, ada, "ada-notes");
+    await send(t, ada);
+    await confirm(t, ada);
+    const thief = await createUser(t, "thief@example.invalid");
+    const before = calls.length;
+    expect(await send(t, thief)).toEqual({ status: "has_account" });
+    expect(calls.length).toBe(before);
+    // Even with a code texted another way, recording it joins nothing.
+    expect(await confirm(t, thief)).toEqual({ status: "has_account" });
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(thief)).not.toBeNull();
+      const emails = await ctx.db
+        .query("signInEmails")
+        .withIndex("by_user", (q) => q.eq("userId", ada))
+        .collect();
+      expect(emails).toEqual([]);
+    });
+  });
+
+  test("an owning email account cannot take the phone of an empty account that has an email", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    await createWorkspace(t, owner, "owner-notes");
+    const victim = await createUser(t, "victim@example.invalid");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(victim, { phone: PHONE, phoneVerificationTime: Date.now() });
+    });
+    expect(await send(t, owner)).toEqual({ status: "has_account" });
+    expect(await confirm(t, owner)).toEqual({ status: "has_account" });
+    expect(await t.run(async (ctx) => await ctx.db.get(victim))).not.toBeNull();
   });
 
   test("a wrong code joins nothing", async () => {
@@ -312,12 +353,20 @@ describe("texting a code", () => {
     }
   });
 
-  test("an account that already confirmed is not texted again", async () => {
+  test("an account that already confirmed is not texted again, and a new number is a phone change", async () => {
     const t = setupTest();
     const userId = await createUser(t, "ada@example.invalid");
     await send(t, userId);
     await confirm(t, userId);
-    expect(await send(t, userId, "+15555550111")).toEqual({ status: "not_needed" });
+    expect(await send(t, userId, PHONE)).toEqual({ status: "not_needed" });
+    // A different number moves the account (board k4), so a device that has
+    // not confirmed an emailed code is refused before anything is texted.
+    const before = calls.length;
+    const { view } = await asPhoneOnly(t, userId);
+    expect(
+      errorCode(await captureError(() => view.action(api.functions.phoneCheck.sendPhoneCode, { phone: "+15555550111" }))),
+    ).toBe("EMAIL_PROOF_REQUIRED");
+    expect(calls.length).toBe(before);
   });
 });
 

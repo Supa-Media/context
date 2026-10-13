@@ -20,6 +20,7 @@
 import comments from "../../../../packages/shared/src/comments.cjs";
 import { termsOf } from "./text.js";
 import { extractReferences } from "../links.js";
+import { inlineTags, mergeTags } from "../lists/inlineTags.js";
 import {
   drawingSearchText,
   isDrawingPath,
@@ -183,8 +184,9 @@ export function extractFields(path, content) {
   */
   const words = comments.stripComments(normalized);
   const fmMatch = words.match(FRONTMATTER_RE);
-  const tags = fmMatch ? parseFrontmatterTags(fmMatch[1]) : [];
   const rest = fmMatch ? words.slice(fmMatch[0].length) : words;
+  // A `#tag` in the text is a tag as much as one in front matter (`lists/inlineTags.js`).
+  const tags = mergeTags(fmMatch ? parseFrontmatterTags(fmMatch[1]) : [], inlineTags(rest));
 
   const headingTexts = [];
   for (const m of rest.matchAll(HEADING_TEXT_RE)) {

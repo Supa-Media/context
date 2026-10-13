@@ -25,6 +25,7 @@ import { api, internal } from "../_generated/api";
 import { managedBucketName } from "../functions/lib/managedStorage";
 import { asUser, drainScheduled } from "./fixtures.helpers";
 import {
+  CUTOVER_PROBE,
   MANAGED_ENDPOINT,
   cancelLaterJobs,
   encryptedThenMovedOut,
@@ -78,7 +79,7 @@ describe("catch-up after switching back", () => {
       bucket: managedBucketName(ours),
       endpoint: MANAGED_ENDPOINT,
     });
-    await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours });
+    await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId: ours, ...CUTOVER_PROBE });
     const catchUp = await cancelLaterJobs(t);
     expect(catchUp).not.toBeNull();
     await drainScheduled(t);

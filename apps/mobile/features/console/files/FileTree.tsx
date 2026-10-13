@@ -100,8 +100,11 @@ export function FileTree({
   workspaceId = null,
   iconOf,
   onIconPress,
+  onIntent,
 }: {
   rows: readonly TreeRow[];
+  /** A note row is about to be opened, so its read can start (`FileBrowser.prefetch`). */
+  onIntent?: (path: string) => void;
   /** Whose tree this is, for the counts the live map puts on its top folders (`mapCounts.ts`). */
   workspaceId?: string | null;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
@@ -199,8 +202,9 @@ export function FileTree({
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
         workspaceId={workspaceId}
-        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
+        folderIcon={row.kind === "folder" || isNoteRow(row) ? (iconOf?.(row.path) ?? null) : null}
         onIconPress={onIconPress}
+        onIntent={onIntent}
       />
     );
   }
@@ -240,10 +244,15 @@ function FileRow({
   workspaceId,
   folderIcon,
   onIconPress,
+  onIntent,
 }: {
   row: TreeRow;
+  onIntent?: (path: string) => void;
   workspaceId: string | null;
-  /** The emoji this folder was given, or `null` for the plain folder icon. Files never have one. */
+  /**
+   * The emoji this folder or note was given (or a built-in folder's default),
+   * or `null`: the plain folder icon, or nothing beside a note. Other files never have one.
+   */
   folderIcon: string | null;
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
   /**
@@ -319,6 +328,7 @@ function FileRow({
         )}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
+        onIntent={row.kind === "file" && onIntent !== undefined ? () => onIntent(row.path) : undefined}
         radius={radii.sm}
         style={StyleSheet.flatten([
           styles.node,
@@ -353,10 +363,11 @@ function FileRow({
           the reserved space, and a file has nothing to draw in it.
         */}
         <View style={styles.glyph}>
-          {row.kind !== "folder" ? null : (
+          {row.kind !== "folder" && !isNoteRow(row) ? null : (
             <TreeFolderGlyph
               label={row.label}
               icon={folderIcon}
+              note={row.kind !== "folder"}
               onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
             />
           )}
@@ -408,6 +419,11 @@ function FileRow({
       />
     </View>
   );
+}
+
+/** A Markdown note's row: the only file that can have an icon (`iconGroup`). */
+function isNoteRow(row: TreeRow): boolean {
+  return row.kind === "file" && /\.md$/i.test(row.path);
 }
 
 /** The canvas's indent: 8pt of leading padding, 12pt more per level. */

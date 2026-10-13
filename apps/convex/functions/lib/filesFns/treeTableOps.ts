@@ -37,8 +37,8 @@ import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
-import { folderNotesFromTable } from "./folderNotes";
-import { chaosAfterFill, chaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
+import { folderNotesFromNodes, folderNotesFromTable } from "./folderNotes";
+import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
 import { treeChanges } from "./treeChanges";
@@ -46,6 +46,9 @@ import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
+import { PRIVACY_KEY } from "../privacy";
+import { servedMoves, servedNodesStore } from "../nodes/manifestStore";
+import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
 /** Sweep passes one chain may run: a bound on a loop, not on any context. */
@@ -186,26 +189,63 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
     .catch(() => {});
 }
 
+/** Operations that only read which notes exist, answered from the rows where the tree serves. */
+const SERVED_READS = new Set(["workspaceGraph", "notePaths", "folderPaths"]);
+
+/** Organizer actions that only read: `gather` (the sweep's work list) and `outline`. */
+const ORGANIZER_READS = new Set(["gather", "outline"]);
+
 /**
- * The store a `source: "tree"` manifest walks: the table where it can answer,
- * the bucket otherwise. Schedules a sweep when one is due, either way.
+ * The store a `source: "tree"` manifest walks: the Convex tree where it serves
+ * the workspace (`servedNodesStore`), else the table where it can answer, else
+ * the bucket. Schedules a sweep when one is due. A walk the Convex tree answers
+ * says `nodes`, and its first page carries where a catch-up from the tree's
+ * change log starts.
  */
 export async function manifestSource(
   ctx: ActionCtx,
   args: {
     workspaceId: Id<"workspaces">;
     scope: "private" | "team";
-    operation: { kind: string; source?: string; cursor?: string };
+    operation: { kind: string; source?: string; cursor?: string; action?: unknown };
   },
   store: FileStore,
-): Promise<{ store: FileStore; source: "tree" | "bucket"; since?: number; privacy?: string | null }> {
-  if (args.operation.kind === "workspaceGraph") return { store: await withLinkTable(ctx, args, store), source: "bucket" };
+): Promise<{ store: FileStore; source: "tree" | "bucket" | "nodes"; since?: number; privacy?: string | null }> {
+  // The organizer's read-only passes list every note: from the tree where it
+  // serves (phase 5). Its writes keep the bucket's listing and rules.
+  if (args.operation.kind === "organizer" && typeof args.operation.action === "string" && ORGANIZER_READS.has(args.operation.action)) {
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    return served === null ? { store, source: "bucket" } : { store: served, source: "nodes" };
+  }
+  // The Convex tree's shadow starts filling on the first page of any walk (`lib/nodes/run.ts`).
+  if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
+    await startNodesSweepIfDue(ctx, args.workspaceId);
+  }
+  // Read-only readers of which notes exist: the map, link completion and the
+  // folder picker read the rows where the tree serves (`servedNodesStore`),
+  // and the bucket or the search index where it does not.
+  if (SERVED_READS.has(args.operation.kind)) {
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const chosen = served ?? store;
+    const reading = args.operation.kind === "workspaceGraph" ? await withLinkTable(ctx, args, chosen) : chosen;
+    return { store: reading, source: served === null ? "bucket" : "nodes" };
+  }
   if (args.operation.kind !== "manifest") return { store, source: "bucket" };
   if (args.operation.source !== "tree") {
     // An app that walks the bucket still starts the table filling, so it is
     // ready for the next walk that can read it.
     if (args.operation.cursor === undefined) await startSweepIfDue(ctx, args).catch(() => {});
     return { store, source: "bucket" };
+  }
+  // The Convex tree, where it serves: the rows the live listings read.
+  const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+  if (served !== null) {
+    if (args.operation.cursor !== undefined) return { store: served, source: "nodes" };
+    // The first page says where a catch-up from the tree's change log starts (`nodesFeed.ts`).
+    const start = await ctx
+      .runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() })
+      .catch(() => null);
+    return { store: served, source: "nodes", ...(start === null ? {} : start) };
   }
   try {
     const client = await treeClient(ctx, args.workspaceId);
@@ -300,12 +340,23 @@ export async function runTreeOperation(
     return await treeChanges(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
   }
   if (operation.kind === "folderNotes") {
-    const answer = await folderNotesFromTable(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+    // Which notes are in the folder: the Convex tree where it serves and no
+    // move is pending (a note then reads at its old key), else this table.
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const answer =
+      served !== null && servedMoves(served).length === 0
+        ? await folderNotesFromNodes(served, client, operation, clearance)
+        : await folderNotesFromTable(store, client, operation, clearance);
     if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
     return answer;
   }
   if (operation.kind === "chaosScore") {
-    return await chaosScoreOf(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+    // Counted from the Convex tree's keys where it serves, else the table's numbers.
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const live = served === null ? null : await liveChaosScoreOf(served, client, operation, clearance).catch(() => null);
+    return live ?? (await chaosScoreOf(store, client, operation, clearance));
   }
   if (operation.kind === "touchTree") {
     try {
@@ -413,8 +464,15 @@ export async function keepTreeAndAnnounce(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; scope: "private" | "team" },
   change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
+  store?: FileStore,
 ): Promise<void> {
   const touches = change.paths.length + change.files.length > 0;
+  // The Convex tree is re-checked whether or not this context has a search
+  // database: before the change answers when the bucket is open here, since
+  // the console reads that tree (phase 2), and scheduled otherwise.
+  const nodesChange = { paths: change.paths, files: change.files };
+  if (touches && store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
+  else if (touches) await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {
     const scheduled = await ctx.scheduler
       .runAfter(0, internal.functions.files.runFileOperation, {
@@ -460,7 +518,7 @@ export async function announceTreeChange(
   files: string[] = [],
 ): Promise<void> {
   if (change === null) {
-    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] });
+    if (files.length > 0) await keepTreeAndAnnounce(ctx, args, { paths: [], files, audiences: [] }, store);
     return;
   }
   try {
@@ -484,7 +542,9 @@ export async function announceTreeChange(
     const left = before === null
       ? []
       : [...gone].map((path) => ({ path, audiences: treeAudiences([path], before.rules, before.overrides) }));
-    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files, audiences, left });
+    // A change that rewrote the rules re-reads them into the tree's mirror too.
+    const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
+    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
   } catch {
     // See above: a hint is never a failed change.
   }

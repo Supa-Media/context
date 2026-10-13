@@ -72,12 +72,13 @@ const PROVIDERS = {
  * The computer this deployment gives the agent, or null when it has none (a
  * self-hosted gateway without Browser Rendering, or an unknown provider name).
  * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
- * find their Browserbase browser again in a later question.
+ * find their Browserbase browser again in a later question; `viewer` is the
+ * page they take it over on (`texViewerUrl`), the only link a handoff texts.
  */
-export function computerFor(env, { owner = null } = {}) {
+export function computerFor(env, { owner = null, viewer = null } = {}) {
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env, { owner }) : null;
+  return make ? make(env, { owner, viewer }) : null;
 }
 
 /**
@@ -300,7 +301,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       const wanted = [...new Set(asked.map(canonicalUrl))];
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
-          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site. Ask them for the address.",
+          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site — and there only its plain path, with nothing of yours written into it. Ask them for the address.",
           true,
         );
       }

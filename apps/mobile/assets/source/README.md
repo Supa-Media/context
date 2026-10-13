@@ -1,9 +1,10 @@
 # App asset sources
 
-The PNGs in `../` are **build outputs**. Edit the `.svg` files here, then run:
+The PNGs in `../` are **build outputs**, and so are the `.svg` files here:
+`tex-mark.mjs` writes them from Tex's drawing. Edit that script, then run:
 
 ```sh
-./generate.sh          # needs: brew install librsvg imagemagick
+node tex-mark.mjs && ./generate.sh   # needs: brew install librsvg imagemagick
 ```
 
 Despite living under `apps/mobile`, this is every app's icon: the desktop
@@ -26,14 +27,19 @@ command away from being correct again.
 
 ## The mark
 
-A `#` — the Markdown heading marker, for a product whose whole premise is that
-your context stays plain files you own. Accent `#3B82F6` from
-`features/design/tokens.ts`; ground `#050506` (`colors.ground`) lifted to
-`#15151A` at the top so the icon has some depth on a home screen.
+Tex at rest: the hand-drawn `#` the mascot becomes once a workspace is sorted
+(`features/chaos/figureGeometry.ts` at chaos 0), without its googly eyes, in
+Tex's light ink `#2A45CF` on Context's paper `#EDE4D3` (the og card's ground).
+The owner picked it on 2026-10-12 to replace the ruled blue `#` on a black
+tile. `tex-mark.mjs` reads the strokes from `figureParts` rather than copying
+them, so the icon and every chaos score in the app stay one drawing.
 
-The two surfaces that draw their own ground — `favicon.svg` and
-`desktop-icon.svg` — lift the accent to `#52A9FE`. Both are read small on that
-dark ground (a 16px Finder row, a browser tab), where the token blue goes muddy.
+A `#` because it is the Markdown heading marker, for a product whose whole
+premise is that your context stays plain files you own.
+
+The app-icon sizes carry Tex's brush edge (the `RoughInk.web.tsx` filter).
+`favicon.svg` does not, and draws heavier strokes: it is read at 16 to 48px,
+where the grain only greys the ink.
 
 ## What each output is for
 
@@ -41,14 +47,13 @@ dark ground (a 16px Finder row, a browser tab), where the token blue goes muddy.
 | --- | --- |
 | `icon.png` | iOS + App Store. 1024×1024, square, **no alpha** — App Store Connect rejects transparency. `generate.sh` flattens and strips the channel. No rounded corners; iOS applies its own mask. |
 | `adaptive-icon.png` | Android foreground layer. Keeps alpha; the ground comes from `android.adaptiveIcon.backgroundColor`. The mark stays inside the 66% safe zone because launchers mask this to arbitrary shapes. |
-| `splash.png` | Mark only, transparent. `expo-splash-screen` composites it on a per-scheme background, so it has to read on light *and* dark. |
+| `splash.png` | The paper tile, transparent around it. `expo-splash-screen` composites it on a per-scheme background, so it has to read on light *and* dark; the tile does. |
+| `../../public/icon.png` | The installed web app's icon (`manifest.webmanifest`), a copy of `icon.png`. |
 | `favicon.png` | Web. Draws its own rounded ground — browsers do not mask. |
 | `../../../desktop/build/icon.icns` | macOS, read by `electron-builder`'s `mac.icon`. From `desktop-icon.svg`, which draws its own rounded ground inside Apple's 824-in-1024 body: macOS does not mask, and an icon drawn edge to edge sits visibly larger than every neighbour in the Dock. Carries the full 16→1024 ladder, because an `.icns` is a container and macOS picks the rung it is drawing — ship only the 1024 and the Dock looks right while the Finder list is a smeared downscale. |
 
 Committed, like the PNGs: `electron-builder` reads the `.icns` at package time,
 on a runner with no librsvg.
 
-If the palette in `features/design/tokens.ts` changes, change the colours in
-these sources and in the `expo-splash-screen` plugin block in `app.config.js` to
-match. The splash background is painted natively, before any JS runs, so it
-cannot read the theme at runtime.
+If Tex's ink or the paper changes, change them in `tex-mark.mjs` and in
+`android.adaptiveIcon.backgroundColor` in `app.config.js` to match.

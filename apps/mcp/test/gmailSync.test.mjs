@@ -38,6 +38,7 @@ import { runGmailDayAndBackfillChecks } from "./gmailSync/dayAndBackfill.test.mj
 import { runGmailAttachmentChecks } from "./gmailSync/attachments.test.mjs";
 import { runGmailAdversarialFilenameChecks } from "./gmailSync/adversarialFilenames.test.mjs";
 import { runGmailAdversarialSyncChecks } from "./gmailSync/adversarialSync.test.mjs";
+import { runGmailContactChecks } from "./gmailSync/contacts.test.mjs";
 
 export async function runGmailSyncChecks(check) {
   const { event } = await runGmailParsingAndQueryChecks(check);
@@ -47,4 +48,5 @@ export async function runGmailSyncChecks(check) {
   await runGmailAttachmentChecks(check);
   await runGmailAdversarialFilenameChecks(check);
   await runGmailAdversarialSyncChecks(check);
+  await runGmailContactChecks(check);
 }

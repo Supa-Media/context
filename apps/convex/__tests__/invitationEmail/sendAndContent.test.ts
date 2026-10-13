@@ -1,3 +1,4 @@
+import { withoutFixtureSessions } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import {
@@ -343,8 +344,8 @@ describe("the magic link", () => {
         .unique(),
     );
     expect(invitee).not.toBeNull();
-    const sessions = await t.run((ctx) =>
-      ctx.db.query("authSessions").collect(),
+    const sessions = withoutFixtureSessions(
+      await t.run((ctx) => ctx.db.query("authSessions").collect()),
     );
     expect(sessions).toHaveLength(1);
     expect(sessions[0].userId).toBe(invitee!._id);

@@ -38,8 +38,8 @@ export type ChaosWord = "calm" | "fine" | "crowded" | "chaotic";
 /** How many biggest wins the panel lists. */
 export const WINS_SHOWN = 5;
 
-/** Past this a folder page shows its chip: the rubric's "fine" ends here. */
-const CHIP_FROM = 30;
+/** Past this a folder page shows Tex: the rubric's "fine" ends here. */
+const TEX_FROM = 30;
 
 /** The figure's untangling, 0 the full scribble and 1 the calm #. */
 export function chaosToT(chaos: number): number {
@@ -102,14 +102,60 @@ export function folderLabel(folder: string): string {
   return folder === "" ? "Top level" : displayPath(folder);
 }
 
-/** A folder page shows its chip only past fine, or when it is thin. */
-export function chipShows(folder: ChaosFolder | null | undefined): folder is ChaosFolder {
-  return folder != null && (folder.chaos > CHIP_FROM || isThin(folder));
+/** A folder page shows Tex only past fine, or when it is thin. */
+export function folderTexShows(folder: ChaosFolder | null | undefined): folder is ChaosFolder {
+  return folder != null && (folder.chaos > TEX_FROM || isThin(folder));
 }
 
-/** "12 items · crowded", or "2 items · thin". */
-export function chipLabel(folder: ChaosFolder): string {
-  return `${itemsLabel(folder.items)} · ${isThin(folder) ? "thin" : chaosWord(folder.chaos)}`;
+const things = (n: number) => (n === 1 ? "1 thing" : `${n} things`);
+
+/** What rolls in beside Tex on a folder page: "14 things in here", and what calm is. */
+export function texLine(folder: ChaosFolder): { lead: string; tail: string } {
+  const tail = "calm is 4 or 5";
+  if (folder.items === 0) return { lead: "Only an about note in here", tail };
+  if (isThin(folder)) return { lead: `Only ${things(folder.items)} in here`, tail };
+  return { lead: `${things(folder.items)} in here`, tail };
+}
+
+/**
+ * What Tex says when pressed: how this folder could be calmer, from the
+ * rubric's own advice (the "How we define chaos" skill). Words only: nothing
+ * here moves a note, and the person, or an agent they ask, decides (Dev2,
+ * 2026-10-13).
+ */
+export function texSays(folder: ChaosFolder): { lead: string; tips: string[] } {
+  if (folder.items === 0) {
+    return {
+      lead: "All I'm holding is my about note.",
+      tips: [
+        "Add the notes this folder was made for.",
+        "Or move its about note's words into the folder above, and remove this one.",
+      ],
+    };
+  }
+  if (isThin(folder)) {
+    return {
+      lead: `I'm only holding ${things(folder.items)}. Folders feel calm with 4 or 5.`,
+      tips: [
+        folder.items === 1 ? "Move this note up into the folder above." : "Move these notes up into the folder above.",
+        "Or merge this folder with one on the same subject.",
+      ],
+    };
+  }
+  return {
+    lead: `I'm holding ${things(folder.items)}. Folders feel calm with 4 or 5.`,
+    tips: [
+      "Find two to five themes, and give each one a folder of its own.",
+      "Move finished work to Archive. Archive never counts.",
+      "Keep dated or numbered notes together: a series counts as one.",
+    ],
+  };
+}
+
+/** The last line Tex says: an AI connected to Context already knows the rules. */
+export function askYourAi(folder: ChaosFolder): string {
+  const name = folder.folder === "" ? "the top of this workspace" : folderLabel(folder.folder);
+  return `Or ask your AI to organize ${name}. It knows how this is scored.`;
 }
 
 /** The panel's biggest wins: the server's order, at most five, nothing already calm. */
@@ -121,8 +167,8 @@ export function biggestWins(result: ChaosScore): ChaosFolder[] {
 export const HOW_SCORED =
   "Each folder is scored by what is directly in it. Four or five items is calm, ten is average, and more climbs from there. " +
   "Thin folders count too: one or two items would sit better somewhere else. " +
-  "A run of up to 30 dated or numbered notes counts as one item. " +
-  "Notes past 1,000 lines count on their own, except meetings. Archive is never scored. " +
+  "A run of up to 30 dated or numbered notes, or of A to Z folders, counts as one item. " +
+  "Notes past 1,000 lines count on their own, except meetings. Archive is never scored. Contacts count only when unsorted, unnamed or waiting on review. " +
   "The workspace's number is the average over every note, so a big folder weighs what it holds.";
 
 /**

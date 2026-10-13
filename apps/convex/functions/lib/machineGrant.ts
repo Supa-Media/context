@@ -128,6 +128,40 @@ export function isLoopbackRedirect(uri: string): boolean {
   return url.pathname !== "" && url.pathname !== "/";
 }
 
+/** The name a desktop install registers under (`connectMachine`, `Context on <hostname>`). */
+const DESKTOP_CLIENT_NAME = /^Context on /;
+
+/**
+ * Whether a registered client is the desktop shell, for the surfaces that draw
+ * it as the person's own hand rather than as an AI tool.
+ *
+ * Both claims it can make are its own words: `software_id` is client-asserted
+ * (see `DESKTOP_SOFTWARE_ID`) and `client_name` is display text it chose, and
+ * client registration is unauthenticated by construction. "Your devices"
+ * accepts that bound on purpose, because the worst a forged id buys there is a
+ * row in this person's own list. A surface that *omits* what it marks is a
+ * different bargain: a tool that can name itself into the flag can choose not
+ * to be drawn among the tools connected to a context, and what somebody is
+ * shown at the moment they look is the whole of the awareness that surface is.
+ *
+ * So the claim is bounded by the fact `decideMachineApproval` already leans
+ * on, rather than taken: every registered redirect URI is loopback, so the
+ * code this client can receive goes to the computer the person is sitting at.
+ * A client reachable at a routable URL is not a shell on their desk, whatever
+ * it calls itself. An install from before the software id still passes, by the
+ * name it registers under, under the same loopback bound.
+ */
+export function isDesktopShellClient(client: {
+  softwareId?: string | null;
+  clientName: string;
+  redirectUris: readonly string[];
+}): boolean {
+  const claimsTheShell =
+    client.softwareId === DESKTOP_SOFTWARE_ID || DESKTOP_CLIENT_NAME.test(client.clientName);
+  if (!claimsTheShell) return false;
+  return client.redirectUris.length > 0 && client.redirectUris.every(isLoopbackRedirect);
+}
+
 /**
  * The requested scope, as a set, compared against the default exactly.
  *

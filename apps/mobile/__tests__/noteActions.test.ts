@@ -87,4 +87,29 @@ describe("the note actions sheet", () => {
     expect(ids(items)).toContain("restore");
     expect(ids(items)).not.toContain("archive");
   });
+
+  /*
+    Reading mode moved here from the top bar's eye (owner, 2026-10-13). It is
+    the first row whenever the caller says how the note is shown, for anybody
+    who can open the note, and it never reaches the note bar, which asks
+    without `reading`.
+  */
+  test("reading mode leads the sheet, for anybody, named as the act", () => {
+    const owner = noteActionItems({ entry: note(), canEdit: true, canShare: true, visitor: false, reading: false });
+    expect(ids(owner)[0]).toBe("read");
+    expect(owner[0]!.label).toBe("Read this note");
+    const reader = noteActionItems({ entry: note(), canEdit: false, canShare: false, visitor: false, reading: true });
+    expect(ids(reader)).toEqual(["read"]);
+    expect(reader[0]!.label).toBe("Edit this note");
+  });
+
+  test("...and is absent when the caller does not ask, and on a folder", () => {
+    expect(ids(noteActionItems({ entry: note(), canEdit: true, canShare: true, visitor: false }))).not.toContain(
+      "read",
+    );
+    const folder = note({ kind: "folder", path: "2-areas", name: "2-areas" });
+    expect(
+      ids(noteActionItems({ entry: folder, canEdit: true, canShare: true, visitor: false, reading: false })),
+    ).not.toContain("read");
+  });
 });

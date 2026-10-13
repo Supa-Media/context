@@ -11,12 +11,13 @@ import { entryAt } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { ContactPageView } from "../../communications/ContactPageView";
 import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { NoteLoading } from "./NoteLoading";
+import { isMarkdown } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -57,7 +58,6 @@ export function BrowseDocument({
   reading,
   nav,
   commsRoute,
-  handleOpenComms,
   folderMenuFor,
   folderDrag,
   places,
@@ -86,7 +86,6 @@ export function BrowseDocument({
   reading: boolean;
   nav: ReturnType<typeof useConsoleNav>;
   commsRoute: ReturnType<typeof classifyCommsPath> | null;
-  handleOpenComms: (path: string, anchor?: string) => void;
   folderMenuFor: FolderListingState["folderMenuFor"];
   folderDrag: FolderListingState["folderDrag"];
   /** This person's pins and opens, for the phone's Home. */
@@ -367,6 +366,9 @@ export function BrowseDocument({
         ) : landing === null ? null : (
           phoneHome
         )
+      ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
+        // A note on its way with nothing yet to draw it from: say so.
+        <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
       /*
@@ -384,10 +386,6 @@ export function BrowseDocument({
         files={files}
         anchor={anchor}
       />
-    ) : commsRoute?.kind === "contact" ? (
-      <DocumentPage>
-        <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
-      </DocumentPage>
     ) : selected.kind === "folder" && atContextRoot ? (
       phoneHome
     ) : selected.kind === "folder" ? (
@@ -418,6 +416,16 @@ export function BrowseDocument({
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />
+    ) : files.opening === selected.path && files.editor.path !== selected.path ? (
+      /*
+        A note the listing names, whose body is still on its way. The editor
+        here would be empty, with its "Write in markdown…" placeholder, over a
+        note that is not — see `NoteLoading`. `useShownEntry` keeps the page
+        that was already on screen instead whenever there is one; this is the
+        open with nothing before it (the phone's Home, an empty region, a
+        closed note).
+      */
+      <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
     ) : files.conflict?.path === selected.path ? (
       /*
         A conflict takes the region.
@@ -533,6 +541,8 @@ export function BrowseDocument({
           rather than as a control that does nothing.
         */
         onOpenLink={nav?.follow}
+        // A drawn `#tag` shows the notes carrying it; see `ConsoleNav.openTag`.
+        onOpenTag={nav?.openTag}
         // The file tree's own listings, unioned with the search index's
         // docmap — see `linkPaths` on `FileBrowser` and "L1" in
         // `docs/decisions/app-and-console.md`. `knownNotePaths(files.listings)`

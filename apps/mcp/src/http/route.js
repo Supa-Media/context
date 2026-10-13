@@ -40,6 +40,7 @@ import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
+import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
 import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
@@ -176,6 +177,13 @@ export async function route(request, env, ctx) {
     // writes nothing, and needs no queue, usage counter or search budget.
     if (path === "/agent-activity") {
       return await handleAgentActivity(request, env, { slug, pathToken, origin, ctx });
+    }
+
+    // The person's own look at Tex's browser, for the app's `/tex/<handle>`
+    // page. Its own branch for the reasons `/presence` has one: it reads no
+    // note, writes nothing and needs no store. It takes a header token only.
+    if (TEX_COMPUTER_PATHS.has(path)) {
+      return await handleTexComputer(request, env, { path, origin });
     }
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
@@ -591,6 +599,8 @@ export async function route(request, env, ctx) {
 function attachChangeReporters(store, workspaceId, controlPlane) {
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
+  store.reportTreeTouch = (touch) =>
+    controlPlane.reportTreeTouch(workspaceId, touch).catch(() => {});
   store.reportWebsiteChange = () =>
     controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
   store.reportRoutineChange = (paths, userId) =>

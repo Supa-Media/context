@@ -75,6 +75,12 @@ describe("folderActivity", () => {
     ]);
   });
 
+  test("an edit made in the app is its person's face, not a robot", () => {
+    const view = folderActivity([entry({ at: at(1), by: "@ada", via: "Context (this app)" })], "clients", NOW);
+    expect(view.actors).toEqual([{ key: "person:@ada", name: "@ada", agent: false }]);
+    expect(view.latest?.text).toBe("@ada revised brief");
+  });
+
   test("the workspace's own page takes everything", () => {
     expect(folderActivity([entry({ paths: ["todo.md"] })], "", NOW).latest?.path).toBe("todo.md");
   });

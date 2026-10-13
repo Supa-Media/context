@@ -16,7 +16,7 @@
  */
 import { ACTIVITY_PATH, mayBeReportable as mayBeActivity, nextFile as nextActivityFile } from "../../../../packages/shared/src/activity.cjs";
 import { AUDIT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
-import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing } from "../privacy/engine.js";
+import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing, PRIVACY_KEY } from "../privacy/engine.js";
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
@@ -140,6 +140,19 @@ function announceTreeChange(store, action, paths, details) {
   rememberChaos(store, kept);
   const work = (async () => {
     await kept;
+    // The Convex tree re-checks what the change named (`reportTreeTouch`).
+    if (touch !== null && typeof store.reportTreeTouch === "function") {
+      // A visibility change rewrote the manifest, whatever path it recorded:
+      // the control plane refreshes its copy of the rules only for a touch
+      // that names that file (`treeTouchOf`, `lib/nodes/touch.ts`).
+      const files = touch.files ?? [];
+      await store.reportTreeTouch({
+        paths: touch.paths ?? [],
+        files: touch.privacy === true && !files.includes(PRIVACY_KEY) ? [...files, PRIVACY_KEY] : files,
+        // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
+        ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
+      });
+    }
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);

@@ -135,6 +135,7 @@ import schema from "../../schema";
 import {
   asUser,
   createUser,
+  provenSessionFor,
   type TestConvex,
 } from "../fixtures.helpers";
 
@@ -239,6 +240,9 @@ export function configureWorker() {
 
 export async function signedIn(t: TestConvex) {
   const userId = await createUser(t, "recorder@example.invalid");
+  // Signed in now rather than on the first call, so a test that counts rows
+  // before and after a call counts only what the call wrote.
+  await provenSessionFor(t, userId);
   return asUser(t, userId);
 }
 

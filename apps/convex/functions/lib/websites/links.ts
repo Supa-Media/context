@@ -18,6 +18,9 @@ export interface WebsiteLinkCatalogEntry {
   audience: "public" | "members";
   /** Exact indexed source version for routes; shares recheck standing live. */
   sourceEtag: string | null;
+  /** Where Publish kept the route's copy, so an edited note lists as published. */
+  releaseId?: string;
+  releasePageId?: string;
 }
 
 export interface WebsiteLinkOptions {

@@ -59,6 +59,12 @@ export const waitlistTables = {
      */
     joinedMailAt: v.optional(v.number()),
     admittedMailAt: v.optional(v.number()),
+    /**
+     * The "You're in" text to a row joined with a phone, claimed the same way
+     * (Dev2, 2026-10-12). Only staff letting a row in ever claims it, so a
+     * stranger typing numbers never makes Context text anyone.
+     */
+    admittedTextAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_phone", ["phone"])

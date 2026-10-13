@@ -103,6 +103,8 @@ describe("layout", () => {
   test("notes keep their distance from each other", () => {
     const layout = buildLayout([para("ws-a", "Personal", 40)]);
     for (const sub of layout.subs.values()) {
+      // Archive is one icon; its notes are not spread out (liveMapArchive.test.ts).
+      if (sub.folder.collapsed) continue;
       for (let i = 0; i < sub.notes.length; i += 1) {
         for (let j = i + 1; j < sub.notes.length; j += 1) {
           const a = sub.notes[i]!;
