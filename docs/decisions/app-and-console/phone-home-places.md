@@ -105,3 +105,23 @@ edits pushed out the note you had just been in.
 
 Reversing it brings back the bug. `phoneHome.test.ts`,
 `recordRecent.test.ts` and `apps/convex/__tests__/placeRecents.test.ts` fail.
+
+## The note's top bar: ‹ opens the levels, ••• holds reading (2026-10-13)
+
+The owner, on an iPhone: the eye "doesn't seem too important", there should be
+a Home button somewhere, and "‹ health" — the back capsule spelling out the
+folder — "looks ugly". Of the boards (`/note-top-bar/` in the project files),
+they picked pressing back and having a menu open.
+
+So the top-left below Home is a round ‹, the same key as ••• on the right. On a
+page with folders above it, pressing it opens the levels: **Home first**, then
+each folder down to the page's own (`phoneBackLevels`). That first row is the
+bar's Home button; there is no second one. A page at the top of the workspace
+has only Home above it, and ‹ goes there at once, because a one-row menu is a
+press that asks for another press. Reading mode is the first row of the •••
+sheet (`noteActionItems`' `read`), offered to anybody who can open the note,
+and never on the note's bottom bar.
+
+Reversing either brings back what was asked away: the folder's name in the
+corner, or an eye on the bar. `noteChrome/pathBar.test.ts` presses ‹ and a
+level; `noteChrome/topRowGroup.test.ts` asserts no eye and reading first in •••.

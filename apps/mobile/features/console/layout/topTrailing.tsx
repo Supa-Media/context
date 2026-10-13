@@ -4,7 +4,6 @@ import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
 import { SaveMark } from "../SaveMark";
-import { setReadMode } from "../files/readMode";
 import { settingsHref } from "../nav";
 import { DEFAULT_SETTINGS_SECTION } from "../settings/sections";
 import type { ConsoleContext, ConsoleData } from "../types";
@@ -20,9 +19,7 @@ import type { ConsoleRouter } from "./types";
  */
 export function consoleTopTrailing({
   phone,
-  readable,
   onOpenActions,
-  reading,
   showMeetings,
   data,
   insideContext,
@@ -31,13 +28,11 @@ export function consoleTopTrailing({
   canReport,
 }: {
   phone: boolean;
-  readable: boolean;
   /**
    * Opens the note-actions sheet. Absent when the open note or folder has no
    * action this person may take, and the ••• is then not drawn.
    */
   onOpenActions: (() => void) | undefined;
-  reading: boolean;
   showMeetings: () => void;
   data: ConsoleData;
   insideContext: boolean;
@@ -104,52 +99,25 @@ export function consoleTopTrailing({
       */
       /*
         **Share moved into •••** (owner, 2026-09-27, the phone artboards,
-        screens 1 and 7). The capsule is two buttons now — read/edit and
-        ••• — and ••• raises the note-actions sheet (`NoteActionsSheet`),
+        screens 1 and 7). ••• raises the note-actions sheet (`NoteActionsSheet`),
         whose first row is this Share, raised through the same `barDialog`.
         One control for the note's verbs rather than one per verb, because
         iPhone Safari has no right-click to reach the rest.
       */
-      !readable && onOpenActions === undefined ? undefined : (
-        <>
-          {/*
-            Reading mode, leading the group.
-
-            Before Share rather than after it, because the two are not
-            peers: this changes how the note in front of you is drawn and
-            is undone by pressing it again, and Share opens a sheet that
-            grants somebody access. The reversible one is the safer
-            neighbour for a thumb, and the group is read left to right.
-
-            **The glyph is the act, and there is no `selected` fill.**
-            This used to be one eye lit by `selected`, on the argument
-            that one mark cannot draw "will hide the markup" and "will
-            bring it back" — so the state went in the fill and the label
-            carried the act. Two marks can draw it, and once they do the
-            fill is not merely redundant but wrong: it would light the
-            *pencil*, and a lit control says "this mode is on" while the
-            pencil means "press to start editing". Icon and label now say
-            the same thing, which is what an unlabelled 20pt target needs.
-          */}
-          {readable ? (
-            <FrameIconButton
-              label={reading ? "Edit this note" : "Read this note"}
-              icon={reading ? "pencil" : "eye"}
-              grouped
-              onPress={() => setReadMode(!reading)}
-              testID="note-read"
-            />
-          ) : null}
-          {onOpenActions === undefined ? null : (
-            <FrameIconButton
-              label="Note actions"
-              icon="more"
-              grouped
-              onPress={onOpenActions}
-              testID="note-actions"
-            />
-          )}
-        </>
+      /*
+        **The eye moved into •••** (owner, 2026-10-13, the note top bar
+        boards): it was the least important button on the bar, and reading
+        mode is the sheet's first row now (`noteActionItems`). That leaves
+        ••• alone here, the same round key as ‹ on the other side.
+      */
+      onOpenActions === undefined ? undefined : (
+        <FrameIconButton
+          label="Note actions"
+          icon="more"
+          grouped
+          onPress={onOpenActions}
+          testID="note-actions"
+        />
       )
     ) : (
       <>

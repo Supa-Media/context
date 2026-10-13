@@ -2,10 +2,10 @@ import { entryAt } from "../files/tree";
 import type { ConsoleData } from "../types";
 
 /**
- * What the top bar's ••• and reading-mode eye act on. Pure: read off the
+ * What the top bar's ••• acts on. Pure: read off the
  * selection on every render of the console, exactly as the layout read it.
  */
-export function noteTargetsFor({ browsing, data }: { browsing: boolean; data: ConsoleData }) {
+export function noteTargetsFor({ data }: { data: ConsoleData }) {
   /**
    * The note or folder that is open, or `null`.
    *
@@ -24,15 +24,5 @@ export function noteTargetsFor({ browsing, data }: { browsing: boolean; data: Co
       ? null
       : entryAt(data.files.listings, data.files.selectedPath, data.files.editor);
 
-  /**
-   * Whether the eye is offered.
-   *
-   * Any open **note** can be read, including read-only ones: `privacy.md` and
-   * an encrypted envelope are exactly the notes somebody is reading rather
-   * than editing, so the mode costs them nothing and the markup goes quiet for
-   * them too. A folder has no document to put into reading mode and gets no
-   * eye.
-   */
-  const readable = browsing && selectedEntry !== null && selectedEntry.kind === "file";
-  return { selectedEntry, readable };
+  return { selectedEntry };
 }
