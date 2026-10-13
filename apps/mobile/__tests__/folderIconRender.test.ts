@@ -121,45 +121,22 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     expect(emojiOn(container, "photo.png")).toBeNull();
   });
 
-  function noteTree() {
-    return createElement(FileTree, {
-      rows: [file("plan.md")],
-      canSetVisibility: false,
-      onSelect: () => {},
-      onToggle: () => {},
-      onCycleVisibility: () => {},
-      iconOf: () => null,
-      onIconPress: () => {},
-    });
-  }
-
-  function withHover(hover: boolean, run: () => void) {
-    const before = window.matchMedia;
-    window.matchMedia = ((query: string) => ({ matches: hover && query === "(hover: hover)" })) as never;
-    try {
-      run();
-    } finally {
-      window.matchMedia = before;
-    }
-  }
-
-  test("a note with no emoji draws nothing, and with a mouse an editor gets a hover-only way in", () => {
-    withHover(true, () => {
-      const container = mount(noteTree());
-      expect(container.querySelector("[data-testid='tree-folder-emoji']")).toBeNull();
-      const ghost = container.querySelector("[data-testid='tree-note-icon-ghost']");
-      expect(ghost).not.toBeNull();
-      // Nothing is drawn in it until the pointer is on it.
-      expect(ghost?.textContent).toBe("");
-      expect(ghost?.querySelector("svg")).toBeNull();
-    });
-  });
-
-  test("on a touch screen there is no invisible button to swallow a tap meant for the note", () => {
-    withHover(false, () => {
-      const container = mount(noteTree());
-      expect(container.querySelector("[data-testid='tree-note-icon-ghost']")).toBeNull();
-    });
+  test("a note with no emoji draws the plain note icon, as a button for an editor", () => {
+    const container = mount(
+      createElement(FileTree, {
+        rows: [file("plan.md")],
+        canSetVisibility: false,
+        onSelect: () => {},
+        onToggle: () => {},
+        onCycleVisibility: () => {},
+        iconOf: () => null,
+        onIconPress: () => {},
+      }),
+    );
+    expect(container.querySelector("[data-testid='tree-folder-emoji']")).toBeNull();
+    const button = container.querySelector("[data-testid='tree-folder-icon-button']") as HTMLElement | null;
+    expect(button).not.toBeNull();
+    expect(button?.querySelector("[data-icon='file']")).not.toBeNull();
   });
 
   test("with no icon source at all, every folder draws the plain icon", () => {

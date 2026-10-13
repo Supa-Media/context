@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { pointerType, radii } from "../../design/tokens";
@@ -22,10 +22,10 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * shift-click is the row's pick before it reaches here (`rowInteractions.web`
  * listens in the capture phase), so the icon never steals a multi-selection.
  *
- * A note (2026-10-13) draws its emoji in the same box, or nothing: notes had
- * no glyph before and most still have none. For somebody who may give it one,
- * the empty box holds a faint smile that shows only while the pointer is on
- * it, so the tree does not gain a column of smiles.
+ * A note (2026-10-13) draws its emoji in the same box, or the plain note
+ * icon, the way a folder draws the plain folder icon (the owner: "give notes a
+ * plain icon by default ... so it can be clicked on and changed"). Clicking it
+ * opens the same picker.
  */
 export function TreeFolderGlyph({
   label,
@@ -33,11 +33,11 @@ export function TreeFolderGlyph({
   onPress,
   note = false,
 }: {
-  /** A note's glyph rather than a folder's: no folder icon when it has no emoji. */
+  /** A note's glyph rather than a folder's: the plain note icon when it has no emoji. */
   note?: boolean;
   /** The folder's name, for the button's accessible name. */
   label: string;
-  /** Its emoji, or `null` for the plain folder icon (a note: nothing). */
+  /** Its emoji, or `null` for the plain folder (or note) icon. */
   icon: string | null;
   /** Open the picker at this window point. Absent where the icon cannot be changed: the glyph is then only drawn. */
   onPress?: (anchor: { x: number; y: number }) => void;
@@ -45,7 +45,7 @@ export function TreeFolderGlyph({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
-  const plain = note ? null : <Icon name="folder" size={14} color={colors.chromeMuted} />;
+  const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (
       plain
@@ -54,14 +54,11 @@ export function TreeFolderGlyph({
         emoji={icon}
         size={14}
         textStyle={styles.emoji}
-        fallback={plain ?? <View />}
+        fallback={plain}
         testID="tree-folder-emoji"
       />
     );
-  const ghost = note && icon === null;
-  // On a touch screen the faint smile could never show, and an invisible
-  // button would take taps meant to open the note: the menu is the way in there.
-  if (onPress === undefined || (ghost && !canHover())) return glyph;
+  if (onPress === undefined) return glyph;
 
   function open(event: GestureResponderEvent) {
     const fallback = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY + 8 };
@@ -87,20 +84,11 @@ export function TreeFolderGlyph({
       onPress={open}
       hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
-      testID={ghost ? "tree-note-icon-ghost" : "tree-folder-icon-button"}
+      testID="tree-folder-icon-button"
     >
-      {ghost
-        ? ({ hovered }: { hovered?: boolean; pressed: boolean }) =>
-            hovered ? <Icon name="smile" size={12} color={colors.chromeMuted} /> : null
-        : glyph}
+      {glyph}
     </Pressable>
   );
-}
-
-/** A pointer that can hover (a mouse or trackpad), so a hover-only control can be found. */
-function canHover(): boolean {
-  if (Platform.OS !== "web" || typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(hover: hover)").matches;
 }
 
 const makeStyles = (colors: Colors) =>

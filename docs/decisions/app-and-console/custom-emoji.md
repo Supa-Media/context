@@ -104,8 +104,9 @@ folders, also can we add emojis to plain notes like activity"), reversing the
   (`remapIcons`, one write per batch), and goes when the note is deleted for
   good. Only Markdown notes can have one; a picture or a PDF cannot.
 - In the tree a note's emoji sits in the folder glyph's slot; a note with none
-  draws nothing, and an editor's pointer on that slot shows a faint smile that
-  opens the picker. Folder pages draw it in place of the file glyph.
+  draws the plain note icon there, the way a folder draws the plain folder
+  icon, and an editor clicks either to open the picker (the owner, same day).
+  Folder pages draw it in place of the file glyph.
 
 **Reversing the visibility rule** (a note's icon shown with its folder) leaks
 held-back notes' names; `folderIcons.test.ts`'s "a member never sees the icon
