@@ -46,6 +46,7 @@ import {
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, runNodesOperation } from "../nodes/run";
+import { servedReadAnswer } from "../nodes/servedReads";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachTreeListing } from "../nodes/treeNames";
@@ -268,6 +269,9 @@ export async function runFileOperationHandler(
   const treeOperation = await treeOperationClient(ctx, args);
   if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
   if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
+  // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
+  const served = await servedReadAnswer(ctx, args);
+  if (served !== null) return served;
 
   /*
     The three lookups a store is built from, asked together. Each is its own

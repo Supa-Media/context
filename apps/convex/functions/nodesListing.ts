@@ -17,7 +17,7 @@
  */
 
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { listingValidator } from "./lib/filesFns/validators";
@@ -32,6 +32,27 @@ export const listFolder = query({
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const listing = await listFolderFromNodes(ctx, workspaceId, path, clearanceOf(scope, grantedNames));
+    return { kind: "listing" as const, ...listing };
+  },
+});
+
+/**
+ * The same listing for the file-operation barrier's `list` (the console's
+ * fallback, shared folder links, share cards, routines and plugins), which
+ * has already decided who is asking and at what clearance. `null` when the
+ * tree does not serve, and the barrier lists the bucket as before.
+ */
+export const listServed = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.optional(v.array(v.string())),
+  },
+  returns: v.union(v.null(), listingValidator),
+  handler: async (ctx, { workspaceId, path, scope, grantedNames }) => {
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const listing = await listFolderFromNodes(ctx, workspaceId, path, clearanceOf(scope, grantedNames ?? []));
     return { kind: "listing" as const, ...listing };
   },
 });

@@ -233,3 +233,35 @@ export async function folderPropRows(client, { folder, after, limit = FOLDER_PAG
     props: typeof row.props === "string" ? row.props : null,
   }));
 }
+
+/** Paths one `propRowsOf` query names: well inside D1's bound on a statement's size. */
+const PROP_LOOKUP_PATHS = 400;
+
+/**
+ * The props rows of exactly these notes, keyed by path, for a reader that
+ * learned which notes exist from somewhere other than this database (the
+ * Convex tree). A path with no row is absent from the map. **Unfiltered**:
+ * the caller has already applied `canSee` to the paths it names.
+ *
+ * @param {{ query: Function }} client
+ * @param {string[]} paths
+ * @returns {Promise<Map<string, { version: string | null, encrypted: boolean, props: string | null }>>}
+ */
+export async function propRowsOf(client, paths) {
+  const found = new Map();
+  for (let at = 0; at < paths.length; at += PROP_LOOKUP_PATHS) {
+    const rows = await client.query(
+      `SELECT path, version, encrypted, props FROM tree_props
+       WHERE path IN (SELECT value FROM json_each(?1))`,
+      [JSON.stringify(paths.slice(at, at + PROP_LOOKUP_PATHS))],
+    );
+    for (const row of rows) {
+      found.set(row.path, {
+        version: typeof row.version === "string" ? row.version : null,
+        encrypted: Number(row.encrypted) === 1,
+        props: typeof row.props === "string" ? row.props : null,
+      });
+    }
+  }
+  return found;
+}
