@@ -553,6 +553,11 @@ export async function announceTreeChange(
     // A change that rewrote the rules re-reads them into the tree's mirror too.
     const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
     await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
+    // A change that can touch anything (clearing the vault) names no paths to
+    // re-check, so the Convex tree is swept instead.
+    if (change.every === true) {
+      await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
+    }
   } catch {
     // See above: a hint is never a failed change.
   }

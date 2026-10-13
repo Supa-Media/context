@@ -29,7 +29,7 @@ import { messageFor } from "../d1";
 import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
 import { recordTreeChange, recordWrites } from "../treeAnnounce";
-import { indexChangeOf, treeChangeOf } from "./access";
+import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
@@ -538,7 +538,8 @@ export async function runFileOperationHandler(
   }
 
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
-  await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
+  const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
+  await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
   await followPlaces();
 
   /*
