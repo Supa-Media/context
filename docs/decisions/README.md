@@ -407,7 +407,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
-- [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
+- [Pins and "You open most" live on the account, and follow a move for whoever may see it](./app-and-console/phone-home-places.md)
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
 - [The map is drawn on paper and a blackboard; its words are not](./app-and-console/live-map-board.md)
 - [Agents in the middle only while they work; Archive is one icon](./app-and-console/live-map-board.md#agents-in-the-middle-only-while-they-work-archive-is-one-icon-2026-10-12)
