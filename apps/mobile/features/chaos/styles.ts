@@ -28,26 +28,17 @@ export const makeChaosStyles = (colors: Colors, shadows: Shadows) =>
     how: { color: colors.muted, paddingHorizontal: space.x2 },
     rule: { height: 1, backgroundColor: colors.line },
 
-    /* The foot line's figure, nudged so it sits on the text's line. */
-    footFigure: { marginVertical: -3 },
-    footWord: { color: colors.muted },
-    footArrow: { color: colors.muted },
-
-    /* The folder page's chip. */
-    chip: {
-      flexDirection: "row",
-      alignItems: "center",
-      alignSelf: "flex-start",
-      gap: 6,
-      paddingVertical: 2,
-      paddingLeft: 4,
-      paddingRight: space.x2,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-    },
-    chipHover: { borderColor: colors.lineStrong, backgroundColor: colors.surface2 },
-    chipText: { color: colors.text2 },
+    /* A folder page's Tex, beside its title, and the words that roll in after it. */
+    folderTex: { flexDirection: "row", alignItems: "center", gap: space.x2, flexShrink: 2, minWidth: 0 },
+    folderTexFigure: { marginVertical: -10, borderRadius: radii.pill },
+    folderTexOwnLine: { marginTop: space.x1 },
+    folderTexFigureOwnLine: { marginVertical: 0 },
+    folderTexWords: { flexShrink: 1, minWidth: 0 },
+    folderTexLead: { color: colors.text2 },
+    /* What Tex says when pressed. */
+    tip: { flexDirection: "row", gap: space.x2, paddingHorizontal: space.x2, paddingVertical: 3 },
+    tipText: { flexShrink: 1, color: colors.text },
+    link: { color: colors.accent, fontWeight: "600" },
 
     /* The phone Home's line, at the foot of the page. */
     homeLine: {
