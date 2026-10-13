@@ -25,7 +25,10 @@
  * nor named, so the score never tells a member that something exists.
  */
 
-import { chaosFullPass, chaosReady, chaosSummary, rescoreChange } from "../../../../mcp/src/chaos/table.js";
+import { chaosFullPass, chaosOn, chaosReady, chaosSummary, rescoreChange } from "../../../../mcp/src/chaos/table.js";
+import { chaosExtras, folderNumbers, liveSummary, scoreKeys } from "../../../../mcp/src/chaos/live.js";
+import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
+import { servedKeys, servedMoves } from "../nodes/manifestStore";
 import { chaosWord } from "../../../../mcp/src/chaos/rubric.js";
 import type { Clearance } from "../clearance";
 import { canSee } from "../privacy";
@@ -135,6 +138,48 @@ export async function chaosScoreOf(
     const [row] = await client.query("SELECT * FROM tree_chaos WHERE folder = ?1", [name]);
     folder = folderOf(row, team);
   }
+  return {
+    kind: "chaosScore",
+    available: true,
+    score: summary.score,
+    word: chaosWord(summary.score),
+    weekAgo: summary.weekAgo,
+    folders: summary.folders.map((entry: ChaosFolder) => ({ folder: entry.folder, items: entry.items, chaos: entry.chaos })),
+    longNotes: summary.longNotes,
+    folder,
+  };
+}
+
+/**
+ * The app's answer counted from the Convex tree's keys where it serves the
+ * workspace (`apps/mcp/src/chaos/live.js`): the shape as drawn now, pending
+ * moves folded in, with the rules from the tree's mirror. Only long notes,
+ * meetings and contact reviews come from the database. `null` when this
+ * cannot answer (not scored yet, rules that do not parse), and the table's
+ * numbers answer instead.
+ */
+export async function liveChaosScoreOf(
+  served: FileStore,
+  client: ProjectionClient,
+  operation: { folder?: string },
+  clearance: Clearance,
+): Promise<ChaosScoreResult | null> {
+  if (!(await chaosReady(client))) return null;
+  const state = await loadPrivacyState(served);
+  if (state.invalid) return null;
+  const [keys, found] = await Promise.all([servedKeys(served), chaosExtras(client)]);
+  // The database names notes by bucket key; the keys are drawn through pending moves.
+  const moves = servedMoves(served);
+  const extras = new Map<string, { lines: number | null; exempt: boolean; review: boolean }>();
+  for (const [path, extra] of found) extras.set(moves.length === 0 ? path : (queuedLogicalPath(path, moves) as string), extra);
+  const visibleToTeam = (path: string) => canSee(path, "team", state.rules, state.overrides);
+  const folders = scoreKeys(keys, extras, visibleToTeam);
+  const team = clearance.scope !== "private";
+  const visible = (path: string) => canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
+  const weekAgo = await chaosOn(client, 7, team ? "team" : "all");
+  const summary = liveSummary(folders, extras, { team, present: new Set(keys), visible, weekAgo });
+  const folder =
+    operation.folder === undefined ? null : folderNumbers(folders, operation.folder.replace(/^\/+|\/+$/g, ""), team);
   return {
     kind: "chaosScore",
     available: true,

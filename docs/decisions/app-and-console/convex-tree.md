@@ -270,6 +270,14 @@ app that asks only *which notes exist and where* reads the rows where
   (`folderNotesFromNodes`); a props row at another version than the row's is
   read again, as before. While a move is pending they read the table as
   before, since a note's front matter is still filed under its old key.
+- **The chaos score** (the app's figure and folder chip, and orient's chaos
+  line) is counted at read time from the rows' keys, pending moves folded
+  in, with only what a key cannot say (a note's length, a contact's review)
+  read from the properties table and drawn through the same moves
+  (`liveChaosScoreOf`, `chaos/live.js`). The team figure counts only what
+  the mirror's rules show the team. The `tree_chaos` aggregates stay for the
+  daily history and as the fallback. Pinned in
+  `__tests__/nodes/servedChaos.test.ts` and `test/chaosLive.test.mjs`.
 
 Two readers deliberately stay on the bucket: **publishing a website**, because
 a Publish releases the bucket's bytes and must see a page written past the app

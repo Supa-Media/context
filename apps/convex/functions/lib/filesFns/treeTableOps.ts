@@ -38,7 +38,7 @@ import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
 import { folderNotesFromNodes, folderNotesFromTable } from "./folderNotes";
-import { chaosAfterFill, chaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
+import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
 import { treeChanges } from "./treeChanges";
@@ -352,7 +352,11 @@ export async function runTreeOperation(
     return answer;
   }
   if (operation.kind === "chaosScore") {
-    return await chaosScoreOf(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+    // Counted from the Convex tree's keys where it serves, else the table's numbers.
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const live = served === null ? null : await liveChaosScoreOf(served, client, operation, clearance).catch(() => null);
+    return live ?? (await chaosScoreOf(store, client, operation, clearance));
   }
   if (operation.kind === "touchTree") {
     try {
