@@ -572,9 +572,7 @@ async function answerFromIndex(store, options) {
         // The body read is inside the `try` as well as the fetch. A backend can
         // hand back an object whose stream then fails, and a rejection there is
         // the same kind of failure as a refused GET: one hit's snippet, never
-        // the whole answer. The sequential loop broke on this, which dropped
-        // every lower-ranked hit for a key the adapter happened to refuse.
-        // At the name the tree draws, while a queued folder move still copies.
+        // the whole answer. Read at the tree's name while a folder move copies.
         const object = await readAtTreeName(store, readPath, isVisible);
         if (!object) return null;
         const text = await object.text();
