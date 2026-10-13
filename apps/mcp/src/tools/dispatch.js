@@ -50,6 +50,7 @@ import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
 import { moveJobActive, moveJobKey } from "../moves/jobs.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
+import { servedListingStore } from "../tree/served.js";
 
 const STALLED_MOVE_MS = 5 * 60 * 1000;
 
@@ -68,7 +69,23 @@ async function moveWorkerStalled(store, id) {
   }
 }
 
+/**
+ * The tools that only list and read: their walks are answered from the Convex
+ * tree where it serves the workspace (`tree/served.js`), and from the bucket
+ * everywhere else. A tool that writes keeps the bucket's own listing, so what
+ * it lists is always what it is about to change.
+ */
+export const TREE_LISTING_TOOLS = new Set([
+  "orient",
+  "list_notes",
+  "evaluate_lists",
+  "list_meetings",
+  "list_channel_days",
+  "list_contacts",
+]);
+
 export async function callTool(name, args, store, scope) {
+  if (TREE_LISTING_TOOLS.has(name)) store = servedListingStore(store);
   const privacy = await loadPrivacyState(store);
   if (privacy.error) {
     return toolError(

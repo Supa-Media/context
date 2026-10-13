@@ -79,6 +79,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // The Convex tree, for the agent tools that list (`tree/served.js`). The
+  // control plane picks the workspace and clearance off this token's grant.
+  Object.defineProperty(store, "treeManifest", {
+    value: (page) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 }
 
 export function attachGatewayJobQueue(store, session, controlPlane, env) {
