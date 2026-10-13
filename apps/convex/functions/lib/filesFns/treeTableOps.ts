@@ -7,11 +7,10 @@
  * credential barrier (`runFileOperation`) because each needs the bucket:
  *
  *  - **A manifest asked for with `source: "tree"`** — the browser tab's
- *    sidebar walk — is served from the table once a sweep has finished, by
- *    handing the unchanged `syncManifest` a store whose `list` reads the table
- *    (`treeListingStore`). Every privacy decision is still `canSee` over the
- *    live `privacy.md`. A table that is not ready, or that a sweep is due on,
- *    schedules one and the walk falls back to the bucket.
+ *    sidebar walk — is served from the Convex tree where it serves, else the
+ *    bucket. The table no longer answers a walk (phase 7 of
+ *    `docs/decisions/app-and-console/convex-tree.md`); a walk only schedules
+ *    its sweep, because the props and link fills read their notes from it.
  *  - **`sweepTree`** lists the bucket into the table a bounded piece at a
  *    time, and chains itself until it finishes.
  *  - **`touchTree`** re-checks the paths a console change named, and only then
@@ -34,14 +33,11 @@ import { createD1Client, D1Error, failureDetailOf } from "../../../../mcp/src/se
 import { readTreeState, setStateStatements } from "../../../../mcp/src/tree/table.js";
 import { sweepDue, sweepTreePass } from "../../../../mcp/src/tree/sweep.js";
 import { touchTree } from "../../../../mcp/src/tree/touch.js";
-import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
 import { folderNotesFromNodes, folderNotesFromTable } from "./folderNotes";
 import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
-import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
-import { treeChanges } from "./treeChanges";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../d1";
 import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionClient } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
@@ -56,7 +52,7 @@ export const TREE_SWEEP_CHAIN = 50;
 
 export type TreeOperation = Extract<
   FileOperation,
-  { kind: "sweepTree" | "touchTree" | "treeState" | "treeChanges" | "folderNotes" | "chaosScore" }
+  { kind: "sweepTree" | "touchTree" | "treeState" | "folderNotes" | "chaosScore" }
 >;
 
 export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
@@ -64,7 +60,6 @@ export function isTreeOperation(operation: { kind: string }): operation is TreeO
     operation.kind === "sweepTree" ||
     operation.kind === "touchTree" ||
     operation.kind === "treeState" ||
-    operation.kind === "treeChanges" ||
     operation.kind === "folderNotes" ||
     operation.kind === "chaosScore"
   );
@@ -79,20 +74,7 @@ export function noTreeTable(operation: TreeOperation): OperationResult {
     return { kind: "folderNotes", available: false, notes: [], cursor: null, missing: [], fill: false };
   }
   if (operation.kind === "chaosScore") return NO_CHAOS;
-  if (operation.kind !== "treeChanges") return { kind: "treeKept", complete: false };
-  return {
-    kind: "treeChanges",
-    full: true,
-    entries: [],
-    folders: [],
-    gone: [],
-    goneFolders: [],
-    since: operation.since,
-    after: operation.after ?? "",
-    more: false,
-    privacy: null,
-    manifestUsable: true,
-  };
+  return { kind: "treeKept", complete: false };
 }
 
 /**
@@ -252,23 +234,10 @@ export async function manifestSource(
     if (args.operation.cursor !== undefined) return { store: served, source: "nodes" };
     return { store: served, source: "nodes", ...(start === null ? {} : start) };
   }
-  try {
-    const client = await treeClient(ctx, args.workspaceId);
-    if (client === null) return { store, source: "bucket" };
-    const state = await readTreeState(client);
-    if (sweepDue(state, Date.now())) await scheduleSweep(ctx, args.workspaceId, args.scope, 0);
-    if (!state.ready || state.unsupported) return { store, source: "bucket" };
-    const table = { store: treeListingStore(store, client) as FileStore, source: "tree" as const };
-    if (args.operation.cursor !== undefined || state.now === null) return table;
-    // A walk's first page says where a catch-up after it starts: the table's
-    // clock and the `privacy.md` version, both read before the walk, so
-    // anything that lands during it is read again rather than missed.
-    const privacy = await loadPrivacyState(store);
-    return { ...table, since: state.now - CHANGE_OVERLAP_MS, privacy: privacy.etag };
-  } catch {
-    // A database that cannot be read is no table: the walk goes to the bucket.
-    return { store, source: "bucket" };
-  }
+  // Elsewhere the bucket (phase 7: the D1 table no longer answers a walk). Its
+  // sweep still runs, because the props and link fills read their notes from it.
+  if (args.operation.cursor === undefined) await startSweepIfDue(ctx, args).catch(() => {});
+  return { store, source: "bucket" };
 }
 
 /**
@@ -341,9 +310,6 @@ export async function runTreeOperation(
   client: ProjectionClient,
 ): Promise<OperationResult> {
   const operation = args.operation;
-  if (operation.kind === "treeChanges") {
-    return await treeChanges(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
-  }
   if (operation.kind === "folderNotes") {
     // Which notes are in the folder: the Convex tree where it serves and no
     // move is pending (a note then reads at its old key), else this table.
@@ -365,7 +331,7 @@ export async function runTreeOperation(
   }
   if (operation.kind === "touchTree") {
     try {
-      await touchTree(store, client, { paths: operation.paths, files: operation.files, left: operation.left ?? [] });
+      await touchTree(store, client, { paths: operation.paths, files: operation.files });
       // The chaos score moves with the change, before the open trees are told.
       await rescoreTouched(store, client, { paths: operation.paths, files: operation.files });
     } finally {
