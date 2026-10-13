@@ -287,6 +287,10 @@ export async function scheduleNodesTouch(
  * returns (phase 2: the console reads this tree). Never throws, and a change
  * too big to re-check, or one made while staff paused the migration, only
  * marks the tree for a sweep, as the scheduled re-check does.
+ *
+ * `left` says who could see each key the change took away, before it: a move
+ * rewrites the rules before this re-check, and the tree's gone rows narrow to
+ * it (`convexTable.ts`).
  */
 export async function touchNodesNow(
   ctx: ActionCtx,
@@ -309,6 +313,11 @@ export async function touchNodesNow(
     console.error("nodes.touch_failed", { workspaceId });
     await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
   }
+}
+
+/** Ask for a sweep of the Convex tree after a change too wide to name. Never throws. */
+export async function requestNodesSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
 }
 
 /**

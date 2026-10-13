@@ -7,7 +7,7 @@
  * Sabotage:
  *  - drop `treeChangeOfResult` from the barrier, and drop `addBuiltInFolder`
  *    from `indexChangeOf`, and the built-in folder case fails;
- *  - drop the `every` sweep in `announceTreeChange` and the clear-vault case fails.
+ *  - drop the `every` sweep in `fileOperationBarrier.ts` and the clear-vault case fails.
  */
 
 import { describe, expect, test } from "vitest";

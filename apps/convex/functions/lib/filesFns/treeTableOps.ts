@@ -476,9 +476,7 @@ export async function keepTreeAndAnnounce(
   // The Convex tree is re-checked whether or not this context has a search
   // database: before the change answers when the bucket is open here, since
   // the console reads that tree (phase 2), and scheduled otherwise.
-  // `left` goes too: a move rewrote the rules before this re-check, and the
-  // tree's gone rows narrow to who could see each key before (`convexTable.ts`).
-  const nodesChange = { paths: change.paths, files: change.files, ...(change.left === undefined ? {} : { left: change.left }) };
+  const nodesChange = { paths: change.paths, files: change.files, left: change.left };
   if (touches && store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
   else if (touches) await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {
@@ -553,11 +551,6 @@ export async function announceTreeChange(
     // A change that rewrote the rules re-reads them into the tree's mirror too.
     const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
     await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
-    // A change that can touch anything (clearing the vault) names no paths to
-    // re-check, so the Convex tree is swept instead.
-    if (change.every === true) {
-      await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
-    }
   } catch {
     // See above: a hint is never a failed change.
   }

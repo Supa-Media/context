@@ -45,7 +45,7 @@ import {
   treeStateOf,
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
-import { isNodesOperation, runNodesOperation } from "../nodes/run";
+import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
 import { servedReadAnswer } from "../nodes/servedReads";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
@@ -540,6 +540,9 @@ export async function runFileOperationHandler(
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
   const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
+  // A change that can touch anything (clearing the vault) names no path to
+  // re-check, so the Convex tree is swept for it instead.
+  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId);
   await followPlaces();
 
   /*
