@@ -165,12 +165,17 @@ export function mergeHits(wordHits, matches, keyField = "key") {
     .map(({ key, word, meaning }) => ({ key, word, meaning }));
 }
 
-/** A snippet for a note found only by meaning: the start of the passage that matched. */
-async function meaningSnippet(store, match, chars = 200) {
+/**
+ * A snippet for a note found only by meaning: the start of the passage that
+ * matched. `isVisible` is passed down to the read, so a note a queued folder
+ * move is carrying somewhere narrower is never opened here — `atTreeNames`
+ * drops the hit afterwards either way, but the bytes are not read first.
+ */
+async function meaningSnippet(store, match, chars = 200, isVisible) {
   let text;
   try {
-    // Judged at its tree name by `atTreeNames` once the answer is merged.
-    const object = await readAtTreeName(store, match.path);
+    // At the name the tree draws, and only where the caller may see it there.
+    const object = await readAtTreeName(store, match.path, isVisible);
     if (!object) return null; // moved or deleted since it was embedded
     text = await object.text();
   } catch {
@@ -202,8 +207,19 @@ async function meaningSnippet(store, match, chars = 200) {
  * (how much of the matching passage each shows) are the store's settings
  * unless given (`../settings.js`); a word search that found only loose
  * any-word hits may add twice as many, never fewer than the loose cap.
+ *
+ * `isVisible` is the caller's own privacy engine. It reaches the snippet
+ * read, so a note a queued folder move is carrying somewhere narrower is
+ * never opened: `atTreeNames` drops such a hit from the answer afterwards,
+ * and this keeps its bytes unread in the first place.
+ *
+ * @param {object} store
+ * @param {{hits: any[], matchCount?: number}} found
+ * @param {any} matches
+ * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number,
+ *   isVisible?: (path: string) => boolean }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, isVisible } = {}) {
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
@@ -237,7 +253,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
     }
     if (reads >= readCap) continue;
     reads += 1;
-    const read = await meaningSnippet(store, entry.meaning, chars);
+    const read = await meaningSnippet(store, entry.meaning, chars, isVisible);
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;
@@ -247,7 +263,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return atTreeNames(await withMeaning(store, found, matches, shape), store?.pendingMoves, {
+  return atTreeNames(await withMeaning(store, found, matches, { isVisible: options.isVisible, ...shape }), store?.pendingMoves, {
     isVisible: options.isVisible,
     prefix: options.prefix,
     keyField: shape.keyField,
