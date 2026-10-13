@@ -24,6 +24,8 @@ export const ADMIN_ACTIONS = [
   "person.archived",
   "person.unarchived",
   "texts.sender_set",
+  "tex.allowlist_added",
+  "tex.allowlist_removed",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

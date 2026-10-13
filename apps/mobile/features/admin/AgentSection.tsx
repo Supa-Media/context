@@ -24,6 +24,7 @@ import { AgentChart } from "./AgentChart";
 import { AgentTurn, StepStrip } from "./AgentTurn";
 import { useToneColor } from "./Charts";
 import { Segments } from "./Segments";
+import { TexAllowlist } from "./TexAllowlist";
 import {
   AGENT_CLIENTS,
   AGENT_WINDOWS,
@@ -69,6 +70,7 @@ export function AgentSection(props: { openId?: string | null; onOpen?: (id: stri
 
   return (
     <View style={styles.section} testID="admin-agent">
+      <TexAllowlist />
       <View style={styles.filters}>
         <Segments options={AGENT_CLIENTS} value={client} onChange={setClient} label="Where the question came from" testID="admin-agent-client" />
         <Segments options={AGENT_WINDOWS} value={days} onChange={setDays} label="Window" testID="admin-agent-days" />
