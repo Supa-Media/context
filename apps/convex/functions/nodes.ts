@@ -244,6 +244,16 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
+    // `begin` cleared `dirty`, so a mark now is a sweep asked for while this
+    // one held the lease (an email capture names no path, so a sweep is its
+    // only re-check). Started here, or it waits for the hourly cron.
+    if (next.dirty && nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "nodesSweep" },
+      });
+    }
     // A finished copy is checked against its bucket when it has never been,
     // when its last check differed, or when its last proof is a day old
     // (`nodeParityDue`). The first is how a new workspace starts being served
