@@ -75,6 +75,13 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
   v.object({
+    kind: v.literal("moveQueued"),
+    queued: v.boolean(),
+    count: v.optional(v.number()),
+    error: v.optional(v.string()),
+    message: v.optional(v.string()),
+  }),
+  v.object({
     kind: v.literal("nodesParity"),
     clearances: v.number(),
     mismatches: v.number(),
@@ -281,6 +288,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
   v.object({ kind: v.literal("nodesTouch"), paths: v.array(v.string()), files: v.array(v.string()) }),
   v.object({ kind: v.literal("nodesParity") }),
+  v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("nodesMoveWork") }),
   v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({
     kind: v.literal("touchTree"),

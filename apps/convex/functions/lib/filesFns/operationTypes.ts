@@ -117,6 +117,9 @@ export type FileOperation =
   | { kind: "nodesSweep"; passes?: number }
   | { kind: "nodesTouch"; paths: string[]; files: string[] }
   | { kind: "nodesParity" }
+  /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
+  | { kind: "nodesMoveStart"; from: string; to: string }
+  | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
   /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
@@ -380,6 +383,8 @@ export type OperationResult =
     } & SyncManifest)
   | { kind: "treeKept"; complete: boolean }
   | { kind: "nodesKept"; complete: boolean }
+  /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
+  | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult

@@ -116,6 +116,52 @@ export const nodeTables = {
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * Moves the tree shows already and the bucket has not finished (phase 4).
+   *
+   * One row per move, oldest first. `from` and `to` are paths as they were
+   * named when the move was made, so a move of a whole folder is this one row
+   * however many notes it carries: every listing folds the rows' paths
+   * through these (`apps/mcp/src/moves/queued.js`), and a scheduled pass
+   * copies the objects behind it (`lib/nodes/moveWork.ts`), oldest move first.
+   *
+   * `preparing` holds the names while `privacy.md` is rewritten for the
+   * destination, and nothing draws it yet; `moving` is drawn everywhere. A row
+   * is deleted when its last object has moved. `added` is what the move wrote
+   * into `privacy.md`, so Undo takes back exactly that.
+   */
+  moveQueue: defineTable({
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    kind: v.union(v.literal("file"), v.literal("folder")),
+    state: v.union(v.literal("preparing"), v.literal("moving")),
+    /** Who moved it, at what clearance: link rewriting at the end reaches only what they could see. */
+    actorUserId: v.optional(v.id("users")),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.array(v.string()),
+    /** Objects under `from` when the move was made, and how many have moved since. Counts only. */
+    total: v.number(),
+    moved: v.number(),
+    added: v.object({
+      folders: v.array(v.object({ prefix: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
+      notes: v.array(v.object({ path: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
+    }),
+    /** Set by Undo: the move now carries everything back. */
+    undone: v.optional(v.boolean()),
+    /** A pass holding this move; another one waits. */
+    leaseAt: v.optional(v.number()),
+    /** Failed passes in a row, and a fixed, path-free label for the last one. */
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    /** The next pass is due at this time (a back-off after a failure). */
+    nextAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_next", ["nextAt"]),
+
+  /**
    * The migration's one switch, a single row (absent means running). Staff
    * pause it from admin › Search › Indexes; while paused nothing new starts,
    * changes only mark trees dirty, and a running sweep stops at its next pass.

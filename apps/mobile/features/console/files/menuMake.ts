@@ -76,13 +76,16 @@ export function makeItem(
 }
 
 /**
- * "Set icon…" on one folder, where its icon can be changed from here.
+ * "Set icon…" on one folder or note, where its icon can be changed from here.
+ * Notes since 2026-10-13 (the owner: "add emojis to plain notes like
+ * activity"); other files (a picture, a PDF) have none.
  *
  * Editor only, and absent rather than disabled like every other write. Built-in
  * folders are offered it too: an icon is decoration on a folder, not a move of
  * one, so `menuBuiltIn.ts`'s locks do not apply.
  */
 export function iconGroup(context: MenuContext, row: TreeRow | null): MenuItem[] {
-  if (!context.canEdit || row === null || row.kind !== "folder") return [];
+  if (!context.canEdit || row === null) return [];
+  if (row.kind !== "folder" && !(row.kind === "file" && /\.md$/i.test(row.path))) return [];
   return [makeItem(context, "setIcon", "Set icon…")];
 }

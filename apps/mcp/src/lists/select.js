@@ -1,4 +1,5 @@
 import { selectProjectRows } from "./projects.js";
+import { withInlineTags } from "./inlineTags.js";
 import { groupOf, orderByGroup } from "./group.js";
 import { compareStatuses, resolveStatusList, statusGroupOf, statusGroupsNamed } from "./statuses.js";
 
@@ -11,11 +12,13 @@ import { compareStatuses, resolveStatusList, statusGroupOf, statusGroupsNamed } 
  * With `rows: projects` the rows are projects instead of notes: see
  * `projects.js`.
  */
-export function selectListRows(config, notes, { selfPath } = {}) {
+export function selectListRows(config, given, { selfPath } = {}) {
+  // A note's `#tags` count as its `tags` for every condition, group and column.
+  const notes = (given || []).map(withInlineTags);
   if (config.rows === "projects") return selectProjectRows(config, notes, { selfPath });
   const folder = config.from ? `${config.from}/` : "";
   const { list } = resolveStatusList(config.from || "", notes);
-  const matched = (notes || []).filter((note) => {
+  const matched = notes.filter((note) => {
     const path = String(note.path || "");
     if (!path.endsWith(".md") || path === selfPath) return false;
     if (!path.startsWith(folder)) return false;

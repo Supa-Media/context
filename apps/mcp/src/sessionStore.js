@@ -15,6 +15,7 @@ import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "
 import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
+import { withPendingMoves } from "./moves/queued.js";
 
 /**
  * Build the storage adapter for one session.
@@ -207,7 +208,39 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  return store;
+
+  /**
+   * Queue a folder move through the control plane (`moves/queued.js`): the
+   * tree draws it at once and the bucket catches up behind it. Bound to this
+   * request's own session, as `rotateEncryptionKeys` is.
+   */
+  Object.defineProperty(store, "startQueuedMove", {
+    value: async (from, to) =>
+      await controlPlane.startQueuedMove(session.accessToken, session.workspaceId, from, to),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return storeThroughMoves(store, opened.pendingMoves, (moved) =>
+    controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
+  );
+}
+
+/**
+ * While queued moves are pending, the store a request reads through moves a
+ * note to where the tree draws it before it touches it (`withPendingMoves`),
+ * and tells the tree what it moved. The store itself when nothing is pending.
+ */
+function storeThroughMoves(store, pendingMoves, report) {
+  return withPendingMoves(store, pendingMoves, {
+    onMoved: async (moved) => {
+      try {
+        await report(moved);
+      } catch {
+        // The tree is told again by the move's own pass; a missed hint is never a failed read.
+      }
+    },
+  });
 }
 
 export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
@@ -234,7 +267,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     writable: false,
     configurable: true,
   });
-  return store;
+  return storeThroughMoves(store, opened?.pendingMoves, () => {});
 }
 
 /**

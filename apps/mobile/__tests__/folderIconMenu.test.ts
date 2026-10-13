@@ -1,9 +1,9 @@
 /**
  * "Set icon…" in the file menu, and what it does when chosen.
  *
- * Offered for a folder an editor can change, on the tree's menu and on a
- * phone's folder page alike, and for no note, no read-only row and no console
- * that cannot edit. Built-in folders get it too: an icon is decoration, and
+ * Offered for a folder or note an editor can change, on the tree's menu and on a
+ * phone's folder page alike, and for no other file, no read-only row and no
+ * console that cannot edit. Built-in folders get it too: an icon is decoration, and
  * the built-in locks are about moving a folder.
  */
 
@@ -25,8 +25,16 @@ describe("Set icon… is offered for a folder an editor can change", () => {
     expect(ids(menu({ kind: "row", row: builtIn }))).toContain("setIcon");
   });
 
-  test("a note has no icon, so no item", () => {
-    expect(ids(menu({ kind: "row", row: note("1-projects/plan.md") }))).not.toContain("setIcon");
+  test("a note can have one too (2026-10-13)", () => {
+    expect(ids(menu({ kind: "row", row: note("1-projects/plan.md") }))).toContain("setIcon");
+  });
+
+  test("a file that is not a note has none", () => {
+    expect(ids(menu({ kind: "row", row: note("1-projects/photo.png") }))).not.toContain("setIcon");
+  });
+
+  test("a note on a console that cannot edit has none", () => {
+    expect(ids(menu({ kind: "row", row: note("1-projects/plan.md") }, { canEdit: false }))).not.toContain("setIcon");
   });
 
   test("a read-only row, such as privacy.md, has none", () => {
@@ -85,10 +93,10 @@ describe("choosing Set icon… opens the folder's dialog", () => {
     expect(h.dialogs).toEqual([{ kind: "folderIcon", path: "2-areas/cooking" }]);
   });
 
-  test("a note never opens it, even if asked", () => {
+  test("a note opens the same dialog for that note", () => {
     const h = harness();
     runMenuAction("setIcon", { kind: "row", row: note("2-areas/plan.md") }, h.context);
-    expect(h.dialogs).toEqual([]);
+    expect(h.dialogs).toEqual([{ kind: "folderIcon", path: "2-areas/plan.md" }]);
   });
 
   test("the action target of a folder is the folder itself", () => {

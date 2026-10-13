@@ -30,6 +30,7 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
+import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
@@ -125,6 +126,8 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     }
     await clearExactVisibility(store, source);
     await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
+    // A note's icon follows it (`folderIcons.cjs`); never fails the move.
+    await remapIcons(store, [{ from: source, to: destination }]);
     const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[source, destination]]));
     await recordChange(store, "move_note", scope, [source, destination], {
       etag: moved.etag,
@@ -171,6 +174,8 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   }
   await clearExactVisibility(store, source);
   await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
+  // A note's icon follows it (`folderIcons.cjs`); never fails the move.
+  await remapIcons(store, [{ from: source, to: destination }]);
   const references = await rewriteReferencesOrQueue(
     store,
     scope,

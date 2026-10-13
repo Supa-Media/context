@@ -102,10 +102,25 @@ export function createSessionMethods({ post, required }) {
         // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
-        // Phase 3, a seventh sibling: the privacy rules while they are the
+        // Queued folder moves the tree draws already (`moves/queued.js`), a
+        // seventh: absent unless one is pending, which is nearly always.
+        pendingMoves: Array.isArray(parsed.pendingMoves) ? parsed.pendingMoves : [],
+        // Phase 3, an eighth sibling: the privacy rules while they are the
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
       };
+    },
+
+    /**
+     * Ask the control plane to queue a folder move (phase 4 of the Convex
+     * tree): the tree draws it at once and the bucket catches up behind it.
+     * The same two proofs as every route; the workspace is the grant's, and
+     * whether the caller may move anything there is decided there again.
+     *
+     * @returns {Promise<{queued: true, count: number}|{queued: false}|{queued: false, error: string, message: string}>}
+     */
+    async startQueuedMove(accessToken, expectedWorkspaceId, from, to) {
+      return required(await post("/gateway/moves/start", { accessToken, expectedWorkspaceId, from, to }), "move");
     },
 
     /**

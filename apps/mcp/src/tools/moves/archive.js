@@ -28,6 +28,7 @@ import { normalizePath, timestampSlug } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
+import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesOrQueue } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
@@ -136,6 +137,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     }
     await clearExactVisibility(store, path);
     await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
+    await remapIcons(store, [{ from: path, to: dest }]);
     const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[path, dest]]));
     await recordChange(store, "archive_note", scope, [path, dest], {
       visibility: destinationVisibility,
@@ -184,6 +186,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     into it, which is how people learn not to archive.
   */
   await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
+  await remapIcons(store, [{ from: path, to: dest }]);
   const references = await rewriteReferencesOrQueue(
     store,
     scope,

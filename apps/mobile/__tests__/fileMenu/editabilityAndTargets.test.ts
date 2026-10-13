@@ -96,6 +96,7 @@ describe("a note", () => {
       "rename",
       "duplicate",
       "moveTo",
+      "setIcon",
       "copy",
       "cut",
       "copyPath",

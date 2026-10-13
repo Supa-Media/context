@@ -10,7 +10,9 @@
  *
  * The fourth card is the Convex copy, the backend migration
  * (`nodesMigration`). Its card carries the switch that pauses every copy, and
- * the owner asked for it to be clear what state the migration is in.
+ * the owner asked for it to be clear what state the migration is in. Folder
+ * moves still copying behind the tree are listed under the table
+ * (`./MovesPanel`), with Retry and Undo for a stuck one.
  *
  * Search by meaning (with fast search beside it) is a live query. The tree
  * state lives in each workspace's own database, so it is an action read on
@@ -25,6 +27,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Card, Dot, Text, TextField, space, useThemedStyles, type Colors } from "../design";
 import { EmptyNote, NoticeLine, Panel, Skeleton } from "./AdminKit";
 import { IndexRows, healthTone, type IndexActions } from "./IndexRows";
+import { MovesPanel } from "./MovesPanel";
 import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
@@ -341,6 +344,8 @@ export function IndexesView() {
           <IndexRows rows={shown} actions={actions} />
         )}
       </Panel>
+
+      <MovesPanel />
     </View>
   );
 }

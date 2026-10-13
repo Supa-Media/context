@@ -18,6 +18,7 @@ import { listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile } from "./privacyMirror";
+import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
 import { migrationPaused } from "./pause";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 
@@ -73,6 +74,14 @@ async function childrenOf(
     rows.push(row);
   }
   return { rows, more: false };
+}
+
+/** The row at one bucket key, live or gone. */
+async function rowAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {
+  return await ctx.db
+    .query("nodes")
+    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+    .unique();
 }
 
 /**
@@ -146,7 +155,11 @@ export async function listFolderFromNodes(
 ): Promise<FolderListing> {
   // The same refusal the bucket listing gives a malformed path, before any read.
   const folder = requireFolderPath(path);
-  const { rows, more } = await childrenOf(ctx, workspaceId, folder);
+  // Moves the tree shows already, folded in before privacy is judged (`moveOverlay.ts`).
+  const moves = await pendingMoves(ctx.db, workspaceId);
+  const { rows, more } = moves.length === 0
+    ? await childrenOf(ctx, workspaceId, folder)
+    : await childrenThroughMoves(folder, moves, (source) => childrenOf(ctx, workspaceId, source), (key) => rowAt(ctx, workspaceId, key));
   const mirror = await readMirror(ctx.db, workspaceId);
   return await listFolder(folderRowsStore(folder, rows, more, mirror), { path: folder, clearance });
 }
