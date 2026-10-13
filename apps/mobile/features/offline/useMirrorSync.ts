@@ -41,8 +41,10 @@ import { visibilityTierForRole, type VisibilityTier } from "../console/visibilit
  * **for which contexts**:
  *
  *  - **When:** on mount once the device says it is online, when it comes back
- *    online, when the app returns to the foreground, and every
- *    `MIRROR_INTERVAL_MS` while it stays there. Never while `offline`, and
+ *    online, when the app returns to the foreground, when a context's head in
+ *    the tree's change log moves (`feed`, `useNodeFeed.ts`), and every
+ *    `MIRROR_INTERVAL_MS` while it stays there for a context the feed does
+ *    not reach. Never while `offline`, and
  *    never on `unknown` either — unlike the queue's drain, which has a person's
  *    typing to deliver, a sync can wait the second it takes the platform to
  *    say, and starting one on a guess is minutes of Convex actions with no
@@ -116,6 +118,11 @@ export function useMirrorSync(options: {
   contexts: readonly { workspaceId: string; role: string | undefined }[] | undefined;
   actions: MirrorActions;
   onSynced?: (runs: MirrorRun[]) => void;
+  /**
+   * Each context's live head from the tree's change log (`useNodeFeed.ts`).
+   * A head that moves is a catch-up now; a context with one needs no timed pass.
+   */
+  feed?: ReadonlyMap<string, string>;
 }): void {
   const reachability = useReachability();
   const epochRef = useRef(currentEpoch());
@@ -444,11 +451,32 @@ export function useMirrorSync(options: {
     if (!mirrorSupported() && wanted !== null) requestMirrorRefresh(wanted);
   }, [reachability, sync, targets, freshener]);
 
+  /*
+    The feed: a context's head moved, so something this person may see
+    changed there (or the rules did). One pass catches up from the change log
+    (`listForSync`), a page or two rather than the tree, and fetches what moved.
+  */
+  const feedKey = [...(options.feed ?? new Map<string, string>())]
+    .map(([workspaceId, token]) => `${workspaceId}=${token}`)
+    .sort()
+    .join("\n");
+  const fedRef = useRef<ReadonlySet<string>>(new Set());
+  fedRef.current = new Set(options.feed?.keys() ?? []);
+  useEffect(() => {
+    if (feedKey !== "") sync();
+  }, [feedKey, sync]);
+
   // Back to the foreground, and a modest interval while it stays there.
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
+    // Only for a context the feed does not reach: where every one has a head,
+    // a change arrives as it lands and the interval would only repeat it.
+    const tick = () => {
+      if (targetsRef.current.every((target) => fedRef.current.has(target.workspaceId))) return;
+      sync();
+    };
     const start = () => {
-      if (timer === null) timer = setInterval(sync, MIRROR_INTERVAL_MS);
+      if (timer === null) timer = setInterval(tick, MIRROR_INTERVAL_MS);
     };
     const stop = () => {
       if (timer !== null) clearInterval(timer);

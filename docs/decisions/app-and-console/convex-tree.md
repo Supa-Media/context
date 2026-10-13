@@ -133,6 +133,49 @@ The rest of phase 2 (2026-10-13):
 Pins and recents still name paths, so a move made by somebody else drops
 them from Home until phase 4 gives a moved note one identity.
 
+**Phase 6, as built (2026-10-13): the device copy follows a change log.**
+The desktop and phone apps used to walk the whole tree every five minutes.
+Now `nodeLog` (`lib/schema/nodes.ts`) holds one row per file that appeared,
+changed version or left, written in the same mutation that changed the row
+(`observe.ts` through `convexTable.ts`). A sweep that only re-sees a file
+writes nothing. Four rules hold it:
+
+- **`seq` follows commit order and starts from the clock** (`log.ts`
+  `nextSeq`). Each append reads the workspace's last row, so two appends
+  conflict and commit one after the other. Starting from the clock keeps
+  `seq` rising after a purge, so a device's old cursor can never land inside
+  a new log.
+- **A reader is told only what they could see.** A file that is there is
+  judged by `canSee` over the rules, as a walk judges it. A file that left
+  is told only to the audiences recorded when it left, by the rules as they
+  stood then, as `tree_log` does, because today's rules forgot the exception
+  that held a deleted private note back. Any change to the rules answers
+  `full`, and the device walks.
+- **A cursor never names a change the reader could not see.** A catch-up
+  that read everything resumes a minute behind the clock (`NODE_LOG_OVERLAP_MS`),
+  or after the last row this reader was told about. A team reader is never
+  handed the `seq` of somebody else's private change, which would say when it
+  happened. A page full of changes they cannot see sends them to walk.
+- **The feed answers only where the tree serves** (`treeServes`). Pause in
+  admin stops it with everything else, and devices walk as before.
+
+`nodesFeed.head` is a live query each device subscribes to
+(`useNodeFeed.ts`). It moves when a change this reader may hear of lands, or
+the rules change, and the device then catches up through `syncTreeChanges`,
+which asks `nodesFeed.changes` before the D1 table's log. A context the feed
+reaches gets no five-minute pass; one it does not reach keeps it. A copy fed
+this way is walked whole once a day as a backstop, where the D1 log's copies
+are walked hourly. Rows are kept 30 days and leave with the workspace
+(`nodesPurge.ts`). The outbox still addresses paths; addressing nodes waits
+on phase 4's moves.
+
+What fails if reversed: `apps/convex/__tests__/nodes/nodesFeed.test.ts` (a
+member never hears of a private change, by name or by cursor; a deleted
+private note is never named to a member; rules changes and old cursors walk;
+strangers are refused), the log cases in `observe.test.ts`, and
+`apps/mobile/__tests__/nodeFeedSync.test.ts` (a moving head is a pass, and
+no timed pass while fed).
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
