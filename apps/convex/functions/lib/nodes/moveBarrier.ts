@@ -28,6 +28,7 @@ import type { PendingMove } from "./moveOverlay";
 import { startQueuedMove } from "./moveStart";
 import { runMoveWork } from "./moveWork";
 import { rowFromObject } from "./sweep";
+import { attachTreeListing } from "./treeNames";
 
 type BarrierArgs = {
   workspaceId: Id<"workspaces">;
@@ -54,7 +55,11 @@ export function pendingMovesLookup(ctx: ActionCtx, workspaceId: Id<"workspaces">
 }
 
 export async function runMoveOperation(ctx: ActionCtx, args: BarrierArgs & { operation: MoveOperation }, store: FileStore): Promise<OperationResult> {
-  if (args.operation.kind === "nodesMoveWork") return await runMoveWork(ctx, args.workspaceId, store);
+  if (args.operation.kind === "nodesMoveWork") {
+    // The finishing link rewrite lists the tree's notes, not the bucket's.
+    attachTreeListing(ctx, args.workspaceId, store);
+    return await runMoveWork(ctx, args.workspaceId, store);
+  }
   let moved;
   try {
     // The checks `movePath` makes before it would queue: the gateway's paths arrive unchecked here.

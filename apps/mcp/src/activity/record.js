@@ -149,6 +149,8 @@ function announceTreeChange(store, action, paths, details) {
       await store.reportTreeTouch({
         paths: touch.paths ?? [],
         files: touch.privacy === true && !files.includes(PRIVACY_KEY) ? [...files, PRIVACY_KEY] : files,
+        // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
+        ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
       });
     }
     if (!reports) return;

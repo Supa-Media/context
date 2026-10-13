@@ -71,6 +71,15 @@ async function queuedMove(
 }
 
 /**
+ * Tell the credential barrier a move landed, so pins and recents follow it
+ * once the operation answers (`lib/placesFollow.ts`). A non-enumerable seam,
+ * as `queueMove` is; a store without it (a test, the gateway) hears nothing.
+ */
+function tellMoved(store: FileStore, from: string, to: string): void {
+  (store as { onPathMoved?: (move: { from: string; to: string }) => void }).onPathMoved?.({ from, to });
+}
+
+/**
  * Move or rename. A rename is a move whose parent does not change, so there is
  * one implementation rather than two that can disagree.
  *
@@ -280,6 +289,7 @@ export async function movePath(
           survivors: [],
         });
         await recordForwarding(store, [{ from, to, kind: "note" as const }], { now: options.now });
+        tellMoved(store, from, to);
         let finalEtag = moved.etag;
         const references = await rewriteReferences(store, {
           clearance: options.clearance,
@@ -479,6 +489,7 @@ export async function movePath(
       : pairs.map((pair) => ({ from: pair.source, to: pair.destination, kind: "note" as const })),
     { now: options.now },
   );
+  tellMoved(store, from, to);
 
   const references = await rewriteReferences(store, {
     clearance: options.clearance,

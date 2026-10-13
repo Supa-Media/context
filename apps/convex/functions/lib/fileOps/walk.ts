@@ -36,6 +36,17 @@ export function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 }
 
 /**
+ * The listing a walk of the tree's names reads: the Convex tree's rows where
+ * the credential barrier attached them (`lib/nodes/treeNames.ts`), else the
+ * bucket. Only `keysUnder` and the link rewrite's note inventory ask it; every
+ * read and write still goes to the store itself.
+ */
+export function namesListing(store: FileStore): Pick<FileStore, "list"> {
+  const tree = (store as { treeListing?: Pick<FileStore, "list"> }).treeListing;
+  return tree ?? store;
+}
+
+/**
  * Every key under a folder *this caller can see*, capped. Move, copy and
  * delete all walk it.
  *
@@ -80,8 +91,9 @@ export async function keysUnder(
   let stop: WalkStop = "budget";
   let cursor: string | undefined;
   const seen = new Set<string>();
+  const names = namesListing(store);
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix, cursor, limit: 1000 });
+    const listing = await names.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
       if (!canSee(object.key, clearance.scope, rules, overrides, clearance.names)) {
@@ -310,8 +322,10 @@ export async function historyKeysFor(
 /** Does this path name a folder (something has keys under it)? */
 export async function isFolder(store: FileStore, path: string): Promise<boolean> {
   let cursor: string | undefined;
+  // The same names `keysUnder` will walk, so "is it a folder" and "what is in it" agree.
+  const names = namesListing(store);
   for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
-    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    const listing = await names.list({ prefix: `${path}/`, cursor, limit: 1_000 });
     if ((listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0) {
       return true;
     }

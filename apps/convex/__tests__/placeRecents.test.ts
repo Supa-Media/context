@@ -5,7 +5,7 @@
  * that I've personally recently opened/edited". It listed whatever anybody in
  * the workspace changed last. These rows live beside pins and opens
  * (`places.test.ts`) and keep the same rules: the caller's own rows only,
- * only in workspaces they are in, they follow the mover's moves, and they
+ * only in workspaces they are in, they follow moves where their person may see, and they
  * leave with the person, the account and the workspace.
  *
  * ## Sabotage record
@@ -27,7 +27,7 @@ import { addMember, asUser, createUser, createWorkspace, setupTest, type TestCon
 
 const recordRecent = api.functions.places.recordRecent;
 const recentNotes = api.functions.places.recentNotes;
-const retarget = internal.functions.places.retargetPlaces;
+const followMoves = internal.functions.places.followMoves;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -106,12 +106,17 @@ describe("recent notes", () => {
     expect(rows[0]!.path).toBe(`n${RECENT_ROWS_PER_WORKSPACE}.md`);
   });
 
-  test("a note's recent row follows the mover's move, and only the mover's", async () => {
+  test("a note's recent row follows a move for whoever may see where it went", async () => {
     const { t, seyi, jon, ws } = await world();
     await asUser(t, seyi).mutation(recordRecent, { workspaceId: ws, path: "Clients/acme.md" });
     await asUser(t, seyi).mutation(recordRecent, { workspaceId: ws, path: "Clients-old/x.md" });
     await asUser(t, jon).mutation(recordRecent, { workspaceId: ws, path: "Clients/acme.md" });
-    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "Clients", to: "Work/Clients" });
+    // Work/ is private: Seyi, the owner, sees it; Jon, a member, does not.
+    await t.mutation(followMoves, {
+      workspaceId: ws,
+      moves: [{ from: "Clients", to: "Work/Clients" }],
+      rules: { invalid: false, folders: [{ prefix: "Clients", visibility: "team" }], notes: [] },
+    });
     expect((await asUser(t, seyi).query(recentNotes, { workspaceId: ws })).map((r) => r.path).sort()).toEqual([
       "Clients-old/x.md",
       "Work/Clients/acme.md",

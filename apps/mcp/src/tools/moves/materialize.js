@@ -38,6 +38,7 @@ import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
 import { referenceCandidates, rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
+import { servedListingStore } from "../../tree/served.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
 import { readForwarding } from "../../forwarding.js";
@@ -676,7 +677,7 @@ export async function toolProfileMoveReferences(store, idArg) {
     Array.isArray(job.reference_inventory_keys);
   const keys = checkpointed
     ? job.reference_inventory_keys.map((key) => ({ key }))
-    : await measure("note inventory", () => listAllNoteKeys(store));
+    : await measure("note inventory", () => listAllNoteKeys(servedListingStore(store)));
   if (!keys) return toolText(rows.join("\n"));
   if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
