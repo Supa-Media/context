@@ -34,7 +34,7 @@ describe("isNodesOperation", () => {
   });
 
   test("leaves every other operation to the barrier's own routes", () => {
-    for (const kind of ["sweepTree", "touchTree", "treeState", "treeChanges", "list", "write", "manifest"]) {
+    for (const kind of ["sweepTree", "touchTree", "treeState", "list", "write", "manifest"]) {
       expect(isNodesOperation({ kind })).toBe(false);
     }
   });

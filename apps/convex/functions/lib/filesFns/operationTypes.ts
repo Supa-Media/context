@@ -123,8 +123,6 @@ export type FileOperation =
   | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
-  /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
-  | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
   /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
   | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
   /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */

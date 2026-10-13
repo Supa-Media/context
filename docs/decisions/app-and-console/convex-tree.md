@@ -120,7 +120,8 @@ The rest of phase 2 (2026-10-13):
   (the browser tab's walk, which draws Home, pins, recents and the quick
   switcher, and the desktop and phone apps' sync) pages the Convex rows with
   the Convex rules wherever `treeServes` holds (`servedNodesStore`,
-  `lib/nodes/manifestStore.ts`), before the D1 table or the bucket is asked.
+  `lib/nodes/manifestStore.ts`); anywhere else the bucket is walked, never
+  the D1 table (phase 7).
   The unchanged `syncManifest` still decides who sees what. A tab the tree
   serves walks again on a tree hint, at most every ten seconds, because that
   walk is now a few queries and the folders on screen are already live.
@@ -312,10 +313,10 @@ writes nothing. Four rules hold it:
 `nodesFeed.head` is a live query each device subscribes to
 (`useNodeFeed.ts`). It moves when a change this reader may hear of lands, or
 the rules change, and the device then catches up through `syncTreeChanges`,
-which asks `nodesFeed.changes` before the D1 table's log. A context the feed
+which asks `nodesFeed.changes`; where the feed does not reach, the device
+walks whole (the D1 table's log is gone, phase 7). A context the feed
 reaches gets no five-minute pass; one it does not reach keeps it. A copy fed
-this way is walked whole once a day as a backstop, where the D1 log's copies
-are walked hourly. Rows are kept 30 days and leave with the workspace
+this way is walked whole once a day as a backstop. Rows are kept 30 days and leave with the workspace
 (`nodesPurge.ts`). The outbox still addresses paths; addressing nodes waits
 on phase 4's moves.
 
@@ -336,6 +337,18 @@ private note is never named to a member; rules changes and old cursors walk;
 strangers are refused), the log cases in `observe.test.ts`, and
 `apps/mobile/__tests__/nodeFeedSync.test.ts` (a moving head is a pass, and
 no timed pass while fed).
+
+**Phase 7, part 1, as built (2026-10-13): nothing reads the D1 log or walks
+the D1 table.** A device's catch-up asks the Convex feed, and where that does
+not reach it walks whole; the `treeChanges` file operation, its D1 reader and
+`tree_log` itself are gone (the gateway drops the table on its next touch).
+A whole-tree walk the Convex tree does not serve lists the bucket. The D1
+`tree` table stays for now, written by the gateway and swept, because the
+front matter, links and chaos details behind Lists, Boards and the map still
+take their notes from it; those move onto the Convex rows next, and the
+table, `keepTreeTable` and the sweeps go with them. What fails if reversed:
+`treeTableOps.test.ts` (a swept table is not walked; the bucket is) and
+`treeRecord.test.mjs`.
 
 **The rest of the app's readers, as built (2026-10-13).** Everything in the
 app that asks only *which notes exist and where* reads the rows where

@@ -307,8 +307,6 @@ export const operationValidator = v.union(
     audiences: v.array(v.string()),
     left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   }),
-  /** What changed since a device's last sync (`treeChanges.ts`). */
-  v.object({ kind: v.literal("treeChanges"), since: v.number(), after: v.optional(v.string()), privacy: v.optional(v.string()) }),
   /** A folder List's notes from the tree's properties table (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
   /** The chaos score for this reader (`chaosOps.ts`). */
