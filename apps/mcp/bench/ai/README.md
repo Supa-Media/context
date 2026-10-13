@@ -19,9 +19,10 @@ this folder: it is public, like the rest of the repository.
   that should come back (`expect:`), scored with no judge (`pnpm ai search`).
 - `tests/tasks.md`: the golden tasks (decided 2026-10-11), jobs the texting
   assistant must always get right: connect ChatGPT or Claude to Context, sign
-  in to a site, save a login, find something on a site. Run it with
+  in to a site, save a login, find something on a site, set up a website,
+  buy or connect its domain. Run it with
   `--test tasks`. Every task is a gate, and its `must call`, `must reach`,
-  `must hand off`, `must type`, `must choose` and `must set` lines are checked
+  `must hand off`, `must type`, `must choose`, `must set`, `must publish` and `must connect` lines are checked
   from the run's record (`bench/checks.mjs`), not by the judge.
 - `sites/`: the scripted web a test with `web: scripted` runs on, one file per
   site (`bench/sites.mjs` says the format). Invented sites use `.example`.

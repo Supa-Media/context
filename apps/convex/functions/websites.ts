@@ -354,7 +354,7 @@ export const siteShotTarget = internalMutation({
   handler: siteShotTargetHandler,
 });
 
-/** `/gateway/site`: status, check, publish, screenshot and history for an owner's or editor's agent. INTERNAL. */
+/** `/gateway/site`: status, check, publish, screenshot, history and domain for an owner's or editor's agent. INTERNAL. */
 export const gatewaySite = internalAction({
   args: {
     hashedAccessToken: v.string(),
@@ -363,6 +363,7 @@ export const gatewaySite = internalAction({
     draft: v.optional(v.string()),
     path: v.optional(v.string()),
     revision: v.optional(v.number()),
+    hostname: v.optional(v.string()),
   },
   returns: gatewaySiteValidator,
   handler: gatewaySiteHandler,

@@ -104,6 +104,18 @@ describe("/gateway/site", () => {
     expect(after!.publishedRevision).toBe(before!.publishedRevision);
   });
 
+  test("status names the app's Website settings and each page, for a person to open and write", async () => {
+    const f = await siteFixture();
+    f.backend.seed("website/our story.md", "---\ntitle: Our story\n---\n\nWords\n");
+    const status = await site(f, EDITOR, { action: "status" });
+    expect(status!.settingsUrl).toBe("https://context.lc/console/@atlas?settings=website");
+    const editUrls = Object.fromEntries(
+      (status!.pages as Array<{ path: string; editUrl: string | null }>).map((page) => [page.path, page.editUrl]),
+    );
+    expect(editUrls["website/about.md"]).toBe("https://context.lc/note/@atlas/website/about.md");
+    expect(editUrls["website/our story.md"]).toBe("https://context.lc/note/@atlas/website/our%20story.md");
+  });
+
   test("publish releases the draft it was checked against, and a stale draft is a conflict", async () => {
     const f = await siteFixture();
     f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
