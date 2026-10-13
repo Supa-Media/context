@@ -407,6 +407,11 @@ export type ToHost =
    */
   | { v: number; type: "open-url"; url: string }
   /**
+   * A `#tag` drawn in the note was tapped, to show the notes carrying it. The
+   * host checks it is a tag before acting; see the `open-tag` case.
+   */
+  | { v: number; type: "open-tag"; tag: string }
+  /**
    * The link key was pressed over these words, and the selection is saved in
    * the guest until an `applyLink` or `cancelLink` command answers. Sent only
    * when the host asked for it (`insertLink.ask`), so a host with no sheet is
@@ -625,6 +630,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "failed",
   "open-link",
   "open-url",
+  "open-tag",
   "link-request",
   "form-submit",
   "form-responses",

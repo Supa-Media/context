@@ -541,6 +541,8 @@ export function BrowseDocument({
           rather than as a control that does nothing.
         */
         onOpenLink={nav?.follow}
+        // A drawn `#tag` shows the notes carrying it; see `ConsoleNav.openTag`.
+        onOpenTag={nav?.openTag}
         // The file tree's own listings, unioned with the search index's
         // docmap — see `linkPaths` on `FileBrowser` and "L1" in
         // `docs/decisions/app-and-console.md`. `knownNotePaths(files.listings)`

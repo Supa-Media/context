@@ -322,6 +322,8 @@ export function decorationsFor(state: EditorState): DecorationSet {
       if (insidePreview(node.from)) return;
       // Words in brackets are not a link — see `isBracketedText`.
       if (isBracketedText(node.node, state.doc)) return;
+      // A #tag being typed or edited is drawn as the text it is, like any mark the caret is in.
+      if (node.name === "Tag" && selectionTouches(node, selection)) return;
       // A wiki link is painted brackets and all — see `wikiLinkExtent`.
       const { from, to } = wikiLinkExtent(node, state.doc);
       styles.push(Decoration.mark({ class: className }).range(from, to));

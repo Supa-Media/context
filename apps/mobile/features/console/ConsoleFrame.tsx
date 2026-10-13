@@ -34,6 +34,7 @@ import { atName } from "./format";
 import { NavBandProvider } from "./NavBand";
 import { VoiceHostProvider } from "../voice/VoiceHost";
 import { hrefFor, sameRoute, type ConsoleRoute, type settingsFromQuery } from "./nav";
+import { useNavWithTags } from "./useNavWithTags";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
@@ -280,7 +281,8 @@ export function ConsoleFrame({
    */
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
-  const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const { nav: layoutNav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const nav = useNavWithTags(layoutNav, data, phone, router);
 
   /*
     A visitor's one workspace is named by its display name: the homepage's is

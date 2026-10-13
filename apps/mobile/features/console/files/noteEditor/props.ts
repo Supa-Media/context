@@ -132,6 +132,12 @@ export interface NoteEditorProps {
    * from a tap that was not at risk from a click.
    */
   onOpenLink?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
+  /**
+   * A `#tag` written in the note was clicked or tapped: show the notes that
+   * carry it. Absent where there is nowhere to show them, and tags are then
+   * drawn but take the caret like any other text.
+   */
+  onOpenTag?: (tag: string) => void;
   /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
   /**

@@ -11,6 +11,7 @@ import {
 import { indexByName, linkAnchor, parseLinks, resolveLink, styleOf } from "@context/shared/src/links";
 
 import { webUrl } from "./webUrl";
+import { tagUnder } from "./tagUnder";
 
 export { webUrl } from "./webUrl";
 export {
@@ -147,6 +148,12 @@ export interface NoteLinkContext {
    * and such a link then takes the caret like any other text.
    */
   onOpenUrl?: (url: string) => void;
+  /**
+   * A `#tag` written in the note was clicked or tapped (`tagGrammar.ts`), to
+   * show the notes carrying it. Absent means this surface has nowhere to show
+   * them, and the tag takes the caret like any other text.
+   */
+  onOpenTag?: (tag: string) => void;
 }
 
 /**
@@ -423,11 +430,11 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   const targetUnder = (
     view: EditorView,
     under: EventTarget | null,
-  ): { from: number; to: number; path?: string; anchor?: string; url?: string } | null => {
+  ): { from: number; to: number; path?: string; anchor?: string; url?: string; tag?: string } | null => {
     // Only the link's words are the link (`onLinkText`), and the words say
     // which link they are; see `linkTextPos` for why not the coordinates.
     const pos = linkTextPos(view, under);
-    if (pos === null) return null;
+    if (pos === null) return ref.current.onOpenTag === undefined ? null : tagUnder(view, under);
     const note = noteLinkAt(spansOf(view), pos);
     if (note !== null) return note;
     if (ref.current.onOpenUrl === undefined) return null;
@@ -435,9 +442,10 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   };
 
   /** Follow what `targetUnder` found. */
-  const follow = (target: { path?: string; anchor?: string; url?: string }, mode: NoteLinkOpen): void => {
+  const follow = (target: { path?: string; anchor?: string; url?: string; tag?: string }, mode: NoteLinkOpen): void => {
     if (target.path !== undefined) ref.current.onOpen(target.path, mode, target.anchor);
     else if (target.url !== undefined) ref.current.onOpenUrl?.(target.url);
+    else if (target.tag !== undefined) ref.current.onOpenTag?.(target.tag);
   };
 
   /*
@@ -455,7 +463,8 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     recognisers has an opinion, and it is not ambiguous, so there is nothing to
     ask about.
   */
-  let tap: { x: number; y: number; path?: string; anchor?: string; url?: string; startedAt: number } | null = null;
+  let tap: { x: number; y: number; path?: string; anchor?: string; url?: string; tag?: string; startedAt: number } | null =
+    null;
   const forget = () => {
     tap = null;
   };
@@ -516,6 +525,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         path: span.path,
         anchor: span.anchor,
         url: span.url,
+        tag: span.tag,
         startedAt: Date.now(),
       };
       // Deliberately `false`: the touch keeps behaving like a touch — the note

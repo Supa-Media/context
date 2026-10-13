@@ -68,6 +68,7 @@ export function noteDocument(view: NoteView) {
     offset,
     notePaths,
     onOpenLink,
+    onOpenTag,
     onSuggest,
     onPickSuggestion,
     voice,
@@ -395,6 +396,7 @@ export function noteDocument(view: NoteView) {
             which is what stops the editor underlining text it cannot act on.
           */
           onOpenNote={onOpenLink === undefined ? undefined : onOpenLink}
+          onOpenTag={onOpenTag}
           onSuggest={onSuggest}
           onPickSuggestion={onPickSuggestion}
           /*
