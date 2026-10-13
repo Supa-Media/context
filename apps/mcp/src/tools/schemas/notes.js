@@ -60,7 +60,7 @@ export function noteWriteToolDefinitions() {
         "To roll back, site: { action: \"history\" } lists the last 5 published versions and site: { action: \"history\", revision } returns one's files as they were published: write them back with write_note to make them the draft, then check and publish. " +
         "A site that is off says so with the link to the app's Website settings, where its owner turns it on. " +
         "site: { action: \"domain\" } shows the workspace's own domain (the DNS records to add at the person's DNS provider, which are found and which are still missing, a one-click setup link when their provider offers one, and whether it is live), and checks a domain still on its way again; " +
-        "an owner's site: { action: \"domain\", hostname: \"example.com\" } connects that domain, which they must already own (Premium only).",
+        "an owner's site: { action: \"domain\", hostname: \"example.com\" } connects that domain, which they must already own; the answer says why when this workspace cannot have one.",
       inputSchema: {
         type: "object",
         properties: {

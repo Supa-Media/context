@@ -84,6 +84,10 @@ export async function agentDomainHandler(
     }
   } else if (owner && current !== null && current.status === "pending") {
     await recheck(ctx, current.id);
+  } else if (current === null && !paying) {
+    // Said here, beside the plan, so the gateway never reads billing state
+    // (scripts/check-exit-is-ungated.mjs).
+    message = "Custom domains are part of Premium.";
   }
 
   return {

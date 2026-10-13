@@ -140,6 +140,8 @@ describe("/gateway/site domain", () => {
     await setPlan(f.t, f.workspaceId, "canceled");
     const answer = await domain(f, OWNER, "docs.acme-test.com");
     expect(answer).toMatchObject({ paying: false, domain: null, message: "Custom domains are part of Premium." });
+    // Asked without a domain, the same sentence: the gateway never words the plan itself.
+    expect((await domain(f, OWNER))?.message).toBe("Custom domains are part of Premium.");
     expect(await rows(f.t)).toEqual([]);
   });
 

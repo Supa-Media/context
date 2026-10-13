@@ -59,7 +59,7 @@ async function siteFixture() {
 
 type Site = Record<string, unknown> & {
   draft: string;
-  pages: Array<{ path: string; address: string | null; changed: boolean; problems: string[] }>;
+  pages: Array<{ path: string; address: string | null; editUrl: string | null; changed: boolean; problems: string[] }>;
 };
 
 async function site(f: Awaited<ReturnType<typeof siteFixture>>, accessToken: string, body: Record<string, unknown>) {
@@ -110,7 +110,7 @@ describe("/gateway/site", () => {
     const status = await site(f, EDITOR, { action: "status" });
     expect(status!.settingsUrl).toBe("https://context.lc/console/@atlas?settings=website");
     const editUrls = Object.fromEntries(
-      (status!.pages as Array<{ path: string; editUrl: string | null }>).map((page) => [page.path, page.editUrl]),
+      status!.pages.map((page) => [page.path, page.editUrl]),
     );
     expect(editUrls["website/about.md"]).toBe("https://context.lc/note/@atlas/website/about.md");
     expect(editUrls["website/our story.md"]).toBe("https://context.lc/note/@atlas/website/our%20story.md");

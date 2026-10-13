@@ -344,11 +344,7 @@ function describeDomain(answer) {
   }
   const domain = answer.domain;
   if (domain === null) {
-    lines.push(
-      answer.paying
-        ? "no domain is connected. The owner connects one they already own with site: { action: \"domain\", hostname }."
-        : "no domain is connected, and custom domains are part of Premium.",
-    );
+    lines.push("no domain is connected. The owner connects one they already own with site: { action: \"domain\", hostname }.");
   } else {
     lines.push(`domain: ${domain.hostname} · ${domain.status === "active" ? "live" : STAGES[domain.stage] ?? domain.stage}`);
     if (domain.problem && PROBLEMS[domain.problem]) lines.push(`problem: ${PROBLEMS[domain.problem](domain)}`);
