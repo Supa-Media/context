@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useConvex } from "convex/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useConvex, useQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { parentPath } from "../files/paths";
+import { EMPTY_QUERY_SPEC } from "../querySpec";
 import type { HomeOpened, HomePin, HomeRecent } from "./homeModel";
 
 const NO_PINS: readonly HomePin[] = [];
@@ -16,7 +17,7 @@ export interface HomePlaces {
   opened: readonly HomeOpened[];
   /** The notes this person opened or edited last, newest first. */
   recents: readonly HomeRecent[];
-  /** Ask the server again: Home calls it each time it is shown. */
+  /** Nothing to do now the places are subscribed; Home still calls it each time it is shown. */
   refresh: () => void;
   /** `null` where there is no account to pin to: a visitor, or no workspace. */
   togglePin: ((path: string, kind: "note" | "folder") => void) | null;
@@ -34,74 +35,73 @@ export interface HomePlaces {
  * same Home. `enabled` is false for a visitor on the homepage and for a
  * workspace the console has no role in; nothing is asked for then.
  *
- * Read once each time Home is shown rather than held open as a
- * subscription: nothing but this person changes them, and this hook is where
- * they change them, so it updates its own copy at once and reads the
- * server's back after.
+ * Held open as subscriptions (phase 2 of the tree's move into Convex): a pin
+ * made on the phone, or a recent opened in another tab, reaches every Home
+ * that is showing at once. A pin or unpin made here is drawn at once too, and
+ * that local answer stands until the server's next answer arrives.
  */
 export function useHomePlaces(workspaceId: string | null | undefined, enabled: boolean): HomePlaces {
   const convex = useConvex();
   const ws = enabled && workspaceId != null ? (workspaceId as Id<"workspaces">) : null;
-  const [pins, setPins] = useState<readonly HomePin[]>(NO_PINS);
-  const [opened, setOpened] = useState<readonly HomeOpened[]>(NO_OPENS);
-  const [recents, setRecents] = useState<readonly HomeRecent[]>(NO_RECENTS);
-  const generation = useRef(0);
-
-  const load = useCallback(async () => {
-    const mine = ++generation.current;
-    if (ws === null) {
-      setPins(NO_PINS);
-      setOpened(NO_OPENS);
-      setRecents(NO_RECENTS);
-      return;
-    }
-    try {
-      const [nextPins, nextOpened, nextRecents] = await Promise.all([
-        convex.query(api.functions.places.listPins, { workspaceId: ws }),
-        convex.query(api.functions.places.mostOpened, { workspaceId: ws }),
-        convex.query(api.functions.places.recentNotes, { workspaceId: ws }),
-      ]);
-      // A newer read, or another workspace, has started since: this answer is stale.
-      if (mine !== generation.current) return;
-      setPins(nextPins ?? NO_PINS);
-      setOpened(nextOpened ?? NO_OPENS);
-      setRecents(nextRecents ?? NO_RECENTS);
-    } catch {
-      // Home without pins is still Home; the next visit asks again.
-    }
-  }, [convex, ws]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const spec = useMemo(
+    () =>
+      ws === null
+        ? EMPTY_QUERY_SPEC
+        : {
+            pins: { query: api.functions.places.listPins, args: { workspaceId: ws } },
+            opened: { query: api.functions.places.mostOpened, args: { workspaceId: ws } },
+            recents: { query: api.functions.places.recentNotes, args: { workspaceId: ws } },
+          },
+    [ws],
+  );
+  const live = useQueries(spec) as Record<string, unknown>;
+  // An error (a membership just taken away) draws as nothing, as a missing answer does.
+  const answer = <T,>(value: unknown): T | undefined => (value === undefined || value instanceof Error ? undefined : (value as T));
+  const livePins = answer<readonly HomePin[]>(live.pins);
+  const liveOpened = answer<readonly HomeOpened[]>(live.opened);
+  const liveRecents = answer<readonly HomeRecent[]>(live.recents);
+  // This person's own pin changes, drawn before the server has answered them.
+  const [local, setLocal] = useState<{ ws: string | null; from: unknown; pins: readonly HomePin[] } | null>(null);
+  const serverPins = ws === null ? NO_PINS : (livePins ?? NO_PINS);
+  const pins = local !== null && local.ws === ws && local.from === livePins ? local.pins : serverPins;
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
 
   const setPin = useCallback(
     (path: string, kind: "note" | "folder", on: boolean) => {
       if (ws === null) return;
-      setPins((current) => {
-        const without = current.filter((row) => row.path !== path);
-        return on ? [...without, { path, kind }] : without;
-      });
+      const without = pinsRef.current.filter((row) => row.path !== path);
+      const next = on ? [...without, { path, kind }] : without;
+      pinsRef.current = next;
+      setLocal({ ws, from: livePins, pins: next });
       void (async () => {
         try {
           if (on) await convex.mutation(api.functions.places.pin, { workspaceId: ws, path, kind });
           else await convex.mutation(api.functions.places.unpin, { workspaceId: ws, path });
         } catch {
-          // Refused (the ceiling, a lost membership): the read below puts Home back.
+          // Refused (the ceiling, a lost membership): the server's answer puts Home back.
+          setLocal(null);
         }
-        await load();
       })();
     },
-    [convex, ws, load],
+    [convex, ws, livePins],
   );
   const togglePin = useCallback(
-    (path: string, kind: "note" | "folder") => setPin(path, kind, !pins.some((row) => row.path === path)),
-    [setPin, pins],
+    (path: string, kind: "note" | "folder") => setPin(path, kind, !pinsRef.current.some((row) => row.path === path)),
+    [setPin],
   );
 
-  const refresh = useCallback(() => void load(), [load]);
+  // Subscribed, so there is nothing to ask again; kept so Home's call stays harmless.
+  const refresh = useCallback(() => {}, []);
 
-  return { pins, opened, recents, refresh, togglePin: ws === null ? null : togglePin, setPin: ws === null ? null : setPin };
+  return {
+    pins,
+    opened: ws === null ? NO_OPENS : (liveOpened ?? NO_OPENS),
+    recents: ws === null ? NO_RECENTS : (liveRecents ?? NO_RECENTS),
+    refresh,
+    togglePin: ws === null ? null : togglePin,
+    setPin: ws === null ? null : setPin,
+  };
 }
 
 /**

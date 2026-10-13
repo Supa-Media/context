@@ -112,9 +112,26 @@ anywhere redraws every open tab that shows the folder. Four rules hold it:
   the chain, and a file observed in it brings it back
   (`retireEmptyFolders`, `reviveChain` in `observe.ts`).
 
-Still to come in phase 2: Home, pins, recents and the open note's identity.
-The device copy and the tree hint stay for offline, and a tab the tree
-serves no longer walks the bucket on a hint.
+The rest of phase 2 (2026-10-13):
+
+- **The whole-tree walk reads the same rows.** A `source: "tree"` manifest
+  (the browser tab's walk, which draws Home, pins, recents and the quick
+  switcher, and the desktop and phone apps' sync) pages the Convex rows with
+  the Convex rules wherever `treeServes` holds (`servedNodesStore`,
+  `lib/nodes/manifestStore.ts`), before the D1 table or the bucket is asked.
+  The unchanged `syncManifest` still decides who sees what. A tab the tree
+  serves walks again on a tree hint, at most every ten seconds, because that
+  walk is now a few queries and the folders on screen are already live.
+- **Pins, You open most and Recent are subscriptions** (`useHomePlaces`), so
+  a pin made on the phone reaches an open Home on the desktop at once.
+- **The open note follows a move made anywhere.** When the note leaves its
+  folder's live listing, it is read again at its old name; the read follows
+  the forwarding ledger, and the editor goes on to the new name with what it
+  holds, as for a rename made in the same tab (`useFollowMoves.ts`). A note
+  that was deleted, or moved out of reach, says so and stays on screen.
+
+Pins and recents still name paths, so a move made by somebody else drops
+them from Home until phase 4 gives a moved note one identity.
 
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
@@ -151,7 +168,10 @@ What fails if reversed:
 - `apps/convex/__tests__/nodes/nodesListing.test.ts`: the live listing
   refuses strangers, answers `null` unless proved, and shows each clearance
   what the bucket's listing shows; `inlineTouch.test.ts`: a console change
-  updates the tree before it answers.
+  updates the tree before it answers; `manifestStore.test.ts`: a walk of the
+  rows hands every clearance what a walk of the bucket hands it.
+- `apps/mobile/__tests__/followMoves.test.ts`: the open note follows a move
+  made elsewhere, and never this tab's own.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.

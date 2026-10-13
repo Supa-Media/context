@@ -21,8 +21,7 @@ import { query } from "../_generated/server";
 import { clearanceOf } from "./lib/clearance";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { listingValidator } from "./lib/filesFns/validators";
-import { listFolderFromNodes, treeServes } from "./lib/nodes/listing";
-import { migrationPaused } from "./lib/nodes/pause";
+import { listFolderFromNodes, treeServesNow } from "./lib/nodes/listing";
 
 /** One folder's contents at the caller's clearance, or `null` when the bucket must answer. */
 export const listFolder = query({
@@ -31,11 +30,7 @@ export const listFolder = query({
   handler: async (ctx, { workspaceId, path }) => {
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
-    const tree = await ctx.db
-      .query("nodeTrees")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique();
-    if (!treeServes(tree, await migrationPaused(ctx.db))) return null;
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const listing = await listFolderFromNodes(ctx, workspaceId, path, clearanceOf(scope, grantedNames));
     return { kind: "listing" as const, ...listing };
   },

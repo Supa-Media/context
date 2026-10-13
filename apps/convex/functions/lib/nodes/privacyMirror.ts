@@ -81,6 +81,25 @@ export function renderMirror(mirror: PrivacyMirror): string | null {
 }
 
 /**
+ * The mirror as the object a bucket `get("privacy.md")` returns, or `null`
+ * where the mirror holds no file. Every store that answers listings from the
+ * tree answers `privacy.md` with this, so none of them falls through to the
+ * bucket's file and checks the tree against itself.
+ */
+export function mirrorFile(
+  mirror: PrivacyMirror | null,
+): { etag: string; text: () => Promise<string>; arrayBuffer: () => Promise<ArrayBuffer> } | null {
+  const text = mirror === null ? null : renderMirror(mirror);
+  if (mirror === null || mirror.etag === undefined || text === null) return null;
+  const bytes = new TextEncoder().encode(text);
+  return {
+    etag: mirror.etag,
+    text: async () => text,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+  };
+}
+
+/**
  * Whether two mirrors hold the same rules: the same folder defaults and the
  * same exceptions, whatever order they were read in, and the same validity.
  *

@@ -73,6 +73,12 @@ export const SERVER_TREE_FLOOR_MS = 15_000;
  * bucket: a query or two, so the tree can follow every change.
  */
 export const TABLE_TREE_FLOOR_MS = 1_000;
+/**
+ * The same, when the Convex tree answered (`nodes`): the folders on screen are
+ * live already, so the walk only keeps Home and the switcher current, and a
+ * walk per hint of a busy workspace would read its whole tree every second.
+ */
+export const NODES_TREE_FLOOR_MS = 10_000;
 /** Fifty notes, up to four megabytes. */
 export const READ_TIMEOUT_MS = 60_000;
 
@@ -81,7 +87,7 @@ export interface MirrorActions {
     workspaceId: string;
     cursor?: string;
     source?: "tree";
-  }) => Promise<ManifestPage & { source?: "tree" | "bucket" }>;
+  }) => Promise<ManifestPage & { source?: "tree" | "bucket" | "nodes" }>;
   readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
   /** What changed since a cursor; absent, every sync walks the whole tree. */
   syncTreeChanges?: (args: {
@@ -323,7 +329,7 @@ export function useMirrorSync(options: {
   */
   const refreshing = useRef(new Map<string, boolean>());
   const walkedAt = useRef(new Map<string, number>());
-  const fromTable = useRef(new Map<string, boolean>());
+  const walkedFrom = useRef(new Map<string, string | undefined>());
   const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
     const inFlight = refreshing.current;
     if (inFlight.has(workspaceId)) {
@@ -359,7 +365,7 @@ export function useMirrorSync(options: {
             }),
             MANIFEST_TIMEOUT_MS,
           );
-          fromTable.current.set(workspaceId, page.source === "tree");
+          walkedFrom.current.set(workspaceId, page.source);
           return page;
         },
       };
@@ -386,7 +392,8 @@ export function useMirrorSync(options: {
           runRefresh(workspaceId, async () => {
             // A busy workspace signals every few seconds; one walk of its
             // bucket per `SERVER_TREE_FLOOR_MS` is live enough and spares it.
-            const floor = fromTable.current.get(workspaceId) === true ? TABLE_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
+            const from = walkedFrom.current.get(workspaceId);
+            const floor = from === "tree" ? TABLE_TREE_FLOOR_MS : from === "nodes" ? NODES_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
             const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + floor - Date.now();
             if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
             walkedAt.current.set(workspaceId, Date.now());

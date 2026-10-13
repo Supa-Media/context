@@ -464,12 +464,22 @@ export function useListings(deps: ListingsDeps) {
     },
     [isCurrent, landPage, nextListingStamp, workspaceId],
   );
-  const { served } = useLiveTree({
+  // Who wants to hear that a file left a live folder: the open note, to follow a move made elsewhere.
+  const vanishListeners = useRef(new Set<(paths: string[]) => void>());
+  const onVanished = useCallback((paths: string[]) => {
+    for (const listener of vanishListeners.current) listener(paths);
+  }, []);
+  const subscribeVanished = useCallback((listener: (paths: string[]) => void) => {
+    vanishListeners.current.add(listener);
+    return () => void vanishListeners.current.delete(listener);
+  }, []);
+  useLiveTree({
     workspaceId,
     expanded,
     selectedPath,
     listings,
     commitLive,
+    onVanished,
     offline: offlineRef.current.reachability === "offline",
   });
 
@@ -497,10 +507,10 @@ export function useListings(deps: ListingsDeps) {
     seenSignal.current = { workspaceId, value: treeSignal };
     if (seen.workspaceId !== workspaceId || seen.value === undefined || seen.value === treeSignal) return;
     // Where the live tree answers, Convex has already sent every folder on
-    // screen; a walk of the bucket would only repeat it.
-    if (served) return;
+    // screen, and the walk is of the same tree (`servedNodesStore`): it keeps
+    // what the folders do not show current, Home, pins and recents.
     if (offlineRef.current.reachability !== "offline") requestMirrorRefresh(workspaceId);
-  }, [served, treeSignal, workspaceId]);
+  }, [treeSignal, workspaceId]);
 
   /**
    * The note-path index, fetched once per context — best-effort, and never
@@ -595,7 +605,7 @@ export function useListings(deps: ListingsDeps) {
   );
 
   return {
-    refresh, reportRefreshFailure, ensureListing, contextId, toggleFolder, collapseAll, search,
+    refresh, reportRefreshFailure, ensureListing, contextId, toggleFolder, collapseAll, search, subscribeVanished,
   };
 }
 

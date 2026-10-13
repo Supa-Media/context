@@ -135,6 +135,13 @@ describe("when the tree answers", () => {
     expect(await ask()).toBeNull();
   });
 
+  test("a walk is handed the tree's rules only while it serves", async () => {
+    const { t, ws } = await fixture();
+    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag: "privacy-1" } });
+    await matches(t, ws, 1);
+    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toBeNull();
+  });
+
   test("a tree with no parity yet is not served", async () => {
     const { t, ws, owner } = await fixture();
     await t.run(async (ctx) => {

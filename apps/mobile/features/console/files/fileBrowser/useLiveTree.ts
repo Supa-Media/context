@@ -51,11 +51,23 @@ interface LiveTreeDeps {
   listings: Listings;
   /** Lay one server answer over the listings, as `refresh` does (`null` with `refused` clears it). */
   commitLive: (folder: string, page: FolderListing | null, refused: boolean) => void;
+  /**
+   * Files a folder's live listing held and no longer holds: moved, renamed or
+   * deleted, by anybody. The open note uses it to follow a move made elsewhere.
+   */
+  onVanished?: (paths: string[]) => void;
   offline: boolean;
 }
 
+/** The files one answer lists, for telling which of them a later answer dropped. */
+export function vanishedFiles(before: ReadonlySet<string> | undefined, page: FolderListing): string[] {
+  if (before === undefined) return [];
+  const now = new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  return [...before].filter((path) => !now.has(path));
+}
+
 export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
-  const { workspaceId, expanded, selectedPath, listings, commitLive, offline } = deps;
+  const { workspaceId, expanded, selectedPath, listings, commitLive, onVanished, offline } = deps;
   const selectedIsFolder = selectedPath !== null && listings[selectedPath] !== undefined;
   const key = useMemo(
     () => liveFolders(expanded, selectedPath, selectedIsFolder).join("\n"),
@@ -72,16 +84,22 @@ export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
   const results = useQueries(spec) as Record<string, FolderListing | null | undefined | Error>;
 
   // What was last laid down per folder, so an unchanged answer redraws nothing.
-  const applied = useRef<{ workspaceId: string | null; pages: Map<string, string> }>({ workspaceId: null, pages: new Map() });
-  if (applied.current.workspaceId !== workspaceId) applied.current = { workspaceId, pages: new Map() };
+  const applied = useRef<{ workspaceId: string | null; pages: Map<string, string>; files: Map<string, Set<string>> }>({
+    workspaceId: null,
+    pages: new Map(),
+    files: new Map(),
+  });
+  if (applied.current.workspaceId !== workspaceId) applied.current = { workspaceId, pages: new Map(), files: new Map() };
 
   useEffect(() => {
+    const vanished: string[] = [];
     for (const [name, result] of Object.entries(results)) {
       if (!name.startsWith("f:") || result === undefined || result === null) continue;
       const folder = name.slice(2);
       if (result instanceof Error) {
         if (applied.current.pages.get(folder) === "refused") continue;
         applied.current.pages.set(folder, "refused");
+        applied.current.files.delete(folder);
         commitLive(folder, null, true);
         continue;
       }
@@ -89,9 +107,12 @@ export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
       const seen = JSON.stringify(page);
       if (applied.current.pages.get(folder) === seen) continue;
       applied.current.pages.set(folder, seen);
+      vanished.push(...vanishedFiles(applied.current.files.get(folder), page));
+      applied.current.files.set(folder, new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path)));
       commitLive(folder, page, false);
     }
-  }, [results, commitLive]);
+    if (vanished.length > 0) onVanished?.(vanished);
+  }, [results, commitLive, onVanished]);
 
   const root = results["f:"];
   return { served: root !== undefined && root !== null && !(root instanceof Error) };
