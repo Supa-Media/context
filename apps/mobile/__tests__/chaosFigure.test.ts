@@ -10,6 +10,7 @@ import {
   scribble,
   SMALL_FIGURE,
 } from "../features/chaos/figureGeometry";
+import { tugAt } from "../features/chaos/useTug";
 
 const numbers = (d: string): number[] =>
   (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
@@ -72,5 +73,50 @@ describe("small", () => {
     expect(
       figureParts(0, { small: true, minStroke: 20 }).strands[0]!.width,
     ).toBeCloseTo(29);
+  });
+});
+
+describe("tugging at its yarn (a crowded folder's Tex)", () => {
+  test("left out, Tex is exactly as it always was: no yarn", () => {
+    expect(figureParts(58, { small: false }).yarn).toBeNull();
+    expect(figureParts(58, { small: false, tug: undefined })).toEqual(
+      figureParts(58, { small: false }),
+    );
+  });
+  test("tugging: a strand from the tangle to the hand, a hand on its head, eyes on the strand", () => {
+    const still = figureParts(58, { small: false });
+    const tugging = figureParts(58, { small: false, tug: 1 });
+    expect(tugging.yarn).not.toBeNull();
+    // The hauling hand is where the yarn ends.
+    const arm = numbers(tugging.limbs[2]!.d);
+    const yarn = numbers(tugging.yarn!.d);
+    expect(yarn.slice(-2)).toEqual(arm.slice(-2));
+    expect(tugging.limbs[3]!.d).not.toBe(still.limbs[3]!.d);
+    expect(tugging.googly.pupils[0]!.cx).toBeGreaterThan(still.googly.pupils[0]!.cx);
+  });
+  test("the harder the pull, the further the hand and the tauter the strand", () => {
+    const slack = figureParts(58, { small: false, tug: 0 });
+    const taut = figureParts(58, { small: false, tug: 1 });
+    expect(numbers(taut.limbs[2]!.d).at(-2)!).toBeGreaterThan(numbers(slack.limbs[2]!.d).at(-2)!);
+    expect(taut.strands[0]!.d).not.toBe(slack.strands[0]!.d);
+  });
+  test("a calm-looking Tex still has its arms while it tugs", () => {
+    expect(figureParts(31, { small: false }).limbOpacity).toBeLessThan(0.5);
+    expect(figureParts(31, { small: false, tug: 0.5 }).limbOpacity).toBeGreaterThanOrEqual(0.85);
+  });
+});
+
+describe("the tug's rhythm", () => {
+  test("two hauls, then a rest, and again", () => {
+    expect(tugAt(0)).toBeCloseTo(0.35);
+    expect(tugAt(650)).toBeCloseTo(1);
+    expect(tugAt(1950)).toBeCloseTo(1);
+    expect(tugAt(3000)).toBeCloseTo(0.35);
+    expect(tugAt(6000)).toBeCloseTo(0.35);
+    expect(tugAt(6800 + 650)).toBeCloseTo(1);
+    for (let ms = 0; ms < 7000; ms += 97) {
+      expect(tugAt(ms)).toBeGreaterThanOrEqual(0.35 - 1e-9);
+      expect(tugAt(ms)).toBeLessThanOrEqual(1);
+    }
   });
 });

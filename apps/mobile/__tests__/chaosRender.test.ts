@@ -6,8 +6,8 @@
  * THE CHAOS SCORE, ON THE GLASS.
  *
  * `chaosModel.test.ts` proves the words; this proves the surfaces draw them
- * and that each press lands: the tree's foot line and the panel it opens, a
- * folder page's chip, the phone Home's line, and the figure's eyes. And the
+ * and that each press lands: Tex at the tree's foot and the panel it opens, a
+ * folder page's Tex and what it says, the phone Home's line, and the figure's eyes. And the
  * claim that matters for every workspace not scored yet: `available: false`
  * draws nothing at all, and neither does a console with no score.
  */
@@ -28,7 +28,7 @@ import { Tex } from "../features/chaos/Tex";
 import { texColors } from "../features/design/tokens/landingColors";
 import { ChaosHomeLine } from "../features/chaos/ChaosHomeLine";
 import { ChaosSheet } from "../features/chaos/ChaosPopover";
-import { FolderChaosChip } from "../features/chaos/FolderChaosChip";
+import { FolderTex } from "../features/chaos/FolderTex";
 import type { ChaosScore } from "../features/chaos/chaosModel";
 import type { ChaosSource } from "../features/chaos/useChaosScore";
 
@@ -173,20 +173,20 @@ describe("the tree's foot line", () => {
     expect(byId("explorer-counts")).not.toBeNull();
   });
 
-  test("one line: the figure, the score, its word and the way it went", async () => {
+  test("Tex alone, no words: the score, its word and the way it went are its label", async () => {
     await mount(explorer(), source(SCORED));
     const line = byId("explorer-chaos");
-    expect(line?.textContent).toContain("Chaos 34");
-    expect(line?.textContent).toContain("crowded ↓");
+    expect(strip(line?.textContent)).toBe("");
+    expect(line?.getAttribute("aria-label")).toContain("Chaos 34 of 100, crowded");
     expect(line?.getAttribute("aria-label")).toContain(
       "down 7 from a week ago",
     );
     expect(line?.querySelector("svg")).not.toBeNull();
   });
 
-  test("no arrow without a week ago", async () => {
+  test("no trend without a week ago", async () => {
     await mount(explorer(), source({ ...SCORED, weekAgo: null }));
-    expect(byId("explorer-chaos")?.textContent).not.toContain("↓");
+    expect(byId("explorer-chaos")?.getAttribute("aria-label")).not.toContain("week ago");
   });
 
   test("pressing it opens the panel over the tree, and pressing again closes it", async () => {
@@ -253,49 +253,76 @@ describe("the panel", () => {
   });
 });
 
-describe("a folder page's chip", () => {
-  const chip = (folder = "0-inbox") =>
-    createElement(FolderChaosChip, { folder });
+describe("a folder page's Tex", () => {
+  const tex = (folder = "0-inbox") => createElement(FolderTex, { folder });
 
-  test("asks about its own folder, and shows the count and word past fine", async () => {
+  test("asks about its own folder, then Tex and its words: how many things, and what calm is", async () => {
     const asked: string[] = [];
     await mount(
-      chip(),
+      tex(),
       source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }, asked),
     );
     expect(asked).toEqual(["0-inbox"]);
-    expect(byId("folder-chaos-chip")?.textContent).toBe("12 items · crowded");
+    expect(byId("folder-tex-figure")?.querySelector("svg")).not.toBeNull();
+    expect(byId("folder-tex-line")?.textContent).toBe("12 things in here · calm is 4 or 5");
   });
 
-  test("thin shows as thin", async () => {
+  test("a stressed Tex: it has hold of its yarn", async () => {
     await mount(
-      chip(),
-      source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }),
-    );
-    expect(byId("folder-chaos-chip")?.textContent).toBe("2 items · thin");
-  });
-
-  test("a calm or fine folder, an unscored workspace, or no score: no chip", async () => {
-    await mount(
-      chip(),
-      source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }),
-    );
-    expect(byId("folder-chaos-chip")).toBeNull();
-    await mount(
-      chip(),
-      source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }),
-    );
-    expect(byId("folder-chaos-chip")).toBeNull();
-    await mount(chip());
-    expect(byId("folder-chaos-chip")).toBeNull();
-  });
-
-  test("pressing it opens the panel as a sheet", async () => {
-    await mount(
-      chip(),
+      tex(),
       source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
     );
-    await press(byId("folder-chaos-chip"));
+    // The yarn is a path drawn only in the tugging pose.
+    const paths = byId("folder-tex-figure")?.querySelectorAll("path").length ?? 0;
+    const container = await mount(createElement(Tex, { chaos: 33, size: 40 }));
+    expect(paths).toBe(container.querySelectorAll("path").length + 1);
+  });
+
+  test("thin says so", async () => {
+    await mount(
+      tex(),
+      source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }),
+    );
+    expect(byId("folder-tex-line")?.textContent).toBe("Only 2 things in here · calm is 4 or 5");
+  });
+
+  test("a calm or fine folder, an unscored workspace, or no score: no Tex", async () => {
+    await mount(
+      tex(),
+      source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }),
+    );
+    expect(byId("folder-tex")).toBeNull();
+    await mount(
+      tex(),
+      source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }),
+    );
+    expect(byId("folder-tex")).toBeNull();
+    await mount(tex());
+    expect(byId("folder-tex")).toBeNull();
+  });
+
+  test("pressing Tex: it says how this folder could be calmer, and moves nothing", async () => {
+    await mount(
+      tex(),
+      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
+    );
+    expect(byId("folder-tex-talk")).toBeNull();
+    await press(byId("folder-tex-figure"));
+    const talk = strip(byId("folder-tex-talk")?.textContent);
+    expect(talk).toContain("I'm holding 12 things. Folders feel calm with 4 or 5.");
+    expect(talk).toContain("two to five themes");
+    expect(talk).toContain("ask your AI to organize inbox");
+    expect(talk.toLowerCase()).not.toMatch(/you should|tidy|clean up/);
+  });
+
+  test("from there, the whole workspace's score opens the panel", async () => {
+    await mount(
+      tex(),
+      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
+    );
+    await press(byId("folder-tex-figure"));
+    await press(byId("folder-tex-whole"));
+    expect(byId("folder-tex-talk")).toBeNull();
     expect(strip(byId("chaos-panel")?.textContent)).toContain(
       "Chaos 34 of 100",
     );

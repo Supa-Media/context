@@ -73,6 +73,13 @@ const openProjects = async ({ density, settle, press }: FrameCtx) => {
   await settle();
 };
 
+/** Projects' page, once its Tex's words have rolled in. */
+const openProjectsRolled = async (ctx: FrameCtx) => {
+  await openProjects(ctx);
+  await new Promise((done) => setTimeout(done, 900));
+  await ctx.settle();
+};
+
 /** A phone opens on that note; back, and back again, is Home. */
 const openHome = async ({ settle, press }: FrameCtx) => {
   for (let step = 0; step < 4 && byId("phone-home") === null; step += 1) {
@@ -84,10 +91,9 @@ const openHome = async ({ settle, press }: FrameCtx) => {
 export const FRAMES: readonly ChaosFrame[] = [
   {
     id: "01-foot-line",
-    title: "The tree's foot: one quiet line",
+    title: "The tree's foot: Tex alone",
     sizes: ["desktop"],
     schemes: ["light", "dark"],
-    assert: ["Chaos 34", "crowded"],
   },
   {
     id: "02-panel-from-foot",
@@ -100,22 +106,24 @@ export const FRAMES: readonly ChaosFrame[] = [
     assert: ["Chaos 34 of 100", "Biggest wins", "Long notes", "How it’s scored"],
   },
   {
-    id: "03-folder-chip",
-    title: "A crowded folder's page",
+    id: "03-folder-tex",
+    title: "A crowded folder's page: Tex beside the title",
     sizes: ["desktop", "phone"],
-    prepare: openProjects,
-    assert: ["12 items · crowded"],
+    schemes: ["light", "dark"],
+    prepare: openProjectsRolled,
+    assert: ["12 things in here"],
   },
   {
-    id: "04-panel-from-chip",
-    title: "The panel from a folder's chip",
-    sizes: ["desktop"],
+    id: "04-tex-talks",
+    title: "Tex, pressed, on calming the folder",
+    sizes: ["desktop", "phone"],
+    schemes: ["light", "dark"],
     prepare: async (ctx) => {
       await openProjects(ctx);
-      ctx.press(byId("folder-chaos-chip"));
+      ctx.press(byId("folder-tex-figure"));
       await ctx.settle();
     },
-    assert: ["Chaos 34 of 100"],
+    assert: ["I'm holding 12 things"],
   },
   {
     id: "05-phone-home",

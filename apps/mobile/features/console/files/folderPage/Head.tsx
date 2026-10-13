@@ -25,7 +25,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
-import { FolderChaosChip } from "../../../chaos/FolderChaosChip";
+import { FolderTex } from "../../../chaos/FolderTex";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -101,7 +101,7 @@ export function FolderHead({
   folder,
 }: {
   title: string;
-  /** The folder this page is, for its chaos chip (`features/chaos`); absent draws none. */
+  /** The folder this page is, for its Tex beside the title (`features/chaos`); absent draws none. */
   folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
@@ -117,6 +117,7 @@ export function FolderHead({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
+  const besideTitle = folder !== undefined && !large;
   const heading = (
     <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
       {title}
@@ -125,7 +126,7 @@ export function FolderHead({
   return (
     <>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
-        <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
+        <View style={[styles.titleBox, (icon !== null || besideTitle) && styles.titleRow]}>
           {icon === null ? null : (
             <EmojiGlyph
               emoji={icon}
@@ -135,7 +136,7 @@ export function FolderHead({
             />
           )}
           {/* Beside an icon, the title shrinks and ellipsises rather than pushing the row. */}
-          <View style={icon === null ? undefined : styles.titleText}>
+          <View style={icon === null && !besideTitle ? undefined : styles.titleText}>
           {onOpenTitle === undefined ? (
             heading
           ) : (
@@ -151,11 +152,13 @@ export function FolderHead({
             </Pressable>
           )}
           </View>
+          {besideTitle ? <FolderTex folder={folder} /> : null}
         </View>
         {switcher}
         {actions}
       </View>
-      {folder === undefined ? null : <FolderChaosChip folder={folder} />}
+      {/* A phone's big title needs the row's width, so its Tex stands on the line under it. */}
+      {large && folder !== undefined ? <FolderTex folder={folder} ownLine /> : null}
       {children}
     </>
   );
