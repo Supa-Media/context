@@ -111,6 +111,10 @@ function hashStrokes(): [Point, Point][] {
   return strokes.map(([a, b]) => [m(a), m(b)]);
 }
 
+/** Where a tugging Tex has hold of its own yarn, and how far round it the tangle follows. */
+const GRAB: Point = [CX + 140, CY + 110];
+const GRAB_REACH = 80;
+
 /** Tex's brush: a stroke this wide at full chaos, `GROW` wider once it is the #. */
 export const TEX_WIDTH = 13;
 const GROW = 16;
@@ -129,6 +133,8 @@ export interface FigureParts {
   limbOpacity: number;
   speckles: { cx: number; cy: number; r: number; opacity: number }[];
   motion: { d: string[]; width: number; opacity: number } | null;
+  /** The strand Tex tugs at, from its body to its hand; only in the tugging pose. */
+  yarn: { d: string; width: number } | null;
   /** The googly eyes, about (CX, CY - 10) at `scale`. Tex keeps them even when calm. */
   googly: {
     x: number;
@@ -146,6 +152,12 @@ export interface FigureParts {
  *
  * `small` drops the speckles and motion marks; `minStroke` (in the board's
  * units) is the thinnest any line may be, so a 20px Tex still reads.
+ *
+ * `tug` (0 to 1) is Tex stressed, pulling at its own yarn: one hand on its
+ * head, the other hauling a strand out of the tangle, eyes on the strand, and
+ * the tangle stretched toward the hand as the pull tightens (Dev2,
+ * 2026-10-13, for a crowded folder's page). The same drawing in motion, not a
+ * variant: left out, Tex is exactly as it always was.
  */
 export function figureParts(
   chaos: number,
@@ -153,11 +165,23 @@ export function figureParts(
     small,
     minStroke = 0,
     seed = 7,
-  }: { small: boolean; minStroke?: number; seed?: number },
+    tug,
+  }: { small: boolean; minStroke?: number; seed?: number; tug?: number },
 ): FigureParts {
   const t = chaosToT(chaos);
   const k = ease(t);
   const src = scribble(seed);
+  const pull = tug === undefined ? null : Math.min(1, Math.max(0, tug));
+  const hand: Point = [CX + 225 + 70 * (pull ?? 0), CY + 30 + 20 * (pull ?? 0)];
+  // The tangle near the grabbed strand follows the hand, fading with distance.
+  const stretch = (p: Point): Point => {
+    if (pull === null || pull === 0) return p;
+    const dx = p[0] - GRAB[0];
+    const dy = p[1] - GRAB[1];
+    const w = Math.exp(-(dx * dx + dy * dy) / (2 * GRAB_REACH * GRAB_REACH));
+    const f = 0.32 * pull * w;
+    return [p[0] + (hand[0] - GRAB[0]) * f, p[1] + (hand[1] - GRAB[1]) * f];
+  };
   const n4 = N / 4;
   const r = rng(seed + 100);
   const strands = hashStrokes().map(([[x0, y0], [x1, y1]], s) => {
@@ -166,7 +190,7 @@ export function figureParts(
       const wob = 4 * Math.sin(u * 11 + s * 2);
       const tx = x0 + (x1 - x0) * u + (y0 === y1 ? 0 : wob);
       const ty = y0 + (y1 - y0) * u + (y0 === y1 ? wob : 0);
-      return [p[0] + (tx - p[0]) * k, p[1] + (ty - p[1]) * k];
+      return stretch([p[0] + (tx - p[0]) * k, p[1] + (ty - p[1]) * k]);
     });
     const w = Math.max(TEX_WIDTH + GROW * k * k * k, minStroke);
     // A dry second pass slightly offset, like a brush going over twice.
@@ -177,8 +201,9 @@ export function figureParts(
     };
   });
 
-  // Legs and a waving arm fade out as it becomes a #.
-  const limbOpacity = 1 - Math.min(1, t / 0.85);
+  // Legs and a waving arm fade out as it becomes a #; a tugging Tex keeps them.
+  const limbOpacity =
+    pull === null ? 1 - Math.min(1, t / 0.85) : Math.max(0.85, 1 - Math.min(1, t / 0.85));
   const limbWidth = Math.max(LIMB_WIDTH, minStroke);
   const limb = (
     x0: number,
@@ -191,12 +216,35 @@ export function figureParts(
     d: `M${x0} ${y0} Q${x1} ${y1} ${x2} ${y2}`,
     width: limbWidth,
   });
-  const limbs = [
-    limb(CX - 60, CY + 175, CX - 70, CY + 230, CX - 95, CY + 285),
-    limb(CX + 60, CY + 175, CX + 70, CY + 230, CX + 95, CY + 285),
-    limb(CX + 170, CY - 40, CX + 215, CY - 100, CX + 235, CY - 165),
-    limb(CX - 175, CY + 10, CX - 230, CY + 60, CX - 245, CY + 110),
-  ];
+  const limbs =
+    pull === null
+      ? [
+          limb(CX - 60, CY + 175, CX - 70, CY + 230, CX - 95, CY + 285),
+          limb(CX + 60, CY + 175, CX + 70, CY + 230, CX + 95, CY + 285),
+          limb(CX + 170, CY - 40, CX + 215, CY - 100, CX + 235, CY - 165),
+          limb(CX - 175, CY + 10, CX - 230, CY + 60, CX - 245, CY + 110),
+        ]
+      : [
+          // Feet braced apart, leaning back from the pull.
+          limb(CX - 60, CY + 175, CX - 85, CY + 230, CX - 125, CY + 280),
+          limb(CX + 60, CY + 175, CX + 60, CY + 230, CX + 70, CY + 288),
+          // One hand hauling the strand, the other clutching its head.
+          limb(CX + 165, CY - 60, (CX + 165 + hand[0]) / 2 + 10, (CY - 60 + hand[1]) / 2 - 12, hand[0], hand[1]),
+          limb(CX - 175, CY + 10, CX - 255, CY - 70, CX - 150, CY - 165),
+        ];
+  const yarn =
+    pull === null
+      ? null
+      : (() => {
+          const [gx, gy] = stretch(GRAB);
+          const sag = 40 * (1 - pull);
+          const mx = (gx + hand[0]) / 2;
+          const my = (gy + hand[1]) / 2 + sag;
+          return {
+            d: `M${gx.toFixed(1)} ${gy.toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${hand[0].toFixed(1)} ${hand[1].toFixed(1)}`,
+            width: Math.max(TEX_WIDTH * 0.8, minStroke),
+          };
+        })();
 
   // Speckles of ink around the figure, drawn from the same stream paper3 used.
   const speckles: FigureParts["speckles"] = [];
@@ -212,10 +260,20 @@ export function figureParts(
     });
   }
 
-  // Motion marks by the waving side.
+  // Motion marks by the waving side; a tugging Tex has stress marks over its head instead.
   const motionOpacity = (0.4 + 0.6 * limbOpacity) * (1 - k);
   const motion =
-    small || motionOpacity <= 0
+    pull !== null && !small
+      ? {
+          d: [
+            `M${CX - 95} ${CY - 215} l-10 -34`,
+            `M${CX - 50} ${CY - 228} l2 -36`,
+            `M${CX - 5} ${CY - 218} l14 -30`,
+          ],
+          width: 9,
+          opacity: 0.55 + 0.45 * pull,
+        }
+      : small || motionOpacity <= 0
       ? null
       : {
           d: [
@@ -238,10 +296,17 @@ export function figureParts(
       { cx: -52, cy: 0, rx: 44, ry: 48 },
       { cx: 50, cy: 4, rx: 36, ry: 40 },
     ],
-    pupils: [
-      { cx: -52 + 10 * j, cy: 10 * j, r: 17 },
-      { cx: 50 + 8 * j, cy: 4 + 10 * j, r: 14 },
-    ],
+    pupils:
+      pull === null
+        ? [
+            { cx: -52 + 10 * j, cy: 10 * j, r: 17 },
+            { cx: 50 + 8 * j, cy: 4 + 10 * j, r: 14 },
+          ]
+        : // Eyes on the strand, going wide (pupils shrinking) as it tightens.
+          [
+            { cx: -36, cy: 14 + 4 * pull, r: 17 - 4 * pull },
+            { cx: 62, cy: 18 + 4 * pull, r: 14 - 3 * pull },
+          ],
   };
 
   const box = small ? SMALL_VIEW_BOX : VIEW_BOX;
@@ -251,6 +316,7 @@ export function figureParts(
     limbOpacity,
     speckles: small ? [] : speckles,
     motion,
+    yarn,
     googly,
     viewBox: `${box.x} ${box.y} ${box.size} ${box.size}`,
   };

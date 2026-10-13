@@ -73,6 +73,14 @@ export interface NodeTable {
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
+  /**
+   * Records that the file row at `path` appeared or changed version
+   * (`gone: false`), or left (`gone: true`), in the tree's change log
+   * (`log.ts`). Called by `observe.ts` for every such change and nothing else,
+   * so a sweep that only re-sees a file writes nothing. Optional so a table
+   * with no log (a read-only view) need not pretend to have one.
+   */
+  logChange?(path: string, gone: boolean): Promise<void>;
 }
 
 /** The sweep's bookkeeping for one workspace (`nodeTrees`). */
@@ -144,6 +152,32 @@ export const NODE_SWEEP_STALE_MS = 60 * 60_000;
 export const NODE_TOUCH_PATHS = 50;
 /** List pages one folder's re-check may walk; more marks the tree dirty. */
 export const NODE_TOUCH_FOLDER_PAGES = 10;
+/** How long a save's re-check waits, so a burst of typing pauses is one re-check. */
+export const NODE_EDIT_SETTLE_MS = 3_000;
+/** A gathered flush due longer ago than this was lost; the next save schedules another. */
+export const NODE_EDIT_LOST_MS = 5 * 60_000;
+/**
+ * A tree proved equal to its bucket longer ago than this is checked again when
+ * its next sweep finishes. Parity is what lets the tree serve, so a proof that
+ * is never renewed is a guess about today from the day it was made.
+ */
+export const NODE_PARITY_STALE_MS = 24 * 60 * 60_000;
+/** A check that found differences is run once more after this, before it stops the tree serving. */
+export const NODE_PARITY_CONFIRM_MS = 30_000;
+
+/**
+ * Whether a sweep finishing at `at` should check the tree against its bucket:
+ * never checked, last check differed, or the last proof is a day old.
+ */
+export function nodeParityDue(
+  parity: { checkedAt: number; mismatches: number; privacyMatches: boolean } | undefined,
+  at: number,
+): boolean {
+  if (parity === undefined) return true;
+  if (parity.mismatches > 0 || !parity.privacyMatches) return true;
+  return at - parity.checkedAt >= NODE_PARITY_STALE_MS;
+}
+
 /** The bucket key of the privacy manifest. */
 export const NODE_PRIVACY_KEY = "privacy.md";
 

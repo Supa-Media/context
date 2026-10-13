@@ -22,31 +22,15 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { convexTest } from "convex-test";
 import { getFunctionName } from "convex/server";
 import { api, internal } from "../../_generated/api";
-import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
-import schema from "../../schema";
-import { modules } from "../../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
-import { clearanceOf } from "../../functions/lib/clearance";
-import { type FileStore, setFolderVisibility } from "../../functions/lib/fileOps";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { attachQueueMove, runMoveOperation, storeWithMoves } from "../../functions/lib/nodes/moveBarrier";
 import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
-import { runMoveWork } from "../../functions/lib/nodes/moveWork";
-import { runNodesOperation } from "../../functions/lib/nodes/run";
-import { memoryStore, type MemoryStore } from "../storeStub.helpers";
-
-type T = ReturnType<typeof convexTest>;
-type Store = MemoryStore & FileStore;
-
-const OWNER = clearanceOf("private");
-const TEAM = clearanceOf("team");
-const ADMIN = "staff@example.test";
+import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { ADMIN, OWNER, TEAM, type Call, bucketKeys, drain, fixture, listed, start } from "./moveFixture.helpers";
 
 let previousAdmins: string | undefined;
 beforeEach(() => {
@@ -58,95 +42,6 @@ afterEach(() => {
   else process.env[ADMIN_EMAILS_ENV_VAR] = previousAdmins;
 });
 
-/** An action context that runs the real functions through `convex-test`; the scheduler records only. */
-type Call = (ref: unknown, args: unknown) => Promise<unknown>;
-
-function bridge(t: T): ActionCtx {
-  return {
-    runQuery: t.query as unknown as Call,
-    runMutation: t.mutation as unknown as Call,
-    runAction: async () => null,
-    scheduler: { runAfter: async () => "job", runAt: async () => "job" },
-  } as unknown as ActionCtx;
-}
-
-async function bucket(): Promise<Store> {
-  const store = memoryStore({ conditional: true, ignoreIfMatchOnDelete: true }) as Store;
-  store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-  store.seed("index.md", "# Context\n");
-  store.seed("1-projects/launch/brief.md", "# Brief\n");
-  store.seed("1-projects/launch/plan.md", "# Plan\n\nSee [the brief](brief.md).\n");
-  store.seed("1-projects/launch/pic.png", "png");
-  store.seed("1-projects/launch/sub/deep.md", "# Deep\n");
-  store.seed("1-projects/secret/codes.md", "# Codes\n");
-  store.seed("1-projects/keep.md", "# Keep\n");
-  store.seed("3-resources/r.md", "# R\n");
-  await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: OWNER });
-  await setFolderVisibility(store, { path: "3-resources", visibility: "team", clearance: OWNER });
-  await setFolderVisibility(store, { path: "1-projects/secret", visibility: "private", clearance: OWNER });
-  return store;
-}
-
-async function fixture() {
-  const t = convexTest(schema, modules);
-  const ids = await t.run(async (ctx) => {
-    const now = Date.now();
-    const user = (email: string) => ctx.db.insert("users", { email, emailVerificationTime: now } as never);
-    const ownerId = await user("owner@example.test");
-    const memberId = await user("member@example.test");
-    const staffId = await user(ADMIN);
-    const ws = await ctx.db.insert("workspaces", {
-      slug: "acme",
-      displayName: "Acme",
-      createdBy: ownerId,
-      kind: "shared",
-      structureTemplate: "para",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("workspaceMembers", { workspaceId: ws, userId: ownerId, role: "owner", joinedAt: now });
-    await ctx.db.insert("workspaceMembers", { workspaceId: ws, userId: memberId, role: "member", joinedAt: now });
-    return { ws, ownerId, memberId, staffId };
-  });
-  const store = await bucket();
-  const ctx = bridge(t);
-  await runNodesOperation(ctx, { workspaceId: ids.ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ids.ws,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
-  });
-  return {
-    t,
-    ctx,
-    store,
-    ws: ids.ws,
-    owner: t.withIdentity({ subject: ids.ownerId }),
-    member: t.withIdentity({ subject: ids.memberId }),
-    staff: t.withIdentity({ subject: ids.staffId }),
-  };
-}
-
-type Fixture = Awaited<ReturnType<typeof fixture>>;
-
-async function listed(who: Fixture["owner"], ws: Id<"workspaces">, path: string): Promise<string[]> {
-  const listing = await who.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path });
-  expect(listing).not.toBeNull();
-  return listing!.entries.map((entry: { path: string }) => entry.path).sort();
-}
-
-const start = (f: Fixture, from: string, to: string, clearance = OWNER) =>
-  startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance, now: Date.now() });
-
-async function drain(f: Fixture): Promise<void> {
-  for (let pass = 0; pass < 20; pass += 1) {
-    const queue = await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws });
-    if (queue.length === 0) return;
-    await runMoveWork(f.ctx, f.ws, f.store);
-  }
-  throw new Error("moves did not drain");
-}
-
-const bucketKeys = (store: Store) => Object.keys(store.snapshot()).filter((key) => !key.startsWith(".")).sort();
 
 describe("a queued folder move", () => {
   test("is drawn everywhere at once, before the bucket has moved anything", async () => {

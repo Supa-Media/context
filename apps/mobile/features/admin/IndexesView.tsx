@@ -8,15 +8,19 @@
  * that need attention. The rows are `./searchIndexes`; a row's detail and
  * buttons are `./IndexRows`.
  *
- * The fourth card is the Convex copy, the backend migration
- * (`nodesMigration`). Its card carries the switch that pauses every copy, and
- * the owner asked for it to be clear what state the migration is in. Folder
- * moves still copying behind the tree are listed under the table
- * (`./MovesPanel`), with Retry and Undo for a stuck one.
+ * Three cards since every reader moved to the Convex tree (the owner approved
+ * the board, 2026-10-13): the file tree card folds the old Sidebar tree (the
+ * D1 tables, now only the details Lists, Boards and the map read) and the
+ * migration's Convex copy card into one, and folder moves still copying show
+ * on their workspace's row instead of a panel. The card carries the switch
+ * that sends everyone back to the bucket (`nodesMigration.setPaused`), still
+ * the way back until the bucket readers are removed. Start all, Fill all and
+ * Refresh went: `nodesMigration.keepCurrent` copies every due workspace every 15
+ * minutes, and a row's Repair does the rest.
  *
- * Search by meaning (with fast search beside it) is a live query. The tree
- * state lives in each workspace's own database, so it is an action read on
- * open and on Refresh.
+ * Search by meaning, the copy and the moves are live queries. The D1 details
+ * live in each workspace's own database, so they are an action read on open
+ * and again after a Repair.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,8 +30,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Card, Dot, Text, TextField, space, useThemedStyles, type Colors } from "../design";
 import { EmptyNote, NoticeLine, Panel, Skeleton } from "./AdminKit";
-import { IndexRows, healthTone, type IndexActions } from "./IndexRows";
-import { MovesPanel } from "./MovesPanel";
+import { IndexRows, type IndexActions } from "./IndexRows";
 import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
@@ -36,6 +39,7 @@ import {
   INDEXES,
   countParts,
   healthCounts,
+  healthTone,
   joinIndexes,
   matchesFind,
   needsAttention,
@@ -46,24 +50,21 @@ import {
 
 type Said = { text: string; tone: "ok" | "crit" } | null;
 
-/** The migration's phases, the seven the owner approved (`docs/decisions/app-and-console/convex-tree.md`). */
-const MIGRATION_PHASES = 7;
-
 /** How many workspaces need attention, for the red count on the Indexes switch. Null while loading. */
 export function useIndexesAttention(): number | null {
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
   const migration = useQuery(api.functions.nodesMigration.report, {});
+  const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   return useMemo(
     () =>
       report === undefined
         ? null
-        : joinIndexes(null, report.rows, migration?.rows ?? null, migration?.paused ?? false).filter(needsAttention).length,
-    [report, migration],
+        : joinIndexes(null, report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []).filter(
+            needsAttention,
+          ).length,
+    [report, migration, moves],
   );
 }
-
-const copyingLine = (started: number) =>
-  started === 0 ? "Nothing needed copying." : started === 1 ? "Copying 1 workspace." : `Copying ${started} workspaces.`;
 
 const checkingLine = (started: number) =>
   started === 0
@@ -83,8 +84,10 @@ export function IndexesView() {
   const startMigration = useMutation(api.functions.nodesMigration.start);
   const checkMigration = useMutation(api.functions.nodesMigration.checkParity);
   const setPrivacyAuthority = useMutation(api.functions.nodesMigration.setPrivacyAuthority);
+  const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
+  const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
+  const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
   const [tree, setTree] = useState<TreeIndexRow[] | null>(null);
-  const [treeReadAt, setTreeReadAt] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
   const [show, setShow] = useState<"attention" | "all">("attention");
@@ -93,9 +96,8 @@ export function IndexesView() {
   const refreshTree = useCallback(async () => {
     try {
       setTree((await readTree({})).rows);
-      setTreeReadAt(Date.now());
     } catch (caught) {
-      setSaid({ text: messageFor(caught, "Couldn't read the sidebar trees. Try again."), tone: "crit" });
+      setSaid({ text: messageFor(caught, "Couldn't read the Lists, Boards and map details. Try again."), tone: "crit" });
     }
   }, [readTree]);
 
@@ -107,8 +109,8 @@ export function IndexesView() {
     () =>
       report === undefined
         ? null
-        : joinIndexes(tree, report.rows, migration?.rows ?? null, migration?.paused ?? false),
-    [report, tree, migration],
+        : joinIndexes(tree, report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []),
+    [report, tree, migration, moves],
   );
   const paused = migration?.paused ?? false;
 
@@ -124,11 +126,17 @@ export function IndexesView() {
     }
   }
 
-  const fill = (workspaceId?: string) =>
-    act(workspaceId ? `tree:${workspaceId}` : "tree:all", async () => {
-      const { started } = await fillTree(workspaceId ? { workspaceId: workspaceId as Id<"workspaces"> } : {});
-      await refreshTree();
-      return started === 1 ? "Filling 1 sidebar tree. Refresh to see it move." : `Filling ${started} sidebar trees. Refresh to see them move.`;
+  const repair = (workspaceId: string, what: { copy: boolean; fill: boolean }) =>
+    act(`repair:${workspaceId}`, async () => {
+      const id = workspaceId as Id<"workspaces">;
+      if (what.copy) await startMigration({ workspaceId: id });
+      if (what.fill) await fillTree({ workspaceId: id });
+      if (what.fill) await refreshTree();
+      return what.copy && what.fill
+        ? "Copying the file tree again and refilling its details."
+        : what.copy
+          ? "Copying the file tree again."
+          : "Refilling the Lists, Boards and map details.";
     });
 
   const restartMeaning = (workspaceId?: string) =>
@@ -141,8 +149,8 @@ export function IndexesView() {
     const next = !paused;
     return act("convex:pause", async () => {
       const { started } = await setMigrationPaused({ paused: next });
-      if (next) return "Paused. Each copy stops at its next pass.";
-      return `Resumed. Restarted ${started === 1 ? "1 workspace" : `${started} workspaces`}.`;
+      if (next) return "Everyone reads from the bucket now. Each copy stops at its next pass.";
+      return `Serving from the file tree again. Restarted ${started === 1 ? "1 workspace" : `${started} workspaces`}.`;
     });
   };
 
@@ -156,29 +164,30 @@ export function IndexesView() {
     });
   };
 
-  const copyAll = () =>
-    act("convex:start:all", async () => copyingLine((await startMigration({})).started));
-
-  const copyOne = (workspaceId: string) =>
-    act(`convex:start:${workspaceId}`, async () =>
-      copyingLine((await startMigration({ workspaceId: workspaceId as Id<"workspaces"> })).started),
-    );
-
   const checkAll = () =>
     act("convex:check:all", async () => checkingLine((await checkMigration({})).started));
 
   const checkOne = (workspaceId: string) =>
-    act(`convex:check:${workspaceId}`, async () =>
+    act(`check:${workspaceId}`, async () =>
       checkingLine((await checkMigration({ workspaceId: workspaceId as Id<"workspaces"> })).started),
     );
 
   const actions: IndexActions = {
     busy,
-    fill,
     restart: restartMeaning,
     migrationPaused: paused,
-    startMigration: copyOne,
-    checkMigration: checkOne,
+    repair,
+    check: checkOne,
+    retryMove: (id) =>
+      void act(`retry:${id}`, async () => {
+        await retryMove({ id: id as Id<"moveQueue"> });
+        return "The move will try again now.";
+      }),
+    undoMove: (id) =>
+      void act(`undo:${id}`, async () => {
+        await undoMove({ id: id as Id<"moveQueue"> });
+        return "The folder is going back to where it was.";
+      }),
   };
 
   if (rows === null) return <Loading />;
@@ -186,7 +195,6 @@ export function IndexesView() {
   const attention = rows.filter(needsAttention);
   const shown = (show === "attention" ? attention : rows).filter((row) => matchesFind(row, find));
   const stuck = stuckMeaningCount(report?.rows ?? []);
-  const unfilled = (tree ?? []).filter((row) => row.status === "empty").length;
 
   return (
     <View style={styles.view} testID="admin-indexes">
@@ -197,42 +205,32 @@ export function IndexesView() {
             indexKey={index.key}
             what={index.what}
             rows={rows}
-            label={
-              index.key === "convex" && migration
-                ? `${index.label} · phase ${migration.phase} of ${MIGRATION_PHASES}`
-                : index.label
-            }
-            loading={(index.key === "tree" && tree === null) || (index.key === "convex" && migration === undefined)}
+            label={index.label}
+            loading={index.key === "files" && migration === undefined}
             foot={
-              index.key === "convex" ? (
+              index.key === "files" ? (
                 migration === undefined ? null : (
                   <>
                     <Text variant="meta" style={styles.grow}>
                       {paused
                         ? migration.changedAt === null
-                          ? "Paused"
-                          : `Paused since ${whenLabel(migration.changedAt, Date.now())}`
-                        : "Running"}
+                          ? "Everyone reads from the bucket"
+                          : `Everyone reads from the bucket since ${whenLabel(migration.changedAt, Date.now())}`
+                        : "Served live to everyone"}
                       {migration.privacyAuthority ? " · rules from Convex" : " · rules from privacy.md"}
                       {migration.owedExports > 0 ? ` (${migration.owedExports} files being written)` : ""}
                     </Text>
                     <Button
-                      label={busy === "convex:pause" ? "Saving…" : paused ? "Resume" : "Pause"}
+                      label={busy === "convex:pause" ? "Saving…" : paused ? "Serve from the tree" : "Serve from bucket"}
                       disabled={busy !== null}
                       onPress={() => void togglePaused()}
-                      testID="admin-convex-pause"
-                    />
-                    <Button
-                      label={busy === "convex:start:all" ? "Starting…" : "Start all"}
-                      disabled={busy !== null || paused || migration.rows.length === 0}
-                      onPress={() => void copyAll()}
-                      testID="admin-convex-start-all"
+                      testID="admin-files-serve"
                     />
                     <Button
                       label={busy === "convex:check:all" ? "Checking…" : "Check all"}
                       disabled={busy !== null || migration.rows.length === 0}
                       onPress={() => void checkAll()}
-                      testID="admin-convex-check-all"
+                      testID="admin-files-check-all"
                     />
                     <Button
                       label={
@@ -248,19 +246,6 @@ export function IndexesView() {
                     />
                   </>
                 )
-              ) : index.key === "tree" ? (
-                <>
-                  <Text variant="meta" style={styles.grow}>
-                    {treeReadAt === null ? "Reading…" : "Read when you opened this"}
-                  </Text>
-                  <Button label="Refresh" disabled={busy !== null} onPress={() => void refreshTree()} testID="admin-tree-refresh" />
-                  <Button
-                    label={busy === "tree:all" ? "Starting…" : unfilled > 0 ? `Fill all (${unfilled} not filled)` : "Fill all"}
-                    disabled={busy !== null || tree === null || tree.length === 0}
-                    onPress={() => void fill()}
-                    testID="admin-tree-fill-all"
-                  />
-                </>
               ) : index.key === "meaning" ? (
                 <>
                   <Text variant="meta" style={styles.grow}>
@@ -345,7 +330,6 @@ export function IndexesView() {
         )}
       </Panel>
 
-      <MovesPanel />
     </View>
   );
 }

@@ -20,6 +20,7 @@ import { modules } from "../../test.setup";
 import { folderRowsStore, NODE_LISTING_ROWS } from "../../functions/lib/nodes/listing";
 import { listFolder } from "../../functions/lib/fileOps/listing";
 import { clearanceOf } from "../../functions/lib/clearance";
+import { servedReadAnswer } from "../../functions/lib/nodes/servedReads";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -224,5 +225,60 @@ describe("folderRowsStore", () => {
     const listing = await listFolder(folderRowsStore("a", rows, true, null), { path: "a", clearance: clearanceOf("private") });
     expect(listing.truncated).toBe(true);
     expect(NODE_LISTING_ROWS).toBeGreaterThan(1000);
+  });
+});
+
+describe("the barrier's one-folder listing (`listServed`)", () => {
+  test("answers what the live listing answers, at the clearance the barrier names", async () => {
+    const { t, ws, owner, member } = await fixture();
+    for (const path of ["", "1-projects", "2-areas", "1-projects/secret"]) {
+      const asOwner = await t.query(internal.functions.nodesListing.listServed, { workspaceId: ws, path, scope: "private" });
+      expect(asOwner).toEqual(await owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path }));
+      const asTeam = await t.query(internal.functions.nodesListing.listServed, { workspaceId: ws, path, scope: "team" });
+      expect(asTeam).toEqual(await member.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path }));
+    }
+  });
+
+  test("null whenever the tree does not serve, so the bucket answers", async () => {
+    const { t, ws } = await fixture();
+    const ask = () => t.query(internal.functions.nodesListing.listServed, { workspaceId: ws, path: "", scope: "team" });
+    expect(await ask()).not.toBeNull();
+    await matches(t, ws, 2);
+    expect(await ask()).toBeNull();
+    await matches(t, ws);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+    });
+    expect(await ask()).toBeNull();
+  });
+});
+
+describe("servedReadAnswer", () => {
+  function recordingCtx(answer: unknown) {
+    const asked: unknown[] = [];
+    const ctx = {
+      runQuery: async (_ref: unknown, args: unknown) => {
+        asked.push(args);
+        return answer;
+      },
+    };
+    return { ctx: ctx as unknown as Parameters<typeof servedReadAnswer>[0], asked };
+  }
+  const ws = "ws1" as Id<"workspaces">;
+
+  test("only a list, and never for a path the bucket's listing would refuse in its own words", async () => {
+    const { ctx, asked } = recordingCtx({ kind: "listing" });
+    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", operation: { kind: "read", path: "a.md" } })).toBeNull();
+    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", operation: { kind: "list", path: "../etc" } })).toBeNull();
+    expect(asked).toEqual([]);
+    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", grantedNames: ["leads"], operation: { kind: "list", path: "1-projects" } })).toEqual({ kind: "listing" });
+    // The barrier's own clearance, never widened.
+    expect(asked).toEqual([{ workspaceId: ws, path: "1-projects", scope: "team", grantedNames: ["leads"] }]);
+  });
+
+  test("a failed or unserved query sends the barrier to the bucket", async () => {
+    expect(await servedReadAnswer(recordingCtx(null).ctx, { workspaceId: ws, scope: "private", operation: { kind: "list", path: "" } })).toBeNull();
+    const failing = { runQuery: async () => { throw new Error("down"); } } as unknown as Parameters<typeof servedReadAnswer>[0];
+    expect(await servedReadAnswer(failing, { workspaceId: ws, scope: "private", operation: { kind: "list", path: "" } })).toBeNull();
   });
 });

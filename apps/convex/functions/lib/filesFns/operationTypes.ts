@@ -97,7 +97,7 @@ export type FileOperation =
    * Re-index the notes one file operation changed, without listing the bucket.
    * Scheduled by the barrier behind that operation; never sent by a client.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[] }
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
   | { kind: "projectIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
@@ -115,8 +115,8 @@ export type FileOperation =
   | { kind: "treeState" }
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
   | { kind: "nodesSweep"; passes?: number }
-  | { kind: "nodesTouch"; paths: string[]; files: string[] }
-  | { kind: "nodesParity" }
+  | { kind: "nodesTouch"; paths: string[]; files: string[]; moves?: { from: string; to: string }[] }
+  | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
   | { kind: "nodesMoveStart"; from: string; to: string }
   | { kind: "nodesMoveWork" }

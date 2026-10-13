@@ -48,7 +48,11 @@ import {
 } from "./treeTableOps";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, runNodesOperation } from "../nodes/run";
+import { servedReadAnswer } from "../nodes/servedReads";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
+import { attachPlacesFollower } from "../nodes/followPlaces";
+import { attachLandedTouch } from "../nodes/landedTouch";
+import { attachTreeListing } from "../nodes/treeNames";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -165,6 +169,14 @@ export async function runFileOperationHandler(
     meaningSearch = meaningTarget;
   }
 
+  // A change re-indexed behind its operation is followed into a `ready`
+  // projection too, so a rename or move is found at its new path at once
+  // (`search/d1/follow.js`). Silent on every no, as a search is.
+  if (args.operation.kind === "indexNotes") {
+    const target = await projectionTarget("ready");
+    if (target !== null) projection = await clientFor(target).catch(() => null);
+  }
+
   if (args.operation.kind === "projectIndex") {
     const target = await projectionTarget("backfilling");
     if (target === null) return IDLE_PROJECTION;
@@ -268,6 +280,9 @@ export async function runFileOperationHandler(
   const treeOperation = await treeOperationClient(ctx, args);
   if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
   if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
+  // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
+  const served = await servedReadAnswer(ctx, args);
+  if (served !== null) return served;
 
   /*
     The three lookups a store is built from, asked together. Each is its own
@@ -446,6 +461,9 @@ export async function runFileOperationHandler(
   // capped.
   const listing = await manifestSource(ctx, args, store);
   attachQueueMove(ctx, args, listing.store, bucket);
+  attachTreeListing(ctx, args.workspaceId, listing.store);
+  const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
+  if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -532,8 +550,9 @@ export async function runFileOperationHandler(
       .catch(() => {});
   }
 
-  const indexChange = indexChangeOf(args.operation as FileOperation);
+  const indexChange = indexChangeOf(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
+  await followPlaces();
 
   /*
     The notes this operation changed, re-indexed now rather than whenever a

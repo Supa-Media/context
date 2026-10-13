@@ -25,7 +25,8 @@ import type { FileOperation, OperationResult } from "../filesFns/operationTypes"
 import { checkParity } from "./parity";
 import { type NodeListingStore, sweepNodesPass } from "./sweep";
 import { touchNodes } from "./touch";
-import { type NodeSink, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
+import { followPlacesAfter } from "./followPlaces";
+import { type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
 export type NodesOperation = Extract<
   FileOperation,
@@ -186,6 +187,8 @@ export async function runNodesOperation(
     try {
       const { dirty } = await touchNodes(listing, sink, { paths: operation.paths, files: operation.files });
       if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
+      // An agent's moves: pins and recents follow them, as they follow the app's.
+      await followPlacesAfter(ctx, workspaceId, store, operation.moves ?? []);
       return { kind: "nodesKept", complete: !dirty };
     } catch {
       // A re-check that failed leaves the rows behind the bucket; a sweep repairs that.
@@ -204,6 +207,24 @@ export async function runNodesOperation(
   const rows = await readAllLive(ctx, workspaceId);
   const mirror = await ctx.runQuery(internal.functions.nodes.privacy, { workspaceId });
   const result = await checkParity(store, rows, mirror);
+  // The check walks the bucket and then the tree, so a write landing between
+  // the two (its re-check a second or so behind it) reads as a difference.
+  // Asked once more before it stops the tree serving, by when that write has
+  // reached the tree: only a difference that stays is recorded.
+  const differs = result.mismatches > 0 || !result.privacyMatches;
+  if (differs && operation.confirm !== true) {
+    const scheduled = await ctx.scheduler
+      .runAfter(NODE_PARITY_CONFIRM_MS, internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "nodesParity", confirm: true },
+      })
+      .then(() => true)
+      .catch(() => false);
+    if (scheduled) {
+      return { kind: "nodesParity", clearances: result.clearances, mismatches: result.mismatches, privacyMatches: result.privacyMatches };
+    }
+  }
   const parity = {
     checkedAt: Date.now(),
     clearances: result.clearances,

@@ -12,6 +12,8 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { NodeTable, StoredNode } from "./table";
+import { readMirror } from "./listing";
+import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 
 const PATCHABLE = ["parentId", "name", "etag", "size", "uploaded", "observedAt", "goneAt"] as const;
 
@@ -49,6 +51,36 @@ export function convexNodeTable(
     return nodeId;
   };
   const writer = ctx as MutationCtx;
+
+  /*
+    The change log's state for this transaction, read on the first append:
+    the last `seq` (which every later append in it counts on from) and the
+    rules a row that leaves records its audiences by. Reading the last row
+    is also what makes two appenders conflict, so `seq` follows commit order.
+  */
+  let lastSeq: number | undefined;
+  let logOpened = false;
+  let rules: Rules | null = null;
+  const openLog = async (): Promise<void> => {
+    if (logOpened) return;
+    logOpened = true;
+    const last = await writer.db
+      .query("nodeLog")
+      .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
+      .order("desc")
+      .first();
+    lastSeq = last?.seq;
+    // Rows past keeping go as later ones arrive, a few per append; the newest is never among them.
+    const expired = await writer.db
+      .query("nodeLog")
+      .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId).lt("seq", expiredBefore(Date.now())))
+      .take(NODE_LOG_PRUNE);
+    for (const row of expired) if (row._id !== last?._id) await writer.db.delete(row._id);
+  };
+  const rulesNow = async (): Promise<Rules> => {
+    if (rules === null) rules = await mirrorRules(await readMirror(writer.db, workspaceId));
+    return rules;
+  };
 
   return {
     async byPath(path) {
@@ -121,6 +153,22 @@ export function convexNodeTable(
         .filter((q) => q.eq(q.field("goneAt"), undefined))
         .first();
       return child !== null;
+    },
+
+    async logChange(path, gone) {
+      if (!writable) throw new Error("log on a read-only node table");
+      await openLog();
+      const seq = nextSeq(lastSeq, Date.now());
+      lastSeq = seq;
+      await writer.db.insert("nodeLog", {
+        workspaceId,
+        seq,
+        path,
+        gone,
+        // Who could see it until now, judged by the rules as they stand: the
+        // only honest answer once it has left (`log.ts`).
+        ...(gone ? { audiences: audiencesNow(path, await rulesNow()) } : {}),
+      });
     },
 
     async observedBefore(before, limit) {

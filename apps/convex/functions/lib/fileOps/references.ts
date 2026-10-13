@@ -17,6 +17,7 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import type { PrivacyState } from "./privacyState";
+import { namesListing } from "./walk";
 
 /**
  * How many notes a move will read looking for references to what moved.
@@ -82,7 +83,7 @@ export async function rewriteReferences(
 
   let keys: string[] | null;
   try {
-    keys = await visibleNoteKeys(store, options.clearance, options.state);
+    keys = await visibleNoteKeys(store, options.clearance, options.state, options.renames);
   } catch {
     return { notes: 0, links: 0, capped: true };
   }
@@ -94,16 +95,22 @@ export async function rewriteReferences(
 
   let notes = 0;
   let links = 0;
+  // Read a few notes ahead while the one before is judged and written: the
+  // reads were one round trip each, in a row, and on a few hundred notes that
+  // was most of a rename's time. Writes stay one at a time, in order.
+  const texts = readAhead(store, keys, REFERENCE_READ_AHEAD);
   for (const key of keys) {
+    const ahead = await texts.next(key);
+    if (ahead === null) continue;
+    const linksOf = (text: string) =>
+      rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames: options.renames, byName });
+    if (linksOf(ahead) === null) continue;
+    // A note read ahead may have been edited since. Read it again before
+    // writing, so a repair is never built on a version older than it was.
     const object = await store.get(key);
     if (object === null) continue;
     const text = await object.text();
-    const rewritten = rewriteLinks(text, {
-      fromPath: wasAt.get(key) ?? key,
-      toPath: key,
-      renames: options.renames,
-      byName,
-    });
+    const rewritten = linksOf(text);
     if (rewritten === null) continue;
     notes += 1;
     links += rewritten.changed;
@@ -138,33 +145,72 @@ export async function rewriteReferences(
   return { notes, links, capped: false };
 }
 
+/** Notes read ahead of the one being rewritten. */
+const REFERENCE_READ_AHEAD = 8;
+
 /**
- * Every note in the bucket this caller can see, or `null` if the walk ran out
- * of pages before reaching the end.
+ * Hands back each key's text in the order asked, keeping up to `depth` reads
+ * in flight ahead of the caller. A key that is gone reads as `null`; a read
+ * that fails throws when its key is asked for, as the plain read did.
+ */
+function readAhead(store: FileStore, keys: readonly string[], depth: number) {
+  const pending = new Map<string, Promise<string | null>>();
+  let started = 0;
+  const read = async (key: string) => {
+    const object = await store.get(key);
+    return object === null ? null : await object.text();
+  };
+  const fill = () => {
+    while (started < keys.length && pending.size < depth) {
+      const key = keys[started];
+      started += 1;
+      const promise = read(key);
+      // Asked for later; a failure is surfaced then, not as an unhandled rejection now.
+      promise.catch(() => {});
+      pending.set(key, promise);
+    }
+  };
+  return {
+    async next(key: string): Promise<string | null> {
+      fill();
+      const promise = pending.get(key) ?? read(key);
+      pending.delete(key);
+      fill();
+      return await promise;
+    },
+  };
+}
+
+/**
+ * Every note this caller can see, or `null` if the walk ran out of pages
+ * before reaching the end.
  *
  * `null` rather than a short list, for the reason `keysUnder` gives about its
  * own `complete` flag: a truncated walk reads exactly like a finished one, and
  * the caller here would then rewrite part of a bucket and report a total.
+ *
+ * Listed from the Convex tree where it serves (`namesListing`), which may not
+ * have heard of this move yet, so the renames are applied to what it lists:
+ * an old name is dropped and its new one counted. Against a bucket that has
+ * already moved, that changes nothing.
  */
 async function visibleNoteKeys(
   store: FileStore,
   clearance: Clearance,
   state: PrivacyState,
+  renames: ReadonlyMap<string, string>,
 ): Promise<string[] | null> {
-  const keys: string[] = [];
-  const seen = new Set<string>();
+  const found = new Set<string>();
+  const names = namesListing(store);
   let cursor: string | undefined;
+  let complete = false;
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: "", cursor, limit: 1000 });
-    for (const object of listing.objects ?? []) {
-      if (isPlumbing(object.key)) continue;
-      if (!object.key.endsWith(".md")) continue;
-      if (!canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
-      if (seen.has(object.key)) continue;
-      seen.add(object.key);
-      keys.push(object.key);
+    const listing = await names.list({ prefix: "", cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) found.add(object.key);
+    if (!listing.truncated) {
+      complete = true;
+      break;
     }
-    if (!listing.truncated) return keys;
     const next = listing.cursor;
     // A page that reports more and hands back no way to ask for it is the
     // shape `keysUnder` documents: ending the walk here would return a short
@@ -172,5 +218,16 @@ async function visibleNoteKeys(
     if (!next || next === cursor) return null;
     cursor = next;
   }
-  return null;
+  if (!complete) return null;
+  for (const [source, destination] of renames) {
+    found.delete(source);
+    found.add(destination);
+  }
+  const keys: string[] = [];
+  for (const key of found) {
+    if (isPlumbing(key) || !key.endsWith(".md")) continue;
+    if (!canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
+    keys.push(key);
+  }
+  return keys;
 }

@@ -34,7 +34,12 @@ import { mirrorFollowsFile, noticePrivacyListing } from "./lib/nodes/privacyAuth
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
+  NODE_EDIT_LOST_MS,
+  NODE_EDIT_SETTLE_MS,
+  NODE_TOUCH_PATHS,
   OBSERVE_BATCH,
+  nodeParityDue,
+  nodePath,
   nodeSweepDue,
   type NodeTreeState,
 } from "./lib/nodes/table";
@@ -236,10 +241,15 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
-    // A tree's first finished copy is checked against its bucket at once, so a
-    // new workspace starts being served (`nodesListing.ts`) without staff
-    // pressing Check. Later checks are staff's to ask for.
-    if (row?.parity === undefined) {
+    // A finished copy is checked against its bucket when it has never been,
+    // when its last check differed, or when its last proof is a day old
+    // (`nodeParityDue`). The first is how a new workspace starts being served
+    // (`nodesListing.ts`) without staff pressing Check; the other two are how
+    // a tree keeps earning it, and how one that drifted earns it back. Until
+    // 2026-10-13 only the first ran: a tree proved once served for ever, and
+    // one a single in-flight write made differ fell back to the bucket for
+    // ever, both until staff pressed Check.
+    if (nodeParityDue(row?.parity, at)) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -396,12 +406,26 @@ export const savePrivacy = internalMutation({
   },
 });
 
-/** The last parity check's result, kept on the tree's row. */
+/**
+ * The last parity check's result, kept on the tree's row.
+ *
+ * A check that newly finds differences (the last one matched, or there was
+ * none) also marks the tree dirty, so the cron sweeps it within its interval
+ * and the finished sweep checks again (`finish`): a difference a sweep can
+ * repair stops the tree serving only until then. One that persists waits for
+ * the hourly sweep, so a real bug is never a sweep loop.
+ */
 export const saveParity = internalMutation({
   args: { workspaceId: v.id("workspaces"), parity: parityValidator },
   returns: v.null(),
   handler: async (ctx, { workspaceId, parity }): Promise<null> => {
     const row = await treeRowQuery(ctx, workspaceId);
+    const differs = parity.mismatches > 0 || !parity.privacyMatches;
+    const differed = row?.parity !== undefined && (row.parity.mismatches > 0 || !row.parity.privacyMatches);
+    if (differs && !differed && row !== null && row.status !== "unsupported") {
+      await ctx.db.patch(row._id, { parity, dirty: true });
+      return null;
+    }
     if (row === null) {
       await ctx.db.insert("nodeTrees", {
         workspaceId,
@@ -413,6 +437,77 @@ export const saveParity = internalMutation({
     } else {
       await ctx.db.patch(row._id, { parity });
     }
+    return null;
+  },
+});
+
+/**
+ * Gathers notes whose text alone changed (`edited` on `/gateway/tree/touch`)
+ * and schedules one re-check of them a few seconds on (`flushEdits`), so a
+ * burst of saves is one bucket listing per note, not one per typing pause.
+ *
+ * Why it exists: a save of a note's text changes its version and size and
+ * nothing else, and until 2026-10-13 nothing told the Convex tree. Its rows
+ * kept the version from the last sweep (up to an hour), so the desktop and
+ * phone apps, which follow the tree's change log (`nodesFeed.ts`), never heard
+ * of an edit made on the web; Lists re-read every such note on every load;
+ * and a parity check in that window found the tree "different".
+ *
+ * A tree that was never swept is left alone: its first sweep lists these. Past
+ * `NODE_TOUCH_PATHS` gathered notes the tree is marked dirty instead, as a
+ * re-check that names too much is. While staff paused the migration the tree
+ * is only marked dirty, as a paused re-check does.
+ */
+export const queueEdits = internalMutation({
+  args: { workspaceId: v.id("workspaces"), files: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, files }): Promise<null> => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    if (row === null || row.status === "unsupported") return null;
+    if (await migrationPaused(ctx.db)) {
+      await ctx.db.patch(row._id, { dirty: true });
+      return null;
+    }
+    const held = new Set(row.edits ?? []);
+    for (const file of files) {
+      const path = nodePath(file);
+      if (path !== null) held.add(path);
+    }
+    if (held.size > NODE_TOUCH_PATHS) {
+      // Too many to re-check by name: the cron's next sweep lists them all.
+      await ctx.db.patch(row._id, { dirty: true, edits: undefined, editsDueAt: undefined });
+      return null;
+    }
+    const now = Date.now();
+    const scheduled = row.editsDueAt !== undefined && now - row.editsDueAt < NODE_EDIT_LOST_MS;
+    // Already held and already due: nothing to write.
+    if (scheduled && held.size === (row.edits ?? []).length) return null;
+    if (!scheduled) {
+      await ctx.scheduler.runAfter(NODE_EDIT_SETTLE_MS, internal.functions.nodes.flushEdits, { workspaceId });
+    }
+    await ctx.db.patch(row._id, {
+      edits: [...held],
+      ...(scheduled ? {} : { editsDueAt: now + NODE_EDIT_SETTLE_MS }),
+    });
+    return null;
+  },
+});
+
+/** The gathered edits' re-check (`queueEdits`): takes them off the row and schedules one `nodesTouch`. */
+export const flushEdits = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    if (row === null) return null;
+    const files = row.edits ?? [];
+    await ctx.db.patch(row._id, { edits: undefined, editsDueAt: undefined });
+    if (files.length === 0) return null;
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesTouch", paths: [], files },
+    });
     return null;
   },
 });

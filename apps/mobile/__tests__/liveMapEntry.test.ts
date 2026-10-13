@@ -20,7 +20,7 @@ import { emptyEditor } from "../features/console/files/editor";
 import { PhoneHome } from "../features/console/home/PhoneHome";
 import { consoleBottomBar } from "../features/console/layout/slots";
 import type { ConsoleData } from "../features/console/types";
-import { HOME_LABEL, phoneBackTarget, slideDirection } from "../features/console/home/phoneBack";
+import { HOME_LABEL, phoneBackLevels, slideDirection } from "../features/console/home/phoneBack";
 import { MapRouteProvider, useLeaveMapOnOpen } from "../features/console/map/live/MapRouteContext";
 import { mapFromQuery, mapHref, routeMap, type MapRoute } from "../features/console/map/live/route";
 import { MAP_PAGE_KEY } from "../features/console/panes/browsePane/DocumentSurface";
@@ -221,10 +221,10 @@ describe("the map on a phone", () => {
   });
 
   test("goes back to Home, whatever is selected under it", () => {
-    expect(phoneBackTarget(null, true)).toEqual({ folder: null, label: HOME_LABEL });
-    expect(phoneBackTarget("1-projects/launch/plan.md", true)).toEqual({ folder: null, label: HOME_LABEL });
+    expect(phoneBackLevels(null, true)).toEqual([{ folder: null, label: HOME_LABEL }]);
+    expect(phoneBackLevels("1-projects/launch/plan.md", true)).toEqual([{ folder: null, label: HOME_LABEL }]);
     // And with the map closed, back is what it always was.
-    expect(phoneBackTarget(null, false)).toBeNull();
+    expect(phoneBackLevels(null, false)).toEqual([]);
   });
 
   test("slides forward in from Home and back out to it", () => {

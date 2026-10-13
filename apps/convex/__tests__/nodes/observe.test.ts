@@ -364,3 +364,35 @@ describe("memoryNodeSink: a sweep end to end", () => {
     expect(await sink.privacy()).toEqual({ invalid: false, folders: [], notes: [{ path: "a.md", visibility: "private" }] });
   });
 });
+
+describe("the change log (phase 6)", () => {
+  test("logs what appeared, changed and left, from every path that changes a file row, and nothing else", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, { at: 10, rows: [{ path: "a/x.md", etag: "1" }, { path: "a/y.md", etag: "1" }, { path: "b/z.md", etag: "1" }], gone: [], vanishedUnder: [] });
+    // Re-seen as it was, and an older observation: nothing.
+    await applyAll(table, { at: 20, rows: [{ path: "a/x.md", etag: "1" }], gone: [], vanishedUnder: [] });
+    await applyAll(table, { at: 5, rows: [{ path: "a/x.md", etag: "0" }], gone: [], vanishedUnder: [] });
+    // A new version, an exact departure, and one found missing under a listed folder.
+    await applyAll(table, { at: 30, rows: [{ path: "a/x.md", etag: "2" }], gone: ["b/z.md"], vanishedUnder: ["a/"] });
+    // Brought back.
+    await applyAll(table, { at: 40, rows: [{ path: "b/z.md", etag: "1" }], gone: [], vanishedUnder: [] });
+    expect(table.log()).toEqual([
+      { path: "a/x.md", gone: false },
+      { path: "a/y.md", gone: false },
+      { path: "b/z.md", gone: false },
+      { path: "a/x.md", gone: false },
+      { path: "b/z.md", gone: true },
+      { path: "a/y.md", gone: true },
+      { path: "b/z.md", gone: false },
+    ]);
+  });
+
+  test("a sweep's prune logs a live file it removes, and not a tombstone", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, { at: 10, rows: [{ path: "a.md" }, { path: "b.md" }], gone: [], vanishedUnder: [] });
+    await applyAll(table, { at: 15, rows: [], gone: ["b.md"], vanishedUnder: [] });
+    const before = table.log().length;
+    await pruneUnobserved(table, 20);
+    expect(table.log().slice(before)).toEqual([{ path: "a.md", gone: true }]);
+  });
+});

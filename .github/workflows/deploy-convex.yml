@@ -114,6 +114,11 @@ jobs:
           # Opens only /agent-texts/*, for the Worker people text (apps/agent).
           # Absent is a working state: those routes refuse every request.
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+          # The texting line's Partner API key, the same one the texting Worker
+          # replies with: the console's Tex tab reads and changes the shared
+          # line's contact list with it (`lib/adminFns/texAllowlist.ts`).
+          # Absent, the tab says Linq isn't connected.
+          LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
           # Google communications connect. The client id is not itself secret,
@@ -212,7 +217,7 @@ jobs:
             STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
             RESEND_API_KEY TWILIO_ACCOUNT_SID TWILIO_API_KEY_SID \
             TWILIO_API_KEY_SECRET \
-            TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET \
+            TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET LINQ_API_KEY \
             DROPBOX_APP_KEY DROPBOX_APP_SECRET \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \

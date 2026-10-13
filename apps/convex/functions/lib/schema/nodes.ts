@@ -79,6 +79,14 @@ export const nodeTables = {
     files: v.number(),
     /** A fixed, path-free label for a failing pass (never a raw storage error). */
     error: v.optional(v.string()),
+    /**
+     * Notes whose text alone changed (a save in the editor), gathered for a
+     * few seconds and then re-checked together (`nodes.queueEdits`), so a
+     * typing pause is not a bucket listing each.
+     */
+    edits: v.optional(v.array(v.string())),
+    /** When the gathered `edits` are due to be re-checked; set while a flush is scheduled. */
+    editsDueAt: v.optional(v.number()),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
       v.object({
@@ -114,6 +122,34 @@ export const nodeTables = {
     /** The rules changed and the bucket's `privacy.md` has not been written from them yet. */
     exportOwed: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The tree's change log (phase 6): one row per change to a file row, in
+   * commit order, so the desktop and phone apps catch up on what changed
+   * since their last sync instead of walking the whole tree
+   * (`lib/nodes/log.ts`, `functions/nodesFeed.ts`).
+   *
+   * `seq` orders the rows: each append reads the workspace's last row, so two
+   * appends conflict and commit one after the other, and a later commit
+   * always has the larger `seq`. It starts from the clock (`nextSeq`), so it
+   * keeps rising after a purge and names nothing but a time a reader could
+   * already see.
+   *
+   * A row names a path and whether it left. Who may hear of a path that is
+   * there is decided when served, by `canSee` over the rules; a path that
+   * left cannot be judged by today's rules (a delete forgets the exception
+   * that held it back), so `audiences` records who could see it before it
+   * left, from the rules as they stood, as `tree_log` does. Never stored on a
+   * row of `nodes`. Rows older than `NODE_LOG_RETAIN_MS` are pruned, and they
+   * leave with the workspace.
+   */
+  nodeLog: defineTable({
+    workspaceId: v.id("workspaces"),
+    seq: v.number(),
+    path: v.string(),
+    gone: v.boolean(),
+    audiences: v.optional(v.array(v.string())),
+  }).index("by_workspace_seq", ["workspaceId", "seq"]),
 
   /**
    * Moves the tree shows already and the bucket has not finished (phase 4).

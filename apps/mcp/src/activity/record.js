@@ -21,8 +21,8 @@ import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
-import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
-import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { followChangeAfterResponse, indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
+import { keepTreeTable, treeEditsOf, treeTouchOf } from "../tree/record.js";
 import { rememberChaos } from "../chaos/report.js";
 import { keepHistoryActivityLater } from "../history/record.js";
 
@@ -50,9 +50,11 @@ export async function recordChange(store, action, actorScope, paths, details = {
  * Actions whose paths are notes a search should find as they now are.
  *
  * `written`: every path holds new text. `moved`: `[source, destination]`, the
- * source gone and the destination new. Folder-wide actions are absent on
- * purpose — their paths are prefixes, and a folder's worth of notes is a
- * listing's job, which the next full pass does.
+ * source gone and the destination new. `movedPairs`: `[source, destination]`
+ * repeated, the shape `move_notes` records. Folder moves are `folderMoved`:
+ * their paths are prefixes, so the R2 index leaves a folder's worth of notes
+ * to a listing (the next full pass does it), and fast search renames the
+ * folder's rows in place.
  */
 export const INDEX_ON_CHANGE = new Map([
   ["update_note", "written"],
@@ -67,7 +69,85 @@ export const INDEX_ON_CHANGE = new Map([
   ["calendar_sync", "written"],
   ["move_note", "moved"],
   ["archive_note", "moved"],
+  ["move_notes", "movedPairs"],
+  ["move_folder", "folderMoved"],
+  ["materialize_move", "folderMoved"],
 ]);
+
+/**
+ * Writes whose writer projects the note into fast search and search by
+ * meaning itself, with the text in hand (`projectWrittenNoteAfterResponse`):
+ * following them here too would read and project every save twice. Every
+ * other action in `INDEX_ON_CHANGE` is followed (`followChangeAfterResponse`).
+ */
+export const PROJECTED_BY_WRITER = new Set(["update_note", "create_note", "remember_fact"]);
+
+/** `[old, new]` pairs from a flat list, the first `count` of them. */
+function pairsOf(paths, count) {
+  const pairs = [];
+  for (let index = 0; index + 1 < paths.length && pairs.length < count; index += 2) {
+    pairs.push([paths[index], paths[index + 1]]);
+  }
+  return pairs;
+}
+
+/**
+ * What one change asks of the search derivatives: the R2 index's notes, and
+ * what fast search and search by meaning must follow, or `null` for nothing.
+ *
+ * A folder move that is still only logical (`status: "logical_active"`) or
+ * queued is followed when it is materialized, not before: until then the
+ * bucket holds the old layout, and that is what every derivative is read from.
+ */
+export function searchChangeOf(action, paths, details) {
+  const kind = INDEX_ON_CHANGE.get(action);
+  if (!kind || !Array.isArray(paths) || paths.length === 0) return null;
+  const named = paths.filter((path) => typeof path === "string" && path);
+  if (named.length === 0) return null;
+  // The etag a writer recorded is the stored object's, and it lets the pass
+  // skip a note already indexed at that version. Only where it names one path.
+  const etag = typeof details?.etag === "string" ? details.etag : "";
+
+  if (kind === "written") {
+    return {
+      notes: named.map((path) => ({ path, version: named.length === 1 ? etag : "" })),
+      follow: PROJECTED_BY_WRITER.has(action) ? null : { written: named },
+    };
+  }
+  if (kind === "moved") {
+    const [source, destination] = named;
+    if (!destination) return null;
+    return {
+      notes: [
+        { path: source, removed: true },
+        { path: destination, version: etag },
+      ],
+      follow: { moved: [[source, destination]] },
+    };
+  }
+  if (kind === "movedPairs") {
+    // A partial move records its applied pairs first, then the destinations
+    // it copied without removing their sources (`recordPartialMove`).
+    const applied = details?.partial === true ? Number(details?.moved) || 0 : Math.floor(named.length / 2);
+    const pairs = pairsOf(named, applied);
+    const stranded = named.slice(pairs.length * 2);
+    return {
+      notes: [
+        ...pairs.flatMap(([source, destination]) => [
+          { path: source, removed: true },
+          { path: destination, version: "" },
+        ]),
+        ...stranded.map((path) => ({ path, version: "" })),
+      ],
+      follow: { moved: pairs, written: stranded },
+    };
+  }
+  // folderMoved. Queued or still logical, the bucket holds the old layout;
+  // the copy records `materialize_move` when it lands, and that is followed.
+  if (details?.status === "logical_active" || details?.queued === true || details?.partial === true) return null;
+  if (named.length !== 2) return null;
+  return { notes: [], follow: { moved: [[named[0], named[1]]] } };
+}
 
 /**
  * Re-index what this change touched, so it is searchable now rather than at
@@ -75,23 +155,11 @@ export const INDEX_ON_CHANGE = new Map([
  * never throws: the change itself has already landed.
  */
 async function indexChangedNotes(store, action, paths, details) {
-  const kind = INDEX_ON_CHANGE.get(action);
-  if (!kind || !Array.isArray(paths) || paths.length === 0) return;
-  // The etag a writer recorded is the stored object's, and it lets the pass
-  // skip a note already indexed at that version. Only where it names one path.
-  const etag = typeof details?.etag === "string" ? details.etag : "";
-  let notes;
-  if (kind === "moved") {
-    const [source, destination] = paths;
-    notes = [
-      { path: source, removed: true },
-      { path: destination, version: etag },
-    ];
-  } else {
-    notes = paths.map((path) => ({ path, version: paths.length === 1 ? etag : "" }));
-  }
+  const change = searchChangeOf(action, paths, details);
+  if (change === null) return;
   try {
-    await indexWrittenNotesAfterResponse(store, notes);
+    if (change.notes.length > 0) await indexWrittenNotesAfterResponse(store, change.notes);
+    if (change.follow !== null) await followChangeAfterResponse(store, change.follow);
   } catch {
     // A derivative that is one note late, never a failed write.
   }
@@ -133,8 +201,9 @@ function treeAudiencesOf(paths, known, rules, overrides) {
 function announceTreeChange(store, action, paths, details) {
   // The tree table first, so a console told to look again reads the change.
   const touch = treeTouchOf(action, paths, details);
+  const edited = treeEditsOf(action, paths, details);
   const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
-  if (touch === null && !reports) return;
+  if (touch === null && edited.length === 0 && !reports) return;
   // Started now, so the tool's answer can report the chaos score (`chaos/report.js`).
   const kept = keepTreeTable(store, touch).catch(() => null);
   rememberChaos(store, kept);
@@ -149,7 +218,12 @@ function announceTreeChange(store, action, paths, details) {
       await store.reportTreeTouch({
         paths: touch.paths ?? [],
         files: touch.privacy === true && !files.includes(PRIVACY_KEY) ? [...files, PRIVACY_KEY] : files,
+        // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
+        ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
       });
+    } else if (edited.length > 0 && typeof store.reportTreeTouch === "function") {
+      // A save of a note's text: its new version, gathered with others (`treeEditsOf`).
+      await store.reportTreeTouch({ paths: [], files: [], edited });
     }
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);

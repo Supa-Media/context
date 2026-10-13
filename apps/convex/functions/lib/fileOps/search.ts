@@ -15,12 +15,15 @@ import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { followChange } from "../../../../mcp/src/search/d1/follow.js";
+import { effectiveVisibility } from "../privacy";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
 import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
+import { isServedStore, servedKeys } from "../nodes/manifestStore";
 import { folderVisibleAtScope } from "./listing";
 
 /**
@@ -210,11 +213,11 @@ export async function notePathIndex(
   const state = await loadPrivacyState(store);
   const isVisible = (path: string) =>
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
-  const found = await loadDocmapPaths(
-    store as unknown as Parameters<typeof loadDocmapPaths>[0],
-    createSearchBudget(budget),
-    0,
-  );
+  // Where the Convex tree serves, its rows are the paths (folded through
+  // pending moves): exact now, rather than as of the index's last sync.
+  const found = isServedStore(store)
+    ? { paths: (await servedKeys(store)).filter((path) => isIndexableNote(path)) }
+    : await loadDocmapPaths(store as unknown as Parameters<typeof loadDocmapPaths>[0], createSearchBudget(budget), 0);
   if (found === null) return null;
   return { paths: found.paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
@@ -533,8 +536,10 @@ export async function maintainSearchIndex(
  */
 export async function indexChangedNotes(
   store: FileStore,
-  change: { written: string[]; gone: string[] },
+  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean },
+  projection: ProjectionClient | null = null,
 ): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
+  if (projection !== null && change.queued !== true) await followInProjection(store, change, projection);
   const only = new Map<string, { version: string; uploaded: string } | null>();
   const uploaded = new Date().toISOString();
   for (const path of change.gone) only.set(path, null);
@@ -553,6 +558,36 @@ export async function indexChangedNotes(
     shed: pass.shed.length,
     oversizedShards: pass.oversizedShards,
   };
+}
+
+/**
+ * The same change, followed into a `ready` fast search database: a moved
+ * note's old rows out and its new path projected, a moved folder renamed in
+ * place, a gone note removed (`search/d1/follow.js`, shared with the gateway).
+ * A queued folder move is skipped by the caller: the bucket has not moved yet.
+ * Never throws: the database is a derivative, and the sweep repairs it.
+ */
+async function followInProjection(
+  store: FileStore,
+  change: { written: string[]; gone: string[]; moved?: string[][] },
+  projection: ProjectionClient,
+): Promise<void> {
+  try {
+    const moved = (change.moved ?? []).filter(
+      (pair): pair is [string, string] => pair.length === 2 && pair.every((path) => typeof path === "string"),
+    );
+    const sources = new Set(moved.map(([from]) => from));
+    const destinations = new Set(moved.map(([, to]) => to));
+    const state = await loadPrivacyState(store);
+    await followChange(store as unknown as Parameters<typeof followChange>[0], projection, {
+      moved,
+      written: change.written.filter((path) => !destinations.has(path)),
+      gone: change.gone.filter((path) => !sources.has(path)),
+      visibilityOf: (path: string) => effectiveVisibility(path, state.rules, state.overrides),
+    });
+  } catch {
+    console.error("search.projection_follow_failed");
+  }
 }
 
 /** Enough for a move's two paths in two shards, with room to spare. */

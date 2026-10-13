@@ -27,6 +27,7 @@ import { commitPublicationSnapshot } from "./releases";
 import { scanWebsiteRoutes } from "./routes";
 import { siteCheckFor, type SiteCheck } from "./siteCheck";
 import { siteHistoryFor, type SiteHistory } from "./siteHistory";
+import { agentDomainValidator, type AgentDomain } from "./agentDomain";
 
 type Snapshot = Awaited<ReturnType<typeof scanWebsiteRoutes>>;
 
@@ -198,9 +199,39 @@ export function siteAddresses(handle: string, customHostnames: string[]): string
   return addresses;
 }
 
+/** The deployment's own https origin, or `null` when it has none to name. */
+function appOrigin(): string | null {
+  const origin = process.env[APP_ORIGIN_ENV_VAR];
+  try {
+    const base = typeof origin === "string" && origin !== "" ? new URL(origin) : null;
+    return base !== null && base.protocol === "https:" ? base.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a person goes in the app for their site: the Website settings (turn
+ * it on, connect a domain) and each page, to write it themselves. The same
+ * addresses the console builds (`features/console/nav.ts` `settingsHref`,
+ * `noteLink.ts` `noteLinkPath`), from the deployment's own origin. Deep links,
+ * not shares: each opens only for somebody whose membership already does.
+ */
+export function siteAppLinks(handle: string): { settings: string | null; page: (path: string) => string | null } {
+  const origin = appOrigin();
+  const context = `@${encodeURIComponent(handle)}`;
+  return {
+    settings: origin === null ? null : `${origin}/console/${context}?settings=website`,
+    page: (path) =>
+      origin === null ? null : `${origin}/note/${context}/${path.split("/").map(encodeURIComponent).join("/")}`,
+  };
+}
+
 export interface SiteStatus {
   enabled: boolean;
   handle: string;
+  /** Website settings in the app, where the owner turns the site on. */
+  settingsUrl: string | null;
   draft: string | null;
   publishedRevision: number | null;
   publishedAt: number | null;
@@ -208,6 +239,8 @@ export interface SiteStatus {
   pages: Array<{
     path: string;
     address: string | null;
+    /** The page in the app, for the person to open and write. */
+    editUrl: string | null;
     status: string;
     audience: string;
     role: string | null;
@@ -225,9 +258,11 @@ export async function siteStatusFor(
 ): Promise<SiteStatus | null> {
   const facts = await ctx.runQuery(internal.functions.websites.siteFacts, { workspaceId });
   if (facts === null) return null;
+  const links = siteAppLinks(facts.handle);
   const base = {
     enabled: facts.enabled,
     handle: facts.handle,
+    settingsUrl: links.settings,
     publishedRevision: facts.publishedRevision,
     publishedAt: facts.publishedAt,
     addresses: facts.addresses,
@@ -245,6 +280,7 @@ export async function siteStatusFor(
     pages: snapshot.statuses.map((status) => ({
       path: status.objectKey,
       address: status.routePath,
+      editUrl: links.page(status.objectKey),
       status: status.status,
       audience: status.audience,
       role: status.code ?? null,
@@ -264,6 +300,7 @@ export type GatewaySiteAnswer =
   | (SiteStatus & { action: "status" })
   | (SiteCheck & { action: "check" })
   | (SiteHistory & { action: "history" })
+  | (AgentDomain & { action: "domain"; settingsUrl: string | null })
   | { action: "screenshot"; url: string | null; address: string | null; revision: number | null; message?: string }
   | {
       action: "publish";
@@ -290,15 +327,25 @@ export async function gatewaySiteHandler(
     draft?: string;
     path?: string;
     revision?: number;
+    hostname?: string;
   },
 ): Promise<GatewaySiteAnswer> {
-  if (!["status", "publish", "check", "screenshot", "history"].includes(args.action)) return null;
+  if (!["status", "publish", "check", "screenshot", "history", "domain"].includes(args.action)) return null;
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
     hashedAccessToken: args.hashedAccessToken,
     expectedWorkspaceId: args.expectedWorkspaceId,
   });
   if (cleared === null) return null;
 
+  if (args.action === "domain") {
+    const domain = await ctx.runMutation(internal.functions.customDomains.forAgent, {
+      workspaceId: cleared.workspaceId,
+      userId: cleared.actorUserId,
+      ...(args.hostname === undefined ? {} : { hostname: args.hostname }),
+    });
+    const facts = await ctx.runQuery(internal.functions.websites.siteFacts, { workspaceId: cleared.workspaceId });
+    return { action: "domain", ...domain, settingsUrl: facts === null ? null : siteAppLinks(facts.handle).settings };
+  }
   if (args.action === "status") {
     const status = await siteStatusFor(ctx, cleared.workspaceId);
     return status === null ? null : { action: "status", ...status };
@@ -418,6 +465,11 @@ const siteHistoryAnswerValidator = v.object({
 
 export const gatewaySiteValidator = v.union(
   v.null(),
+  v.object({
+    action: v.literal("domain"),
+    ...agentDomainValidator.fields,
+    settingsUrl: nullableString,
+  }),
   siteCheckAnswerValidator,
   siteHistoryAnswerValidator,
   v.object({
@@ -431,6 +483,7 @@ export const gatewaySiteValidator = v.union(
     action: v.literal("status"),
     enabled: v.boolean(),
     handle: v.string(),
+    settingsUrl: nullableString,
     draft: nullableString,
     publishedRevision: nullableNumber,
     publishedAt: nullableNumber,
@@ -439,6 +492,7 @@ export const gatewaySiteValidator = v.union(
       v.object({
         path: v.string(),
         address: nullableString,
+        editUrl: nullableString,
         status: v.string(),
         audience: v.string(),
         role: nullableString,

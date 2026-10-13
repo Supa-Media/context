@@ -68,13 +68,13 @@ export const RESCORE_FOLDERS = 40;
 const ensure = () => [...TREE_STATEMENTS, ...PROP_STATEMENTS, ...CHAOS_STATEMENTS].map((sql) => ({ sql, params: [] }));
 
 /** Whether a note is exempt from the long-note rule: meetings and generated notes. */
-function isExempt(path, type, generated) {
+export function isExempt(path, type, generated) {
   if (type === "meeting" || isMeetingNotePath(path)) return true;
   return generated === 1 || generated === true || generated === "true";
 }
 
 /** Whether a `review:` property holds a question: any non-empty value. */
-function hasReview(value) {
+export function hasReview(value) {
   if (value === null || value === undefined || value === false || value === 0) return false;
   if (typeof value === "string") return value.trim() !== "" && value.trim() !== "[]";
   return true;

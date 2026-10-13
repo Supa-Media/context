@@ -33,6 +33,7 @@ import {
   settingsValidator,
   sweepHandler,
 } from "./lib/customDomains/handlers";
+import { agentDomainHandler, agentDomainValidator } from "./lib/websites/agentDomain";
 
 /** What the Domain settings section draws. */
 export const settings = query({
@@ -77,6 +78,13 @@ export const resolveHost = query({
 });
 
 /* ---------------------------- internal plumbing --------------------------- */
+
+/** An owner's or editor's agent, after `/gateway/site`'s clearance: see `lib/websites/agentDomain.ts`. */
+export const forAgent = internalMutation({
+  args: { workspaceId: v.id("workspaces"), userId: v.id("users"), hostname: v.optional(v.string()) },
+  returns: agentDomainValidator,
+  handler: async (ctx, args) => await agentDomainHandler(ctx, args),
+});
 
 export const rowForProvider = internalQuery({
   args: { domainId: v.id("customDomains") },

@@ -43,6 +43,8 @@ export function ensureStyles(colors: Colors): void {
   --lp-link: ${colors.codeKey};
   --lp-code-bg: ${colors.well};
   --lp-mark: ${colors.markWash};
+  --lp-tag: ${colors.accentText};
+  --lp-tag-wash: ${colors.accentDim};
   --lp-mono: ${fonts.mono};
   /*
     THIS BLOCK IS THE CONTRACT, AND IT HAS BEEN BROKEN TWICE THE SAME WAY.

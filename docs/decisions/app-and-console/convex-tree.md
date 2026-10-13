@@ -130,8 +130,8 @@ The rest of phase 2 (2026-10-13):
   holds, as for a rename made in the same tab (`useFollowMoves.ts`). A note
   that was deleted, or moved out of reach, says so and stays on screen.
 
-Pins and recents still name paths, so a move made by somebody else drops
-them from Home until they are retargeted (phase 4's follow-up, B2).
+Pins and recents name paths, and follow every move for whoever may see where
+it went (phase 4 B2, below).
 
 **A move of a folder is one row** (phase 4, built 2026-10-13). Moving a folder
 of any size writes one `moveQueue` row and answers; every screen draws the
@@ -164,8 +164,8 @@ folder at its new name at once, and the bucket catches up behind it.
   reads as it is; a write to an emptied old name is refused.
 - **Old names are reserved while a move is pending**, and forward for 30 days
   after, through the existing forwarding ledger.
-- **Staff can Retry and Undo** in admin › Search › Indexes, Moves
-  (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
+- **Staff can Retry and Undo** in admin › Search › Indexes, on the
+  workspace's row under File tree (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
   backs off from 30 seconds to 15 minutes and retries for ever; it shows as
   stuck after three. Undo turns the same row around, and is refused while a
   pass holds it or a later move depends on its names.
@@ -174,6 +174,42 @@ Not yet: the gateway's search, and listings outside phase 5's six tools, read
 the bucket's layout until the copy finishes (phase 5's tools list from the
 rows, folded through the moves), and the one finishing link rewrite may miss a
 step along a chain of moves, which forwarding covers.
+
+**Phase 4 B2: places and the walks inside a move follow the tree** (built
+2026-10-13).
+
+- **Pins, "You open most" and Recent follow a move for every member who may
+  see where it went** (`lib/placesFollow.ts`). Each place is judged by its own
+  new name with `canSee`, at that member's role and named groups, under the
+  rules after the move; a place they may not see stays put and stops showing,
+  so nobody is handed a name `privacy.md` holds back from them. Rules that do
+  not parse move nobody's. This replaces "only the mover's" (2026-09-30),
+  which existed because a Convex function could not ask who may see a path;
+  the tree's rules mirror now answers that. It runs when a queued move
+  activates (under the mirror `activate` just checked) and when it is undone,
+  after a move made in one go inside the credential barrier (under the
+  bucket's `privacy.md`, read after the move), and after an agent's move,
+  which the gateway now names on its tree touch (`moves`).
+- **The walks inside an operation list the tree where it serves**
+  (`lib/nodes/treeNames.ts`): `isFolder` and `keysUnder` for move, copy and
+  delete, and the link rewrite's inventory of every note. That is one query
+  per two thousand names instead of one bucket request per thousand, and it is
+  also a correction: while a folder is moving, deleting it at its new name
+  must reach the files the worker has not copied yet, and only the folded tree
+  names them there. The rewrite applies the move's own renames to what the
+  tree lists, because the tree may not have heard of the move yet.
+- **The gateway's link rewrite takes its inventory from the tree too**
+  (`tree/served.js`), and a dry run of `move_folder` answers from it. A real
+  `move_folder` that falls back to moving in one go still lists the bucket it
+  is about to change: an agent's note written a moment earlier reaches the
+  tree about a second later, and a move that listed the tree would leave it
+  behind. The link table still says which notes point at what moved.
+
+What a "simplification" would cost: retargeting every member's places without
+`canSee` hands a member the new name of a folder they may not see; judging
+only the moved folder and not each place under it hands them a held-back
+note's new path; listing the bucket inside a delete while its folder is moving
+lets the worker carry the files the delete missed to the new name.
 
 **Phase 5, agents' listings, as built (2026-10-13).** `orient`'s map and
 counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
@@ -202,6 +238,11 @@ read from the bucket.
   stopped short, rules that do not parse, and a failed or slow request all
   answer `{ served: false }` (the same bytes for each). The gateway then
   lists the bucket for the rest of the call.
+
+A rename or move made in the console re-checks the tree as soon as its bytes
+land, before the links pointing at it are repaired (`lib/nodes/landedTouch.ts`),
+because that repair can read every note in the workspace; the repair reads a
+few notes ahead and re-reads any note it changes just before writing it.
 
 A gateway write reaches the tree through `/gateway/tree/touch`, a second or
 so later. An agent that writes a note and lists its folder straight away can
@@ -240,19 +281,158 @@ session store and the queued move worker):
 - **The way back** is the same switch, refused while any export is owed, so
   the file it hands back to is current.
 
+**Phase 6, as built (2026-10-13): the device copy follows a change log.**
+The desktop and phone apps used to walk the whole tree every five minutes.
+Now `nodeLog` (`lib/schema/nodes.ts`) holds one row per file that appeared,
+changed version or left, written in the same mutation that changed the row
+(`observe.ts` through `convexTable.ts`). A sweep that only re-sees a file
+writes nothing. Four rules hold it:
+
+- **`seq` follows commit order and starts from the clock** (`log.ts`
+  `nextSeq`). Each append reads the workspace's last row, so two appends
+  conflict and commit one after the other. Starting from the clock keeps
+  `seq` rising after a purge, so a device's old cursor can never land inside
+  a new log.
+- **A reader is told only what they could see.** A file that is there is
+  judged by `canSee` over the rules, as a walk judges it. A file that left
+  is told only to the audiences recorded when it left, by the rules as they
+  stood then, as `tree_log` does, because today's rules forgot the exception
+  that held a deleted private note back. Any change to the rules answers
+  `full`, and the device walks.
+- **A cursor never names a change the reader could not see.** A catch-up
+  that read everything resumes a minute behind the clock (`NODE_LOG_OVERLAP_MS`),
+  or after the last row this reader was told about. A team reader is never
+  handed the `seq` of somebody else's private change, which would say when it
+  happened. A page full of changes they cannot see sends them to walk.
+- **The feed answers only where the tree serves** (`treeServes`). Pause in
+  admin stops it with everything else, and devices walk as before.
+
+`nodesFeed.head` is a live query each device subscribes to
+(`useNodeFeed.ts`). It moves when a change this reader may hear of lands, or
+the rules change, and the device then catches up through `syncTreeChanges`,
+which asks `nodesFeed.changes` before the D1 table's log. A context the feed
+reaches gets no five-minute pass; one it does not reach keeps it. A copy fed
+this way is walked whole once a day as a backstop, where the D1 log's copies
+are walked hourly. Rows are kept 30 days and leave with the workspace
+(`nodesPurge.ts`). The outbox still addresses paths; addressing nodes waits
+on phase 4's moves.
+
+**A queued folder move walks the device copy** (2026-10-13). A queued move
+renames everything under it without a log row, since the rows stay physical
+until the copy lands, so a copy fed only from the log kept the old names (on
+Home, Lists and Boards) for as long as the copy ran. The pending `moving` rows
+are now part of the version a copy is judged by (`movesMark` in `feedToken`):
+a move starting, being undone or finishing moves the head and answers `full`,
+and the walk folds the moves in. While a move is pending, the log rows under
+either of its ends (the copy's own churn) are passed over, and the walk at
+its end settles them. A walk reads that version before its rows, so a move
+landing mid-walk leaves the copy on the older version, which walks again.
+
+What fails if reversed: `apps/convex/__tests__/nodes/nodesFeed.test.ts` (a
+member never hears of a private change, by name or by cursor; a deleted
+private note is never named to a member; rules changes and old cursors walk;
+strangers are refused), the log cases in `observe.test.ts`, and
+`apps/mobile/__tests__/nodeFeedSync.test.ts` (a moving head is a pass, and
+no timed pass while fed).
+
+**The rest of the app's readers, as built (2026-10-13).** Everything in the
+app that asks only *which notes exist and where* reads the rows where
+`treeServes` holds, through the same stores and the same listing code:
+
+- **A one-folder `list`** (the console's fallback, a shared folder link, a
+  share card, the routines scan, an Obsidian plugin's vault listing) is the
+  live listing's own answer (`nodesListing.listServed`), given at the
+  clearance the barrier already decided, before a bucket credential is
+  opened (`lib/nodes/servedReads.ts`).
+- **Link completion and quick open** (`notePaths`), **the folder picker**
+  (`folderPaths`) and **the map's notes** (`workspaceGraph`) read the rows
+  through `servedNodesStore`, which now answers a delimited listing from one
+  read of the rows held for the call. The map folds the link table's bucket
+  keys through the pending moves, so a moving folder is drawn, links and
+  all, at its new name.
+- **A folder's Lists and Boards** take the folder's notes and versions from
+  the rows and only the front matter from the workspace's database
+  (`folderNotesFromNodes`); a props row at another version than the row's is
+  read again, as before. While a move is pending they read the table as
+  before, since a note's front matter is still filed under its old key.
+- **The chaos score** (the app's figure and folder chip, and orient's chaos
+  line) is counted at read time from the rows' keys, pending moves folded
+  in, with only what a key cannot say (a note's length, a contact's review)
+  read from the properties table and drawn through the same moves
+  (`liveChaosScoreOf`, `chaos/live.js`). The team figure counts only what
+  the mirror's rules show the team. The `tree_chaos` aggregates stay for the
+  daily history and as the fallback. Pinned in
+  `__tests__/nodes/servedChaos.test.ts` and `test/chaosLive.test.mjs`.
+- **The free plan's note count** ("912 of 1,000 notes", `recountNotes`) is
+  the rows' note keys, with no bucket credential opened
+  (`lib/nodes/servedCount.ts`, pinned in
+  `__tests__/nodes/servedNoteCount.test.ts`). Verifying a newly connected
+  bucket still counts the bucket, since no tree exists for it yet.
+
+Two readers deliberately stay on the bucket: **publishing a website**, because
+a Publish releases the bucket's bytes and must see a page written past the app
+(Obsidian, S3 tools) at once, not at the next sweep; and every **index built
+from note text** (search, meaning, the link and props fills), which follows the
+bucket's physical objects.
+
+Reviewed again on 2026-10-13, three small listings also stay, each for a
+reason rather than by omission: the **connect-time snapshot** an agent is
+handed (one delimited listing of the root, which costs less than the tree's
+whole-tree manifest would); the **gateway's note cap** inside a write (it
+must count what the bucket holds at the moment of the create, and a free
+context's count stops at the cap within a page or two); and **search's
+literal scan**, the recovery path for an unusable index, which reads note
+text at the bucket's physical keys.
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
 still where moves happen.
 
 **Staff can see it and stop it** (asked for by the owner, 2026-10-12). Admin ›
-Search › Indexes has a Convex copy column and card: each workspace's stage
-(not started, copying, copied, matches, differs, stuck, skipped), Pause /
-Resume, Start all and Check all (`functions/nodesMigration.ts`). The switch
+Search › Indexes has a File tree column and card: each workspace's stage
+(not started, copying, copied, matches, differs, stuck, skipped), Serve from
+bucket / Serve from the tree, and Check all (`functions/nodesMigration.ts`).
+Since 2026-10-13 (the owner approved the board) that column also carries the
+old Sidebar tree's D1 health, as "Lists, Boards and map details", and the
+folder moves still copying; Start all and Fill all went, because
+`keepCurrent` copies every due workspace every 15 minutes and a row's Repair
+covers the rest. The switch
 is one `nodeMigration` row. A pause is obeyed before anything is scheduled and
 again at the top of every scheduled pass, so a running sweep stops at its
 next pass, and a change made while paused marks the tree dirty for the resume
 to catch up.
+
+**How the tree stays equal to the bucket, and how we know** (2026-10-13).
+Four things write the rows, and one thing decides whether they may be served.
+
+- **A change made through us is re-checked by name.** The console's changes
+  before they answer (`touchNodesNow`); the gateway's on `/gateway/tree/touch`
+  a second or so after (`treeTouchOf`); email asks for a sweep. A save of a
+  note's text alone (`update_note`, encrypt, decrypt) is sent as `edited`,
+  gathered on the tree's row for three seconds and re-checked together
+  (`nodes.queueEdits`, `flushEdits`), so a burst of typing pauses is one
+  listing a note. Until 2026-10-13 nothing sent those saves: a row kept the
+  version from its last sweep for up to an hour, so the desktop and phone
+  apps, which follow the change log, never heard of a web edit until then.
+- **A change made past us** (Obsidian, S3 tools) is found by the sweep: the
+  cron starts one wherever a tree is due (dirty, failed, or an hour old), so
+  such a change can take up to about 75 minutes to show.
+- **Serving is earned, and keeps being earned.** `treeServes` needs the last
+  parity check to have matched. A finished sweep checks again when the tree
+  was never checked, when its last check differed, or when its last proof is
+  a day old (`nodeParityDue`). A check that finds differences asks once more
+  thirty seconds later before it records them, because a write landing
+  between its walk of the bucket and its walk of the tree reads as one; a
+  difference that stays is recorded, stops the tree serving (the bucket
+  answers, exactly as before), and marks the tree dirty, so the cron sweeps it
+  and the sweep's check can restore it. Until 2026-10-13 only a tree's first
+  check ran: a tree proved once served for ever, and one that a single write
+  in flight made differ never served again until staff pressed Check.
+- **Where it shows.** Admin › Search › Indexes, the Convex copy card: each
+  workspace's stage (matches, differs, stuck, copying), mismatches and when it
+  was last checked. Nobody else sees a difference: the reader that asked
+  simply reads the bucket.
 
 **What a "simplification" would cost.**
 
@@ -289,6 +469,10 @@ What fails if reversed:
   what the bucket's listing shows; `inlineTouch.test.ts`: a console change
   updates the tree before it answers; `manifestStore.test.ts`: a walk of the
   rows hands every clearance what a walk of the bucket hands it.
+- `apps/convex/__tests__/nodes/servedReaders.test.ts`: one folder, the
+  picker, link completion, Lists and the map answer from the rows what they
+  answer from the bucket at every clearance, with the tree's rules, and the
+  map draws a moving folder's links at its new name.
 - `apps/mobile/__tests__/followMoves.test.ts`: the open note follows a move
   made elsewhere, and never this tab's own.
 - `apps/convex/__tests__/nodes/privacyAuthority.test.ts`: a change is a
@@ -296,6 +480,13 @@ What fails if reversed:
   never reaches another workspace, and the switch hands back only a current
   file; `apps/mcp/test/privacyAuthority.test.mjs`: every privacy decision
   reads the held rules, never a rule edited into the file.
+
+- `apps/convex/__tests__/gatewayTreeTouch.test.ts` and
+  `apps/mcp/test/treeTouchReporting.test.mjs`: a save of a note's text reaches
+  the tree, gathered; `nodes/convexNodes.test.ts` and
+  `nodesOperationRouting.test.ts`: a finished sweep re-checks a stale or
+  differing proof, and a difference is confirmed before it stops the tree
+  serving.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.
@@ -306,3 +497,8 @@ What fails if reversed:
   edit or a stranger's note never lost mid-copy; `organizerTreeChange.test.ts`:
   the organizer's moves reach the tree; `apps/mcp/test/queuedFolderMove.test.mjs`:
   the gateway queues folder moves and reads through them.
+- `apps/convex/__tests__/nodes/treeNamesAndPlaces.test.ts` and
+  `places.test.ts`: places follow a move only where their person may see the
+  new name, place by place, and a delete of a moving folder reaches every file;
+  `apps/mcp/test/treeReferenceInventory.test.mjs`: the gateway's link rewrite
+  lists the tree with the move applied.

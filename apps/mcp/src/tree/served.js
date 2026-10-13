@@ -123,6 +123,15 @@ export function servedListingStore(store, { onServed } = {}) {
   }
 
   const listing = Object.create(store);
+  /**
+   * Every key the tree holds for this grant, or null when the tree does not
+   * serve this call: for a reader that would rather use another source than
+   * fall back to a whole-bucket listing (the chaos score in `orient`).
+   */
+  listing.treeKeys = async () => {
+    const entries = await keysUnder("");
+    return entries === null ? null : entries.map((entry) => entry.path);
+  };
   listing.list = async (options = {}) => {
     const prefix = options.prefix ?? "";
     const entries = await keysUnder(prefix);

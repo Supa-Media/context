@@ -177,20 +177,36 @@ export function createReportingMethods({ post }) {
      * field here takes it. More than 50 names of either kind sends no names at
      * all and `dirty: true`, which asks for a sweep instead.
      *
+     * `moves` are the change's moves, old name to new, so pins and recents
+     * follow them; past the same cap they are left out, and those places
+     * simply stop showing.
+     *
      * @param {string} workspaceId
-     * @param {{paths?: string[], files?: string[]}} touch
+     * `edited` are notes whose text alone changed (a save in the editor):
+     * the control plane gathers them for a few seconds and re-checks them
+     * together, so their new versions reach the tree, and the devices that
+     * follow its change log, without a re-check per typing pause.
+     *
+     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[], edited?: string[]}} touch
      */
     async reportTreeTouch(workspaceId, touch) {
       if (typeof workspaceId !== "string" || !workspaceId || !touch) return null;
       const paths = Array.isArray(touch.paths) ? touch.paths.filter((path) => typeof path === "string") : [];
       const files = Array.isArray(touch.files) ? touch.files.filter((file) => typeof file === "string") : [];
-      if (paths.length === 0 && files.length === 0) return null;
-      const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES;
+      const moves = Array.isArray(touch.moves)
+        ? touch.moves.filter((move) => typeof move?.from === "string" && typeof move?.to === "string")
+          .map(({ from, to }) => ({ from, to }))
+        : [];
+      const edited = Array.isArray(touch.edited) ? touch.edited.filter((file) => typeof file === "string") : [];
+      if (paths.length === 0 && files.length === 0 && edited.length === 0) return null;
+      const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES || edited.length > TREE_TOUCH_NAMES;
       return await post("/gateway/tree/touch", {
         workspaceId,
         paths: dirty ? [] : paths,
         files: dirty ? [] : files,
         dirty,
+        ...(moves.length === 0 || moves.length > TREE_TOUCH_NAMES ? {} : { moves }),
+        ...(dirty || edited.length === 0 ? {} : { edited }),
       });
     },
 

@@ -34,6 +34,7 @@ import { atName } from "./format";
 import { NavBandProvider } from "./NavBand";
 import { VoiceHostProvider } from "../voice/VoiceHost";
 import { hrefFor, sameRoute, type ConsoleRoute, type settingsFromQuery } from "./nav";
+import { useNavWithTags } from "./useNavWithTags";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
@@ -280,7 +281,8 @@ export function ConsoleFrame({
    */
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
-  const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const { nav: layoutNav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const nav = useNavWithTags(layoutNav, data, phone, router);
 
   /*
     A visitor's one workspace is named by its display name: the homepage's is
@@ -301,7 +303,7 @@ export function ConsoleFrame({
     selectedPath: data.files.selectedPath,
   });
 
-  const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
+  const { selectedEntry } = noteTargetsFor({ data });
   const reading = useReadMode();
   /*
     The phone's ••• over the open note or folder: its actions as a bottom
@@ -322,6 +324,7 @@ export function ConsoleFrame({
       canEdit: data.files.canEdit,
       canShare: data.files.canShare,
       visitor: visitor !== undefined,
+      reading,
     }).length > 0
       ? selectedEntry
       : null;
@@ -495,7 +498,7 @@ export function ConsoleFrame({
           ) : undefined
         }
         topTrailing={consoleTopTrailing({
-          phone, readable, reading, showMeetings, data, insideContext, current, router, canReport,
+          phone, showMeetings, data, insideContext, current, router, canReport,
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}

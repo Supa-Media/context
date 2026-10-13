@@ -106,6 +106,7 @@ import type * as functions_nodes from "../functions/nodes.js";
 import type * as functions_nodesGateway from "../functions/nodesGateway.js";
 import type * as functions_nodesListing from "../functions/nodesListing.js";
 import type * as functions_nodesMigration from "../functions/nodesMigration.js";
+import type * as functions_nodesFeed from "../functions/nodesFeed.js";
 import type * as functions_nodeMoves from "../functions/nodeMoves.js";
 import type * as functions_nodeMovesAdmin from "../functions/nodeMovesAdmin.js";
 import type * as functions_nodesPrivacy from "../functions/nodesPrivacy.js";
@@ -254,6 +255,7 @@ declare const fullApi: ApiFromModules<{
   "functions/nodesGateway": typeof functions_nodesGateway;
   "functions/nodesListing": typeof functions_nodesListing;
   "functions/nodesMigration": typeof functions_nodesMigration;
+  "functions/nodesFeed": typeof functions_nodesFeed;
   "functions/nodeMoves": typeof functions_nodeMoves;
   "functions/nodeMovesAdmin": typeof functions_nodeMovesAdmin;
   "functions/nodesPrivacy": typeof functions_nodesPrivacy;

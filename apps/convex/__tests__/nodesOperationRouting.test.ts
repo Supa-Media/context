@@ -11,6 +11,9 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { getFunctionName } from "convex/server";
+import { memoryStore } from "./storeStub.helpers";
+import { NODE_PARITY_CONFIRM_MS } from "../functions/lib/nodes/table";
 import { isNodesOperation, runNodesOperation } from "../functions/lib/nodes/run";
 import { operationResultValidator, operationValidator } from "../functions/lib/filesFns/operationValidators";
 
@@ -90,6 +93,62 @@ describe("a paused migration", () => {
   });
 });
 
+describe("a parity check that finds differences", () => {
+  // The bucket holds one note the tree has never heard of: a difference.
+  function parityCtx() {
+    const mutations: { name: string; args: unknown }[] = [];
+    const scheduled: { delay: number; args: unknown }[] = [];
+    const ctx = {
+      runQuery: async (ref: unknown) => {
+        const name = getFunctionName(ref as never);
+        if (name.endsWith("nodeMoves:active")) return [];
+        if (name.endsWith("nodes:listLive")) return { rows: [], cursor: null };
+        if (name.endsWith("nodes:privacy")) return null;
+        throw new Error(`unexpected query ${name}`);
+      },
+      runMutation: async (ref: unknown, args: unknown) => {
+        mutations.push({ name: getFunctionName(ref as never), args });
+        return null;
+      },
+      scheduler: {
+        runAfter: async (delay: number, _ref: unknown, args: unknown) => {
+          scheduled.push({ delay, args });
+          return "job";
+        },
+      },
+    };
+    const store = memoryStore();
+    return { ctx, store, mutations, scheduled };
+  }
+  const workspaceId = "w" as never;
+
+  test("is asked once more before it is recorded, so a write in flight never stops the tree serving", async () => {
+    const { ctx, store, mutations, scheduled } = parityCtx();
+    await store.put("1-projects/a.md", "# a");
+    const result = await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesParity" } }, store as never);
+    expect(result).toMatchObject({ kind: "nodesParity" });
+    expect((result as { mismatches: number }).mismatches).toBeGreaterThan(0);
+    expect(mutations.filter((call) => call.name.endsWith("saveParity"))).toEqual([]);
+    expect(scheduled).toEqual([
+      { delay: NODE_PARITY_CONFIRM_MS, args: { workspaceId, scope: "private", operation: { kind: "nodesParity", confirm: true } } },
+    ]);
+  });
+
+  test("the confirming check records what it finds", async () => {
+    const { ctx, store, mutations, scheduled } = parityCtx();
+    await store.put("1-projects/a.md", "# a");
+    await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesParity", confirm: true } }, store as never);
+    expect(scheduled).toEqual([]);
+    const saved = mutations.filter((call) => call.name.endsWith("saveParity"));
+    expect(saved).toHaveLength(1);
+    expect((saved[0]!.args as { parity: { mismatches: number } }).parity.mismatches).toBeGreaterThan(0);
+  });
+
+  test("a matching check is recorded at once", async () => {
+    const { ctx, store, mutations, scheduled } = parityCtx();
+    await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesParity" } }, store as never);
+    expect(scheduled).toEqual([]);
+    expect(mutations.filter((call) => call.name.endsWith("saveParity"))).toHaveLength(1);
 describe("the privacy export", () => {
   const workspaceId = "w" as never;
   const operation = { kind: "nodesPrivacyExport" } as const;

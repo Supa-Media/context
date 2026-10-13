@@ -28,7 +28,7 @@ import type { FileEntry } from "../files/types";
  * visitor's edits stay in their tab, so they may rename and move there, and
  * copy the page's link; they have no workspace to share into and no archive.
  */
-export type NoteActionId = "share" | "rename" | "moveTo" | "copyLink" | "archive" | "restore";
+export type NoteActionId = "read" | "share" | "rename" | "moveTo" | "copyLink" | "archive" | "restore";
 
 export interface NoteActionContext {
   /** The note or folder that is open. */
@@ -38,6 +38,12 @@ export interface NoteActionContext {
   canShare: boolean;
   /** The homepage's visitor, whose Copy link copies the page's own address. */
   visitor: boolean;
+  /**
+   * Whether the note is being read rather than edited, for the sheet's first
+   * row. Absent where there is no such row — the phone's note bar, which only
+   * offers Share and Move.
+   */
+  reading?: boolean;
 }
 
 export function noteActionItems({
@@ -45,10 +51,25 @@ export function noteActionItems({
   canEdit,
   canShare,
   visitor,
+  reading,
 }: NoteActionContext): MenuItem<NoteActionId>[] {
   const writable = canEdit && !entry.readOnly;
   const archived = restoreTargetFor(entry.path) !== null;
   const items: MenuItem<NoteActionId>[] = [];
+
+  /*
+    Reading mode, first. It was an eye in the top bar beside •••; the owner's
+    redesign of that bar (2026-10-13) found it the least important button
+    there, so it is a row now. Any note can be read, a read-only one included,
+    so it has no permission to check. Named as the act, as the eye's label was.
+  */
+  if (reading !== undefined && entry.kind === "file") {
+    items.push({
+      id: "read",
+      label: reading ? "Edit this note" : "Read this note",
+      testID: "note-action-read",
+    });
+  }
 
   if (!visitor && canShare && !entry.readOnly) {
     items.push({ id: "share", label: "Share…", testID: "note-action-share" });

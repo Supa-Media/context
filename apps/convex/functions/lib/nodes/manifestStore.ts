@@ -33,10 +33,27 @@ export type NodePage = (after: string | undefined, limit: number) => Promise<{ r
  * The cursor it hands back is the last key of the page, a path the caller was
  * given, never anything about rows it was not.
  */
-export function nodesPagedStore(base: FileStore, page: NodePage, mirror: PrivacyMirror | null): FileStore {
+export function nodesPagedStore(
+  base: FileStore,
+  page: NodePage,
+  mirror: PrivacyMirror | null,
+  moves: readonly PendingMove[] = [],
+): FileStore {
   const store = Object.create(base) as FileStore;
+  // Non-enumerable, as the meaning index is attached: readers that list
+  // differently from the tree ask these, and nothing walking the store carries them out.
+  Object.defineProperty(store, SERVED, { value: true, enumerable: false });
+  Object.defineProperty(store, MOVES, { value: moves, enumerable: false });
+  let whole: Promise<NodeRow[]> | null = null;
   store.list = async (options) => {
     const prefix = options?.prefix ?? "";
+    if (options?.delimiter === "/") {
+      // One level, the whole of it in one answer, from one read of the tree
+      // kept for the life of this store: a picker that lists folder after
+      // folder reads the rows once, not once per folder.
+      whole ??= everyRow(page);
+      return oneLevel(await whole, prefix, options.cursor ?? options.startAfter);
+    }
     const cursor = options?.cursor;
     let after = typeof cursor === "string" && cursor !== "" ? cursor : options?.startAfter;
     // Start at the prefix itself rather than at the top of the tree.
@@ -62,6 +79,73 @@ export function nodesPagedStore(base: FileStore, page: NodePage, mirror: Privacy
     return mirrorFile(mirror) as Awaited<ReturnType<FileStore["get"]>>;
   };
   return store;
+}
+
+/** Marks a store whose listings are the tree's (`isServedStore`). */
+const SERVED = Symbol("nodesServed");
+const MOVES = Symbol("nodesPendingMoves");
+
+/** Whether `store` lists the Convex tree's rows rather than the bucket. */
+export function isServedStore(store: FileStore): boolean {
+  return (store as unknown as Record<symbol, unknown>)[SERVED] === true;
+}
+
+/** The pending moves a served store's rows are folded through; `[]` for any other store. */
+export function servedMoves(store: FileStore): readonly PendingMove[] {
+  const moves = (store as unknown as Record<symbol, unknown>)[MOVES];
+  return Array.isArray(moves) ? (moves as PendingMove[]) : [];
+}
+
+/** Every key a served store lists, in key order: one read of the rows. */
+export async function servedKeys(store: FileStore): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await store.list({ limit: FOLD_PAGE, ...(cursor === undefined ? {} : { cursor }) });
+    for (const object of page.objects ?? []) keys.push(object.key);
+    if (!page.truncated || page.cursor === undefined || page.cursor === cursor) return keys;
+    if (keys.length >= WHOLE_TREE_ROWS) throw new Error("the tree did not finish within its row bound");
+    cursor = page.cursor;
+  }
+}
+
+/** Rows one whole-tree read takes before it stops: past the largest workspace. */
+const WHOLE_TREE_ROWS = 250_000;
+
+async function everyRow(page: NodePage): Promise<NodeRow[]> {
+  const rows: NodeRow[] = [];
+  let after: string | undefined;
+  while (rows.length < WHOLE_TREE_ROWS) {
+    const next = await page(after, FOLD_PAGE);
+    rows.push(...next.rows);
+    if (next.cursor === null || next.cursor === after || next.rows.length === 0) return rows;
+    after = next.cursor;
+  }
+  // A walk that does not end is not a tree to draw from.
+  throw new Error("the tree did not finish within its row bound");
+}
+
+/** A delimited listing of one folder from every row, as the S3 adapter answers it. */
+function oneLevel(rows: readonly NodeRow[], prefix: string, after: string | undefined) {
+  const objects: { key: string; etag?: string; size?: number; uploaded?: Date }[] = [];
+  const folders = new Set<string>();
+  for (const row of rows) {
+    if (!row.path.startsWith(prefix)) continue;
+    if (after !== undefined && after !== "" && row.path <= after) continue;
+    const rest = row.path.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) {
+      objects.push({
+        key: row.path,
+        ...(row.etag !== undefined ? { etag: row.etag } : {}),
+        ...(row.size !== undefined ? { size: row.size } : {}),
+        ...(row.uploaded !== undefined ? { uploaded: new Date(row.uploaded) } : {}),
+      });
+    } else {
+      folders.add(`${prefix}${rest.slice(0, slash + 1)}`);
+    }
+  }
+  return { objects, delimitedPrefixes: [...folders], truncated: false };
 }
 
 /**
@@ -93,7 +177,7 @@ export async function servedNodesStore(
     };
   };
   const moves = await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId });
-  return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror);
+  return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror, moves);
 }
 
 /** Rows one read of the whole tree takes per page while moves are pending. */

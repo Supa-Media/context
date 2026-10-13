@@ -27,6 +27,7 @@ export const Tex = memo(function Tex({
   chaos,
   size,
   scheme: forced,
+  tug,
   testID,
 }: {
   /** 0 (calm) to 100 (chaos). */
@@ -35,6 +36,11 @@ export const Tex = memo(function Tex({
   size?: number;
   /** A page that is one scheme whatever the device's (the homepage is light only). */
   scheme?: Scheme;
+  /**
+   * Tex stressed, tugging at its yarn: 0 slack to 1 hauling (`useTug` moves
+   * it). Left out, Tex stands as always.
+   */
+  tug?: number;
   testID?: string;
 }) {
   const system = useScheme();
@@ -48,15 +54,24 @@ export const Tex = memo(function Tex({
       : 0;
   // A tenth of a point of chaos is not a different drawing.
   const step = Math.round(chaos * 10) / 10;
+  const pull = tug === undefined ? undefined : Math.round(tug * 50) / 50;
   const parts = useMemo(
-    () => figureParts(step, { small, minStroke }),
-    [step, small, minStroke],
+    () => figureParts(step, { small, minStroke, tug: pull }),
+    [step, small, minStroke, pull],
   );
   const g = parts.googly;
   const side = size ?? "100%";
 
   return (
-    <View style={{ width: side, height: side }} aria-hidden testID={testID}>
+    <View
+      style={[
+        { width: side, height: side },
+        // Leaning back against the pull.
+        pull === undefined ? null : { transform: [{ rotate: `${(-5 * pull).toFixed(1)}deg` }] },
+      ]}
+      aria-hidden
+      testID={testID}
+    >
       <Svg width={side} height={side} viewBox={parts.viewBox}>
         <RoughInk rough={!small}>
           {parts.speckles.map((s, i) => (
@@ -89,6 +104,16 @@ export const Tex = memo(function Tex({
               />
             </G>
           ))}
+          {parts.yarn === null ? null : (
+            <Path
+              d={parts.yarn.d}
+              stroke={ink}
+              strokeWidth={parts.yarn.width}
+              fill="none"
+              strokeLinecap="round"
+              testID={testID === undefined ? undefined : `${testID}-yarn`}
+            />
+          )}
           {parts.limbOpacity <= 0
             ? null
             : parts.limbs.map((limb, i) => (

@@ -88,6 +88,18 @@ test("a recorded move re-checks the tree by the paths it named", async () => {
   assert.equal(touches[0].body.workspaceId, "ws_recorded");
   assert.deepEqual(touches[0].body.paths, ["1-projects/a.md", "2-areas/a.md"]);
   assert.equal(touches[0].body.dirty, false);
+  // The move itself rides along, so pins and recents follow it (`lib/placesFollow.ts`).
+  assert.deepEqual(touches[0].body.moves, [{ from: "1-projects/a.md", to: "2-areas/a.md" }]);
+});
+
+test("a change that is not a move carries no moves", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const { store, settle } = storeWith(methods, "ws_recorded");
+  await recordChange(store, "create_note", "private", ["1-projects/a.md"], {});
+  await settle();
+  const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+  assert.equal(touches.length, 1);
+  assert.equal(touches[0].body.moves, undefined);
 });
 
 test("a recorded change naming more than 50 paths is reported dirty", async () => {
@@ -98,13 +110,52 @@ test("a recorded change naming more than 50 paths is reported dirty", async () =
   await settle();
   const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
   assert.equal(touches.length, 1);
-  assert.deepEqual(touches[0].body, { workspaceId: "ws_recorded", paths: [], files: [], dirty: true });
+  // The names go to a sweep; the 30 moves they spell still ride along, so places follow.
+  const moves = Array.from({ length: 30 }, (_, index) => ({ from: many[index * 2], to: many[index * 2 + 1] }));
+  assert.deepEqual(touches[0].body, { workspaceId: "ws_recorded", paths: [], files: [], dirty: true, moves });
 });
 
-test("a change that moves nothing in the tree is not reported as a touch", async () => {
+test("a save of a note's text is reported as edited, never as a re-check of its path", async () => {
+  // Without this the Convex rows kept the version from the last sweep, and
+  // the desktop and phone apps (which follow the tree's change log) never
+  // heard of an edit made on the web until the next hourly sweep.
+  for (const action of ["update_note", "encrypt_note", "decrypt_note"]) {
+    const { calls, methods } = controlPlaneRecorder();
+    const { store, settle } = storeWith(methods, "ws_recorded");
+    await recordChange(store, action, "private", ["1-projects/a.md"], {});
+    await settle();
+    const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+    assert.equal(touches.length, 1, `${action} was not reported to the tree`);
+    assert.deepEqual(
+      touches[0].body,
+      { workspaceId: "ws_recorded", paths: [], files: [], dirty: false, edited: ["1-projects/a.md"] },
+      action,
+    );
+  }
+});
+
+test("a save that changed front matter is re-checked by path, and not also as edited", async () => {
   const { calls, methods } = controlPlaneRecorder();
   const { store, settle } = storeWith(methods, "ws_recorded");
-  await recordChange(store, "update_note", "private", ["1-projects/a.md"], {});
+  await recordChange(store, "update_note", "private", ["1-projects/a.md"], { front_matter_changed: true });
+  await settle();
+  const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+  assert.equal(touches.length, 1);
+  assert.deepEqual(touches[0].body.paths, ["1-projects/a.md"]);
+  assert.equal(touches[0].body.edited, undefined);
+});
+
+test("more than 50 edited notes is sent dirty with no names", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const many = Array.from({ length: 51 }, (_, index) => `1-projects/e${index}.md`);
+  await methods.reportTreeTouch("ws_touch", { edited: many });
+  assert.deepEqual(calls[0].body, { workspaceId: "ws_touch", paths: [], files: [], dirty: true });
+});
+
+test("a change that touches no note is not reported as a touch", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const { store, settle } = storeWith(methods, "ws_recorded");
+  await recordChange(store, "approve_action", "private", [], {});
   await settle();
   assert.equal(calls.filter((call) => call.path === "/gateway/tree/touch").length, 0);
 });

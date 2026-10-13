@@ -1,0 +1,156 @@
+/**
+ * The file tree's box in an Indexes row's detail (`./IndexRows`): the Convex
+ * copy (what the app and AI clients list notes from), the D1 details behind
+ * Lists, Boards and the map, and the folder moves still copying, each with
+ * its buttons. The moves used to be their own panel under the table; the
+ * owner approved folding them into the workspace's row (2026-10-13).
+ *
+ * Counts, times and fixed labels only: a workspace's handle, never a folder's
+ * or a note's name.
+ */
+
+import { StyleSheet, View } from "react-native";
+import { Button, Dot, Text, space, useThemedStyles, type Colors } from "../design";
+import { whenLabel } from "./agent";
+import { relativeTime } from "./report";
+import { healthTone, parityWords, type IndexHealth, type MigrationRow, type MoveRow, type TreeIndexRow, type WorkspaceIndexes } from "./searchIndexes";
+import type { IndexActions } from "./IndexRows";
+
+export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
+  const styles = useThemedStyles(makeStyles);
+  const id = row.slug ?? row.workspaceId;
+  const now = Date.now();
+  const copy = row.migrationRow;
+  const tree = row.treeRow;
+  const canCopy = copy !== null && !actions.migrationPaused;
+  const canFill = tree !== null && tree.status !== "unsupported" && tree.status !== "unreachable";
+  const button = (key: string, label: string, busyLabel: string, onPress: () => void, testID: string, disabled = false) => (
+    <Button
+      label={actions.busy === key ? busyLabel : label}
+      disabled={actions.busy !== null || disabled}
+      onPress={onPress}
+      testID={testID}
+    />
+  );
+  return (
+    <View style={styles.box} testID={`admin-files-detail-${id}`}>
+      <View style={styles.head}>
+        {row.files.health === "none" ? null : <Dot tone={healthTone(row.files.health)} />}
+        <Text variant="rowTitle" style={styles.grow}>
+          File tree
+        </Text>
+        {canCopy || canFill
+          ? button(
+              `repair:${row.workspaceId}`,
+              "Repair",
+              "Starting…",
+              () => actions.repair(row.workspaceId, { copy: canCopy, fill: canFill }),
+              `admin-files-repair-${id}`,
+            )
+          : null}
+        {copy === null
+          ? null
+          : button(`check:${row.workspaceId}`, "Check", "Checking…", () => actions.check(row.workspaceId), `admin-files-check-${id}`)}
+      </View>
+      <Line tone={row.convex.health} label={row.convex.label} text={copyNote(copy, now)} problem={row.convex.problem} />
+      <Line
+        tone={row.details.health}
+        label={row.details.label}
+        text={`Lists, Boards and map details. ${detailsNote(tree, now)}`}
+        problem={row.details.problem}
+      />
+      {row.moves.map((move) => (
+        <View key={move.id} style={styles.move} testID={`admin-move-${move.id}`}>
+          <Dot tone={move.stuck ? "crit" : move.running ? "ok" : "neutral"} />
+          <Text variant="meta" style={styles.grow}>
+            {moveNote(move, now)}
+          </Text>
+          {button(`retry:${move.id}`, "Retry move", "Retrying…", () => actions.retryMove(move.id), `admin-move-retry-${move.id}`, move.running)}
+          {move.stuck
+            ? button(
+                `undo:${move.id}`,
+                "Undo move",
+                "Undoing…",
+                () => actions.undoMove(move.id),
+                `admin-move-undo-${move.id}`,
+                !move.canUndo || move.running,
+              )
+            : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Line({ tone, label, text, problem }: { tone: IndexHealth; label: string; text: string; problem: string | null }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.line}>
+      <View style={styles.lineTop}>
+        {tone === "none" ? null : <Dot tone={healthTone(tone)} />}
+        {tone === "none" ? null : (
+          <Text variant="rowSub" style={styles.strong}>
+            {label}
+          </Text>
+        )}
+        <Text variant="meta" style={styles.grow}>
+          {text}
+        </Text>
+      </View>
+      {problem ? (
+        <Text variant="meta" style={styles.problem}>
+          {problem}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** One sentence for the Convex copy: the file count, when it was last copied, and what the check said. */
+export function copyNote(copy: MigrationRow | null, now: number): string {
+  if (copy === null) return "No file tree. This workspace has no storage to copy.";
+  const files = `${copy.files.toLocaleString("en-US")} ${copy.files === 1 ? "file" : "files"}`;
+  const copied = copy.sweptAt === null ? "Never copied" : `Last copied ${relativeTime(copy.sweptAt, now)}`;
+  const dirty = copy.dirty ? " A change is waiting for the next copy." : "";
+  return `${files}. ${copied}. ${parityWords(copy.parity)}.${dirty}`;
+}
+
+/** One sentence for the D1 details: how many rows, when they were last filled. */
+export function detailsNote(tree: TreeIndexRow | null, now: number): string {
+  if (tree === null) return "Not read yet.";
+  return [
+    tree.rows === null ? null : `${tree.rows.toLocaleString("en-US")} notes and files.`,
+    tree.sweptAt === null ? "Never filled." : `Last filled ${whenLabel(tree.sweptAt, now)}.`,
+    tree.dirty ? "A big change is waiting for the next pass." : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** One sentence for a folder move still copying. */
+export function moveNote(move: MoveRow, now: number): string {
+  const head = move.undone ? "Folder move, undoing" : "Folder move";
+  const failed = move.lastError === null ? "" : ` · ${move.lastError} (${move.attempts} tries)`;
+  return `${head}: ${Math.min(move.moved, move.total)} of ${move.total} files copied · started ${whenLabel(move.createdAt, now)}${failed}`;
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    box: {
+      flexGrow: 1,
+      flexBasis: 240,
+      gap: space.x2,
+      padding: space.x3,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surface,
+    },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 28 },
+    grow: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+    line: { gap: 2 },
+    lineTop: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
+    strong: { fontWeight: "600", color: colors.text },
+    problem: { color: colors.critText },
+    move: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2 },
+  });
