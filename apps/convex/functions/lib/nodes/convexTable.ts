@@ -11,7 +11,7 @@
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
-import type { NodeTable, StoredNode } from "./table";
+import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from "./table";
 import { readMirror } from "./listing";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 
@@ -37,11 +37,12 @@ function toStored(doc: Doc<"nodes">): StoredNode {
  * `patch`, `remove` will then be unavailable at runtime, so callers that
  * write take a `MutationCtx`).
  */
-export function convexNodeTable(ctx: MutationCtx, workspaceId: Id<"workspaces">): NodeTable;
+export function convexNodeTable(ctx: MutationCtx, workspaceId: Id<"workspaces">, left?: readonly LeftAudiences[]): NodeTable;
 export function convexNodeTable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Pick<NodeTable, "byPath" | "underPrefix" | "observedBefore" | "hasLiveChild">;
 export function convexNodeTable(
   ctx: MutationCtx | QueryCtx,
   workspaceId: Id<"workspaces">,
+  left: readonly LeftAudiences[] = [],
 ): NodeTable {
   const writable = "insert" in ctx.db;
   const ownRow = async (id: string): Promise<Id<"nodes">> => {
@@ -51,6 +52,24 @@ export function convexNodeTable(
     return nodeId;
   };
   const writer = ctx as MutationCtx;
+  // What the writer knew of who could see each key before it left: a gone row narrows to it.
+  const knewBefore = new Map<string, Set<string>>();
+  for (const entry of left) {
+    const path = nodePath(entry.path);
+    if (path !== null) knewBefore.set(path, new Set(entry.audiences));
+  }
+  /**
+   * Who a key that left is told to. The rules as they stand, narrowed to what
+   * the writer said could see it before: a move clears the source's exact
+   * exception before the tree is re-checked, so the rules alone would answer
+   * with the folder's default and name a private note to the team. Narrowed,
+   * never widened: the writer's word only ever takes audiences away.
+   */
+  const goneAudiences = async (path: string): Promise<string[]> => {
+    const now = audiencesNow(path, await rulesNow());
+    const before = knewBefore.get(path);
+    return before === undefined ? now : now.filter((audience) => before.has(audience));
+  };
 
   /*
     The change log's state for this transaction, read on the first append:
@@ -165,9 +184,10 @@ export function convexNodeTable(
         seq,
         path,
         gone,
-        // Who could see it until now, judged by the rules as they stand: the
-        // only honest answer once it has left (`log.ts`).
-        ...(gone ? { audiences: audiencesNow(path, await rulesNow()) } : {}),
+        // Who could see it until now, judged by the rules as they stand (the
+        // only honest answer once it has left, `log.ts`), narrowed to what
+        // its writer knew of before the change (`goneAudiences`).
+        ...(gone ? { audiences: await goneAudiences(path) } : {}),
       });
     },
 

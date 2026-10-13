@@ -222,6 +222,7 @@ function announceTreeChange(store, action, paths, details) {
         files: touch.privacy === true && !files.includes(PRIVACY_KEY) ? [...files, PRIVACY_KEY] : files,
         // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
         ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
+        left: touch.left,
       });
     } else if (edited.length > 0 && typeof store.reportTreeTouch === "function") {
       // A save of a note's text: its new version, gathered with others (`treeEditsOf`).

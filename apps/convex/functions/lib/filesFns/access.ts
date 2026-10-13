@@ -80,6 +80,19 @@ export function treeChangeOf(operation: FileOperation): TreeChange | null {
 }
 
 /**
+ * What an operation whose paths are decided inside it did to the tree, read
+ * off its answer: a built-in folder's fixed name, chosen by its role. `null`
+ * for every other operation, whose change `treeChangeOf` knows beforehand.
+ */
+export function treeChangeOfResult(operation: FileOperation, result: unknown): TreeChange | null {
+  const landed = result as { kind?: unknown; path?: unknown } | null | undefined;
+  if (operation.kind === "addBuiltInFolder" && landed?.kind === "folderCreated" && typeof landed.path === "string") {
+    return { paths: [landed.path], narrows: false };
+  }
+  return null;
+}
+
+/**
  * `authorizeFileAccess`'s answer, for a query that has to ask it itself — a
  * reactive one cannot `runQuery`. One body, so the two can never disagree
  * about who reaches what.
@@ -225,6 +238,13 @@ export function indexChangeOf(
     case "delete":
     case "removeNewFolder":
       return { written: [], gone: [operation.path] };
+    case "form":
+    case "addBuiltInFolder": {
+      // The note these wrote is decided inside them: a form's response file, a folder's about.md.
+      const landed = result as { responsesPath?: unknown; readme?: unknown } | null | undefined;
+      const path = operation.kind === "form" ? landed?.responsesPath : landed?.readme;
+      return typeof path === "string" && path !== "" ? { written: [path], gone: [] } : null;
+    }
     default:
       return null;
   }

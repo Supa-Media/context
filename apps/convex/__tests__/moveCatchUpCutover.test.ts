@@ -21,6 +21,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { FunctionArgs } from "convex/server";
+import type { Id } from "../_generated/dataModel";
 import { fakeS3 } from "./fakeS3.helpers";
 import { FAKE_STORAGE, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -195,6 +196,12 @@ describe("switching over", () => {
   });
 });
 
+async function treeRow(t: Awaited<ReturnType<typeof switchedOver>>["t"], workspaceId: Id<"workspaces">) {
+  return await t.run(async (ctx) =>
+    await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique(),
+  );
+}
+
 async function switchedOver() {
   const setup = await readyToSwitch({ passStartedAt: Date.now() - 5 * 60_000 });
   await setup.t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, {
@@ -239,6 +246,10 @@ describe("the passes after a switch-over", () => {
       ),
     ).toEqual([]);
 
+    // What it wrote is not named to the tree one by one: the tree is swept.
+    // Sabotage: drop the `requestSweep` after `catchUpPage` and this fails.
+    expect((await treeRow(t, workspaceId))?.dirty).toBe(true);
+
     const [next] = await catchUpJobs(t);
     expect(next?.args[0]).toMatchObject({ pass: 1, since: args.since });
     expect(next?.scheduledTime).toBe(args.cutoverAt + CATCH_UP_PASS_DELAYS_MS[1]!);
@@ -266,6 +277,8 @@ describe("the passes after a switch-over", () => {
       pass: CATCH_UP_PASS_DELAYS_MS.length - 1,
     });
     expect(await catchUpJobs(t)).toEqual([]);
+    // A pass that wrote nothing asks for no sweep.
+    expect((await treeRow(t, workspaceId))?.dirty ?? false).toBe(false);
   });
 
   test("an old bucket that no longer answers moves on to the next pass", async () => {

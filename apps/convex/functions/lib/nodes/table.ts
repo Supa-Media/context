@@ -56,6 +56,18 @@ export interface Observation {
   rows: NodeRow[];
   gone: string[];
   vanishedUnder: string[];
+  /**
+   * Who could see a key before the change that took it away, as its writer
+   * judged it. A move clears the source's exception before the tree hears of
+   * it, so a `gone` row narrows to this (`convexTable.ts`, `logChange`).
+   */
+  left?: LeftAudiences[];
+}
+
+/** A key a change took away and the audiences that could see it before. */
+export interface LeftAudiences {
+  path: string;
+  audiences: string[];
 }
 
 /**

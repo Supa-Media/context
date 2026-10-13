@@ -182,13 +182,16 @@ export const observe = internalMutation({
     gone: v.array(v.string()),
     vanishedUnder: v.array(v.string()),
     vanishCursor: v.optional(vanishCursorValidator),
+    /** Who could see each key a change took away, before it: gone rows narrow to it (`convexTable.ts`). */
+    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   },
   returns: v.object({ more: v.boolean(), vanishCursor: v.optional(vanishCursorValidator) }),
   handler: async (ctx, args): Promise<{ more: boolean; vanishCursor?: { index: number; after?: string } }> => {
     if (args.rows.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_ROWS" });
     if (args.gone.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_GONE" });
     if (args.vanishedUnder.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_PREFIXES" });
-    const table = convexNodeTable(ctx, args.workspaceId);
+    if ((args.left?.length ?? 0) > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_LEFT" });
+    const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
     const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
     if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
     const result = await applyObservation(
@@ -241,6 +244,16 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
+    // `begin` cleared `dirty`, so a mark now is a sweep asked for while this
+    // one held the lease (an email capture names no path, so a sweep is its
+    // only re-check). Started here, or it waits for the hourly cron.
+    if (next.dirty && nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "nodesSweep" },
+      });
+    }
     // A finished copy is checked against its bucket when it has never been,
     // when its last check differed, or when its last proof is a day old
     // (`nodeParityDue`). The first is how a new workspace starts being served

@@ -29,7 +29,7 @@ import { type NodeListingStore, sweepNodesPass } from "./sweep";
 import { touchNodes } from "./touch";
 import { followPlacesAfter } from "./followPlaces";
 import { runFactFill, scheduleFactFill } from "./factFill";
-import { type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
+import { type LeftAudiences, type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
 export type NodesOperation = Extract<
   FileOperation,
@@ -193,7 +193,11 @@ export async function runNodesOperation(
 
   if (operation.kind === "nodesTouch") {
     try {
-      const { dirty } = await touchNodes(listing, sink, { paths: operation.paths, files: operation.files });
+      const { dirty } = await touchNodes(listing, sink, {
+        paths: operation.paths,
+        files: operation.files,
+        ...(operation.left === undefined ? {} : { left: operation.left }),
+      });
       if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
       // What the changed notes now say, their links and front matter, read
       // with the bucket this re-check already opened.
@@ -258,13 +262,18 @@ export async function runNodesOperation(
 export async function scheduleNodesTouch(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
-  change: { paths: string[]; files: string[] },
+  change: { paths: string[]; files: string[]; left?: LeftAudiences[] },
 ): Promise<void> {
   try {
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "private",
-      operation: { kind: "nodesTouch", paths: change.paths, files: change.files },
+      operation: {
+        kind: "nodesTouch",
+        paths: change.paths,
+        files: change.files,
+        ...(change.left === undefined || change.left.length === 0 ? {} : { left: change.left }),
+      },
     });
   } catch {
     // A shadow never fails a change. The next sweep repairs what this missed.
@@ -278,12 +287,16 @@ export async function scheduleNodesTouch(
  * returns (phase 2: the console reads this tree). Never throws, and a change
  * too big to re-check, or one made while staff paused the migration, only
  * marks the tree for a sweep, as the scheduled re-check does.
+ *
+ * `left` says who could see each key the change took away, before it: a move
+ * rewrites the rules before this re-check, and the tree's gone rows narrow to
+ * it (`convexTable.ts`).
  */
 export async function touchNodesNow(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   store: FileStore,
-  change: { paths: string[]; files: string[] },
+  change: { paths: string[]; files: string[]; left?: LeftAudiences[] },
 ): Promise<void> {
   const sink = sinkFor(ctx, workspaceId);
   try {
@@ -300,6 +313,11 @@ export async function touchNodesNow(
     console.error("nodes.touch_failed", { workspaceId });
     await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
   }
+}
+
+/** Ask for a sweep of the Convex tree after a change too wide to name. Never throws. */
+export async function requestNodesSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
 }
 
 /**

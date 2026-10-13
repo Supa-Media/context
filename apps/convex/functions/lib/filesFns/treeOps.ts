@@ -26,6 +26,7 @@ import { factChaosSource, factPropSource, factsReady } from "../nodes/factSource
 import { clearanceOf } from "../clearance";
 import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
+import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
 import { isServedStore, servedNodesStore } from "../nodes/manifestStore";
 import { attachLinkTable, convexLinkTable } from "../nodes/linkTable";
@@ -174,10 +175,10 @@ async function markChanged(ctx: ActionCtx, workspaceId: Id<"workspaces">, audien
 export async function keepTreeAndAnnounce(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces"> },
-  change: { paths: string[]; files: string[]; audiences: string[] },
+  change: { paths: string[]; files: string[]; audiences: string[]; left?: { path: string; audiences: string[] }[] },
   store?: FileStore,
 ): Promise<void> {
-  const nodesChange = { paths: change.paths, files: change.files };
+  const nodesChange = { paths: change.paths, files: change.files, left: change.left };
   if (change.paths.length + change.files.length > 0) {
     if (store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
     else await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
@@ -228,9 +229,15 @@ export async function announceTreeChange(
     }
     const after = await loadPrivacyState(store);
     const audiences = audiencesForChange({ change, paths, gone, before, after });
+    // Who could see each key this took away, by the manifest from before it:
+    // what a device catching up is told by (`nodesFeed`). Unknown without
+    // that manifest, and then only the owner is told.
+    const left = before === null
+      ? []
+      : [...gone].map((path) => ({ path, audiences: treeAudiences([path], before.rules, before.overrides) }));
     // A change that rewrote the rules re-reads them into the tree's mirror too.
     const rules = before === null || before.etag !== after.etag ? [PRIVACY_KEY] : [];
-    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences }, store);
+    await keepTreeAndAnnounce(ctx, args, { paths: [...paths, ...gone], files: [...files, ...rules], audiences, left }, store);
   } catch {
     // See above: a hint is never a failed change.
   }
