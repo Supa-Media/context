@@ -39,7 +39,7 @@ import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from 
 import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
-import { keepChaos } from "../tree/record.js";
+import { changeChaos } from "../chaos/change.js";
 
 /**
  * Tools that rearrange notes inside one context. A move adds nothing, so on a
@@ -665,9 +665,10 @@ function noteAgentActivity(store, name, args, result) {
 /**
  * End a write's answer with what it did to the chaos score (`chaos/report.js`).
  *
- * The rescore was started by the change itself; a save of an existing note's
- * text starts none (the editor saves on every pause), so for `write_note`
- * one is started here, for that note alone. Never throws, and never holds
+ * The count was started by the change itself (`chaos/change.js`); a save of
+ * an existing note's text starts none (the editor saves on every pause), so
+ * for `write_note` one is started here, for that note alone, which counts its
+ * new length against the facts' old one. Never throws, and never holds
  * an answer longer than `WAIT_MS`.
  */
 async function reportingChaos(store, name, args, scope, result) {
@@ -677,9 +678,9 @@ async function reportingChaos(store, name, args, scope, result) {
   if (args?.comment !== undefined || args?.site !== undefined) return result;
   try {
     let report = started === undefined ? null : await within(started);
-    if (report === null && name === "write_note" && typeof args?.path === "string") {
+    if (started === undefined && name === "write_note" && typeof args?.path === "string") {
       const path = normalizePath(args.path);
-      if (path) report = await within(keepChaos(store, null, { files: [path] }));
+      if (path) report = await within(changeChaos(store, { files: [path] }));
     }
     return withChaosLines(result, chaosLines(report, scope === "private" ? "all" : "team"));
   } catch {

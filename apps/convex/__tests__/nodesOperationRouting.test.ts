@@ -6,8 +6,12 @@
  * operation to `runNodesOperation`. A kind it misses falls through to the
  * file operations and is refused there; a kind it wrongly claims is run by the
  * tree's code. Both are pinned here, against the kinds the other operations
- * use. Sabotage-checked: adding "treeState" to `isNodesOperation` fails the
+ * use. Sabotage-checked: adding "folderNotes" to `isNodesOperation` fails the
  * negative check.
+ *
+ * The D1 tree's operations (`sweepTree`, `touchTree`, `treeState`) left in
+ * phase 7 of the tree migration; the validators no longer accept them, so no
+ * scheduler call can name one (`runFileOperation`'s args are typed by them).
  */
 
 import { describe, expect, test } from "vitest";
@@ -34,7 +38,7 @@ describe("isNodesOperation", () => {
   });
 
   test("leaves every other operation to the barrier's own routes", () => {
-    for (const kind of ["sweepTree", "touchTree", "treeState", "list", "write", "manifest"]) {
+    for (const kind of ["folderNotes", "chaosScore", "list", "write", "manifest"]) {
       expect(isNodesOperation({ kind })).toBe(false);
     }
   });
@@ -49,6 +53,13 @@ describe("runFileOperation's validators name the Convex tree operations", () => 
   test("the result returns each of their answers", () => {
     const kinds = kindsOf(operationResultValidator);
     expect(kinds).toEqual(expect.arrayContaining(["nodesKept", "nodesParity"]));
+  });
+
+  test("the D1 tree's sweep, re-check and health are neither accepted nor answered", () => {
+    const operations = kindsOf(operationValidator);
+    for (const kind of ["sweepTree", "touchTree", "treeState"]) expect(operations).not.toContain(kind);
+    const results = kindsOf(operationResultValidator);
+    for (const kind of ["treeKept", "treeState"]) expect(results).not.toContain(kind);
   });
 });
 

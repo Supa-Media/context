@@ -101,18 +101,6 @@ export type FileOperation =
   | { kind: "projectIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
-  /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
-  | { kind: "sweepTree"; passes?: number }
-  | {
-      kind: "touchTree";
-      paths: string[];
-      files: string[];
-      audiences: string[];
-      /** For a key this change took away: the audiences that could see it before. */
-      left?: { path: string; audiences: string[] }[];
-    }
-  /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
-  | { kind: "treeState" }
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
   | { kind: "nodesSweep"; passes?: number }
   | { kind: "nodesFactFill"; passes?: number }
@@ -123,7 +111,7 @@ export type FileOperation =
   | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
-  /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+  /** A folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
   | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
   /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */
   | { kind: "chaosScore"; folder?: string }
@@ -380,7 +368,6 @@ export type OperationResult =
       /** The `privacy.md` version the walk was judged by, read before it started. */
       privacy?: string | null;
     } & SyncManifest)
-  | { kind: "treeKept"; complete: boolean }
   | { kind: "nodesKept"; complete: boolean }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
@@ -388,15 +375,6 @@ export type OperationResult =
   | TreeChangesResult
   | FolderNotesResult
   | ChaosScoreResult
-  | {
-      kind: "treeState";
-      status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";
-      rows: number | null;
-      sweptAt: number | null;
-      dirty: boolean;
-      /** Why the last sweep pass failed, keys removed. */
-      error: string | null;
-    }
   | {
       kind: "notes";
       results: Array<

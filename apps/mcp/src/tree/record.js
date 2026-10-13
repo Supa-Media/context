@@ -1,23 +1,22 @@
 /**
- * Which recorded changes re-check the tree table, and how.
+ * Which recorded changes the Convex tree re-checks, and how.
  *
  * `recordChange` is the one call every gateway write makes afterwards, so it
- * is where the table hears about them. A change to the tree's shape — a note
- * created, moved, archived, a folder moved — has every path it names
- * re-checked as a note and as a folder (`touchTree`). A write that only puts
- * text in a note has that key alone re-checked, except a save of an existing
- * note's body (`update_note`), whose new version reaches the table inside the
- * search projection's own database call (`writeProjection.js`) instead: the
- * live editor commits every typing pause, and a listing per pause is cost with
- * nothing to show for it.
+ * is where the control plane hears about them (`reportTreeTouch`,
+ * `activity/record.js`). A change to the tree's shape — a note created,
+ * moved, archived, a folder moved — has every path it names re-checked as a
+ * note and as a folder. A write that only puts text in a note has that key
+ * alone re-checked, and a save of an existing note's body (`update_note`) is
+ * gathered with others as `edited` (`treeEditsOf`): the live editor commits
+ * every typing pause, and a re-check per pause is cost with nothing to show.
+ *
+ * The search database's own tree table, which these once re-checked too, was
+ * retired in phase 7 of `docs/decisions/app-and-console/convex-tree.md`
+ * (`tree/retired.js`).
  */
 
-import { createD1Client } from "../search/d1/client.js";
 import { sendsTreeHint } from "../activity/changes.js";
-import { touchTree } from "./touch.js";
-import { canSee, GROUP_SCOPE_PATTERN } from "../privacy/engine.js";
-import { loadPrivacyState } from "../privacy/state.js";
-import { rescoreChange } from "../chaos/table.js";
+import { GROUP_SCOPE_PATTERN } from "../privacy/engine.js";
 
 /** Writes that put text in a note, which may be a note that was not there before. */
 const WRITES = new Set([
@@ -48,9 +47,8 @@ const PRIVACY_WRITERS = new Set(["set_visibility", "set_folder_visibility"]);
 
 /**
  * Saves that change only a note's text, so its version and size, and nothing
- * of the tree's shape. The D1 table hears of them through the search
- * projection (`writeProjection.js`); the Convex tree hears of them as
- * `edited` (`treeEditsOf`), which the control plane gathers for a few seconds
+ * of the tree's shape. The Convex tree hears of them as `edited`
+ * (`treeEditsOf`), which the control plane gathers for a few seconds
  * before re-checking. Without it the Convex rows kept the version from the
  * last sweep (up to an hour), so the desktop and phone apps, which follow its
  * change log, never heard of an edit made on the web until then.
@@ -77,7 +75,7 @@ function movesOf(action, named, details) {
  * A one-note move also says who could see the note where it was, from the
  * tool's own `source_visibility` — read from the manifest before the move,
  * which then carried any exception along with the note. A device catching up
- * is told the old path left only by that (`table.js`, "What changed since").
+ * is told the old path left only by that.
  */
 export function treeTouchOf(action, paths, details) {
   if (!Array.isArray(paths) || paths.length === 0) return null;
@@ -86,7 +84,7 @@ export function treeTouchOf(action, paths, details) {
   if (sendsTreeHint(action, details)) {
     const pairs = movesOf(action, named, details);
     const moves = pairs.length > 0 ? { moves: pairs } : {};
-    // Carried as a flag rather than a path: the tree table re-checks what the
+    // Carried as a flag rather than a path: the tree re-checks what the
     // change named, and only the control plane's mirror needs the manifest.
     const privacy = PRIVACY_WRITERS.has(action) ? { privacy: true } : {};
     const visibility = details?.source_visibility;
@@ -110,54 +108,4 @@ export function treeEditsOf(action, paths, details) {
   if (!TEXT_SAVES.has(action) || !Array.isArray(paths)) return [];
   if (treeTouchOf(action, paths, details) !== null) return [];
   return paths.filter((path) => typeof path === "string" && path !== "");
-}
-
-/** This context's database, or null where fast search has none. */
-export function treeClientOf(store) {
-  const descriptor = store?.searchIndex;
-  if (!descriptor || typeof descriptor !== "object") return null;
-  try {
-    return createD1Client(descriptor);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Re-check what a change touched, then rescore it for the chaos score.
- * Never throws: see `touchTree`.
- *
- * @returns {Promise<object | null>} what the change did to the chaos score (`chaos/table.js`), or null
- */
-export async function keepTreeTable(store, touch) {
-  if (!touch) return null;
-  const client = treeClientOf(store);
-  if (client === null) return null;
-  try {
-    await touchTree(store, client, touch);
-  } catch {
-    // A derivative one change behind; the next sweep repairs it.
-  }
-  return await keepChaos(store, client, touch);
-}
-
-/**
- * Rescore the folders a change touched (`chaos/table.js`). Never throws: a
- * score one change behind is put right by the next full pass.
- *
- * @param {object} store
- * @param {{ query: Function, runAll: Function } | null} [client] defaults to the store's database
- * @param {{ paths?: string[], files?: string[], moves?: [string, string][] }} touch
- */
-export async function keepChaos(store, client, touch) {
-  const database = client ?? treeClientOf(store);
-  if (database === null || !touch) return null;
-  try {
-    const state = await loadPrivacyState(store);
-    if (state.error) return null;
-    const visibleToTeam = (path) => canSee(path, "team", state.rules, state.overrides);
-    return await rescoreChange(database, { ...touch, visibleToTeam, store });
-  } catch {
-    return null;
-  }
 }

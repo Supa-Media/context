@@ -3,20 +3,21 @@
  *
  * On a served workspace the app's score is counted at read time from the
  * tree's keys (pending moves folded in), with only the per-note extras a key
- * cannot carry (long notes, contact reviews) read from the properties table.
- * It must answer exactly what the table's aggregates answer, at both
- * clearances, and score a moved folder under its new name at once.
+ * cannot carry (long notes, contact reviews) read from the Convex facts. It
+ * must answer exactly what reading those extras straight from the bucket
+ * answers, at both clearances, and score a moved folder under its new name at
+ * once. Until the facts have read every note there is no score: the search
+ * database's own numbers it once fell back to left in phase 7.
  *
  * Sabotage-checked: answering a member from every key (not the team-visible
  * ones) fails the team case; dropping the move fold on the extras fails the
  * moved long note; dropping the `present` check lists a deleted long note.
  */
 
-import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { type FileStore, setFolderVisibility } from "../../functions/lib/fileOps";
-import { chaosAfterFill, chaosScoreOf, liveChaosScoreOf, tableChaosSource } from "../../functions/lib/filesFns/chaosOps";
+import { liveChaosScoreOf, type ChaosSource } from "../../functions/lib/filesFns/chaosOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { foldedPages, nodesPagedStore, type NodePage } from "../../functions/lib/nodes/manifestStore";
@@ -24,34 +25,12 @@ import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
 import { compareKeys } from "../../functions/lib/nodes/sweep";
 import type { PendingMove } from "../../functions/lib/nodes/moveOverlay";
 import type { NodeRow } from "../../functions/lib/nodes/table";
-import { sweepTreePass } from "../../../mcp/src/tree/sweep.js";
-import { propFillPass } from "../../../mcp/src/tree/props.js";
+import { chaosExtraOf } from "../../functions/lib/nodes/facts";
+import { factsOf } from "../../functions/lib/nodes/factFill";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { factChaosSource } from "../../functions/lib/nodes/factSources";
 import { internal } from "../../_generated/api";
 import { factCtx, fillAll, observeBucket, tester, workspace as convexWorkspace } from "./facts.helpers";
-
-const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
-
-function sqliteClient() {
-  const db = new DatabaseSync(":memory:");
-  return {
-    async query(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
-    },
-    async runAll(statements: readonly { sql: string; params?: unknown[] }[]) {
-      db.exec("BEGIN");
-      try {
-        for (const { sql, params = [] } of statements) db.prepare(sql).run(...(params as never[]));
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-      return { applied: statements.length, skipped: false };
-    },
-  };
-}
 
 type Bucket = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");
@@ -71,15 +50,30 @@ async function workspace(): Promise<Bucket> {
   return store;
 }
 
-async function filled(store: Bucket) {
-  const client = sqliteClient();
-  while (!(await sweepTreePass(store, client)).complete);
-  for (let pass = 0; pass < 20; pass += 1) {
-    const props = await propFillPass(store, client);
-    await chaosAfterFill(store, client, props);
-    if (props.ready) return client;
+/**
+ * Every note's extras read straight from the bucket, with no history: the
+ * answer the facts must give, without keeping anything.
+ */
+async function bucketSource(store: Bucket): Promise<ChaosSource> {
+  const listing = await store.list({ limit: 10_000 });
+  const extras = new Map<string, { lines: number | null; exempt: boolean; review: boolean }>();
+  for (const { key } of listing.objects as { key: string }[]) {
+    if (!key.endsWith(".md")) continue;
+    const object = await store.get(key);
+    const extra = object ? chaosExtraOf(key, factsOf(key, await object.text()).props) : null;
+    if (extra !== null) extras.set(key, extra);
   }
-  throw new Error("the properties table never filled");
+  return { extras: async () => extras, weekAgo: async () => null };
+}
+
+/** The Convex tree mirroring `bucket`, its facts filled. */
+async function withFacts(bucket: Bucket, slug: string) {
+  const t = tester();
+  const ws = await convexWorkspace(t, slug);
+  await observeBucket(t, ws, bucket);
+  await fillAll(t, ws, bucket);
+  const { ctx } = factCtx(t);
+  return { t, ws, source: () => factChaosSource(ctx, ws) };
 }
 
 async function servedOf(bucket: Bucket, moves: PendingMove[] = []) {
@@ -95,68 +89,51 @@ async function servedOf(bucket: Bucket, moves: PendingMove[] = []) {
 }
 
 describe("chaos counted from the tree's rows", () => {
-  test("answers what the table answers, for the owner and a team member", async () => {
+  test("the Convex facts answer what the bucket's own notes say, for the owner and a team member", async () => {
     const bucket = await workspace();
-    const client = await filled(bucket);
+    const { source } = await withFacts(bucket, "chaos");
+    const oracle = await bucketSource(bucket);
     const served = await servedOf(bucket);
     for (const clearance of [OWNER, TEAM]) {
       for (const folder of [undefined, "1-projects/crowded", "/1-projects/calm/", "2-areas/payroll"]) {
         const operation = folder === undefined ? {} : { folder };
-        expect(await liveChaosScoreOf(served, tableChaosSource(client), operation, clearance)).toEqual(
-          await chaosScoreOf(bucket, client, operation, clearance),
+        // Today's history is not yet a week old: both say nothing a week ago.
+        expect(await liveChaosScoreOf(served, source(), operation, clearance)).toEqual(
+          await liveChaosScoreOf(served, oracle, operation, clearance),
         );
       }
     }
-    const member = await liveChaosScoreOf(served, tableChaosSource(client), {}, TEAM);
+    const owner = await liveChaosScoreOf(served, source(), {}, OWNER);
+    expect(owner?.longNotes.map((note) => note.path).sort()).toEqual([
+      "1-projects/calm/handbook.md",
+      "2-areas/payroll/ledger-history.md",
+    ]);
+    const member = await liveChaosScoreOf(served, source(), {}, TEAM);
     expect(JSON.stringify(member)).not.toContain("payroll");
     expect(member?.longNotes.map((note) => note.path)).toEqual(["1-projects/calm/handbook.md"]);
+    // The chip answers for one folder, and nothing for one the reader has no note in.
+    expect((await liveChaosScoreOf(served, source(), { folder: "1-projects/crowded" }, TEAM))?.folder?.items).toBe(WORDS.length);
+    expect((await liveChaosScoreOf(served, source(), { folder: "2-areas/payroll" }, TEAM))?.folder).toBeNull();
+    expect((await liveChaosScoreOf(served, source(), { folder: "2-areas/payroll" }, OWNER))?.folder?.items).toBe(WORDS.length + 1);
   });
 
   test("a folder waiting to move is scored under its new name, its long note with it", async () => {
     const bucket = await workspace();
-    const client = await filled(bucket);
+    const { source } = await withFacts(bucket, "moving");
     const served = await servedOf(bucket, [{ from: "1-projects/calm", to: "1-projects/quiet" }]);
-    const answer = (await liveChaosScoreOf(served, tableChaosSource(client), {}, OWNER))!;
+    const answer = (await liveChaosScoreOf(served, source(), {}, OWNER))!;
     expect(answer.longNotes.map((note) => note.path)).toContain("1-projects/quiet/handbook.md");
     expect(JSON.stringify(answer)).not.toContain("1-projects/calm");
-    const chip = await liveChaosScoreOf(served, tableChaosSource(client), { folder: "1-projects/quiet" }, OWNER);
+    const chip = await liveChaosScoreOf(served, source(), { folder: "1-projects/quiet" }, OWNER);
     expect(chip?.folder?.items).toBe(5);
   });
 
   test("a long note gone from the tree is not listed", async () => {
     const bucket = await workspace();
-    const client = await filled(bucket);
+    const { source } = await withFacts(bucket, "gone");
     await bucket.delete("2-areas/payroll/ledger-history.md");
-    const answer = (await liveChaosScoreOf(await servedOf(bucket), tableChaosSource(client), {}, OWNER))!;
+    const answer = (await liveChaosScoreOf(await servedOf(bucket), source(), {}, OWNER))!;
     expect(answer.longNotes.map((note) => note.path)).not.toContain("2-areas/payroll/ledger-history.md");
-  });
-
-  test("nothing until the properties fill has read the notes", async () => {
-    const bucket = await workspace();
-    const client = sqliteClient();
-    while (!(await sweepTreePass(bucket, client)).complete);
-    expect(await liveChaosScoreOf(await servedOf(bucket), tableChaosSource(client), {}, OWNER)).toBeNull();
-  });
-
-  test("the Convex facts answer what the table answers, for the owner and a team member", async () => {
-    const bucket = await workspace();
-    const client = await filled(bucket);
-    const t = tester();
-    const ws = await convexWorkspace(t, "chaos");
-    await observeBucket(t, ws, bucket);
-    await fillAll(t, ws, bucket);
-    const { ctx } = factCtx(t);
-    const served = await servedOf(bucket);
-    for (const clearance of [OWNER, TEAM]) {
-      for (const folder of [undefined, "1-projects/crowded", "/1-projects/calm/", "2-areas/payroll"]) {
-        const operation = folder === undefined ? {} : { folder };
-        expect(await liveChaosScoreOf(served, factChaosSource(ctx, ws, null), operation, clearance)).toEqual(
-          await liveChaosScoreOf(served, tableChaosSource(client), operation, clearance),
-        );
-      }
-    }
-    const member = await liveChaosScoreOf(served, factChaosSource(ctx, ws, null), {}, TEAM);
-    expect(JSON.stringify(member)).not.toContain("payroll");
   });
 
   test("nothing from the Convex facts until they have read every note", async () => {
@@ -165,36 +142,28 @@ describe("chaos counted from the tree's rows", () => {
     const ws = await convexWorkspace(t, "unread");
     await observeBucket(t, ws, bucket);
     const { ctx } = factCtx(t);
-    expect(await liveChaosScoreOf(await servedOf(bucket), factChaosSource(ctx, ws, null), {}, OWNER)).toBeNull();
+    expect(await liveChaosScoreOf(await servedOf(bucket), factChaosSource(ctx, ws), {}, OWNER)).toBeNull();
   });
 
-  test("a week ago carries over from the search database once, then is kept in Convex", async () => {
+  test("history starts in Convex: today is recorded, and a week ago is read back from the recorded days", async () => {
     const bucket = await workspace();
-    const client = await filled(bucket);
-    const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
-    await client.runAll([
-      {
-        sql: "INSERT OR REPLACE INTO index_state (key, value) VALUES (?1, ?2)",
-        params: ["chaos_daily", JSON.stringify({ [day(9)]: [61.2, 40.5], [day(40)]: [99, 99] })],
-      },
-    ]);
-    const t = tester();
-    const ws = await convexWorkspace(t, "history");
-    await observeBucket(t, ws, bucket);
-    await fillAll(t, ws, bucket);
-    const { ctx } = factCtx(t);
+    const { t, ws, source } = await withFacts(bucket, "history");
     const served = await servedOf(bucket);
-    // The first read finds no history yet, and carries the database's over as it records today.
-    expect((await liveChaosScoreOf(served, factChaosSource(ctx, ws, client), {}, OWNER))!.weekAgo).toBeNull();
-    const owner = (await liveChaosScoreOf(served, factChaosSource(ctx, ws, null), {}, OWNER))!;
-    const member = (await liveChaosScoreOf(served, factChaosSource(ctx, ws, null), {}, TEAM))!;
-    expect([owner.weekAgo, member.weekAgo]).toEqual([61.2, 40.5]);
-    const days = await t.run(async (ctx) => (await ctx.db.query("nodeChaosDays").collect()).map((row) => row.day).sort());
-    // The last 35 recorded days are kept, as the database kept them.
-    expect(days).toEqual([day(40), day(9), day(0)]);
-    expect(await t.query(internal.functions.nodeChaos.history, { workspaceId: ws, daysAgo: 0, now: Date.now() })).toMatchObject({
-      then: { all: Math.round(owner.score! * 10) / 10 },
-      recorded: 3,
+    // Nothing recorded yet: no week ago, and nothing carried over from anywhere.
+    const first = (await liveChaosScoreOf(served, source(), {}, OWNER))!;
+    expect(first.weekAgo).toBeNull();
+    const recorded = await t.run(async (ctx) => await ctx.db.query("nodeChaosDays").collect());
+    expect(recorded.map((row) => row.day)).toEqual([new Date().toISOString().slice(0, 10)]);
+    expect(await t.query(internal.functions.nodeChaos.history, { workspaceId: ws, daysAgo: 0, now: Date.now() })).toEqual({
+      then: { all: Math.round(first.score! * 10) / 10, team: recorded[0]!.team },
     });
+    // A day recorded nine days ago answers "a week ago" for both audiences.
+    const nineDaysAgo = new Date(Date.now() - 9 * 86_400_000).toISOString().slice(0, 10);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeChaosDays", { workspaceId: ws, day: nineDaysAgo, all: 61.2, team: 40.5 });
+    });
+    const owner = (await liveChaosScoreOf(served, source(), {}, OWNER))!;
+    const member = (await liveChaosScoreOf(served, source(), {}, TEAM))!;
+    expect([owner.weekAgo, member.weekAgo]).toEqual([61.2, 40.5]);
   });
 });

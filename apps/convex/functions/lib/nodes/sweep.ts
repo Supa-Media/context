@@ -2,8 +2,9 @@
  * The sweep: the tree's rows rebuilt from a listing of the bucket, a bounded
  * number of pages at a time, through the `NodeSink` seam (`table.ts`).
  *
- * This is `apps/mcp/src/tree/sweep.js` ported. The rules are the same and the
- * seam is different: the D1 version wrote SQL, this one calls the sink, whose
+ * This is the gateway's D1 tree sweep ported (that copy of the tree, and its
+ * sweep, left in phase 7). The rules are the same and the seam is different:
+ * the D1 version wrote SQL, this one calls the sink, whose
  * production form is a Convex mutation (`functions/nodes.ts`) and whose test
  * form runs the very same `observe.ts` rules over a Map.
  *
@@ -211,7 +212,7 @@ async function runPass(
     // A page whose keys were all hidden (deleted notes' markers, which the
     // store does not list) shows nothing yet moves on: resume after the last
     // key the provider listed, or every pass asks for the same page again.
-    // Ported from the D1 sweep's fix of 2026-10-08 (`apps/mcp/src/tree/sweep.js`).
+    // Ported from the D1 sweep's fix of 2026-10-08.
     const resumeAfter = (listing as { resumeAfter?: unknown }).resumeAfter;
     if (jump === null && typeof resumeAfter === "string" && compareKeys(resumeAfter, last) > 0) last = resumeAfter;
     rows += kept.length;

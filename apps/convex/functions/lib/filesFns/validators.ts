@@ -181,14 +181,14 @@ export const manifestValidator = v.object({
   /** The walk could not finish: the pages so far are a floor, not a total. */
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
-  /** Where the keys came from: the tree table, or a walk of the bucket. */
+  /** Where the keys came from: the Convex tree (`nodes`) or a walk of the bucket. `tree`, the retired D1 table, is no longer sent. */
   source: v.optional(v.union(v.literal("tree"), v.literal("bucket"), v.literal("nodes"))),
   /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
   since: v.optional(v.number()),
   privacy: v.optional(v.union(v.string(), v.null())),
 });
 
-/** One page of a folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+/** One page of a folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
 export const folderNotesValidator = v.object({
   kind: v.literal("folderNotes"),
   available: v.boolean(),

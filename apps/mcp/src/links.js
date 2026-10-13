@@ -445,9 +445,9 @@ function looseName(name) {
  * name means a note only once the whole bucket says which one carries it.
  * `null` for anything this module will not touch.
  *
- * `resolveLink` is this plus the name lookup. The tree's link table stores
- * exactly this, so "which notes point at X" is answered by the same parse a
- * rewrite runs (`tree/links.js`).
+ * `resolveLink` is this plus the name lookup. The Convex tree's link facts
+ * store exactly this (`linkRowsOf`, `tree/links.js`), so "which notes point
+ * at X" is answered by the same parse a rewrite runs.
  */
 export function linkTargetOf(link, fromPath) {
   const target = link.target.trim();

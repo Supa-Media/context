@@ -373,8 +373,8 @@ const VERIFY_DAYS = 8;
  *
  * It is how a read whose row was lost with the database itself unreachable —
  * so not even `recheckFrom` could be set — comes back: the bucket is the
- * record, and this is the table asking it again, the way the tree table's
- * hourly sweep does. A day already whole costs a listing and a roll-up.
+ * record, and this is the table asking it again, the way a sweep of the
+ * tree does. A day already whole costs a listing and a roll-up.
  */
 export async function verifyHistoryReads(store, client, { now, budget, state }) {
   if (state.readsFloor === "none" || state.readsFrom === null) return false;

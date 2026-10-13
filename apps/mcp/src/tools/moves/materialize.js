@@ -106,12 +106,12 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
       return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
     }
     if (!Array.isArray(job.reference_inventory_prefixes)) {
-      // The tree's link table answers the whole inventory in one pass, and
-      // names the few notes worth reading (`tree/links.js`).
-      const fromTable = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
-      if (fromTable !== null) {
-        job.reference_inventory_keys = fromTable.inventoryKeys;
-        job.reference_candidates = [...fromTable.candidates];
+      // The Convex tree answers the whole inventory in one pass, and its facts
+      // name the few notes worth reading (`tree/facts.js`).
+      const fromTree = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
+      if (fromTree !== null) {
+        job.reference_inventory_keys = fromTree.inventoryKeys;
+        job.reference_candidates = [...fromTree.candidates];
         job.reference_inventory_complete = true;
         await persistMoveJob(store, job);
         return toolText(`move ${job.id}: reference inventory complete`);

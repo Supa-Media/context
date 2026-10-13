@@ -72,7 +72,6 @@ export const operationResultValidator = v.union(
     runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
-  v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
   v.object({
     kind: v.literal("moveQueued"),
@@ -90,20 +89,6 @@ export const operationResultValidator = v.union(
   treeChangesValidator,
   folderNotesValidator,
   chaosScoreValidator,
-  v.object({
-    kind: v.literal("treeState"),
-    status: v.union(
-      v.literal("ready"),
-      v.literal("filling"),
-      v.literal("empty"),
-      v.literal("unsupported"),
-      v.literal("unreachable"),
-    ),
-    rows: v.union(v.number(), v.null()),
-    sweptAt: v.union(v.number(), v.null()),
-    dirty: v.boolean(),
-    error: v.union(v.string(), v.null()),
-  }),
   v.object({
     kind: v.literal("websiteReleasePages"),
     results: v.array(
@@ -282,10 +267,6 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
-  /** The tree table's sweep and re-check (`treeTableOps.ts`); scheduled only. */
-  v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
-  /** The tree table's health for the staff panel; no bucket is opened. */
-  v.object({ kind: v.literal("treeState") }),
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
   v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
   v.object({ kind: v.literal("nodesFactFill"), passes: v.optional(v.number()) }),
@@ -300,14 +281,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("nodesMoveWork") }),
   v.object({ kind: v.literal("nodesPrivacyExport") }),
-  v.object({
-    kind: v.literal("touchTree"),
-    paths: v.array(v.string()),
-    files: v.array(v.string()),
-    audiences: v.array(v.string()),
-    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
-  }),
-  /** A folder List's notes from the tree's properties table (`folderNotes.ts`). */
+  /** A folder List's notes from the Convex tree's facts (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
   /** The chaos score for this reader (`chaosOps.ts`). */
   v.object({ kind: v.literal("chaosScore"), folder: v.optional(v.string()) }),

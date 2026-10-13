@@ -29,7 +29,7 @@ jest.mock("../features/offline/reachability", () => ({
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { useMirrorSync, SERVER_TREE_FLOOR_MS, TABLE_TREE_FLOOR_MS } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
+const { useMirrorSync, SERVER_TREE_FLOOR_MS, NODES_TREE_FLOOR_MS } = require("../features/offline/useMirrorSync") as typeof import("../features/offline/useMirrorSync");
 const events = require("../features/offline/mirrorEvents") as typeof import("../features/offline/mirrorEvents");
 const { serverTree, keptServerTree, forgetServerTrees } = require("../features/offline/serverTree") as typeof import("../features/offline/serverTree");
 const { currentEpoch } = require("../features/offline/epoch") as typeof import("../features/offline/epoch");
@@ -193,7 +193,7 @@ describe("a browser tab's tree", () => {
       spy.mockRestore();
     }
   });
-  test("a tree the table answers is walked again within a second, and asked for by name", async () => {
+  test("a tree the Convex tree answers is walked again sooner than the bucket's, and asked for by name", async () => {
     const calls: { at: number; source?: string }[] = [];
     let now = 2_000_000;
     const spy = jest.spyOn(Date, "now").mockImplementation(() => now);
@@ -206,7 +206,7 @@ describe("a browser tab's tree", () => {
           cursor: null,
           truncated: false,
           manifestUsable: true,
-          source: "tree" as const,
+          source: "nodes" as const,
         };
       },
       readNotes: async () => ({ results: [] }),
@@ -225,13 +225,14 @@ describe("a browser tab's tree", () => {
       const first = calls.length;
       expect(first).toBeGreaterThan(0);
       expect(calls.every((call) => call.source === "tree")).toBe(true);
-      now += TABLE_TREE_FLOOR_MS;
+      expect(NODES_TREE_FLOOR_MS).toBeLessThan(SERVER_TREE_FLOOR_MS);
+      now += NODES_TREE_FLOOR_MS;
       await act(async () => events.requestMirrorRefresh("w5"));
       await act(async () => {
-        jest.advanceTimersByTime(TABLE_TREE_FLOOR_MS);
+        jest.advanceTimersByTime(NODES_TREE_FLOOR_MS);
       });
       await settle();
-      // Walked again a second later, not held for the bucket's fifteen.
+      // Walked again at the Convex tree's floor, not held for the bucket's fifteen.
       expect(calls.length).toBe(first + 1);
       await act(async () => root.unmount());
     } finally {

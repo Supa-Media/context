@@ -437,7 +437,7 @@ says rather than keeping a second copy.
   from and reads back, so merged there, the first edit of a note's tags would
   copy every `#tag` into its front matter. The side panel draws them with
   their `#` and no remove button, since only the text can take one away.
-  `inlineTags.test.mjs` and `folderNotesTable.test.ts` fail if a link,
+  `inlineTags.test.mjs` and `nodes/servedReaders.test.ts` fail if a link,
   heading or code holds a tag, if a list stops counting them, or if a props
   row parsed before them is never read again.
 - **`due: 2026-10-03`** is a calendar day, read in the reader's own calendar:

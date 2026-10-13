@@ -3,9 +3,9 @@
  * between them — `docs/decisions/search.md`, "The map's graph is read per
  * shard at request time, and stored nowhere".
  *
- * Where the context's tree table has read every note's links
- * (`apps/mcp/src/tree/links.js`), the notes and links come from it instead,
- * in a few queries, and no shard is read; everything below about who may see
+ * Where the Convex tree's facts have read every note's links
+ * (`lib/nodes/linkTable.ts`), the notes and links come from them instead, in
+ * a few queries, and no shard is read; everything below about who may see
  * what applies to those rows exactly as to the shards'.
  *
  * Built from the search index this bucket already keeps, never from a listing

@@ -1,10 +1,12 @@
 /**
- * THE CHAOS SCORE COUNTED FROM THE CONVEX TREE'S KEYS SAYS WHAT THE TABLE SAYS.
+ * THE CHAOS SCORE COUNTED FROM THE CONVEX TREE'S KEYS.
  *
  * `chaos/live.js` scores the keys the tree hands a reader, with only long
- * notes, meetings and contact reviews taken from the database. Over the same
- * notes it must give the table's numbers for both audiences, never name a
- * folder or a long note the team cannot open, and follow a folder that moved.
+ * notes, meetings and contact reviews taken from the tree's facts. Over the
+ * same notes it must give the rubric's numbers for both audiences, never name
+ * a folder or a long note the team cannot open, and follow a folder that
+ * moved. The facts here are made the way the control plane makes them: from
+ * each note's `propsOf`, `isExempt` and `hasReview`.
  *
  * Sabotage-checked: scoring the team numbers over every key fails "the team
  * numbers"; dropping `present` names a long note that has gone; dropping the
@@ -13,12 +15,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bucket, sqliteClient } from "./treeFixtures.mjs";
-import { sweepTreePass } from "../src/tree/sweep.js";
-import { PROP_STATEMENTS, propWriteStatement } from "../src/tree/props.js";
-import { chaosFullPass, chaosSummary } from "../src/chaos/table.js";
-import { chaosExtras, folderNumbers, liveSummary, scoreKeys } from "../src/chaos/live.js";
-import { liveSection } from "../src/chaos/orient.js";
+import { propsOf } from "../src/tree/props.js";
+import { LONG_NOTE_LINES, hasReview, isExempt, scoreTree } from "../src/chaos/rubric.js";
+import { folderNumbers, liveSummary, liveTotals, scoreKeys } from "../src/chaos/live.js";
 import { CONTACTS_FOLDER } from "../../../packages/communications/src/protocol.js";
 
 const notPrivate = (path) => !path.startsWith("2-areas/private/");
@@ -41,41 +40,42 @@ function workspace() {
   return texts;
 }
 
-async function filled(texts) {
-  const store = bucket(Object.keys(texts));
-  const client = sqliteClient();
-  await sweepTreePass(store, client, { now: () => 1 });
-  await client.runAll(PROP_STATEMENTS.map((sql) => ({ sql, params: [] })));
-  await client.runAll(Object.entries(texts).map(([path, text]) => propWriteStatement(path, store.objects.get(path).etag, text)));
-  await chaosFullPass(client, { visibleToTeam: notPrivate, now: Date.UTC(2026, 9, 10) });
-  return { keys: Object.keys(texts).sort(), client };
+/** The facts the control plane keeps: long notes, and contact pages waiting on review. */
+function extrasOf(texts) {
+  const extras = new Map();
+  for (const [path, text] of Object.entries(texts)) {
+    const props = propsOf(text);
+    const lines = props?.lines ?? null;
+    const review = hasReview(props?.properties?.review);
+    if ((lines ?? 0) <= LONG_NOTE_LINES && !(path.startsWith(`${CONTACTS_FOLDER}/`) && review)) continue;
+    extras.set(path, { lines, exempt: isExempt(path, props?.properties?.type, props?.properties?.generated), review });
+  }
+  return extras;
 }
 
 const near = (a, b) => Math.abs(a - b) < 1e-9;
 
-test("the keys give the table's numbers, folders and long notes, for both audiences", async () => {
-  const { keys, client } = await filled(workspace());
-  const extras = await chaosExtras(client);
+test("the keys give the rubric's numbers, for both audiences", () => {
+  const texts = workspace();
+  const keys = Object.keys(texts).sort();
+  const extras = extrasOf(texts);
   const folders = scoreKeys(keys, extras, notPrivate);
-  for (const audience of ["all", "team"]) {
-    const visible = audience === "all" ? () => true : notPrivate;
-    const table = await chaosSummary(client, { audience, visible });
-    const live = liveSummary(folders, extras, { team: audience === "team", present: new Set(keys), visible });
-    assert.ok(near(live.score, table.score), `${audience}: ${live.score} vs ${table.score}`);
-    assert.deepEqual(live.folders.map((f) => f.folder), table.folders.map((f) => f.folder));
-    for (const [index, folder] of live.folders.entries()) {
-      assert.equal(folder.items, table.folders[index].items);
-      assert.ok(near(folder.chaos, table.folders[index].chaos));
-    }
-    assert.deepEqual(live.longNotes, table.longNotes);
+  const rows = keys.map((path) => ({ path, ...(extras.get(path) ?? {}) }));
+  const totals = liveTotals(folders);
+  assert.ok(near(totals.all, scoreTree(rows).score), `${totals.all}`);
+  assert.ok(near(totals.team, scoreTree(rows.filter((row) => notPrivate(row.path))).score), `${totals.team}`);
+  for (const team of [false, true]) {
+    const summary = liveSummary(folders, extras, { team, present: new Set(keys), visible: team ? notPrivate : () => true });
+    assert.ok(near(summary.score, team ? totals.team : totals.all));
   }
 });
 
-test("the team numbers count, and name, only what the team may open", async () => {
-  const { keys, client } = await filled(workspace());
-  const extras = await chaosExtras(client);
+test("the team numbers count, and name, only what the team may open", () => {
+  const texts = workspace();
+  const keys = Object.keys(texts).sort();
+  const extras = extrasOf(texts);
   const folders = scoreKeys(keys, extras, notPrivate);
-  const team = liveSummary(folders, extras, { team: true, present: new Set(keys), visible: notPrivate });
+  const team = liveSummary(folders, extras, { team: true, present: new Set(keys), visible: notPrivate, limit: 20 });
   assert.ok(team.folders.every((f) => !f.folder.startsWith("2-areas/private")));
   assert.ok(team.longNotes.every((n) => !n.path.startsWith("2-areas/private/")));
   assert.equal(folderNumbers(folders, "2-areas/private", true), null);
@@ -85,9 +85,10 @@ test("the team numbers count, and name, only what the team may open", async () =
   assert.deepEqual(all.longNotes.map((n) => n.path), ["2-areas/private/secret.md", "1-projects/big/novel.md"]);
 });
 
-test("a folder the tree draws at a new name is scored there, and a gone note is not named", async () => {
-  const { keys, client } = await filled(workspace());
-  const extras = await chaosExtras(client);
+test("a folder the tree draws at a new name is scored there, and a gone note is not named", () => {
+  const texts = workspace();
+  const keys = Object.keys(texts).sort();
+  const extras = extrasOf(texts);
   const moved = keys.map((key) => key.replace(/^1-projects\/big\//, "2-areas/big/")).filter((key) => key !== "2-areas/private/secret.md");
   const shifted = new Map([...extras].map(([path, extra]) => [path.replace(/^1-projects\/big\//, "2-areas/big/"), extra]));
   const folders = scoreKeys(moved, shifted, notPrivate);
@@ -97,14 +98,11 @@ test("a folder the tree draws at a new name is scored there, and a gone note is 
   assert.deepEqual(summary.longNotes.map((n) => n.path), ["2-areas/big/novel.md"]);
 });
 
-test("orient counts from the keys where the call is served, and only then", async () => {
-  const { keys, client } = await filled(workspace());
-  const rules = [];
-  const overrides = new Map();
-  assert.equal(await liveSection({}, client, "all", () => true, rules, overrides), null);
-  assert.equal(await liveSection({ treeKeys: async () => null }, client, "all", () => true, rules, overrides), null);
-  const served = await liveSection({ treeKeys: async () => keys }, client, "all", () => true, rules, overrides);
-  const table = await chaosSummary(client, { audience: "all", limit: 4 });
-  assert.ok(near(served.score, table.score));
-  assert.equal(served.folders.length, Math.min(4, table.folders.length));
+test("meetings and generated notes are exempt from the long-note rule, and a review is any real question", () => {
+  assert.equal(isExempt("1-projects/x/kickoff.md", "meeting", undefined), true);
+  assert.equal(isExempt("0-inbox/meetings/2026-10-01-standup.md", undefined, undefined), true);
+  for (const generated of [true, 1, "true"]) assert.equal(isExempt("1-projects/x/log.md", undefined, generated), true);
+  assert.equal(isExempt("1-projects/x/essay.md", "note", false), false);
+  for (const value of ["possible duplicate", ["a"], true, 1]) assert.equal(hasReview(value), true, JSON.stringify(value));
+  for (const value of [null, undefined, false, 0, "", "  ", "[]"]) assert.equal(hasReview(value), false, JSON.stringify(value));
 });
