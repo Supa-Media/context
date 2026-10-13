@@ -95,6 +95,7 @@ export function NoteEditor({
   onUseTheirs,
   onKeepMine,
   onOpenLink,
+  onOpenTag,
   notePaths,
   onSuggest,
   onPickSuggestion,
@@ -398,7 +399,7 @@ export function NoteEditor({
     onSignInToComment,
     // Props, as destructured above.
     state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
-    onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
+    onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
     folderLists, onTitleCaret, titleNote, encryption, activity, activityShared, activityEditable, onOpenNote,

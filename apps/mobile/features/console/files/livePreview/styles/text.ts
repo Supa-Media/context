@@ -79,6 +79,21 @@ export const textStyles = `
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
+/*
+  A #tag written in the text (tagGrammar.ts): a soft accent pill, the same
+  object a tag chip is on a board card and in the side panel, so a tag looks
+  like one tag everywhere. Its # stays, as it does on every chip.
+*/
+.cm-lp-tag {
+  color: var(--lp-tag);
+  background: var(--lp-tag-wash);
+  border-radius: 999px;
+  padding: 0.05em 0.45em 0.1em;
+  font-weight: 550;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
 .cm-lp-code {
   font-family: var(--lp-mono);
   font-size: 0.92em;

@@ -42,6 +42,12 @@ export interface ConsoleNav {
   forward: () => void;
   canBack: boolean;
   canForward: boolean;
+  /**
+   * A `#tag` in a note was clicked or tapped: show the notes carrying it. A
+   * phone goes Home narrowed to the tag, as its search does (`homeTag.ts`); a
+   * pointer layout opens search for it. Absent where neither exists.
+   */
+  openTag?: (tag: string) => void;
 }
 
 const ConsoleNavContext = createContext<ConsoleNav | null>(null);

@@ -436,6 +436,8 @@ export function styleClassFor(nodeName: string): string | null {
       return "cm-lp-strike";
     case "Highlight":
       return "cm-lp-mark";
+    case "Tag":
+      return "cm-lp-tag";
     case "InlineCode":
       return "cm-lp-code";
     case "FencedCode":
