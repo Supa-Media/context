@@ -12,7 +12,8 @@ import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { toFileError } from "./browser";
 import { Shell, type DialogAnchor } from "./DialogShell";
 import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
-import { baseName, folderLabel } from "./paths";
+import { baseName, displayName, folderLabel, isMarkdown } from "./paths";
+import { defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
 
 /** How many of every emoji are drawn at first, and added each time the list is scrolled near its end. */
 export const EMOJI_PAGE = 240;
@@ -45,7 +46,11 @@ interface Cell {
  *
  * A tap sets the icon and closes; the dialog stays open until the server has
  * answered, so a refusal is read here rather than lost behind a closed sheet.
- * "Remove icon" is there only when the folder has one.
+ * "Remove icon" is there only when the folder has one. On a built-in folder,
+ * whose default comes back when its chosen icon goes, it says so: "Use
+ * default 📥", and is absent while the default is what shows.
+ *
+ * A note gets the same dialog (2026-10-13); only its words change.
  */
 export function FolderIconDialog({
   path,
@@ -55,7 +60,7 @@ export function FolderIconDialog({
   anchor,
 }: {
   path: string;
-  /** The folder's icon now, or `null`. */
+  /** The icon drawn now (chosen, or a built-in folder's default), or `null`. */
   current: string | null;
   /** Rejects with the server's refusal, which is shown here. */
   onSet: (icon: string | null) => Promise<void>;
@@ -75,6 +80,8 @@ export function FolderIconDialog({
   const [shown, setShown] = useState(EMOJI_PAGE);
 
   const custom = host?.names ?? NO_NAMES;
+  const fallback = defaultFolderIcon(path);
+  const note = isMarkdown(path);
   const sections = useMemo(() => sectionsFor(query, custom, shown), [query, custom, shown]);
 
   async function choose(icon: string | null) {
@@ -96,9 +103,9 @@ export function FolderIconDialog({
   }
 
   return (
-    <Shell title="Folder icon" onClose={onClose} sheet={sheet} anchor={anchor}>
+    <Shell title={note ? "Note icon" : "Folder icon"} onClose={onClose} sheet={sheet} anchor={anchor}>
       <Text variant="paneSub" testID="folder-icon-name">
-        {folderLabel(baseName(path))}
+        {note ? displayName(baseName(path)) : folderLabel(baseName(path))}
       </Text>
       <TextInput
         value={query}
@@ -179,9 +186,9 @@ export function FolderIconDialog({
             testID="folder-icon-add"
           />
         )}
-        {current === null ? null : (
+        {current === null || current === fallback ? null : (
           <Button
-            label="Remove icon"
+            label={fallback === null ? "Remove icon" : `Use default ${fallback}`}
             variant="dialog"
             onPress={() => void choose(null)}
             disabled={busy}

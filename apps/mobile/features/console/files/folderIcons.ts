@@ -11,7 +11,7 @@
  * be tested through it without a renderer.
  */
 
-import { iconsAfterDelete, iconsAfterMove } from "@context/shared/src/folderIcons.cjs";
+import { defaultFolderIcon, iconsAfterDelete, iconsAfterMove } from "@context/shared/src/folderIcons.cjs";
 
 /** Folder path to emoji. Never mutated: every change is a new object. */
 export type IconMap = Readonly<Record<string, string>>;
@@ -28,6 +28,16 @@ export function iconMapOf(list: IconList): IconMap {
 /** The emoji on `path`, or `null`. Own properties only: see the header. */
 export function iconFor(icons: IconMap, path: string): string | null {
   return Object.prototype.hasOwnProperty.call(icons, path) ? icons[path]! : null;
+}
+
+/**
+ * The emoji a row draws: the one somebody chose, or a built-in folder's
+ * default (`defaultFolderIcon`), or `null`. Kept apart from `iconFor`, which
+ * is what is stored, so putting an icon back after a refused write never
+ * stores a default as if somebody had chosen it.
+ */
+export function shownIcon(icons: IconMap, path: string): string | null {
+  return iconFor(icons, path) ?? defaultFolderIcon(path);
 }
 
 /** The map with `path` set to `icon`, or without it when `icon` is `null`. */

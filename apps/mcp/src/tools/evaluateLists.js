@@ -3,6 +3,7 @@
 import {
   MAX_EVALUATED_LIST_BLOCKS,
   noteHeading,
+  inlineTags,
   noteProperties,
   parseListBlocks,
   selectListRows,
@@ -96,6 +97,7 @@ export async function toolEvaluateLists(
         path: key,
         updatedAt: note.updatedAt,
         properties: noteProperties(note.text),
+        inlineTags: inlineTags(note.text),
         heading: noteHeading(note.text),
       });
     }

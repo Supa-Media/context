@@ -18,6 +18,7 @@ import {
   type FileStore,
   movePath,
   setFolderVisibility,
+  setVisibility,
 } from "../functions/lib/fileOps";
 import { listFolderIcons, setFolderIcon } from "../functions/lib/fileOps/folderIcons";
 import { FOLDER_ICONS_KEY, parseFolderIcons } from "@context/shared/src/folderIcons.cjs";
@@ -119,6 +120,36 @@ describe("setting a folder icon", () => {
   });
 });
 
+describe("a note's icon", () => {
+  test("is saved under the note's own path and read back", async () => {
+    const store = bucket();
+    expect(await setFolderIcon(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER })).toEqual({
+      "recipes/soups/leek.md": "🥬",
+    });
+    expect(stored(store)).toEqual({ "recipes/soups/leek.md": "🥬" });
+  });
+
+  test("a note that does not exist answers not found, and nothing is written", async () => {
+    const store = bucket();
+    const error = await refusal(() => setFolderIcon(store, { path: "recipes/nothing.md", icon: "🥬", clearance: OWNER }));
+    expect(error.code).toBe("FILE_NOT_FOUND");
+    expect(store.snapshot()[FOLDER_ICONS_KEY]).toBeUndefined();
+  });
+
+  test("a member never sees the icon of a note held back inside a folder they can see", async () => {
+    const store = bucket();
+    store.seed("recipes/held.md", "# Held\n");
+    await setFolderVisibility(store, { path: "recipes", visibility: "team", clearance: OWNER });
+    await setFolderIcon(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER });
+    await setFolderIcon(store, { path: "recipes/held.md", icon: "🤫", clearance: OWNER });
+    await setVisibility(store, { path: "recipes/held.md", visibility: "private", clearance: OWNER });
+    expect(await listFolderIcons(store, { clearance: MEMBER })).toEqual({ "recipes/soups/leek.md": "🥬" });
+    const hidden = await refusal(() => setFolderIcon(store, { path: "recipes/held.md", icon: "🍳", clearance: MEMBER }));
+    const missing = await refusal(() => setFolderIcon(store, { path: "recipes/nowhere.md", icon: "🍳", clearance: MEMBER }));
+    expect([hidden.code, hidden.message]).toEqual([missing.code, missing.message]);
+  });
+});
+
 describe("a reader sees only the icons of folders they can see", () => {
   test("a member never learns a private folder's name from its icon", async () => {
     const store = bucket();
@@ -177,10 +208,26 @@ describe("icons follow their folders", () => {
     expect(archived.paths.every((path) => path.startsWith("9-archive/"))).toBe(true);
   });
 
-  test("moving a note leaves the icons alone", async () => {
+  test("moving a note carries its own icon and leaves the folders' alone", async () => {
     const store = bucket();
     await setFolderIcon(store, { path: "recipes", icon: "🍳", clearance: OWNER });
+    await setFolderIcon(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER });
     await movePath(store, { from: "recipes/soups/leek.md", to: "recipes/leek.md", clearance: OWNER, now: NOW });
+    expect(stored(store)).toEqual({ recipes: "🍳", "recipes/leek.md": "🥬" });
+  });
+
+  test("a note inside a moved folder keeps its icon at the new path", async () => {
+    const store = bucket();
+    await setFolderIcon(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER });
+    await movePath(store, { from: "recipes", to: "2-areas/cooking", clearance: OWNER, now: NOW });
+    expect(stored(store)).toEqual({ "2-areas/cooking/soups/leek.md": "🥬" });
+  });
+
+  test("deleting a note for good forgets its icon", async () => {
+    const store = bucket();
+    await setFolderIcon(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER });
+    await setFolderIcon(store, { path: "recipes", icon: "🍳", clearance: OWNER });
+    await deletePath(store, { path: "recipes/soups/leek.md", confirmation: DELETE_CONFIRMATION, clearance: OWNER });
     expect(stored(store)).toEqual({ recipes: "🍳" });
   });
 

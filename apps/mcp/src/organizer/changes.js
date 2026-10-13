@@ -24,6 +24,7 @@ import { isChannelDayNotePath, isSavedSessionNotePath } from "../communications/
 import { isMeetingNotePath } from "../../../../packages/meetings/src/paths.js";
 import { FRONT_NOTES } from "../lists/grammar.js";
 import { noteHeading, noteProperties } from "../lists/properties.js";
+import { inlineTags, mergeTags } from "../lists/inlineTags.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { suggestionId } from "./suggest.js";
 
@@ -121,7 +122,7 @@ function word(value) {
 /** One project's facts for the map, from its front note. */
 export function projectEntry(project, text) {
   const properties = noteProperties(text);
-  const tags = Array.isArray(properties.tags) ? properties.tags.map(word).filter(Boolean) : word(properties.tags) ? [word(properties.tags)] : [];
+  const tags = mergeTags(properties.tags, inlineTags(text));
   return {
     path: project.path,
     frontPath: project.frontPath,

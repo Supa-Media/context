@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
@@ -73,6 +74,16 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
+  // Seventh: the queued folder moves the tree draws already, so the gateway
+  // reads a moved note where people see it (`moves/queued.js`). Absent unless
+  // one is pending. The workspace is the one the grant resolved to above.
+  const boundTo = (opened.binding as { workspaceId?: unknown } | null)?.workspaceId;
+  // Unreadable is no store at all: a gateway that wrote at a new name not knowing a move was
+  // pending would put a second copy beside the one the move is carrying there.
+  const pendingMoves = typeof boundTo === "string"
+    ? await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: boundTo as Id<"workspaces"> }).catch(() => null)
+    : [];
+  if (pendingMoves === null) return json({ binding: null });
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -102,5 +113,6 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
+    pendingMoves: pendingMoves.length > 0 ? pendingMoves : undefined,
   });
 }

@@ -21,15 +21,23 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * always has, and the row's menu key still offers "Set icon…". A ⌘/ctrl- or
  * shift-click is the row's pick before it reaches here (`rowInteractions.web`
  * listens in the capture phase), so the icon never steals a multi-selection.
+ *
+ * A note (2026-10-13) draws its emoji in the same box, or the plain note
+ * icon, the way a folder draws the plain folder icon (the owner: "give notes a
+ * plain icon by default ... so it can be clicked on and changed"). Clicking it
+ * opens the same picker.
  */
 export function TreeFolderGlyph({
   label,
   icon,
   onPress,
+  note = false,
 }: {
+  /** A note's glyph rather than a folder's: the plain note icon when it has no emoji. */
+  note?: boolean;
   /** The folder's name, for the button's accessible name. */
   label: string;
-  /** Its emoji, or `null` for the plain folder icon. */
+  /** Its emoji, or `null` for the plain folder (or note) icon. */
   icon: string | null;
   /** Open the picker at this window point. Absent where the icon cannot be changed: the glyph is then only drawn. */
   onPress?: (anchor: { x: number; y: number }) => void;
@@ -37,15 +45,16 @@ export function TreeFolderGlyph({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
+  const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (
-      <Icon name="folder" size={14} color={colors.chromeMuted} />
+      plain
     ) : (
       <EmojiGlyph
         emoji={icon}
         size={14}
         textStyle={styles.emoji}
-        fallback={<Icon name="folder" size={14} color={colors.chromeMuted} />}
+        fallback={plain}
         testID="tree-folder-emoji"
       />
     );

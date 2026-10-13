@@ -4,7 +4,7 @@ import { readIndex, treeOf } from "../../offline/mirror";
 import { onMirrorListed, onMirrorNotesChanged } from "../../offline/mirrorEvents";
 import { mirroredListNotes } from "../../offline/mirrorLists";
 import { openMirrorStore } from "../../offline/mirrorStore";
-import { tagsOf } from "../files/folderPage/taskProps";
+import { allTagsOf } from "../files/folderPage/taskProps";
 import { isMarkdown } from "../files/paths";
 import type { FolderListing } from "../files/types";
 import { visibilityTierForRole } from "../visibility";
@@ -73,7 +73,7 @@ export function useHomeSource(
             ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
             title: noteTitle(entry.path, note?.properties.title, note?.heading),
             lede: note?.lede ?? null,
-            tags: note === undefined ? [] : tagsOf(note.properties),
+            tags: note === undefined ? [] : allTagsOf(note),
           });
         }
         const tree = treeOf(index);

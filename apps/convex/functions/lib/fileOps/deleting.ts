@@ -503,8 +503,9 @@ export async function deletePath(
 
   await forgetPrivacy(store, keys, targetIsFolder ? path : null, walk.withheld);
   // A folder that is really gone takes its icon with it; one still holding
-  // notes this caller could not see is still there, icon and all.
-  if (targetIsFolder && walk.withheld.length === 0) await dropFolderIcons(store, path);
+  // notes this caller could not see is still there, icon and all. A note
+  // deleted for good takes its own.
+  if (!targetIsFolder || walk.withheld.length === 0) await dropFolderIcons(store, path);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is

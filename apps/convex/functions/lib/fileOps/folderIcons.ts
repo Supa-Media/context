@@ -1,6 +1,6 @@
 /**
- * Folder icons from the console: reading them at the caller's clearance and
- * setting one. Storage, moves and deletes are `@context/shared`'s
+ * Folder and note icons from the console: reading them at the caller's
+ * clearance and setting one. Storage, moves and deletes are `@context/shared`'s
  * `folderIcons.cjs`, shared with the gateway.
  *
  * ## The privacy rule
@@ -10,6 +10,9 @@
  * exactly the icons of the folders their listing would draw
  * (`folderVisibleAtScope`) and nothing else, and setting one on a folder the
  * caller cannot see answers "does not exist", the same as every other write.
+ * A note's icon (since 2026-10-13, keyed by the note's own path) is shown
+ * exactly when the note is (`canSee`): a folder's rule is wider than a note
+ * held back inside it.
  */
 
 import { customEmojiShortcode, isSingleEmoji } from "@context/shared";
@@ -18,7 +21,7 @@ import {
   readFolderIcons,
   updateFolderIcons,
 } from "@context/shared/src/folderIcons.cjs";
-import { isPlumbing } from "../privacy";
+import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
 import type { FileStore } from "./store";
 import { FileOpError, notFound } from "./errors";
@@ -28,7 +31,25 @@ import { folderVisibleAtScope } from "./listing";
 import { isFolder } from "./walk";
 import { hasCustomEmoji } from "./emoji";
 
-/** Every icon on a folder this caller can see. */
+/**
+ * Whether a key in the icons file names a note rather than a folder. Notes are
+ * Markdown, so the suffix decides; a folder that happens to end in `.md` is
+ * judged by the note rule, which is never wider than the folder one.
+ */
+function namesNote(path: string): boolean {
+  return path.toLowerCase().endsWith(".md");
+}
+
+function iconVisible(
+  path: string,
+  clearance: Clearance,
+  state: Awaited<ReturnType<typeof loadPrivacyState>>,
+): boolean {
+  if (namesNote(path)) return canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
+  return folderVisibleAtScope(path, clearance, state.rules, state.overrides);
+}
+
+/** Every icon on a folder or note this caller can see. */
 export async function listFolderIcons(
   store: FileStore,
   options: { clearance: Clearance },
@@ -39,13 +60,13 @@ export async function listFolderIcons(
   const state = await loadPrivacyState(store);
   const visible: FolderIcons = {};
   for (const path of paths) {
-    if (folderVisibleAtScope(path, options.clearance, state.rules, state.overrides)) visible[path] = icons[path];
+    if (iconVisible(path, options.clearance, state)) visible[path] = icons[path];
   }
   return visible;
 }
 
 /**
- * Give a folder an icon, or take it away (`icon: null`). Returns the icons the
+ * Give a folder or a note an icon, or take it away (`icon: null`). Returns the icons the
  * caller can now see, so the app redraws from the server's answer.
  */
 export async function setFolderIcon(
@@ -53,19 +74,22 @@ export async function setFolderIcon(
   options: { path: string; icon: string | null; clearance: Clearance },
 ): Promise<FolderIcons> {
   const path = requireFolderPath(options.path);
-  if (path === "" || isPlumbing(path)) throw new FileOpError("PATH_INVALID", "Only a folder can have an icon.");
+  if (path === "" || isPlumbing(path)) throw new FileOpError("PATH_INVALID", "Only a folder or a note can have an icon.");
   // One emoji: a character, or one of this workspace's own as `:name:`, which
   // must exist, so an icon never names a picture nobody can draw.
   const custom = options.icon === null ? null : customEmojiShortcode(options.icon);
   if (options.icon !== null && custom === null && !isSingleEmoji(options.icon)) {
-    throw new FileOpError("PATH_INVALID", "A folder icon is one emoji.");
+    throw new FileOpError("PATH_INVALID", "An icon is one emoji.");
   }
   if (custom !== null && !(await hasCustomEmoji(store, custom))) {
     throw new FileOpError("PATH_INVALID", `This workspace has no :${custom}: emoji.`);
   }
   const state = await loadPrivacyState(store);
-  if (!folderVisibleAtScope(path, options.clearance, state.rules, state.overrides)) throw notFound();
-  if (options.icon !== null && !(await isFolder(store, path))) throw notFound();
+  if (!iconVisible(path, options.clearance, state)) throw notFound();
+  if (options.icon !== null) {
+    const exists = namesNote(path) ? (await store.get(path)) !== null : await isFolder(store, path);
+    if (!exists) throw notFound();
+  }
 
   const icon = options.icon;
   const written = await updateFolderIcons(store, (icons) => {

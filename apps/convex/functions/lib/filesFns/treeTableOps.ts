@@ -189,6 +189,9 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
     .catch(() => {});
 }
 
+/** Organizer actions that only read: `gather` (the sweep's work list) and `outline`. */
+const ORGANIZER_READS = new Set(["gather", "outline"]);
+
 /**
  * The store a `source: "tree"` manifest walks: the Convex tree where it serves
  * the workspace (`servedNodesStore`), else the table where it can answer, else
@@ -201,10 +204,16 @@ export async function manifestSource(
   args: {
     workspaceId: Id<"workspaces">;
     scope: "private" | "team";
-    operation: { kind: string; source?: string; cursor?: string };
+    operation: { kind: string; source?: string; cursor?: string; action?: unknown };
   },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "tree" | "bucket" | "nodes"; since?: number; privacy?: string | null }> {
+  // The organizer's read-only passes list every note: from the tree where it
+  // serves (phase 5). Its writes keep the bucket's listing and rules.
+  if (args.operation.kind === "organizer" && typeof args.operation.action === "string" && ORGANIZER_READS.has(args.operation.action)) {
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    return served === null ? { store, source: "bucket" } : { store: served, source: "nodes" };
+  }
   // The Convex tree's shadow starts filling on the first page of any walk (`lib/nodes/run.ts`).
   if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
     await startNodesSweepIfDue(ctx, args.workspaceId);
