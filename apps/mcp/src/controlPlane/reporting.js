@@ -225,11 +225,20 @@ export function createReportingMethods({ post }) {
      * safe, but the menu beside it is drawn from the index and is handed to
      * anyone who asks for any address on the site.
      *
+     * A move or a privacy change outside the folder names its `paths` as
+     * well, the names the tree touch already carries: a page can publish a
+     * folder it names with `folder:`, and only the control plane's index
+     * knows which.
+     *
      * @param {string} workspaceId
+     * @param {string[]} [paths]
      */
-    async reportWebsiteChange(workspaceId) {
+    async reportWebsiteChange(workspaceId, paths) {
       if (typeof workspaceId !== "string" || !workspaceId) return null;
-      return await post("/gateway/website", { workspaceId });
+      return await post("/gateway/website", {
+        workspaceId,
+        ...(Array.isArray(paths) && paths.length > 0 ? { paths } : {}),
+      });
     },
 
     /**

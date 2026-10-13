@@ -318,6 +318,36 @@ export async function runTreeHintChecks(check) {
       destination: "website/index.md",
     });
     check("moving a page back in says so too", siteCalls().length === 1);
+
+    /*
+      A PAGE CAN ALSO PUBLISH A FOLDER OUTSIDE `website/` (`folder: features`),
+      and this Worker cannot know which. So a change that may narrow — a move,
+      a privacy change, `privacy.md` written — names its paths, and the control
+      plane asks its route index whether they reach the site. Paths and an id,
+      which the tree touch already carries; never text. Sabotage-checked:
+      reporting only `website/` paths fails both checks below.
+    */
+    reset();
+    await call("move_note", { source: "1-projects/status.md", destination: "1-projects/status-old.md" });
+    check(
+      "a move outside the folder names its paths, so the control plane can tell whether a page published them",
+      JSON.stringify(siteCalls()) ===
+        JSON.stringify([{ workspaceId: "ws_tree", paths: ["1-projects/status.md", "1-projects/status-old.md"] }]),
+    );
+
+    const dryRun = await call("set_folder_visibility", { path: "1-projects", visibility: "private", dry_run: true });
+    const privacyEtag = /privacy_etag: (\S+)/.exec(dryRun?.content?.[0]?.text ?? "")?.[1];
+    reset();
+    const madePrivate = await call("set_folder_visibility", {
+      path: "1-projects",
+      visibility: "private",
+      ...(privacyEtag ? { expected_privacy_etag: privacyEtag } : {}),
+    });
+    check(
+      "a privacy change outside the folder names its path",
+      !madePrivate?.isError &&
+        JSON.stringify(siteCalls()) === JSON.stringify([{ workspaceId: "ws_tree", paths: ["1-projects"] }]),
+    );
   } finally {
     restore();
   }

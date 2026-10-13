@@ -56,6 +56,8 @@ describe("website route index", () => {
       manifestUsable: true,
     };
     const ctx = {
+      // No folder move is queued (`websites/movingScan.ts`).
+      runQuery: vi.fn().mockResolvedValue([]),
       runAction: vi.fn().mockResolvedValue(page),
     } as unknown as ActionCtx;
 
@@ -71,6 +73,8 @@ describe("website route index", () => {
 
   test("follows a complete manifest cursor instead of indexing only the first page", async () => {
     const ctx = {
+      // No folder move is queued (`websites/movingScan.ts`).
+      runQuery: vi.fn().mockResolvedValue([]),
       runAction: vi
         .fn()
         .mockResolvedValueOnce({
@@ -155,6 +159,8 @@ describe("website route index", () => {
       "3-resources/guides": ["3-resources/guides/tables.md", "3-resources/guides/logo.png", "elsewhere/secret.md"],
     };
     const ctx = {
+      // No folder move is queued (`websites/movingScan.ts`).
+      runQuery: vi.fn().mockResolvedValue([]),
       runAction: vi.fn(async (_ref: unknown, args: { operation: { kind: string; folder?: string; paths?: string[] } }) => {
         operations.push(args.operation);
         if (args.operation.kind === "manifest") {
@@ -197,6 +203,8 @@ describe("website route index", () => {
 
   test("rejects a non-resumable truncated manifest", async () => {
     const ctx = {
+      // No folder move is queued (`websites/movingScan.ts`).
+      runQuery: vi.fn().mockResolvedValue([]),
       runAction: vi.fn().mockResolvedValue({
         kind: "manifest",
         entries: [],
@@ -219,6 +227,8 @@ describe("website route index", () => {
 
   test("an incomplete bulk read fails closed instead of deleting old routes", async () => {
     const ctx = {
+      // No folder move is queued (`websites/movingScan.ts`).
+      runQuery: vi.fn().mockResolvedValue([]),
       runAction: vi
         .fn()
         .mockResolvedValueOnce({

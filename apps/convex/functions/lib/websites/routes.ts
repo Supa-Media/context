@@ -23,6 +23,7 @@ import {
   type IndexedRoute,
 } from "./releases";
 import { ensureWebsiteStarter } from "./state";
+import { assertScanSawMoves, pendingMovesNow, type ListedFolder } from "./movingScan";
 import {
   absentCopies,
   adoptPublishedRelease,
@@ -72,7 +73,14 @@ export async function scanWebsiteRoutes(
     same clearance, so a note `privacy.md` holds back is absent from it exactly
     as it was from the whole-bucket walk.
   */
-  const list = (folder: string) => listMarkdownUnder(ctx, workspaceId, clearance, folder);
+  // While a folder move is queued, list the tree, which draws it, so each page is read at its new name (`./movingScan.ts`).
+  const movesBefore = await pendingMovesNow(ctx, workspaceId);
+  const listedFolders: ListedFolder[] = [];
+  const list = async (folder: string) => {
+    const listed = await listMarkdownUnder(ctx, workspaceId, clearance, folder, movesBefore.length > 0);
+    listedFolders.push({ folder, drawn: listed.drawn });
+    return listed.paths;
+  };
   const paths = await list(DEFAULT_WEBSITE_ROOT);
 
   const read = (keys: string[]) =>
@@ -86,6 +94,8 @@ export async function scanWebsiteRoutes(
   */
   const referenced = await referencedWebsitePages(own, pages, list, read);
   for (const [key, etag] of referenced.etags) etags.set(key, etag);
+  // A move this scan could not draw, or one that began under it, may have hidden a page.
+  assertScanSawMoves(listedFolders, movesBefore, await pendingMovesNow(ctx, workspaceId));
   const statuses = [...own, ...referenced.statuses];
   const allPages = [...pages, ...referenced.pages];
   return {
@@ -105,16 +115,19 @@ export async function scanWebsiteRoutes(
  * Every Markdown path under `folder` this clearance may list, through the
  * barrier's prefix-limited manifest. A listing that cannot finish fails the
  * scan rather than reading as "nothing there": a partial manifest is never
- * evidence that an indexed route was deleted.
+ * evidence that an indexed route was deleted. `fromTree` lists the Convex
+ * tree, moves drawn, where it serves; `drawn` says every page came from it.
  */
 async function listMarkdownUnder(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   clearance: Clearance,
   folder: string,
-): Promise<string[]> {
+  fromTree: boolean,
+): Promise<{ paths: string[]; drawn: boolean }> {
   const prefix = `${folder}/`;
   const paths: string[] = [];
+  let drawn = fromTree;
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -128,11 +141,13 @@ async function listMarkdownUnder(
           kind: "manifest",
           folder,
           ...(cursor === undefined ? {} : { cursor }),
+          ...(fromTree ? { source: "tree" as const } : {}),
         },
       },
     );
     if (manifest.kind !== "manifest")
       throw scanError("The website listing returned an invalid result.");
+    if (manifest.source !== "nodes") drawn = false;
     for (const entry of manifest.entries) {
       // The barrier already limits the walk to the folder; this keeps that
       // true of the scan's own answer whatever the store did with the prefix.
@@ -162,7 +177,7 @@ async function listMarkdownUnder(
       cursor = nextCursor;
     }
   } while (cursor !== undefined);
-  return paths;
+  return { paths, drawn };
 }
 
 /** Read `paths` through the barrier at `clearance`: what it lets through, with each note's etag. */

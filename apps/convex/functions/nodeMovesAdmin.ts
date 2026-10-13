@@ -19,6 +19,7 @@ import { toConvexError } from "./lib/adminFns/errors";
 import { MOVE_LEASE_MS, STUCK_ATTEMPTS, movesOverlap } from "./lib/nodes/moveRules";
 import { readMirror } from "./lib/nodes/listing";
 import { followMovesForMembers } from "./lib/placesFollow";
+import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
 
 /** Moves one report reads: a bound on a loop, not on any deployment we have. */
 const REPORT_ROWS = 200;
@@ -158,6 +159,7 @@ export const undo = mutation({
     });
     // Pins and recents go back with the folder, for whoever may see its old name.
     await followMovesForMembers(ctx, row.workspaceId, [{ from: row.to, to: row.from }], await readMirror(ctx.db, row.workspaceId));
+    await markWebsiteMoved(ctx, row.workspaceId, { from: row.to, to: row.from });
     await schedulePass(ctx, row.workspaceId);
     return null;
   },
