@@ -698,6 +698,8 @@ export const censusReport = query({
         aiSpendPartial: v.boolean(),
         /** When staff let this address in from the waitlist (`lib/adminFns/censusWaitlist.ts`). */
         letInAt: v.union(v.number(), v.null()),
+        /** Texting-linked phone, else the confirmed sign-in phone. */
+        phone: v.union(v.string(), v.null()),
       }),
     ),
     waitlist: censusWaitlistValidator,
