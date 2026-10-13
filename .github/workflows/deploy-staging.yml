@@ -95,6 +95,8 @@ jobs:
       EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
       # Opens only /agent-texts/*, for the Worker people text (apps/agent).
       AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+      # The texting line's key, for the console's list of who may text Tex.
+      LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
       TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
       TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
       ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
