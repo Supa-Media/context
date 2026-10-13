@@ -399,7 +399,8 @@ export const savePrivacy = internalMutation({
     if (doc !== null && !privacyIsNewer(doc.observedAt, at)) return null;
     // Once the rules are the authority, the file is their export and is never read back.
     if (!(await mirrorFollowsFile(ctx, workspaceId))) return null;
-    const fields = { ...mirror, observedAt: at };
+    // This read is of the file the rules now follow, so they are no longer behind it.
+    const fields = { ...mirror, observedAt: at, fileAhead: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
     return null;

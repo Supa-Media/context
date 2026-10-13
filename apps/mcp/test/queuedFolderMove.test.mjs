@@ -130,3 +130,54 @@ test("a session's store reads a moved note where people see it", async () => {
   assert.equal(typeof built.startQueuedMove, "function");
   assert.ok(!Object.keys(built).includes("startQueuedMove"));
 });
+
+/*
+  AN OLD NAME A MOVE IS CARRYING AWAY IS NOT A READABLE ADDRESS.
+
+  While a queued move runs, every listing already draws the folder at its new
+  name and judges it by the new name's rules, and the bucket still holds the
+  objects at their old keys. A move that narrows — a `team` folder moved
+  somewhere private — would otherwise go on serving every note at its old
+  address to anyone holding one, for as long as the move takes, while the
+  console says it is done.
+
+  The console does not have that window: its barrier promotes the path a read
+  opens first (`storeWithMoves` in `lib/nodes/moveBarrier.ts`), so the old key
+  is gone by the time the read reaches it and the miss is forwarded, where
+  `canSee` is asked again at the destination. The gateway has no such step.
+
+  So the store answers an old name as the move engine before it did
+  (`getVisibleMovedNote` returns nothing for a path under a move job's
+  source): not found. The note is read at the name the tree draws it under,
+  which is the name its privacy is judged by.
+*/
+test("a note a pending move is carrying away is not read at its old name", async () => {
+  const { store: bucketFake } = memory();
+  await bucketFake.put("1-projects/a/x.md", "secret");
+  const session = { workspaceId: "w1", accessToken: "tok" };
+  const controlPlane = {
+    getStorageBinding: async () => ({
+      binding: {
+        status: "active",
+        workspaceId: "w1",
+        provider: "r2-binding",
+        bindingName: "TEST_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
+      },
+      pendingMoves: [{ from: "1-projects/a", to: "private/a" }],
+    }),
+    reportTreeTouch: async () => {},
+    startQueuedMove: async () => ({ queued: false }),
+  };
+  const built = await storeForSession(session, { NATIVE_BINDINGS: "TEST_BUCKET", TEST_BUCKET: bucketFake }, controlPlane);
+
+  // Nothing has promoted it yet, so the bytes are still at the old key.
+  assert.equal(await built.get("1-projects/a/x.md"), null);
+  assert.equal(await built.head?.("1-projects/a/x.md") ?? null, null);
+  // The folder's own old name, and a path no move touches, are unaffected.
+  assert.equal(await built.get("1-projects/b/y.md"), null);
+
+  // The name the tree draws it under reads it, promoting as it always did.
+  assert.equal(await (await built.get("private/a/x.md")).text(), "secret");
+  assert.equal(await built.get("1-projects/a/x.md"), null);
+});

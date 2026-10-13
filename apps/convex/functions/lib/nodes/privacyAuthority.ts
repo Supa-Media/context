@@ -39,7 +39,30 @@ export async function privacyAuthorityOn(db: DatabaseReader): Promise<boolean> {
 
 /** Whether these rules are the authority, given the deployment's switch. */
 export function isAuthority(row: Doc<"nodePrivacy"> | null, on: boolean): row is Doc<"nodePrivacy"> & { etag: string } {
-  return on && row !== null && row.etag !== undefined && !row.invalid;
+  return on && row !== null && row.etag !== undefined && !row.invalid && row.fileAhead !== true;
+}
+
+/**
+ * The prefix every version minted here carries, and no bucket etag can.
+ * `newRulesVersion` writes it; `rulesAuthoredHere` reads it back.
+ */
+export const RULES_VERSION_PREFIX = "ctx-";
+
+/**
+ * Whether this deployment has ever decided these rules, rather than copied
+ * them: a version it minted, or a `privacy.md` it wrote itself.
+ *
+ * A row that is neither is a copy of a file and nothing more. The switch
+ * turning the rules into the authority writes nothing, on the reasoning that
+ * "each workspace's file is already its rules' export" — true only while the
+ * copy is current, and a `privacy.md` edited in the customer's own bucket is
+ * copied no sooner than the next sweep (up to an hour). So a copy that the
+ * file has moved past must not be the authority, or the first listing that
+ * noticed would put it back over the owner's newer file — and a note they
+ * withheld by hand would be readable again, for good and in silence.
+ */
+export function rulesAuthoredHere(row: Doc<"nodePrivacy">): boolean {
+  return row.exportedEtag !== undefined || row.etag?.startsWith(RULES_VERSION_PREFIX) === true;
 }
 
 /** The rules as the store side holds them. */
@@ -53,7 +76,7 @@ export function heldRules(row: Doc<"nodePrivacy"> & { etag: string }): HeldRules
  * these, and the other way round.
  */
 export function newRulesVersion(now: number, random: () => number): string {
-  return `ctx-${now.toString(36)}-${Math.floor(random() * 2 ** 48).toString(36)}`;
+  return `${RULES_VERSION_PREFIX}${now.toString(36)}-${Math.floor(random() * 2 ** 48).toString(36)}`;
 }
 
 /** Bucket etags compared as the store compares them: quotes and a weak prefix dropped. */
@@ -96,6 +119,12 @@ export async function noticePrivacyListing(
   if (!isAuthority(row, await privacyAuthorityOn(ctx.db))) return;
   // Before the first export the file is the one the rules were read from, at their own version.
   if (row.exportOwed === true || sameEtag(etag, row.exportedEtag ?? row.etag)) return;
+  // Rules nobody here decided are a copy, and a copy the file has moved past
+  // is not an authority: the file decides again until it is read once more.
+  if (!rulesAuthoredHere(row)) {
+    await ctx.db.patch(row._id, { fileAhead: true });
+    return;
+  }
   await ctx.db.patch(row._id, { exportOwed: true });
   await scheduleExport(ctx, workspaceId, 0);
 }
