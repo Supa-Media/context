@@ -29,7 +29,7 @@ import { createMeaningClient } from "./client.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
-import { logicalPath, pendingMovesOf } from "../../moves/queued.js";
+import { logicalPath, pendingMovesOf, readAtTreeName } from "../../moves/queued.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -169,7 +169,8 @@ export function mergeHits(wordHits, matches, keyField = "key") {
 async function meaningSnippet(store, match, chars = 200) {
   let text;
   try {
-    const object = await store.get(match.path);
+    // Judged at its tree name by `atTreeNames` once the answer is merged.
+    const object = await readAtTreeName(store, match.path);
     if (!object) return null; // moved or deleted since it was embedded
     text = await object.text();
   } catch {
@@ -266,6 +267,12 @@ export async function searchBothWays(store, wordSearch, options, shape = {}) {
  * folder search's prefix leaves it, and a note found at both names (an index
  * that has seen the copy land and one that has not) is listed once. The count
  * drops by what was dropped, never below what is shown.
+ *
+ * @template T
+ * @param {T} found
+ * @param {unknown} moves the store's `pendingMoves`, absent when none
+ * @param {{ isVisible?: (path: string) => boolean, prefix?: string, keyField?: string }} [options]
+ * @returns {T}
  */
 export function atTreeNames(found, moves, { isVisible, prefix = "", keyField = "key" } = {}) {
   const pending = pendingMovesOf(moves);
