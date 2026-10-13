@@ -239,6 +239,11 @@ read from the bucket.
   answer `{ served: false }` (the same bytes for each). The gateway then
   lists the bucket for the rest of the call.
 
+A rename or move made in the console re-checks the tree as soon as its bytes
+land, before the links pointing at it are repaired (`lib/nodes/landedTouch.ts`),
+because that repair can read every note in the workspace; the repair reads a
+few notes ahead and re-reads any note it changes just before writing it.
+
 A gateway write reaches the tree through `/gateway/tree/touch`, a second or
 so later. An agent that writes a note and lists its folder straight away can
 miss it until the touch lands.
@@ -278,6 +283,17 @@ this way is walked whole once a day as a backstop, where the D1 log's copies
 are walked hourly. Rows are kept 30 days and leave with the workspace
 (`nodesPurge.ts`). The outbox still addresses paths; addressing nodes waits
 on phase 4's moves.
+
+**A queued folder move walks the device copy** (2026-10-13). A queued move
+renames everything under it without a log row, since the rows stay physical
+until the copy lands, so a copy fed only from the log kept the old names (on
+Home, Lists and Boards) for as long as the copy ran. The pending `moving` rows
+are now part of the version a copy is judged by (`movesMark` in `feedToken`):
+a move starting, being undone or finishing moves the head and answers `full`,
+and the walk folds the moves in. While a move is pending, the log rows under
+either of its ends (the copy's own churn) are passed over, and the walk at
+its end settles them. A walk reads that version before its rows, so a move
+landing mid-walk leaves the copy on the older version, which walks again.
 
 What fails if reversed: `apps/convex/__tests__/nodes/nodesFeed.test.ts` (a
 member never hears of a private change, by name or by cursor; a deleted

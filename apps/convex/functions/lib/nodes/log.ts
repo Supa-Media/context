@@ -93,9 +93,54 @@ export function logReachesBack(since: number, now: number): boolean {
  * catch-up may be built on them: a `privacy.md` that does not parse fails
  * closed, and only a walk answers that.
  */
-export function feedToken(mirror: PrivacyMirror | null): string | null {
+export function feedToken(mirror: PrivacyMirror | null, moves = ""): string | null {
   if (mirror?.invalid === true) return null;
-  return `${FEED_PREFIX}${mirror?.etag ?? ""}`;
+  return `${FEED_PREFIX}${mirror?.etag ?? ""}${moves === "" ? "" : `#${moves}`}`;
+}
+
+/** A pending move as the feed reads it: its row, and whether Undo turned it round. */
+export interface FeedMove {
+  id: string;
+  from: string;
+  to: string;
+  undone?: boolean;
+}
+
+/**
+ * Which moves are pending, as a short mark for `feedToken`, or `""` for none.
+ *
+ * A queued folder move changes what every name under it is called without
+ * writing a log row (the rows stay physical until the copy lands, `moveWork.ts`),
+ * so a copy built from the log alone would keep the old names for as long as
+ * the copy runs. Putting the pending moves in the version a copy is judged by
+ * makes a device walk when one starts, and again when it finishes or is
+ * undone, and the walk folds the moves in (`manifestStore.ts`).
+ */
+export function movesMark(moves: readonly FeedMove[]): string {
+  if (moves.length === 0) return "";
+  let hash = 0x811c9dc5;
+  const text = moves.map((move) => `${move.id}${move.undone === true ? "~" : ""}`).join(",");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `m${moves.length}-${hash.toString(36)}`;
+}
+
+/**
+ * Whether a log row is under a pending move, at either end. While a folder
+ * moves, its objects are copied one by one, and each copy logs the old name
+ * leaving and the new one arriving; a copy that walked when the move started
+ * already holds every one at its new name. Those rows are skipped, and the
+ * walk the move's end asks for (`movesMark`) settles what they would have said.
+ */
+export function underPendingMove(path: string, moves: readonly FeedMove[]): boolean {
+  for (const move of moves) {
+    for (const end of [move.from, move.to]) {
+      if (path === end || path.startsWith(`${end}/`)) return true;
+    }
+  }
+  return false;
 }
 
 /** Whether a rules version was handed out by the Convex tree. */
@@ -171,6 +216,8 @@ export function judgeRows(input: {
   since: number;
   now: number;
   reachedHead: boolean;
+  /** Rows to pass over without telling anyone (`underPendingMove`); the cursor still passes them. */
+  skip?: (path: string) => boolean;
 }): JudgedPage {
   const { rows, current, clearance, rules } = input;
   const reader = readerAudiences(clearance);
@@ -191,7 +238,7 @@ export function judgeRows(input: {
 
   let told: number | undefined;
   for (const row of rows) {
-    if (isPlumbing(row.path)) continue;
+    if (isPlumbing(row.path) || input.skip?.(row.path) === true) continue;
     if (row.gone) {
       if (!toldOf(row, clearance, rules, reader)) continue;
       gone.push(row.path);
@@ -269,9 +316,17 @@ export function settleFolders(
  * `null` when none of them: what the live head says, so a change somebody
  * cannot see never moves what they are sent.
  */
-export function newestTold(newest: readonly LogRow[], clearance: Clearance, rules: Rules): number | null {
+export function newestTold(
+  newest: readonly LogRow[],
+  clearance: Clearance,
+  rules: Rules,
+  skip?: (path: string) => boolean,
+): number | null {
   const reader = readerAudiences(clearance);
-  for (const row of newest) if (toldOf(row, clearance, rules, reader)) return row.seq;
+  for (const row of newest) {
+    if (skip?.(row.path) === true) continue;
+    if (toldOf(row, clearance, rules, reader)) return row.seq;
+  }
   return null;
 }
 
