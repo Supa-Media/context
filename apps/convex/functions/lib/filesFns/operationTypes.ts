@@ -97,7 +97,7 @@ export type FileOperation =
    * Re-index the notes one file operation changed, without listing the bucket.
    * Scheduled by the barrier behind that operation; never sent by a client.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[] }
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
   | { kind: "projectIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }

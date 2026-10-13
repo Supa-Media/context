@@ -203,26 +203,42 @@ export async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> 
  * a note. Single-note operations only: a folder's worth of paths is a
  * listing's job, and the next full pass does it. Archive and trash name only
  * their source because their destination is chosen inside the operation;
- * the full pass finds it there.
+ * the full pass finds it there. `moved`, from the operation's result, is what
+ * fast search follows at once (`movedBy`).
  */
 export function indexChangeOf(
   operation: FileOperation,
-): { written: string[]; gone: string[] } | null {
+  result?: unknown,
+): { written: string[]; gone: string[]; moved?: [string, string][]; queued?: boolean } | null {
   switch (operation.kind) {
     case "write":
     case "removeEncryption":
       return { written: [operation.path], gone: [] };
     case "move":
     case "restoreTrash":
-      return { written: [operation.to], gone: [operation.from] };
+      return { written: [operation.to], gone: [operation.from], ...movedBy(result) };
     case "copy":
       return { written: [operation.to], gone: [] };
     case "archive":
     case "trash":
+      return { written: [], gone: [operation.path], ...movedBy(result) };
     case "delete":
     case "removeNewFolder":
       return { written: [], gone: [operation.path] };
     default:
       return null;
   }
+}
+
+/**
+ * Where a move's result says it went, for fast search to follow
+ * (`search/d1/follow.js`): a note re-projected at its new path, a folder
+ * renamed in place. A queued folder move has not moved the bucket yet, so it
+ * is marked and nothing is followed until its copy lands.
+ */
+function movedBy(result: unknown): { moved?: [string, string][]; queued?: boolean } {
+  const moved = result as { kind?: unknown; from?: unknown; to?: unknown; queued?: unknown } | null | undefined;
+  if (!moved || moved.kind !== "moved" || typeof moved.from !== "string" || typeof moved.to !== "string") return {};
+  if (moved.queued !== undefined) return { queued: true };
+  return { moved: [[moved.from, moved.to]] };
 }

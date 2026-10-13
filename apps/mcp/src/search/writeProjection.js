@@ -27,6 +27,9 @@ import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
 import { meaningWritable, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
+import { FOLLOW_NOTE_CAP, followChange, followsNote } from "./d1/follow.js";
+import { effectiveVisibility } from "../privacy/engine.js";
+import { loadPrivacyState } from "../privacy/state.js";
 
 /**
  * Store ops one write's R2 pass may spend: the manifest and its docmap, the
@@ -169,5 +172,74 @@ export async function projectWrittenNoteAfterResponse(
   return afterResponse(store, async () => {
     await project();
     if (meaning) await writeMeaningNote(store, { path, content, visibility });
+  });
+}
+
+/**
+ * A change whose writer did not project it — a move, an archive, email into
+ * the inbox, `save_context`, a meeting note, links rewritten after a move —
+ * followed into both searches behind the response (`d1/follow.js`).
+ *
+ * Fast search reads what it projects once, and search by meaning embeds that
+ * same text, so a moved or written note is findable by its words and by its
+ * meaning as soon as this lands rather than at the next sweep (fast search) or
+ * the next daily catch-up (meaning). A moved folder is renamed in fast search
+ * without reads; its passages reach meaning through the catch-up, since their
+ * ids come from the path. Neither may fail the change.
+ *
+ * @param {{ written?: string[], gone?: string[], moved?: [string, string][] }} change
+ */
+export async function followChangeAfterResponse(store, change) {
+  const fast = Boolean(store.searchIndex && store.searchIndex.state === "ready");
+  const meaning = meaningWritable(store);
+  if (!fast && !meaning) return "off";
+
+  return afterResponse(store, async () => {
+    let state;
+    try {
+      state = await loadPrivacyState(store);
+    } catch {
+      return;
+    }
+    if (!state || state.error) return;
+    const visibilityOf = (path) => effectiveVisibility(path, state.rules, state.overrides);
+    const read = new Map();
+
+    if (fast) {
+      try {
+        await followChange(store, createD1Client(store.searchIndex), {
+          ...change,
+          visibilityOf,
+          onRead: (path, content, visibility) => read.set(path, { content, visibility }),
+        });
+      } catch {
+        try {
+          console.error(
+            JSON.stringify({ event: "search-projection-follow-failed", workspace: store.actor?.workspaceId }),
+          );
+        } catch {
+          // Reporting a derivative failure cannot fail the change either.
+        }
+      }
+    }
+
+    if (!meaning) return;
+    const notes = [
+      ...(change.written ?? []),
+      ...(change.moved ?? []).filter((pair) => Array.isArray(pair) && followsNote(pair[1])).map((pair) => pair[1]),
+    ].filter(followsNote);
+    for (const path of [...new Set(notes)].slice(0, FOLLOW_NOTE_CAP)) {
+      let note = read.get(path);
+      if (!note) {
+        try {
+          const object = await store.get(path);
+          if (!object) continue;
+          note = { content: indexableText(await object.text()), visibility: visibilityOf(path) };
+        } catch {
+          continue;
+        }
+      }
+      await writeMeaningNote(store, { path, ...note });
+    }
   });
 }

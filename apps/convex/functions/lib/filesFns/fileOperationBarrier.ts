@@ -166,6 +166,14 @@ export async function runFileOperationHandler(
     meaningSearch = meaningTarget;
   }
 
+  // A change re-indexed behind its operation is followed into a `ready`
+  // projection too, so a rename or move is found at its new path at once
+  // (`search/d1/follow.js`). Silent on every no, as a search is.
+  if (args.operation.kind === "indexNotes") {
+    const target = await projectionTarget("ready");
+    if (target !== null) projection = await clientFor(target).catch(() => null);
+  }
+
   if (args.operation.kind === "projectIndex") {
     const target = await projectionTarget("backfilling");
     if (target === null) return IDLE_PROJECTION;
@@ -533,7 +541,7 @@ export async function runFileOperationHandler(
       .catch(() => {});
   }
 
-  const indexChange = indexChangeOf(args.operation as FileOperation);
+  const indexChange = indexChangeOf(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
   await followPlaces();
 

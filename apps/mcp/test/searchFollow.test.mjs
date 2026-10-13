@@ -1,0 +1,293 @@
+/**
+ * Fast search follows a move, a removal and a write it was told about, rather
+ * than waiting for a sweep to rediscover it (`src/search/d1/follow.js`).
+ *
+ * Measured on production on 2026-10-13: a note moved with `move_note` was
+ * found by search at its OLD path, which no longer opens, and not at its new
+ * one, minutes after the move. A ready projection's miss is the answer, and
+ * nothing took a moved note's old rows out, so the old name stayed findable
+ * until somebody noticed. The end-to-end check below is that sentence, run
+ * through the worker against real SQL.
+ *
+ * Sabotage record (temporary local edits, reverted), as measured:
+ *   `indexChangedNotes` not calling `followChangeAfterResponse`   → the
+ *     end-to-end check fails exactly as production did: the moved note is
+ *     absent at its new path ("2 matching notes", the old path among them)
+ *   `folderMoveStatements` renaming only the `notes` table         → 4 fail
+ *   `underPattern` not escaping `_`                                → "a folder
+ *     named with an underscore moves only its own notes" fails
+ *   the tier re-check after a folder rename removed                → "a note
+ *     moved into a narrower folder…" and "past the read cap…" fail
+ */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  CONTROL_PLANE_ORIGIN,
+  DESCRIPTOR,
+  DatabaseSync,
+  GATEWAY_SECRET,
+  PRIVACY_MANIFEST,
+  S3_ENDPOINT,
+  createControlPlaneStub,
+  createD1Backend,
+  createD1Client,
+  createS3Backend,
+  createWorkerCtx,
+  noteStore,
+  s3Binding,
+  worker,
+} from "./searchProjection/fixtures.mjs";
+import { followChange, underPattern } from "../src/search/d1/follow.js";
+import { projectNote, upsertStatements } from "../src/search/d1/project.js";
+import { searchChangeOf } from "../src/activity/record.js";
+
+const READY = { ...DESCRIPTOR, state: "ready" };
+/** `1-projects` is team, everything else private: see `PRIVACY_MANIFEST`. */
+const visibilityOf = (path) => (path.startsWith("1-projects/") ? "team" : "private");
+
+async function seedRows(client, notes) {
+  for (const [path, content] of Object.entries(notes)) {
+    await client.runAll(
+      upsertStatements(path, projectNote(path, { version: `old-${path}`, uploaded: null, visibility: visibilityOf(path), content })),
+    );
+  }
+}
+
+function withD1(work) {
+  return async () => {
+    assert.ok(DatabaseSync, "node:sqlite is available, so the projection is checked against real SQL");
+    const d1 = createD1Backend();
+    const restore = d1.install();
+    try {
+      await work(d1, createD1Client(READY));
+    } finally {
+      restore();
+      d1.close();
+    }
+  };
+}
+
+const pathsIn = (d1, table) => d1.rows(`SELECT DISTINCT path FROM ${table} ORDER BY path`).map((row) => row.path);
+
+test(
+  "a moved note leaves its old path and is projected at its new one",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "1-projects/a.md": "# A\n\nquokka\n" });
+    const store = noteStore({ "1-projects/b.md": "# B renamed\n\nquokka\n" });
+    const result = await followChange(store, client, {
+      moved: [["1-projects/a.md", "1-projects/b.md"]],
+      visibilityOf,
+    });
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/b.md"]);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), ["1-projects/b.md"]);
+    assert.equal(d1.rows("SELECT title FROM notes")[0].title, "B renamed");
+    assert.equal(result.projected, 1);
+    assert.deepEqual(store.reads, ["1-projects/b.md"]);
+  }),
+);
+
+test(
+  "a moved folder's notes are found under the new folder, with no reads",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/old/x.md": "# X\n\nquokka\n",
+      "1-projects/old/deep/y.md": "# Y\n\nquokka\n",
+      "1-projects/older.md": "# Older\n\nquokka\n",
+    });
+    const store = noteStore({});
+    await followChange(store, client, { moved: [["1-projects/old", "1-projects/new"]], visibilityOf });
+    const expected = ["1-projects/new/deep/y.md", "1-projects/new/x.md", "1-projects/older.md"];
+    assert.deepEqual(pathsIn(d1, "notes"), expected);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), expected);
+    assert.deepEqual(store.reads, []);
+    // The version is kept, so the sweep still sees the renamed rows as stale.
+    assert.equal(
+      d1.rows("SELECT version FROM notes WHERE path = ?", ["1-projects/new/x.md"])[0].version,
+      "old-1-projects/old/x.md",
+    );
+  }),
+);
+
+test(
+  "a folder named with an underscore moves only its own notes",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/a_b/x.md": "# X\n\nquokka\n",
+      "1-projects/aXb/y.md": "# Y\n\nquokka\n",
+    });
+    await followChange(noteStore({}), client, { moved: [["1-projects/a_b", "1-projects/c"]], visibilityOf });
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/aXb/y.md", "1-projects/c/x.md"]);
+    assert.equal(underPattern("a_b%c\\d"), "a\\_b\\%c\\\\d/%");
+  }),
+);
+
+test(
+  "a note moved into a narrower folder leaves the wider tier's table",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "1-projects/shared/plan.md": "# Plan\n\nquokka\n" });
+    const store = noteStore({ "2-areas/shared/plan.md": "# Plan\n\nquokka\n" });
+    await followChange(store, client, { moved: [["1-projects/shared", "2-areas/shared"]], visibilityOf });
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
+    assert.deepEqual(pathsIn(d1, "notes_private_fts"), ["2-areas/shared/plan.md"]);
+    assert.equal(d1.rows("SELECT visibility FROM notes")[0].visibility, "private");
+  }),
+);
+
+test(
+  "past the read cap a note's rows are removed for the sweep, never left in a wider tier",
+  withD1(async (d1, client) => {
+    const seeded = {};
+    for (let n = 0; n < 3; n += 1) seeded[`1-projects/team/n${n}.md`] = `# N${n}\n\nquokka\n`;
+    await seedRows(client, seeded);
+    const store = noteStore(Object.fromEntries(Object.keys(seeded).map((path) => [path.replace("1-projects/team", "2-areas/team"), "# N\n\nquokka\n"])));
+    const result = await followChange(store, client, {
+      moved: [["1-projects/team", "2-areas/team"]],
+      visibilityOf,
+      noteCap: 1,
+    });
+    assert.equal(result.projected, 1);
+    assert.equal(result.deferred, 2);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
+    assert.equal(pathsIn(d1, "notes").length, 1);
+  }),
+);
+
+test(
+  "a gone note or folder loses its rows; plumbing and folders are never projected",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/keep.md": "# Keep\n\nquokka\n",
+      "1-projects/gone.md": "# Gone\n\nquokka\n",
+      "1-projects/trash/a.md": "# A\n\nquokka\n",
+    });
+    const store = noteStore({ ".context/x.md": "secret", "1-projects/folder": "x" });
+    await followChange(store, client, {
+      gone: ["1-projects/gone.md", "1-projects/trash"],
+      written: [".context/x.md", "1-projects/folder"],
+      visibilityOf,
+    });
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/keep.md"]);
+    assert.deepEqual(store.reads, []);
+  }),
+);
+
+test(
+  "a note or folder moved somewhere the projection does not hold, like the trash, still leaves",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/keep.md": "# Keep\n\nquokka\n",
+      "1-projects/binned.md": "# Binned\n\nquokka\n",
+      "1-projects/old/a.md": "# A\n\nquokka\n",
+    });
+    const store = noteStore({ "1-projects/back.md": "# Back\n\nquokka\n" });
+    await followChange(store, client, {
+      moved: [
+        ["1-projects/binned.md", ".context/trash/binned.md"],
+        ["1-projects/old", ".context/trash/old"],
+        [".context/trash/back.md", "1-projects/back.md"],
+      ],
+      visibilityOf,
+    });
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/back.md", "1-projects/keep.md"]);
+    assert.deepEqual(store.reads, ["1-projects/back.md"]);
+  }),
+);
+
+test("which changes are followed, and which their writer already projected", () => {
+  assert.equal(searchChangeOf("update_note", ["a.md"], {}).follow, null);
+  assert.equal(searchChangeOf("create_note", ["a.md"], {}).follow, null);
+  assert.deepEqual(searchChangeOf("save_context", ["a.md"], {}).follow, { written: ["a.md"] });
+  assert.deepEqual(searchChangeOf("inbox_capture", ["0-inbox/m.md"], {}).follow, { written: ["0-inbox/m.md"] });
+  assert.deepEqual(searchChangeOf("move_note", ["a.md", "b.md"], {}).follow, { moved: [["a.md", "b.md"]] });
+  assert.deepEqual(searchChangeOf("move_notes", ["a.md", "b.md", "c.md", "d.md"], {}).follow, {
+    moved: [["a.md", "b.md"], ["c.md", "d.md"]],
+    written: [],
+  });
+  // A partial bulk move: one applied pair, then a copy whose source stayed.
+  assert.deepEqual(searchChangeOf("move_notes", ["a.md", "b.md", "d.md"], { partial: true, moved: 1 }).follow, {
+    moved: [["a.md", "b.md"]],
+    written: ["d.md"],
+  });
+  assert.deepEqual(searchChangeOf("move_folder", ["x", "y"], { count: 3 }).follow, { moved: [["x", "y"]] });
+  // Still only logical: the bucket holds the old layout until it materializes.
+  assert.equal(searchChangeOf("move_folder", ["x", "y"], { status: "logical_active" }), null);
+  assert.equal(searchChangeOf("move_folder", ["x", "y"], { count: 3, queued: true }), null);
+  assert.deepEqual(searchChangeOf("materialize_move", ["x", "y"], { status: "complete" }).follow, { moved: [["x", "y"]] });
+  assert.equal(searchChangeOf("set_visibility", ["a.md"], {}), null);
+});
+
+/* ---------------------------------------------------------------------- */
+/*                  end to end, through the worker                         */
+/* ---------------------------------------------------------------------- */
+
+const TOKEN = `cat_follow_owner_${"0".repeat(17)}`;
+const WS = "ws_follow";
+
+test("through the worker: a moved note and a moved folder are searchable at their new paths at once", async () => {
+  assert.ok(DatabaseSync, "node:sqlite is available");
+  const s3 = createS3Backend(S3_ENDPOINT);
+  const d1 = createD1Backend();
+  const controlPlane = createControlPlaneStub();
+  const restoreS3 = s3.install();
+  const restoreD1 = d1.install();
+  const restoreControlPlane = controlPlane.install();
+  try {
+    controlPlane.addWorkspace(WS, "follow", s3Binding("follow-bucket", DESCRIPTOR));
+    await controlPlane.addGrant({
+      accessToken: TOKEN,
+      workspaceId: WS,
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_follow_owner",
+      userId: "user_follow_owner",
+    });
+    const bucket = s3.bucketFor("follow-bucket");
+    bucket.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "fp0" });
+    bucket.set("1-projects/older.md", { body: "# Older\n\nA bilby was seen once.\n", etag: "f1" });
+    bucket.set("1-projects/trip/day-one.md", { body: "# Day one\n\nThe dunnart camp.\n", etag: "f2" });
+    bucket.set("1-projects/trip/day-two.md", { body: "# Day two\n\nMore dunnart tracks.\n", etag: "f3" });
+
+    async function call(name, args) {
+      const harness = createWorkerCtx();
+      const response = await worker.fetch(
+        new Request("https://gateway.test/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+        }),
+        { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SEARCH_SUBREQUEST_BUDGET: "600" },
+        harness.ctx,
+      );
+      const body = await response.json();
+      await harness.settle();
+      return JSON.stringify(body);
+    }
+
+    // Converge the projection while it fills, then serve from it.
+    for (let round = 0; round < 4; round += 1) await call("search_notes", { query: "bilby" });
+    assert.equal(d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n, 3);
+    controlPlane.bindings.set(WS, s3Binding("follow-bucket", READY));
+    // And make the R2 index's listing fresh, so no full pass rides the next searches.
+    await call("search_notes", { query: "bilby" });
+
+    await call("write_note", { path: "1-projects/fresh.md", content: "# Fresh\n\nA second bilby, just now.\n" });
+    const afterWrite = await call("search_notes", { query: "bilby" });
+    assert.ok(afterWrite.includes("1-projects/fresh.md"), "the written note is found");
+
+    await call("move_note", { source: "1-projects/fresh.md", destination: "1-projects/renamed.md" });
+    const afterMove = await call("search_notes", { query: "bilby" });
+    assert.ok(afterMove.includes("1-projects/renamed.md"), `a moved note is found at its new path: ${afterMove}`);
+    assert.ok(!afterMove.includes("1-projects/fresh.md"), `and not at its old one: ${afterMove}`);
+
+    await call("move_folder", { source: "1-projects/trip", destination: "1-projects/journey" });
+    const afterFolder = await call("search_notes", { query: "dunnart" });
+    assert.ok(afterFolder.includes("1-projects/journey/day-one.md"), `a moved folder's notes are found under it: ${afterFolder}`);
+    assert.ok(!afterFolder.includes("1-projects/trip/"), `and not under the old folder: ${afterFolder}`);
+  } finally {
+    restoreControlPlane();
+    restoreD1();
+    restoreS3();
+    d1.close();
+  }
+});
