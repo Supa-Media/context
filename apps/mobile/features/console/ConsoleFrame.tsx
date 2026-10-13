@@ -2,7 +2,6 @@ import { useCanSendFeedback } from "../feedback/transport";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useState,
   type ComponentProps,
   type Dispatch,
@@ -34,8 +33,8 @@ import { useUnsavedGuard } from "./files/useUnsavedGuard";
 import { atName } from "./format";
 import { NavBandProvider } from "./NavBand";
 import { VoiceHostProvider } from "../voice/VoiceHost";
-import { hrefFor, sameRoute, searchHref, type ConsoleRoute, type settingsFromQuery } from "./nav";
-import { showTagOnHome } from "./home/homeTag";
+import { hrefFor, sameRoute, type ConsoleRoute, type settingsFromQuery } from "./nav";
+import { useNavWithTags } from "./useNavWithTags";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
@@ -283,23 +282,7 @@ export function ConsoleFrame({
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
   const { nav: layoutNav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
-  const tagSlug = selectedContext(data)?.slug ?? null;
-  const nav = useMemo(
-    () => ({
-      ...layoutNav,
-      openTag: data.demo
-        ? undefined
-        : (tag: string) => {
-            if (phone) {
-              showTagOnHome(tag);
-              data.files.deselect();
-            } else {
-              router.push(searchHref(`#${tag}`, tagSlug === null ? [] : [tagSlug]));
-            }
-          },
-    }),
-    [layoutNav, data.demo, data.files, phone, router, tagSlug],
-  );
+  const nav = useNavWithTags(layoutNav, data, phone, router);
 
   /*
     A visitor's one workspace is named by its display name: the homepage's is
