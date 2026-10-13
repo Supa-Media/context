@@ -61,19 +61,10 @@ async function folderRows(store, prefix) {
  *
  * @param {{ list: Function }} store
  * @param {{ runAll: Function }} client
- * `left` names, for a key this change took away, the tree-hint audiences
- * that could see it before (`table.js`, "What changed since"). A key it does
- * not name that turns out gone is logged with none.
- *
- * @param {{ paths?: string[], files?: string[], left?: { path: string, audiences: string[] }[], now?: () => number }} [options]
+ * @param {{ paths?: string[], files?: string[], now?: () => number }} [options]
  * @returns {Promise<{ checked: number, dirty: boolean }>}
  */
-export async function touchTree(store, client, { paths = [], files = [], left = [], now = Date.now } = {}) {
-  const audiences = new Map();
-  for (const entry of left) {
-    const path = touchablePath(entry?.path);
-    if (path !== null && Array.isArray(entry.audiences)) audiences.set(path, entry.audiences.filter((value) => typeof value === "string"));
-  }
+export async function touchTree(store, client, { paths = [], files = [], now = Date.now } = {}) {
   const asFolder = new Set();
   const asFile = new Set();
   for (const value of paths) {
@@ -105,7 +96,7 @@ export async function touchTree(store, client, { paths = [], files = [], left = 
       const exact = await store.list({ prefix: path, limit: 1 });
       const first = exact.objects?.[0];
       const row = first?.key === path ? rowOf(first) : null;
-      statements.push(...(row !== null ? observeStatements([row], at) : goneStatements([path], at, audiences)));
+      statements.push(...(row !== null ? observeStatements([row], at) : goneStatements([path], at)));
       if (!folder) return;
       const prefix = `${path}/`;
       const listed = await folderRows(store, prefix);

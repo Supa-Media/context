@@ -587,7 +587,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": case "treeChanges": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`, `lib/nodes/run.ts`)
+      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`, `lib/nodes/run.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

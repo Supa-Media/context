@@ -125,8 +125,6 @@ test("an AI client's create, edit and move reach the tree table", async () => {
     const listed = rows(world.d1).map((row) => row.path);
     assert.ok(!listed.includes("2-areas/old.md"), "the moved note's old path stayed");
     assert.ok(listed.includes("1-projects/old.md"), "the moved note's new path is missing");
-    const left = world.d1.rows("SELECT path, gone, audiences FROM tree_log WHERE path = '2-areas/old.md'");
-    assert.deepEqual(left.map((row) => [row.gone, JSON.parse(row.audiences)]), [[1, ["private"]]], "the old path left without saying who saw it");
   } finally {
     world.restore();
   }

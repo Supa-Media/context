@@ -6,8 +6,8 @@
  * Rows, and the rules for telling a reader about them. Nothing here touches
  * Convex: the appends are made by `convexTable.ts` as `observe.ts` changes a
  * row, and the reads by `functions/nodesFeed.ts`. Every decision about who may
- * hear of a row is made here, the way `filesFns/treeChanges.ts` makes it for
- * the D1 table's `tree_log`:
+ * hear of a row is made here, as it was for
+ * the D1 table's `tree_log` it replaced (removed in phase 7):
  *
  *  - **A path that is there** is an entry exactly when `canSee` over the rules
  *    says so, with `describeFile`'s fields, as `syncManifest` would draw it.
