@@ -207,6 +207,33 @@ A gateway write reaches the tree through `/gateway/tree/touch`, a second or
 so later. An agent that writes a note and lists its folder straight away can
 miss it until the touch lands.
 
+**The rest of the app's readers, as built (2026-10-13).** Everything in the
+app that asks only *which notes exist and where* reads the rows where
+`treeServes` holds, through the same stores and the same listing code:
+
+- **A one-folder `list`** (the console's fallback, a shared folder link, a
+  share card, the routines scan, an Obsidian plugin's vault listing) is the
+  live listing's own answer (`nodesListing.listServed`), given at the
+  clearance the barrier already decided, before a bucket credential is
+  opened (`lib/nodes/servedReads.ts`).
+- **Link completion and quick open** (`notePaths`), **the folder picker**
+  (`folderPaths`) and **the map's notes** (`workspaceGraph`) read the rows
+  through `servedNodesStore`, which now answers a delimited listing from one
+  read of the rows held for the call. The map folds the link table's bucket
+  keys through the pending moves, so a moving folder is drawn, links and
+  all, at its new name.
+- **A folder's Lists and Boards** take the folder's notes and versions from
+  the rows and only the front matter from the workspace's database
+  (`folderNotesFromNodes`); a props row at another version than the row's is
+  read again, as before. While a move is pending they read the table as
+  before, since a note's front matter is still filed under its old key.
+
+Two readers deliberately stay on the bucket: **publishing a website**, because
+a Publish releases the bucket's bytes and must see a page written past the app
+(Obsidian, S3 tools) at once, not at the next sweep; and every **index built
+from note text** (search, meaning, the link and props fills), which follows the
+bucket's physical objects.
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
@@ -256,6 +283,10 @@ What fails if reversed:
   what the bucket's listing shows; `inlineTouch.test.ts`: a console change
   updates the tree before it answers; `manifestStore.test.ts`: a walk of the
   rows hands every clearance what a walk of the bucket hands it.
+- `apps/convex/__tests__/nodes/servedReaders.test.ts`: one folder, the
+  picker, link completion, Lists and the map answer from the rows what they
+  answer from the bucket at every clearance, with the tree's rules, and the
+  map draws a moving folder's links at its new name.
 - `apps/mobile/__tests__/followMoves.test.ts`: the open note follows a move
   made elsewhere, and never this tab's own.
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and

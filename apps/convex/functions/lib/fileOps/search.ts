@@ -21,6 +21,7 @@ import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
+import { isServedStore, servedKeys } from "../nodes/manifestStore";
 import { folderVisibleAtScope } from "./listing";
 
 /**
@@ -210,11 +211,11 @@ export async function notePathIndex(
   const state = await loadPrivacyState(store);
   const isVisible = (path: string) =>
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
-  const found = await loadDocmapPaths(
-    store as unknown as Parameters<typeof loadDocmapPaths>[0],
-    createSearchBudget(budget),
-    0,
-  );
+  // Where the Convex tree serves, its rows are the paths (folded through
+  // pending moves): exact now, rather than as of the index's last sync.
+  const found = isServedStore(store)
+    ? { paths: (await servedKeys(store)).filter((path) => isIndexableNote(path)) }
+    : await loadDocmapPaths(store as unknown as Parameters<typeof loadDocmapPaths>[0], createSearchBudget(budget), 0);
   if (found === null) return null;
   return { paths: found.paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }

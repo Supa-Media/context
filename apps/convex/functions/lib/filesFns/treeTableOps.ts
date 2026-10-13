@@ -37,7 +37,7 @@ import { touchTree } from "../../../../mcp/src/tree/touch.js";
 import { treeListingStore } from "../../../../mcp/src/tree/source.js";
 import { linkFillPass, readLinkState } from "../../../../mcp/src/tree/links.js";
 import { propFillPass } from "../../../../mcp/src/tree/props.js";
-import { folderNotesFromTable } from "./folderNotes";
+import { folderNotesFromNodes, folderNotesFromTable } from "./folderNotes";
 import { chaosAfterFill, chaosScoreOf, NO_CHAOS, rescoreTouched } from "./chaosOps";
 import { CHANGE_OVERLAP_MS } from "../../../../mcp/src/tree/changes.js";
 import { clearanceOf } from "../clearance";
@@ -47,7 +47,7 @@ import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionCli
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { servedNodesStore } from "../nodes/manifestStore";
+import { servedMoves, servedNodesStore } from "../nodes/manifestStore";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
@@ -189,6 +189,9 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
     .catch(() => {});
 }
 
+/** Operations that only read which notes exist, answered from the rows where the tree serves. */
+const SERVED_READS = new Set(["workspaceGraph", "notePaths", "folderPaths"]);
+
 /** Organizer actions that only read: `gather` (the sweep's work list) and `outline`. */
 const ORGANIZER_READS = new Set(["gather", "outline"]);
 
@@ -217,7 +220,15 @@ export async function manifestSource(
   if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
     await startNodesSweepIfDue(ctx, args.workspaceId);
   }
-  if (args.operation.kind === "workspaceGraph") return { store: await withLinkTable(ctx, args, store), source: "bucket" };
+  // Read-only readers of which notes exist: the map, link completion and the
+  // folder picker read the rows where the tree serves (`servedNodesStore`),
+  // and the bucket or the search index where it does not.
+  if (SERVED_READS.has(args.operation.kind)) {
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const chosen = served ?? store;
+    const reading = args.operation.kind === "workspaceGraph" ? await withLinkTable(ctx, args, chosen) : chosen;
+    return { store: reading, source: served === null ? "bucket" : "nodes" };
+  }
   if (args.operation.kind !== "manifest") return { store, source: "bucket" };
   if (args.operation.source !== "tree") {
     // An app that walks the bucket still starts the table filling, so it is
@@ -321,7 +332,14 @@ export async function runTreeOperation(
     return await treeChanges(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
   }
   if (operation.kind === "folderNotes") {
-    const answer = await folderNotesFromTable(store, client, operation, clearanceOf(args.scope, args.grantedNames ?? []));
+    // Which notes are in the folder: the Convex tree where it serves and no
+    // move is pending (a note then reads at its old key), else this table.
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+    const answer =
+      served !== null && servedMoves(served).length === 0
+        ? await folderNotesFromNodes(served, client, operation, clearance)
+        : await folderNotesFromTable(store, client, operation, clearance);
     if (answer.fill) await startFillIfIdle(ctx, args, client).catch(() => {});
     return answer;
   }
