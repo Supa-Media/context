@@ -55,7 +55,16 @@ const PRIVACY_WRITERS = new Set(["set_visibility", "set_folder_visibility"]);
  * last sweep (up to an hour), so the desktop and phone apps, which follow its
  * change log, never heard of an edit made on the web until then.
  */
-const TEXT_SAVES = new Set(["update_note", "encrypt_note", "decrypt_note"]);
+const TEXT_SAVES = new Set([
+  "update_note",
+  "encrypt_note",
+  "decrypt_note",
+  // A form answer rewrites its response note's text (`tools/forms/responses.js`).
+  "submit_form",
+  "update_submission",
+  "retract_submission",
+  "vote_form",
+]);
 
 /** Moves of one note, whose source's visibility before the move the tool records. */
 const ONE_NOTE_MOVES = new Set(["move_note", "archive_note"]);
@@ -77,7 +86,10 @@ function movesOf(action, named, details) {
  * A one-note move also says who could see the note where it was, from the
  * tool's own `source_visibility` — read from the manifest before the move,
  * which then carried any exception along with the note. A device catching up
- * is told the old path left only by that (`table.js`, "What changed since").
+ * is told the old path left only by that (`table.js`, "What changed since"),
+ * and the Convex tree's gone row narrows to it (`reportTreeTouch` carries it,
+ * `lib/nodes/convexTable.ts`): the move cleared the source's exception before
+ * the tree is re-checked, so the rules alone would name it to the folder.
  */
 export function treeTouchOf(action, paths, details) {
   if (!Array.isArray(paths) || paths.length === 0) return null;

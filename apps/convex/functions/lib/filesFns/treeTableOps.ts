@@ -476,7 +476,7 @@ export async function keepTreeAndAnnounce(
   // The Convex tree is re-checked whether or not this context has a search
   // database: before the change answers when the bucket is open here, since
   // the console reads that tree (phase 2), and scheduled otherwise.
-  const nodesChange = { paths: change.paths, files: change.files };
+  const nodesChange = { paths: change.paths, files: change.files, left: change.left };
   if (touches && store !== undefined) await touchNodesNow(ctx, args.workspaceId, store, nodesChange);
   else if (touches) await scheduleNodesTouch(ctx, args.workspaceId, nodesChange);
   if (touches && (await hasTreeDatabase(ctx, args.workspaceId))) {

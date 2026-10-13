@@ -434,11 +434,37 @@ function touchMoves(value: unknown): { from: string; to: string }[] | null {
   return moves;
 }
 
+/** The longest audience label (`private`, `team`, `@name`) a touch's `left` may carry. */
+const TOUCH_AUDIENCE_LENGTH = 128;
+
+/**
+ * Who could see each key a change took away, before it, or `null` when
+ * malformed. Only ever narrows a gone row (`lib/nodes/convexTable.ts`), so a
+ * wrong one can hide a departure, never name it to anyone new.
+ */
+function touchLeft(value: unknown): { path: string; audiences: string[] }[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > TOUCH_NAMES) return null;
+  const left: { path: string; audiences: string[] }[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const [path] = touchNames([(entry as { path?: unknown }).path]) ?? [];
+    const audiences = (entry as { audiences?: unknown }).audiences;
+    if (path === undefined || !Array.isArray(audiences) || audiences.length > 64) return null;
+    if (!audiences.every((audience) => typeof audience === "string" && audience.length > 0 && audience.length <= TOUCH_AUDIENCE_LENGTH)) {
+      return null;
+    }
+    left.push({ path, audiences: audiences as string[] });
+  }
+  return left;
+}
+
 /**
  * The gateway's write re-checked in the Convex tree (`lib/nodes/touch.ts`):
  * the paths and files a change named, or `dirty` where it named too many.
  * `edited` names notes whose text alone changed, gathered before their
- * re-check (`nodes.queueEdits`).
+ * re-check (`nodes.queueEdits`). `left` says who could see each key a move
+ * took away before it, which the tree's gone rows narrow to.
  *
  * Names only, never text. A malformed body is a 400: its shape says nothing
  * about which contexts exist. A well-formed id that names no context is
@@ -456,7 +482,8 @@ export async function gatewayTreeTouchHandler(
   const files = touchNames(body.files);
   const moves = touchMoves(body.moves);
   const edited = touchNames(body.edited);
-  if (workspaceId === null || paths === null || files === null || moves === null || edited === null) {
+  const left = touchLeft(body.left);
+  if (workspaceId === null || paths === null || files === null || moves === null || edited === null || left === null) {
     return json({ error: "malformed_touch" }, 400);
   }
   if (body.dirty !== undefined && typeof body.dirty !== "boolean") return json({ error: "malformed_touch" }, 400);
@@ -486,6 +513,8 @@ export async function gatewayTreeTouchHandler(
           paths: dirty ? [] : paths,
           files: dirty ? [] : files,
           ...(moves.length === 0 ? {} : { moves }),
+          // Who could see what a move took away, before it: the gone rows narrow to it.
+          ...(dirty || left.length === 0 ? {} : { left }),
         },
       });
     }

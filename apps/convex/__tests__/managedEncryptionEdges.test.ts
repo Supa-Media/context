@@ -82,7 +82,9 @@ describe("a bucket bigger than one page", () => {
     expect(await row(t, ours)).toMatchObject({ state: "encrypted", filesDone: extra + 3, filesTotal: extra + 3 });
     for (const [key] of backend.objects) expect(isSealed(backend.bytesOf(key)), key).toBe(true);
     expect(await read(t, staff, ours, "3-resources/n0200.md")).toBe("# Note 200\n");
-  });
+    // The walk's end sweeps the Convex tree for the re-sealed versions, and
+    // the drain runs that sweep over every note here too: hence the timeout.
+  }, 30_000);
 });
 
 describe("a page that fails halfway", () => {
