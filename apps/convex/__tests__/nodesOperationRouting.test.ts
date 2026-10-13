@@ -149,6 +149,9 @@ describe("a parity check that finds differences", () => {
     await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesParity" } }, store as never);
     expect(scheduled).toEqual([]);
     expect(mutations.filter((call) => call.name.endsWith("saveParity"))).toHaveLength(1);
+  });
+});
+
 describe("the privacy export", () => {
   const workspaceId = "w" as never;
   const operation = { kind: "nodesPrivacyExport" } as const;
