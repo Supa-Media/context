@@ -77,6 +77,16 @@ test("not queued means the old way; a refusal is worded for the agent", async ()
   assert.equal(await startQueuedFolderMove(store, "private", "a", "b"), null);
 });
 
+test("the old way is refused where a pending move still carries part of the folder", async () => {
+  // Sabotage: drop `crossesPendingMove` and this answers null (moves the old way).
+  const { store } = memory();
+  store.startQueuedMove = async () => ({ queued: false });
+  Object.defineProperty(store, "pendingMoves", { value: [{ from: "team-proj", to: "private/proj" }], enumerable: false });
+  const inside = await startQueuedFolderMove(store, "private", "private/proj", "2-areas/proj");
+  assert.equal(inside.isError, true);
+  assert.equal(await startQueuedFolderMove(store, "private", "1-projects/other", "2-areas/other"), null);
+});
+
 test("a control plane out of reach with a move pending refuses rather than moving the old way", async () => {
   const { store } = memory();
   store.startQueuedMove = async () => {

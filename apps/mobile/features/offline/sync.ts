@@ -122,6 +122,13 @@ export function classifyWriteFailure(error: FileError): WriteOutcome {
   if (error.code === "CONFLICT") {
     return { kind: "conflict", currentEtag: error.currentEtag, message: error.message };
   }
+  // The note moved away from this name while the edit waited (a queued folder
+  // move): parked as a conflict with no current version, like a note deleted
+  // meanwhile, so the edit is kept for the person to place, never retried
+  // against a name that can no longer take it.
+  if (error.code === "MOVED") {
+    return { kind: "conflict", message: error.message };
+  }
   if (TRANSIENT_CODES.has(error.code)) {
     return { kind: "failed", message: error.message };
   }
