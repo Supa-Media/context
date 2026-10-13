@@ -17,6 +17,7 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import type { PrivacyState } from "./privacyState";
+import { namesListing } from "./walk";
 
 /**
  * How many notes a move will read looking for references to what moved.
@@ -82,7 +83,7 @@ export async function rewriteReferences(
 
   let keys: string[] | null;
   try {
-    keys = await visibleNoteKeys(store, options.clearance, options.state);
+    keys = await visibleNoteKeys(store, options.clearance, options.state, options.renames);
   } catch {
     return { notes: 0, links: 0, capped: true };
   }
@@ -139,32 +140,35 @@ export async function rewriteReferences(
 }
 
 /**
- * Every note in the bucket this caller can see, or `null` if the walk ran out
- * of pages before reaching the end.
+ * Every note this caller can see, or `null` if the walk ran out of pages
+ * before reaching the end.
  *
  * `null` rather than a short list, for the reason `keysUnder` gives about its
  * own `complete` flag: a truncated walk reads exactly like a finished one, and
  * the caller here would then rewrite part of a bucket and report a total.
+ *
+ * Listed from the Convex tree where it serves (`namesListing`), which may not
+ * have heard of this move yet, so the renames are applied to what it lists:
+ * an old name is dropped and its new one counted. Against a bucket that has
+ * already moved, that changes nothing.
  */
 async function visibleNoteKeys(
   store: FileStore,
   clearance: Clearance,
   state: PrivacyState,
+  renames: ReadonlyMap<string, string>,
 ): Promise<string[] | null> {
-  const keys: string[] = [];
-  const seen = new Set<string>();
+  const found = new Set<string>();
+  const names = namesListing(store);
   let cursor: string | undefined;
+  let complete = false;
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: "", cursor, limit: 1000 });
-    for (const object of listing.objects ?? []) {
-      if (isPlumbing(object.key)) continue;
-      if (!object.key.endsWith(".md")) continue;
-      if (!canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
-      if (seen.has(object.key)) continue;
-      seen.add(object.key);
-      keys.push(object.key);
+    const listing = await names.list({ prefix: "", cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) found.add(object.key);
+    if (!listing.truncated) {
+      complete = true;
+      break;
     }
-    if (!listing.truncated) return keys;
     const next = listing.cursor;
     // A page that reports more and hands back no way to ask for it is the
     // shape `keysUnder` documents: ending the walk here would return a short
@@ -172,5 +176,16 @@ async function visibleNoteKeys(
     if (!next || next === cursor) return null;
     cursor = next;
   }
-  return null;
+  if (!complete) return null;
+  for (const [source, destination] of renames) {
+    found.delete(source);
+    found.add(destination);
+  }
+  const keys: string[] = [];
+  for (const key of found) {
+    if (isPlumbing(key) || !key.endsWith(".md")) continue;
+    if (!canSee(key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
+    keys.push(key);
+  }
+  return keys;
 }

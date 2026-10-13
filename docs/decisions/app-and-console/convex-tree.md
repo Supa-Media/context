@@ -130,8 +130,8 @@ The rest of phase 2 (2026-10-13):
   holds, as for a rename made in the same tab (`useFollowMoves.ts`). A note
   that was deleted, or moved out of reach, says so and stays on screen.
 
-Pins and recents still name paths, so a move made by somebody else drops
-them from Home until they are retargeted (phase 4's follow-up, B2).
+Pins and recents name paths, and follow every move for whoever may see where
+it went (phase 4 B2, below).
 
 **A move of a folder is one row** (phase 4, built 2026-10-13). Moving a folder
 of any size writes one `moveQueue` row and answers; every screen draws the
@@ -174,6 +174,42 @@ Not yet: the gateway's search, and listings outside phase 5's six tools, read
 the bucket's layout until the copy finishes (phase 5's tools list from the
 rows, folded through the moves), and the one finishing link rewrite may miss a
 step along a chain of moves, which forwarding covers.
+
+**Phase 4 B2: places and the walks inside a move follow the tree** (built
+2026-10-13).
+
+- **Pins, "You open most" and Recent follow a move for every member who may
+  see where it went** (`lib/placesFollow.ts`). Each place is judged by its own
+  new name with `canSee`, at that member's role and named groups, under the
+  rules after the move; a place they may not see stays put and stops showing,
+  so nobody is handed a name `privacy.md` holds back from them. Rules that do
+  not parse move nobody's. This replaces "only the mover's" (2026-09-30),
+  which existed because a Convex function could not ask who may see a path;
+  the tree's rules mirror now answers that. It runs when a queued move
+  activates (under the mirror `activate` just checked) and when it is undone,
+  after a move made in one go inside the credential barrier (under the
+  bucket's `privacy.md`, read after the move), and after an agent's move,
+  which the gateway now names on its tree touch (`moves`).
+- **The walks inside an operation list the tree where it serves**
+  (`lib/nodes/treeNames.ts`): `isFolder` and `keysUnder` for move, copy and
+  delete, and the link rewrite's inventory of every note. That is one query
+  per two thousand names instead of one bucket request per thousand, and it is
+  also a correction: while a folder is moving, deleting it at its new name
+  must reach the files the worker has not copied yet, and only the folded tree
+  names them there. The rewrite applies the move's own renames to what the
+  tree lists, because the tree may not have heard of the move yet.
+- **The gateway's link rewrite takes its inventory from the tree too**
+  (`tree/served.js`), and a dry run of `move_folder` answers from it. A real
+  `move_folder` that falls back to moving in one go still lists the bucket it
+  is about to change: an agent's note written a moment earlier reaches the
+  tree about a second later, and a move that listed the tree would leave it
+  behind. The link table still says which notes point at what moved.
+
+What a "simplification" would cost: retargeting every member's places without
+`canSee` hands a member the new name of a folder they may not see; judging
+only the moved folder and not each place under it hands them a held-back
+note's new path; listing the bucket inside a delete while its folder is moving
+lets the worker carry the files the delete missed to the new name.
 
 **Phase 5, agents' listings, as built (2026-10-13).** `orient`'s map and
 counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
@@ -350,3 +386,8 @@ What fails if reversed:
   edit or a stranger's note never lost mid-copy; `organizerTreeChange.test.ts`:
   the organizer's moves reach the tree; `apps/mcp/test/queuedFolderMove.test.mjs`:
   the gateway queues folder moves and reads through them.
+- `apps/convex/__tests__/nodes/treeNamesAndPlaces.test.ts` and
+  `places.test.ts`: places follow a move only where their person may see the
+  new name, place by place, and a delete of a moving folder reaches every file;
+  `apps/mcp/test/treeReferenceInventory.test.mjs`: the gateway's link rewrite
+  lists the tree with the move applied.

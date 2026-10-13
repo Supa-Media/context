@@ -286,7 +286,13 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("treeState") }),
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
   v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
-  v.object({ kind: v.literal("nodesTouch"), paths: v.array(v.string()), files: v.array(v.string()) }),
+  v.object({
+    kind: v.literal("nodesTouch"),
+    paths: v.array(v.string()),
+    files: v.array(v.string()),
+    /** An agent's moves, old name to new, so pins and recents follow (`placesFollow.ts`). */
+    moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
+  }),
   v.object({ kind: v.literal("nodesParity") }),
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("nodesMoveWork") }),

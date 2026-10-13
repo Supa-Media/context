@@ -31,6 +31,11 @@ describe("POST /gateway/tree/touch", () => {
       { workspaceId, paths: [LONG] },
       { workspaceId, files: [42] },
       { workspaceId, paths: [], dirty: "yes" },
+      { workspaceId, paths: ["a.md"], moves: "a.md" },
+      { workspaceId, paths: ["a.md"], moves: [["a.md", "b.md"]] },
+      { workspaceId, paths: ["a.md"], moves: [{ from: "a.md" }] },
+      { workspaceId, paths: ["a.md"], moves: [{ from: "a.md", to: LONG }] },
+      { workspaceId, paths: ["a.md"], moves: Array.from({ length: 51 }, (_, index) => ({ from: `a${index}`, to: `b${index}` })) },
     ];
     for (const body of bad) {
       const response = await gatewayPost(t, "/gateway/tree/touch", body);
@@ -43,6 +48,13 @@ describe("POST /gateway/tree/touch", () => {
     const real = await gatewayPost(t, "/gateway/tree/touch", { workspaceId, paths: ["1-projects/a.md"], files: [] });
     expect(real.status).toBe(200);
     expect(await real.json()).toEqual({ ok: true });
+    const moved = await gatewayPost(t, "/gateway/tree/touch", {
+      workspaceId,
+      paths: ["1-projects/a.md", "2-areas/a.md"],
+      files: [],
+      moves: [{ from: "1-projects/a.md", to: "2-areas/a.md" }],
+    });
+    expect(moved.status).toBe(200);
 
     // A well-formed id of a context that was deleted, answered as a real one is.
     const gone = (await createWorkspace(t, await createUser(t, "gone@example.invalid"), "gone")) as Id<"workspaces">;

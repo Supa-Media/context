@@ -34,6 +34,7 @@ import { collaborationHead } from "../../live/collaborationHttp.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { listAllKeys } from "../../notes/storage.js";
+import { servedListingStore } from "../../tree/served.js";
 import { LOGICAL_FOLDER_MOVE_THRESHOLD, MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { materializeMoveInBackground } from "./materialize.js";
 import { startQueuedFolderMove } from "./queuedFolder.js";
@@ -245,7 +246,11 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   // objects and leaves the private ones behind. move_folder is the bulk
   // spelling of that operation, so it behaves the same way rather than
   // becoming the one tool that answers a question the others refuse.
-  const allObjects = (await listAllKeys(store, sourcePrefix))
+  // A dry run answers from the Convex tree where it serves (`tree/served.js`).
+  // A real move lists the bucket it is about to change: an agent's note
+  // written a moment ago reaches the tree a second later, and a move that
+  // listed the tree would leave it behind.
+  const allObjects = (await listAllKeys(dryRun ? servedListingStore(store) : store, sourcePrefix))
     .filter(({ key }) => !isPlumbing(key))
     .filter(({ key }) => canSee(key, scope, rules, overrides));
   // A folder holding nothing this caller can see is "not found" — byte-identical

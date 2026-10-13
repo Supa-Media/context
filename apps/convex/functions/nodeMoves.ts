@@ -17,6 +17,7 @@ import { internalMutation, internalQuery, type MutationCtx } from "../_generated
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
+import { followMovesForMembers } from "./lib/placesFollow";
 
 const ruleListValidator = v.object({
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
@@ -190,6 +191,8 @@ export const activate = internalMutation({
       nextAt: args.now,
       updatedAt: args.now,
     });
+    // Every screen draws the new name from here, so pins and recents go there now (`placesFollow.ts`).
+    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
     await scheduleWork(ctx, row.workspaceId);
     return true;
   },
