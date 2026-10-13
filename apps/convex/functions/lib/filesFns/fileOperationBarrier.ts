@@ -540,9 +540,7 @@ export async function runFileOperationHandler(
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
   const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
-  // A change that can touch anything (clearing the vault) names no path to
-  // re-check, so the Convex tree is swept for it instead.
-  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId);
+  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();
 
   /*
