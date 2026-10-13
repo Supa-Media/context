@@ -387,8 +387,12 @@ app that asks only *which notes exist and where* reads the rows where
   the rows and, since 2026-10-13, the front matter from each row too
   ([convex-facts](./convex-facts.md)), else the workspace's database
   (`folderNotesFromNodes`); a props row at another version than the row's is
-  read again, as before. While a move is pending they read the table as
-  before, since a note's front matter is still filed under its old key.
+  read again, as before. While a move is pending they list the rows at the
+  names the tree draws and look each note's front matter up at every key it
+  may still sit at (`physicalCandidates`). They used to fall back to the D1
+  table, at bucket keys judged by the old names' rules, which kept a folder
+  moved somewhere private in team members' Lists until the copy finished
+  (fixed 2026-10-13).
 - **The chaos score** (the app's figure and folder chip, and orient's chaos
   line) is counted at read time from the rows' keys, pending moves folded
   in, with only what a key cannot say (a note's length, a contact's review)

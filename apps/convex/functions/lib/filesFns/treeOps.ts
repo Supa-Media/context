@@ -27,7 +27,7 @@ import { clearanceOf } from "../clearance";
 import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { PRIVACY_KEY } from "../privacy";
-import { isServedStore, servedMoves, servedNodesStore } from "../nodes/manifestStore";
+import { isServedStore, servedNodesStore } from "../nodes/manifestStore";
 import { attachLinkTable, convexLinkTable } from "../nodes/linkTable";
 import { scheduleFactFill } from "../nodes/factFill";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
@@ -143,7 +143,7 @@ export async function runTreeOperation(
     // Which notes are in the folder: the Convex tree where it serves and no
     // move is pending (a note then reads at its old key). Their front matter:
     // the rows' own, once the facts have read every note.
-    if (served === null || servedMoves(served).length > 0 || !(await factsReady(ctx, args.workspaceId))) {
+    if (served === null || !(await factsReady(ctx, args.workspaceId))) {
       return NO_FOLDER_NOTES;
     }
     const answer = await folderNotesFromNodes(served, factPropSource(ctx, args.workspaceId), operation, clearance);

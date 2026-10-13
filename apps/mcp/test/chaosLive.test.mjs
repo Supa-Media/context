@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import { propsOf } from "../src/tree/props.js";
 import { LONG_NOTE_LINES, hasReview, isExempt, scoreTree } from "../src/chaos/rubric.js";
 import { folderNumbers, liveSummary, liveTotals, scoreKeys } from "../src/chaos/live.js";
+import { factSection } from "../src/chaos/orient.js";
 import { CONTACTS_FOLDER } from "../../../packages/communications/src/protocol.js";
 
 const notPrivate = (path) => !path.startsWith("2-areas/private/");
@@ -105,4 +106,23 @@ test("meetings and generated notes are exempt from the long-note rule, and a rev
   assert.equal(isExempt("1-projects/x/essay.md", "note", false), false);
   for (const value of ["possible duplicate", ["a"], true, 1]) assert.equal(hasReview(value), true, JSON.stringify(value));
   for (const value of [null, undefined, false, 0, "", "  ", "[]"]) assert.equal(hasReview(value), false, JSON.stringify(value));
+});
+
+test("orient names a moving folder's long notes at its new name, as the app does", async () => {
+  // The facts file notes at bucket keys; the served keys are drawn through
+  // the pending move. Sabotage: drop `extrasAtTreeNames` in `factSection`
+  // and the long note is not named at all.
+  const texts = workspace();
+  const keys = Object.keys(texts);
+  const extras = [{ path: "1-projects/big/novel.md", lines: 1500, exempt: false, review: false }];
+  const moves = [{ from: "1-projects/big", to: "3-resources/big" }];
+  const drawn = keys.map((key) => key.replace(/^1-projects\/big\//, "3-resources/big/"));
+  const store = {
+    treeKeys: async () => drawn,
+    treeFacts: async () => ({ served: true, chaos: { extras, weekAgo: null } }),
+  };
+  Object.defineProperty(store, "pendingMoves", { value: moves, enumerable: false });
+  const served = await factSection(store, "team", () => true, [], new Map());
+  assert.match(served.longNotes.map((n) => n.path).join(","), /3-resources\/big\/novel\.md/);
+  assert.doesNotMatch(served.longNotes.map((n) => n.path).join(","), /1-projects\/big\//);
 });

@@ -211,6 +211,47 @@ async function allPages(
   throw new Error("the List did not end");
 }
 
+describe("a folder's List while a folder move is pending", () => {
+  /*
+   * The rows are drawn at the folder's new name at once; the bucket, and the
+   * front matter filed under bucket keys, catch up behind. Before, any
+   * pending move anywhere sent every List to the D1 table, at bucket keys
+   * judged by the old names' rules: a team folder moved somewhere private
+   * kept its notes' front matter, headings and first lines in team members'
+   * Lists for as long as the copy ran.
+   *
+   * Sabotage: look front matter up at the drawn name only and the moved
+   * notes come back without their properties (read again at a key the
+   * bucket does not hold yet).
+   */
+  const byPath = (result: Awaited<ReturnType<typeof folderNotesFromNodes>>) =>
+    Object.fromEntries(result.notes.map((note) => [note.path, JSON.parse(note.props)]));
+  const moves = [{ from: "1-projects/alpha", to: "2-areas/alpha" }];
+
+  test("lists the moving notes at their new name, with the front matter filed at the old one", async () => {
+    const bucket = await workspace();
+    const { source } = await withFacts(bucket);
+    const served = await servedOf(bucket, { moves });
+    const owner = await allPages(served, source, { folder: "2-areas/alpha", subfolders: true }, OWNER);
+    expect(owner.available).toBe(true);
+    const notes = byPath(owner);
+    expect(Object.keys(notes).sort()).toEqual(["2-areas/alpha/overview.md", "2-areas/alpha/task-one.md"]);
+    expect(notes["2-areas/alpha/overview.md"]?.properties).toEqual({ status: "doing" });
+    expect(notes["2-areas/alpha/task-one.md"]?.properties).toEqual({ status: "done" });
+  });
+
+  test("a team member's List of the old folder no longer holds what moved somewhere private", async () => {
+    const bucket = await workspace();
+    const { source } = await withFacts(bucket);
+    const served = await servedOf(bucket, { moves });
+    const team = byPath(await allPages(served, source, { folder: "1-projects", subfolders: true }, TEAM));
+    expect(Object.keys(team).some((path) => path.includes("alpha"))).toBe(false);
+    expect(Object.keys(team)).toContain("1-projects/beta/overview.md");
+    const there = await allPages(served, source, { folder: "2-areas", subfolders: true }, TEAM);
+    expect(there.notes).toEqual([]);
+  });
+});
+
 describe("a folder's List from the Convex facts", () => {
   const byPath = (result: Awaited<ReturnType<typeof folderNotesFromNodes>>) =>
     Object.fromEntries(result.notes.map((note) => [note.path, JSON.parse(note.props)]));

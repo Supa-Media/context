@@ -4,6 +4,7 @@
  * Split out of `functions/files.ts`.
  */
 
+import { MovingPathError } from "../../../../mcp/src/moves/queued.js";
 import { ConvexError } from "convex/values";
 import { FileOpError } from "../fileOps";
 import { NOTE_CAP_REACHED, NoteCapReached } from "../../../../mcp/src/store/noteCap.js";
@@ -31,6 +32,13 @@ export function toConvexError(error: unknown): ConvexError<{
   // naming what still works and both ways to more room.
   if (error instanceof NoteCapReached) {
     return new ConvexError({ code: NOTE_CAP_REACHED, message: error.message });
+  }
+  // A save to a name a queued folder move has already carried away
+  // (`MovingPathError`): said as what it is, so a device keeps the edit
+  // parked rather than retrying a write that can never land as a bucket
+  // failure.
+  if (error instanceof MovingPathError) {
+    return new ConvexError({ code: "MOVED", message: error.message });
   }
   return new ConvexError({
     code: "STORAGE_FAILED",
