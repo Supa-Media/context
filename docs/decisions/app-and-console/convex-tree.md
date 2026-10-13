@@ -314,12 +314,26 @@ app that asks only *which notes exist and where* reads the rows where
   the mirror's rules show the team. The `tree_chaos` aggregates stay for the
   daily history and as the fallback. Pinned in
   `__tests__/nodes/servedChaos.test.ts` and `test/chaosLive.test.mjs`.
+- **The free plan's note count** ("912 of 1,000 notes", `recountNotes`) is
+  the rows' note keys, with no bucket credential opened
+  (`lib/nodes/servedCount.ts`, pinned in
+  `__tests__/nodes/servedNoteCount.test.ts`). Verifying a newly connected
+  bucket still counts the bucket, since no tree exists for it yet.
 
 Two readers deliberately stay on the bucket: **publishing a website**, because
 a Publish releases the bucket's bytes and must see a page written past the app
 (Obsidian, S3 tools) at once, not at the next sweep; and every **index built
 from note text** (search, meaning, the link and props fills), which follows the
 bucket's physical objects.
+
+Reviewed again on 2026-10-13, three small listings also stay, each for a
+reason rather than by omission: the **connect-time snapshot** an agent is
+handed (one delimited listing of the root, which costs less than the tree's
+whole-tree manifest would); the **gateway's note cap** inside a write (it
+must count what the bucket holds at the moment of the create, and a free
+context's count stops at the cap within a page or two); and **search's
+literal scan**, the recovery path for an unusable index, which reads note
+text at the bucket's physical keys.
 
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
