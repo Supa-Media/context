@@ -383,6 +383,34 @@ describe("the sweep", () => {
   });
 });
 
+describe("activity freshens a ready index", () => {
+  /*
+   * Typing in the app, Obsidian and console moves embed nothing at the time,
+   * and used to reach search by meaning on the daily refresh. Activity now
+   * schedules a catch-up five minutes out, one per burst.
+   *
+   * Sabotage: `markWorkspaceActivityHandler` not calling
+   * `freshenMeaningAfterActivity` fails the first; dropping the `freshenAt`
+   * check fails "one per burst".
+   */
+  test("a change in a ready workspace schedules one catch-up, a burst still one", async () => {
+    const { t, workspaceId } = await workspace({ status: "ready" });
+    await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() - 1000 });
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+    expect((await row(t, workspaceId))?.freshenAt).toBeGreaterThan(Date.now());
+    await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() });
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+  });
+
+  test("a filling or switched-off index is left to its own chain", async () => {
+    for (const options of [{ status: "backfilling" as const }, { status: "ready" as const, enabled: false }]) {
+      const { t, workspaceId } = await workspace(options);
+      await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() });
+      expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    }
+  });
+});
+
 describe("a console search", () => {
   const search = (t: TestConvex, workspaceId: Id<"workspaces">, query: string) =>
     t.action(internal.functions.files.runFileOperation, {

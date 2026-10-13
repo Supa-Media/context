@@ -104,7 +104,7 @@ function sqliteProjection() {
     db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
   return {
     paths: () => (run("SELECT path FROM notes ORDER BY path") as { path: string }[]).map((row) => row.path),
-    seed(path: string, content: string, visibility = "private") {
+    seed(path: string, content: string, visibility: "private" | "team" = "private") {
       for (const { sql, params } of upsertStatements(path, projectNote(path, { version: "v0", uploaded: null, visibility, content }))) {
         run(sql, params);
       }

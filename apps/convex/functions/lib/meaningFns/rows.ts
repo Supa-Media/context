@@ -231,6 +231,13 @@ export const MEANING_PASS_CHAIN = 200;
 export const MEANING_STALL_MS = 15 * 60 * 1000;
 /** A `ready` row is caught up at least this often, for edits nothing else embedded. */
 export const MEANING_REFRESH_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long after a change in a `ready` workspace its catch-up runs. Edits
+ * nothing embedded at the time (typing in the app, Obsidian, a console move)
+ * used to wait for the daily refresh; now they wait this long, and a burst of
+ * edits inside it is one pass.
+ */
+export const MEANING_FRESHEN_MS = 5 * 60 * 1000;
 /** A failure worth waiting out is retried after this long. */
 export const MEANING_RETRY_MS = 15 * 60 * 1000;
 /**
@@ -285,4 +292,29 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
     started += 1;
   }
   return { started };
+}
+
+/**
+ * Something changed in this workspace (`markWorkspaceActivity`): catch its
+ * `ready` meaning index up `MEANING_FRESHEN_MS` from now, unless a catch-up is
+ * already due by then. The pass lists the bucket and embeds only what changed
+ * since the last one, so this is a listing per busy five minutes, and nothing
+ * for a quiet workspace. Never throws: a derivative never fails the change.
+ */
+export async function freshenMeaningAfterActivity(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  try {
+    const row = await meaningRowFor(ctx, workspaceId);
+    if (row === null || !row.enabled || row.status !== "ready") return false;
+    const now = Date.now();
+    if ((row.freshenAt ?? 0) > now) return false;
+    await ctx.db.patch(row._id, { freshenAt: now + MEANING_FRESHEN_MS });
+    await ctx.scheduler.runAfter(MEANING_FRESHEN_MS, internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "projectMeaning", passes: MEANING_PASS_CHAIN },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
