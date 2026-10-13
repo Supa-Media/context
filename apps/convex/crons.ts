@@ -379,6 +379,19 @@ crons.interval(
  * the owner's clearance from live membership. Hourly, with at most one sweep a
  * day per workspace (`SWEEP_EVERY_MS`).
  */
+/**
+ * Queued folder moves whose chain of passes stopped (a deployment, a lost
+ * schedule) are picked up again once their lease lapses
+ * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
+ * safety net, and it does nothing when no move is pending.
+ */
+crons.interval(
+  "resume queued moves",
+  { minutes: 5 },
+  internal.functions.nodeMoves.resume,
+  {},
+);
+
 crons.interval(
   "auto-organize sweeps",
   { hours: 1 },

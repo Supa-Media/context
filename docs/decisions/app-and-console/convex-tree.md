@@ -131,7 +131,49 @@ The rest of phase 2 (2026-10-13):
   that was deleted, or moved out of reach, says so and stays on screen.
 
 Pins and recents still name paths, so a move made by somebody else drops
-them from Home until phase 4 gives a moved note one identity.
+them from Home until they are retargeted (phase 4's follow-up, B2).
+
+**A move of a folder is one row** (phase 4, built 2026-10-13). Moving a folder
+of any size writes one `moveQueue` row and answers; every screen draws the
+folder at its new name at once, and the bucket catches up behind it.
+
+- **The node rows stay physical.** A row's `path` is still where the file
+  sits in the bucket. The tree as drawn is the rows folded through the
+  workspace's pending moves, oldest first (`lib/nodes/moveOverlay.ts`,
+  `logicalPath` / `physicalCandidates` in `apps/mcp/src/moves/queued.js`).
+  Rewriting every row under a folder would make a big move many mutations
+  and a half-finished one a broken tree; the fold makes it atomic.
+- **Only folders queue.** A single note still moves in one go. A folder move
+  falls back to the one-go move when the tree does not serve, when another
+  move is being set up, or when the folder holds anything the mover cannot
+  see, since only a move made in one go knows how to leave that behind.
+- **Privacy is carried, never stored on a row.** The start copies the source's
+  rules to the new name in `privacy.md` and narrows the destination, exactly as
+  a one-go move would (`movePrivacy.ts`); the old name's rules go when the copy
+  finishes, and an undone move takes back what it added, restoring what it
+  narrowed. The start only activates if the mirror still matches what it read.
+- **The worker copies straight to where the tree draws a file now**, through
+  every pending move, so a move made on top of a moving folder copies each
+  object once (chains collapse). One pass works for a minute, a pool of six
+  at a time, reports what moved, and schedules the next (`moveWork.ts`). An
+  edit landing mid-copy keeps the edit and retries; a name taken by a stranger
+  is a conflict, never an overwrite (`moveObject`).
+- **Opening a note promotes it.** A request's store reads through the pending
+  moves (`withPendingMoves`): touching the new name moves that object there
+  first, collaboration history included; an old name still holding its object
+  reads as it is; a write to an emptied old name is refused.
+- **Old names are reserved while a move is pending**, and forward for 30 days
+  after, through the existing forwarding ledger.
+- **Staff can Retry and Undo** in admin › Search › Indexes, Moves
+  (`nodeMovesAdmin.ts`), path-free like the rest of that page. A failed pass
+  backs off from 30 seconds to 15 minutes and retries for ever; it shows as
+  stuck after three. Undo turns the same row around, and is refused while a
+  pass holds it or a later move depends on its names.
+
+Not yet: the gateway's search, and listings outside phase 5's six tools, read
+the bucket's layout until the copy finishes (phase 5's tools list from the
+rows, folded through the moves), and the one finishing link rewrite may miss a
+step along a chain of moves, which forwarding covers.
 
 **Phase 5, agents' listings, as built (2026-10-13).** `orient`'s map and
 counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
@@ -188,6 +230,12 @@ to catch up.
   customer's notes, which ends non-negotiable #1.
 - Serving the rows before the parity check holds at every clearance would
   show a team member a tree the bucket's rules never gave them.
+- Rewriting each row under a moved folder instead of folding the queue makes
+  a big move slow and a half-done one a tree that is neither old nor new.
+- Moving a folder that holds notes the mover cannot see through the queue
+  would carry them along under the mover's name; it falls back instead.
+- Dropping the old-name reservation lets a new note land where the worker is
+  about to copy from, and be carried off with the move.
 
 What fails if reversed:
 
@@ -213,3 +261,10 @@ What fails if reversed:
 - `apps/convex/__tests__/nodes/nodesMigration.test.ts` and
   `nodesOperationRouting.test.ts`: only staff read or flip the switch, and a
   pause schedules nothing and stops a pass before it lists the bucket.
+- `apps/convex/__tests__/nodes/queuedMoves.test.ts`: a folder move is one
+  row, draws at once at every clearance, carries and releases privacy,
+  collapses chains, reserves old names, and Undo/Retry work;
+  `movePaths.test.ts` and `moveObject.test.ts`: the fold, promotion, and an
+  edit or a stranger's note never lost mid-copy; `organizerTreeChange.test.ts`:
+  the organizer's moves reach the tree; `apps/mcp/test/queuedFolderMove.test.mjs`:
+  the gateway queues folder moves and reads through them.
