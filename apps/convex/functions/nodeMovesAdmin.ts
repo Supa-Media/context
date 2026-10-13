@@ -17,6 +17,8 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
 import { MOVE_LEASE_MS, STUCK_ATTEMPTS, movesOverlap } from "./lib/nodes/moveRules";
+import { readMirror } from "./lib/nodes/listing";
+import { followMovesForMembers } from "./lib/placesFollow";
 
 /** Moves one report reads: a bound on a loop, not on any deployment we have. */
 const REPORT_ROWS = 200;
@@ -154,6 +156,8 @@ export const undo = mutation({
       nextAt: now,
       updatedAt: now,
     });
+    // Pins and recents go back with the folder, for whoever may see its old name.
+    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.to, to: row.from }], await readMirror(ctx.db, row.workspaceId));
     await schedulePass(ctx, row.workspaceId);
     return null;
   },

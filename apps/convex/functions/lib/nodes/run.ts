@@ -23,6 +23,7 @@ import type { FileOperation, OperationResult } from "../filesFns/operationTypes"
 import { checkParity } from "./parity";
 import { type NodeListingStore, sweepNodesPass } from "./sweep";
 import { touchNodes } from "./touch";
+import { followPlacesAfter } from "./followPlaces";
 import { type NodeSink, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
 export type NodesOperation = Extract<FileOperation, { kind: "nodesSweep" | "nodesTouch" | "nodesParity" }>;
@@ -159,6 +160,8 @@ export async function runNodesOperation(
     try {
       const { dirty } = await touchNodes(listing, sink, { paths: operation.paths, files: operation.files });
       if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
+      // An agent's moves: pins and recents follow them, as they follow the app's.
+      await followPlacesAfter(ctx, workspaceId, store, operation.moves ?? []);
       return { kind: "nodesKept", complete: !dirty };
     } catch {
       // A re-check that failed leaves the rows behind the bucket; a sweep repairs that.

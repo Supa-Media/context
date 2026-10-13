@@ -408,6 +408,20 @@ function touchNames(value: unknown): string[] | null {
   return names;
 }
 
+/** An agent's moves, `{ from, to }` each, or `null` when malformed. */
+function touchMoves(value: unknown): { from: string; to: string }[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > TOUCH_NAMES) return null;
+  const moves: { from: string; to: string }[] = [];
+  for (const move of value) {
+    if (typeof move !== "object" || move === null) return null;
+    const [from, to] = touchNames([(move as { from?: unknown }).from, (move as { to?: unknown }).to]) ?? [];
+    if (from === undefined || to === undefined) return null;
+    moves.push({ from, to });
+  }
+  return moves;
+}
+
 /**
  * The gateway's write re-checked in the Convex tree (`lib/nodes/touch.ts`):
  * the paths and files a change named, or `dirty` where it named too many.
@@ -426,7 +440,8 @@ export async function gatewayTreeTouchHandler(
   const workspaceId = stringField(body, "workspaceId");
   const paths = touchNames(body.paths);
   const files = touchNames(body.files);
-  if (workspaceId === null || paths === null || files === null) return json({ error: "malformed_touch" }, 400);
+  const moves = touchMoves(body.moves);
+  if (workspaceId === null || paths === null || files === null || moves === null) return json({ error: "malformed_touch" }, 400);
   if (body.dirty !== undefined && typeof body.dirty !== "boolean") return json({ error: "malformed_touch" }, 400);
   const dirty = body.dirty === true;
   try {
@@ -436,11 +451,18 @@ export async function gatewayTreeTouchHandler(
     if (!known) return answered();
     if (dirty) {
       await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: workspaceId as Id<"workspaces"> });
-    } else if (paths.length + files.length > 0) {
+    }
+    // Moves ride a touch even when the names went to a sweep: pins and recents follow them.
+    if ((!dirty && paths.length + files.length > 0) || moves.length > 0) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: workspaceId as Id<"workspaces">,
         scope: "private",
-        operation: { kind: "nodesTouch", paths, files },
+        operation: {
+          kind: "nodesTouch",
+          paths: dirty ? [] : paths,
+          files: dirty ? [] : files,
+          ...(moves.length === 0 ? {} : { moves }),
+        },
       });
     }
   } catch {

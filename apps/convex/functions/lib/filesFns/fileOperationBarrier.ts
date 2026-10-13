@@ -47,6 +47,8 @@ import {
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, runNodesOperation } from "../nodes/run";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
+import { attachPlacesFollower } from "../nodes/followPlaces";
+import { attachTreeListing } from "../nodes/treeNames";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -439,6 +441,8 @@ export async function runFileOperationHandler(
   // capped.
   const listing = await manifestSource(ctx, args, store);
   attachQueueMove(ctx, args, listing.store, bucket);
+  attachTreeListing(ctx, args.workspaceId, listing.store);
+  const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -527,6 +531,7 @@ export async function runFileOperationHandler(
 
   const indexChange = indexChangeOf(args.operation as FileOperation);
   await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
+  await followPlaces();
 
   /*
     The notes this operation changed, re-indexed now rather than whenever a
