@@ -47,6 +47,9 @@ export async function websiteLinkCatalogHandler(
             href: row.routePath,
             audience: row.audience,
             sourceEtag: row.sourceEtag,
+            ...(row.releaseId === undefined || row.releasePageId === undefined
+              ? {}
+              : { releaseId: row.releaseId, releasePageId: row.releasePageId }),
           },
         ]
       : [],

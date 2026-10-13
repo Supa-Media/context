@@ -38,7 +38,7 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
 import { websiteTextRestricts } from "./changes";
-import { readBatches } from "./lists";
+import { readBatches, releasedTexts } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
 import { readPublishedEmoji } from "./emoji";
@@ -155,35 +155,6 @@ export function routePathFor(path: string): string {
 export function pageTitle(path: string, title: string | null, body: string): string {
   return websitePageTitle(path, title, body);
 }
-
-/** The published copies of `pages`, by file; a copy that is gone is absent. */
-async function releasedTexts(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  pages: PublishedPage[],
-): Promise<Map<string, string>> {
-  const wanted = pages.flatMap((page) =>
-    page.releaseId === undefined || page.releasePageId === undefined
-      ? []
-      : [{ releaseId: page.releaseId, pageId: page.releasePageId, path: page.objectKey }],
-  );
-  const texts = new Map<string, string>();
-  for (let offset = 0; offset < wanted.length; offset += RELEASE_BATCH) {
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "private",
-      grantedNames: [],
-      operation: { kind: "readWebsiteRelease", pages: wanted.slice(offset, offset + RELEASE_BATCH) },
-    });
-    if (result.kind !== "websiteReleasePages") continue;
-    for (const page of result.results) {
-      if (page.outcome === "read") texts.set(page.path, page.text);
-    }
-  }
-  return texts;
-}
-
-const RELEASE_BATCH = 50;
 
 export async function websiteSnapshot(
   ctx: ActionCtx,

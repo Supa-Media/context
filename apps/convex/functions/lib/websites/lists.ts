@@ -8,11 +8,13 @@ import {
   renderEvaluatedListBlocks,
   selectListRows,
 } from "../../../../mcp/src/lists.js";
+import { parseWebsitePage } from "@context/shared";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
-import type { WebsiteLinkCatalogEntry } from "./links";
+import { websiteTextRestricts } from "./changes";
+import { websiteHrefFor, type WebsiteLinkCatalogEntry } from "./links";
 import { PUBLICATION_SCOPE } from "./publication";
 
 type ViewerAudience = "public" | "members";
@@ -118,6 +120,57 @@ export async function readBatches(
   return notes;
 }
 
+/** A page as Publish kept it: where its copy lives, by file. */
+export interface ReleasedPage {
+  objectKey: string;
+  releaseId?: string;
+  releasePageId?: string;
+}
+
+const RELEASE_BATCH = 50;
+
+/** The published copies of `pages`, by file; a copy that is gone is absent. */
+export async function releasedTexts(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  pages: readonly ReleasedPage[],
+): Promise<Map<string, string>> {
+  const wanted = pages.flatMap((page) =>
+    page.releaseId === undefined || page.releasePageId === undefined
+      ? []
+      : [{ releaseId: page.releaseId, pageId: page.releasePageId, path: page.objectKey }],
+  );
+  const texts = new Map<string, string>();
+  for (let offset = 0; offset < wanted.length; offset += RELEASE_BATCH) {
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: { kind: "readWebsiteRelease", pages: wanted.slice(offset, offset + RELEASE_BATCH) },
+    });
+    if (result.kind !== "websiteReleasePages") continue;
+    for (const page of result.results) {
+      if (page.outcome === "read") texts.set(page.path, page.text);
+    }
+  }
+  return texts;
+}
+
+/**
+ * Whether a route's live bytes still publish it to the audience it was
+ * indexed for. The live file is read at the publication clearance, so a note
+ * `privacy.md` holds back never gets this far.
+ */
+function stillPublishes(entry: WebsiteLinkCatalogEntry, text: string): boolean {
+  if (isEncryptedNote(text)) return false;
+  const parsed = parseWebsitePage(text);
+  if (parsed.draft) return false;
+  return (
+    entry.audience !== "public" ||
+    (parsed.audience === "public" && !websiteTextRestricts(text))
+  );
+}
+
 export async function renderPublicWebsiteLists(
   ctx: ActionCtx,
   args: {
@@ -130,6 +183,8 @@ export async function renderPublicWebsiteLists(
 ): Promise<string> {
   const byPath = canonicalEntries(args.catalog);
   const cache = new Map<string, ReadNote | null>();
+  /** Each route's words as published; null when it no longer publishes. */
+  const published = new Map<string, string | null>();
   let foundStaleRoute = false;
 
   const rendered = await renderEvaluatedListBlocks(
@@ -162,23 +217,46 @@ export async function renderPublicWebsiteLists(
       for (const path of missingShares)
         cache.set(path, shares.get(path) ?? null);
 
+      // An edit waits for Publish, so a route whose live bytes changed but
+      // still publish it is listed by the copy Publish kept, as the page
+      // itself is served. A restriction is never answered from that copy.
+      const edited: WebsiteLinkCatalogEntry[] = [];
+      for (const entry of entries) {
+        if (entry.kind !== "route" || published.has(entry.objectKey)) continue;
+        const note = cache.get(entry.objectKey) ?? null;
+        if (note === null) continue;
+        if (!stillPublishes(entry, note.text)) {
+          published.set(entry.objectKey, null);
+        } else if (entry.sourceEtag !== null && note.etag === entry.sourceEtag) {
+          published.set(entry.objectKey, note.text);
+        } else {
+          edited.push(entry);
+        }
+      }
+      const copies = await releasedTexts(ctx, args.workspaceId, edited);
+      for (const entry of edited)
+        published.set(entry.objectKey, copies.get(entry.objectKey) ?? null);
+
       const notes = [];
       for (const entry of entries) {
         const note = cache.get(entry.objectKey) ?? null;
-        if (note === null || isEncryptedNote(note.text)) continue;
-        if (
-          entry.kind === "route" &&
-          (entry.sourceEtag === null || note.etag !== entry.sourceEtag)
-        ) {
-          foundStaleRoute = true;
+        if (note === null) continue;
+        const text =
+          entry.kind === "route"
+            ? published.get(entry.objectKey) ?? null
+            : note.text;
+        if (text === null) {
+          // Restricted since Publish, or no kept copy to list it by.
+          if (entry.kind === "route") foundStaleRoute = true;
           continue;
         }
+        if (isEncryptedNote(text)) continue;
         notes.push({
           path: entry.objectKey,
           updatedAt: note.updatedAt ?? null,
-          properties: noteProperties(note.text),
-          inlineTags: inlineTags(note.text),
-          heading: noteHeading(note.text),
+          properties: noteProperties(text),
+          inlineTags: inlineTags(text),
+          heading: noteHeading(text),
         });
       }
       const selection = selectListRows(config, notes, {
@@ -186,7 +264,9 @@ export async function renderPublicWebsiteLists(
       });
       const withHref = (row: SelectedRow): SelectedRow => ({
         ...row,
-        href: byPath.get(row.path)?.href ?? null,
+        // Percent-encoded per segment: a raw space ends a Markdown link
+        // target, so `/Team Notes` came out as plain text.
+        href: hrefOf(byPath.get(row.path)),
         ...(Array.isArray(row.children)
           ? { children: row.children.map(withHref) }
           : {}),
@@ -204,4 +284,9 @@ export async function renderPublicWebsiteLists(
     });
   }
   return rendered;
+}
+
+function hrefOf(entry: WebsiteLinkCatalogEntry | undefined): string | null {
+  if (entry === undefined) return null;
+  return entry.kind === "route" ? websiteHrefFor(entry.href) : entry.href;
 }

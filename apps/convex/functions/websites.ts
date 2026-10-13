@@ -192,6 +192,8 @@ const linkCatalogValidator = v.object({
       href: v.string(),
       audience: v.union(v.literal("public"), v.literal("members")),
       sourceEtag: v.union(v.string(), v.null()),
+      releaseId: v.optional(v.string()),
+      releasePageId: v.optional(v.string()),
     }),
   ),
   ownedHosts: v.array(v.string()),
