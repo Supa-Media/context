@@ -5,6 +5,7 @@
  */
 
 import { createControlPlane } from "../controlPlane.js";
+import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { MOVE_AUTOMATIC_BATCH } from "./limits.js";
 import { moveErrorForControlPlane, moveProgressFromText } from "./jobs.js";
 import { searchBudgetFor } from "../search/budget.js";
@@ -29,7 +30,10 @@ function retryMessage(message, delaySeconds) {
   message.retry({ delaySeconds: Math.max(1, Math.ceil(delaySeconds)) });
 }
 
-export async function handleGatewayJobMessage(message, env) {
+/**
+ * @param {object} [deps] seams for tests: `materialize` stands in for `toolMaterializeMove`.
+ */
+export async function handleGatewayJobMessage(message, env, { materialize = toolMaterializeMove } = {}) {
   const body = message?.body;
   const ticket = typeof body?.ticket === "string" ? body.ticket : null;
   if (!ticket) return;
@@ -68,6 +72,15 @@ export async function handleGatewayJobMessage(message, env) {
         ...progress,
         workspaceId: job.workspaceId,
       });
+    // The same reporters a session's store has (`http/route.js`): a move this
+    // job finishes is a write, and its `recordChange` re-checks the Convex
+    // tree only through them. The queue has no `waitUntil`, so the deferred
+    // reports are gathered and settled before the job is reported.
+    const deferred = [];
+    store.defer = (work) => {
+      deferred.push(Promise.resolve(work).catch(() => {}));
+    };
+    attachChangeReporters(store, job.workspaceId, controlPlane);
 
     let status = "failed";
     let error;
@@ -75,7 +88,7 @@ export async function handleGatewayJobMessage(message, env) {
     let nextMessage = body;
     let nextDelaySeconds;
     if (job.kind === "materialize_move" && typeof job.moveId === "string") {
-      const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_AUTOMATIC_BATCH,
+      const result = await materialize(store, "private", job.moveId, MOVE_AUTOMATIC_BATCH,
         { automatic: true });
       const text = result?.content?.[0]?.text || "";
       if (result?.isError) {
@@ -98,6 +111,7 @@ export async function handleGatewayJobMessage(message, env) {
       error = "unsupported gateway job";
     }
 
+    await Promise.all(deferred);
     await controlPlane.reportGatewayJob(ticket, {
       status,
       ...(error ? { error } : {}),
