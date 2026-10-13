@@ -134,6 +134,20 @@ test("a save of a note's text is reported as edited, never as a re-check of its 
   }
 });
 
+test("a form answer is reported as an edit of its response note", async () => {
+  // The four form tools rewrite the response note and nothing else of the
+  // tree; without this the Convex tree kept its old version until a sweep.
+  for (const action of ["submit_form", "update_submission", "retract_submission", "vote_form"]) {
+    const { calls, methods } = controlPlaneRecorder();
+    const { store, settle } = storeWith(methods, "ws_recorded");
+    await recordChange(store, action, "team", ["1-projects/feedback-responses.md"], { form_id: "bugs" });
+    await settle();
+    const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+    assert.equal(touches.length, 1, `${action} was not reported to the tree`);
+    assert.deepEqual(touches[0].body.edited, ["1-projects/feedback-responses.md"], action);
+  }
+});
+
 test("a save that changed front matter is re-checked by path, and not also as edited", async () => {
   const { calls, methods } = controlPlaneRecorder();
   const { store, settle } = storeWith(methods, "ws_recorded");
