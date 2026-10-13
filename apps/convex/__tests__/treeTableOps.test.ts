@@ -162,6 +162,8 @@ describe("which store a sidebar walk reads", () => {
       const name = getFunctionName(ref as never);
       if (name === "functions/nodes:served") return { mirror: null };
       if (name === "functions/nodes:listLive") return { rows: [{ path: "only/in-convex.md" }], cursor: null };
+      // No folder move pending: the walk pages the rows as they are (`foldedPages` otherwise).
+      if (name === "functions/nodeMoves:active") return [];
       throw new Error(`unexpected ${name}`);
     });
     const answer = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", source: "tree" } }, bucket());

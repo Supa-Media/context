@@ -168,6 +168,12 @@ export async function runNodesOperation(
     }
   }
 
+  // While a queued move copies, rows and bucket change under the check; a
+  // mismatch then is the copy in flight, and must not stop the tree serving
+  // the move it is drawing. The check runs again at the next clearance.
+  if ((await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId })).length > 0) {
+    return { kind: "nodesKept", complete: false };
+  }
   const rows = await readAllLive(ctx, workspaceId);
   const mirror = await ctx.runQuery(internal.functions.nodes.privacy, { workspaceId });
   const result = await checkParity(store, rows, mirror);

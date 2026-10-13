@@ -121,6 +121,7 @@ import * as sessions from "./functions/lib/gatewayRoutes/sessions";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
+import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
@@ -324,6 +325,9 @@ export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 
 /* 2b-quater. POST /gateway/moves — an AI client moved a note between contexts */
 export const gatewayMoves = gatewayRoute(signals.gatewayMovesHandler);
+
+/* 2b-quinquies. POST /gateway/moves/start — an AI client's folder move, queued */
+export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-tree. POST /gateway/tree — a context's file tree changed               */
@@ -873,6 +877,7 @@ http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentT
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
+http.route({ path: "/gateway/moves/start", method: "POST", handler: gatewayMoveStart });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });

@@ -46,6 +46,28 @@ export interface MoveResult {
    * the bucket answered the write with one. See `movePath`.
    */
   etag?: string;
+  /**
+   * Set when the move was queued (a folder, phase 4 of the Convex tree): how
+   * many files the tree now draws at `to` while the bucket catches up behind
+   * it. `paths` is then just `to`.
+   */
+  queued?: number;
+}
+
+/**
+ * A folder move the tree can draw at once, queued by the credential barrier
+ * (`lib/nodes/moveStart.ts`), or `null` to move it here. Attached to the store
+ * non-enumerably, as the barrier's other seams are; a store without it (the
+ * gateway's own, tests, self-hosting without the tree) moves the old way.
+ */
+type QueueMove = (move: { from: string; to: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+
+async function queuedMove(
+  store: FileStore,
+  move: { from: string; to: string; clearance: Clearance; now: number },
+): Promise<MoveResult | null> {
+  const queue = (store as { queueMove?: QueueMove }).queueMove;
+  return typeof queue === "function" ? await queue(move) : null;
 }
 
 /**
@@ -107,6 +129,12 @@ export async function movePath(
       "PATH_INVALID",
       "A folder cannot be moved onto a folder it is already inside.",
     );
+  }
+
+  // A move asked against a version is about one note, which never queues.
+  if (options.expectedEtag === undefined) {
+    const queued = await queuedMove(store, { from, to, clearance: options.clearance, now: options.now });
+    if (queued !== null) return queued;
   }
 
   const state = await loadPrivacyState(store);

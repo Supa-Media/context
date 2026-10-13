@@ -36,6 +36,7 @@ import { isEncryptedNote } from "../../encryption.js";
 import { listAllKeys } from "../../notes/storage.js";
 import { LOGICAL_FOLDER_MOVE_THRESHOLD, MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { materializeMoveInBackground } from "./materialize.js";
+import { startQueuedFolderMove } from "./queuedFolder.js";
 import { moveJobKey, writeMoveSentinel } from "../../moves/jobs.js";
 import { normalizePath } from "../../notes/paths.js";
 import { pruneEmptyFolders } from "../../store/index.js";
@@ -219,6 +220,12 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     return toolError(
       `${ROLE_LABEL[topLevelRole(source)]} is a built-in folder, so it can't be renamed or moved. Move what's inside it instead.`
     );
+  }
+
+  // Queued where the tree serves this workspace: one step, however big the folder.
+  if (!dryRun) {
+    const queued = await startQueuedFolderMove(store, scope, source, destination);
+    if (queued !== null) return queued;
   }
 
   const sourcePrefix = `${source}/`;

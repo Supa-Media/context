@@ -279,6 +279,8 @@ export const movedValidator = v.object({
    * that note — see `movePath`.
    */
   etag: v.optional(v.string()),
+  /** Files a queued folder move carries; the bucket catches up behind the tree. See `movePath`. */
+  queued: v.optional(v.number()),
 });
 
 export const deletedValidator = v.object({

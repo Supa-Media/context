@@ -18,6 +18,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { FileStore } from "../fileOps/store";
+import { foldRows, type PendingMove } from "./moveOverlay";
 import { mirrorFile } from "./privacyMirror";
 import { NODE_PRIVACY_KEY, type NodeRow, type PrivacyMirror } from "./table";
 
@@ -75,7 +76,7 @@ export async function servedNodesStore(
 ): Promise<FileStore | null> {
   const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId });
   if (served === null) return null;
-  const page: NodePage = async (after, limit) => {
+  const listed: NodePage = async (after, limit) => {
     const result = await ctx.runQuery(internal.functions.nodes.listLive, {
       workspaceId,
       limit,
@@ -91,5 +92,43 @@ export async function servedNodesStore(
       cursor: result.cursor,
     };
   };
-  return nodesPagedStore(base, page, served.mirror);
+  const moves = await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId });
+  return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror);
+}
+
+/** Rows one read of the whole tree takes per page while moves are pending. */
+const FOLD_PAGE = 2_000;
+
+/**
+ * Pages of the tree as drawn while moves are pending (`moveOverlay.ts`).
+ * Folding renames keys out of order, so the rows are read once, folded and
+ * sorted, and paged from that; the cursor is still the last path handed out.
+ */
+export function foldedPages(listed: NodePage, moves: readonly PendingMove[]): NodePage {
+  let all: Promise<NodeRow[]> | null = null;
+  const readAll = async () => {
+    const seen = new Set<string>();
+    const rows: NodeRow[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const page = await listed(after, FOLD_PAGE);
+      rows.push(...foldRows(page.rows, moves, seen));
+      if (page.cursor === null || page.cursor === after || page.rows.length === 0) break;
+      after = page.cursor;
+    }
+    return rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  };
+  return async (after, limit) => {
+    all ??= readAll();
+    const rows = await all;
+    let low = 0;
+    let high = rows.length;
+    while (after !== undefined && low < high) {
+      const middle = (low + high) >> 1;
+      if (rows[middle]!.path <= after) low = middle + 1;
+      else high = middle;
+    }
+    const slice = rows.slice(low, low + limit);
+    return { rows: slice, cursor: low + limit >= rows.length || slice.length === 0 ? null : slice[slice.length - 1]!.path };
+  };
 }
