@@ -44,7 +44,7 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
   {
     key: "convex",
     label: "Convex copy",
-    what: "The backend migration: each workspace's file tree copied into Convex and checked against its bucket. Once a check matches, the app's sidebar and folder pages read it live. Pause sends everyone back to the bucket.",
+    what: "The backend migration: each workspace's file tree copied into Convex and checked against its bucket. Once a check matches, the app reads it live: the sidebar, folder pages, Home and the open note. Pause sends everyone back to the bucket.",
   },
 ];
 

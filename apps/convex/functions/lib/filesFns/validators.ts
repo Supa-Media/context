@@ -182,7 +182,7 @@ export const manifestValidator = v.object({
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
   /** Where the keys came from: the tree table, or a walk of the bucket. */
-  source: v.optional(v.union(v.literal("tree"), v.literal("bucket"))),
+  source: v.optional(v.union(v.literal("tree"), v.literal("bucket"), v.literal("nodes"))),
   /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
   since: v.optional(v.number()),
   privacy: v.optional(v.union(v.string(), v.null())),

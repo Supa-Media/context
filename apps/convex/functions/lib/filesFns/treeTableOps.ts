@@ -47,6 +47,7 @@ import { type FileStore, loadPrivacyState, type PrivacyState, type ProjectionCli
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
+import { servedNodesStore } from "../nodes/manifestStore";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { FileOperation, OperationResult } from "./operationTypes";
 
@@ -189,8 +190,10 @@ async function scheduleSweep(ctx: ActionCtx, workspaceId: Id<"workspaces">, scop
 }
 
 /**
- * The store a `source: "tree"` manifest walks: the table where it can answer,
- * the bucket otherwise. Schedules a sweep when one is due, either way.
+ * The store a `source: "tree"` manifest walks: the Convex tree where it serves
+ * the workspace (`servedNodesStore`), else the table where it can answer, else
+ * the bucket. Schedules a sweep when one is due. A walk the Convex tree answers
+ * says `nodes` and carries no catch-up point: its next walk is a few queries.
  */
 export async function manifestSource(
   ctx: ActionCtx,
@@ -200,7 +203,7 @@ export async function manifestSource(
     operation: { kind: string; source?: string; cursor?: string };
   },
   store: FileStore,
-): Promise<{ store: FileStore; source: "tree" | "bucket"; since?: number; privacy?: string | null }> {
+): Promise<{ store: FileStore; source: "tree" | "bucket" | "nodes"; since?: number; privacy?: string | null }> {
   // The Convex tree's shadow starts filling on the first page of any walk (`lib/nodes/run.ts`).
   if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
     await startNodesSweepIfDue(ctx, args.workspaceId);
@@ -213,6 +216,9 @@ export async function manifestSource(
     if (args.operation.cursor === undefined) await startSweepIfDue(ctx, args).catch(() => {});
     return { store, source: "bucket" };
   }
+  // The Convex tree, where it serves: the rows the live listings read.
+  const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
+  if (served !== null) return { store: served, source: "nodes" };
   try {
     const client = await treeClient(ctx, args.workspaceId);
     if (client === null) return { store, source: "bucket" };

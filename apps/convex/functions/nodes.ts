@@ -29,6 +29,7 @@ import {
   unsupportedState,
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
+import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   OBSERVE_BATCH,
@@ -352,13 +353,20 @@ export const fail = internalMutation({
 export const privacy = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.null(), mirrorValidator),
+  handler: async (ctx, { workspaceId }) => await readMirror(ctx.db, workspaceId),
+});
+
+/**
+ * Whether the tree answers this workspace's walks (`treeServes`), and with
+ * which rules: read in one transaction, so a walk never pairs a served tree
+ * with rules from before the check.
+ */
+export const served = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.object({ mirror: v.union(v.null(), mirrorValidator) })),
   handler: async (ctx, { workspaceId }) => {
-    const doc = await ctx.db
-      .query("nodePrivacy")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique();
-    if (doc === null) return null;
-    return { etag: doc.etag, invalid: doc.invalid, folders: doc.folders, notes: doc.notes };
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    return { mirror: await readMirror(ctx.db, workspaceId) };
   },
 });
 

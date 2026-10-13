@@ -15,7 +15,7 @@
 import { clearanceOf, type Clearance } from "../clearance";
 import type { FileStore } from "../fileOps/store";
 import { syncManifest } from "../fileOps/syncManifest";
-import { privacyMirrorOf, renderMirror, sameRules } from "./privacyMirror";
+import { mirrorFile, privacyMirrorOf, sameRules } from "./privacyMirror";
 import { compareKeys } from "./sweep";
 import { NODE_PRIVACY_KEY, type NodeRow, type PrivacyMirror } from "./table";
 
@@ -62,14 +62,7 @@ export function nodesListingStore(
   };
   listing.get = async (key) => {
     if (key !== NODE_PRIVACY_KEY) return await base.get(key);
-    const text = mirror === null ? null : renderMirror(mirror);
-    if (mirror === null || mirror.etag === undefined || text === null) return null;
-    const bytes = new TextEncoder().encode(text);
-    return {
-      etag: mirror.etag,
-      text: async () => text,
-      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-    };
+    return mirrorFile(mirror) as Awaited<ReturnType<FileStore["get"]>>;
   };
   return listing;
 }

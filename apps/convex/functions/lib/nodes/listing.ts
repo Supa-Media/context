@@ -17,7 +17,8 @@ import type { Clearance } from "../clearance";
 import { listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
-import { renderMirror } from "./privacyMirror";
+import { mirrorFile } from "./privacyMirror";
+import { migrationPaused } from "./pause";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 
 /**
@@ -107,16 +108,33 @@ export function folderRowsStore(
     },
     get: async (key: string) => {
       if (key !== NODE_PRIVACY_KEY) refuse();
-      const text = mirror === null ? null : renderMirror(mirror);
-      if (mirror === null || mirror.etag === undefined || text === null) return null;
-      const bytes = new TextEncoder().encode(text);
-      return {
-        etag: mirror.etag,
-        text: async () => text,
-        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-      };
+      return mirrorFile(mirror);
     },
   } as unknown as FileStore;
+}
+
+/** The workspace's privacy mirror as a store renders it, or `null` when the tree holds none. */
+export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
+  const row = await db
+    .query("nodePrivacy")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (row === null) return null;
+  return {
+    ...(row.etag === undefined ? {} : { etag: row.etag }),
+    invalid: row.invalid,
+    folders: row.folders,
+    notes: row.notes,
+  };
+}
+
+/** Whether the tree serves this workspace now: its row, and the pause, read in the caller's transaction. */
+export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
+  const tree = await db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return treeServes(tree, await migrationPaused(db));
 }
 
 /** One folder's listing at `clearance`, from the tree's rows and its privacy mirror. */
@@ -129,18 +147,6 @@ export async function listFolderFromNodes(
   // The same refusal the bucket listing gives a malformed path, before any read.
   const folder = requireFolderPath(path);
   const { rows, more } = await childrenOf(ctx, workspaceId, folder);
-  const mirrorRow = await ctx.db
-    .query("nodePrivacy")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-  const mirror: PrivacyMirror | null =
-    mirrorRow === null
-      ? null
-      : {
-          ...(mirrorRow.etag === undefined ? {} : { etag: mirrorRow.etag }),
-          invalid: mirrorRow.invalid,
-          folders: mirrorRow.folders,
-          notes: mirrorRow.notes,
-        };
+  const mirror = await readMirror(ctx.db, workspaceId);
   return await listFolder(folderRowsStore(folder, rows, more, mirror), { path: folder, clearance });
 }

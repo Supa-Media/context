@@ -30,7 +30,7 @@ export function mirrorActionsFor({
         workspaceId: workspaceId as Id<"workspaces">,
         ...(cursor === undefined ? {} : { cursor }),
         ...(source === undefined ? {} : { source }),
-      })) as unknown as ManifestPage & { source?: "tree" | "bucket" },
+      })) as unknown as ManifestPage & { source?: "tree" | "bucket" | "nodes" },
     readNotes: async ({ workspaceId, paths }) =>
       (await readNotesAction({
         workspaceId: workspaceId as Id<"workspaces">,

@@ -11,6 +11,7 @@
 
 import { createRequire } from "node:module";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import type { Id } from "../_generated/dataModel";
 import type { FileStore } from "../functions/lib/fileOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
@@ -57,7 +58,10 @@ function fakeCtx(options: { target: boolean }) {
   const nodes: { operation: { kind: string } }[] = [];
   const marked: { audiences: string[]; rows: string[] }[] = [];
   const ctx = {
-    runQuery: vi.fn(async () => (options.target ? { databaseId: "db-1", state: "ready" } : null)),
+    // The Convex tree never serves here (`nodes.served`): these cases are the table's.
+    runQuery: vi.fn(async (ref: unknown) =>
+      getFunctionName(ref as never) === "functions/nodes:served" ? null : options.target ? { databaseId: "db-1", state: "ready" } : null,
+    ),
     runAction: vi.fn(async () => "configured"),
     runMutation: vi.fn(async (_ref: unknown, args: { audiences: string[] }) => {
       const rows = (await database.query("SELECT path FROM tree ORDER BY path").catch(() => [])).map(
@@ -150,6 +154,20 @@ describe("which store a sidebar walk reads", () => {
     expect(scheduled).toEqual([]);
     const listed = await answer.store.list({ prefix: "" });
     expect(listed.objects.map((object) => object.key)).toEqual(["1-projects/a.md", "2-areas/b.md"]);
+  });
+
+  test("where the Convex tree serves, its rows are walked, not the table or the bucket", async () => {
+    const { ctx } = fakeCtx({ target: true });
+    (ctx as unknown as { runQuery: ReturnType<typeof vi.fn> }).runQuery.mockImplementation(async (ref: unknown) => {
+      const name = getFunctionName(ref as never);
+      if (name === "functions/nodes:served") return { mirror: null };
+      if (name === "functions/nodes:listLive") return { rows: [{ path: "only/in-convex.md" }], cursor: null };
+      throw new Error(`unexpected ${name}`);
+    });
+    const answer = await ops.manifestSource(ctx, { ...ARGS, operation: { kind: "manifest", source: "tree" } }, bucket());
+    expect(answer.source).toBe("nodes");
+    const listed = await answer.store.list({ prefix: "" });
+    expect(listed.objects.map((object) => object.key)).toEqual(["only/in-convex.md"]);
   });
 });
 

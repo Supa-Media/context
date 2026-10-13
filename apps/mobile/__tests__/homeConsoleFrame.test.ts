@@ -64,6 +64,7 @@ jest.mock("expo-router", () => ({
   worse, one that succeeds.
 */
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
   useConvex: () => ({
     query: async () => {
       mockServer.push("query");
