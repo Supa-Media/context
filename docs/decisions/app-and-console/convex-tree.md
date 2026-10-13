@@ -133,6 +133,38 @@ The rest of phase 2 (2026-10-13):
 Pins and recents still name paths, so a move made by somebody else drops
 them from Home until phase 4 gives a moved note one identity.
 
+**Phase 5, agents' listings, as built (2026-10-13).** `orient`'s map and
+counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
+and `evaluate_lists` list from the tree wherever `treeServes` holds, and
+auto-organize's `gather` and `outline` passes do too. Note text is still
+read from the bucket.
+
+- **The gateway asks `/gateway/tree/manifest`** (`lib/nodes/gatewayManifest.ts`)
+  with the person's own access token, as `/gateway/site` does. The workspace
+  is chosen from that grant's set, and the clearance is the gateway's own
+  rule read off the grant: `private` only for an owner whose grant carries
+  `context:private`. No request field names a scope.
+- **Privacy is decided twice, never once less.** The route hands the rows
+  and the rules mirror to the unchanged `syncManifest`, and the tools then
+  filter with `canSee` over the bucket's `privacy.md`, as they filtered the
+  bucket's listing. A key reaches an agent only if both agree.
+- **One request per call, not one walk per folder.** An answer carries up
+  to 20,000 keys (it leaves as an HTTP body, so the 8,192-element limit on
+  function results does not apply), and the gateway reuses it for every
+  listing in the same tool call (`apps/mcp/src/tree/served.js`).
+- **Only the six listing tools.** A tool that writes lists the bucket it is
+  about to change, and a listing of plumbing (`.context/`) always goes to the
+  bucket, because the tree never holds it.
+- **Anything short of a proved tree reads the bucket.** A tree that is not
+  served, staff's Pause, an unknown token, a malformed field, a walk that
+  stopped short, rules that do not parse, and a failed or slow request all
+  answer `{ served: false }` (the same bytes for each). The gateway then
+  lists the bucket for the rest of the call.
+
+A gateway write reaches the tree through `/gateway/tree/touch`, a second or
+so later. An agent that writes a note and lists its folder straight away can
+miss it until the touch lands.
+
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
 phase 4. Phase 1 still stores each row's full `path`, because the bucket is
@@ -165,6 +197,12 @@ What fails if reversed:
   overwrites a newer one.
 - `apps/convex/__tests__/nodes/convexNodes.test.ts`: one workspace never
   reads or changes another's rows.
+- `apps/convex/__tests__/nodes/gatewayManifest.test.ts`: the gateway reads at
+  the grant's clearance in the grant's own contexts, and every refusal is the
+  bytes of a tree that does not serve.
+- `apps/mcp/test/treeServed.test.mjs`: each listing tool answers as the
+  bucket does at owner and team clearance without listing a note folder, and
+  a key the tree wrongly sends is still held back.
 - `apps/convex/__tests__/nodes/nodesListing.test.ts`: the live listing
   refuses strangers, answers `null` unless proved, and shows each clearance
   what the bucket's listing shows; `inlineTouch.test.ts`: a console change
