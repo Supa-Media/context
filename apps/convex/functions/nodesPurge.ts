@@ -36,8 +36,8 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
 }
 
 /**
- * Forget the workspace's tree: its bookkeeping and parsed rules at once, its
- * rows a batch now and the rest in the background.
+ * Forget the workspace's tree: its bookkeeping, parsed rules and queued moves
+ * at once, its rows a batch now and the rest in the background.
  */
 export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
   const trees = await ctx.db
@@ -50,6 +50,12 @@ export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"wor
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of privacy) await ctx.db.delete(row._id);
+  // Queued moves describe objects in the bucket the workspace left, or in none.
+  const moves = await ctx.db
+    .query("moveQueue")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of moves) await ctx.db.delete(row._id);
   await purgeBatch(ctx, workspaceId);
 }
 
