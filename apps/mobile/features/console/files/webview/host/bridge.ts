@@ -30,6 +30,7 @@ import {
 import { bytesFromBase64 } from "../../imageBytes";
 import { hostExtras, type ExtrasSink, type HostExtras } from "./extras";
 import { webUrl } from "../../webUrl";
+import { isTagBody } from "../../../../../../mcp/src/lists/inlineTags.js";
 
 export { bytesFromBase64 };
 
@@ -69,6 +70,8 @@ export interface HostSink extends ExtrasSink {
    * `http:` or `mailto:`. See the `open-url` case.
    */
   onOpenUrl?: (url: string) => void;
+  /** A drawn `#tag` was tapped. See the `open-tag` case. */
+  onOpenTag?: (tag: string) => void;
   /** The link key was pressed over these words. See the `link-request` case. */
   onLinkRequest?: (text: string) => void;
   /**
@@ -489,6 +492,16 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         case "open-url":
           if (typeof message.url !== "string" || webUrl(message.url) !== message.url) return;
           sink.onOpenUrl?.(message.url);
+          return;
+        /*
+          Only something that reads as a tag is passed on: all it does is show
+          the notes carrying it, but a guest is the side that would be
+          compromised, and a "tag" that is not one has no business reaching
+          a search.
+        */
+        case "open-tag":
+          if (typeof message.tag !== "string" || message.tag.length > 200 || !isTagBody(message.tag)) return;
+          sink.onOpenTag?.(message.tag);
           return;
         /*
           Gated on `editable` like `save`: it opens a sheet whose only outcome

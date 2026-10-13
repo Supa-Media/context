@@ -8,6 +8,9 @@
  * first page of a `syncManifest` walk with `source: "tree"`. An answer with
  * `full: true` means walk the manifest instead.
  *
+ * Where the Convex tree serves the workspace its change log answers
+ * (`nodesFeed.ts`, phase 6); elsewhere the D1 tree table's.
+ *
  * Its own module because `files.ts` is past the size a file may grow from.
  */
 
@@ -18,6 +21,7 @@ import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { treeChangesValidator } from "./lib/filesFns/validators";
+import { isFeedToken } from "./lib/nodes/log";
 
 export async function syncTreeChangesHandler(
   ctx: ActionCtx,
@@ -29,6 +33,31 @@ export async function syncTreeChangesHandler(
     workspaceId: args.workspaceId,
     minimum: "member",
   });
+  // The Convex tree's change log, where the tree serves the workspace (`nodesFeed.ts`).
+  const fromNodes = await ctx.runQuery(internal.functions.nodesFeed.changes, {
+    actorUserId,
+    workspaceId: args.workspaceId,
+    since: args.since,
+    ...(args.privacy === undefined ? {} : { privacy: args.privacy }),
+    now: Date.now(),
+  });
+  if (fromNodes !== null) return fromNodes;
+  // A cursor from that log means nothing to the D1 table's: walk.
+  if (isFeedToken(args.privacy)) {
+    return {
+      kind: "treeChanges",
+      full: true,
+      entries: [],
+      folders: [],
+      gone: [],
+      goneFolders: [],
+      since: args.since,
+      after: args.after ?? "",
+      more: false,
+      privacy: null,
+      manifestUsable: true,
+    };
+  }
   const result = await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,
     scope,

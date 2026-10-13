@@ -199,7 +199,8 @@ const ORGANIZER_READS = new Set(["gather", "outline"]);
  * The store a `source: "tree"` manifest walks: the Convex tree where it serves
  * the workspace (`servedNodesStore`), else the table where it can answer, else
  * the bucket. Schedules a sweep when one is due. A walk the Convex tree answers
- * says `nodes` and carries no catch-up point: its next walk is a few queries.
+ * says `nodes`, and its first page carries where a catch-up from the tree's
+ * change log starts.
  */
 export async function manifestSource(
   ctx: ActionCtx,
@@ -238,7 +239,14 @@ export async function manifestSource(
   }
   // The Convex tree, where it serves: the rows the live listings read.
   const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-  if (served !== null) return { store: served, source: "nodes" };
+  if (served !== null) {
+    if (args.operation.cursor !== undefined) return { store: served, source: "nodes" };
+    // The first page says where a catch-up from the tree's change log starts (`nodesFeed.ts`).
+    const start = await ctx
+      .runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() })
+      .catch(() => null);
+    return { store: served, source: "nodes", ...(start === null ? {} : start) };
+  }
   try {
     const client = await treeClient(ctx, args.workspaceId);
     if (client === null) return { store, source: "bucket" };

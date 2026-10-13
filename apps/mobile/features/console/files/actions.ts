@@ -255,9 +255,8 @@ export function runMenuAction(
       context.setDialog({ kind: "tags", folder: path });
       return;
     case "setIcon":
-      // Folders only, though the item is never offered for a note: a dispatcher
-      // that ran it on one would open a dialog about something with no icon.
-      if (kind === "folder") context.setDialog({ kind: "folderIcon", path });
+      // Folders and notes (`iconGroup` offers it on nothing else).
+      context.setDialog({ kind: "folderIcon", path });
       return;
     case "selectNotes":
       context.startSelect?.(path);

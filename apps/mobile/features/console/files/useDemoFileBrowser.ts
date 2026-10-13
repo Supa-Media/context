@@ -23,6 +23,7 @@ import { demoTreeFor, type DemoContextTree } from "../placeholderData";
 import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
+import { shownIcon } from "./folderIcons";
 import type { OpenNote } from "./types";
 
 /** The note at a path in this tree, or `null` when it is a folder. */
@@ -254,7 +255,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
       // The icons the tree came with (a homepage scene names some); nothing here can set one.
-      iconOf: (path: string) => (tree.icons !== undefined && Object.prototype.hasOwnProperty.call(tree.icons, path) ? tree.icons[path]! : null),
+      iconOf: (path: string) => shownIcon(tree.icons ?? {}, path),
       setIcon: async () => {},
       // The landing page has no bucket to add a folder to; its sheet is never offered.
       addBuiltInFolder: async () => {

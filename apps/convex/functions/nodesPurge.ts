@@ -30,7 +30,13 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
     .take(PURGE_BATCH);
   for (const row of rows) await ctx.db.delete(row._id);
-  if (rows.length === PURGE_BATCH) {
+  // The change log names the same paths, so it leaves with them.
+  const logged = await ctx.db
+    .query("nodeLog")
+    .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
+    .take(PURGE_BATCH);
+  for (const row of logged) await ctx.db.delete(row._id);
+  if (rows.length === PURGE_BATCH || logged.length === PURGE_BATCH) {
     await ctx.scheduler.runAfter(0, internal.functions.nodesPurge.purge, { workspaceId });
   }
 }

@@ -476,7 +476,7 @@ export function FolderView({
                               : selection.start
                         }
                         phone={compact ? phoneRows?.(row) : undefined}
-                        folderIcon={row.kind === "folder" ? (iconOf?.(row.path) ?? null) : null}
+                        folderIcon={iconOf?.(row.path) ?? null}
                       />
                     </Fragment>
                   ))}

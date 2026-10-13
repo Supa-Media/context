@@ -9,8 +9,10 @@ import {
   biggestWins,
   chaosToT,
   chaosWord,
-  chipLabel,
-  chipShows,
+  askYourAi,
+  folderTexShows,
+  texLine,
+  texSays,
   folderHint,
   folderLabel,
   itemsLabel,
@@ -96,18 +98,39 @@ describe("a folder's hint", () => {
   });
 });
 
-describe("the folder page's chip", () => {
+describe("the folder page's Tex", () => {
   test("only past fine, or thin", () => {
-    expect(chipShows(null)).toBe(false);
-    expect(chipShows({ folder: "a", items: 12, chaos: 33 })).toBe(true);
-    expect(chipShows({ folder: "a", items: 10, chaos: 25 })).toBe(false);
-    expect(chipShows({ folder: "a", items: 2, chaos: 20 })).toBe(true);
-    expect(chipShows({ folder: "a", items: 2, chaos: 0 })).toBe(false);
-    expect(chipShows({ folder: "a", items: 5, chaos: 0 })).toBe(false);
+    expect(folderTexShows(null)).toBe(false);
+    expect(folderTexShows({ folder: "a", items: 12, chaos: 33 })).toBe(true);
+    expect(folderTexShows({ folder: "a", items: 10, chaos: 25 })).toBe(false);
+    expect(folderTexShows({ folder: "a", items: 2, chaos: 20 })).toBe(true);
+    expect(folderTexShows({ folder: "a", items: 2, chaos: 0 })).toBe(false);
+    expect(folderTexShows({ folder: "a", items: 5, chaos: 0 })).toBe(false);
   });
-  test("says the count and the word, and thin is its own word", () => {
-    expect(chipLabel({ folder: "a", items: 12, chaos: 33 })).toBe("12 items · crowded");
-    expect(chipLabel({ folder: "a", items: 1, chaos: 40 })).toBe("1 item · thin");
+  test("the words that roll in: how many things, and what calm is, in plain words", () => {
+    expect(texLine({ folder: "a", items: 14, chaos: 45 })).toEqual({ lead: "14 things in here", tail: "calm is 4 or 5" });
+    expect(texLine({ folder: "a", items: 1, chaos: 40 }).lead).toBe("Only 1 thing in here");
+    expect(texLine({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here");
+  });
+  test("what Tex says fits the folder: split a crowded one, fold up a thin one", () => {
+    const crowded = texSays({ folder: "a", items: 14, chaos: 45 });
+    expect(crowded.lead).toBe("I'm holding 14 things. Folders feel calm with 4 or 5.");
+    expect(crowded.tips.join(" ")).toContain("two to five themes");
+    expect(crowded.tips.join(" ")).toContain("Archive never counts");
+    const thin = texSays({ folder: "a", items: 1, chaos: 40 });
+    expect(thin.lead).toContain("only holding 1 thing");
+    expect(thin.tips[0]).toBe("Move this note up into the folder above.");
+    expect(texSays({ folder: "a", items: 2, chaos: 20 }).tips[0]).toBe("Move these notes up into the folder above.");
+    expect(texSays({ folder: "a", items: 0, chaos: 60 }).lead).toBe("All I'm holding is my about note.");
+  });
+  test("advice, never a nag: nothing Tex says tells anyone they should", () => {
+    for (const items of [0, 1, 2, 14, 40]) {
+      const says = texSays({ folder: "a", items, chaos: 60 });
+      expect([says.lead, ...says.tips].join(" ").toLowerCase()).not.toMatch(/you should|tidy|clean up/);
+    }
+  });
+  test("names the folder for your AI", () => {
+    expect(askYourAi({ folder: "3-resources", items: 14, chaos: 45 })).toContain("organize");
   });
 });
 
@@ -144,5 +167,13 @@ describe("when the tree changed", () => {
   test("the same entries in another order are the same tree", () => {
     const before = treeShape({ "": listing("", ["a", "b.md"]) });
     expect(treeChanged(before, treeShape({ "": listing("", ["b.md", "a"]) }))).toBe(false);
+  });
+});
+
+describe("asking your AI about the top of the workspace", () => {
+  test("names it in words, not as a path", () => {
+    expect(askYourAi({ folder: "", items: 30, chaos: 80 })).toBe(
+      "Or ask your AI to organize the top of this workspace. It knows how this is scored.",
+    );
   });
 });

@@ -5,6 +5,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { forgetDepartedContexts } from "../../offline/forget";
 import { useBackgroundDrain } from "../../offline/useBackgroundDrain";
 import { useMirrorSync } from "../../offline/useMirrorSync";
+import { useNodeFeed } from "../../offline/useNodeFeed";
 import { useMirrorStatuses } from "../../offline/mirrorStatus";
 import { mirrorActionsFor } from "./mirrorActions";
 import { queuedOpSender, queuedWriteSender } from "../files/queuedWrite";
@@ -83,12 +84,15 @@ export function useOfflineUpkeep({
     () => mirrorActionsFor({ syncManifestAction, readNotesAction, syncTreeChangesAction }),
     [readNotesAction, syncManifestAction, syncTreeChangesAction],
   );
+  // Each context's live head in the tree's change log: a change lands, the copy catches up.
+  const feed = useNodeFeed(liveWorkspaces?.map((workspace) => workspace.workspaceId));
   useMirrorSync({
     contexts: liveWorkspaces?.map((workspace) => ({
       workspaceId: workspace.workspaceId,
       role: workspace.role,
     })),
     actions: mirrorActions,
+    feed,
   });
   const mirrors = useMirrorStatuses();
 

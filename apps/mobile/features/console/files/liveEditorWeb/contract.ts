@@ -218,6 +218,8 @@ export interface LiveEditorProps {
    * landing page's demo console wants: it has nowhere to navigate to.
    */
   onOpenNote?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
+  /** A drawn `#tag` was clicked or tapped (`NoteLinkContext.onOpenTag`). */
+  onOpenTag?: (tag: string) => void;
   /** The note being edited, so a relative link knows what it is relative to. */
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */

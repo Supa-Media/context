@@ -73,6 +73,14 @@ export interface NodeTable {
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
+  /**
+   * Records that the file row at `path` appeared or changed version
+   * (`gone: false`), or left (`gone: true`), in the tree's change log
+   * (`log.ts`). Called by `observe.ts` for every such change and nothing else,
+   * so a sweep that only re-sees a file writes nothing. Optional so a table
+   * with no log (a read-only view) need not pretend to have one.
+   */
+  logChange?(path: string, gone: boolean): Promise<void>;
 }
 
 /** The sweep's bookkeeping for one workspace (`nodeTrees`). */
