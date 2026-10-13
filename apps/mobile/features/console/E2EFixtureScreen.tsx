@@ -6,7 +6,7 @@ import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
 import { PhoneBack } from "./home/PhoneBack";
-import { phoneBackTarget } from "./home/phoneBack";
+import { phoneBackLevels } from "./home/phoneBack";
 import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
@@ -34,7 +34,7 @@ import type { VoicePage } from "../voice/VoiceButton";
  *
  * The real supplier is `app/(app)/console/_layout.tsx`. Its phone top-left is
  * `consoleAccountSlot`: ‹ back on any page below Home (owner, 2026-10-01),
- * which this draws from the same `phoneBackTarget` and `PhoneBack`, and the
+ * which this draws from the same `phoneBackLevels` and `PhoneBack`, and the
  * workspace's mark on Home — the real `SwitcherMenu` phone trigger, which is
  * how a phone reaches its other workspaces now that the path row's context
  * strip is gone. Going Home calls `files.deselect()` directly, which is what
@@ -194,7 +194,7 @@ export function E2EFixtureScreen({
     pressable, which is what the case about the handoff asserts.
   */
   // The phone's ‹ back, as `consoleAccountSlot` draws it in the product's top bar.
-  const back = phone ? phoneBackTarget(data.files.selectedPath) : null;
+  const levels = phone ? phoneBackLevels(data.files.selectedPath) : [];
 
   const voiceHost: VoiceHost = {
     page: fixtureVoicePage(data.files, current),
@@ -269,7 +269,7 @@ export function E2EFixtureScreen({
                 The product's top-left on a page below Home: ‹ back, naming the
                 page above (`consoleAccountSlot`).
               */}
-              {back === null ? (
+              {levels.length === 0 ? (
                 /*
                   Home's top-left is the workspace's own mark, the product's
                   phone trigger (`consoleAccountSlot`): the way to every other
@@ -284,10 +284,10 @@ export function E2EFixtureScreen({
                 />
               ) : (
                 <PhoneBack
-                  target={back}
-                  onBack={() => {
-                    if (back.folder === null) data.files.deselect();
-                    else data.files.select(back.folder);
+                  levels={levels}
+                  onGo={(target) => {
+                    if (target.folder === null) data.files.deselect();
+                    else data.files.select(target.folder);
                   }}
                 />
               )}

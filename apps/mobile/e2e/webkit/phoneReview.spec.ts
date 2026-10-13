@@ -36,7 +36,7 @@ test.beforeEach(async ({ page }) => {
   await expect(content(page)).toContainText("Notes for your team", { timeout: 15_000 });
 });
 
-test("back walks up a level at a time, naming where it goes, with no path row", async ({ page }) => {
+test("back goes Home from the top, and opens the levels from deeper down, with no path row", async ({ page }) => {
   await expect(page.getByTestId("nav-band")).toHaveCount(0);
   await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Home");
   await touch(page, "phone-back");
@@ -48,8 +48,11 @@ test("back walks up a level at a time, naming where it goes, with no path row", 
   await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Home");
 
   await page.getByTestId("folder-row").first().tap();
-  await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Legal");
+  await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Legal, or further up");
   await touch(page, "phone-back");
+  // Home first, the note's own folder last (owner, 2026-10-13).
+  await expect(page.getByTestId("phone-back-menu")).toBeVisible();
+  await page.getByTestId("phone-back-menu").getByText("Legal", { exact: true }).tap();
   await expect(page.getByTestId("phone-folder-head")).toBeVisible();
 });
 
@@ -76,9 +79,10 @@ test("two quick notes in a row are two notes, and neither is refused", async ({ 
   await page.getByTestId("phone-home").getByText("Legal", { exact: true }).first().tap();
   await expect(page.getByTestId("folder-row")).toHaveCount(2);
   await touch(page, "notes-bar-compose");
-  await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Legal");
+  await expect(page.getByTestId("phone-back")).toHaveAccessibleName("Back to Legal, or further up");
   await touch(page, "notes-bar-compose");
   await expect(page.getByText(/already exists/)).toHaveCount(0);
   await touch(page, "phone-back");
+  await page.getByTestId("phone-back-menu").getByText("Legal", { exact: true }).tap();
   await expect(page.getByTestId("folder-row")).toHaveCount(4);
 });

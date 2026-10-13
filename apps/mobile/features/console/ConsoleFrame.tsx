@@ -303,7 +303,7 @@ export function ConsoleFrame({
     selectedPath: data.files.selectedPath,
   });
 
-  const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
+  const { selectedEntry } = noteTargetsFor({ data });
   const reading = useReadMode();
   /*
     The phone's ••• over the open note or folder: its actions as a bottom
@@ -324,6 +324,7 @@ export function ConsoleFrame({
       canEdit: data.files.canEdit,
       canShare: data.files.canShare,
       visitor: visitor !== undefined,
+      reading,
     }).length > 0
       ? selectedEntry
       : null;
@@ -497,7 +498,7 @@ export function ConsoleFrame({
           ) : undefined
         }
         topTrailing={consoleTopTrailing({
-          phone, readable, reading, showMeetings, data, insideContext, current, router, canReport,
+          phone, showMeetings, data, insideContext, current, router, canReport,
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}

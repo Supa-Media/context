@@ -35,13 +35,21 @@ import { dataWith, emptyEditor, layout, mountConsole, SHORT_FILE } from "./fixtu
  * Every assertion is about *pressing*: a back button that says the right word
  * and goes somewhere else is the bug this has to catch.
  *
- * SABOTAGE: `phoneBackTarget` taking the page's own path for its parent fails
- * the first four; `BrowsePathBar` drawing the old `NavBand` fails the third.
+ * **Since 2026-10-13 ‹ opens the levels above the page** (owner: *"I like the
+ * idea of clicking back and then the menu opening"*): Home first, the page's
+ * own folder last. A page at the top of the workspace has only Home above it,
+ * and ‹ goes there at once.
+ *
+ * SABOTAGE: `phoneBackLevels` taking the page's own path for its parent fails
+ * the first two; `BrowsePathBar` drawing the old `NavBand` fails the third.
  */
+const level = (folder: string) =>
+  document.body.querySelector<HTMLElement>(`[data-testid="phone-back-level-${folder}"]`);
+
 describe("the phone's way up", () => {
   const DEEP = "3-resources/books/the-lean-startup.md";
 
-  test("a note's back button names its folder and opens it", () => {
+  test("a note's back button opens the levels above it, and a level opens its folder", () => {
     const chosen: string[] = [];
     const app = mountConsole(
       dataWith(
@@ -54,23 +62,43 @@ describe("the phone's way up", () => {
     );
     const back = app.find("phone-back");
     expect(back).not.toBeNull();
-    expect(back!.getAttribute("aria-label")).toBe("Back to books");
+    expect(back!.getAttribute("aria-label")).toBe("Back to books, or further up");
+    // No folder name on the button any more: it is a round ‹.
+    expect(back!.textContent).toBe("");
     app.press(back);
+    // Nothing chosen yet: the press opened the menu.
+    expect(chosen).toEqual([]);
+    const rows = [...document.body.querySelectorAll('[data-testid^="phone-back-level-"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual(["Home", "resources", "books"]);
+    app.press(level("3-resources/books"));
     expect(chosen).toEqual(["3-resources/books"]);
+    expect(document.body.querySelector('[data-testid="phone-back-menu"]')).toBeNull();
   });
 
-  test("a folder's back button opens the folder it is in", () => {
+  test("a folder's levels go to the folder it is in, or Home", () => {
+    let home = 0;
     const chosen: string[] = [];
     const app = mountConsole(
-      dataWith({ select: (path: string) => chosen.push(path) } as never, {
-        kind: "folder",
-        path: "3-resources/books",
-        name: "books",
-      }),
+      dataWith(
+        {
+          select: (path: string) => chosen.push(path),
+          deselect: () => {
+            home += 1;
+            return true;
+          },
+        } as never,
+        { kind: "folder", path: "3-resources/books", name: "books" },
+      ),
     );
-    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to resources");
     app.press(app.find("phone-back"));
+    app.press(level("3-resources"));
     expect(chosen).toEqual(["3-resources"]);
+    // Home is the menu's first row, which is the bar's Home button.
+    app.press(app.find("phone-back"));
+    app.press(level("home"));
+    expect(home).toBe(1);
   });
 
   test("the top of the workspace goes back to Home, and no path is drawn", () => {
@@ -96,10 +124,12 @@ describe("the phone's way up", () => {
     expect(app.find("breadcrumb-leaf")).toBeNull();
   });
 
-  test("a deep note draws no folder segments either", () => {
+  test("a deep note draws no folder segments, only the levels behind ‹", () => {
     const app = mountConsole(dataWith({}, { path: "a/b/c/d/the-lean-startup.md", name: "the-lean-startup.md" }));
     for (const folder of ["a", "a/b", "a/b/c", "a/b/c/d"]) expect(app.find2(`Open ${folder}`)).toBeNull();
-    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to d");
+    app.press(app.find("phone-back"));
+    expect(level("a/b/c/d")).not.toBeNull();
+    expect(level("a")).not.toBeNull();
   });
 
   test("Home has no back button: its top-left is the workspace's own mark", () => {

@@ -120,11 +120,13 @@ function mountFixture(width: number) {
     its path row) — so a phone walks up to Home first.
   */
   const openSwitcher = () => {
-    // A phone's switcher is Home's top-left, so go up to Home first.
-    for (let i = 0; i < 6; i += 1) {
-      const back = container.querySelector<HTMLElement>('[data-testid="phone-back"]');
-      if (back === null) break;
+    // A phone's switcher is Home's top-left, so go Home first: ‹, then the
+    // menu's Home row when the page is deep enough to have a menu.
+    const back = container.querySelector<HTMLElement>('[data-testid="phone-back"]');
+    if (back !== null) {
       act(() => back.click());
+      const home = document.body.querySelector<HTMLElement>('[data-testid="phone-back-level-home"]');
+      if (home !== null) act(() => home.click());
     }
     const trigger =
       document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]') ??

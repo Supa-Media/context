@@ -60,7 +60,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     // button — the workspace's mark — is Home's, which has no page above it.
     expect(app.find("phone-back")).not.toBeNull();
     expect(app.find("account-menu")).toBeNull();
-    // The note's own actions: read/edit and •••, with Share inside •••.
+    // The note's own actions: •••, with Share and reading inside it.
     expect(app.find("note-actions")).not.toBeNull();
     expect(app.find("note-share")).toBeNull();
 
@@ -73,60 +73,52 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
-   * THE eye. Reading mode is a control somebody has to find, and "it is in the
-   * trailing group" is exactly the claim that was made about Share once and was
-   * not true of any screen.
-   *
-   * It leads the group rather than following Share: this changes how the note
-   * in front of you is drawn and is undone by pressing it again, Share opens a
-   * sheet that grants somebody access, and the reversible one is the safer
-   * neighbour for a thumb.
+   * READING MODE IS THE ••• SHEET'S FIRST ROW. It was an eye leading the
+   * trailing group; the owner's redesign of the note's top bar (2026-10-13)
+   * found it the least important button there and moved it into •••, which
+   * leaves ••• alone on the right, the same round key as ‹ on the left.
    *
    * ## Sabotage record
    *
-   * Dropping the button from `_layout.tsx`: **3** failed here. Leaving it drawn
-   * but never passing `reading` into `NoteEditor`: **1** — the editability
-   * check, which is the one that says the press does anything.
+   * Dropping the `read` row from `noteActionItems`: all four of these fail.
+   * Leaving the row but never calling `setReadMode` from the sheet: the
+   * editability check fails, which is the one that says the press does
+   * anything.
    */
-  test("the note carries a reading toggle, before •••", () => {
+  const toggleReading = (app: {
+    press: (node: HTMLElement | null) => void;
+    find: (testID: string) => HTMLElement | null;
+  }) => {
+    app.press(app.find("note-actions"));
+    app.press(sheet("note-action-read"));
+  };
+  const readRow = (app: {
+    press: (node: HTMLElement | null) => void;
+    find: (testID: string) => HTMLElement | null;
+  }) => {
+    app.press(app.find("note-actions"));
+    const label = sheet("note-action-read")?.textContent ?? null;
+    app.press(sheet("menu-item-cancel"));
+    return label;
+  };
+
+  test("the bar carries no eye, and ••• offers reading first", () => {
     const app = mountConsole(dataWith());
-    const eye = app.find("note-read");
-    expect(eye).not.toBeNull();
-    // Before ••• in the DOM, which is what "leads the group" means on a row
-    // laid out in order.
-    const more = app.find("note-actions");
-    expect(eye!.compareDocumentPosition(more!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(app.find("note-read")).toBeNull();
+    app.press(app.find("note-actions"));
+    const rows = [...document.body.querySelectorAll('[data-testid^="note-action-"]')];
+    expect(rows[0]?.getAttribute("data-testid")).toBe("note-action-read");
+  });
+
+  test("...and the row names the act", () => {
+    const app = mountConsole(dataWith());
+    expect(readRow(app)).toContain("Read this note");
+    toggleReading(app);
+    expect(readRow(app)).toContain("Edit this note");
   });
 
   /**
-   * The glyph and the label say the same thing, and the glyph used to say
-   * nothing.
-   *
-   * This was "it names the act, since a glyph cannot" — one eye, whose state
-   * lived in a `selected` accent fill because a single mark cannot draw both
-   * "will hide the markup" and "will bring it back". Two marks can, so the
-   * icon now carries the act and the fill is gone: lighting the *pencil* would
-   * say "pencil mode is on", which is the opposite of what pressing it does.
-   *
-   * `data-icon` is what makes the swap assertable at all — an icon drawn from
-   * `View`s or from a `<Path>` has no text in it, which is the whole reason
-   * `Icon.tsx` puts the name in the DOM.
-   */
-  test("...and the glyph names the act, alongside the label", () => {
-    const app = mountConsole(dataWith());
-    const glyph = () => app.find("note-read")!.querySelector("[data-icon]")!.getAttribute("data-icon");
-
-    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Read this note");
-    expect(glyph()).toBe("eye");
-
-    app.press(app.find("note-read"));
-
-    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
-    expect(glyph()).toBe("pencil");
-  });
-
-  /**
-   * The press has to reach the document, or the eye is decoration.
+   * The press has to reach the document, or the row is decoration.
    *
    * `contenteditable` is what `editability` drops, and it is what every other
    * consequence of read-only hangs off — the paste, drop and cut handlers all
@@ -138,9 +130,9 @@ describe("the top row ends in one group, and it is the note's", () => {
     const editable = () =>
       document.body.querySelector('[contenteditable="true"]') !== null;
     expect(editable()).toBe(true);
-    app.press(app.find("note-read"));
+    toggleReading(app);
     expect(editable()).toBe(false);
-    app.press(app.find("note-read"));
+    toggleReading(app);
     expect(editable()).toBe(true);
   });
 
@@ -149,14 +141,8 @@ describe("the top row ends in one group, and it is the note's", () => {
    *
    * A page built around a ` ```form ` fence is drawn as a fillable form only
    * while it is read (`formBlock.ts`), so the one kind of page whose purpose is
-   * to be *used* opened as a code fence and every visitor had to find the eye
-   * first. Its author can now say so in the frontmatter.
-   *
-   * This is the claim that the wiring exists at all: `files/viewMode.ts` has
-   * its own suite for the vocabulary and the layering (`noteViewMode.test.ts`),
-   * and all of it is inert if `BrowsePane` never calls the hook. So the
-   * assertion here is the same `contenteditable` the press is asserted on
-   * above, reached without a press.
+   * to be *used* opened as a code fence. Its author can say so in the
+   * frontmatter.
    *
    * ## Sabotage record
    *
@@ -173,12 +159,12 @@ describe("the top row ends in one group, and it is the note's", () => {
     );
 
     expect(document.body.querySelector('[contenteditable="true"]')).toBeNull();
-    // The control agrees with the state rather than lagging it: the way out is
-    // the pencil, because the note is already being read.
-    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+    // The row agrees with the state rather than lagging it: the way out is
+    // editing, because the note is already being read.
+    expect(readRow(app)).toContain("Edit this note");
 
     // And the person outranks the file — the one place a broken fence is fixed.
-    app.press(app.find("note-read"));
+    toggleReading(app);
     expect(document.body.querySelector('[contenteditable="true"]')).not.toBeNull();
   });
 
