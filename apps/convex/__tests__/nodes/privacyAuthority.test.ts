@@ -223,6 +223,18 @@ describe("the file written past the rules", () => {
 
   test("a listing that sees the file at another version owes the export once", async () => {
     const { t, aliceWs } = await authoritative();
+    // Rules this deployment has authored, and a file written from them: from
+    // here the rules are the authority and a file edited past them is put back.
+    const swapped = await t.mutation(internal.functions.nodesPrivacy.write, {
+      workspaceId: aliceWs,
+      expected: "e1",
+      ...PRIVATE_PLAN,
+    });
+    await t.mutation(internal.functions.nodesPrivacy.exported, {
+      workspaceId: aliceWs,
+      rendered: versionOf(swapped),
+      etag: "e2",
+    });
     const observe = (etag: string, at: number) =>
       t.mutation(internal.functions.nodes.observe, {
         workspaceId: aliceWs,
@@ -231,14 +243,77 @@ describe("the file written past the rules", () => {
         gone: [],
         vanishedUnder: [],
       });
-    // The file the rules were read from: nothing to do.
-    await observe("e1", 30);
-    expect(await exportsScheduled(t)).toBe(0);
+    // The file the rules were last written to: nothing to do.
+    await observe("e2", 30);
+    expect(await exportsScheduled(t)).toBe(1);
     await observe("e8", 40);
     expect((await rowOf(t, aliceWs))?.exportOwed).toBe(true);
-    expect(await exportsScheduled(t)).toBe(1);
+    expect(await exportsScheduled(t)).toBe(2);
     await observe("e9", 50);
-    expect(await exportsScheduled(t)).toBe(1);
+    expect(await exportsScheduled(t)).toBe(2);
+  });
+});
+
+/*
+  A copy is not an authority.
+
+  Between the read that filled `nodePrivacy` and the moment staff turn the
+  switch on, the customer may have edited `privacy.md` in their own bucket —
+  the copy follows an out-of-band edit only when a sweep is next due, which is
+  up to an hour. `setPrivacyAuthority` writes nothing and checks nothing,
+  reasoning that "each workspace's file is already its rules' export"; for
+  those workspaces it is not, and the first listing that notices would put the
+  copy back over the owner's newer file. A note they withheld by hand would be
+  team-readable again, permanently, with nothing saying so.
+
+  So a row whose version is still the bucket's own, and from which no file has
+  ever been written, is a copy and nothing more: the moment the file moves
+  past it, it stops being the authority and the file is read again. A row this
+  deployment has authored keeps phase 3's rule, which the test above holds.
+*/
+describe("rules that are only a copy of the file", () => {
+  test("stop being the authority when a listing shows the file has moved past them", async () => {
+    const { t, aliceWs } = await authoritative();
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 30,
+      rows: [{ path: "privacy.md", etag: "e8" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    // Nothing of the owner's is written over.
+    expect(await exportsScheduled(t)).toBe(0);
+    expect((await rowOf(t, aliceWs))?.exportOwed).not.toBe(true);
+    // And the file decides again, as it did before the switch.
+    expect(await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: aliceWs })).toBeNull();
+    expect(
+      await t.mutation(internal.functions.nodesPrivacy.write, { workspaceId: aliceWs, expected: null, ...TEAM_PROJECTS }),
+    ).toBeNull();
+    // So the next read of the file is stored, which it would not be while the rules were the authority.
+    await t.mutation(internal.functions.nodes.savePrivacy, {
+      workspaceId: aliceWs,
+      at: 40,
+      mirror: { etag: "e8", invalid: false, ...PRIVATE_PLAN },
+    });
+    expect(await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: aliceWs })).toEqual({
+      etag: "e8",
+      ...PRIVATE_PLAN,
+    });
+  });
+
+  test("a file still at the version they were copied from leaves them the authority", async () => {
+    const { t, aliceWs } = await authoritative();
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 30,
+      rows: [{ path: "privacy.md", etag: "e1" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    expect(await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: aliceWs })).toEqual({
+      etag: "e1",
+      ...TEAM_PROJECTS,
+    });
   });
 });
 

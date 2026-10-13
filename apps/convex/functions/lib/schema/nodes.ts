@@ -121,6 +121,12 @@ export const nodeTables = {
     exportedEtag: v.optional(v.string()),
     /** The rules changed and the bucket's `privacy.md` has not been written from them yet. */
     exportOwed: v.optional(v.boolean()),
+    /**
+     * Phase 3: these rules are only a copy of a `privacy.md` that has since
+     * moved, so they are not the authority and the file decides until the
+     * next read of it replaces them (`lib/nodes/privacyAuthority.ts`).
+     */
+    fileAhead: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**
