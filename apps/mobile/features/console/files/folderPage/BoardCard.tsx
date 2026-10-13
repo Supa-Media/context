@@ -29,7 +29,7 @@ import { NEW_FRONT_NOTE, type FolderItem } from "./model";
 import { progressPercent } from "./ProgressMeter";
 import { PropertyValue } from "./PropertyValue";
 import { faceFor } from "./taskFace";
-import { dueOf, dueWord, estimateOf, ownersOf, tagsOf } from "./taskProps";
+import { allTagsOf, dueOf, dueWord, estimateOf, ownersOf } from "./taskProps";
 import { estimateLabel } from "./EstimateCell";
 
 export function BoardCard({
@@ -56,7 +56,7 @@ export function BoardCard({
   const hoverIntent = useHoverIntent(item.kind === "note" && intent !== undefined ? () => intent(item.path) : undefined);
   const edit = actions.onChoose;
   const ref = useCardDrag({ path: item.path, enabled: edit !== null, onStart: () => onLift(true), onEnd: () => onLift(false) });
-  const tag = tagsOf(item.properties)[0];
+  const tag = allTagsOf(item)[0];
   const due = dueOf(item.properties);
   const estimate = estimateOf(item.properties);
   const owners = ownersOf(item.properties);

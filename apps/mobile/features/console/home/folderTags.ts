@@ -2,7 +2,8 @@
  * A folder's tags (board 14 of the phone Home artboards, approved by the
  * owner on 2026-09-30): kept on the folder's front note, the note that
  * already carries its description and statuses, as its front matter `tags:`
- * — the only kind of tag this product reads (inline `#tags` are not tags).
+ * — the tags a folder's own menu edits. A `#tag` written in the note's text
+ * is a tag too, but only the text can change it (`lists/inlineTags.js`).
  * A folder whose front note is still the placeholder `createFolder` wrote, or
  * that has none, gets an `overview.md` for them, the same way a folder's
  * first status does (`folderPage/model.ts`).

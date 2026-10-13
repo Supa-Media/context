@@ -3,6 +3,7 @@
 import {
   listLoadsSubfolders,
   noteHeading,
+  inlineTags,
   noteProperties,
   renderEvaluatedListBlocks,
   selectListRows,
@@ -176,6 +177,7 @@ export async function renderPublicWebsiteLists(
           path: entry.objectKey,
           updatedAt: note.updatedAt ?? null,
           properties: noteProperties(note.text),
+          inlineTags: inlineTags(note.text),
           heading: noteHeading(note.text),
         });
       }

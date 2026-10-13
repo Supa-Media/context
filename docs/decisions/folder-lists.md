@@ -425,6 +425,21 @@ says rather than keeping a second copy.
   properties. A single line is one owner even with a comma in it.
 - **`tags: [a, b]`** are free words, drawn as small chips (two, then "+N");
   kinds of work (bug, feature) are tags, not a type property.
+- **A `#word` written in the text is a tag too** (the owner, 2026-10-13,
+  reversing the earlier "inline `#tags` are not tags"). Obsidian's rule decides
+  which words count: after whitespace or a line's start, letters, digits,
+  `_ - /`, not all digits; headings (`# `), links, web addresses, code and
+  comments never hold one. `lists/inlineTags.js` reads them and every place
+  that counts tags (list conditions and columns, search's tags field, cards,
+  Home's tag filter, the organizer) takes them with the front matter's. They
+  are kept **beside** `properties`, never inside it (`inlineTags` on a list
+  note and a props row): `noteProperties` is also what a `tags:` edit starts
+  from and reads back, so merged there, the first edit of a note's tags would
+  copy every `#tag` into its front matter. The side panel draws them with
+  their `#` and no remove button, since only the text can take one away.
+  `inlineTags.test.mjs` and `folderNotesTable.test.ts` fail if a link,
+  heading or code holds a tag, if a list stops counting them, or if a props
+  row parsed before them is never read again.
 - **`due: 2026-10-03`** is a calendar day, read in the reader's own calendar:
   "Today", a weekday for the six days after ("Fri"), else "Oct 3" (with the
   year when it is not this one). A day already gone is never a weekday.

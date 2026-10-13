@@ -42,6 +42,7 @@ export { parseListBlocks, parseListBody } from "./lists/parseBlock.js";
 export { renderListBlock } from "./lists/renderBlock.js";
 export { selectListRows } from "./lists/select.js";
 export { noteProperties, noteHeading } from "./lists/properties.js";
+export { inlineTags, mergeTags, withInlineTags } from "./lists/inlineTags.js";
 export { listLoadsSubfolders } from "./lists/loading.js";
 export { setNoteProperty } from "./lists/setProperty.js";
 export { compareGroups } from "./lists/group.js";
