@@ -16,7 +16,8 @@ import type { Id } from "../../_generated/dataModel";
 import { hashToken } from "../../functions/lib/crypto";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { gatewayPost } from "../fixtures.helpers";
-import { ACCESS_A, ACCESS_B, bodyOf, token, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
+import { ACCESS_A, ACCESS_B, CLIENT_B, bodyOf, seedConnectedClient, token, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
+import { forgetWorkspaceTree } from "../../functions/nodesPurge";
 
 type T = Awaited<ReturnType<typeof twoConnectedTenants>>["t"];
 
@@ -173,7 +174,9 @@ describe("the file written past the rules", () => {
       at: 20,
       ...PRIVATE_PLAN,
     });
-    expect(await rowOf(t, aliceWs)).toMatchObject({ etag: "e2", exportedEtag: "e2", ...PRIVATE_PLAN });
+    // A copy of the file, like any read: nothing marks it as decided here.
+    expect(await rowOf(t, aliceWs)).toMatchObject({ etag: "e2", ...PRIVATE_PLAN });
+    expect((await rowOf(t, aliceWs))?.exportedEtag).toBeUndefined();
     // An older report never replaces a newer one.
     await t.mutation(internal.functions.nodesPrivacy.written, {
       workspaceId: aliceWs,
@@ -317,6 +320,124 @@ describe("rules that are only a copy of the file", () => {
   });
 });
 
+/*
+  Found by an audit of phase 3 (2026-10-13), each before the switch was ever on.
+*/
+describe("a file the owner edited past a copy", () => {
+  /** Alice's rules authored here and exported at `e2`, so they are the authority. */
+  async function authored() {
+    const tenants = await authoritative();
+    const swapped = await tenants.t.mutation(internal.functions.nodesPrivacy.write, {
+      workspaceId: tenants.aliceWs,
+      expected: "e1",
+      ...PRIVATE_PLAN,
+    });
+    await tenants.t.mutation(internal.functions.nodesPrivacy.exported, {
+      workspaceId: tenants.aliceWs,
+      rendered: versionOf(swapped),
+      etag: "e2",
+    });
+    return tenants;
+  }
+
+  test("a write of the file while it was the authority leaves the rules a copy at the flip", async () => {
+    // The owner's last change went through us, then they edited the file in
+    // their own bucket; no sweep had read it when staff turned the switch on.
+    const { t, aliceWs } = await twoConnectedTenants();
+    await observeFile(t, aliceWs, "e1", 10);
+    await t.mutation(internal.functions.nodesPrivacy.written, { workspaceId: aliceWs, previous: "e1", etag: "e2", at: 20, ...PRIVATE_PLAN });
+    await setSwitch(t, true);
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 30,
+      rows: [{ path: "privacy.md", etag: "e3" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    // Their edit is read, never written over.
+    expect(await exportsScheduled(t)).toBe(0);
+    expect(await t.query(internal.functions.nodesPrivacy.authority, { workspaceId: aliceWs })).toBeNull();
+  });
+
+  test("the rules rendered by a run that began before is never stored as a read of the file", async () => {
+    const { t, aliceWs } = await authoritative();
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 30,
+      rows: [{ path: "privacy.md", etag: "e8" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    expect((await rowOf(t, aliceWs))?.fileAhead).toBe(true);
+    // The same run, still holding the rules, refreshes the mirror from its render.
+    await t.mutation(internal.functions.nodes.savePrivacy, {
+      workspaceId: aliceWs,
+      at: 31,
+      mirror: { etag: "ctx-render", invalid: false, ...TEAM_PROJECTS },
+    });
+    expect(await rowOf(t, aliceWs)).toMatchObject({ etag: "e1", fileAhead: true });
+    // And the file is read again at once, by a run that opens it as it is.
+    const touches = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => (job.args[0] as { operation?: { kind?: string; files?: string[] } })?.operation?.kind === "nodesTouch",
+      ),
+    );
+    expect(touches.map((job) => (job.args[0] as { operation: { files: string[] } }).operation.files)).toEqual([["privacy.md"]]);
+  });
+
+  test("a read of the file makes the rules a copy of it again", async () => {
+    const { t, aliceWs } = await authored();
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 30,
+      rows: [{ path: "privacy.md", etag: "e8" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    // Authored here: the owner's edit is put back (phase 3's rule).
+    expect(await exportsScheduled(t)).toBe(2);
+    const held = await rowOf(t, aliceWs);
+    await t.mutation(internal.functions.nodesPrivacy.exported, { workspaceId: aliceWs, rendered: held!.etag!, etag: "e8b" });
+    // Staff hand the authority back, and a sweep reads the file the owner edits next.
+    await setSwitch(t, false);
+    await observeFile(t, aliceWs, "e9", Date.now() + 60_000);
+    expect((await rowOf(t, aliceWs))?.exportedEtag).toBeUndefined();
+    await setSwitch(t, true);
+    await t.mutation(internal.functions.nodes.observe, {
+      workspaceId: aliceWs,
+      at: 50,
+      rows: [{ path: "privacy.md", etag: "e10" }],
+      gone: [],
+      vanishedUnder: [],
+    });
+    // A copy now: an edit past it is read, never exported over.
+    expect(await exportsScheduled(t)).toBe(2);
+    expect((await rowOf(t, aliceWs))?.fileAhead).toBe(true);
+  });
+});
+
+describe("a storage move", () => {
+  test("keeps the rules that are the authority and writes them to the new bucket", async () => {
+    const { t, aliceWs } = await authoritative();
+    await t.mutation(internal.functions.nodesPrivacy.write, { workspaceId: aliceWs, expected: "e1", ...PRIVATE_PLAN });
+    const before = await exportsScheduled(t);
+    await t.run(async (ctx) => forgetWorkspaceTree(ctx, aliceWs, { storageMoved: true }));
+    expect(await rowOf(t, aliceWs)).toMatchObject({ ...PRIVATE_PLAN, exportOwed: true });
+    expect(await exportsScheduled(t)).toBe(before + 1);
+  });
+
+  test("forgets rules that are only a copy, and every rule when the workspace goes", async () => {
+    const { t, aliceWs, bobWs } = await twoConnectedTenants();
+    await observeFile(t, aliceWs, "e1", 10);
+    await t.run(async (ctx) => forgetWorkspaceTree(ctx, aliceWs, { storageMoved: true }));
+    expect(await rowOf(t, aliceWs)).toBeNull();
+    await observeFile(t, bobWs, "b1", 10);
+    await setSwitch(t, true);
+    await t.run(async (ctx) => forgetWorkspaceTree(ctx, bobWs));
+    expect(await rowOf(t, bobWs)).toBeNull();
+  });
+});
+
 describe("the staff switch", () => {
   test("hands the authority back only once every export is written", async () => {
     const { t, aliceWs } = await twoConnectedTenants();
@@ -373,6 +494,21 @@ describe("the gateway's route", () => {
       { secret: null },
     );
     expect(bare.status).not.toBe(200);
+  });
+
+  test("never from a grant that cannot write the workspace", async () => {
+    const { t, aliceWs, alice, bob } = await authoritative();
+    const readOnly = token("read_only_alice");
+    await seedConnectedClient(t, { workspaceId: aliceWs, userId: alice, clientId: CLIENT_B, accessToken: readOnly, scopes: ["context:read"] });
+    // Bob, a member of Alice's workspace who may read it.
+    await t.run(async (ctx) => ctx.db.insert("workspaceMembers", { workspaceId: aliceWs, userId: bob, role: "member", joinedAt: Date.now() }));
+    for (const accessToken of [readOnly, ACCESS_B]) {
+      const answer = await bodyOf(
+        await post(t, { accessToken, expectedWorkspaceId: aliceWs, op: "write", expected: "e1", folders: [], notes: [] }),
+      );
+      expect(answer).toEqual({ ok: false });
+    }
+    expect(await rowOf(t, aliceWs)).toMatchObject({ etag: "e1", ...TEAM_PROJECTS });
   });
 
   test("refuses rules of the wrong shape", async () => {

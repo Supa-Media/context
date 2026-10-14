@@ -185,6 +185,13 @@ export function withPrivacyAuthority(store, authority) {
     // The file exists while there are rules, so a create-only write loses.
     if (options?.onlyIf?.absent === true) return null;
     const swapped = await authority.write({ expected: options?.onlyIf?.etagMatches ?? null, ...rules });
+    // The file is the authority again (staff handed it back, or it moved past
+    // a copy): this store stops rendering the rules, so the caller's next read
+    // is the bucket's own file, and its retry writes that.
+    if (swapped === null) {
+      held = null;
+      return null;
+    }
     // Someone changed the rules first: the caller's next read sees theirs, and it retries on them.
     if (swapped?.current) held = swapped.current;
     if (typeof swapped?.etag !== "string") return null;

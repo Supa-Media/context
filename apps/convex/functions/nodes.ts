@@ -30,7 +30,7 @@ import {
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
-import { mirrorFollowsFile, noticePrivacyListing } from "./lib/nodes/privacyAuthority";
+import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
@@ -412,8 +412,16 @@ export const savePrivacy = internalMutation({
     if (doc !== null && !privacyIsNewer(doc.observedAt, at)) return null;
     // Once the rules are the authority, the file is their export and is never read back.
     if (!(await mirrorFollowsFile(ctx, workspaceId))) return null;
-    // This read is of the file the rules now follow, so they are no longer behind it.
-    const fields = { ...mirror, observedAt: at, fileAhead: undefined };
+    // A version minted here is the rules rendered, never a read of the file:
+    // a run that began while they were the authority reads `privacy.md`
+    // through a store still holding them. Stored, it would clear `fileAhead`
+    // with the very rules the owner's file moved past, and the next listing
+    // would write them back over it.
+    if (mirror.etag?.startsWith(RULES_VERSION_PREFIX) === true) return null;
+    // This read is of the file the rules now follow, so they are no longer
+    // behind it, and they are a copy of it: no version written from here is
+    // what the bucket holds any more (`rulesAuthoredHere`).
+    const fields = { ...mirror, observedAt: at, fileAhead: undefined, exportedEtag: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
     return null;

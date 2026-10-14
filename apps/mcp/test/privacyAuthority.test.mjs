@@ -204,6 +204,25 @@ test("a change made elsewhere first is read and built on, not lost", async () =>
   assert.equal(state.overrides.get("1-projects/plan.md"), "private");
 });
 
+test("rules handed back to the file mid-request are no longer rendered, so the retry writes the file", async () => {
+  // Staff turned the authority off, or the owner's file moved past a copy,
+  // after this request's store was built: the control plane answers null.
+  const bucket = new MemoryStore();
+  bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
+  const authority = fakeAuthority(held([], []));
+  authority.write = async (change) => {
+    authority.calls.push(["write", change]);
+    return null;
+  };
+  const store = withPrivacyAuthority(bucket, authority);
+  await persistExactVisibility(store, "1-projects/plan.md", "private", []);
+  // The write landed in the bucket's own file, built on what it says.
+  const state = await loadPrivacyState(bucket);
+  assert.deepEqual(state.rules.map((rule) => rule.prefix), ["1-projects"]);
+  assert.equal(state.overrides.get("1-projects/plan.md"), "private");
+  assert.equal(authority.calls.filter(([op]) => op === "write").length, 1);
+});
+
 test("a text without readable rules is refused, and changes nothing", async () => {
   const bucket = new MemoryStore();
   const authority = fakeAuthority(held([["1-projects", "team"]], []));

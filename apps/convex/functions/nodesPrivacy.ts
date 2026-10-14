@@ -113,20 +113,24 @@ export const written = internalMutation({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const row = await rowOf(ctx, args.workspaceId);
-    const rules = { etag: args.etag, invalid: false, folders: args.folders, notes: args.notes, exportedEtag: args.etag };
+    const rules = { etag: args.etag, invalid: false, folders: args.folders, notes: args.notes };
     if (isAuthority(row, await privacyAuthorityOn(ctx.db))) {
       if (args.previous !== null && args.previous === row.etag) {
-        await ctx.db.patch(row._id, { ...rules, observedAt: args.at, exportOwed: false });
+        // Kept as the held version's successor: from here the rules are ours.
+        await ctx.db.patch(row._id, { ...rules, exportedEtag: args.etag, observedAt: args.at, exportOwed: false });
       } else if (!row.exportOwed) {
         await ctx.db.patch(row._id, { exportOwed: true });
         await scheduleExport(ctx, args.workspaceId, 0);
       }
       return null;
     }
+    // While the file is the authority this is a copy of it, like any read:
+    // nothing marks it as decided here (`rulesAuthoredHere`), so an edit to
+    // the file made before the flip and not yet read is never written over.
     if (row === null) {
       await ctx.db.insert("nodePrivacy", { workspaceId: args.workspaceId, ...rules, observedAt: args.at });
     } else if (privacyIsNewer(row.observedAt, args.at)) {
-      await ctx.db.patch(row._id, { ...rules, observedAt: args.at });
+      await ctx.db.patch(row._id, { ...rules, exportedEtag: undefined, observedAt: args.at });
     }
     return null;
   },
