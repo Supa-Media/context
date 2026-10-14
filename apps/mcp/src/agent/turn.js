@@ -46,6 +46,7 @@ import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from 
 import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
+import { localNowPrompt } from "./localNow.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
@@ -274,6 +275,8 @@ export async function runTurn(options) {
     coreTools = null,
     local = [],
     aboutMe = null,
+    // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
+    localNow = null,
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -340,7 +343,8 @@ export async function runTurn(options) {
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
     (shelf ? shelf.prompt() : "") +
-    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") }));
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone));
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),

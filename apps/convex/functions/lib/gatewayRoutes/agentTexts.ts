@@ -36,7 +36,7 @@ export async function agentTextsLinkHandler(
 
 /**
  * `POST /agent-texts/session` — `{ phone }` → a fresh grant for whoever linked
- * it, or `{ status: "unlinked" }`. The plaintext token is returned once and
+ * it, with the zone to answer in, or `{ status: "unlinked" }`. The plaintext token is returned once and
  * only its hash is stored.
  */
 export async function agentTextsSessionHandler(
@@ -58,7 +58,10 @@ export async function agentTextsSessionHandler(
       expiresAt: Date.now() + TEXTS_GRANT_TTL_MS,
     },
   );
-  return json(status === "linked" ? { status, accessToken } : { status });
+  if (status !== "linked") return json({ status });
+  // Their clock, so a texted turn knows the time where they are (`localNow.js`).
+  const timeZone: string = await ctx.runQuery(internal.functions.textLinks.textsTimeZone, { phone });
+  return json({ status, accessToken, timeZone });
 }
 
 /**

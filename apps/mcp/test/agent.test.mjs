@@ -539,6 +539,24 @@ export async function runAgentChecks(check) {
       /Where is the launch\?.{0,4}: you used search_notes/.test(JSON.stringify(model.requests.at(-1)?.body?.system ?? "")),
     );
 
+    // Every turn knows the time where the person is (owner, 2026-10-14: Tex
+    // asked for the phone's time before "remind me in 2 minutes").
+    model.requests.length = 0;
+    model.install([{ text: "ok" }, { text: "ok" }]);
+    await ask(env, TOKEN_OWNER, { question: "Remind me in 2 minutes", conversation: "texts", timeZone: "Asia/Tokyo" });
+    await ask(env, TOKEN_OWNER, { question: "And now?", conversation: "texts", timeZone: "Not/AZone" });
+    const toldZone = JSON.stringify(model.requests[0]?.body?.system ?? "");
+    check(
+      "a texted turn is told the date and time in the zone it was sent",
+      /It is now \w+day, \w+ \d+, 20\d\d, \d+:\d\d [ap]m where they are \(Asia\/Tokyo\)/.test(toldZone) &&
+        /never ask them for it/.test(toldZone),
+    );
+    check(
+      "...and a zone that is not one falls back to the routines' default, named",
+      JSON.stringify(model.requests[1]?.body?.system ?? "").includes("(America/New_York)") &&
+        !JSON.stringify(model.requests[1]?.body?.system ?? "").includes("Not/AZone"),
+    );
+
     model.requests.length = 0;
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_OWNER, { question: "Fresh question", conversation: "../../privacy.md" });
