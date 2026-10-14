@@ -63,6 +63,37 @@ function hasCommit(sha) {
   }
 }
 
+function commitParents(rev) {
+  try {
+    // The raw object, not `rev^1`: a depth-1 checkout grafts HEAD to have no
+    // parents, but the object still names them.
+    const header = git("cat-file", "commit", rev).split("\n\n")[0];
+    return header.split("\n").filter((line) => line.startsWith("parent ")).map((line) => line.slice(7));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * What a pull request's checkout is diffed against.
+ *
+ * `pull_request.base.sha` is the base branch as it stood when the event's
+ * pull request was last computed, often the moment it was opened, while the
+ * checkout is `refs/pull/N/merge`: the branch merged into the base as it is
+ * NOW. Diffing the two hands every job the files of every pull request merged
+ * in between, so on a busy day a phone-only change ran the gateway suite, the
+ * Convex typecheck and the editor bundle because other threads had merged
+ * gateway work (#1607, 2026-10-14). The merge commit's first parent is the
+ * base it was actually merged onto, so that diff is exactly this pull request.
+ * Anything else checked out (a head ref, a hand-made event) keeps the old,
+ * broader base.
+ */
+export function pullRequestBase(event, parents) {
+  const head = event.pull_request?.head?.sha;
+  if (parents.length === 2 && head && parents[1] === head) return parents[0];
+  return event.pull_request?.base?.sha;
+}
+
 export function changedFiles(env = process.env) {
   // A push is diffed against the commit it replaced only when the job asks
   // (`push-diff`): the editor's browser run must not run on a merge that did
@@ -77,7 +108,7 @@ export function changedFiles(env = process.env) {
   }
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
   // A new branch or a force push reports no usable `before`; that runs.
-  const base = pushDiff ? event.before : event.pull_request?.base?.sha;
+  const base = pushDiff ? event.before : pullRequestBase(event, commitParents("HEAD"));
   if (!/^[0-9a-f]{40}$/.test(base ?? "") || /^0+$/.test(base)) {
     return { files: [], backstop: "the base commit is unavailable" };
   }
@@ -155,6 +186,18 @@ export function selfTest() {
   if (!editor("apps/mobile/metro.config.js")) throw new Error("a build config of the app the editor is built in did not fail open");
   if (editor("apps/mobile/public/index.html")) throw new Error("an asset nothing imports matched the editor scope");
   if (editor("apps/mobile/eslint.config.js")) throw new Error("a lint config matched the editor scope");
+  // A pull request is diffed against the base its test merge was made onto.
+  const pr = { pull_request: { base: { sha: "a".repeat(40) }, head: { sha: "c".repeat(40) } } };
+  if (pullRequestBase(pr, ["b".repeat(40), "c".repeat(40)]) !== "b".repeat(40)) {
+    throw new Error("a pull request was not diffed against its merge commit's first parent");
+  }
+  if (pullRequestBase(pr, ["c".repeat(40)]) !== "a".repeat(40)) throw new Error("a non-merge checkout lost the event's base");
+  if (pullRequestBase(pr, ["b".repeat(40), "d".repeat(40)]) !== "a".repeat(40)) {
+    throw new Error("a merge of some other head was trusted as this pull request's");
+  }
+  if (commitParents("HEAD").length === 0 && git("rev-list", "--count", "HEAD") !== "1") {
+    throw new Error("commit parents could not be read");
+  }
   // A push runs the backstop unless the job asked to diff it.
   const event = join(mkdtempSync(join(tmpdir(), "ci-scope-")), "event.json");
   const head = git("rev-parse", "HEAD");
