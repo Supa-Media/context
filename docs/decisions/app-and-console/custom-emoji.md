@@ -100,7 +100,9 @@ folders, also can we add emojis to plain notes like activity"), reversing the
   meetings 🎙️, memories 💭, sessions 🤖, granola 🥣, and the capture folders
   📨 (`DEFAULT_INBOX_FOLDER_ICONS`). Exact name, exact depth: `1-projects/email`
   and `0-inbox/email/archive` are somebody's own.
-  Tex's folder gets them too (the owner, same day): `tex` ✨, `tex/about-me.md`
+  Tex's folder gets them too (the owner, same day): `tex` draws Tex
+  itself, calm ("the tex icon, organized version"; the marker `context:tex`,
+  which `EmojiGlyph` draws as the figure and is never written), `tex/about-me.md`
   🪪, `tex/routines` 🔁, and each how-often folder under it by what its name
   means (`cadenceFromFolder`): once 📌, minutes ⏱️, hours ⏳, days ☀️, weeks 📅,
   months 🌙, yearly 🎆.
