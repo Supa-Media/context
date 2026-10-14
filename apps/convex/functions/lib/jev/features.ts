@@ -92,6 +92,21 @@ export const JEV_FEATURES = {
     dailyCallsFree: 10,
     plan: "everyone",
   },
+  /**
+   * The icon picker's suggested emoji: Clef reads a folder's or note's name
+   * (never its text) and picks a topic, then an emoji in it, from the list in
+   * `@context/shared/src/iconSuggest.ts`. Asked only when somebody opens the
+   * picker; nothing is given an icon on its own (decided by the owner,
+   * 2026-10-14). `functions/folderIcons.ts`.
+   */
+  iconSuggest: {
+    label: "Icon suggestions",
+    onByDefault: true,
+    // Two requests a picker opened on a name that says something.
+    dailyCallsPerWorkspace: 400,
+    dailyCallsFree: 100,
+    plan: "everyone",
+  },
 } as const satisfies Record<string, JevFeature>;
 
 export type JevFeatureName = keyof typeof JEV_FEATURES;
