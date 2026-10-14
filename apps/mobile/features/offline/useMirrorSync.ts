@@ -175,8 +175,9 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
-        // The Convex tree where it serves, as a tab's walk asks: the same
-        // `canSee` over the same keys, without walking the bucket.
+        // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
+        // the same keys. The bucket is never walked; a tree still copying
+        // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({
@@ -356,8 +357,8 @@ export function useMirrorSync(options: {
         epoch,
         mine: () => epoch === currentEpoch(),
         now: () => Date.now(),
-        // The Convex tree where it serves the context (`treeOps.ts`); the
-        // answer says which it was, and that sets how soon to walk again.
+        // The Convex tree's rows (`lib/nodes/treeReads.ts`), never the bucket;
+        // the answer says where it came from, and that sets how soon to walk again.
         manifest: async (workspaceId, cursor) => {
           const page = await withTimeout(
             actionsRef.current.syncManifest({

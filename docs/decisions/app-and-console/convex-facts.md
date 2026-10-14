@@ -36,8 +36,8 @@ a note fills both its links and its front matter.
   names, these few derived fields of each note. It still never holds a note's
   body, an attachment, collaboration history, or anything that is the only
   copy: every field is rebuilt from the bucket by the fill, and deleting them
-  all loses nothing. A row larger than 32 KB of props keeps none and is read
-  from the bucket by its List, as before.
+  all loses nothing. A row larger than 32 KB of props keeps none, and its
+  List shows the note as a gap rather than read it (2026-10-13).
 - **Unchanged:** the bucket is canonical; the exit (download, hand-off, own
   bucket) never reads any of this; who may see a link or a prop is decided at
   read time by `canSee` and never stored. The facts leave with the
@@ -63,7 +63,10 @@ counted as unparsed meanwhile; a log too old to reach starts a fresh walk.
 - **The map** reads `nodeLinks` once the facts are whole
   (`lib/nodes/linkTable.ts`), notes changed since counted as "catching up".
 - **Lists and Boards** read each note's props from its row
-  (`factPropSource`); a stale row is read again from the bucket, never served.
+  (`factPropSource`). A row parsed at an older version than the tree's shows
+  what was last parsed until the fill catches up, and a note never parsed is
+  a gap (`missing`); no note is read for a List (decided by the owner,
+  2026-10-13, [convex-tree](./convex-tree.md)).
 - **The chaos score** in the app and in `orient` reads the long notes and
   contact reviews by index, and "a week ago" from `nodeChaosDays`; the first
   read carries the database's days over once.
@@ -73,16 +76,18 @@ counted as unparsed meanwhile; a log too old to reach starts a fresh walk.
 
 Each fell back to the D1 table, then to the bucket, while the facts were not
 whole. Since phase 7 of the tree migration (2026-10-13) the D1 tables are
-gone, and a reader the facts cannot answer yet does what a workspace with no
-search database always did: a List reads its folder from the bucket, the map
-draws from the search index, and the chaos score says nothing until the
-facts are whole. A write's chaos report is counted from the tree's keys and
+gone, and since 2026-10-13 a reader the facts cannot answer yet never falls
+back to the bucket either: a List shows its gaps, the map draws every note
+and says it is behind on links, and the chaos score is counted from the
+tree's keys alone and kept out of the history until the facts are whole. A write's chaos report is counted from the tree's keys and
 the facts (`apps/mcp/src/chaos/change.js`).
 
 **What a "simplification" would cost.** Keeping the facts in D1 keeps the D1
 tree alive only to tell the fills what changed. Storing who may see a link or
 a prop would let a rules change leave a stale answer behind. Serving a prop
-read at another version than the row's would show a List an edit late.
+read at another version than the row's shows a List an edit a few seconds
+late; that is the owner's accepted trade (2026-10-13) for a List that never
+reads the bucket, and the fill the change started catches it up.
 
 **Tests.** `apps/convex/__tests__/nodes/nodeFacts.test.ts` (the fill: first
 walk, only the changed note re-read, a gone note's links dropped, a read the
