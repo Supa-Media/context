@@ -465,6 +465,9 @@ export async function runTurn(options) {
       ms: roundMs,
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
       ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
+      // Stopped at the output cap (`aiGateway.js`): the round's thinking and
+      // answer ran out of room, which the turn log and a benchmark count.
+      ...(answer.stop === "max_tokens" ? { cut: true } : {}),
     });
     if (answer.usage) {
       usage.input += answer.usage.input;

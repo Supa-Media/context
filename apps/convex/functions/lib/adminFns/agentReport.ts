@@ -58,6 +58,7 @@ const traceEntry = v.object({
   model: v.optional(v.string()),
   status: v.optional(v.number()),
   retried: v.optional(v.boolean()),
+  cut: v.optional(v.boolean()),
   held: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),

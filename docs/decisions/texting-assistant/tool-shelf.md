@@ -122,7 +122,7 @@ handed back to the next round unchanged (`providers.js`). The API checks each
 thinking block against the system prompt, the tools and the messages it was
 made with. When the tool shelf loads a tool, or the turn falls back to
 another model, every earlier block is dropped at once, which the API allows;
-dropping some would refuse the request (`turn.js`). A round has 8192 tokens.
+dropping some would refuse the request (`turn.js`). A round has the models' full 128K output tokens (owner, 2026-10-14).
 A setup may say how hard each model thinks: `models.effort` for `main` and
 `models.think_effort` for `think` (`low` to `max`, Claude's
 `output_config.effort`). Absent, each model's own default applies (medium).

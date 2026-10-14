@@ -572,3 +572,17 @@ the run, never an answer or an id", "connect registers a public client for
 the runner's scope, checks the state, and prints the two values once";
 `folder.test.mjs` ("the setups are pulled from Context"); and
 `check-secrets-allowlist.mjs`, which names the live token as not synced.
+
+### The world's egress gate is the deployment's (2026-10-14)
+
+The bench world left `EGRESS_APPROVALS` unset, so it held every write into a
+shared workspace for a YES that production, where the owner switched the gate
+off on 2026-10-10, never asks. "Ruth's deposit came in" then failed on the
+round trip, not on Tex: the held write ran after the YES and the turn that
+would have ticked the to-do had already ended. The world now takes the var
+from wrangler.toml's top-level `[vars]` (`DEPLOYED_EGRESS_APPROVALS` in
+`bench/world.mjs`), so turning the gate back on there turns it on in the
+bench too. **What a simplification would cost:** hard-coding "off" would
+keep grading production's behaviour only until the owner turns the gate back
+on. Test (`bench/test/world.test.mjs`): "the world runs the egress gate the
+way the deployed gateway does".

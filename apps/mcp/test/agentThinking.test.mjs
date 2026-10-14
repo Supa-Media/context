@@ -8,7 +8,7 @@
  * round's own blocks are handed back unchanged to the next, all of them are
  * dropped at once when the tool list changes (the API checks a block against
  * the tools it was made with), a setup can say how hard each model thinks,
- * and a round has 8192 tokens of room.
+ * and a round has the models' full 128K tokens of room.
  *
  * ## Sabotage record
  *
@@ -70,7 +70,7 @@ async function turn(fetchImpl, extra = {}) {
 
 test("a round has room to think and answer, and a setup's effort is sent", () => {
   const body = gatewayBody({ model: HAIKU, system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "high" });
-  assert.equal(body.max_tokens, 8192);
+  assert.equal(body.max_tokens, 128_000);
   assert.deepEqual(body.output_config, { effort: "high" });
   assert.equal(gatewayBody({ model: HAIKU, system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "huge" }).output_config, undefined);
 });
@@ -127,4 +127,16 @@ test("a setup names each model's effort, and a word that isn't one refuses the f
   assert.deepEqual((await parseSetup(SETUP(`  main: ${HAIKU}`))).efforts, {});
   assert.equal(await parseSetup(SETUP(`  main: ${HAIKU}\n  effort: huge`)), null);
   assert.equal(await parseSetup(SETUP(`  main: ${HAIKU}\n  think_effort: high`)), null);
+});
+
+test("a round that ran out of room is marked cut in the trace, and one that finished is not", async () => {
+  const { fetchImpl } = scripted([
+    reply([THOUGHT, { type: "tool_use", id: "t1", name: "read_note", input: {} }], "max_tokens"),
+    reply([{ type: "text", text: "Moved it." }]),
+  ]);
+  const result = await turn(fetchImpl);
+  const rounds = result.timing.trace.filter((entry) => entry.kind === "model");
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[0].cut, true);
+  assert.equal(rounds[1].cut, undefined);
 });

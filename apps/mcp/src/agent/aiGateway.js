@@ -45,15 +45,18 @@ import { ProviderError, anthropicMessages } from "./providers.js";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
- * How much one round may produce. Claude 5.5 models think by default, and
- * `max_tokens` caps the thinking *and* the answer together, so this is room
- * for both: at 2048 a hard text could spend the round thinking and come back
- * with nothing (2026-10-14).
+ * How much one round may produce: the models' own ceiling (128K output on
+ * every Claude 5.5 model). `max_tokens` caps the thinking *and* the answer
+ * together, and tokens are billed as used, not as allowed, so a lower cap
+ * only cuts a round off mid-thought. The owner, 2026-10-14: "I see no reason
+ * why we are capping it less than the allowed 128K". The round's deadline
+ * (`ROUND_TIMEOUT_MS`) is what bounds a runaway round, and a cut-off one is
+ * marked in the turn log (`cut`, `turn.js`).
  */
-const MAX_OUTPUT_TOKENS = 8192;
+const MAX_OUTPUT_TOKENS = 128_000;
 
-/** The most a caller may ask for with `maxTokens`. */
-const MAX_CALLER_OUTPUT_TOKENS = 16384;
+/** The most a caller may ask for with `maxTokens`: the same ceiling. */
+const MAX_CALLER_OUTPUT_TOKENS = MAX_OUTPUT_TOKENS;
 
 /** How hard a model thinks (`output_config.effort`), when a setup says (`production.js`). */
 export const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);

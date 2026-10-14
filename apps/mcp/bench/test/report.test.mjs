@@ -527,6 +527,19 @@ test("a setup with a fallback gets a line saying how often it was used, and a re
   assert.ok(md.includes("Tools: fallback: @cf/zai-org/glm-4.7-flash after 529, search_notes"), "the fallback is on the answer's tools line");
 });
 
+test("an answer with a round cut off at the output cap is counted", () => {
+  const cut = {
+    ...fixture,
+    setups: [{ name: "haiku", version: "abc123abc123", model: "anthropic/claude-haiku-5-5" }],
+    runs: [
+      { setup: "haiku", question: 1, run: 1, model: "anthropic/claude-haiku-5-5", tools: [{ tool: "cut off at the output cap", ok: true }], usage: { input: 1000, output: 8192 }, ms: 1000, texts: 1, conversation: [] },
+      { setup: "haiku", question: 2, run: 1, model: "anthropic/claude-haiku-5-5", tools: [], usage: { input: 1000, output: 10 }, ms: 1000, texts: 1, conversation: [] },
+    ],
+  };
+  assert.ok(resultMarkdown(cut).includes("Cut off: haiku ran out of output room in a round of 1 of 2 answers."));
+  assert.ok(!resultMarkdown(fixture).includes("Cut off:"));
+});
+
 test("an answer run again after an error says so on its block, and the summary counts the reruns", () => {
   const reran = {
     ...fixture,
