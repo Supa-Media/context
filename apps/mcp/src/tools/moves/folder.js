@@ -34,6 +34,7 @@ import { collaborationHead } from "../../live/collaborationHttp.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { listAllKeys } from "../../notes/storage.js";
+import { destinationRefusal } from "./destination.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { LOGICAL_FOLDER_MOVE_THRESHOLD } from "../../moves/limits.js";
 import { startQueuedFolderMove } from "./queuedFolder.js";
@@ -159,11 +160,10 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     const unsafeMove = moveSafetyRefusal(store);
     if (unsafeMove) return toolError(unsafeMove);
   }
-  for (const move of moves) {
-    if (await getWithLegacyFallback(store, move.destination)) {
-      return toolError(`conflict: destination already exists: ${move.destination}`);
-    }
-  }
+  // Asked of the Convex tree at once (`tree/names.js`); each copy below is
+  // `onlyIf: { absent: true }`, the truth for a note it has not heard of yet.
+  const destinationsTaken = await destinationRefusal(store, moves.map((move) => move.destination));
+  if (destinationsTaken) return destinationsTaken;
 
   if (dryRun) {
     return toolText(

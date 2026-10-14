@@ -223,10 +223,10 @@ index 9d9b3748..7460b8e5 100644
  import {
    clearExactVisibilityIfAbsent,
    deleteCreatedDestination,
-@@ -106,6 +111,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
-     return writePermissionError("archive destination");
-   }
-   if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
+@@ -109,6 +114,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
+   // Asked of the Convex tree (`tree/names.js`); the write is conditional.
+   const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
+   if (destinationTaken) return destinationTaken;
 +  // Before any write, because this path has no rollback at all: a throw from
 +  // the backstop leaves the destination written, the source undeleted, and a
 +  // protocol error in the caller's hands.
@@ -387,9 +387,9 @@ diff --git a/apps/mcp/src/tools/visibility.js b/apps/mcp/src/tools/visibility.js
 index 4d9f79d3..22ae855e 100644
 --- a/apps/mcp/src/tools/visibility.js
 +++ b/apps/mcp/src/tools/visibility.js
-@@ -12,6 +12,8 @@ import { getWithLegacyFallback } from "../storageLayout.js";
- import { isEncryptedNote } from "../encryption.js";
+@@ -13,6 +13,8 @@ import { getWithLegacyFallback } from "../storageLayout.js";
  import { listAllKeys } from "../notes/storage.js";
+ import { servedListingStore, TreeUnavailable } from "../tree/served.js";
  import {
 +  FOLDED_TWIN_REFUSAL,
 +  foldedTwinBlocks,

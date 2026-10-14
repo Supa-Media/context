@@ -25,6 +25,8 @@
  *   have not read yet is absent. This is what `orient`'s folder descriptions,
  *   `evaluate_lists`, `list_meetings`, `list_channel_days` and
  *   `list_contacts` show in place of reading note bodies.
+ * - `ask: "names"`: a write's "is this name taken?" and the note cap's count,
+ *   unfiltered and so for a writer only (`gatewayNames.ts`).
  */
 
 import { internal } from "../../../_generated/api";
@@ -38,6 +40,7 @@ import { GATEWAY_PATH_LENGTH, NO_BUCKET, STILL_LOADING } from "./gatewayManifest
 import { readinessAndKick } from "./treeLoading";
 import { MOVE_RENAMES_CAP, PROPS_AT_PATHS, dayOf } from "./facts";
 import { servedNodesStore } from "./manifestStore";
+import { namesFor } from "./gatewayNames";
 
 const NOT_SERVED = { served: false } as const;
 
@@ -60,6 +63,8 @@ function totals(value: unknown): { all: number; team: number } | null {
 }
 
 export async function gatewayTreeFactsHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  // A write's names and the cap's count, which only a writer may ask (`gatewayNames.ts`).
+  if (body.ask === "names") return json(await namesFor(ctx, body));
   return json(await factsFor(ctx, body));
 }
 

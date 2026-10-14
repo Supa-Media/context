@@ -234,6 +234,8 @@ test("through the worker: a moved note and a moved folder are searchable at thei
   const restoreControlPlane = controlPlane.install();
   try {
     controlPlane.addWorkspace(WS, "follow", s3Binding("follow-bucket", DESCRIPTOR));
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(null, { s3 });
     await controlPlane.addGrant({
       accessToken: TOKEN,
       workspaceId: WS,

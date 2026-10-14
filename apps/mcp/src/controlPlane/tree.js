@@ -52,13 +52,15 @@ export function createTreeMethods({ post }) {
     /**
      * The tree's facts for this grant (`/gateway/tree/facts`): a move's link
      * candidates (`{ ask: "links", sources, names }`) or the chaos score's
-     * extras and history (`{ ask: "chaos", today? }`), or notes' props
-     * (`{ ask: "props", paths }`). `{ served: false }`
+     * extras and history (`{ ask: "chaos", today? }`), notes' props
+     * (`{ ask: "props", paths }`), or, for a writer, which names are taken
+     * and how many notes there are (`{ ask: "names", paths?, count? }`,
+     * `../tree/names.js`). `{ served: false }`
      * where the tree does not serve it, and for every refusal.
      *
      * @param {string} accessToken
      * @param {string} expectedWorkspaceId
-     * @param {{ask: "links", sources: string[], names: string[]} | {ask: "chaos", today?: {all: number, team: number}} | {ask: "props", paths: string[]}} request
+     * @param {{ask: "links", sources: string[], names: string[]} | {ask: "chaos", today?: {all: number, team: number}} | {ask: "props", paths: string[]} | {ask: "names", paths?: string[], count?: boolean}} request
      */
     async readTreeFacts(accessToken, expectedWorkspaceId, request) {
       const parsed = await post(
@@ -69,13 +71,15 @@ export function createTreeMethods({ post }) {
           ...(Array.isArray(request?.names) ? { names: request.names } : {}),
           ...(Array.isArray(request?.paths) ? { paths: request.paths } : {}),
           ...(request?.today ? { today: request.today } : {}),
+          ...(request?.count === true ? { count: true } : {}),
           // Last, so nothing in the request can stand in for the person's token.
           accessToken,
           expectedWorkspaceId,
         },
         { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
-      if (!parsed || parsed.served !== true) return { served: false };
+      // `loading` carried through: a write's names say "still loading", not "unreachable".
+      if (!parsed || parsed.served !== true) return parsed?.loading === true ? { served: false, loading: true } : { served: false };
       return parsed;
     },
   };

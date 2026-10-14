@@ -29,7 +29,10 @@
  * since its links were read, which the real route also answers for a note it
  * has not parsed), so a rewrite reads every note it may rewrite; the chaos
  * score's facts are not kept (`chaos: null`); props are parsed from each
- * note's text with the same `propsOf` the real fill runs.
+ * note's text with the same `propsOf` the real fill runs. A write's names
+ * (`ask: "names"`) are what the source holds, unfiltered, and only for a
+ * grant with `context:write`, as `gatewayNames.ts` answers them; the count
+ * is every note.
  */
 
 import { propsOf } from "../../src/tree/props.js";
@@ -149,6 +152,8 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
 
   async function facts(body) {
     const source = await sourceFor(body);
+    // A stopped workspace is one on its first copy: a write's names say so.
+    if (!source && body.ask === "names" && sources.get(body.expectedWorkspaceId) === null) return { served: false, loading: true };
     if (!source) return NOT_SERVED;
     if (body.ask === "links") {
       const notes = (await allKeys(source)).map(({ key }) => key).filter((key) => key.endsWith(".md") && !plumbing(key));
@@ -171,7 +176,31 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
       }
       return { served: true, props };
     }
+    if (body.ask === "names") return await names(body, source);
     return NOT_SERVED;
+  }
+
+  async function names(body, source) {
+    const grant = await grantForAccessToken(body.accessToken);
+    if (!grant?.scopes?.includes("context:write")) return NOT_SERVED;
+    const files = [];
+    const folders = [];
+    for (const path of Array.isArray(body.paths) ? body.paths : []) {
+      if (typeof path !== "string" || path === "") continue;
+      // A logical-delete marker is a deleted note, as the real tree records it.
+      const object = await source.get(path);
+      if (object && !isLogicalDeleteMarker(await object.text())) files.push(path);
+      if ((await allKeys(source, `${path}/`)).some(({ key }) => !plumbing(key))) folders.push(path);
+    }
+    if (body.count !== true) return { served: true, files, folders };
+    let notes = 0;
+    for (const { key } of await allKeys(source)) {
+      if (!key.toLowerCase().endsWith(".md") || key.split("/").some((part) => part.startsWith("."))) continue;
+      // A logical-delete marker is a deleted note, as the real tree records it.
+      const object = await source.get(key);
+      if (object && !isLogicalDeleteMarker(await object.text())) notes += 1;
+    }
+    return { served: true, files, folders, notes };
   }
 
   return {
