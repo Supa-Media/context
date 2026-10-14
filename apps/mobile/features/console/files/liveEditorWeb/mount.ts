@@ -25,6 +25,7 @@ import type { EmojiHostRef } from "../emoji/host";
 import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
+import { propertySlot } from "./propertySlot";
 import { comments } from "../comments/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
@@ -203,6 +204,8 @@ export function mountEditor({
       // The title: the caret in it, and the line under it. Web only, like
       // find-in-note; see `titleLine.ts`.
       titleLine(() => handlers.current.onTitleCaret),
+      // The box under the title the note page's property chips are drawn in.
+      propertySlot(),
       /*
         Comments: the highlights, the hidden markers and block, the margin of
         cards on a wide pane and the bottom sheet on a phone (files/comments/).

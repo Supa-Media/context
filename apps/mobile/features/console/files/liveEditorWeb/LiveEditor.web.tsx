@@ -65,6 +65,7 @@ import type { LiveEditorProps, MenuOpen } from "./contract";
 import { ensureStyles } from "./stylesheet";
 import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
+import { showPropertySlot } from "./propertySlot";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
@@ -85,6 +86,7 @@ export function LiveEditor({
   commentModerator,
   onSignInToComment,
   titleNote,
+  propertyHost,
   accessibilityLabel,
   onOpenNote,
   onOpenTag,
@@ -358,6 +360,12 @@ export function LiveEditor({
       titleTone === null || titleMessage === null ? null : { tone: titleTone, message: titleMessage },
     );
   }, [titleTone, titleMessage]);
+
+  // The property chips' box under the title — see `propertySlot.ts`.
+  useEffect(() => {
+    if (view.current === null) return;
+    showPropertySlot(view.current, propertyHost ?? null);
+  }, [propertyHost]);
 
   // The workspace's emoji changed — one added, renamed or removed, or the list
   // arrived — so names drawn as text are asked about again.

@@ -163,6 +163,12 @@ export interface LiveEditorProps {
   /** The line drawn under the title, or `null` for none. Web only. */
   titleNote?: { tone: "problem" | "held"; message: string } | null;
   /**
+   * The element the note page draws its property chips into, put in a box
+   * under the title (`propertySlot.ts`); absent for no box. Web only: the
+   * native page draws its chips above the editor instead.
+   */
+  propertyHost?: HTMLElement | null;
+  /**
    * Who else has this note open, and where to send this editor's own caret.
    *
    * Absent on every surface with no room behind it — the landing page's demo

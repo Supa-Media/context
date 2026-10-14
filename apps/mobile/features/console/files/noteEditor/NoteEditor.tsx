@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, View, useWindowDimensions } from "react-native";
+import { Platform, ScrollView, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../../app/AppFrame";
 import { useSurfacePadding } from "../../../app/Screen";
 import { densityFor } from "../../../app/frame";
@@ -241,6 +241,18 @@ export function NoteEditor({
    * first frame is never wrong in a direction anybody sees.
    */
   const [docWidth, setDocWidth] = useState(0);
+  /*
+    The element the property chips are drawn into on the web, which the editor
+    keeps in a box under the title (`chips/`, `liveEditorWeb/propertySlot.ts`).
+    One for the life of this editor, so a redraw of the box moves the chips
+    rather than remounting them. Null on native, which draws them in a row.
+  */
+  const [chipHost] = useState<HTMLElement | null>(() =>
+    Platform.OS === "web" && typeof document !== "undefined" ? document.createElement("div") : null,
+  );
+  /** "Other property…" under the chips' More: the Properties card opens on its Add row. */
+  const [addAsked, setAddAsked] = useState(0);
+  useEffect(() => setAddAsked(0), [state.path]);
   const controls = useRef<EditorControls | null>(null);
   /** The selected words the Link sheet is open over, or `null` when it is shut. */
   const [linkWords, setLinkWords] = useState<string | null>(null);
@@ -413,7 +425,7 @@ export function NoteEditor({
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
-    setDictateAsked, docWidth, setDocWidth, controls, padding, barUp, voice, moving, settledAt,
+    setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,
   };
 
