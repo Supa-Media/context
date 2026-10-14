@@ -36,24 +36,40 @@ const VIEWPORTS = [
   { name: "phone", width: 390, height: 844, mobile: true },
 ];
 
-/** Each step: press a testID, press a control by its label, or wait. */
+/**
+ * Each step: press a testID, press a control by its label, or wait. Steps can
+ * differ by viewport: a desktop picks the scope and the stretch from menus
+ * (the workspace menu, the dock's Replay), a phone from its tracks.
+ */
 const BOARDS = [
   { name: "1-live", steps: [] },
   { name: "2-following-an-ai", steps: [{ label: "Follow Seyi's Claude" }, { wait: 2500 }], ready: "map-follow-panel" },
-  { name: "3-folders", steps: [{ id: "map-view-folders" }, { wait: 1500 }] },
+  { name: "3-columns", steps: [{ id: "map-view-folders" }, { wait: 1500 }] },
   // The phone has no side panel, so nothing lists the moves between workspaces there.
-  { name: "4-all-workspaces", steps: [{ id: "map-scope-all" }, { wait: 1500 }], ready: { desktop: "map-cross-moves" } },
   {
-    name: "5-replaying-today",
-    steps: [{ id: "map-when-today" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.45 }, { wait: 1500 }],
+    name: "4-all-workspaces",
+    steps: { desktop: [{ id: "map-scope" }, { id: "map-scope-all" }, { wait: 1500 }], phone: [{ id: "map-scope-all" }, { wait: 1500 }] },
+    ready: { desktop: "map-cross-moves" },
+  },
+  {
+    name: "5-replaying-24-hours",
+    steps: {
+      desktop: [{ id: "map-replay" }, { id: "map-when-day" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.45 }, { wait: 1500 }],
+      phone: [{ id: "map-when-day" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.45 }, { wait: 1500 }],
+    },
     ready: "map-replay-clock",
   },
   {
     name: "6-replaying-this-week",
-    steps: [{ id: "map-when-week" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.7 }, { wait: 1500 }],
+    steps: {
+      desktop: [{ id: "map-replay" }, { id: "map-when-week" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.7 }, { wait: 1500 }],
+      phone: [{ id: "map-when-week" }, { wait: 2500 }, { id: "map-replay-play" }, { at: "map-replay-track", x: 0.7 }, { wait: 1500 }],
+    },
     ready: "map-replay-clock",
   },
   { name: "7-sheet-open", only: ["phone"], steps: [{ id: "map-sheet-toggle" }, { wait: 600 }] },
+  { name: "8-replay-menu", only: ["desktop"], steps: [{ id: "map-replay" }, { wait: 400 }] },
+  { name: "9-workspace-menu", only: ["desktop"], steps: [{ id: "map-scope" }, { wait: 400 }] },
 ];
 
 if (!existsSync(join(EXPORT_DIR, "index.html"))) {
@@ -98,7 +114,7 @@ try {
           await page.evaluate(() => document.fonts.ready);
           // The camera's first flight, and the actors walking to their notes.
           await page.waitForTimeout(2500);
-          for (const step of board.steps) {
+          for (const step of Array.isArray(board.steps) ? board.steps : board.steps[viewport.name]) {
             if (step.id) await page.getByTestId(step.id).first().click({ timeout: 10_000 });
             if (step.label) await page.getByLabel(step.label, { exact: true }).first().click({ timeout: 10_000 });
             if (step.at) {

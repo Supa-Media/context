@@ -45,16 +45,19 @@ export function RangePicker({
   page,
   compact,
   anchor,
+  above = false,
   onClose,
 }: {
   page: MapPageState;
   compact: boolean;
   anchor: Anchor | null;
+  /** Open upward from the anchor: the map dock's Replay button sits at the bottom of the canvas. */
+  above?: boolean;
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const asked = useHistoryDays(page.workspaceIds, page.historyEndpoint);
   // A demo or a fixture has no gateway to ask; its own invented history stands in.
   const history = page.localHistoryDays ?? asked;
@@ -254,7 +257,12 @@ export function RangePicker({
         ) : (
           <Pressable
             onPress={() => {}}
-            style={[styles.popover, { top: (anchor?.y ?? 80) + (anchor?.height ?? 0) + 6, left: clampLeft(anchor?.x ?? 16, windowWidth) }]}
+            style={[
+              styles.popover,
+              above
+                ? { bottom: windowHeight - (anchor?.y ?? windowHeight - 80) + 6, left: clampLeft(anchor?.x ?? 16, windowWidth) }
+                : { top: (anchor?.y ?? 80) + (anchor?.height ?? 0) + 6, left: clampLeft(anchor?.x ?? 16, windowWidth) },
+            ]}
           >
             {body}
           </Pressable>
