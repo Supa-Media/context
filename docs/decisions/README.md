@@ -201,6 +201,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - The List is the Notes rows, with three thin extras
+- Notes and List are one view, and its dot and face are its controls — see below
 - A folder page shows its children by status
 - Tasks and notes
 - A row's name takes the room
@@ -229,6 +230,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)
+
+## [One List view](./one-list-view.md)
+
+- Notes and List are one view, and its dot and face are its controls
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 

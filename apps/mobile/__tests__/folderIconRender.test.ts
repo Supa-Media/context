@@ -364,14 +364,18 @@ describe("the main folder view shows the icon too", () => {
     readOnly: false,
   };
 
-  test("a desktop listing row draws the icon in its chevron's place", () => {
+  // The owner, 2026-10-14: "when there's an emoji, the arrow is gone in the middle section, which is just funky".
+  test("a desktop listing row draws the icon beside its chevron, never in its place", () => {
     const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {}, folderIcon: ICON }));
     expect(container.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    expect(container.querySelector("[data-testid='folder-row-chevron']")).not.toBeNull();
   });
 
-  test("and without one keeps the chevron", () => {
+  test("and without one keeps the chevron and draws the plain folder icon, as the tree does", () => {
     const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {} }));
     expect(container.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
+    expect(container.querySelector("[data-testid='folder-row-chevron']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='folder-row-icon']")).not.toBeNull();
   });
 
   test("the folder's own page draws it before its title", () => {
