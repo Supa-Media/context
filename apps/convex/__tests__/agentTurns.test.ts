@@ -107,7 +107,7 @@ describe("the turn log", () => {
     expect(await turns(t)).toHaveLength(0);
   });
 
-  test("a router's pick, a fallback and a retried round are kept with their status, and a provider's words are not", async () => {
+  test("a router's pick, a fallback, a retried round and one cut off at the output cap are kept with their status, and a provider's words are not", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);
     const trace = [
@@ -115,6 +115,7 @@ describe("the turn log", () => {
       { kind: "model", ok: true, ms: 900, retried: true, status: 529 },
       { kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", ok: true, ms: 2_000, status: 529 },
       { kind: "model", ok: true, ms: 1_200 },
+      { kind: "model", ok: true, ms: 3_000, cut: true },
       { kind: "tool", tool: "write_note", ok: false, ms: 5, held: true },
     ];
     expect((await report(t, accessToken, { trace })).recorded).toBe(true);

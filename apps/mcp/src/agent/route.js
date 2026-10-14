@@ -622,6 +622,7 @@ function wireTraceEntry(entry) {
   return {
     ...base,
     ...(entry.retried ? { retried: true } : {}),
+    ...(entry.cut ? { cut: true } : {}),
     ...(typeof entry.status === "number" ? { status: entry.status } : {}),
   };
 }

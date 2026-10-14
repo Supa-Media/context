@@ -40,6 +40,7 @@ export const traceEntryValidator = v.object({
   model: v.optional(v.string()),
   status: v.optional(v.number()),
   retried: v.optional(v.boolean()),
+  cut: v.optional(v.boolean()),
   held: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
@@ -89,7 +90,7 @@ export const recordAgentTurn = internalMutation({
         trace.push({ kind: "fallback" as const, model: entry.model, ok: entry.ok, ms, ...STATUS(entry.status) });
       } else {
         if (entry.tool !== undefined) return false;
-        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.retried ? { retried: true } : {}), ...STATUS(entry.status) });
+        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.retried ? { retried: true } : {}), ...(entry.cut ? { cut: true } : {}), ...STATUS(entry.status) });
       }
     }
 

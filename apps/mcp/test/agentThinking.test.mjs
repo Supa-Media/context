@@ -128,3 +128,15 @@ test("a setup names each model's effort, and a word that isn't one refuses the f
   assert.equal(await parseSetup(SETUP(`  main: ${HAIKU}\n  effort: huge`)), null);
   assert.equal(await parseSetup(SETUP(`  main: ${HAIKU}\n  think_effort: high`)), null);
 });
+
+test("a round that ran out of room is marked cut in the trace, and one that finished is not", async () => {
+  const { fetchImpl } = scripted([
+    reply([THOUGHT, { type: "tool_use", id: "t1", name: "read_note", input: {} }], "max_tokens"),
+    reply([{ type: "text", text: "Moved it." }]),
+  ]);
+  const result = await turn(fetchImpl);
+  const rounds = result.timing.trace.filter((entry) => entry.kind === "model");
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[0].cut, true);
+  assert.equal(rounds[1].cut, undefined);
+});

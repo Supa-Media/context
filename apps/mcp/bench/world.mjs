@@ -325,7 +325,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // A fallback and a retried round are recorded the same way, because
         // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
             entry.kind === "router"
               ? // `router: think (0.8)`; a think pick under the setup's cutoff is
@@ -333,7 +333,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                 { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
               : entry.kind === "fallback"
                 ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
-                : entry.kind === "model"
+                : entry.kind === "model" && entry.cut && !entry.retried
+                  ? { tool: "cut off at the output cap", ok: true }
+                  : entry.kind === "model"
                   ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
                   : entry.held
                     ? // Held by the egress gate for the person's yes, and run when they

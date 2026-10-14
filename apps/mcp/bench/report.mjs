@@ -215,6 +215,8 @@ function resilienceLines(setups, runs) {
     const calls = (r) => (r.tools ?? []).filter((call) => typeof call !== "string").map((call) => call.tool);
     const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
     const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
+    const cut = mine.filter((r) => calls(r).includes("cut off at the output cap"));
+    if (cut.length) lines.push(`Cut off: ${setup.name} ran out of output room in a round of ${cut.length} of ${mine.length} answers.`, "");
     if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
     const reran = mine.filter((r) => r.reran);
     if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
