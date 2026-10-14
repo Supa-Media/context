@@ -22,9 +22,7 @@ import {
   imageValidator,
   imageWrittenValidator,
   emojiImageValidator,
-  emojiListValidator,
   emojiRemovedValidator,
-  folderIconsValidator,
   emojiStoredValidator,
   listingValidator,
   manifestValidator,
@@ -58,7 +56,6 @@ import {
   googleSyncRunValidator,
 } from "./syncAndFormValidators";
 import {
-  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
   meaningProjectedValidator,
@@ -129,11 +126,9 @@ export const operationResultValidator = v.union(
   storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
-  emojiListValidator,
   emojiImageValidator,
   emojiStoredValidator,
   emojiRemovedValidator,
-  folderIconsValidator,
   pluginInventoryValidator,
   pluginManagedInstallsValidator,
   contextPluginsValidator,
@@ -147,7 +142,6 @@ export const operationResultValidator = v.union(
   notePathsValidator,
   workspaceGraphValidator,
   visiblePathsValidator,
-  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
   meaningProjectedValidator,
@@ -168,23 +162,11 @@ export const operationValidator = v.union(
      * Absent is `never`, which is every caller that predates the forwarding
      * ledger. `onMiss` is for an address somebody is holding — a deep link, a
      * remembered path. A share needs the opposite order and resolves through
-     * the `forward` operation instead; `readFile` carries the argument for why
+     * the forwarding ledger in Convex instead (`smallData.forward`); `readFile` carries the argument for why
      * those two orders cannot be one.
      */
     forward: v.optional(v.union(v.literal("never"), v.literal("onMiss"))),
   }),
-  /**
-   * Where these paths are now, according to the bucket's forwarding ledger.
-   *
-   * A read can forward itself (`forward`, above). A share cannot: its bound is
-   * decided in `shares.ts` *before* any bucket access — `withinSharedFolder`
-   * refuses a path outside the shared folder without spending a GET — and a
-   * bound checked against a stale prefix while the read forwards to a live one
-   * would be two different answers to the same question. So the share resolves
-   * both paths first, in one operation, and everything after it works in live
-   * paths.
-   */
-  v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
   /** The offline mirror's manifest, one page of it. See `syncManifest`. */
   v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()), folder: v.optional(v.string()), source: v.optional(v.literal("tree")) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
@@ -291,6 +273,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("nodesMoveWork") }),
   v.object({ kind: v.literal("nodesPrivacyExport") }),
+  v.object({ kind: v.literal("nodesSmallData") }),
   /** A folder List's notes from the Convex tree's facts (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
   /** The chaos score for this reader (`chaosOps.ts`). */
@@ -343,19 +326,16 @@ export const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
-  v.object({ kind: v.literal("emojiList") }),
-  v.object({ kind: v.literal("folderIconsRead") }),
   v.object({ kind: v.literal("addBuiltInFolder"), role: v.string() }),
-  v.object({ kind: v.literal("folderIconSet"), path: v.string(), icon: v.union(v.string(), v.null()) }),
-  v.object({ kind: v.literal("emojiRead"), name: v.string() }),
+  v.object({ kind: v.literal("emojiRead"), name: v.string(), leaf: v.string() }),
   v.object({
     kind: v.literal("emojiStore"),
     name: v.string(),
     bytes: v.bytes(),
-    replace: v.boolean(),
+    previous: v.union(v.string(), v.null()),
   }),
-  v.object({ kind: v.literal("emojiRemove"), name: v.string() }),
-  v.object({ kind: v.literal("emojiRename"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("emojiRemove"), name: v.string(), leaf: v.string() }),
+  v.object({ kind: v.literal("emojiRename"), from: v.string(), to: v.string(), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),

@@ -31,7 +31,6 @@ import {
   readFile,
   readFiles,
   readImage,
-  listCustomEmoji,
   readCustomEmoji,
   removeCustomEmoji,
   renameCustomEmoji,
@@ -50,7 +49,6 @@ import {
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
-import { listFolderIcons, setFolderIcon } from "../fileOps/folderIcons";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
 import {
   type FormNotifyMaterial,
@@ -59,7 +57,6 @@ import {
   runFormAction,
 } from "../formOps";
 import { PRIVACY_KEY, type Visibility } from "../privacy";
-import { forwardPath, readForwarding } from "../../../../mcp/src/forwarding.js";
 import { inventoryPlugins, listManagedInstalls } from "../../../../mcp/src/plugins/inventory.js";
 import {
   migrateStorageLayout as migrateStorageLayoutOp,
@@ -455,29 +452,6 @@ export async function executeOperation(
         });
         return { kind: "file", ...file };
       }
-      case "forward": {
-        /*
-          DELIBERATELY UNFILTERED, AND SAFE ONLY BECAUSE OF WHERE IT GOES.
-
-          This answers "where did this path go" without asking `canSee` about
-          either end, which would be wrong if the answer were ever handed to a
-          caller: a forwarded path is a fact about a note, and where a private
-          note went is not a team reader's business.
-
-          It is never handed to one. `runFileOperation` is internal, the single
-          caller is `readSharedNote`, and everything it does with the answer —
-          the folder bound, then a read at `team` scope through the live
-          `privacy.md` — decides afresh. A path that forwards somewhere the
-          reader may not see comes back as the same `SHARE_UNAVAILABLE` as one
-          that never existed. **Any new caller has to re-argue that**, or ask
-          `canSee` here.
-        */
-        const ledger = await readForwarding(store);
-        return {
-          kind: "forwarded" as const,
-          paths: operation.paths.map((path) => forwardPath(ledger, path)),
-        };
-      }
       case "manifest": {
         const manifest = await syncManifestOp(store, {
           clearance,
@@ -585,7 +559,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
@@ -900,27 +874,19 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
-      case "emojiList":
-        return { kind: "emojiList", emoji: await listCustomEmoji(store) };
-      case "folderIconsRead":
-      case "folderIconSet": {
-        const icons = operation.kind === "folderIconsRead"
-          ? await listFolderIcons(store, { clearance })
-          : await setFolderIcon(store, { path: operation.path, icon: operation.icon, clearance });
-        return { kind: "folderIcons", icons: Object.entries(icons).map(([path, icon]) => ({ path, icon })) };
-      }
+      // An emoji by the leaf Convex holds for its name (`functions/emoji.ts`): no listing of the image store.
       case "emojiRead":
-        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation.name)) };
+        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation)) };
       case "emojiStore": {
         const stored = await storeCustomEmoji(store, {
           name: operation.name,
           bytes: new Uint8Array(operation.bytes),
-          replace: operation.replace,
+          previous: operation.previous,
         });
         return { kind: "emojiStored", ...stored };
       }
       case "emojiRemove":
-        await removeCustomEmoji(store, operation.name);
+        await removeCustomEmoji(store, operation);
         return { kind: "emojiRemoved" };
       case "emojiRename":
         return { kind: "emojiStored", ...(await renameCustomEmoji(store, operation)) };

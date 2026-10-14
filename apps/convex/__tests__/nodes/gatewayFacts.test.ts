@@ -11,13 +11,24 @@
  *    gateway falls back;
  *  - today's score is kept only from an owner's private read;
  *  - a note's props (front matter, heading, first paragraph) come back only
- *    for notes the reader may see, and a note never read is absent.
+ *    for notes the reader may see, and a note never read is absent;
+ *  - the forwarding ledger (`ask: "forwarding"`, held in Convex since
+ *    2026-10-14) names no path the reader may not see: an entry from such a
+ *    path is absent, and one to such a path says only `to: null`; a queued
+ *    move's ticket reads the whole ledger only while its job holds the lease.
  *
  * Sabotage (temporary local edits, reverted):
  *  - dropping the `visible` filter on candidates: the member case fails;
  *  - dropping the `private` check on `today`: the team-record case fails;
  *  - dropping the `visible` filter on props: "props are only for notes the
- *    reader may see" fails at member clearance.
+ *    reader may see" fails at member clearance;
+ *  - answering every ledger entry whole: "the ledger names no path the
+ *    reader may not see" fails at member clearance;
+ *  - judging a folder entry by `canSee` rather than the folder rule: the
+ *    same case fails (the rename of a private folder the team reaches
+ *    through a shared note goes missing, as the tree would still show it).
+ *  - a ticket answered for any workspace it names, not only its job's: the
+ *    refusal case fails (`ticket` with another workspace answers).
  */
 
 import { describe, expect, test } from "vitest";
@@ -29,6 +40,7 @@ import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
+import { hashToken } from "../../functions/lib/crypto";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -116,6 +128,31 @@ async function fixture(options: { mismatches?: number } = {}) {
   await grant(CAPTURE, ids.memberId, ids.ws, ["context:capture"]);
   await grant(OTHER, ids.outsiderId, ids.other, ["context:read", "context:private"]);
   return { t, ...ids };
+}
+
+const TICKET = token("facts_move_ticket");
+
+/** A queued move holding its lease, as `/gateway/jobs/open` leaves it. */
+async function leasedJob(t: T, workspaceId: Id<"workspaces">) {
+  return await t.run(async (ctx) => {
+    const now = Date.now();
+    const member = await ctx.db.query("workspaceMembers").filter((q) => q.eq(q.field("workspaceId"), workspaceId)).first();
+    const grant = await ctx.db.query("oauthGrants").first();
+    return await ctx.db.insert("gatewayJobs", {
+      hashedTicket: await hashToken(TICKET),
+      workspaceId,
+      actorUserId: member!.userId,
+      actorClientId: CLIENT,
+      grantId: grant!._id,
+      kind: "materialize_move",
+      status: "running",
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + 60_000,
+      leasedAt: now,
+    });
+  });
 }
 
 async function withFacts(t: T, workspaceId: Id<"workspaces">) {
@@ -206,7 +243,15 @@ describe("POST /gateway/tree/facts", () => {
       { accessToken: OWNER, expectedWorkspaceId: ws, ask: "props", paths: "1-projects/plan.md" },
       { accessToken: OWNER, expectedWorkspaceId: ws, ask: "props", paths: Array.from({ length: 101 }, (_, n) => `${n}.md`) },
       { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "props", paths: ["1-projects/plan.md"] },
+      { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "forwarding" },
+      { accessToken: OTHER, expectedWorkspaceId: ws, ask: "forwarding" },
+      { accessToken: OWNER, expectedWorkspaceId: other, ask: "forwarding" },
+      { ticket: token("facts_no_job"), expectedWorkspaceId: ws, ask: "forwarding" },
+      { ticket: TICKET, expectedWorkspaceId: ws, ...LINKS },
+      { ticket: TICKET, expectedWorkspaceId: other, ask: "forwarding" },
+      { ticket: TICKET, accessToken: OWNER, expectedWorkspaceId: ws, ask: "forwarding" },
     ];
+    await leasedJob(t, ws);
     for (const body of refusals) {
       const response = await gatewayPost(t, "/gateway/tree/facts", body);
       expect(await responseFingerprint(response), JSON.stringify(body).slice(0, 60)).toBe(notServed);
@@ -267,5 +312,53 @@ describe("POST /gateway/tree/facts", () => {
     await t.run(async (ctx) => ctx.db.insert("nodeFactState", { workspaceId: other, ready: true, seq: Number.MAX_SAFE_INTEGER }));
     const theirs = await facts(t, { accessToken: OTHER, expectedWorkspaceId: other, ...LINKS });
     expect(theirs.candidates).toEqual({ pointing: [], unparsed: [] });
+  });
+
+  test("the ledger names no path the reader may not see", async () => {
+    const { t, ws } = await fixture();
+    const moves = [
+      { from: "1-projects/secret", to: "1-projects/secret-renamed", kind: "folder" as const },
+      { from: "1-projects/old.md", to: "1-projects/plan.md", kind: "note" as const },
+      { from: "1-projects/was.md", to: "1-projects/secret/codes.md", kind: "note" as const },
+      { from: "2-areas/old-mine.md", to: "1-projects/later.md", kind: "note" as const },
+      { from: "1-projects/q3", to: "1-projects/q4", kind: "folder" as const },
+      // A private folder the team still reaches, through the note shared out of it.
+      { from: "2-areas", to: "1-projects/areas", kind: "folder" as const },
+    ];
+    await t.mutation(internal.functions.smallData.recordForwarding, { workspaceId: ws, moves, now: 1_000 });
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "forwarding" });
+    expect(owner.forwarding.map(({ from, to, kind }: Record<string, string>) => ({ from, to, kind }))).toEqual(moves);
+    for (const reader of [MEMBER, OWNER_TEAM]) {
+      const response = await gatewayPost(t, "/gateway/tree/facts", { accessToken: reader, expectedWorkspaceId: ws, ask: "forwarding" });
+      const text = await response.text();
+      expect(JSON.parse(text).forwarding.map(({ from, to }: Record<string, string>) => [from, to])).toEqual([
+        ["1-projects/old.md", "1-projects/plan.md"],
+        ["1-projects/was.md", null],
+        ["1-projects/q3", "1-projects/q4"],
+        ["2-areas", "1-projects/areas"],
+      ]);
+      for (const unseen of ["secret", "old-mine"]) expect(text).not.toContain(unseen);
+    }
+  });
+
+  test("a queued move's ticket reads the whole ledger while its job holds the lease, and nothing else", async () => {
+    const { t, ws } = await fixture();
+    const moves = [{ from: "1-projects/was.md", to: "1-projects/secret/codes.md", kind: "note" as const }];
+    await t.mutation(internal.functions.smallData.recordForwarding, { workspaceId: ws, moves, now: 1_000 });
+    const job = await leasedJob(t, ws);
+    const asJob = await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" });
+    expect(asJob.forwarding.map(({ from, to }: Record<string, string>) => [from, to])).toEqual([["1-projects/was.md", "1-projects/secret/codes.md"]]);
+    await t.run(async (ctx) => ctx.db.patch(job, { status: "complete" }));
+    expect(await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" })).toEqual({ served: false });
+  });
+
+  test("another workspace's ledger never answers", async () => {
+    const { t, ws, other } = await fixture();
+    await t.mutation(internal.functions.smallData.recordForwarding, {
+      workspaceId: ws,
+      moves: [{ from: "1-projects/a.md", to: "1-projects/b.md", kind: "note" }],
+      now: 1_000,
+    });
+    expect(await facts(t, { accessToken: OTHER, expectedWorkspaceId: other, ask: "forwarding" })).toEqual({ served: true, forwarding: [] });
   });
 });

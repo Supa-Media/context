@@ -24,7 +24,10 @@ breaking one, stop and say so rather than working around it.
    [convex-tree](./docs/decisions/app-and-console/convex-tree.md)), plus, as
    rebuildable derivatives on each note's row, its links and the front
    matter, heading and first paragraph a List shows (decided by the owner,
-   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md))
+   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md)),
+   and its folder icons, emoji names and forwarding ledger, whose bucket files
+   are written from those rows for the exit (decided by the owner, 2026-10-14;
+   [convex-small-data](./docs/decisions/app-and-console/convex-small-data.md))
    — and **never** a note's body or the only copy of anything. Who holds the bucket's key is a billing
    question: on the free plan it is the customer's own bucket and revoking our
    credential leaves them a complete, usable context; on **managed storage** we

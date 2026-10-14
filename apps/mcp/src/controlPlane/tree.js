@@ -78,5 +78,49 @@ export function createTreeMethods({ post }) {
       if (!parsed || parsed.served !== true) return { served: false };
       return parsed;
     },
+
+    /**
+     * The whole forwarding ledger for a queued move, proved by its job ticket
+     * while the job holds its lease (`/gateway/tree/facts`, `ask:
+     * "forwarding"`). The job runs at `private` clearance, so nothing is held
+     * back; `{ served: false }` for every refusal.
+     *
+     * @param {string} ticket
+     * @param {string} expectedWorkspaceId
+     */
+    async readJobLedger(ticket, expectedWorkspaceId) {
+      const parsed = await post(
+        "/gateway/tree/facts",
+        { ask: "forwarding", ticket, expectedWorkspaceId },
+        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
+      );
+      if (!parsed || parsed.served !== true) return { served: false };
+      return parsed;
+    },
+
+    /**
+     * A move's forwarding addresses (`{ from, to, kind }`) or the icons it
+     * carries (`{ from, to }`), recorded in the control plane's rows
+     * (`/gateway/tree/touch`, `apps/convex/functions/smallData.ts`), which
+     * write `.context/forwarding.json` and `.context/folder-icons.json`
+     * behind them. Awaited, unlike the rest of a touch, so the next read
+     * follows the move. Paths only; at most `SMALL_DATA_BATCH` a request.
+     *
+     * @param {string} workspaceId
+     * @param {{forwarding?: {from: string, to: string, kind: "note"|"folder"}[], icons?: {from: string, to: string}[]}} moved
+     */
+    async recordMoved(workspaceId, moved) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      for (const field of ["forwarding", "icons"]) {
+        const list = Array.isArray(moved?.[field]) ? moved[field] : [];
+        for (let at = 0; at < list.length; at += SMALL_DATA_BATCH) {
+          await post("/gateway/tree/touch", { workspaceId, [field]: list.slice(at, at + SMALL_DATA_BATCH) });
+        }
+      }
+      return true;
+    },
   };
 }
+
+/** Forwarding addresses or icon moves one request carries: the control plane's `TOUCH_SMALL_DATA`. */
+export const SMALL_DATA_BATCH = 100;

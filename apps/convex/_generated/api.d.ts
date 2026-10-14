@@ -122,6 +122,7 @@ import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_sharedInbox from "../functions/sharedInbox.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
+import type * as functions_smallData from "../functions/smallData.js";
 import type * as functions_storageLag from "../functions/storageLag.js";
 import type * as functions_storageMover from "../functions/storageMover.js";
 import type * as functions_feedback from "../functions/feedback.js";
@@ -276,6 +277,7 @@ declare const fullApi: ApiFromModules<{
   "functions/sharedInbox": typeof functions_sharedInbox;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
+  "functions/smallData": typeof functions_smallData;
   "functions/storageLag": typeof functions_storageLag;
   "functions/storageMover": typeof functions_storageMover;
   "functions/feedback": typeof functions_feedback;

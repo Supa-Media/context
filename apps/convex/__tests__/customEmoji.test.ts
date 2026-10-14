@@ -1,10 +1,11 @@
 /**
  * A workspace's own emoji, against a bucket.
  *
- * The object's name is the record (`emoji-<name>.<ext>` in the image store),
- * so what has to hold is about names: the bytes decide the extension, one
- * name is one picture, a name can never build a leaf outside the store, and a
- * listing of emoji never surfaces anything else in the store.
+ * The picture is the object `emoji-<name>.<ext>` in the image store; its name
+ * and leaf are held in Convex (`files/smallData.test.ts`). What has to hold
+ * here: the bytes decide the extension, one name is one picture, a leaf a row
+ * holds can never reach anything but that name's own picture, and the
+ * listing the import reads never surfaces anything else in the store.
  */
 
 import { describe, expect, test } from "vitest";
@@ -78,63 +79,75 @@ describe("names and leaves", () => {
 });
 
 describe("the store", () => {
-  test("stores under a leaf the bytes chose, and reads it back by name", async () => {
+  test("stores under a leaf the bytes chose, and reads it back by that leaf", async () => {
     const store = memoryStore();
-    expect(await storeCustomEmoji(store, { name: "parrot", bytes: GIF, replace: false })).toEqual({
+    expect(await storeCustomEmoji(store, { name: "parrot", bytes: GIF, previous: null })).toEqual({
       name: "parrot",
       leaf: "emoji-parrot.gif",
     });
-    const read = await readCustomEmoji(store, "parrot");
+    const read = await readCustomEmoji(store, { name: "parrot", leaf: "emoji-parrot.gif" });
     expect(read.contentType).toBe("image/gif");
     expect(new Uint8Array(read.bytes)).toEqual(GIF);
   });
 
   test("an SVG, or anything that is not an image, is refused", async () => {
     const store = memoryStore();
-    expect(await codeOf(storeCustomEmoji(store, { name: "x", bytes: SVG, replace: false }))).toBe("PATH_INVALID");
+    expect(await codeOf(storeCustomEmoji(store, { name: "x", bytes: SVG, previous: null }))).toBe("PATH_INVALID");
     expect(await listCustomEmoji(store)).toEqual([]);
   });
 
-  test("a name that is taken is refused unless replacing, and a replacement leaves one picture", async () => {
+  test("a replacement of another type leaves one picture", async () => {
     const store = memoryStore();
-    await storeCustomEmoji(store, { name: "api", bytes: PNG, replace: false });
-    expect(await codeOf(storeCustomEmoji(store, { name: "api", bytes: GIF, replace: false }))).toBe(
-      "DESTINATION_EXISTS",
-    );
-    await storeCustomEmoji(store, { name: "api", bytes: GIF, replace: true });
+    await storeCustomEmoji(store, { name: "api", bytes: PNG, previous: null });
+    await storeCustomEmoji(store, { name: "api", bytes: GIF, previous: "emoji-api.png" });
     expect(await listCustomEmoji(store)).toEqual([{ name: "api", leaf: "emoji-api.gif" }]);
     expect(await store.get(`${IMAGE_PREFIX}emoji-api.png`)).toBeNull();
   });
 
-  test("the listing is emoji only: pastes and icons in the same store never appear", async () => {
+  test("a previous leaf that is not this name's own is refused before anything is written", async () => {
+    const store = memoryStore();
+    await writeImage(store, { leaf: "paste-4b2c9f1a3d5e7081.png", bytes: PNG, contentType: "image/png" });
+    for (const previous of ["paste-4b2c9f1a3d5e7081.png", "emoji-other.png", "../privacy.md"]) {
+      expect(await codeOf(storeCustomEmoji(store, { name: "api", bytes: GIF, previous }))).toBe("FILE_NOT_FOUND");
+    }
+    expect(await store.get(`${IMAGE_PREFIX}paste-4b2c9f1a3d5e7081.png`)).not.toBeNull();
+    expect(await listCustomEmoji(store)).toEqual([]);
+  });
+
+  test("the listing the import reads is emoji only: pastes and icons in the same store never appear", async () => {
     const store = memoryStore();
     await writeImage(store, { leaf: "paste-4b2c9f1a3d5e7081.png", bytes: PNG, contentType: "image/png" });
     await writeImage(store, { leaf: "icon-4b2c9f1a3d5e7081.png", bytes: PNG, contentType: "image/png" });
-    await storeCustomEmoji(store, { name: "lgtm", bytes: PNG, replace: false });
-    await storeCustomEmoji(store, { name: "ship", bytes: GIF, replace: false });
+    await storeCustomEmoji(store, { name: "lgtm", bytes: PNG, previous: null });
+    await storeCustomEmoji(store, { name: "ship", bytes: GIF, previous: null });
     expect(await listCustomEmoji(store)).toEqual([
       { name: "lgtm", leaf: "emoji-lgtm.png" },
       { name: "ship", leaf: "emoji-ship.gif" },
     ]);
   });
 
-  test("reading by name cannot reach another object", async () => {
+  test("a leaf held for a name cannot reach another object", async () => {
     const store = memoryStore();
     await writeImage(store, { leaf: "paste-4b2c9f1a3d5e7081.png", bytes: PNG, contentType: "image/png" });
-    for (const name of ["../paste-4b2c9f1a3d5e7081.png", "paste-4b2c9f1a3d5e7081", "x/../../privacy"]) {
-      expect(await codeOf(readCustomEmoji(store, name))).toBe("FILE_NOT_FOUND");
+    const tries: Array<{ name: string; leaf: string }> = [
+      { name: "x", leaf: "paste-4b2c9f1a3d5e7081.png" },
+      { name: "../paste-4b2c9f1a3d5e7081.png", leaf: "emoji-x.png" },
+      { name: "x", leaf: "emoji-y.png" },
+      { name: "x", leaf: "emoji-x.png/../../privacy.md" },
+    ];
+    for (const held of tries) {
+      expect(await codeOf(readCustomEmoji(store, held))).toBe("FILE_NOT_FOUND");
+      expect(await codeOf(removeCustomEmoji(store, held))).toMatch(/FILE_NOT_FOUND|PATH_INVALID/);
     }
+    expect(await store.get(`${IMAGE_PREFIX}paste-4b2c9f1a3d5e7081.png`)).not.toBeNull();
   });
 
   test("rename moves the picture; remove takes it away", async () => {
     const store = memoryStore();
-    await storeCustomEmoji(store, { name: "old", bytes: PNG, replace: false });
-    await storeCustomEmoji(store, { name: "taken", bytes: PNG, replace: false });
-    expect(await codeOf(renameCustomEmoji(store, { from: "old", to: "taken" }))).toBe("DESTINATION_EXISTS");
-    await renameCustomEmoji(store, { from: "old", to: "new" });
-    expect((await listCustomEmoji(store)).map((emoji) => emoji.name)).toEqual(["new", "taken"]);
-    await removeCustomEmoji(store, "new");
-    expect((await listCustomEmoji(store)).map((emoji) => emoji.name)).toEqual(["taken"]);
-    expect(await codeOf(removeCustomEmoji(store, "new"))).toBe("FILE_NOT_FOUND");
+    await storeCustomEmoji(store, { name: "old", bytes: PNG, previous: null });
+    await renameCustomEmoji(store, { from: "old", to: "new", leaf: "emoji-old.png" });
+    expect((await listCustomEmoji(store)).map((emoji) => emoji.name)).toEqual(["new"]);
+    await removeCustomEmoji(store, { name: "new", leaf: "emoji-new.png" });
+    expect(await listCustomEmoji(store)).toEqual([]);
   });
 });

@@ -18,7 +18,8 @@
  * on a host that cannot keep it alive — the line is in the customer's bucket
  * either way.
  */
-export function attachChangeReporters(store, workspaceId, controlPlane) {
+export function attachChangeReporters(store, workspaceId, controlPlane, { readLedger } = {}) {
+  attachSmallData(store, workspaceId, controlPlane, readLedger);
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
   store.reportTreeTouch = (touch) =>
@@ -59,4 +60,49 @@ export function attachChangeReporters(store, workspaceId, controlPlane) {
       // A host whose `waitUntil` refuses the work simply does not report.
     }
   };
+}
+
+/**
+ * The forwarding ledger and the folder icons, held by the control plane
+ * (`apps/convex/functions/lib/schema/smallData.ts`), as the shared engines'
+ * hooks (`forwarding.js`, `folderIcons.cjs`) read them. With these on a store
+ * nothing reads `.context/forwarding.json` or `.context/folder-icons.json`
+ * back; the control plane writes both from its rows.
+ *
+ * - Reading the ledger asks `/gateway/tree/facts`: with `readLedger` where
+ *   the caller names how (a queued move's ticket, `moves/queueConsumer.js`;
+ *   the console's token, `live/presenceRoute.js`), else with this request's
+ *   own token (`store.treeFacts`, `http/routing.js`), and gets it only as far
+ *   as that proof may see. A store with neither reads no ledger at all: an
+ *   empty one, never the bucket's.
+ * - Recording a move, or carrying its icons, goes to the rows first, awaited.
+ */
+export function attachSmallData(store, workspaceId, controlPlane, readLedger) {
+  if (typeof controlPlane?.recordMoved !== "function") return;
+  const ask =
+    typeof readLedger === "function"
+      ? readLedger
+      : () => (typeof store.treeFacts === "function" ? store.treeFacts({ ask: "forwarding" }) : null);
+  Object.defineProperty(store, "forwardingLedger", {
+    value: {
+      read: async () => {
+        const answer = await ask();
+        return answer?.served === true && Array.isArray(answer.forwarding) ? answer.forwarding : [];
+      },
+      record: (moves) => controlPlane.recordMoved(workspaceId, { forwarding: moves }),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "folderIconsHeld", {
+    value: {
+      remap: (moves) => controlPlane.recordMoved(workspaceId, { icons: moves }),
+      // No gateway tool deletes for good; a store asked to anyway changes nothing.
+      drop: async () => null,
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 }

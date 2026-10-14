@@ -21,6 +21,7 @@ import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
+import { attachSmallData } from "../smallData/attach";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -411,6 +412,8 @@ export async function runFileOperationHandler(
   // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
   // below goes through this, the console's and the gateway's alike.
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
+  // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
+  attachSmallData(ctx, args.workspaceId, store);
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);

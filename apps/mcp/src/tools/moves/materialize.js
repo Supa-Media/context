@@ -41,7 +41,6 @@ import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
-import { readForwarding } from "../../forwarding.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { toolError, toolText } from "../results.js";
 import { isContactNote } from "../../../../../packages/communications/src/contacts.js";
@@ -681,7 +680,6 @@ export async function toolProfileMoveReferences(store, idArg) {
   if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
   if (!jobs) return toolText(rows.join("\n"));
-  await measure("forwarding ledger", () => readForwarding(store));
   const unavailable = new Set();
   for (const active of jobs) for (const item of active.objects) {
     unavailable.add(item.source);

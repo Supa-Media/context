@@ -69,7 +69,6 @@ export type FileOperation =
   | { kind: "routineRuns"; path: string }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
-  | { kind: "forward"; paths: string[] }
   | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
   | { kind: "readMany"; paths: string[]; plain?: boolean }
   | {
@@ -125,6 +124,8 @@ export type FileOperation =
   | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
+  /** Import the icons, emoji and forwarding files once, then write them from Convex (`lib/smallData/sync.ts`). */
+  | { kind: "nodesSmallData" }
   /** A folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
   | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
   /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */
@@ -185,14 +186,12 @@ export type FileOperation =
     }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
-  | { kind: "emojiList" }
-  | { kind: "folderIconsRead" }
   | { kind: "addBuiltInFolder"; role: string }
-  | { kind: "folderIconSet"; path: string; icon: string | null }
-  | { kind: "emojiRead"; name: string }
-  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
-  | { kind: "emojiRemove"; name: string }
-  | { kind: "emojiRename"; from: string; to: string }
+  /** An emoji's picture, by the leaf Convex holds for its name (`functions/emoji.ts`). */
+  | { kind: "emojiRead"; name: string; leaf: string }
+  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; previous: string | null }
+  | { kind: "emojiRemove"; name: string; leaf: string }
+  | { kind: "emojiRename"; from: string; to: string; leaf: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -312,7 +311,6 @@ export type OperationResult =
   | { kind: "notePaths"; paths: string[] | null }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
   | { kind: "visiblePaths"; paths: string[] }
-  | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";
       pending: number;
@@ -462,11 +460,9 @@ export type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer }
-  | { kind: "emojiList"; emoji: Array<{ name: string; leaf: string }> }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
   | { kind: "emojiRemoved" }
-  | { kind: "folderIcons"; icons: Array<{ path: string; icon: string }> }
   | { kind: "organizerResult"; output: string };
 
 /**

@@ -99,8 +99,9 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       a note forwarded into a private folder is not found, exactly as it would
       be if the caller had asked for its current path directly.
     */
+    // `null` is a trail into somewhere this caller may not see: not found, as before.
     const forwarded = forwardPath(await readForwarding(store), requested);
-    if (forwarded !== requested && canSee(forwarded, scope, rules, overrides)) {
+    if (forwarded !== null && forwarded !== requested && canSee(forwarded, scope, rules, overrides)) {
       const landed = await probeWithLegacyFallback(store, forwarded);
       if (landed && !present && seen) {
         const landedObject = await getWithLegacyFallback(store, forwarded);
