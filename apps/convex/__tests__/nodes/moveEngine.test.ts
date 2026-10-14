@@ -25,7 +25,11 @@ import type { ActionCtx } from "../../_generated/server";
 import { isLogicalDeleteMarker, withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { setExactVisibility } from "../../functions/lib/fileOps";
 import { runMoveWork } from "../../functions/lib/nodes/moveWork";
+<<<<<<< HEAD
 import { BUFFERED_MAX_BYTES, MOVE_FAILED_CONFLICT, MOVE_FAILED_STORAGE, MOVE_FAILED_TOO_LARGE } from "../../functions/lib/nodes/moveWork";
+=======
+import { MOVE_FAILED_CONFLICT, MOVE_FAILED_STORAGE } from "../../functions/lib/nodes/moveWork";
+>>>>>>> origin/claude/project-thread-7iurff
 import { clashName } from "../../functions/lib/nodes/moveSteps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { type Call, type Fixture, type Store, bucketKeys, fixture, start } from "./moveFixture.helpers";
@@ -139,6 +143,7 @@ describe("a different file already at the destination", () => {
     expect(row!.lastError).toBe(MOVE_FAILED_CONFLICT);
   });
 
+<<<<<<< HEAD
   test("a deleted file's marker holding the name is a clash too, not a failure for ever", async () => {
     const f = await fixture();
     const view = withLogicalDelete(f.store) as unknown as Store;
@@ -150,6 +155,8 @@ describe("a different file already at the destination", () => {
     expect(await queueRows(f)).toEqual([]);
   });
 
+=======
+>>>>>>> origin/claude/project-thread-7iurff
   test("a note clashing under a team folder is kept beside it", async () => {
     const f = await fixture();
     await start(f, "1-projects/launch", "3-resources/launch");
@@ -195,6 +202,7 @@ describe("a file that fails", () => {
   });
 });
 
+<<<<<<< HEAD
 describe("a file too large to read through here", () => {
   test("on a bucket that cannot copy it itself is reported, not attempted, and the rest still move", async () => {
     const f = await fixture();
@@ -213,6 +221,8 @@ describe("a file too large to read through here", () => {
   });
 });
 
+=======
+>>>>>>> origin/claude/project-thread-7iurff
 describe("a pass that dies", () => {
   test("after copying a page loses nothing, and the next pass finishes the move", async () => {
     const f = await fixture();
