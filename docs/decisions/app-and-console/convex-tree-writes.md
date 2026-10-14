@@ -53,3 +53,11 @@ What fails if reversed:
   holds; `privacyGroups.test.mjs`: a refused write costs the same whether or
   not the note exists; `nodes/sweepTouch.test.ts`: a
   tree is filled by its store's token.
+
+### A share link's mint check asks the tree
+
+Minting an unlisted or collect link checks two things: that the link's readers, at `team` scope with no names, would see the note, and that the note is not sealed. Both answers now come from the tree's rows, the rules mirror and the facts (`nodes.teamShareable`). The note itself is never opened (decided by the owner, 2026-10-14).
+
+A note that is hidden and a note that is missing still give the same refusal. A tree that is still loading answers `TREE_LOADING`. If a note was sealed after its facts were last read, the mint can let it through; `readThroughShare` still refuses that note live, as it always has.
+
+**What fails if reversed:** `shareAnyone.test.ts`, "minting asks the tree, and never opens the note".

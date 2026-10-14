@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser } from "./fixtures.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, pressPublish, publish } from "./website.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -135,10 +135,12 @@ describe("public website resolution", () => {
       path: "website/draft.md",
       visibility: "team",
     });
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
     );
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
       workspaceId: f.workspaceId,
       path: "website/draft.md",
@@ -223,6 +225,7 @@ describe("public website resolution", () => {
       path: "1-projects/private.md",
       visibility: "private",
     });
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
@@ -265,6 +268,7 @@ describe("public website resolution", () => {
       api.functions.files.setDirectoryVisibility,
       { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
     );
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },

@@ -19,6 +19,7 @@ import {
   seedStorageBinding,
   setupTest,
   type TestConvex,
+  copyTree,
 } from "./fixtures.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -76,6 +77,7 @@ async function claimLegacyLink(
     path: "index.md",
     visibility: "team",
   });
+  await copyTree(f.t, f.workspaceId);
   const { token } = await asUser(f.t, f.owner).action(
     api.functions.shares.createLinkShare,
     { workspaceId: f.workspaceId, path: "index.md" },
