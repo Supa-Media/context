@@ -124,14 +124,22 @@ function isOldName(key, moves) {
  */
 const AWAY_ANSWER = { get: null, head: null, exists: false, existsMetadata: false };
 
-/** A conflict a move cannot settle by itself; the worker counts it and retries. */
+/**
+ * A conflict a move cannot settle by itself. `clash` says which: `true` when a
+ * different object already sits at the destination (the worker can settle
+ * that by keeping both, `lib/nodes/moveSteps.ts`), `false` when the source
+ * changed while it was copied (the next try copies the newest version).
+ */
 export class MoveObjectConflict extends Error {
   constructor(reason) {
     super(`move conflict: ${reason}`);
     this.name = "MoveObjectConflict";
     this.code = "MOVE_CONFLICT";
+    this.clash = reason === DESTINATION_EXISTS;
   }
 }
+
+const DESTINATION_EXISTS = "destination exists";
 
 function bytesEqual(left, right) {
   const a = new Uint8Array(left);
@@ -174,7 +182,7 @@ export async function moveObject(store, source, destination) {
         return { state: "moved", ...(typeof moved?.etag === "string" ? { etag: moved.etag } : {}) };
       } catch (error) {
         if (error?.code === "MOVED") return { state: "already" };
-        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict("destination exists");
+        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict(DESTINATION_EXISTS);
         if (error?.code === "CONFLICT" || error?.code === "BASE_MISSING" || error?.code === "GENERATION_MISMATCH") {
           throw new MoveObjectConflict("note changed while moving");
         }
@@ -197,7 +205,7 @@ export async function moveObject(store, source, destination) {
     // a bucket without conditional deletes leaves when its delete failed.
     const there = await store.get(destination);
     const ours = there && (body.byteLength === 0 || bytesEqual(await there.arrayBuffer(), body));
-    if (!ours) throw new MoveObjectConflict("destination exists");
+    if (!ours) throw new MoveObjectConflict(DESTINATION_EXISTS);
     const retired = await retireMovedSource(store, source, object.etag);
     if (retired !== "retired") {
       if ((await store.get(source)) === null) return { state: "already" };

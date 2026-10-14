@@ -223,7 +223,19 @@ folder at its new name at once, and the bucket catches up behind it.
   object once (chains collapse). One pass works for a minute, a pool of six
   at a time, reports what moved, and schedules the next (`moveWork.ts`). An
   edit landing mid-copy keeps the edit and retries; a name taken by a stranger
-  is a conflict, never an overwrite (`moveObject`).
+  is never overwritten (`moveObject`).
+- **The worker never stops short and never sticks on one object** (decided
+  2026-10-14, project file `move-engine/plan.md`). It walks the old name with
+  the store's cursor, because a page of hidden deleted-note markers lists as
+  empty while files follow it, and finishes only after a whole walk finds
+  nothing left. Each object is retried in place (three tries) and a failure
+  leaves it for the next pass while the objects behind it keep moving
+  (`moveSteps.ts`). A stranger's object at the destination is kept, and the
+  moving one lands beside it as `name (moved).ext`, then `(moved 2)`: the
+  conflicted-copy rule sync tools use, so neither is lost. Only where that name
+  is exactly as visible as the destination: if either name has a rule of its
+  own the object stays put and the move shows as stuck. Reverting to "list
+  until empty" or "throw on a clash" fails `__tests__/nodes/moveEngine.test.ts`.
 - **Opening a note promotes it.** A request's store reads through the pending
   moves (`withPendingMoves`): touching the new name moves that object there
   first, collaboration history included; an old name still holding its object
