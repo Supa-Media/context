@@ -600,6 +600,8 @@ Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](.
 
 ### A text has every MCP tool
 
+_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
+
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
 phone. Then, after the assistant said it could not move notes between

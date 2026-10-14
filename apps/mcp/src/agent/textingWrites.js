@@ -58,6 +58,17 @@ const ROUTINE_HELP =
   "The body is plain instructions for the assistant, written as the person asked. " +
   "After saving, tell them where it is in words (routines › daily › Morning brief) and that deleting it stops it.";
 
+/**
+ * The routine help goes at the end of the description's first paragraph: a
+ * setup with core tools hands the model only that paragraph (`toolShelf.js`),
+ * and routines are what a text asks for most of what write_note does.
+ */
+function withRoutineHelp(description) {
+  const text = typeof description === "string" ? description : "";
+  const end = text.search(/\r?\n\s*\r?\n/);
+  return end === -1 ? `${text}${ROUTINE_HELP}` : `${text.slice(0, end)}${ROUTINE_HELP}${text.slice(end)}`;
+}
+
 /** Argument names that hold a path in the bucket, at any depth. */
 const PATH_KEYS = new Set(["path", "source", "destination", "note", "responses"]);
 
@@ -71,7 +82,7 @@ function mirrored(tool) {
   const required = Array.isArray(schema.required) ? schema.required.filter((key) => !withheld?.has(key)) : undefined;
   return {
     ...tool,
-    ...(tool.name === "write_note" ? { description: `${tool.description}${ROUTINE_HELP}` } : {}),
+    ...(tool.name === "write_note" ? { description: withRoutineHelp(tool.description) } : {}),
     inputSchema: { ...schema, properties, ...(required ? { required } : {}) },
   };
 }

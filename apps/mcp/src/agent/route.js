@@ -26,7 +26,16 @@ import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
-import { appendConversation, conversationPath, historyIsTainted, readConversation } from "./conversation.js";
+import {
+  EARLIER_TEXTS_DEFINITION,
+  SHOWN_HISTORY_TURNS,
+  appendConversation,
+  conversationPath,
+  earlierTextsResult,
+  historyIsTainted,
+  readConversation,
+  shownHistory,
+} from "./conversation.js";
 import {
   loadRoutine,
   readRuns,
@@ -245,8 +254,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
-  // A previous answer written after a read from outside still carries it.
-  if (historyIsTainted(history)) markUntrusted(ledger);
 
   /*
     The computer is the texting assistant's for now (the owner's decision is
@@ -324,6 +331,23 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
+  // What of the conversation this turn is shown: the setup's `history:`, else the default.
+  const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
+  // A previous answer written after a read from outside still carries it.
+  if (historyIsTainted(shown)) markUntrusted(ledger);
+  // The rest is read on request, and carries its own mark when it is read.
+  const earlier =
+    conversation === null
+      ? []
+      : [
+          {
+            tool: EARLIER_TEXTS_DEFINITION,
+            call: async () => {
+              if (historyIsTainted(history)) markUntrusted(ledger);
+              return earlierTextsResult(history);
+            },
+          },
+        ];
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
@@ -463,7 +487,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         },
       },
       web,
-      history,
+      history: shown,
+      local: earlier,
+      coreTools: production?.coreTools ?? null,
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
