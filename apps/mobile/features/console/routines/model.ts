@@ -45,7 +45,7 @@ export type RoutineBarView =
       kind: "bar";
       /** "Every day at 7:30 am". */
       schedule: string;
-      /** "Last ran 2 hours ago", "Not run yet", "Paused", or why it stopped. */
+      /** "Last ran 2 hours ago", "Not run yet", "Paused", "Done", or why it stopped. */
       last: string;
       mark: LastRunMark;
       /** The file says `paused: yes`. */
@@ -84,6 +84,9 @@ export function routineBarView(options: {
   if (stopped) {
     last = WRITER_GONE_WORDS;
     mark = "failed";
+  } else if (settings.done) {
+    // A one-off that has run: the schedule line already says when.
+    last = "Done";
   } else if (settings.paused) {
     last = "Paused";
   } else if (row === undefined) {

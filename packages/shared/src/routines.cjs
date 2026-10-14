@@ -26,7 +26,7 @@ const ROUTINE_RUNS_PREFIX = ".context/agent/routines/";
 /** When a daily-or-slower routine runs if its file names no time. */
 const DEFAULT_AT = Object.freeze({ hour: 8, minute: 0 });
 
-const UNITS = Object.freeze(["minute", "hour", "day", "week", "month"]);
+const UNITS = Object.freeze(["minute", "hour", "day", "week", "month", "once"]);
 
 const NAMED_FOLDERS = Object.freeze({
   hourly: { unit: "hour", every: 1 },
@@ -38,6 +38,9 @@ const NAMED_FOLDERS = Object.freeze({
   monthly: { unit: "month", every: 1 },
   quarterly: { unit: "month", every: 3 },
   yearly: { unit: "month", every: 12 },
+  // A reminder: runs once, at the date and time its file names, then marks
+  // itself `done:` (the owner, 2026-10-14).
+  once: { unit: "once", every: 1 },
 });
 
 const WEEKDAYS = Object.freeze(["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]);
@@ -159,6 +162,32 @@ function parseWeekdays(value) {
   return days.size === 0 ? null : [...days].sort((a, b) => a - b);
 }
 
+/** `2026-10-15` → `{ year, month, day }`, or null for anything else or a date that does not exist. */
+function parseDate(value) {
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(value).trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
+  return { year, month, day };
+}
+
+/**
+ * A one-off's `at:`: a date with an optional time, `2026-10-15 9:00 am` or
+ * `2026-10-15`. `{ date, time }`, with `time` null when none was written, or
+ * null when it isn't a date.
+ */
+function parseDateTime(value) {
+  const match = /^(\S+)(?:\s+(.+))?$/.exec(String(value).trim());
+  if (!match) return null;
+  const date = parseDate(match[1]);
+  if (!date) return null;
+  if (match[2] === undefined) return { date, time: null };
+  const time = parseTime(match[2]);
+  return time ? { date, time } : null;
+}
+
 /** `1`, `1st`, `15th`, `last` → a day of the month (`-1` for the last), or null. */
 function parseMonthDay(value) {
   const text = String(value).trim().toLowerCase().replace(/^the\s+/, "");
@@ -201,14 +230,37 @@ function routineSettings(text, cadence) {
     until: null,
     paused: false,
     timeZone: null,
+    date: null,
+    done: null,
   };
+  const once = cadence && cadence.unit === "once";
 
-  if (fields.at !== undefined && fields.at !== "") {
+  if (once) {
+    // A one-off says when in one line, `at: 2026-10-15 9:00 am`, or as a
+    // day and a time, `on: 2026-10-15` with `at: 9:00 am`.
+    const atDate = fields.at === undefined ? null : parseDateTime(fields.at);
+    if (atDate) {
+      settings.date = atDate.date;
+      settings.at = atDate.time;
+    } else if (fields.at !== undefined && fields.at !== "") {
+      const at = parseTime(fields.at);
+      if (at) settings.at = at;
+      else problems.push(`"at: ${fields.at}" isn't a date and time. Write it like 2026-10-15 9:00 am.`);
+    }
+    if (fields.on !== undefined && fields.on !== "") {
+      const date = parseDate(fields.on);
+      if (date && settings.date === null) settings.date = date;
+      else if (!date) problems.push(`"on: ${fields.on}" isn't a date. Write it like 2026-10-15.`);
+    }
+    if (settings.date === null && !problems.length) {
+      problems.push("A one-off needs a date. Write it like at: 2026-10-15 9:00 am.");
+    }
+  } else if (fields.at !== undefined && fields.at !== "") {
     const at = parseTime(fields.at);
     if (at) settings.at = at;
     else problems.push(`"at: ${fields.at}" isn't a time. Write it like 7:30 am or 19:00.`);
   }
-  if (fields.on !== undefined && fields.on !== "") {
+  if (!once && fields.on !== undefined && fields.on !== "") {
     if (cadence && cadence.unit === "month") {
       const day = parseMonthDay(fields.on);
       if (day !== null) settings.monthDay = day;
@@ -240,6 +292,11 @@ function routineSettings(text, cadence) {
     const paused = fields.paused.toLowerCase();
     if (YES.has(paused)) settings.paused = true;
     else if (!NO.has(paused)) problems.push(`"paused: ${fields.paused}" should be yes or no.`);
+  }
+  // `done:` is the time a one-off ran, written by the gateway: it never runs again.
+  if (fields.done !== undefined && fields.done !== "") {
+    settings.done = fields.done;
+    settings.paused = true;
   }
   const zone = fields.timezone ?? fields["time-zone"] ?? fields.tz;
   if (zone !== undefined && zone !== "") {
@@ -339,6 +396,13 @@ function nextRunAt(cadence, settings, timeZone, afterMs) {
   const at = (settings && settings.at) || DEFAULT_AT;
   const days = settings && settings.days;
 
+  if (cadence.unit === "once") {
+    const date = settings && settings.date;
+    if (!date) return null;
+    const instant = instantOf(date.year, date.month, date.day, at.hour, at.minute, zone);
+    return instant > afterMs ? instant : null;
+  }
+
   if (cadence.unit === "minute") {
     const step = every * 60000;
     return Math.floor(afterMs / step) * step + step;
@@ -421,6 +485,13 @@ function describeSchedule(cadence, settings) {
   const days = settings && settings.days;
   const every = cadence.every || 1;
   switch (cadence.unit) {
+    case "once": {
+      const date = settings && settings.date;
+      if (!date) return "Once, when it has a date";
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const day = `${months[date.month - 1]} ${date.day}, ${date.year}`;
+      return `${settings.done ? "Ran once" : "Once"} on ${day} at ${clock(at)}`;
+    }
     case "minute":
       return `Every ${every} minutes`;
     case "hour": {
@@ -469,6 +540,8 @@ module.exports = {
   parseTime,
   parseWeekdays,
   parseMonthDay,
+  parseDate,
+  parseDateTime,
   routineSettings,
   nextRunAt,
   describeSchedule,

@@ -132,6 +132,9 @@ export function routineQuestion(routine, { now, timeZone, lastRun }) {
   if (lastRun && typeof lastRun.text === "string" && lastRun.text !== "") {
     lines.push(`Last time (${new Date(lastRun.at).toISOString()}) you answered:\n${clip(lastRun.text, MAX_LAST_RUN_IN_PROMPT)}`);
   }
+  if (routine.cadence.unit === "once") {
+    lines.push("This is a one-off reminder the person set: it runs this once. Text them what it says, in their words, as a reminder.");
+  }
   if (routine.settings.until) {
     lines.push(
       `This routine stops once this is true: ${routine.settings.until}. ` +
@@ -187,19 +190,62 @@ export async function recordRun(store, path, runs, run) {
   await store.put(routineRunsKey(path), JSON.stringify({ version: 1, runs: kept }));
 }
 
-/** The note's text with `paused: yes` in its front matter, added or replaced. */
-export function withPaused(text) {
+/** The note's text with `key: value` in its front matter, added or replaced. */
+function withFrontMatterLine(text, key, value) {
   const lines = text.split("\n");
+  const same = new RegExp(`^${key}\\s*:`, "i");
   if (lines[0]?.replace(/^\uFEFF/, "").trim() === "---") {
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line === "---" || line === "...") {
-        const kept = lines.slice(1, i).filter((l) => !/^paused\s*:/i.test(l.trim()));
-        return [lines[0], ...kept, "paused: yes", ...lines.slice(i)].join("\n");
+        const kept = lines.slice(1, i).filter((l) => !same.test(l.trim()));
+        return [lines[0], ...kept, `${key}: ${value}`, ...lines.slice(i)].join("\n");
       }
     }
   }
-  return `---\npaused: yes\n---\n${text}`;
+  return `---\n${key}: ${value}\n---\n${text}`;
+}
+
+/** The note's text with `paused: yes` in its front matter, added or replaced. */
+export function withPaused(text) {
+  return withFrontMatterLine(text, "paused", "yes");
+}
+
+/** A one-off's text once it has run: `done:` says when, and keeps it from running again. */
+export function withDone(text, when) {
+  return withFrontMatterLine(text, "done", when);
+}
+
+/** Read a routine note for rewriting: its text below the header, and its etag. */
+async function readForRewrite(callTool, path) {
+  const read = await callTool("read_note", { path });
+  const text = read?.content?.[0]?.text;
+  if (read?.isError === true || typeof text !== "string") return null;
+  const split = text.indexOf("\n\n");
+  const etag = /^etag: (.+)$/m.exec(split === -1 ? text : text.slice(0, split))?.[1];
+  return { note: split === -1 ? "" : text.slice(split + 2), etag };
+}
+
+/**
+ * Mark a one-off as run, in place: the note stays where it was, as the record
+ * of the reminder, and `done:` stops it (the owner, 2026-10-14: reminders are
+ * notes anyone can see). Best effort, like `stopRoutine`; the control plane has
+ * already moved a one-off's next run to never, so a note left unmarked does not
+ * run twice.
+ */
+export async function finishOnce(callTool, path, { now, timeZone }) {
+  try {
+    const read = await readForRewrite(callTool, path);
+    if (read === null) return "kept";
+    const written = await callTool("write_note", {
+      path,
+      content: withDone(read.note, localTime(now, timeZone)),
+      ...(read.etag ? { expected_etag: read.etag } : {}),
+    });
+    return written?.isError === true ? "kept" : "done";
+  } catch {
+    return "kept";
+  }
 }
 
 /**
@@ -211,14 +257,11 @@ export function withPaused(text) {
 export async function stopRoutine(callTool, path) {
   try {
     // Read first: a shared workspace's archive and write both want the etag.
-    const read = await callTool("read_note", { path });
-    const text = read?.content?.[0]?.text;
-    if (read?.isError === true || typeof text !== "string") return "kept";
-    const split = text.indexOf("\n\n");
-    const etag = /^etag: (.+)$/m.exec(split === -1 ? text : text.slice(0, split))?.[1];
+    const read = await readForRewrite(callTool, path);
+    if (read === null) return "kept";
+    const { note, etag } = read;
     const archived = await callTool("archive_note", { path, ...(etag ? { expected_etag: etag } : {}) });
     if (archived?.isError !== true) return "archived";
-    const note = split === -1 ? "" : text.slice(split + 2);
     const written = await callTool("write_note", {
       path,
       content: withPaused(note),

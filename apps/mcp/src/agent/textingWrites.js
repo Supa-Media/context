@@ -50,7 +50,9 @@ export const WITHHELD_FIELDS = new Map();
 const ROUTINE_HELP =
   " Routines are notes the assistant runs on a schedule as this person, then texts them what it found. " +
   "A routine lives at routines/<how-often>/<name>.md. The folder says how often: every-5-minutes, hourly, " +
-  "every-3-hours, daily, weekly, every-2-weeks, monthly. Optional lines at the top, between --- lines: " +
+  "every-3-hours, daily, weekly, every-2-weeks, monthly, or once for a one-off reminder. " +
+  "A one-off needs its date and time: at: 2026-10-15 9:00 am; it texts once, then is marked done: and stays as a record. " +
+  "Other optional lines at the top, between --- lines: " +
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
   "to: @handle (default: the writer), until: <when to stop>, paused: yes. " +
   "The body is plain instructions for the assistant, written as the person asked. " +

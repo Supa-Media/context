@@ -25,7 +25,14 @@ import {
 import { claimDueRoutinesHandler, recordRoutineResultHandler } from "./lib/routines/runs";
 
 const cadenceValidator = v.object({
-  unit: v.union(v.literal("minute"), v.literal("hour"), v.literal("day"), v.literal("week"), v.literal("month")),
+  unit: v.union(
+    v.literal("minute"),
+    v.literal("hour"),
+    v.literal("day"),
+    v.literal("week"),
+    v.literal("month"),
+    v.literal("once"),
+  ),
   every: v.number(),
 });
 const sendValidator = v.union(v.literal("text"), v.literal("note"), v.literal("both"));
@@ -37,6 +44,7 @@ const scheduleValidator = v.object({
   at: v.optional(clockValidator),
   days: v.optional(v.array(v.number())),
   monthDay: v.optional(v.number()),
+  date: v.optional(v.object({ year: v.number(), month: v.number(), day: v.number() })),
   timeZone: v.optional(v.string()),
   paused: v.boolean(),
   send: sendValidator,

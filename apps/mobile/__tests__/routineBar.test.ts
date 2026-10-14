@@ -98,6 +98,22 @@ describe("the bar's words", () => {
     expect(view(TEXT, row({ paused: true }))).toMatchObject({ paused: false, canRun: false });
   });
 
+  test("a one-off says when it is set for, and once it has run says Done and cannot run again", () => {
+    const path = "routines/once/call-sam.md";
+    const waiting = "---\nat: 2026-10-15 9:00 am\n---\nRemind me to call Sam.\n";
+    expect(routineBarView({ path, text: waiting, row: row({ lastRunAt: null, lastOutcome: null }), now: NOW })).toMatchObject({
+      schedule: "Once on Oct 15, 2026 at 9 am",
+      last: "Not run yet",
+      canRun: true,
+    });
+    const ran = "---\nat: 2026-10-15 9:00 am\ndone: 2026-10-15 09:00 (UTC)\n---\nRemind me to call Sam.\n";
+    expect(routineBarView({ path, text: ran, row: row({ paused: true, nextRunAt: null }), now: NOW })).toMatchObject({
+      schedule: "Ran once on Oct 15, 2026 at 9 am",
+      last: "Done",
+      canRun: false,
+    });
+  });
+
   test("a writer who lost access is said plainly, and cannot be run", () => {
     expect(view(TEXT, row({ lastOutcome: "writer_gone" }))).toMatchObject({
       last: WRITER_GONE_WORDS,

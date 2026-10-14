@@ -44,6 +44,7 @@ export const routineTables = {
         v.literal("day"),
         v.literal("week"),
         v.literal("month"),
+        v.literal("once"),
       ),
       every: v.number(),
     }),
@@ -52,6 +53,8 @@ export const routineTables = {
     days: v.optional(v.array(v.number())),
     /** Day of the month, -1 for the last. */
     monthDay: v.optional(v.number()),
+    /** A one-off's day (`routines/once/`); it runs once, at `at` on this date. */
+    date: v.optional(v.object({ year: v.number(), month: v.number(), day: v.number() })),
     /** The file's own `timezone:` line, when it has one. */
     timeZone: v.optional(v.string()),
     paused: v.boolean(),
