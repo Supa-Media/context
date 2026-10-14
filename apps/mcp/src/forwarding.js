@@ -61,7 +61,25 @@
  *    behaviour; a ledger growing without limit would be a file every share
  *    read has to fetch.
  *
- * Nothing here talks to a store — text in, text out — so the rules are
+ * ## Held in the control plane; the file is the export
+ *
+ * Since 2026-10-14 (the owner's "Names only") the ledger is rows in Convex
+ * (`forwardingEntries`, `apps/convex/functions/lib/schema/smallData.ts`), and
+ * every reader reads those. `.context/forwarding.json` is still written, in
+ * this format, from the rows after every change, so the customer's export
+ * keeps the trail; nothing on a request path reads it back.
+ *
+ * A store opened by the console's barrier or the gateway's session carries
+ * the ledger as `store.forwardingLedger` (`read`, `record`), and the two I/O
+ * functions below go through it. The gateway's `read` answers only for this
+ * grant (`/gateway/tree/facts`, `ask: "forwarding"`): an entry whose old path
+ * the grant may not see is left out, and one whose new path it may not see
+ * comes back with `to: null`, which `forwardPath` answers with `null`, "moved
+ * somewhere you cannot see". Only a store with no control plane at all (the
+ * gateway's in-memory test stub, a self-hosted gateway without one) keeps the
+ * file as the record.
+ *
+ * Nothing else here talks to a store — text in, text out — so the rules are
  * testable without a bucket. `readForwarding` and `recordForwarding` are the
  * two functions that do I/O, and they hold nothing but the read and the write.
  */
@@ -223,7 +241,9 @@ export function addForwarding(state, moves, { now = Date.now(), cap = FORWARDING
  *
  * Returns `path` unchanged when nothing has moved it — including when the
  * ledger is empty, which is the overwhelmingly common case and costs one scan
- * of an empty array.
+ * of an empty array. Returns `null` when the trail leads somewhere the reader
+ * may not see (an entry served with `to: null`): a caller treats that as a
+ * path it may not see, never as "not moved".
  */
 export function forwardPath(state, path) {
   const start = cleanPath(path);
@@ -232,6 +252,7 @@ export function forwardPath(state, path) {
   const seen = new Set([current]);
   for (let hop = 0; hop < FORWARD_MAX_HOPS; hop += 1) {
     const next = forwardOnce(state.entries, current);
+    if (next === HIDDEN) return null;
     if (next === null || seen.has(next)) return current;
     seen.add(next);
     current = next;
@@ -250,22 +271,27 @@ export function forwardPath(state, path) {
  * holds both rules, the second is newer, and it is the *first* that says where
  * `2-areas/apps/x.md` went. Longest prefix, then newest to break a tie.
  */
+/** A hop into somewhere this reader may not see. */
+const HIDDEN = Symbol("forwardedOutOfSight");
+
 function forwardOnce(entries, path) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
-    if (entries[index].from === path) return entries[index].to;
+    if (entries[index].from === path) return entries[index].to ?? HIDDEN;
   }
   let best = null;
   for (const entry of entries) {
     if (entry.kind !== "folder" || !underPrefix(path, entry.from)) continue;
     if (best === null || entry.from.length >= best.from.length) best = entry;
   }
-  return best === null ? null : repoint(path, best.from, best.to);
+  if (best === null) return null;
+  return best.to === null ? HIDDEN : repoint(path, best.from, best.to);
 }
 
 /* ------------------------------- the two I/O ------------------------------ */
 
 /**
- * The ledger as the bucket holds it.
+ * The ledger: the control plane's, where the store carries it, and the
+ * bucket's file only for a store with no control plane at all.
  *
  * Any failure — no object, unreadable object, a store that is down — is an
  * empty ledger. A read that threw would turn "we could not look up a
@@ -273,7 +299,9 @@ function forwardOnce(entries, path) {
  * not-found is the better answer.
  */
 export async function readForwarding(store) {
+  const held = heldLedger(store);
   try {
+    if (held !== null) return servedForwarding(await held.read());
     const object = await store.get(FORWARDING_PATH);
     if (object === null) return emptyState();
     return parseForwarding(await object.text());
@@ -301,6 +329,19 @@ export async function readForwarding(store) {
  */
 export async function recordForwarding(store, moves, { now = Date.now(), attempts = 3 } = {}) {
   if (!Array.isArray(moves) || moves.length === 0) return false;
+  const held = heldLedger(store);
+  if (held !== null) {
+    // The control plane records, collapses and caps (`addForwarding`, the same
+    // rules) and writes the file behind it. Best-effort for the same reason.
+    const cleaned = cleanMoves(moves);
+    if (cleaned.length === 0) return true;
+    try {
+      await held.record(cleaned, now);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const object = await store.get(FORWARDING_PATH);
@@ -324,4 +365,46 @@ export async function recordForwarding(store, moves, { now = Date.now(), attempt
     }
   }
   return false;
+}
+
+/* --------------------------- the control plane's -------------------------- */
+
+/** The ledger the control plane holds, as a store carries it, or `null` for a store with none. */
+function heldLedger(store) {
+  const held = store?.forwardingLedger;
+  return held && typeof held.read === "function" && typeof held.record === "function" ? held : null;
+}
+
+/** Moves cut to `{ from, to, kind }` with bucket-relative paths; a no-op or a bad path is dropped. */
+export function cleanMoves(moves) {
+  const cleaned = [];
+  for (const move of Array.isArray(moves) ? moves : []) {
+    const from = cleanPath(move?.from);
+    const to = cleanPath(move?.to);
+    if (from === null || to === null || from === to) continue;
+    cleaned.push({ from, to, kind: cleanKind(move?.kind) });
+  }
+  return cleaned;
+}
+
+/**
+ * A ledger from the entries the control plane served, oldest first. Checked
+ * as the file is, because an answer is data too; `to: null` is kept, as
+ * "moved somewhere this reader may not see". Anything else is no ledger.
+ */
+export function servedForwarding(entries) {
+  if (!Array.isArray(entries)) return emptyState();
+  const kept = [];
+  for (const entry of entries) {
+    const from = cleanPath(entry?.from);
+    const to = entry?.to === null ? null : cleanPath(entry?.to);
+    if (from === null || (entry?.to !== null && to === null) || from === to) continue;
+    kept.push({
+      from,
+      to,
+      kind: cleanKind(entry?.kind),
+      at: typeof entry?.at === "number" && Number.isFinite(entry.at) ? entry.at : 0,
+    });
+  }
+  return { version: FORWARDING_VERSION, entries: kept.slice(-FORWARDING_ENTRY_CAP) };
 }

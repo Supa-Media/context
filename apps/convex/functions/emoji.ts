@@ -2,10 +2,15 @@
  * A workspace's own emoji: listing, drawing, adding, renaming and removing
  * them, and finding new ones on Slackmojis.
  *
- * The bytes live in the workspace's bucket (`lib/fileOps/emoji.ts`) and pass
- * through here on the way in and out; nothing about an emoji is written to a
- * table. Every call reaches the bucket through `runFileOperation`, the one
- * barrier that opens a credential.
+ * The pictures live in the workspace's bucket (`lib/fileOps/emoji.ts`) and
+ * pass through here on the way in and out, through `runFileOperation`, the
+ * one barrier that opens a credential. Their names, and the leaf each picture
+ * is under, are held in Convex (`customEmoji`, since 2026-10-14): listing the
+ * emoji, and "is this name taken", read those rows and never list the image
+ * store. A picture is written before its row, and its row removed before the
+ * picture, so a listed name always has its picture in the bucket. Until a
+ * workspace's emoji have been imported (`lib/smallData/sync.ts`), the list
+ * shows what Convex holds; asking starts the import.
  *
  * ## Who may do what
  *
@@ -36,6 +41,8 @@ import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
 import type { FileOperation as Operation, OperationResult } from "./lib/filesFns/operationTypes";
+import { toConvexError } from "./lib/filesFns/operationErrors";
+import { notFound as fileNotFound } from "./lib/fileOps/errors";
 
 /** Where a Slackmojis search goes. */
 export const SLACKMOJIS_SEARCH_URL = "https://slackmojis.com/emojis/search.json";
@@ -95,16 +102,48 @@ async function fetchSlackmoji(url: string): Promise<{ bytes: Uint8Array; content
 
 const emojiEntry = v.object({ name: v.string(), leaf: v.string() });
 
-/** Every emoji in the workspace, by name. Any member. */
+/** The leaf Convex holds for `name`, or `null`. */
+async function leafOf(ctx: ActionCtx, workspaceId: Id<"workspaces">, name: string): Promise<string | null> {
+  return await ctx.runQuery(internal.functions.smallData.emojiLeaf, { workspaceId, name });
+}
+
+/** The bucket's own not-found, so a name with no row reads as one with no picture. */
+const notFound = () => toConvexError(fileNotFound());
+
+/**
+ * Store a picture under `name` and then its row. A name already held is
+ * `DESTINATION_EXISTS` unless `replace` is set; a replacement of another type
+ * removes the old picture once the new one is written.
+ */
+async function store(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  name: string,
+  bytes: ArrayBuffer,
+  replace: boolean,
+): Promise<{ name: string; leaf: string }> {
+  await authorize(ctx, workspaceId, "editor");
+  const previous = await leafOf(ctx, workspaceId, name);
+  if (previous !== null && !replace) {
+    throw new ConvexError({ code: "DESTINATION_EXISTS", message: `This workspace already has :${name}:.` });
+  }
+  const result = (await run(ctx, workspaceId, "editor", { kind: "emojiStore", name, bytes, previous })) as Extract<
+    OperationResult,
+    { kind: "emojiStored" }
+  >;
+  await ctx.runMutation(internal.functions.smallData.putEmoji, { workspaceId, name: result.name, leaf: result.leaf });
+  return { name: result.name, leaf: result.leaf };
+}
+
+/** Every emoji in the workspace, by name. Any member. Read from Convex; no bucket is opened. */
 export const list = action({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(emojiEntry),
   handler: async (ctx, args): Promise<Array<{ name: string; leaf: string }>> => {
-    const result = (await run(ctx, args.workspaceId, "member", { kind: "emojiList" })) as Extract<
-      OperationResult,
-      { kind: "emojiList" }
-    >;
-    return result.emoji;
+    await authorize(ctx, args.workspaceId, "member");
+    // A workspace whose emoji have not been imported yet starts that here.
+    await ctx.runMutation(internal.functions.smallData.request, { workspaceId: args.workspaceId }).catch(() => {});
+    return await ctx.runQuery(internal.functions.smallData.emojiList, { workspaceId: args.workspaceId });
   },
 });
 
@@ -116,7 +155,10 @@ export const read = action({
   args: { workspaceId: v.id("workspaces"), name: v.string() },
   returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
   handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
-    const result = (await run(ctx, args.workspaceId, "member", { kind: "emojiRead", name: args.name })) as Extract<
+    await authorize(ctx, args.workspaceId, "member");
+    const leaf = await leafOf(ctx, args.workspaceId, args.name);
+    if (leaf === null) throw notFound();
+    const result = (await run(ctx, args.workspaceId, "member", { kind: "emojiRead", name: args.name, leaf })) as Extract<
       OperationResult,
       { kind: "emojiImage" }
     >;
@@ -132,13 +174,7 @@ export const add = action({
     if (args.bytes.byteLength > CUSTOM_EMOJI_MAX_BYTES) {
       throw new ConvexError({ code: "CONTENT_TOO_LARGE", message: `An emoji must be at most ${CUSTOM_EMOJI_MAX_BYTES / 1_000_000} MB.` });
     }
-    const result = (await run(ctx, args.workspaceId, "editor", {
-      kind: "emojiStore",
-      name: args.name,
-      bytes: args.bytes,
-      replace: args.replace === true,
-    })) as Extract<OperationResult, { kind: "emojiStored" }>;
-    return { name: result.name, leaf: result.leaf };
+    return await store(ctx, args.workspaceId, args.name, args.bytes, args.replace === true);
   },
 });
 
@@ -147,11 +183,20 @@ export const rename = action({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: emojiEntry,
   handler: async (ctx, args): Promise<{ name: string; leaf: string }> => {
+    await authorize(ctx, args.workspaceId, "editor");
+    const leaf = await leafOf(ctx, args.workspaceId, args.from);
+    if (leaf === null) throw notFound();
+    if (args.from !== args.to && (await leafOf(ctx, args.workspaceId, args.to)) !== null) {
+      throw new ConvexError({ code: "DESTINATION_EXISTS", message: `This workspace already has :${args.to}:.` });
+    }
     const result = (await run(ctx, args.workspaceId, "editor", {
       kind: "emojiRename",
       from: args.from,
       to: args.to,
+      leaf,
     })) as Extract<OperationResult, { kind: "emojiStored" }>;
+    await ctx.runMutation(internal.functions.smallData.putEmoji, { workspaceId: args.workspaceId, name: result.name, leaf: result.leaf });
+    await ctx.runMutation(internal.functions.smallData.removeEmoji, { workspaceId: args.workspaceId, name: args.from });
     return { name: result.name, leaf: result.leaf };
   },
 });
@@ -161,7 +206,12 @@ export const remove = action({
   args: { workspaceId: v.id("workspaces"), name: v.string() },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    await run(ctx, args.workspaceId, "editor", { kind: "emojiRemove", name: args.name });
+    await authorize(ctx, args.workspaceId, "editor");
+    const leaf = await leafOf(ctx, args.workspaceId, args.name);
+    if (leaf === null) throw notFound();
+    // The row first, so no list names an emoji whose picture is going.
+    await ctx.runMutation(internal.functions.smallData.removeEmoji, { workspaceId: args.workspaceId, name: args.name });
+    await run(ctx, args.workspaceId, "editor", { kind: "emojiRemove", name: args.name, leaf });
     return null;
   },
 });
@@ -235,12 +285,6 @@ export const importSlackmoji = action({
     if (bytes.byteLength > CUSTOM_EMOJI_MAX_BYTES) {
       throw new ConvexError({ code: "CONTENT_TOO_LARGE", message: `That emoji is over ${CUSTOM_EMOJI_MAX_BYTES / 1_000_000} MB.` });
     }
-    const result = (await run(ctx, args.workspaceId, "editor", {
-      kind: "emojiStore",
-      name: args.name,
-      bytes: asBuffer(bytes),
-      replace: args.replace === true,
-    })) as Extract<OperationResult, { kind: "emojiStored" }>;
-    return { name: result.name, leaf: result.leaf };
+    return await store(ctx, args.workspaceId, args.name, asBuffer(bytes), args.replace === true);
   },
 });

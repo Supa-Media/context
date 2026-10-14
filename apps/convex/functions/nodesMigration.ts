@@ -23,6 +23,7 @@ import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
+import { requestSmallDataSync } from "./lib/smallData/state";
 
 /**
  * Which migration phase this deployment runs. Phase 3: the privacy rules held
@@ -318,6 +319,8 @@ export const keepCurrent = internalMutation({
   args: {},
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
+    // Each workspace's icons, emoji and forwarding: imported once, and their files written where owed.
+    for (const workspaceId of await liveBoundWorkspaces(ctx)) await requestSmallDataSync(ctx, workspaceId);
     if (await migrationPaused(ctx.db)) return { started: 0 };
     const started = await startDueSweeps(ctx);
     await startDueFactFills(ctx);

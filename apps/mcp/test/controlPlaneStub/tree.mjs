@@ -25,6 +25,14 @@
  * something to filter. `apps/convex/__tests__/nodes/gatewayManifest.test.ts`
  * and `gatewayFacts.test.ts` hold the real route to its clearance.
  *
+ * The forwarding ledger and icon moves (`/gateway/tree/touch` with
+ * `forwarding` or `icons`, `ask: "forwarding"`) are kept per workspace, in
+ * memory, through the same `addForwarding` the control plane runs. The ledger
+ * comes back whole, unfiltered, like the manifest: the gateway re-asks
+ * `canSee` wherever a forwarded path lands, and `gatewayFacts.test.ts` holds
+ * the real route to its filter. Icon moves are only recorded (`iconMoves`);
+ * the real control plane writes the bucket's file behind them.
+ *
  * Facts: a move's link candidates are every note (each counted as changed
  * since its links were read, which the real route also answers for a note it
  * has not parsed), so a rewrite reads every note it may rewrite; the chaos
@@ -37,6 +45,7 @@
 
 import { propsOf } from "../../src/tree/props.js";
 import { isLogicalDeleteMarker } from "../../src/store/logicalDelete.js";
+import { addForwarding } from "../../src/forwarding.js";
 
 const NOT_SERVED = { served: false };
 
@@ -91,8 +100,14 @@ function mapSource(objects, strip = "") {
 /**
  * @param {(token: string) => Promise<object | null>} grantForAccessToken
  * @param {Map<string, object>} bindings workspaceId → its binding descriptor
+ * @param {Map<string, {workspaceId: string, status: string}>} [gatewayJobs] queued jobs by ticket
  */
-export function createTreeRoutes(grantForAccessToken, bindings) {
+export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = new Map()) {
+  /** A running job's workspace, by its ticket, as `/gateway/privacy` takes a ticket. */
+  const jobWorkspace = (ticket) => {
+    const job = gatewayJobs.get(ticket);
+    return job && job.status === "running" ? job.workspaceId : null;
+  };
   /** workspaceId → the store its tree is copied from. */
   const sources = new Map();
   /** The worker `env`s whose R2 bindings every bound workspace's tree is copied from. */
@@ -124,14 +139,35 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
   const requests = [];
   /** Requests being answered now: the reads they make are the tree's, not the gateway's. */
   let reading = 0;
+  /** workspaceId → the forwarding ledger the control plane would hold. */
+  const ledgers = new Map();
+  /** Icon moves the gateway recorded, `{ workspaceId, from, to }`, oldest first. */
+  const iconMoves = [];
 
-  async function sourceFor(body) {
+  function touch(body) {
+    const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId : null;
+    if (workspaceId === null) return { ok: true };
+    if (Array.isArray(body.forwarding) && body.forwarding.length > 0) {
+      const held = ledgers.get(workspaceId) ?? { version: 1, entries: [] };
+      ledgers.set(workspaceId, addForwarding(held, body.forwarding, { now: Date.now() }));
+    }
+    for (const move of Array.isArray(body.icons) ? body.icons : []) iconMoves.push({ workspaceId, ...move });
+    return { ok: true };
+  }
+
+  /** The workspace this token's grant reads, when it is the one named; else null. */
+  async function reached(body) {
     const grant = await grantForAccessToken(body.accessToken);
     if (!grant || !grant.scopes?.includes("context:read")) return null;
     const expected = body.expectedWorkspaceId;
     const reaches =
       grant.workspaceId === expected || (grant.alsoMemberOf || []).some((entry) => entry.workspaceId === expected);
-    if (!reaches) return null;
+    return reaches ? expected : null;
+  }
+
+  async function sourceFor(body) {
+    const expected = await reached(body);
+    if (expected === null) return null;
     return sources.has(expected) ? sources.get(expected) : boundSource(expected);
   }
 
@@ -151,6 +187,18 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
   }
 
   async function facts(body) {
+    if (typeof body.ticket === "string") {
+      if (body.ask !== "forwarding" || body.accessToken !== undefined) return NOT_SERVED;
+      const workspaceId = jobWorkspace(body.ticket);
+      if (workspaceId === null || workspaceId !== body.expectedWorkspaceId) return NOT_SERVED;
+      return { served: true, forwarding: ledgers.get(workspaceId)?.entries ?? [] };
+    }
+    // The ledger is held whether or not a tree is served here; the real route
+    // also needs the tree's rules, to filter it, which this stub leaves to the gateway.
+    if (body.ask === "forwarding") {
+      const workspaceId = await reached(body);
+      return workspaceId === null ? NOT_SERVED : { served: true, forwarding: ledgers.get(workspaceId)?.entries ?? [] };
+    }
     const source = await sourceFor(body);
     // A stopped workspace is one on its first copy: a write's names say so.
     if (!source && body.ask === "names" && sources.get(body.expectedWorkspaceId) === null) return { served: false, loading: true };
@@ -203,8 +251,13 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
     return { served: true, files, folders, notes };
   }
 
-  return {
+  const routes = {
     requests,
+    iconMoves,
+    /** The ledger the control plane holds for a workspace, oldest first. */
+    ledgerOf: (workspaceId) => ledgers.get(workspaceId)?.entries ?? [],
+    /** Moves recorded as `/gateway/tree/touch` records them, for a test's setup. */
+    recordForwarding: (workspaceId, moves) => touch({ workspaceId, forwarding: moves }),
     get reading() {
       return reading;
     },
@@ -232,6 +285,7 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
     },
     /** The answer for a tree route, or undefined for any other path. */
     async handle(path, body) {
+      if (path === "/gateway/tree/touch") return touch(body);
       if (path !== "/gateway/tree/manifest" && path !== "/gateway/tree/facts") return undefined;
       requests.push({ path, body });
       reading += 1;
@@ -242,4 +296,15 @@ export function createTreeRoutes(grantForAccessToken, bindings) {
       }
     },
   };
+  /** What the stub hands a test: serving trees, and the small data held. */
+  routes.controls = {
+    serveTree: routes.serveTree,
+    serveTreesFrom: routes.serveTreesFrom,
+    stopServing: routes.stopServing,
+    resumeServing: routes.resumeServing,
+    ledgerOf: routes.ledgerOf,
+    recordForwarding: routes.recordForwarding,
+    iconMoves,
+  };
+  return routes;
 }

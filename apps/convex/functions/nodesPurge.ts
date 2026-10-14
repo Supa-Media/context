@@ -20,6 +20,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { isAuthority, privacyAuthorityOn, scheduleExport } from "./lib/nodes/privacyAuthority";
+import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
 
 /** Rows one batch deletes. */
 const PURGE_BATCH = 1_000;
@@ -98,6 +99,9 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of days) await ctx.db.delete(row._id);
+  // The icons, emoji names and forwarding ledger (`lib/smallData/purge.ts`).
+  if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
+  else await purgeSmallDataBatch(ctx, workspaceId);
   await purgeBatch(ctx, workspaceId);
 }
 
@@ -107,6 +111,16 @@ export const purge = internalMutation({
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
     await purgeBatch(ctx, workspaceId);
+    return null;
+  },
+});
+
+/** The next batch of a deleted workspace's icons, emoji names and forwarding ledger. */
+export const purgeSmallData = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    await purgeSmallDataBatch(ctx, workspaceId);
     return null;
   },
 });

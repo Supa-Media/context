@@ -19,7 +19,10 @@
  *  - drop the `shownTrashed` ask in `openNote` and the reload says "That file
  *    does not exist";
  *  - drop the `markTrashed` in `showTrashedInstead` and the reload opens with
- *    no trashed state, so no Restore.
+ *    no trashed state, so no Restore;
+ *  - return `files.editor.path` from `roomPathOf`, or pass `editor.path` to
+ *    `useNoteRoom` in the route again, and a trashed note joins its room
+ *    ("Reconnecting" under the reloaded note, Dev2 2026-10-14).
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -60,6 +63,7 @@ jest.mock("convex/react", () => {
 import { useFileBrowser } from "../features/console/files/useFileBrowser";
 import { useTabs } from "../features/console/files/useTabs";
 import { TRASHED_TEXT_UNAVAILABLE } from "../features/console/files/fileBrowser/useTrashedNote";
+import { roomPathOf } from "../features/console/files/noteEditor/trashed";
 
 const NOTE = "1-projects/offsite-plan.md";
 const OTHER = "2-areas/hiring-plan.md";
@@ -174,6 +178,8 @@ describe("a bulk delete that takes the open note", () => {
     expect(browser.trashed).toMatchObject({ path: NOTE, trash: TRASH });
     expect(browser.toasts.map((toast) => toast.message)).toEqual(["Moved 2 items to trash."]);
     expect(tabs.state.tabs.map((tab) => tab.path)).toEqual([NOTE]);
+    // Its room is left: nobody types in a note in the trash.
+    expect(roomPathOf(browser)).toBeNull();
   });
 
   test("a folder holding it settles at the note's own key inside the folder's trash", async () => {
@@ -229,6 +235,8 @@ describe("opening a note by an address that outlived it", () => {
     expect(calls.filter((call) => call.name === "functions/trashedNotes:readTrashedNote").map((call) => call.args)).toEqual([
       { workspaceId: "w1", path: NOTE },
     ]);
+    // Read-only and trashed: no room, so no "Reconnecting" and no replay over the trash's text.
+    expect(roomPathOf(browser)).toBeNull();
 
     act(() => browser.restoreTrashed!());
     await settle();
@@ -236,6 +244,7 @@ describe("opening a note by an address that outlived it", () => {
     expect(named("restoreTrashEntry")).toEqual([{ workspaceId: "w1", from: TRASH, to: NOTE }]);
     expect(browser.trashed).toBeNull();
     expect(browser.editor.path).toBe(NOTE);
+    expect(roomPathOf(browser)).toBe(NOTE);
   });
 
   test("its text unavailable, it opens empty and says so quietly", async () => {
@@ -267,5 +276,14 @@ describe("opening a note by an address that outlived it", () => {
     expect(browser.editor.path).toBeNull();
     expect(browser.trashed).toBeNull();
     expect(browser.notice).toBe("That file does not exist.");
+  });
+});
+
+describe("the route's room", () => {
+  test("is joined for the path `roomPathOf` gives, not the editor's own", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { join } = require("node:path") as typeof import("node:path");
+    const route = readFileSync(join(__dirname, "../app/(app)/console/[slug]/index.tsx"), "utf8");
+    expect(route).toContain("notePath: roomPathOf(data.files),");
   });
 });

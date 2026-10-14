@@ -288,8 +288,9 @@ export function createControlPlaneStub(options = {}) {
     return rows;
   }
 
-  // `/gateway/tree/manifest` and `/gateway/tree/facts`, from the store a test names (`tree.mjs`).
-  const tree = createTreeRoutes(grantForAccessToken, bindings);
+  // `/gateway/tree/manifest`, `/facts` and `/touch`, from the store a test names (`tree.mjs`); a
+  // queued move's ticket proves its workspace while its job in `gatewayJobs` runs.
+  const tree = createTreeRoutes(grantForAccessToken, bindings, gatewayJobs);
 
   function ok(body) {
     return new Response(JSON.stringify(body), {
@@ -895,10 +896,8 @@ export function createControlPlaneStub(options = {}) {
 
   return {
     gatewayCalls,
-    serveTree: tree.serveTree,
-    serveTreesFrom: tree.serveTreesFrom,
-    stopServing: tree.stopServing,
-    resumeServing: tree.resumeServing,
+    // serveTree, serveTreesFrom, stopServing, resumeServing, and the ledger and icon moves held.
+    ...tree.controls,
     treeRequests: tree.requests,
     /** Whether the stub's tree routes are reading the bucket right now (so a test counting the gateway's reads can leave them out). */
     treeReading: () => tree.reading > 0,

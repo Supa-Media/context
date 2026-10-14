@@ -185,6 +185,6 @@ export async function readActivity(
   );
   return visibleActivityEntries(forwarded, {
     owner: reader.scope === "private",
-    canSee: (path: string) => canSee(path, reader.scope, rules, overrides, names),
+    canSee: (path: string | null) => path !== null && canSee(path, reader.scope, rules, overrides, names),
   }) as ActivityEntry[];
 }

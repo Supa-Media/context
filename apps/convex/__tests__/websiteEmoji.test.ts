@@ -4,11 +4,12 @@
  * A site loads no images, so `:name:` on a page arrives with the page as an
  * inline picture. Publishing a page publishes the pictures in it and nothing
  * else: an emoji the page does not use, or names only inside code, never
- * leaves, and a picture over the cap shows as its name instead.
+ * leaves, and a picture over the cap shows as its name instead. Which emoji
+ * the workspace has is Convex's answer; the image store is never listed.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { MAX_PUBLISHED_EMOJI_BYTES } from "../functions/lib/websites/emoji";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
@@ -33,6 +34,12 @@ async function site(): Promise<Fixture> {
     "website/index.md",
     "---\ntitle: Welcome\nnav: 0\n---\n\nShip it :parrot: :tada: :huge: :missing:\n\n`:incode:`\n",
   );
+  // The pictures were put in the bucket by hand: their names reach Convex by the one-time import.
+  await f.t.action(internal.functions.files.runFileOperation, {
+    workspaceId: f.workspaceId,
+    scope: "private",
+    operation: { kind: "nodesSmallData" },
+  });
   await publish(f);
   return f;
 }

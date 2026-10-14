@@ -78,7 +78,12 @@ export function noteFlow(view: NoteView) {
       is not this one ("readable through a connected client", which is
       exactly false for a passphrase note).
     */}
-    {passphraseLocked ? null : state.encrypted ? <EncryptedNotice /> : state.readOnly ? <ManifestNotice /> : null}
+    {/*
+      Not `ManifestNotice` for a note in the trash: one opened by its address
+      after a reload is read-only because it is trashed (`showTrashedInstead`),
+      not because it is `privacy.md`, and the page itself says so.
+    */}
+    {passphraseLocked ? null : state.encrypted ? <EncryptedNotice /> : state.readOnly && trashed === undefined ? <ManifestNotice /> : null}
     {/* A phone has no path line, so "In trash" sits over the title (`trashed.tsx`). */}
     {compact && trashed !== undefined ? <InTrashPill style={styles.trashedPill} /> : null}
 

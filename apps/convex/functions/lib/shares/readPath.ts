@@ -119,8 +119,9 @@ export async function readSharedNoteHandler(
     The row stores `entryPath` because that is what the owner pointed at. A
     note is not a string, though: it gets renamed, tidied into another
     folder, archived — and a link already pasted into a thread is one nobody
-    can rewrite. So both halves are resolved through the bucket's forwarding
-    ledger before anything else happens, and everything below works in live
+    can rewrite. So both halves are resolved through the forwarding ledger
+    (held in Convex since 2026-10-14, so no bucket is opened for it) before
+    anything else happens, and everything below works in live
     paths: the folder bound, the traversal comparison, the reads.
 
     **Ledger first, live path second, and that order is the security half.**
@@ -136,18 +137,19 @@ export async function readSharedNoteHandler(
     `privacy.md`. A note forwarded into a private folder is as absent as it
     would be if the reader had asked for its current path.
 
-    One extra operation per share read, and it is deliberate. `shares.ts`
+    One extra query per share read, and it is deliberate. `shares.ts`
     decides the folder bound before spending a GET, so a bound checked
     against a stale prefix while the read forwarded to a live one would be
-    two answers to one question. See the `forward` operation in `files.ts`.
+    two answers to one question. `smallData.forward` answers unfiltered,
+    which is safe only because of where it goes: every read below decides
+    afresh at `team` scope, and a path forwarded somewhere the reader may
+    not see is the same `SHARE_UNAVAILABLE` as one that never existed. Any
+    new caller has to re-argue that.
   */
-  const live = await ctx.runAction(internal.functions.files.runFileOperation, {
+  const [entryPath, requested] = (await ctx.runQuery(internal.functions.smallData.forward, {
     workspaceId: grant.workspaceId,
-    scope: "team",
-    operation: { kind: "forward", paths: [grant.entryPath, asked] },
-  });
-  const [entryPath, requested] =
-    live.kind === "forwarded" ? live.paths : [grant.entryPath, asked];
+    paths: [grant.entryPath, asked],
+  })) as [string, string];
   const shareGrant = { ...grant, entryPath };
 
   /*

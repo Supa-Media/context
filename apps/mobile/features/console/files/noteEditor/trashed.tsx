@@ -41,6 +41,20 @@ export function trashedViewOf(files: Pick<FileBrowser, "editor" | "trashed" | "r
   };
 }
 
+/**
+ * The path whose live room the route joins (`useNoteRoom`): the open note's,
+ * or `null` while that note is in the trash. A trashed note is read-only and
+ * nobody types in it here, so there is nothing to merge and nothing to say who
+ * else is reading; joining its room only showed "Reconnecting" over a note the
+ * room cannot find, and could replay a room's text into a page that is meant
+ * to show what the trash holds. Restore clears the state and the room is
+ * joined again for the note back at its name.
+ */
+export function roomPathOf(files: Pick<FileBrowser, "editor" | "trashed">): string | null {
+  const path = files.editor.path;
+  return path !== null && files.trashed?.path === path ? null : path;
+}
+
 /** How often "2 minutes ago" is worked out again while the note is on screen. */
 const TICK_MS = 30_000;
 

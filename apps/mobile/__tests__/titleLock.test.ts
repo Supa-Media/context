@@ -39,9 +39,29 @@ describe("the # stays", () => {
     expect(apply(state, { changes: { from: 0, to: 8 } }, "delete.cut").doc.toString()).toBe("# Plan\n\nBody.\n");
   });
 
-  test("emptying the title keeps the # for the next words", () => {
+  test("emptying the title takes the # too, and typing there makes a title again", () => {
     const state = editor("# Plan\n\nBody.\n");
-    expect(apply(state, { changes: { from: 2, to: 6 } }, "delete.backward").doc.toString()).toBe("# \n\nBody.\n");
+    const emptied = apply(state, { changes: { from: 2, to: 6 } }, "delete.backward");
+    expect(emptied.doc.toString()).toBe("\n\nBody.\n");
+    expect(emptied.selection.main.head).toBe(0);
+    const retyped = apply(emptied, { changes: { from: 0, insert: "N" }, selection: { anchor: 1 } });
+    expect(retyped.doc.toString()).toBe("# N\n\nBody.\n");
+    expect(retyped.selection.main.head).toBe(3);
+  });
+
+  test("backspacing the last letter of the title takes the # with it", () => {
+    const state = editor("# P\n\nBody.\n", NOTE, 3);
+    expect(apply(state, { changes: { from: 2, to: 3 } }, "delete.backward").doc.toString()).toBe("\n\nBody.\n");
+  });
+
+  test("a bare # left in a note can be deleted, and no name is added for it", () => {
+    for (const text of ["#", "# ", "#\n\nBody.\n", "# \n\nBody.\n"]) {
+      const state = editor(text);
+      const marker = text.startsWith("# ") ? 2 : 1;
+      expect(apply(state, { changes: { from: 0, to: marker } }, "delete.backward").doc.toString()).toBe(
+        text.slice(marker),
+      );
+    }
   });
 
   test("select all, then type, puts the # in front of what was typed", () => {
@@ -51,11 +71,10 @@ describe("the # stays", () => {
     expect(next.selection.main.head).toBe(3);
   });
 
-  test("select all, then delete, leaves the # with the caret after it", () => {
+  test("select all, then delete, leaves an empty note under its name", () => {
     const state = editor("# Plan\n\nBody.\n");
     const next = apply(state, { changes: { from: 0, to: state.doc.length } }, "delete.selection");
-    expect(next.doc.toString()).toBe("# ");
-    expect(next.selection.main.head).toBe(2);
+    expect(next.doc.toString()).toBe("");
   });
 
   test("frontmatter stays above it", () => {
@@ -64,7 +83,7 @@ describe("the # stays", () => {
     const titleAt = text.indexOf("# Plan");
     expect(apply(state, { changes: { from: titleAt, to: titleAt + 1 } }, "delete.backward").doc.toString()).toBe(text);
     const cleared = apply(state, { changes: { from: titleAt, to: text.length } }, "delete.selection");
-    expect(cleared.doc.toString()).toBe("---\ntags: [a]\n---\n# ");
+    expect(cleared.doc.toString()).toBe("---\ntags: [a]\n---\n");
   });
 
   test("editing the body or the title's words goes through", () => {
@@ -128,6 +147,16 @@ describe("a note with no heading gets one on its first edit", () => {
   test("somebody typing a heading by hand gets to finish it", () => {
     const state = editor("");
     expect(apply(state, { changes: { from: 0, insert: "#" } }).doc.toString()).toBe("#");
+  });
+
+  test("typing at the start of its first line is still the body", () => {
+    const state = editor("Hello\n");
+    expect(apply(state, { changes: { from: 0, insert: "X" } }).doc.toString()).toBe("# plan\n\nXHello\n");
+  });
+
+  test("a deletion adds nothing", () => {
+    const state = editor("\nHello\n");
+    expect(apply(state, { changes: { from: 0, to: 1 } }, "delete.backward").doc.toString()).toBe("Hello\n");
   });
 
   test("opening it changes nothing", () => {
