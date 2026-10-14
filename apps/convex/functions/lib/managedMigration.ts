@@ -160,7 +160,7 @@ async function keepConflictingTarget(
  *
  * Count alone is the wrong bound on its own. Reconciling one object holds the
  * source body and the target body in memory at the same time, and the byte cap
- * admits objects of 25MB — so a wave of sixteen bounded only by count is a wave
+ * admits objects of 20MB — so a wave of sixteen bounded only by count is a wave
  * that can be holding hundreds of megabytes, and the action dies on the one
  * page that happened to list the attachments rather than the notes.
  *

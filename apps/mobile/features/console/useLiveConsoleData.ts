@@ -183,6 +183,7 @@ export function useLiveConsoleData(): ConsoleData {
   const chooseExistingFilesForHandoff = useMutation(
     api.functions.managedHandoff.chooseExistingFilesForHandoff,
   );
+  const dismissLeftBehind = useMutation(api.functions.managedHandoff.dismissLeftBehind);
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -352,6 +353,7 @@ export function useLiveConsoleData(): ConsoleData {
     startStorageMove,
     cancelManagedStorageHandoff,
     chooseExistingFilesForHandoff,
+    dismissLeftBehind,
     disconnectStorage,
     observeStorageLayout,
   });
