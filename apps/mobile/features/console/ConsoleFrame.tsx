@@ -15,6 +15,8 @@ import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
+import { SharedInboxHost, type SharedEntry } from "./shared/SharedInboxHost";
+import { SHARED_HREF } from "./shared/sharedInbox";
 import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
@@ -359,6 +361,9 @@ export function ConsoleFrame({
   const whatsNewShown = data.whatsNew === true && visitor === undefined && !data.demo;
   const [whatsNewEntry, setWhatsNewEntry] = useState<WhatsNewEntry | null>(null);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  // @shared's row, the same way: the host reports whether anything is new.
+  const sharedShown = data.sharedInbox === true && visitor === undefined && !data.demo;
+  const [sharedEntry, setSharedEntry] = useState<SharedEntry>({ unseen: 0 });
 
   /*
     One set of handlers, two triggers.
@@ -424,6 +429,7 @@ export function ConsoleFrame({
       whatsNewShown && whatsNewEntry !== null
         ? { ...whatsNewEntry, onOpen: () => setWhatsNewOpen(true) }
         : undefined,
+    shared: sharedShown ? { ...sharedEntry, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
   return (
@@ -456,6 +462,7 @@ export function ConsoleFrame({
           onEntry={setWhatsNewEntry}
         />
       ) : null}
+      {sharedShown ? <SharedInboxHost onEntry={setSharedEntry} /> : null}
       {/* The time zone routines fall back to, kept in step with this device (`routines/TimeZoneSync.tsx`). */}
       {data.routines === true && visitor === undefined && !data.demo ? <TimeZoneSync /> : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />

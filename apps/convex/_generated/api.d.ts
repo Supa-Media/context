@@ -119,6 +119,7 @@ import type * as functions_agentGrant from "../functions/agentGrant.js";
 import type * as functions_providers from "../functions/providers.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
+import type * as functions_sharedInbox from "../functions/sharedInbox.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_storageLag from "../functions/storageLag.js";
@@ -272,6 +273,7 @@ declare const fullApi: ApiFromModules<{
   "functions/providers": typeof functions_providers;
   "functions/provisioning": typeof functions_provisioning;
   "functions/shareCard": typeof functions_shareCard;
+  "functions/sharedInbox": typeof functions_sharedInbox;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
   "functions/storageLag": typeof functions_storageLag;

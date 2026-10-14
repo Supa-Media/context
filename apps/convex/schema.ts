@@ -23,6 +23,7 @@ import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
+import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
 import { appearanceTables } from "./functions/lib/schema/appearance";
 import { messageTables } from "./functions/lib/schema/messages";
@@ -97,6 +98,7 @@ const schema = defineSchema({
   ...managedEncryptionTables,
   ...referralTables,
   ...devlogTables,
+  ...sharedInboxTables,
   ...telemetryTables,
   ...appearanceTables,
   ...messageTables,

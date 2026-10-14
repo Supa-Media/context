@@ -424,6 +424,7 @@ const ROUTES: Record<string, Coverage> = {
   "(app)/console/index.tsx": { kind: "framed" },
   "(app)/console/map.tsx": { kind: "framed" },
   "(app)/console/search.tsx": { kind: "framed" },
+  "(app)/console/shared.tsx": { kind: "framed" },
   "(app)/console/connections.tsx": { kind: "framed" },
   "(app)/console/[slug]/index.tsx": { kind: "framed" },
   /*

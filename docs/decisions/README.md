@@ -128,6 +128,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
+- A note shared with a named person opens for them wherever it lives
 
 ## [Per-note encryption](./encryption.md)
 

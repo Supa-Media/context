@@ -456,6 +456,7 @@ export function useLiveConsoleData(): ConsoleData {
     pluginBrowse,
     pluginRuntime,
     whatsNew: true,
+    sharedInbox: true,
     routines: true,
     fastSearch,
     meaningSearch,

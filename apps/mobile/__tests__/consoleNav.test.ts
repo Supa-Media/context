@@ -39,11 +39,12 @@ const contexts = [
 ];
 
 describe("the route table", () => {
-  test("app level is exactly Search, Map and Connections", () => {
+  test("app level is exactly Search, Map, Connections and @shared", () => {
     expect(APP_SECTIONS.map((section) => section.key)).toEqual([
       "search",
       "map",
       "connections",
+      "shared",
     ]);
   });
 
@@ -68,6 +69,7 @@ describe("the route table", () => {
     expect(appSectionsFor(0).map((section) => section.key)).toEqual([
       "map",
       "connections",
+      "shared",
     ]);
   });
 
