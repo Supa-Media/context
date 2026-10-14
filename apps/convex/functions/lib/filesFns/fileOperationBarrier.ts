@@ -68,6 +68,8 @@ import {
 } from "./operationTypes";
 import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
+import { readTrashedText } from "../fileOps/trashedReading";
+import { toConvexError } from "./operationErrors";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
@@ -424,6 +426,12 @@ export async function runFileOperationHandler(
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
   if (meaningSearch !== null) attachMeaningIndex(store, meaningSearch, null);
+
+  // A read, through the pending moves and nothing after this (`fileOps/trashedReading.ts`).
+  if (args.operation.kind === "readTrashed") {
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    return await readTrashedText(store, { ...args.operation, clearance }).catch((error) => rethrowUnreadable(toConvexError(error)));
+  }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
     return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);

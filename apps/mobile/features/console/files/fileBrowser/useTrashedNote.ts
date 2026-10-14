@@ -19,9 +19,16 @@
  * write there would put the note back at its old name behind the trash's back.
  * What was on screen is kept as it was, typed words included, and Restore
  * carries them back with the note.
+ *
+ * Two more ways in, each the same state: a delete that waits in this device's
+ * queue (`queueRemovalOf`), whose Restore takes it back out of the queue until
+ * it lands and learns its trash key when it does (`onOpLanded`); and a note
+ * opened by an address that outlived it (a reload on `?note=`), shown with the
+ * text the trash holds (`trashedNotes.readTrashedNote`) instead of "That file
+ * does not exist" (`openMissing`).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useConvex } from "convex/react";
+import { useAction, useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { toFileError } from "../browser";
 import type { TrashedNote } from "../browser/supportingTypes";
@@ -30,20 +37,33 @@ import { raceTimeout } from "../../storage/timeout";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
+import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { OpenNoteValues } from "./useOpenNote";
 
 /** How long Restore waits for the folder to list the note again before going on without it. */
 export const RESTORE_LISTING_WAIT_MS = 5_000;
 
+/** Restore pressed while the delete is on its way from this device's queue. */
+export const QUEUED_TRASH_SENDING =
+  "This delete is already on its way to your bucket. Restore will work as soon as it lands.";
+
+/** A trashed note opened by its address, whose text the trash could not give back. */
+export const TRASHED_TEXT_UNAVAILABLE = "This note is in the trash. Restore it to read it here.";
+
 type TrashedNoteDeps =
   & Pick<FileActionsValues, "restoreTrashEntry" | "workspaceId" | "workspaceGenerationRef">
-  & Pick<BrowserStateValues, "autosave" | "editor" | "setNotice">
+  & Pick<BrowserStateValues, "autosave" | "dispatch" | "editor" | "setNotice">
   & Pick<ListingsValues, "refresh">
-  & Pick<OpenNoteValues, "openNote">;
+  & Pick<OfflineQueueValues, "onOpLanded">
+  & Pick<OpenNoteValues, "openMissing" | "openNote">;
 
 export function useTrashedNote(deps: TrashedNoteDeps) {
-  const { autosave, editor, openNote, refresh, restoreTrashEntry, setNotice, workspaceId, workspaceGenerationRef } = deps;
+  const {
+    autosave, dispatch, editor, onOpLanded, openMissing, openNote, refresh, restoreTrashEntry, setNotice, workspaceId,
+    workspaceGenerationRef,
+  } = deps;
   const convex = useConvex();
+  const readTrashedNote = useAction(api.functions.trashedNotes.readTrashedNote);
   const [trashed, setTrashed] = useState<TrashedNote | null>(null);
   const [restoringTrashed, setRestoring] = useState(false);
   /** Read from callbacks that outlive a render: the follow timer, the autosave. */
@@ -56,11 +76,23 @@ export function useTrashedNote(deps: TrashedNoteDeps) {
     if (next !== null && autosave.pending() === next.path) autosave.cancel();
   }, [autosave]);
 
-  /** This tab's delete landed: Restore now knows where to take it back from. */
+  /** This tab's delete landed: Restore now knows where to take it back from, and the queue has no say in it. */
   const settleTrashed = useCallback((path: string, trash: string) => {
     const current = trashedRef.current;
-    if (current?.path === path) markTrashed({ ...current, trash });
+    if (current?.path !== path) return;
+    const { undoQueued: _sent, ...rest } = current;
+    markTrashed({ ...rest, trash });
   }, [markTrashed]);
+
+  // A delete that waited in this device's queue reached the bucket, with the key it went to.
+  useEffect(
+    () =>
+      onOpLanded((done) => {
+        if (done.kind !== "trash" || done.trash === undefined) return;
+        if (trashedRef.current?.path === done.path && trashedRef.current.trash === null) settleTrashed(done.path, done.trash);
+      }),
+    [onOpLanded, settleTrashed],
+  );
 
   /** This tab's delete was refused: the note never left. */
   const clearTrashed = useCallback((path: string) => {
@@ -106,7 +138,14 @@ export function useTrashedNote(deps: TrashedNoteDeps) {
 
   const restoreTrashed = useCallback(() => {
     const shown = trashedRef.current;
-    if (shown === null || shown.trash === null || workspaceId === null || restoringTrashed) return;
+    if (shown === null || workspaceId === null || restoringTrashed) return;
+    if (shown.trash === null) {
+      // Still in this device's queue: taken back out of it, the note never left.
+      if (shown.undoQueued === undefined) return;
+      if (shown.undoQueued()) markTrashed(null);
+      else setNotice(QUEUED_TRASH_SENDING);
+      return;
+    }
     const epoch = workspaceGenerationRef.current.epoch;
     setRestoring(true);
     void (async () => {
@@ -134,9 +173,53 @@ export function useTrashedNote(deps: TrashedNoteDeps) {
     })();
   }, [markTrashed, openNote, refresh, restoreTrashEntry, restoringTrashed, setNotice, workspaceId, workspaceGenerationRef]);
 
+  /**
+   * Put back by something other than Restore (a batch's Undo): the editor
+   * goes on at that path, read again, its tab held while its folder catches up.
+   */
+  const restoredInPlace = useCallback((path: string) => {
+    if (trashedRef.current?.path !== path) return;
+    setHeld(path);
+    markTrashed(null);
+    void openNote(path, path);
+  }, [markTrashed, openNote]);
+
+  /*
+    A note opened by an address that outlived it: in the trash, it opens
+    there, read-only, with the text the trash holds; without it, quietly empty
+    and saying so. `false` for anything else, which reads as not found.
+  */
+  const showTrashedInstead = useCallback(
+    async (path: string, current: () => boolean): Promise<boolean> => {
+      if (workspaceId === null) return false;
+      const answer = await lookUpTrashed(path);
+      if (answer === null || !current()) return false;
+      const body = await readTrashedNote({ workspaceId, path }).catch(() => null);
+      if (!current()) return true;
+      dispatch({
+        type: "opened",
+        note: {
+          path,
+          text: body?.text ?? "",
+          etag: "",
+          visibility: "private",
+          inherited: "private",
+          exception: false,
+          readOnly: true,
+          ...(body?.encrypted === true ? { encrypted: true } : {}),
+        },
+      });
+      markTrashed({ ...answer, path });
+      if (body === null) setNotice(TRASHED_TEXT_UNAVAILABLE);
+      return true;
+    },
+    [dispatch, lookUpTrashed, markTrashed, readTrashedNote, setNotice, workspaceId],
+  );
+  openMissing.current = showTrashedInstead;
+
   return {
     trashed, trashedRef, markTrashed, settleTrashed, clearTrashed, lookUpTrashed, restoreTrashed, restoringTrashed,
-    holdOpen, keptOpen,
+    restoredInPlace, holdOpen, keptOpen,
   };
 }
 

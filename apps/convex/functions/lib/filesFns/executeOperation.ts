@@ -13,16 +13,12 @@ import {
   type FileStore,
   type ProjectionClient,
   archivePath,
-  clearMovedSourceRules,
   clearVaultBatch,
   copyPath,
   createFolder,
   removeNewFolder,
-  deleteMovedSources,
   deletePath,
   duplicatePath,
-  exportContextMoveBatch,
-  importContextMoveBatch,
   importVaultFiles,
   listFolder,
   listFolderPaths,
@@ -88,6 +84,7 @@ import {
   requireContextPlugin,
 } from "./plugins";
 import { toConvexError } from "./operationErrors";
+import { executeContextMoveOperation, isContextMoveOperation } from "./contextMoveOperations";
 import { runOrganizerOperation } from "../organizer/sweepOps";
 
 const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
@@ -178,6 +175,7 @@ export async function executeOperation(
     if (landed !== null) onActivity?.(landed);
   };
   try {
+    if (isContextMoveOperation(operation)) return await executeContextMoveOperation(store, clearance, operation);
     switch (operation.kind) {
       case "pluginInventory": {
         const inventory = await inventoryPlugins(store) as PluginInventory;
@@ -587,7 +585,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
@@ -755,34 +753,6 @@ export async function executeOperation(
           names: [...clearance.names],
         });
         return { kind: "activity", entries };
-      }
-      case "contextMoveExport": {
-        const exported = await exportContextMoveBatch(store, {
-          from: operation.from,
-          to: operation.to,
-          clearance,
-          skip: operation.skip,
-        });
-        return { kind: "contextMoveExported", ...exported };
-      }
-      case "contextMoveImport": {
-        const landed = await importContextMoveBatch(store, {
-          objects: operation.objects,
-          clearance,
-          ...(operation.root === undefined ? {} : { root: operation.root }),
-        });
-        return { kind: "contextMoveLanded", ...landed };
-      }
-      case "contextMoveDelete": {
-        const removed = await deleteMovedSources(store, { sources: operation.sources });
-        return { kind: "contextMoveRemoved", ...removed };
-      }
-      case "contextMoveFinish": {
-        await clearMovedSourceRules(store, {
-          from: operation.from,
-          survivors: operation.survivors,
-        });
-        return { kind: "contextMoveFinished" };
       }
       case "copy": {
         const copied = await copyPath(store, {

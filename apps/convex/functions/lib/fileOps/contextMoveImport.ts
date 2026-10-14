@@ -37,39 +37,17 @@ export interface ContextMoveImport {
 }
 
 /**
- * Land a batch in the destination context, narrowing before it writes.
- *
- * The exceptions go in **first**, in one manifest write for the whole batch,
- * and the objects follow. The order is the whole point: a private note put
- * into a team-default folder and then narrowed is a note that was readable by
- * the destination's team for as long as the second write took. The gateway's
- * cross-context move makes the same choice, one note at a time
- * (`persistExactVisibility` before the `put`).
+ * Everything `importContextMoveBatch` decides before it writes a file: the
+ * destination root's collision check, the mover's own clearance there, and the
+ * narrowing exceptions, written first in one manifest write. The gateway's
+ * mover lands the files themselves afterwards
+ * (`apps/mcp/src/moves/contextMovePage.js`), so they never pass through this
+ * deployment; the order (narrow, then land) is the same either way.
  */
-export async function importContextMoveBatch(
+export async function prepareContextMoveLanding<T extends { destination: string; sourceVisibility: "private" | "team" }>(
   store: FileStore,
-  options: {
-    objects: readonly ContextMoveObject[];
-    clearance: Clearance;
-    /**
-     * The move's destination root, on the first batch only.
-     *
-     * Checked once rather than per object, and only when nothing has landed
-     * yet — by the second batch this move's own objects are under it, so the
-     * same check would then refuse the move on the strength of its own work.
-     *
-     * It is what stops a folder move **merging** into a folder that is already
-     * there. The per-object `get` below cannot see that: for a folder move
-     * every destination is `to` plus a suffix, so two trees interleave key by
-     * key with no key ever colliding, and `movePath` records what the result
-     * is — the source folder's rule carried onto a destination that already
-     * had notes in it, one of which went from hidden to readable. A file
-     * already sitting at `to` is the other half of the same question, and is
-     * invisible to a per-object check for the same reason.
-     */
-    root?: string;
-  },
-): Promise<ContextMoveImport> {
+  options: { objects: readonly T[]; clearance: Clearance; root?: string },
+): Promise<{ object: T; destination: string; visibility: "private" | "team" }[]> {
   assertDestinationCanLand(store);
 
   const state = await loadPrivacyState(store);
@@ -149,6 +127,49 @@ export async function importContextMoveBatch(
       return { rules: current.rules, overrides };
     });
   }
+
+  return planned;
+}
+
+/**
+ * Land a batch in the destination context, narrowing before it writes.
+ *
+ * The exceptions go in **first**, in one manifest write for the whole batch,
+ * and the objects follow. The order is the whole point: a private note put
+ * into a team-default folder and then narrowed is a note that was readable by
+ * the destination's team for as long as the second write took. The gateway's
+ * cross-context move makes the same choice, one note at a time
+ * (`persistExactVisibility` before the `put`).
+ */
+export async function importContextMoveBatch(
+  store: FileStore,
+  options: {
+    objects: readonly ContextMoveObject[];
+    clearance: Clearance;
+    /**
+     * The move's destination root, on the first batch only.
+     *
+     * Checked once rather than per object, and only when nothing has landed
+     * yet — by the second batch this move's own objects are under it, so the
+     * same check would then refuse the move on the strength of its own work.
+     *
+     * It is what stops a folder move **merging** into a folder that is already
+     * there. The per-object `get` below cannot see that: for a folder move
+     * every destination is `to` plus a suffix, so two trees interleave key by
+     * key with no key ever colliding, and `movePath` records what the result
+     * is — the source folder's rule carried onto a destination that already
+     * had notes in it, one of which went from hidden to readable. A file
+     * already sitting at `to` is the other half of the same question, and is
+     * invisible to a per-object check for the same reason.
+     */
+    root?: string;
+  },
+): Promise<ContextMoveImport> {
+  const planned = await prepareContextMoveLanding(store, {
+    objects: options.objects,
+    clearance: options.clearance,
+    ...(options.root === undefined ? {} : { root: options.root }),
+  });
 
   const landed: ContextMoveImport["landed"] = [];
   for (const entry of planned) {
@@ -283,17 +304,29 @@ export async function deleteMovedSources(
     }
   }
 
-  if (deleted.length > 0) {
-    const state = await loadPrivacyState(store);
-    if (state.text !== null && !state.invalid && deleted.some((path) => hasOverride(state.overrides, path))) {
-      await mutateManifest(store, (current) => {
-        let overrides = current.overrides;
-        for (const path of deleted) overrides = clearedOverrides(path, overrides);
-        return { rules: current.rules, overrides };
-      });
-    }
-  }
+  await forgetMovedSources(store, { paths: deleted });
   return { deleted, conflicts };
+}
+
+/**
+ * Clear the exceptions the source manifest still holds for files that have
+ * left it. `deleteMovedSources` ends with this; a batch the gateway's mover
+ * carried calls it on its own, for the sources the mover retired.
+ */
+export async function forgetMovedSources(
+  store: FileStore,
+  options: { paths: readonly string[] },
+): Promise<void> {
+  const gone = options.paths;
+  if (gone.length === 0) return;
+  const state = await loadPrivacyState(store);
+  if (state.text !== null && !state.invalid && gone.some((path) => hasOverride(state.overrides, path))) {
+    await mutateManifest(store, (current) => {
+      let overrides = current.overrides;
+      for (const path of gone) overrides = clearedOverrides(path, overrides);
+      return { rules: current.rules, overrides };
+    });
+  }
 }
 
 /**

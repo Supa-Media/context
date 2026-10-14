@@ -14,7 +14,7 @@
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback } from "react";
 import { toFileError } from "../browser";
-import { baseName, describeMoveProblem, parentPath, restoreTargetFor } from "../paths";
+import { baseName, describeMoveProblem, isMarkdown, parentPath, restoreTargetFor } from "../paths";
 import { canDrop as planDrop } from "../dnd";
 import { findEntry, namesIn } from "../tree";
 import { announceDid } from "../../map/live/announce";
@@ -27,6 +27,7 @@ import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { QueuedOpsValues } from "./useQueuedOps";
 import type { RowCommandsValues } from "./useRowCommands";
 import type { RunOperationValues } from "./useRunOperation";
+import type { TrashedNoteValues } from "./useTrashedNote";
 
 type BatchDeps =
   & Pick<
@@ -38,18 +39,19 @@ type BatchDeps =
     | "trashEntry"
     | "workspaceId"
   >
-  & Pick<BrowserStateValues, "dispatch" | "selectedPathRef" | "setNotice" | "setSelectedPath">
+  & Pick<BrowserStateValues, "dispatch" | "editorRef" | "selectedPathRef" | "setNotice" | "setSelectedPath">
   & Pick<OfflineQueueValues, "listings" | "offlineRef">
   & Pick<RunOperationValues, "run">
   & Pick<QueuedOpsValues, "viaQueue">
   & Pick<CreateAndMoveValues, "drawMove" | "move" | "moveResult">
-  & Pick<RowCommandsValues, "archive" | "copyTo" | "destroy">;
+  & Pick<RowCommandsValues, "archive" | "copyTo" | "destroy">
+  & Pick<TrashedNoteValues, "clearTrashed" | "markTrashed" | "restoredInPlace" | "settleTrashed">;
 
 export function useBatch(deps: BatchDeps) {
   const {
-    archive, archiveEntry, copyEntry, copyTo, destroy, dispatch, drawMove, listings, move,
-    moveEntry, moveResult, offlineRef, restoreTrashEntry, run, selectedPathRef, setNotice,
-    setSelectedPath, trashEntry, viaQueue, workspaceId,
+    archive, archiveEntry, clearTrashed, copyEntry, copyTo, destroy, dispatch, drawMove, editorRef, listings, markTrashed, move,
+    moveEntry, moveResult, offlineRef, restoredInPlace, restoreTrashEntry, run, selectedPathRef, setNotice,
+    setSelectedPath, settleTrashed, trashEntry, viaQueue, workspaceId,
   } = deps;
 
   /* ------------------------------------------------------------------ */
@@ -351,15 +353,29 @@ export function useBatch(deps: BatchDeps) {
     (paths: readonly string[]) => {
       if (paths.length === 1) return destroy(paths[0]!);
       if (paths.length === 0 || batchRefused(paths)) return;
+      /*
+        The open note, picked or inside a picked folder, stays on screen as a
+        trashed note (`useTrashedNote`), as a single delete leaves it: marked
+        before the batch, settled with the key its own step's trash put it at,
+        and cleared if that step never ran or was refused. The toast is for
+        the rest, and its Undo brings the open note back in place too.
+      */
+      const open = selectedPathRef.current;
+      const shown = open !== null && editorRef.current.path === open && isMarkdown(open);
+      const holding = shown ? paths.find((path) => open === path || open.startsWith(`${path}/`)) : undefined;
+      if (holding !== undefined) markTrashed({ path: open!, trash: null, at: Date.now(), byYou: true, byName: null });
       runBatch(
         paths.map((path) => ({
           name: folderLabel(baseName(path)),
           work: async () => {
             const result = await trashEntry({ workspaceId: workspaceId!, path });
+            if (path === holding) settleTrashed(open!, `${result.to}${open!.slice(path.length)}`);
             return {
               touched: [path, result.to],
-              undo: () =>
-                restoreTrashEntry({ workspaceId: workspaceId!, from: result.to, to: path }),
+              undo: async () => {
+                await restoreTrashEntry({ workspaceId: workspaceId!, from: result.to, to: path });
+                if (path === holding) restoredInPlace(open!);
+              },
             };
           },
         })),
@@ -367,10 +383,12 @@ export function useBatch(deps: BatchDeps) {
           done: (count) => `Moved ${countOf(count)} to trash.`,
           undone: (count) => `Restored ${countOf(count)}.`,
         },
+        // The step holding the open note did not land: it never left.
+        { drawn: paths.map((path) => (path === holding ? () => clearTrashed(open!) : () => {})) },
       );
-      closeIfWithin(paths);
+      if (holding === undefined) closeIfWithin(paths);
     },
-    [batchRefused, closeIfWithin, destroy, restoreTrashEntry, runBatch, trashEntry, workspaceId],
+    [batchRefused, clearTrashed, closeIfWithin, destroy, markTrashed, restoredInPlace, restoreTrashEntry, runBatch, settleTrashed, trashEntry, workspaceId],
   );
 
   return { moveMany, copyManyTo, archiveMany, restoreMany, destroyMany };

@@ -104,6 +104,7 @@ import {
   badRequest,
   json,
   randomOpaqueToken,
+  MAX_PRIVACY_REQUEST_BYTES,
   readJsonBody,
   requestIsFromAgentWorker,
   requestIsFromEmailWorker,
@@ -165,10 +166,11 @@ auth.addHttpRoutes(http);
  */
 function gatewayRoute(
   handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
+  maxBytes?: number,
 ) {
   return httpAction(async (ctx, request) => {
     if (!(await requestIsFromGateway(request))) return unauthorized();
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, maxBytes);
     if (body === null) return badRequest();
     return await handler(ctx, body);
   });
@@ -302,7 +304,7 @@ export const gatewaySessionsByGrant = gatewayRoute(
 /* -------------------------------------------------------------------------- */
 
 export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
-export const gatewayPrivacy = gatewayRoute(privacyRoute.gatewayPrivacyHandler);
+export const gatewayPrivacy = gatewayRoute(privacyRoute.gatewayPrivacyHandler, MAX_PRIVACY_REQUEST_BYTES);
 
 /** The built-in model's gate and meter: the only model the assistant runs on. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
