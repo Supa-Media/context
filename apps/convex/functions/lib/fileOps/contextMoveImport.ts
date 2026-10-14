@@ -5,7 +5,15 @@
  * the rules every operation keeps.
  */
 
-import { canSee, clearedOverrides, hasOverride, nextOverrides, visibilityOf } from "../privacy";
+import {
+  canSee,
+  clearedOverrides,
+  effectiveVisibility,
+  hasOverride,
+  narrowerVisibility,
+  nextOverrides,
+  visibilityOf,
+} from "../privacy";
 import { type Clearance } from "../clearance";
 import { tombstoneDocument as tombstoneCollaborationDocument } from "@context/collaboration";
 import type { FileStore } from "./store";
@@ -115,14 +123,37 @@ export async function prepareContextMoveLanding<T extends { destination: string;
     state.overrides,
   );
 
-  const narrowed = planned.filter(
-    (entry) => entry.visibility !== visibilityOf(entry.destination, state.rules),
-  );
+  /*
+    ASKED OF WHAT THE DESTINATION WILL RESOLVE THIS PATH TO, NOT OF WHAT ITS
+    FOLDER PUBLISHES.
+
+    This read `visibilityOf` — the folder default — so a landing tier that
+    matched it was dropped as a redundant write, and an exact `team` exception
+    already sitting at the destination path then decided what landed. Those
+    exist by design: `clearExactVisibilityIfAbsent` is a deliberate no-op, so
+    deleting a shared note leaves its exception behind rather than open the
+    race that removing it safely would need, and the folder it sat in is gone
+    from the listing long before the rule is. A private note moved into a
+    private folder of another context landed on one and was readable by the
+    people named there — exactly what `landingVisibility` promises cannot
+    happen, and the reason this operation asks for no confirmation.
+
+    `narrowerVisibility` rather than the landing tier alone, so this can only
+    ever narrow. A stale exception tighter than what the move computed is left
+    where it is instead of being lifted, and a stale group name is kept for the
+    same reason: it reaches fewer people than `team` and, unlike one carried
+    from the source, it resolves in this context's own control plane.
+  */
+  const landing = planned.map((entry) => {
+    const standing = effectiveVisibility(entry.destination, state.rules, state.overrides);
+    return { entry, standing, target: narrowerVisibility(entry.visibility, standing) ?? entry.visibility };
+  });
+  const narrowed = landing.filter(({ standing, target }) => target !== standing);
   if (narrowed.length > 0) {
     await mutateManifest(store, (current) => {
       let overrides = current.overrides;
-      for (const entry of narrowed) {
-        overrides = nextOverrides(entry.destination, entry.visibility, current.rules, overrides);
+      for (const { entry, target } of narrowed) {
+        overrides = nextOverrides(entry.destination, target, current.rules, overrides);
       }
       return { rules: current.rules, overrides };
     });
