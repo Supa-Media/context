@@ -645,6 +645,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`

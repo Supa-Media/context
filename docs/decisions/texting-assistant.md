@@ -433,10 +433,11 @@ So the model never chooses an address:
   https address it chooses, query included. **This knowingly reopens the
   exfiltration this section was written to close**: a page can ask the
   assistant to put the person's notes in an address. What still holds:
-  saved passwords are filled by the gateway and never seen, typing stays
-  limited to the person's words and skill values, IP addresses, internal
-  names, ports and credentials are refused, and removing the line from the
-  setup note closes it again with no deploy.
+  saved passwords are filled by the gateway and never seen, IP addresses,
+  internal names, ports and credentials are refused, and removing the line
+  from the setup note closes it again with no deploy. Since 2026-10-14 it
+  also lifts the typing rule and raises the page budget; see the next
+  section.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
@@ -469,6 +470,10 @@ box" is the exfiltration the address guard closes, by another door. So:
 - The session id stays in the turn's closure: the model never sees it, and the
   browser is closed when the question is answered (it closes itself when idle
   regardless). At most 10 steps a call and 40 a question.
+
+All of this is the default. Under `open_web: yes` (owner, 2026-10-14) the
+typing rule is lifted and the step and page budgets raised:
+[open web lifts the browser's limits](./texting-assistant/open-web-browser.md).
 
 **Browserbase, and handing the browser to the person.** Decided by the owner
 the same day: Browserbase is the browser, stateless (no Contexts,
