@@ -33,11 +33,12 @@ import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
-import { announceTreeChange, isTreeOperation, manifestSource, runTreeOperation } from "./treeOps";
+import { announceTreeChange, manifestSource } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
-import { servedReadAnswer } from "../nodes/servedReads";
+import { isTreeRead, treeReadAnswer } from "../nodes/treeReads";
+import { TreeUnbound } from "../nodes/treeLoading";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
@@ -265,9 +266,20 @@ export async function runFileOperationHandler(
     }
   }
 
-  // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
-  const served = await servedReadAnswer(ctx, args);
-  if (served !== null) return served;
+  // Which notes exist, and what their facts say, is answered from the Convex
+  // tree with no bucket credential decrypted at all, or "still loading"
+  // (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
+  if (isTreeRead(args.operation)) {
+    try {
+      return await treeReadAnswer(ctx, args);
+    } catch (error) {
+      if (!(error instanceof TreeUnbound)) throw error;
+      throw new ConvexError({
+        code: "STORAGE_NOT_CONNECTED",
+        message: "This context has no bucket connected yet. Connect storage before browsing files.",
+      });
+    }
+  }
 
   /*
     The three lookups a store is built from, asked together. Each is its own
@@ -394,8 +406,6 @@ export async function runFileOperationHandler(
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
-
-  if (isTreeOperation(args.operation)) return await runTreeOperation(ctx, { ...args, operation: args.operation }, store);
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;

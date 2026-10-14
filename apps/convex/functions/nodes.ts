@@ -402,6 +402,24 @@ export const served = internalQuery({
 });
 
 /**
+ * Where a reader stands while the tree does not serve: the tree's state, and
+ * whether the workspace has a bucket bound at all (a row, nothing decrypted),
+ * so a workspace with no bucket says so rather than "still loading" for ever.
+ */
+export const readiness = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ state: v.union(v.null(), stateValidator), bound: v.boolean() }),
+  handler: async (ctx, { workspaceId }) => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .first();
+    return { state: row === null ? null : toState(row), bound: binding !== null };
+  },
+});
+
+/**
  * Saves the privacy rules read at `at`. A save observed earlier than what is
  * stored is ignored: the newer read of `privacy.md` is the one that stands.
  */

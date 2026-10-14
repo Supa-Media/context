@@ -30,7 +30,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
-import { gatewayPost, responseFingerprint } from "../fixtures.helpers";
+import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { gatewayReadClearance } from "../../functions/lib/nodes/gatewayManifest";
 
@@ -205,7 +205,9 @@ describe("POST /gateway/tree/manifest", () => {
   });
 
   test("a first copy not finished says so to a reader it would answer, and kicks the copy", async () => {
-    const { t, ws } = await fixture();
+    const { t, ws, ownerId } = await fixture();
+    // Loading means a bucket is bound and not yet copied; with none there is nothing to load.
+    await seedStorageBinding(t as never, { workspaceId: ws, boundBy: ownerId, status: "connected" });
     await t.run(async (ctx) => {
       const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique();
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined, leaseAt: undefined });

@@ -23,7 +23,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
-import { gatewayPost, responseFingerprint } from "../fixtures.helpers";
+import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 
 type T = ReturnType<typeof convexTest>;
@@ -208,7 +208,8 @@ describe("POST /gateway/tree/facts", () => {
   });
 
   test("a first copy not finished is still loading for a reader the grant lets in; parity changes nothing", async () => {
-    const { t, ws } = await fixture({ mismatches: 3 });
+    const { t, ws, ownerId } = await fixture({ mismatches: 3 });
+    await seedStorageBinding(t as never, { workspaceId: ws, boundBy: ownerId, status: "connected" });
     await withFacts(t, ws);
     expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toMatchObject({ served: true });
     await t.run(async (ctx) => {

@@ -53,18 +53,39 @@ export function treeLoadingError(readiness: Exclude<TreeReadiness, "served">): C
 }
 
 /**
+ * A tree read for a workspace with no bucket bound: there is nothing to copy
+ * and nothing loading. The barrier answers it as it answers every operation
+ * on such a workspace (`STORAGE_NOT_CONNECTED`, raised there and only there:
+ * `storageCodePosition.test.ts`).
+ */
+export class TreeUnbound extends Error {
+  constructor() {
+    super("no bucket is bound to this workspace");
+  }
+}
+
+/**
  * Where this workspace's tree is, and, when it is not there yet, a sweep
  * started if one is due (never twice: `nodeSweepDue` respects a running
- * pass's lease, and staff's Pause holds it).
+ * pass's lease, and staff's Pause holds it). `unbound` when no bucket is
+ * bound, and then nothing is started.
  */
 export async function readinessAndKick(
   ctx: Pick<ActionCtx, "runQuery" | "scheduler">,
   workspaceId: Id<"workspaces">,
-): Promise<TreeReadiness> {
-  const state = await ctx.runQuery(internal.functions.nodes.state, { workspaceId });
+): Promise<TreeReadiness | "unbound"> {
+  const { state, bound } = await ctx.runQuery(internal.functions.nodes.readiness, { workspaceId });
   const readiness = treeReadiness(state);
+  if (readiness === "served") return readiness;
+  if (!bound) return "unbound";
   if (readiness === "loading") await startNodesSweepIfDue(ctx as ActionCtx, workspaceId);
   return readiness;
+}
+
+/** The refusal for a tree that does not serve: `TREE_LOADING`, or `TreeUnbound` for no bucket. */
+export function notServed(readiness: TreeReadiness | "unbound"): Error {
+  if (readiness === "unbound") return new TreeUnbound();
+  return treeLoadingError(readiness === "unsupported" ? "unsupported" : "loading");
 }
 
 /**
@@ -81,7 +102,6 @@ export async function servedStoreOrLoading(ctx: ActionCtx, workspaceId: Id<"work
   if (readiness === "served") {
     const again = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
     if (again !== null) return again;
-    throw treeLoadingError("loading");
   }
-  throw treeLoadingError(readiness);
+  throw notServed(readiness === "served" ? "loading" : readiness);
 }

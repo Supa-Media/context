@@ -14,7 +14,7 @@
 import { convexTest, type TestConvex as TestConvexFor } from "convex-test";
 import schema from "../schema";
 import { modules } from "../test.setup";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
@@ -261,6 +261,29 @@ export async function drainScheduled(t: TestConvex): Promise<void> {
     await t.finishInProgressScheduledFunctions();
   }
   throw new Error("scheduled functions never drained");
+}
+
+/**
+ * The workspace's first copy into the Convex tree, run to its end against the
+ * bucket it is bound to. Every reader of which notes exist reads that tree
+ * and never the bucket (decided by the owner, 2026-10-13; see
+ * `docs/decisions/app-and-console/convex-tree.md`), so a fixture that seeds a
+ * bucket copies it before anything lists it, as the first walk of a real
+ * workspace does. A change made through the app keeps the copy current on its
+ * own; one written straight into the bucket afterwards needs another call,
+ * as a real one waits for the next sweep.
+ */
+export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  for (let pass = 0; pass < 50; pass += 1) {
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesSweep" },
+    });
+    const state = await t.query(internal.functions.nodes.state, { workspaceId });
+    if (state?.status === "ready" && state.cursor === undefined) return;
+  }
+  throw new Error("the tree's first copy never finished");
 }
 
 /**

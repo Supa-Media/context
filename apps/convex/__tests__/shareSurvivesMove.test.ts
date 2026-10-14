@@ -45,6 +45,7 @@ import {
   errorCode,
   setupTest,
   type TestConvex,
+  copyTree,
 } from "./fixtures.helpers";
 
 afterEach(() => {
@@ -107,6 +108,7 @@ async function fixture(): Promise<Fixture> {
     visibility: "team",
   });
 
+  await copyTree(t, workspaceId);
   return { t, owner, lk, workspaceId, backend };
 }
 

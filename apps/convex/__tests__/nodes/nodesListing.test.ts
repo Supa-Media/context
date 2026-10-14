@@ -24,7 +24,6 @@ import { modules } from "../../test.setup";
 import { folderRowsStore, NODE_LISTING_ROWS } from "../../functions/lib/nodes/listing";
 import { listFolder } from "../../functions/lib/fileOps/listing";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { servedReadAnswer } from "../../functions/lib/nodes/servedReads";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -283,35 +282,5 @@ describe("the barrier's one-folder listing (`listServed`)", () => {
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await ask()).toBeNull();
-  });
-});
-
-describe("servedReadAnswer", () => {
-  function recordingCtx(answer: unknown) {
-    const asked: unknown[] = [];
-    const ctx = {
-      runQuery: async (_ref: unknown, args: unknown) => {
-        asked.push(args);
-        return answer;
-      },
-    };
-    return { ctx: ctx as unknown as Parameters<typeof servedReadAnswer>[0], asked };
-  }
-  const ws = "ws1" as Id<"workspaces">;
-
-  test("only a list, and never for a path the bucket's listing would refuse in its own words", async () => {
-    const { ctx, asked } = recordingCtx({ kind: "listing" });
-    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", operation: { kind: "read", path: "a.md" } })).toBeNull();
-    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", operation: { kind: "list", path: "../etc" } })).toBeNull();
-    expect(asked).toEqual([]);
-    expect(await servedReadAnswer(ctx, { workspaceId: ws, scope: "team", grantedNames: ["leads"], operation: { kind: "list", path: "1-projects" } })).toEqual({ kind: "listing" });
-    // The barrier's own clearance, never widened.
-    expect(asked).toEqual([{ workspaceId: ws, path: "1-projects", scope: "team", grantedNames: ["leads"] }]);
-  });
-
-  test("a failed or unserved query sends the barrier to the bucket", async () => {
-    expect(await servedReadAnswer(recordingCtx(null).ctx, { workspaceId: ws, scope: "private", operation: { kind: "list", path: "" } })).toBeNull();
-    const failing = { runQuery: async () => { throw new Error("down"); } } as unknown as Parameters<typeof servedReadAnswer>[0];
-    expect(await servedReadAnswer(failing, { workspaceId: ws, scope: "private", operation: { kind: "list", path: "" } })).toBeNull();
   });
 });

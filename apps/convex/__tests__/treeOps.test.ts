@@ -1,7 +1,10 @@
 /**
- * The console's file tree after phase 7 (`treeOps.ts`): which store a walk or
- * the map reads, what a List and the chaos score answer where the Convex
- * facts cannot, and the order a re-check and its tree hint happen in.
+ * The console's file tree after phase 7 (`treeOps.ts`): which store a walk
+ * that reaches the barrier reads, and the order a re-check and its tree hint
+ * happen in. A walk of which notes exist, the map, a List and the chaos score
+ * no longer reach here: the barrier answers them from the Convex tree first,
+ * never the bucket (`lib/nodes/treeReads.ts`, proved in
+ * `nodes/treeReads.test.ts`; decided by the owner, 2026-10-13).
  *
  * The D1 copy of the tree is gone, so nothing here may ask for a search
  * database or schedule its sweep: every case records what was scheduled and
@@ -13,17 +16,15 @@
  * was re-checked, that walk would read the row from before the change and the
  * tab would hold the old tree until the next hint.
  *
- * Sabotage-checked: answering a List before `factsReady` (dropping the check)
- * fails the "facts not whole" case; marking the audiences before the touch
- * fails the order case.
+ * Sabotage-checked: marking the audiences before the touch fails the order
+ * case.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { getFunctionName } from "convex/server";
 import type { Id } from "../_generated/dataModel";
 import type { FileStore } from "../functions/lib/fileOps";
-import { linkTableOf } from "../functions/lib/nodes/linkTable";
-import { NO_CHAOS } from "../functions/lib/filesFns/chaosOps";
+import { isTreeRead } from "../functions/lib/nodes/treeReads";
 import * as ops from "../functions/lib/filesFns/treeOps";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 
@@ -89,76 +90,22 @@ function bucket(): MemoryStore & FileStore {
 }
 
 describe("which store a walk reads", () => {
-  test("where the Convex tree serves, its rows are walked, not the bucket", async () => {
-    const fake = fakeCtx({ served: true, rows: ["only/in-convex.md"] });
-    const answer = await ops.manifestSource(fake.ctx, { ...ARGS, operation: { kind: "manifest", source: "tree" } }, bucket());
-    expect(answer.source).toBe("nodes");
-    const listed = await answer.store.list({ prefix: "" });
-    expect(listed.objects.map((object) => object.key)).toEqual(["only/in-convex.md"]);
-    expectNoD1(fake);
-  });
-
-  test("elsewhere the bucket is walked, and no sweep of anything but the Convex tree is started", async () => {
-    for (const operation of [{ kind: "manifest", source: "tree" }, { kind: "manifest" }, { kind: "manifest", cursor: "a" }]) {
-      const fake = fakeCtx({ served: false });
-      const store = bucket();
-      expect(await ops.manifestSource(fake.ctx, { ...ARGS, operation }, store)).toEqual({ store, source: "bucket" });
-      expectNoD1(fake);
+  test("a tree walk and the map never reach here: the barrier answers them from the Convex tree", () => {
+    for (const operation of [{ kind: "manifest", source: "tree" }, { kind: "workspaceGraph" }, { kind: "notePaths" }, { kind: "folderPaths" }, { kind: "folderNotes" }, { kind: "chaosScore" }]) {
+      expect(isTreeRead(operation), operation.kind).toBe(true);
     }
+    expect(isTreeRead({ kind: "manifest" })).toBe(false);
   });
 
-  test("the map carries the facts' link table once they are whole, and reads the index until then", async () => {
-    const ready = fakeCtx({ served: true, factsReady: true });
-    const withTable = await ops.manifestSource(ready.ctx, { ...ARGS, operation: { kind: "workspaceGraph" } }, bucket());
-    expect(linkTableOf(withTable.store)).not.toBeNull();
-    expect(ready.scheduled).toEqual([]);
-
-    const behind = fakeCtx({ served: true, factsReady: false });
-    const without = await ops.manifestSource(behind.ctx, { ...ARGS, operation: { kind: "workspaceGraph" } }, bucket());
-    expect(without.source).toBe("nodes");
-    expect(linkTableOf(without.store)).toBeNull();
-    // The facts fill is started instead.
-    expect(behind.scheduled).toEqual([{ kind: "nodesFactFill", passes: 0 }]);
-    expectNoD1(behind);
-
-    const unserved = fakeCtx({ served: false });
-    const fromBucket = await ops.manifestSource(unserved.ctx, { ...ARGS, operation: { kind: "workspaceGraph" } }, bucket());
-    expect(fromBucket.source).toBe("bucket");
-    expect(linkTableOf(fromBucket.store)).toBeNull();
-    expect(unserved.scheduled).toEqual([]);
-  });
-});
-
-describe("a List and the chaos score where the facts cannot answer", () => {
-  const list = { kind: "folderNotes" as const, folder: "1-projects", subfolders: true };
-  const unavailable = { kind: "folderNotes", available: false, notes: [], cursor: null, missing: [], fill: false };
-
-  test("facts not whole: the List reads its folder from the bucket, and there is no score", async () => {
-    const fake = fakeCtx({ served: true, factsReady: false, rows: ["1-projects/a.md"] });
-    expect(await ops.runTreeOperation(fake.ctx, { ...ARGS, operation: list }, bucket())).toEqual(unavailable);
-    expect(await ops.runTreeOperation(fake.ctx, { ...ARGS, operation: { kind: "chaosScore" } }, bucket())).toEqual(NO_CHAOS);
-    expectNoD1(fake);
-  });
-
-  test("a tree that does not serve answers the same, without asking the facts", async () => {
-    const fake = fakeCtx({ served: false, factsReady: true });
-    expect(await ops.runTreeOperation(fake.ctx, { ...ARGS, operation: list }, bucket())).toEqual(unavailable);
-    expect(await ops.runTreeOperation(fake.ctx, { ...ARGS, operation: { kind: "chaosScore" } }, bucket())).toEqual(NO_CHAOS);
-    expect(fake.asked).not.toContain("functions/nodeFacts:ready");
-    expect(fake.asked).not.toContain("functions/nodeChaos:extras");
-    expectNoD1(fake);
-  });
-
-  test("facts whole: the List answers from them", async () => {
-    const fake = fakeCtx({ served: true, factsReady: true, rows: [] });
-    const answer = await ops.runTreeOperation(fake.ctx, { ...ARGS, operation: list }, bucket());
-    expect(answer).toMatchObject({ kind: "folderNotes", available: true, notes: [] });
-  });
-
-  test("only a List and the chaos score are tree operations now", () => {
-    expect(ops.isTreeOperation({ kind: "folderNotes" })).toBe(true);
-    expect(ops.isTreeOperation({ kind: "chaosScore" })).toBe(true);
-    for (const kind of D1_KINDS) expect(ops.isTreeOperation({ kind })).toBe(false);
+  test("a Publish's walk reads the bucket, and starts no sweep but the Convex tree's", async () => {
+    for (const operation of [{ kind: "manifest" }, { kind: "manifest", cursor: "a" }]) {
+      for (const served of [true, false]) {
+        const fake = fakeCtx({ served });
+        const store = bucket();
+        expect(await ops.manifestSource(fake.ctx, { ...ARGS, operation }, store)).toEqual({ store, source: "bucket" });
+        expectNoD1(fake);
+      }
+    }
   });
 });
 
