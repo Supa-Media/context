@@ -129,14 +129,21 @@ folder and note to be given an emoji on its own and then taking that back
 person picks one. Opening the picker shows two quick picks above the grid:
 
 - **Suggested**: Clef reads the name alone (never a note's text, never its
-  folders) and answers two choice questions, a topic and then an emoji in it,
-  from the list in `packages/shared/src/iconSuggest.ts`. Every emoji in that
-  list is one the picker offers under the same shortcode
-  (`folderIconPicks.test.ts`), so a suggestion is never something a person
-  could not have picked by hand. A name that says nothing (`untitled-…`,
-  `New folder`) is not sent. Metered as the `iconSuggest` feature, every plan,
-  editors only (`folderIcons.suggest`).
-- **Random**: one from the same list, with Shuffle to roll again.
+  folders) against every standard emoji the picker offers, about 1,900, the
+  owner's call the same day ("give it the entire emoji set as possible
+  outputs"). Clef picks one of at most 64 options a question, so the table is
+  cut into groups of 64; it picks each group's best in two requests side by
+  side, then the best of those in a third (`packages/shared/src/iconSuggest.ts`).
+  The answer is always an emoji a question offered, so a suggestion is never
+  something a person could not have picked by hand. It replaced a first cut
+  that asked for a topic out of 27 and then an emoji out of ~320, which
+  answered "none of these" for names such as `once` and showed no
+  suggestion. A name that says nothing (`untitled-…`, `New folder`) is not
+  sent. Metered as the `iconSuggest` feature, every plan, editors only
+  (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Organizer Eval
+  (live)" workflow, prints what the real model suggests for real names.
+- **Random**: one from a shorter list of emoji that make a nice surprise,
+  with Shuffle to roll again.
 
 **Assigning icons automatically** would fill `folder-icons.json` with picks
 nobody made, and the owner said no.
