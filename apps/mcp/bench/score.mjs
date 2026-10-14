@@ -106,6 +106,26 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       if (isGateQuestion(q) && (unanswered || answered(setup, n).some((row) => gateBroken(row.id, q)))) gateFailed.push(n);
     }
 
+    // Which lines broke each failed gate, and in how many of its answered runs:
+    // the test's own words, never the judge's reason, which can quote the answer.
+    const gateLines = [];
+    for (const n of gateFailed) {
+      const q = questions.get(n);
+      const runs = answered(setup, n);
+      const counts = new Map();
+      for (const row of runs) {
+        for (const verdict of judged.get(row.id).verdicts) {
+          if (verdict.pass || !(verdict.kind === "must not" || (q.kind === "task" && verdict.kind !== "judge"))) continue;
+          const name = `${verdict.kind}\u0000${verdict.line}`;
+          counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+      }
+      for (const [name, failed] of counts) {
+        const [kind, line] = name.split("\u0000");
+        gateLines.push({ question: n, kind, line, failed, runs: runs.length });
+      }
+    }
+
     const mine = key.filter((row) => row.setup === setup);
     const errors = mine.filter((row) => judged.get(row.id).skipped).length;
     const judgeVerdicts = mine.flatMap((row) => judged.get(row.id).verdicts.filter((v) => v.kind === "judge"));
@@ -130,6 +150,7 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       setup,
       score,
       gateFailed,
+      gateLines,
       untested,
       judgeLines: { passed: judgeVerdicts.filter((v) => v.pass).length, total: judgeVerdicts.length },
       voice,
@@ -179,6 +200,10 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
   out.push(`Bars: ${bars.length ? bars.join(", ") : "none set"}.`, "");
   const untested = rows.filter((r) => r.untested.length).map((r) => `${r.setup} ${r.untested.map((n) => `q${n}`).join(", ")}`);
   if (untested.length) out.push(`Untested, because their mirror question did not pass: ${untested.join("; ")}.`, "");
+  for (const r of rows) {
+    if (!r.gateLines?.length) continue;
+    out.push(`Why gates failed, ${r.setup}:`, ...r.gateLines.map((g) => `- q${g.question} ${g.kind} "${g.line}": ${g.failed} of ${g.runs} runs`), "");
+  }
   out.push(`Best setup that passes every bar: ${best ?? "none"}.`, "");
   return out.join("\n");
 }
