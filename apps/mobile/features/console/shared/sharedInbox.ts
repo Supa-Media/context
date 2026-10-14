@@ -9,7 +9,7 @@
  */
 
 import { atName } from "../format";
-import { displayName } from "../files/paths";
+import { baseName, displayName } from "../files/paths";
 import { SHARE_PATH_PREFIX } from "../files/shares";
 
 /** One row of `shares.listSharedWithMe`. */
@@ -40,8 +40,7 @@ export function sharedOpenHref(token: string): string {
 
 /** The note's name as the tree would show it: `1-projects/beneath-the-chaos.md` → `beneath-the-chaos`. */
 export function itemTitle(item: Pick<SharedItem, "entryPath">): string {
-  const base = item.entryPath.split("/").pop() ?? item.entryPath;
-  return displayName(base);
+  return displayName(baseName(item.entryPath));
 }
 
 /** Who shared it, as the product names people: `@ana`, or "Someone" for an account with no handle. */
