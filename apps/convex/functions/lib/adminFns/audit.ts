@@ -19,6 +19,7 @@ export const ADMIN_ACTIONS = [
   "community.link_saved",
   "community.link_deleted",
   "search.meaning_restarted",
+  "search.fast_restarted",
   "person.phone_set",
   "person.phone_removed",
   "person.archived",

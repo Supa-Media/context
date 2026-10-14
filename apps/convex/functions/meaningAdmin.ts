@@ -1,6 +1,6 @@
 /**
  * The staff console's search-by-meaning panel: every workspace's index, and
- * Restart. Split out of `admin.ts` for size, under that file's rule: each
+ * Restart, for search by meaning and for fast search. Split out of `admin.ts` for size, under that file's rule: each
  * public function authorizes with `requireAdmin` inline, in its own handler.
  * The logic is `lib/adminFns/meaningIndexes.ts`.
  */
@@ -16,6 +16,7 @@ import {
   restartMeaningIndex,
   restartStuckMeaningIndexes,
 } from "./lib/adminFns/meaningIndexes";
+import { restartFastSearchIndex } from "./lib/fastSearchFns/restart";
 
 /**
  * The Search tab's indexing panel: every workspace's search-by-meaning row,
@@ -55,5 +56,26 @@ export const restartMeaningIndexing = mutation({
     const { restarted } = await restartStuckMeaningIndexes(ctx);
     await recordAdminAudit(ctx, actor, "search.meaning_restarted", "*", { restarted });
     return { restarted };
+  },
+});
+
+/**
+ * Start one workspace's fast search copy again now, rather than on the
+ * fifteen-minute sweep. Never turns on a copy that is off. See
+ * `lib/fastSearchFns/restart.ts`.
+ */
+export const restartFastSearch = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ restarted: v.number(), outcome: v.string() }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    const outcome = await restartFastSearchIndex(ctx, args.workspaceId);
+    await recordAdminAudit(ctx, actor, "search.fast_restarted", args.workspaceId, { outcome });
+    return { restarted: outcome === "restarted" ? 1 : 0, outcome };
   },
 });
