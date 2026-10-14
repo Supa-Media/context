@@ -14,6 +14,7 @@ import type {
   FormVote,
 } from "../formBlock";
 import type { FolderListSource } from "../listBlock/model";
+import type { TrashedView } from "./trashed";
 
 /** What a surface mounts `NoteEditor` with. */
 export interface NoteEditorProps {
@@ -200,4 +201,10 @@ export interface NoteEditorProps {
   activityEditable?: boolean;
   /** Open another note, from a row in that list. */
   onOpenNote?: (path: string) => void;
+  /**
+   * The note is in the trash and still on screen: dimmed, read-only, a line
+   * under the title saying who moved it, and on a phone Restore at its foot
+   * in place of the toolbar (`trashed.tsx`). Absent for every other note.
+   */
+  trashed?: TrashedView;
 }

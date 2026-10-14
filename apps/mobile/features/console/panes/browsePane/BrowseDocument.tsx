@@ -5,6 +5,7 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
@@ -526,7 +527,9 @@ export function BrowseDocument({
         onTitleCaret={files.setTitleCaret}
         titleNote={files.titleEdit?.path === files.editor.path ? files.titleEdit.note : null}
         titleFocus={files.titleFocus}
-        nameEdit={noteNameEdit(files, files.editor.path, files.editor.readOnly)}
+        // In the trash: read-only and dimmed, Restore the way back (`trashed.tsx`).
+        trashed={trashedViewOf(files)}
+        nameEdit={trashedViewOf(files) === undefined ? noteNameEdit(files, files.editor.path, files.editor.readOnly) : undefined}
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}

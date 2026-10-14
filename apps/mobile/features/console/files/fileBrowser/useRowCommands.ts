@@ -39,6 +39,7 @@ import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { OpenNoteValues } from "./useOpenNote";
 import type { QueuedOpsValues } from "./useQueuedOps";
 import type { RunOperationValues } from "./useRunOperation";
+import type { TrashedNoteValues } from "./useTrashedNote";
 
 type RowCommandsDeps =
   & Pick<
@@ -79,6 +80,7 @@ type RowCommandsDeps =
   & Pick<OpenNoteValues, "followRename" | "select">
   & Pick<RunOperationValues, "run">
   & Pick<QueuedOpsValues, "viaQueue">
+  & Pick<TrashedNoteValues, "clearTrashed" | "markTrashed" | "settleTrashed">
   & Pick<
     CreateAndMoveValues,
     | "drawListingMove"
@@ -95,6 +97,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
+    clearTrashed, markTrashed, settleTrashed,
   } = deps;
 
   /**
@@ -425,8 +428,20 @@ export function useRowCommands(deps: RowCommandsDeps) {
   const destroy = useCallback(
     (path: string) => {
       if (viaQueue(path)) return queueRemovalOf(path, "trash");
+      /*
+        The note on screen stays there, as a trashed note with Restore in
+        Share's place (`useTrashedNote`), and that replaces the toast: the way
+        back is on the page. Marked before the call, so the tab strip and the
+        follow timer already know when the listing drops it.
+      */
+      const open = selectedPath === path && editorRef.current.path === path && isMarkdown(path);
+      if (open) markTrashed({ path, trash: null, at: Date.now(), byYou: true, byName: null });
       void run(async () => {
         const result = await trashEntry({ workspaceId: workspaceId!, path });
+        if (open) {
+          settleTrashed(path, result.to);
+          return { touched: [path, result.to] };
+        }
         return {
           touched: [path, result.to],
           message: `Moved ${folderLabel(baseName(path))} to trash.`,
@@ -444,13 +459,13 @@ export function useRowCommands(deps: RowCommandsDeps) {
             });
           },
         };
-      });
-      if (selectedPath === path) {
+      }, open ? () => clearTrashed(path) : undefined);
+      if (!open && selectedPath === path) {
         setSelectedPath(null);
         dispatch({ type: "closed" });
       }
     },
-    [queueRemovalOf, restoreTrashEntry, run, selectedPath, trashEntry, viaQueue, workspaceId],
+    [clearTrashed, markTrashed, queueRemovalOf, restoreTrashEntry, run, selectedPath, settleTrashed, trashEntry, viaQueue, workspaceId],
   );
 
   const paste = useCallback(

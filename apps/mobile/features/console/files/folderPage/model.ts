@@ -15,8 +15,9 @@
  *   none last), then newest.
  *
  * Every folder and every note in the folder is an item. One with a status is
- * a **task**; one without is a plain **note**, which the List draws with no
- * status dot and the Board leaves out (`rowExtras.tsx`). A task
+ * a **task**; one without is a **note** to the Board, which leaves it out.
+ * The List draws it as a project item with no status yet, an empty circle,
+ * unless it says `status: note` (`isNoteStatus`, `rowExtras.tsx`). A task
  * that is a folder holds **subtasks** — the items directly in it with a
  * status — and may hold plain notes too (`taskChildren`), one level down and
  * no deeper. See "A folder page shows its children by status" and "Tasks and
@@ -73,8 +74,10 @@ export interface FolderItem extends FolderSummary {
   readonly kind: "folder" | "note";
   /** What the row is called: the summary's title, else the name as the tree draws it. */
   readonly label: string;
-  /** The status as written and trimmed; `""` when there is none, which makes it a note rather than a task. */
+  /** The status as written and trimmed; `""` when there is none, or when it says it is only a note. */
   readonly status: string;
+  /** Whether it says it is only a note (`status: note`): a note's icon, not an unset status circle. */
+  readonly noted: boolean;
   /** `p0`…`p3` as 0…3; null for none. */
   readonly priority: Priority | null;
   /** Sub-items closed out of all of them, for a folder that has any. */
@@ -137,10 +140,36 @@ function titleOf(note: ListNote | null): string | null {
   return null;
 }
 
-function statusOf(properties: Readonly<Record<string, PropertyValue>>, key = "status"): string {
+/**
+ * The status that says "this is only a note", which the status menu's Just a
+ * note writes. In a projects folder everything else is a project item, one
+ * with no status yet included (the owner, 2026-10-14: "all items in project
+ * folders should have statuses and be treated like a project item with no
+ * status if status is not set unless it explicitly has status:note").
+ */
+export const NOTE_STATUS = "note";
+
+/** Whether a written status means "only a note": `note` or `notes`, any case. */
+export function isNoteStatus(status: string): boolean {
+  const word = status.trim().toLowerCase();
+  return word === NOTE_STATUS || word === "notes";
+}
+
+function rawStatusOf(properties: Readonly<Record<string, PropertyValue>>, key: string): string {
   const raw = properties[key];
   const value = Array.isArray(raw) ? raw[0] : raw;
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** A property as written and trimmed; for `status`, `""` too when it says it is only a note. */
+function statusOf(properties: Readonly<Record<string, PropertyValue>>, key = "status"): string {
+  const value = rawStatusOf(properties, key);
+  return key === "status" && isNoteStatus(value) ? "" : value;
+}
+
+/** Whether these properties say the item is only a note (`status: note`). */
+function notedIn(properties: Readonly<Record<string, PropertyValue>>): boolean {
+  return isNoteStatus(rawStatusOf(properties, "status"));
 }
 
 /**
@@ -225,6 +254,7 @@ export function folderItems(
         kind: "folder",
         label: summary.title ?? folderLabel(baseName(entry.path)),
         status: statusOf(summary.properties),
+        noted: notedIn(summary.properties),
         priority: priorityOf(summary.properties),
         progress: progressOf(entry.path, notes),
         updatedAt: summary.updatedAt ?? entry.updatedAt ?? null,
@@ -251,6 +281,7 @@ export function folderItems(
       kind: "note",
       label: title ?? displayName(entry.name),
       status: statusOf(properties),
+      noted: notedIn(properties),
       priority: priorityOf(properties),
       progress: null,
     });

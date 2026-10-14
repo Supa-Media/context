@@ -133,8 +133,11 @@ export function useTabs(
    */
   const listings = files.listings;
   const editorPath = files.editor.path;
+  // The open note in the trash, or being looked for after it left, stays open (`useTrashedNote`).
+  const keptOpen = files.keptOpen ?? null;
   useEffect(() => {
     for (const path of tabsToClose(state.tabs, listings)) {
+      if (path === keptOpen && editorPath === keptOpen) continue;
       // Not the note a rename is carrying while the editor is still on its
       // old name: a listing that lands mid-move without it is behind, not
       // proof the note is gone. The rename settles one way or the other, and
@@ -142,7 +145,7 @@ export function useTabs(
       if (renamed !== null && path === renamed.to && editorPath === renamed.from) continue;
       dispatch({ type: "removed", path });
     }
-  }, [editorPath, listings, renamed, state.tabs]);
+  }, [editorPath, listings, renamed, state.tabs, keptOpen]);
 
   /**
    * The switch itself, keyed on the context rather than on `files`.

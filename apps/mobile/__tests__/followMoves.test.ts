@@ -12,7 +12,10 @@
  *  - drop the "editor moved on" check in `still` and the own-rename case
  *    fails (this tab's rename would be followed twice);
  *  - follow without comparing the read's path and the same-name case fails;
- *  - drop the `catch` notice and the deleted case fails.
+ *  - drop the `catch` notice and the deleted case fails;
+ *  - drop the trash lookup and the trashed case fails;
+ *  - drop the `trashedRef` check in `still` and this tab's own delete is
+ *    looked up again.
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -27,14 +30,24 @@ import type { FolderListing } from "../features/console/files/types";
 
 type Listener = (paths: string[]) => void;
 
-function harness(read: (path: string) => Promise<{ path: string }>) {
+type Trashed = { trash: string; at: number; byYou: boolean; byName: string | null };
+
+function harness(read: (path: string) => Promise<{ path: string }>, lookUp: (path: string) => Promise<Trashed | null> = async () => null) {
   const listeners = new Set<Listener>();
   const editorRef = { current: { path: "a/note.md" as string | null } };
   const openRun = { current: 1 };
   const renamingRef = { current: null as unknown };
   const notices: string[] = [];
   const follows: [string, string][] = [];
+  const marked: unknown[] = [];
+  const trashedRef = { current: null as { path: string } | null };
+  const lookUpTrashed = jest.fn(lookUp);
+  const held: string[] = [];
   const deps = {
+    holdOpen: (path: string) => void held.push(path),
+    lookUpTrashed,
+    markTrashed: (next: unknown) => void marked.push(next),
+    trashedRef,
     readNote: ({ path }: { path: string }) => read(path),
     workspaceId: "ws1",
     workspaceGenerationRef: { current: { epoch: 1 } },
@@ -62,11 +75,13 @@ function harness(read: (path: string) => Promise<{ path: string }>) {
   const settle = async () => {
     await act(async () => {
       jest.advanceTimersByTime(FOLLOW_DELAY_MS);
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
     });
   };
-  return { editorRef, openRun, renamingRef, notices, follows, vanish, settle, unmount: () => act(() => root.unmount()) };
+  return {
+    editorRef, openRun, renamingRef, notices, follows, marked, trashedRef, lookUpTrashed, held, vanish, settle,
+    unmount: () => act(() => root.unmount()),
+  };
 }
 
 beforeEach(() => {
@@ -92,6 +107,7 @@ describe("following the open note", () => {
     await h.settle();
     expect(read).not.toHaveBeenCalled();
     expect(h.follows).toEqual([]);
+    expect(h.held).toEqual([]);
     h.unmount();
   });
 
@@ -136,6 +152,47 @@ describe("following the open note", () => {
     await h.settle();
     expect(h.follows).toEqual([]);
     expect(h.notices).toEqual([MOVED_ELSEWHERE]);
+    h.unmount();
+  });
+});
+
+describe("the open note, moved to the trash somewhere else", () => {
+  const gone = async () => {
+    throw new Error("FILE_NOT_FOUND");
+  };
+
+  test("is kept on screen as trashed, with who moved it", async () => {
+    const answer = { trash: ".context/trash/stamp/a/note.md", at: 1_000, byYou: false, byName: "@ana" };
+    const h = harness(gone, async () => answer);
+    h.vanish(["a/note.md"]);
+    await h.settle();
+    expect(h.lookUpTrashed).toHaveBeenCalledWith("a/note.md");
+    expect(h.marked).toEqual([{ ...answer, path: "a/note.md" }]);
+    // Its tab was held open from the moment it left, so the answer has a page to land on.
+    expect(h.held).toEqual(["a/note.md"]);
+    expect(h.notices).toEqual([]);
+    expect(h.follows).toEqual([]);
+    h.unmount();
+  });
+
+  test("not in the trash (deleted for good, or out of reach): the notice, as before", async () => {
+    const h = harness(gone, async () => null);
+    h.vanish(["a/note.md"]);
+    await h.settle();
+    expect(h.marked).toEqual([]);
+    expect(h.notices).toEqual([MOVED_ELSEWHERE]);
+    h.unmount();
+  });
+
+  test("this tab's own delete, already shown as trashed, is left alone", async () => {
+    const read = jest.fn(gone);
+    const h = harness(read, async () => null);
+    h.trashedRef.current = { path: "a/note.md" };
+    h.vanish(["a/note.md"]);
+    await h.settle();
+    expect(read).not.toHaveBeenCalled();
+    expect(h.lookUpTrashed).not.toHaveBeenCalled();
+    expect(h.notices).toEqual([]);
     h.unmount();
   });
 });

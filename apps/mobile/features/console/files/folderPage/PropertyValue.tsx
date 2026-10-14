@@ -52,6 +52,8 @@ export interface PropertyValueProps {
   sections?: readonly { readonly label: string; readonly words: readonly string[] }[];
   /** "Edit statuses…" at the foot of a sectioned menu; null or absent to leave it out. */
   onEditList?: (() => void) | null;
+  /** "Just a note" at the foot of a sectioned menu, writing this word; absent to leave it out. */
+  noteWord?: string | null;
   /** Pick from people and agents instead of the menu; `prefer` is the folder's owners, most used first. */
   owners?: {
     readonly search: OwnerSearch;
@@ -88,7 +90,7 @@ export interface PropertyValueProps {
   testID?: string;
 }
 
-type Id = `choice:${number}` | `head:${number}` | "new" | "clear" | "saves" | "edit";
+type Id = `choice:${number}` | `head:${number}` | "new" | "clear" | "saves" | "edit" | "note";
 
 export function PropertyValue({
   property,
@@ -98,6 +100,7 @@ export function PropertyValue({
   onChoose,
   sections,
   onEditList = null,
+  noteWord = null,
   owners,
   variant = "tree",
   unsetLabel,
@@ -201,7 +204,9 @@ export function PropertyValue({
       items.unshift({ id: `choice:${all.length}`, label: isolateForDisplay(current), checked: true });
       all.push(current);
     }
-    if (onEditList !== null) items.push({ id: "edit", label: `Edit ${property === "status" ? "statuses" : property}…`, separatorBefore: true });
+    // Out of the project items altogether, back to a plain note (the owner, 2026-10-14).
+    if (noteWord !== null) items.push({ id: "note", label: "Just a note", separatorBefore: true });
+    if (onEditList !== null) items.push({ id: "edit", label: `Edit ${property === "status" ? "statuses" : property}…`, separatorBefore: noteWord === null });
   } else {
     all = current !== null && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : [...choices];
     items = [
@@ -313,6 +318,7 @@ export function PropertyValue({
               setTyping(true);
             } else if (id === "clear") onChoose(null);
             else if (id === "edit") onEditList?.();
+            else if (id === "note" && noteWord !== null) onChoose(noteWord);
             else if (id.startsWith("choice:")) {
               const choice = all[Number(id.slice("choice:".length))];
               if (choice === undefined || choice.toLowerCase() === value.toLowerCase()) return;

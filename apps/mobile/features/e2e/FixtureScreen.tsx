@@ -40,6 +40,8 @@ export interface FixtureParams {
   anyone?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
+  /** No `screen`: `1` draws the open note as moved to the trash. */
+  trashed?: string | string[];
   /**
    * Which of the visual board's optional surfaces to draw.
    *
@@ -136,6 +138,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     <E2EFixtureScreen
       returned={checkoutOutcomeFrom(first(params[CHECKOUT_PARAM]))}
       note={first(params.note) ?? null}
+      trashed={first(params.trashed) === "1"}
     />
   );
 }

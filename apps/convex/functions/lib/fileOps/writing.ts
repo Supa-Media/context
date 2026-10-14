@@ -16,6 +16,7 @@ import {
   supported as collaborationSupported,
 } from "@context/collaboration";
 import { MAX_NOTE_BYTES, type FileStore } from "./store";
+import { assertNoNameTwin } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
 import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
@@ -126,6 +127,8 @@ export async function writeFile(
     const inherited = visibilityOf(path, state.rules);
     if (inherited !== "team" && !options.clearance.names.has(inherited)) throw notFound();
   }
+  // A new note may not sit beside a twin of its name or of a folder on its way (`nameTwins.ts`).
+  if (existing === null) await assertNoNameTwin(store, path, options.clearance, "file");
 
   /*
    * AN ENCRYPTED NOTE IS NOT OVERWRITTEN WITH PLAINTEXT THROUGH THIS DOOR —
