@@ -15,7 +15,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import { handleForUser, identifiersForUser } from "../identities";
 import { getMembership, roleAtLeast } from "../workspaceAuth";
-import { sharedNoteTitle, sharerName } from "./inboxTitle";
+import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 
 export const resolveShareArgs = { token: v.string() };
@@ -162,6 +162,8 @@ export async function listSharedWithMeHandler(
   const summaries = [];
   const seen = new Set<string>();
   const sharers = new Map<Id<"users">, { handle: string | null; name: string | null }>();
+  // Per context, not per row: see `shareableRules`.
+  const rules = new Map<Id<"workspaces">, Awaited<ReturnType<typeof shareableRules>>>();
   for (const row of rows) {
     const key = `${row.workspaceId}\u0000${row.entryPath}`;
     if (seen.has(key)) continue;
@@ -177,6 +179,7 @@ export async function listSharedWithMeHandler(
       });
     }
     const sharer = sharers.get(row.createdBy);
+    if (!rules.has(workspace._id)) rules.set(workspace._id, await shareableRules(ctx, workspace._id));
     summaries.push({
       token: row.token,
       workspaceId: workspace._id,
@@ -187,7 +190,7 @@ export async function listSharedWithMeHandler(
       sharedBy: row.createdBy,
       sharedByHandle: sharer?.handle ?? null,
       sharedByName: sharer?.name ?? null,
-      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath),
+      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath, rules.get(workspace._id) ?? null),
       createdAt: row.createdAt,
     });
   }
