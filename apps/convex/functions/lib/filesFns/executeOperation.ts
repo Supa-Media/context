@@ -5,6 +5,7 @@
  * production caller and holds the credential; this module never sees one.
  */
 
+import { followHeading } from "../fileOps/followHeading";
 import { type ActivityActor, readActivity, recordActivity } from "../activity";
 import type { Clearance } from "../clearance";
 import {
@@ -705,10 +706,12 @@ export async function executeOperation(
           now,
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
         });
+        // The heading follows the new name inside the rename (`followHeading.ts`).
+        const headed = operation.followHeading === true ? await followHeading(store, moved, { clearance, now }) : undefined;
         await noteActivity("file.move", [moved.from, moved.to], {
           count: moved.queued ?? moved.paths.length,
         });
-        return { kind: "moved", ...moved };
+        return { kind: "moved", ...moved, ...(headed === undefined ? {} : { etag: headed }) };
       }
       case "folderPaths": {
         const found = await listFolderPaths(store, { clearance });

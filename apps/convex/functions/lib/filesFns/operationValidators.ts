@@ -394,6 +394,8 @@ export const operationValidator = v.union(
     from: v.string(),
     to: v.string(),
     expectedEtag: v.optional(v.string()),
+    /** Rewrite a single note's first heading to its new name, inside the move (`followHeading.ts`). */
+    followHeading: v.optional(v.boolean()),
   }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   /*
