@@ -125,7 +125,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return invite.status === "issued" ? COPY.unlinked(invite.url) : COPY.unlinkedNoLink;
     }
 
-    const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text, deps.onProgress);
+    const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text, deps.onProgress, session.timeZone);
     if (answer.kind === "answer") return textsFromAnswer(answer.text);
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;

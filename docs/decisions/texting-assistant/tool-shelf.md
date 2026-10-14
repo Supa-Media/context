@@ -71,3 +71,22 @@ and drop what's stale as it grows.
 makes it the opaque memory the owner ruled out. Tests:
 `apps/mcp/test/agentAboutMe.test.mjs`, and "Tex's memory note holds at most 500
 lines, from write_note and remember alike" (`apps/mcp/test/remember.test.mjs`).
+
+## Every turn knows the time where the person is (2026-10-14)
+
+Tex once answered "remind me to sleep in 2 minutes" by asking for the time on
+the person's phone: no turn had ever been told the date or time. Now every
+turn's system prompt carries the day, date and time in the person's zone, plus
+the same instant written the way a one-off routine's `at:` line takes it
+(`apps/mcp/src/agent/localNow.js`).
+
+The zone is the one their routines run in, so a reminder Tex works out lands
+when it says: the account's zone (the app keeps it in step with the device),
+else the routines' default, `America/New_York`. The control plane returns it
+with the texting session (`textsTimeZone`), the texting Worker passes it to
+`/agent` as `timeZone`, and a routine run uses its own. A value that is not an
+IANA zone is ignored and the default is named instead, never guessed at.
+
+What reversing it costs: Tex asks people what time it is, and works out
+"tomorrow" from nothing. `test/agentLocalNow.test.mjs` and the route checks in
+`test/agent.test.mjs` fail.

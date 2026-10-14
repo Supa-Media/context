@@ -64,6 +64,20 @@ describe("openSession", () => {
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ phone: "+15555550100" });
   });
 
+  it("keeps the person's time zone when it looks like one, and drops anything else", async () => {
+    expect(await openSession(fake(200, { status: "linked", accessToken: "tok", timeZone: "Europe/London" }), "o", "s", "p")).toEqual({
+      status: "linked",
+      accessToken: "tok",
+      timeZone: "Europe/London",
+    });
+    for (const timeZone of [42, "", "a\nb", "x".repeat(65)]) {
+      expect(await openSession(fake(200, { status: "linked", accessToken: "tok", timeZone }), "o", "s", "p")).toEqual({
+        status: "linked",
+        accessToken: "tok",
+      });
+    }
+  });
+
   it("returns unlinked for a phone nobody linked", async () => {
     expect(await openSession(fake(200, { status: "unlinked" }), "o", "s", "p")).toEqual({ status: "unlinked" });
   });
