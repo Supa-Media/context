@@ -11,7 +11,9 @@
  *    there before it is read or written, and opening one at its old name moves
  *    it on first, so the read follows the forwarding entry like any moved note.
  *  - `attachQueueMove` lets `movePath` queue a folder move (the console's move
- *    and archive, and the organizer, which moves through `movePath` too).
+ *    and archive, and the organizer, which moves through `movePath` too), and
+ *    lets `trashPath` queue a trash and `restoreTrashedPath` turn a queued one
+ *    around (`trashStart.ts`).
  */
 
 import { internal } from "../../../_generated/api";
@@ -20,13 +22,15 @@ import type { ActionCtx } from "../../../_generated/server";
 import { promotePath, withPendingMoves } from "../../../../mcp/src/moves/queued.js";
 import { clearanceOf } from "../clearance";
 import { FileOpError } from "../fileOps/errors";
-import { assertNotMainFolder, requirePath } from "../fileOps/paths";
+import { requirePath } from "../fileOps/paths";
+import { assertNoNameTwin, assertNotProtectedFolder } from "../fileOps/nameTwins";
 import { assertWritablePath } from "../fileOps/writing";
 import type { ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import type { PendingMove } from "./moveOverlay";
 import { startQueuedMove } from "./moveStart";
+import { restoreQueuedTrash, startQueuedTrash } from "./trashStart";
 import { runMoveWork } from "./moveWork";
 import { rowFromObject } from "./sweep";
 import { attachTreeListing } from "./treeNames";
@@ -73,16 +77,21 @@ export async function runMoveOperation(
     const to = requirePath(args.operation.to);
     assertWritablePath(from);
     assertWritablePath(to);
-    assertNotMainFolder(from);
+    // Asked of the tree, on a store of its own so the move's walks below are unchanged.
+    const named = Object.create(store) as FileStore;
+    attachTreeListing(ctx, args.workspaceId, named);
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    await assertNotProtectedFolder(named, from, clearance);
     if (from === to || to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {
       throw new FileOpError("PATH_INVALID", "A folder cannot be moved into, onto or over itself.");
     }
+    await assertNoNameTwin(named, to, clearance, "folder", from);
     moved = await startQueuedMove(ctx, {
       workspaceId: args.workspaceId,
       store,
       from,
       to,
-      clearance: clearanceOf(args.scope, args.grantedNames ?? []),
+      clearance,
       now: Date.now(),
     });
   } catch (error) {
@@ -134,6 +143,22 @@ export async function storeWithMoves(
  * the barrier's other seams are, so nothing that walks the store carries it.
  */
 export function attachQueueMove(ctx: ActionCtx, args: BarrierArgs, store: FileStore, bucket: FileStore): void {
+  if (args.operation.kind === "trash") {
+    Object.defineProperty(store, "queueTrash", {
+      value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
+        startQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, ...trash }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  if (args.operation.kind === "restoreTrash") {
+    Object.defineProperty(store, "restoreQueuedTrash", {
+      value: (restore: { trash: string; path: string }) =>
+        restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
   if (!QUEUEING.has(args.operation.kind)) return;
   Object.defineProperty(store, "queueMove", {
     value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>

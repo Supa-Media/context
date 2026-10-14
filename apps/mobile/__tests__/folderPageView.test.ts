@@ -370,7 +370,7 @@ describe("a folder of folders nobody has tracked yet", () => {
     source: { ...host(writes).source, load: async () => ({ notes: UNTRACKED, complete: true }) },
   });
 
-  test("opens in List with no nudge: the rows are the list, each with its folder's icon", async () => {
+  test("opens in List with no nudge: every folder is a project with no status yet", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects"), LIST, untracked(writes));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
@@ -378,7 +378,9 @@ describe("a folder of folders nobody has tracked yet", () => {
     expect(all("folder-nudge")).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(2);
     expect(dots()).toHaveLength(0);
-    expect(all("folder-row-icon")).toHaveLength(2);
+    // The owner, 2026-10-14: "all items in project folders should have statuses".
+    expect(all("folder-row-status-unset")).toHaveLength(2);
+    expect(all("folder-row-icon")).toHaveLength(0);
     expect(writes).toEqual([]);
   });
 
@@ -386,6 +388,8 @@ describe("a folder of folders nobody has tracked yet", () => {
     await mount(entry("folder", "1-projects"), LIST, { ...host(null), source: { load: async () => ({ notes: UNTRACKED, complete: true }) } });
     expect(all("folder-row")).toHaveLength(2);
     expect(all("folder-row-status")).toHaveLength(0);
+    // The empty circle is still drawn, so the rows say what they are; there is just nothing to press.
+    expect(all("folder-row-status-unset")).toHaveLength(2);
   });
 });
 

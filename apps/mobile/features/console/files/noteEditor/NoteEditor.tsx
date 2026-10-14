@@ -20,6 +20,7 @@ import { noteFlow } from "./flow";
 import { noteScroller } from "./scroller";
 import { noteVoiceButton } from "./voice";
 import { RecentRunsAside } from "../../routines/RecentRuns";
+import { TrashedRestoreBar } from "./trashed";
 import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 
@@ -122,6 +123,7 @@ export function NoteEditor({
   activityShared = false,
   activityEditable = false,
   onOpenNote,
+  trashed,
 }: NoteEditorProps) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -158,6 +160,8 @@ export function NoteEditor({
     durableReady &&
     !state.readOnly &&
     !reading &&
+    // A note in the trash is read where it is; Restore is the way back to typing.
+    trashed === undefined &&
     !(state.path === ACTIVITY_PATH && !activityEditable);
   /*
     A passphrase note is `state.encrypted` exactly as a workspace-encrypted
@@ -366,13 +370,15 @@ export function NoteEditor({
     controls.current?.selectTitle?.();
   }, [titleFocusId]);
   const { setAccessoryOpen } = frame;
+  // A trashed note on a phone puts the toolbar away too: Restore takes its place.
+  const toolbarAway = barUp || (compact && trashed !== undefined);
   useEffect(() => {
-    setAccessoryOpen(barUp);
+    setAccessoryOpen(toolbarAway);
     // Leaving the note with the keyboard up — closing a tab, switching context
     // — must not leave the frame believing a bar is on screen that unmounted
     // with it.
     return () => setAccessoryOpen(false);
-  }, [barUp, setAccessoryOpen]);
+  }, [toolbarAway, setAccessoryOpen]);
   /*
     Split for display, never for storage. `frontmatter` is put back in front of
     every edit before it reaches `onChange`, so what is saved is the file that
@@ -403,7 +409,7 @@ export function NoteEditor({
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote,
+    folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
@@ -469,6 +475,7 @@ export function NoteEditor({
         rather than one of two.
       */}
       {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+      {compact && trashed !== undefined ? <TrashedRestoreBar trashed={trashed} /> : null}
 
       {/*
         Outside `barUp`: the sheet's field takes the keyboard, the editor loses
@@ -514,7 +521,8 @@ export function NoteEditor({
         WebKit CI found that, in `encryption.spec.ts`, not in a test of this
         feature: a floating control is every other control's problem.
       */}
-      {voice === null || !liveEditorOnScreen ? null : (
+      {/* Nor over a note in the trash: dictating into a page that takes no typing. */}
+      {voice === null || !liveEditorOnScreen || trashed !== undefined ? null : (
         noteVoiceButton(view, voice)
       )}
     </View>

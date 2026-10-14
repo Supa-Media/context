@@ -47,11 +47,13 @@ import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
+import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
 import { aboutMePrompt } from "./aboutMe.js";
+import { jobsPrompt } from "./jobs.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -275,8 +277,14 @@ export async function runTurn(options) {
     coreTools = null,
     local = [],
     aboutMe = null,
+    // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    jobs = null,
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
+    // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
+    workspaces = null,
+    // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
+    efforts = null,
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -344,7 +352,9 @@ export async function runTurn(options) {
     (progress ? PROGRESS_PROMPT : "") +
     (shelf ? shelf.prompt() : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone));
+    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
+    workspacesPrompt(workspaces);
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -390,12 +400,25 @@ export async function runTurn(options) {
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
   if (shelf) offeredNames.add(FIND_TOOLS);
 
+  let offeredBefore = null;
   for (let round = 0; round < rounds; round += 1) {
     const asked = clock();
+    const offered = shelf ? shelf.shown() : tools;
+    /*
+      A round's thinking is handed back to the next (`providers.js`), and the
+      API checks each block against the tools it was made with. When the shelf
+      has just loaded a tool, every earlier block is dropped at once, which the
+      API allows; dropping some would refuse the request.
+    */
+    const offeredNow = offered.map((tool) => tool.name).join(",");
+    if (offeredBefore !== null && offeredNow !== offeredBefore) {
+      for (const message of messages) if (message.content) delete message.content;
+    }
+    offeredBefore = offeredNow;
     let answer;
     try {
       answer = await requestBuiltin(
-        { model, system, messages, tools: shelf ? shelf.shown() : tools },
+        { model, system, messages, tools: offered, effort: efforts?.[model] },
         providerOptions.ai,
         providerOptions,
       );
@@ -414,6 +437,8 @@ export async function runTurn(options) {
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
         model = fallback;
         system = systemFor(model);
+        // Another model reads none of this one's thinking, and the prompt changed with it.
+        for (const message of messages) if (message.content) delete message.content;
         round -= 1;
         continue;
       }
@@ -452,7 +477,12 @@ export async function runTurn(options) {
       return { answer: answer.text, provider, model, steps, usage, timing: { ...timing, trace } };
     }
 
-    messages.push({ role: "assistant", text: answer.text, toolCalls: answer.toolCalls });
+    messages.push({
+      role: "assistant",
+      text: answer.text,
+      toolCalls: answer.toolCalls,
+      ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
+    });
 
     for (const call of answer.toolCalls) {
       if (!offeredNames.has(call.name)) {

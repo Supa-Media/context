@@ -129,7 +129,7 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
 
   // The map draws the app's own console as the person and the texting
   // assistant as its own badge, by these names; a stranger may not take them.
-  for (const taken of ["Context (this app)", "texts (imessage)", "  Context   (this app) "]) {
+  for (const taken of ["Context (this app)", "Tex", "tex", "texts (imessage)", "  Context   (this app) "]) {
     const posing = await registerNamed(taken);
     check(
       `a client cannot register under a first-party name (${JSON.stringify(taken)})`,
@@ -157,12 +157,13 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
   for (const taken of [
     "x's Context (this app)",
     "@seyi's texts (imessage)",
+    "@seyi's Tex",
     "Anything at all's Context (this app)",
   ]) {
     const posing = await registerNamed(taken);
     check(
       `a possessive cannot smuggle a first-party name past the guard (${JSON.stringify(taken)})`,
-      !["context (this app)", "texts (imessage)"].includes(toolPart(posing.stored))
+      !["context (this app)", "tex", "texts (imessage)"].includes(toolPart(posing.stored))
     );
   }
   // And the mark is stable: marking an already-marked name changes nothing.

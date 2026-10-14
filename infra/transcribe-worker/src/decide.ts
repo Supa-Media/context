@@ -43,7 +43,12 @@ export const MAX_QUESTIONS = 16;
 export const MAX_CHOICE_OPTIONS = 64;
 export const MAX_SCORE_LEVELS = 10;
 const MAX_INSTRUCTION_CHARS = 1_000;
-const MAX_CRITERION_CHARS = 400;
+/**
+ * One option's text. 1,000 so a choice can name a whole group of things in
+ * one option (the icon picker lists ~30 emoji an option); 64 of them stay
+ * far under the body cap.
+ */
+export const MAX_CRITERION_CHARS = 1_000;
 const NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const OPTION = /^[a-z0-9][a-z0-9_-]{0,59}$/;
 

@@ -57,6 +57,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "s",
   "search",
   "settings",
+  "shared",
   "stop-new-email",
   "terms",
   "tex",

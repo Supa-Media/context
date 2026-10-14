@@ -77,6 +77,14 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * existence by a `flex: 1` sibling.
    */
   document: { flex: 1, minHeight: 0 },
+  /** A note in the trash, dimmed (`trashed.tsx`). */
+  trashedDocument: { opacity: 0.55 },
+  /** "In trash" over a phone's title, where the path line would be. */
+  trashedPill: { marginHorizontal: layout.readingMargin, marginTop: space.x4 },
+  /** The trashed line under a phone's title. */
+  trashedBylineCompact: { paddingHorizontal: layout.readingMargin, marginTop: space.x2, marginBottom: space.x2 },
+  /** And under a pointer layout's, at the note's first character. */
+  trashedBylinePointer: { marginTop: space.x2, marginBottom: space.x2 },
 
   /**
    * A quiet line above the note, at the note's own left margin.

@@ -26,7 +26,7 @@ Decided by the owner on 2026-10-14: "we have like sixty questions, we probably n
 
 Every question is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines and the `every_answer` lines grade nothing; the share of `every_answer` lines passed is the setup's voice, held to the `voice` bar.
 
-Most questions are copied from the long sets with their wording, the person asking and their lines, so a result here reads against the same question there: 1 is `texting-assistant.md` 1, 2 is 9, 3 is 16, 4 is 21, 5 is 59, 6 is 30, 7 is 33, 8 is 57, 9 is 51, 10 is 58; 11 is `tasks.md` 5, 12 is task 1, 13 is task 3. Questions 14 and 15 are new: a reminder is a routine note (`docs/decisions/routines.md`), and a one-off reminder is a note in `tex/routines/once/` whose `at:` names the full date and time (new routines go in Tex's own `tex/` folder, the owner, 2026-10-14).
+Most questions are copied from the long sets with their wording, the person asking and their lines, so a result here reads against the same question there: 1 is `texting-assistant.md` 1, 2 is 9, 3 is 16, 4 is 21, 5 is 59, 6 is 30, 7 is 33, 8 is 57, 9 is 51, 10 is 58; 11 is `tasks.md` 5, 12 is task 1, 13 is task 3. Questions 14 and 15 are new: a reminder is a routine note, acknowledged the way a friend would ("Will do.", the owner, 2026-10-14, after Tex restated a whole reminder back) (`docs/decisions/routines.md`), and a one-off reminder is a note in `tex/routines/once/` whose `at:` names the full date and time (new routines go in Tex's own `tex/` folder, the owner, 2026-10-14).
 
 Today is Thursday, October 8, 2026, the long set's day, so "Friday" is October 9 and "tomorrow" is October 9 too. The web is scripted (`web: scripted`, `bench/sites.mjs`): every site lives in `sites/` and nothing reaches the real web. Lines like `must call`, `must reach` and `must write` are checked from the run's own record (`bench/checks.mjs`), never by the judge. `must write: <workspace>/<path>` is a note the answer wrote there (under a folder when the path ends in `/`), and `with key: value, ...` names front matter it must carry, read the way `packages/shared/src/routines.cjs` reads a routine.
 
@@ -175,7 +175,7 @@ A one-off reminder: a routine note in `tex/routines/once/` that runs once, at th
 
 - kind: task
 - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
-- must: say in a few words that it will remind her tomorrow at 9 am to call Sam about the venue deposit
+- must: acknowledge it the way a friend would, in a few words ("Will do.", "Sure."), without restating the reminder she just gave
 - must not: claim it called or texted Sam
 - must not: ask her to confirm the day or the time, which she gave
 
@@ -185,5 +185,5 @@ A routine that repeats: a note in `tex/routines/daily/` that runs at 7:30 am on 
 
 - kind: task
 - must write: maya/tex/routines/daily/ with at: 7:30 am, on: weekdays
-- must: say in a few words that it will text her what's due every weekday at 7:30 am
+- must: acknowledge it the way a friend would, in a few words ("Will do.", "Sure."), without restating the schedule she just gave
 - must: the routine's note says in plain words to text Maya what's due that day

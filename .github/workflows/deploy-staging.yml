@@ -126,6 +126,9 @@ jobs:
       # In-app feedback reports (`functions/feedback.ts`), tagged with the
       # staging environment. Absent: staging takes no reports.
       FEEDBACK_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      # The gateway's mover: whole-bucket moves copy there, never through
+      # Convex (`functions/lib/storageMover.ts`). A public origin, not a secret.
+      STORAGE_MOVER_ORIGIN: https://mcp-staging.context.lc
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

@@ -13,7 +13,7 @@ import { toFileError } from "./browser";
 import { Shell, type DialogAnchor } from "./DialogShell";
 import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
 import { baseName, displayName, folderLabel, isMarkdown } from "./paths";
-import { defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
+import { TEX_FIGURE_ICON, defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
 import { randomIcon } from "@context/shared/src/iconSuggest";
 
 /** How many of every emoji are drawn at first, and added each time the list is scrolled near its end. */
@@ -266,7 +266,7 @@ export function FolderIconDialog({
         )}
         {current === null || current === fallback ? null : (
           <Button
-            label={fallback === null ? "Remove icon" : `Use default ${fallback}`}
+            label={fallback === null ? "Remove icon" : fallback === TEX_FIGURE_ICON ? "Use default (Tex)" : `Use default ${fallback}`}
             variant="dialog"
             onPress={() => void choose(null)}
             disabled={busy}

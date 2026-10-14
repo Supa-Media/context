@@ -128,6 +128,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
+- A note shared with a named person opens for them wherever it lives
 
 ## [Per-note encryption](./encryption.md)
 
@@ -234,6 +235,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [One List view](./one-list-view.md)
 
 - Notes and List are one view, and its dot and face are its controls
+- In a projects folder, everything is a project item
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 
@@ -344,6 +346,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
 - [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
+- [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
@@ -400,6 +403,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
+- [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)
@@ -654,6 +658,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

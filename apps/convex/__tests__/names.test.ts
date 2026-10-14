@@ -148,12 +148,12 @@ describe("validateName (pure rules)", () => {
     ).toEqual([]);
   });
 
-  test("reserves the product vocabulary — workspace, context", () => {
+  test("reserves the product vocabulary — workspace, context, shared", () => {
     // The user-facing nouns (CLAUDE.md, "Vocabulary"). Claimed, each is an
     // impersonation handle: `workspace@context.lc` receives mail people
     // believed was going to the product, and `@context/...` reads as a product
     // path rather than a person's.
-    for (const name of ["workspace", "workspaces", "context"]) {
+    for (const name of ["workspace", "workspaces", "context", "shared"]) {
       expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
       expect(validateName(name)).toMatchObject({ ok: false, reason: "reserved" });
     }

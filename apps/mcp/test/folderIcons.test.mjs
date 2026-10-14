@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FOLDER_ICONS_KEY,
+  TEX_FIGURE_ICON,
   defaultFolderIcon,
   dropFolderIcons,
   iconsAfterDelete,
@@ -124,7 +125,7 @@ test("the folders the product files into inside the inbox show a default emoji",
 });
 
 test("Tex's folder, its about note, its routines and each how-often folder show a default emoji", () => {
-  assert.equal(defaultFolderIcon("tex"), "✨");
+  assert.equal(defaultFolderIcon("tex"), TEX_FIGURE_ICON);
   assert.equal(defaultFolderIcon("tex/about-me.md"), "🪪");
   assert.equal(defaultFolderIcon("tex/routines"), "🔁");
   assert.equal(defaultFolderIcon("tex/routines/once"), "📌");

@@ -56,8 +56,13 @@ function bodyOf(text) {
  * @param {(name: string, args: object) => Promise<object>} callTool the session's dispatcher
  */
 export async function readAboutMe(callTool) {
+  return await readTexNote(callTool, ABOUT_ME_PATH);
+}
+
+/** Any note in Tex's own `tex/` folder, read the same way (`jobs.js` reads `tex/jobs.md`). */
+export async function readTexNote(callTool, path) {
   try {
-    const result = await callTool("read_note", { path: ABOUT_ME_PATH });
+    const result = await callTool("read_note", { path });
     if (result?.isError === true) return "";
     const text = (Array.isArray(result?.content) ? result.content : [])
       .filter((part) => part?.type === "text" && typeof part.text === "string")

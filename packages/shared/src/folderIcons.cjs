@@ -136,8 +136,16 @@ const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
  * `cadenceFromFolder`), so `every-3-hours` gets the hourly one. Only those
  * exact paths: a folder somebody made inside `tex/routines/once/` is theirs.
  */
+/**
+ * `tex/` draws Tex itself, calm (the owner, 2026-10-14: "the tex icon,
+ * organized version"), not an emoji. A default is drawn and never written, so
+ * this marker only ever reaches `EmojiGlyph`, which draws the figure for it.
+ * Not an emoji and not a `:name:`, so no workspace emoji can take its place.
+ */
+const TEX_FIGURE_ICON = "context:tex";
+
 const TEX_ICONS = Object.freeze({
-  tex: "✨",
+  tex: TEX_FIGURE_ICON,
   "tex/about-me.md": "🪪",
   "tex/routines": "🔁",
 });
@@ -330,6 +338,7 @@ module.exports = {
   FOLDER_ICONS_VERSION,
   DEFAULT_FOLDER_ICONS,
   DEFAULT_INBOX_FOLDER_ICONS,
+  TEX_FIGURE_ICON,
   defaultFolderIcon,
   parseFolderIcons,
   serializeFolderIcons,

@@ -15,7 +15,14 @@
  * page that is retried from its cursor, and nothing is saved mid-page.
  */
 export const MIGRATION_PAGE_SIZE = 100;
-export const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
+/**
+ * The file limit (decided by the owner, 2026-10-14): a whole-bucket move
+ * carries files up to this size, and leaves a bigger one where it is, named,
+ * rather than failing the move on it.
+ */
+export const MIGRATION_OBJECT_BYTE_CAP = 20 * 1024 * 1024;
+/** How many left-behind files a move names; the count is kept past it. */
+export const MIGRATION_SKIPPED_KEYS_MAX = 50;
 
 /**
  * How many objects of a page are reconciled at once, and how many bytes of them
@@ -25,12 +32,25 @@ export const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
  * open connections. That reasoning does not reach here: this runs in a Convex
  * action, not a Worker, and the bound that matters instead is memory — one
  * object in flight holds its source bytes and its target bytes at once, and the
- * byte cap admits 25MB objects. So the width is the wider one an action can
+ * byte cap admits 20MB objects. So the width is the wider one an action can
  * actually use, and the byte budget is what keeps a page of attachments from
  * turning that width into a heap the action dies on.
  */
 export const MIGRATION_WAVE_WIDTH = 16;
 export const MIGRATION_WAVE_BYTE_BUDGET = 32 * 1024 * 1024;
+
+/**
+ * The same bounds for a page the gateway's mover runs (`lib/storageMover.ts`).
+ * A Worker may hold six connections open at once and has 128 MB, so the wave
+ * is six wide and carries at most 16 MiB: one 20 MB file still gets a wave of
+ * its own, with its source, target and read-back bodies held at once.
+ */
+export const MOVER_WAVE_WIDTH = 6;
+export const MOVER_WAVE_BYTE_BUDGET = 16 * 1024 * 1024;
+/** How long a mover ticket may wait to be spent. */
+export const MOVER_TICKET_TTL_MS = 5 * 60 * 1000;
+/** How long the action waits for the mover's page before retrying it. */
+export const MOVER_PAGE_TIMEOUT_MS = 4 * 60 * 1000;
 
 export const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
 

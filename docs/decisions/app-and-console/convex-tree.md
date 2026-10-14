@@ -213,6 +213,8 @@ folder at its new name at once, and the bucket catches up behind it.
   job already in a bucket is still finished by the gateway's background drain
   and `materialize_move`, and `write_note` still refuses a path a draining
   job is copying out of.
+- **Moving to the trash queues too**, a note as well as a folder: see
+  [queued trash](./queued-trash.md) (owner, 2026-10-14).
 - **Privacy is carried, never stored on a row.** The start copies the source's
   rules to the new name in `privacy.md` and narrows the destination, exactly as
   a one-go move would (`movePrivacy.ts`); the old name's rules go when the copy

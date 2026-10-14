@@ -1,3 +1,4 @@
+import type { LeftBehind } from "./storage/handoff/leftBehind";
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { ManagedEncryptionView } from "./storage/encryptionView";
 import type { MeetingDestination } from "../meetings/destination";
@@ -330,6 +331,8 @@ export interface ConsoleStorage {
   handoffClaimed?: boolean;
   /** The files that stopped a move, when particular files did. */
   handoffFailedKeys?: string[];
+  /** Files over the file limit the last move left in the bucket it came from. */
+  leftBehind?: LeftBehind;
   /** The last pass matched and the move is switching over; too late to stop. */
   handoffReadyToSwitch?: boolean;
   /** The owner's answer for files already in the destination. */
@@ -365,6 +368,8 @@ export interface StorageActions {
   move: (values: ConnectFormValues) => Promise<{ started: true }>;
   /** Stops a move into the owner's bucket that has not started switching over. */
   cancelHandoff: () => Promise<{ cancelled: boolean }>;
+  /** Puts away the notice of files the last move left behind. */
+  dismissLeftBehind?: () => Promise<null>;
   /** Answers a destination that already has files: merge, or start fresh (typed consent). */
   chooseExistingFiles: (
     answer: { choice: "merge" } | { choice: "replace"; confirmBucket: string },
@@ -659,6 +664,8 @@ export interface ConsoleData {
   whatsNew?: true;
   /** Live, signed-in console only, like `whatsNew`: routine notes' run bar and runs (`routines/RoutineHost.tsx`). */
   routines?: true;
+  /** Live, signed-in console only, like `whatsNew`: @shared's row and its dot (`shared/SharedInboxHost.tsx`). */
+  sharedInbox?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

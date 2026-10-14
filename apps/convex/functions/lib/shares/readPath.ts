@@ -17,6 +17,7 @@ import type { Id } from "../../../_generated/dataModel";
 import { normalizePath } from "../fileOps";
 import { linkedNotePaths } from "../noteLinks";
 import { isEncryptedNote } from "../noteEncryption";
+import { isPlumbing } from "../privacy";
 import { withinSharedFolder } from "./paths";
 import { stripComments } from "@context/shared/src/comments.cjs";
 import { anonymousSafe, notAuthenticated, shareUnavailable } from "./errors";
@@ -192,12 +193,32 @@ export async function readSharedNoteHandler(
   // the hop. Reading it twice when it is itself the target is one extra bucket
   // GET on the cheapest possible read, and the alternative is a branch that
   // decides when authorization can be skipped.
+  /*
+    A NOTE SHARED WITH A NAMED PERSON OPENS FOR THAT PERSON, WHEREVER IT LIVES.
+
+    Decided by the owner, 2026-10-14 ("lets use google drive behavior, people
+    are used to that"): naming somebody in the share dialog is the yes. Before
+    this the entry note was read at `team` like every other share, so a note in
+    a personal context — private by default — could be shared with a person
+    who could never open it, and the dialog said nothing.
+
+    Exactly one read widens, and only for a share addressed to one person:
+    the **entry note itself**. Its links are still read at `team` below, so a
+    private note it points at stays absent; links (`members`, `anyone`,
+    collect) still narrow through the live manifest; and plumbing is refused
+    again on the live path, because the forwarding ledger is the one input
+    here that the mint-time `checkSharePath` never saw. Revoking the share is
+    how the owner takes it back.
+  */
+  const entryScope: "private" | "team" =
+    grant.addressedToPerson && !isPlumbing(entryPath) ? "private" : "team";
   const entry = await readThroughShare(
     ctx,
     grant.workspaceId,
     entryPath,
     actorUserId,
     grant.openToAnyone,
+    entryScope,
   );
   const links = linkedNotePaths(entry.text, entryPath);
 
@@ -385,13 +406,14 @@ async function readThroughShare(
   path: string,
   actorUserId: Id<"users"> | null,
   openToAnyone: boolean,
+  scope: "private" | "team" = "team",
 ): Promise<{ text: string }> {
   try {
     const result = await ctx.runAction(
       internal.functions.files.runFileOperation,
       {
         workspaceId,
-        scope: "team",
+        scope,
         operation: { kind: "read", path },
       },
     );

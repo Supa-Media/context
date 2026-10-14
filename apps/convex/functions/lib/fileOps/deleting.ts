@@ -15,8 +15,9 @@ import {
   tombstoneDocument as tombstoneCollaborationDocument,
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
+import { assertNotProtectedFolder } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
-import { assertNotMainFolder, requirePath, timestampSlug } from "./paths";
+import { requirePath, timestampSlug } from "./paths";
 import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
@@ -58,7 +59,7 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
@@ -118,6 +119,16 @@ export async function archivePath(
 }
 
 /**
+ * A trash the tree can draw at once, queued by the credential barrier
+ * (`lib/nodes/trashStart.ts`), or `null` to trash it here. Attached to the
+ * store non-enumerably, as `queueMove` is; a store without it (tests, the
+ * gateway, self-hosting without the tree) trashes the old way.
+ */
+type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+/** Turn a still-queued trash around: `true` when it was, `false` when the bucket holds the trash. */
+type RestoreQueued = (restore: { trash: string; path: string }) => Promise<boolean>;
+
+/**
  * Move a visible entry into hidden, recoverable trash without rewriting its
  * privacy rules or links. Keeping those rules at the original path makes Undo
  * restore the exact access state instead of guessing it from the trash folder.
@@ -139,8 +150,14 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
+  // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
+  const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
+  if (options.expectedEtag === undefined && typeof queue === "function") {
+    const queued = await queue({ path, clearance: options.clearance, now: options.now });
+    if (queued !== null) return queued;
+  }
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
@@ -264,6 +281,11 @@ export async function restoreTrashedPath(
   }
   const state = await loadPrivacyState(store);
   if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+  // Deleted a moment ago, its trash may still be queued: turned around, the tree draws it back at once.
+  const restoreQueued = (store as { restoreQueuedTrash?: RestoreQueued }).restoreQueuedTrash;
+  if (typeof restoreQueued === "function" && (await restoreQueued({ trash: from, path: to }))) {
+    return { from, to, paths: [to], queued: 1 };
+  }
   const sources = await hiddenKeysAt(store, from);
   if (sources.length === 0 && collaborationSupported(store)) {
     throw notFound();
@@ -409,7 +431,7 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
