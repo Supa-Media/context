@@ -131,7 +131,7 @@ type FileBrowserValueDeps =
   >
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
-  & Pick<FolderIconsValues, "iconOf" | "setIcon">
+  & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
   & Pick<BuiltInFoldersValues, "addBuiltInFolder">
   & Pick<OpenNoteValues, "prefetch">
   & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
@@ -151,7 +151,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setCollaborationState, setDraft, focusTitle, setTitleCaret, titleEdit, titleFocus, setScope,
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
-    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon,
+    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
     addBuiltInFolder, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen,
   } = deps;
 
@@ -160,6 +160,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       canEdit: options.canEdit,
       iconOf,
       setIcon,
+      suggestIcon,
       addBuiltInFolder,
       submitForm,
       loadImage,
@@ -406,6 +407,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       readRaw,
       iconOf,
       setIcon,
+      suggestIcon,
       addBuiltInFolder,
     ],
   );
