@@ -4,15 +4,14 @@ import { baseName, withoutSortPrefix } from "./paths";
  * THE NOTE'S NAME, TYPED WHERE THE NOTE IS.
  *
  * "We should be able to rename a note from the note header itself. Very
- * frustrating to have to go through multiple steps" (owner, 2026-10-14). The
- * title-is-the-name rule (`linkedTitle.ts`) covers a note whose first heading
- * is its name, and nothing else: a note with no `# heading` — an empty
- * `untitled-<date>`, a capture, a note written as prose from its first line —
- * had its name only in the tab and the tree, and renaming it meant the row's
- * menu and a dialog. So the note's header line (`Breadcrumb`) ends in its name,
- * and a note with no title draws its name above the body the way Obsidian's
- * inline title does (`noteEditor/InlineName.tsx`). Both are text fields; both
- * rename through the same `rename` the dialog uses.
+ * frustrating to have to go through multiple steps" (owner, 2026-10-14). A
+ * note's first heading is its name (`linkedTitle.ts`), and a note with no
+ * `# heading` — an empty `untitled-<date>`, a capture, a note written as prose
+ * from its first line — had its name only in the tab and the tree. So the
+ * note's header line (`Breadcrumb`) ends in its name, and a note with no
+ * heading draws its name above the body the way Obsidian's inline title does
+ * (`noteEditor/flow.tsx`). Both are text fields; both rename through the same
+ * `rename` the dialog uses, which takes the heading along.
  *
  * This file is the arithmetic between what the field shows and what the file
  * is called. What a person types is the *name*: no `.md`, no `.excalidraw.md`

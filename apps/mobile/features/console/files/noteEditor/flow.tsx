@@ -46,9 +46,8 @@ export function noteFlow(view: NoteView) {
     THE NAME, AS A FIELD, WHERE THE NOTE HAS NO TITLE OF ITS OWN.
 
     "We should be able to rename a note from the note header itself"
-    (owner, 2026-10-14). A note whose first heading is its name renames from
-    that heading (`linkedTitle.ts`), and one whose front matter names it is
-    called that. What was left is a note named by nothing but its file — an
+    (owner, 2026-10-14). A note's first heading is its name and renames it
+    (`linkedTitle.ts`), and one whose front matter names it is called that. What was left is a note named by nothing but its file — an
     empty `untitled-<date>`, a note that opens with prose — and on a pointer
     layout that note showed no name on its page at all. So that note draws
     its file name over the body as Obsidian's inline title does, and the
