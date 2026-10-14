@@ -37,7 +37,8 @@ import { factCtx, fillAll, observeBucket, observeGone, tester, workspace } from 
 
 type Bucket = MemoryStore & FileStore;
 
-const SECRET = "the quarterly number is 4471";
+// A word, not a number: a timestamp in the dump can contain any digits.
+const SECRET = "the quarterly codeword is marmalade";
 
 function bucket(): Bucket {
   const store = memoryStore() as Bucket;
@@ -97,7 +98,7 @@ describe("the facts fill", () => {
     // The lede is a derivative of the text, as the D1 table's was; the link
     // rows and the change state never carry it.
     const dump = await t.run(async (ctx) => JSON.stringify([await ctx.db.query("nodeLinks").collect(), await ctx.db.query("nodeFactState").collect()]));
-    expect(dump).not.toContain("4471");
+    expect(dump).not.toContain("marmalade");
   });
 
   test("only the changed note is read again", async () => {
