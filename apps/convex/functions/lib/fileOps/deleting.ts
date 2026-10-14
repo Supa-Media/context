@@ -118,6 +118,16 @@ export async function archivePath(
 }
 
 /**
+ * A trash the tree can draw at once, queued by the credential barrier
+ * (`lib/nodes/trashStart.ts`), or `null` to trash it here. Attached to the
+ * store non-enumerably, as `queueMove` is; a store without it (tests, the
+ * gateway, self-hosting without the tree) trashes the old way.
+ */
+type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+/** Turn a still-queued trash around: `true` when it was, `false` when the bucket holds the trash. */
+type RestoreQueued = (restore: { trash: string; path: string }) => Promise<boolean>;
+
+/**
  * Move a visible entry into hidden, recoverable trash without rewriting its
  * privacy rules or links. Keeping those rules at the original path makes Undo
  * restore the exact access state instead of guessing it from the trash folder.
@@ -141,6 +151,12 @@ export async function trashPath(
   const path = requirePath(options.path);
   assertNotMainFolder(path);
   assertWritablePath(path);
+  // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
+  const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
+  if (options.expectedEtag === undefined && typeof queue === "function") {
+    const queued = await queue({ path, clearance: options.clearance, now: options.now });
+    if (queued !== null) return queued;
+  }
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
@@ -264,6 +280,11 @@ export async function restoreTrashedPath(
   }
   const state = await loadPrivacyState(store);
   if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+  // Deleted a moment ago, its trash may still be queued: turned around, the tree draws it back at once.
+  const restoreQueued = (store as { restoreQueuedTrash?: RestoreQueued }).restoreQueuedTrash;
+  if (typeof restoreQueued === "function" && (await restoreQueued({ trash: from, path: to }))) {
+    return { from, to, paths: [to], queued: 1 };
+  }
   const sources = await hiddenKeysAt(store, from);
   if (sources.length === 0 && collaborationSupported(store)) {
     throw notFound();

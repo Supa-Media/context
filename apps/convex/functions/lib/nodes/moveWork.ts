@@ -145,14 +145,17 @@ async function walkOldName(
   const walk: Walk = { listed: 0, moved: 0, failed: 0, conflicts: 0, tooLarge: 0, complete: false };
   const serverCopy = store.capabilities?.serverSideCopy === "same-store";
   const oneAtATime = turns();
-  const prefix = `${claimed.from}/`;
+  // A queued trash can carry one note: its own key is the whole old name, and a
+  // neighbour whose name extends it (`a.md.notes.md`) is not part of it.
+  const single = claimed.kind === "file";
+  const prefix = single ? claimed.from : `${claimed.from}/`;
   let cursor: string | undefined;
   for (;;) {
     // The first page always runs, so a pass that started late still moves something.
     if (cursor !== undefined && Date.now() >= deadline) return walk;
     const at = Date.now();
     const listed = await store.list({ prefix, limit: LIST_PAGE, ...(cursor === undefined ? {} : { cursor }) });
-    const objects = (listed.objects as { key: string; size?: number }[]).filter((object) => object.key.startsWith(prefix));
+    const objects = (listed.objects as { key: string; size?: number }[]).filter((object) => (single ? object.key === claimed.from : object.key.startsWith(prefix)));
     walk.listed += objects.length;
     const rows: NodeRow[] = [];
     const gone: string[] = [];
@@ -216,6 +219,15 @@ async function finishMove(
   claimed: Claimed,
   projection: ProjectionClient | null,
 ): Promise<void> {
+  if (claimed.trash) {
+    // A trash carried no rules and rewrites no links (`trashStart.ts`): the
+    // note's rules stay at its name for Restore. Fast search follows it into
+    // the trash, or back out, as a trash or restore made in one go does.
+    if (projection !== null) await followInProjection(store, { written: [], gone: [], moved: [[claimed.from, claimed.to]] }, projection);
+    await touchNodesNow(ctx, workspaceId, store, { paths: [claimed.from, claimed.to], files: [] });
+    await ctx.runMutation(internal.functions.nodeMoves.complete, { id: claimed.id });
+    return;
+  }
   await releasePrivacy(store, { from: claimed.from, undone: claimed.undone, added: claimed.added });
   // Fast search finds the folder's notes at the new name from here on: until
   // now its rows were folded there (`atTreeNames`), and with the move gone

@@ -34,6 +34,7 @@ import { isEncryptedNote } from "../encryption.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { LOGICAL_DELETE_CONTENT_TYPE, WRITABLE_CONTENT_TYPES } from "../store/contentTypes.js";
 import { notAMarker } from "../store/logicalDelete.js";
+import { TRASH_PREFIX } from "./limits.js";
 import { deleteCreatedDestination, retireMovedSource } from "./objects.js";
 
 /** `key` renamed by one move, or `null` when the move does not reach it. */
@@ -87,6 +88,11 @@ export function physicalCandidates(logical, moves) {
     }
   }
   return found.filter((path) => logicalPath(path, moves) === logical);
+}
+
+/** A key in the hidden trash, where a queued trash carries a note (`lib/nodes/trashStart.ts`). */
+export function isTrashKey(key) {
+  return typeof key === "string" && key.startsWith(TRASH_PREFIX);
 }
 
 /** A key a pending move is carrying away: its tree name is somewhere else. */
@@ -181,9 +187,14 @@ export async function moveObject(store, source, destination) {
   let body;
   if (!source.endsWith("/") && source.endsWith(".md") && destination.endsWith(".md") && collaborationSupported(store)) {
     const text = await object.text();
-    if (!isEncryptedNote(text) && collaborationEligible(source, text)) {
+    // A queued trash (or its undo) carries a note into or out of the hidden
+    // trash. Its document is judged at the note's own name, and the engine is
+    // told the trash layout is meant, as the console's trash and restore do.
+    const trash = isTrashKey(source) || isTrashKey(destination);
+    const notePath = isTrashKey(source) ? destination : source;
+    if (!isEncryptedNote(text) && collaborationEligible(notePath, text)) {
       try {
-        const moved = await moveCollaborationDocument(store, source, destination);
+        const moved = await moveCollaborationDocument(store, source, destination, ...(trash ? [{ internalTrash: true }] : []));
         return { state: "moved", ...(typeof moved?.etag === "string" ? { etag: moved.etag } : {}) };
       } catch (error) {
         if (error?.code === "MOVED") return { state: "already" };
@@ -425,6 +436,8 @@ export async function readAtTreeName(store, key, isVisible) {
 export async function promotePath(store, moves, path, onMoved) {
   const pending = pendingMovesOf(moves);
   if (typeof path !== "string" || isPlumbing(path) || !relocated(path, pending)) return false;
+  // A note on its way to the trash is not promoted there: opening it finds nothing, as after a trash.
+  if (isPlumbing(logicalPath(path, pending))) return false;
   await promoter(store, pending, onMoved)(path, logicalPath(path, pending));
   return true;
 }
