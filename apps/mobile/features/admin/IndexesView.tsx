@@ -34,7 +34,7 @@ import { IndexRows, type IndexActions } from "./IndexRows";
 import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
-import { restartedLine, stuckMeaningCount } from "./meaningIndexes";
+import { fastRestartedLine, restartedLine, stuckMeaningCount } from "./meaningIndexes";
 import {
   INDEXES,
   countParts,
@@ -76,6 +76,7 @@ export function IndexesView() {
   const styles = useThemedStyles(makeStyles);
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
   const restart = useMutation(api.functions.meaningAdmin.restartMeaningIndexing);
+  const restartFast = useMutation(api.functions.meaningAdmin.restartFastSearch);
   const migration = useQuery(api.functions.nodesMigration.report, {});
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
   const startMigration = useMutation(api.functions.nodesMigration.start);
@@ -153,6 +154,10 @@ export function IndexesView() {
   const actions: IndexActions = {
     busy,
     restart: restartMeaning,
+    restartFast: (workspaceId) =>
+      void act(`fast:${workspaceId}`, async () =>
+        fastRestartedLine((await restartFast({ workspaceId: workspaceId as Id<"workspaces"> })).outcome),
+      ),
     migrationPaused: paused,
     repair,
     check: checkOne,

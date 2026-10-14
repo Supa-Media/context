@@ -103,3 +103,23 @@ export function restartedLine(restarted: number, outcome?: string): string {
   if (restarted === 0) return "Nothing needed restarting.";
   return restarted === 1 ? "Restarted. It picks up where it stopped." : `Restarted ${restarted} workspaces.`;
 }
+
+/** What fast search's Restart did, from `meaningAdmin.restartFastSearch`'s outcome. */
+export function fastRestartedLine(outcome: string): string {
+  switch (outcome) {
+    case "restarted":
+      return "Fast search is copying again from where it stopped.";
+    case "running":
+      return "Not restarted: a copy is running right now.";
+    case "ready":
+      return "Nothing to restart: fast search is ready.";
+    case "off":
+      return "Not restarted: fast search is off for this workspace.";
+    case "archived":
+      return "Not restarted: the workspace is archived.";
+    case "noWorkspace":
+      return "Not restarted: that workspace no longer exists.";
+    default:
+      return "Not restarted: it is being deleted.";
+  }
+}
