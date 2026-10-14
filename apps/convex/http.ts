@@ -143,6 +143,7 @@ import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
+import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 
 const http = httpRouter();
 
@@ -530,18 +531,15 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
     { hashedTicket: await hashToken(ticket) },
   );
   if (binding === null) return json({ binding });
-  // The free managed tier's note cap, a sibling as on `/gateway/binding`, for
-  // the workspace read off the ticket's own row — never anything the caller
-  // sent. Absent for every other context, and absent on a failed read: a
-  // billing lookup must not cost somebody their mail.
-  const noteCap = await ctx
-    .runQuery(internal.functions.billing.noteCap, {
-      workspaceId: binding.workspaceId,
-    })
-    .catch(() => null);
+  // The free tier's note cap and the Convex tree's count of notes (null while
+  // the tree loads), siblings as on `/gateway/binding`, for the ticket's own
+  // workspace. Absent for every other context and on a failed read: a billing
+  // lookup must not cost somebody their mail.
+  const noteCap = await ctx.runQuery(internal.functions.billing.noteCap, { workspaceId: binding.workspaceId }).catch(() => null);
+  const noteCount = noteCap === null ? null : ((await servedNoteCount(ctx, binding.workspaceId))?.notes ?? null);
   const managed = await ingestEncryptionSiblings(ctx, binding.workspaceId);
   if (managed === null) return json({ binding: null });
-  return json({ binding, ...(noteCap === null ? {} : { noteCap }), ...managed });
+  return json({ binding, ...(noteCap === null ? {} : { noteCap, noteCount }), ...managed });
 });
 
 /* -------------------------------------------------------------------------- */

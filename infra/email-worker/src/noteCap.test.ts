@@ -9,9 +9,12 @@
  * what is proved here is that this Worker hands it the number and answers the
  * refusal.
  *
- * Sabotage: not passing the cap to the factory fails the first and third; not
- * naming `NoteCapReached` as its own log reason fails the third (it logs
- * `write_failed`, which is true and useless to an operator).
+ * The count is the Convex tree's, sent beside the cap: the bucket is never
+ * listed to find it. A null count (the tree still loading) admits the message.
+ *
+ * Sabotage: not passing the cap or the count to the factory fails the first
+ * and third; not naming `NoteCapReached` as its own log reason fails the third
+ * (it logs `write_failed`, which is true and useless to an operator).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,7 +62,7 @@ function bucketHolding(notes: number) {
   };
 }
 
-async function deliver(bucket: ReturnType<typeof bucketHolding>, noteCap: number | null) {
+async function deliver(bucket: ReturnType<typeof bucketHolding>, noteCap: number | null, noteCount: number | null = null) {
   const rejected: string[] = [];
   const raw = rawMessage();
   const message: InboundMessage = {
@@ -93,6 +96,7 @@ async function deliver(bucket: ReturnType<typeof bucketHolding>, noteCap: number
           status: "active",
         },
         noteCap,
+        noteCount,
       };
     },
     async record() {},
@@ -128,21 +132,29 @@ afterEach(() => {
 describe("a personal context on the free tier that is full", () => {
   it("refuses the message with the one refusal, and writes no note", async () => {
     const bucket = bucketHolding(3);
-    expect(await deliver(bucket, 3)).toEqual([REFUSAL]);
+    expect(await deliver(bucket, 3, 3)).toEqual([REFUSAL]);
     expect(inbox(bucket)).toEqual([]);
   });
 
   it("takes the message while there is room, and with no cap at all", async () => {
     const roomy = bucketHolding(2);
-    expect(await deliver(roomy, 3)).toEqual([]);
+    expect(await deliver(roomy, 3, 2)).toEqual([]);
     expect(inbox(roomy)).toHaveLength(1);
     const uncapped = bucketHolding(3);
     expect(await deliver(uncapped, null)).toEqual([]);
     expect(inbox(uncapped)).toHaveLength(1);
   });
 
+  it("takes the message while the tree has no count yet, and never lists the bucket for one", async () => {
+    const loading = bucketHolding(3);
+    const listed = vi.spyOn(loading, "list");
+    expect(await deliver(loading, 3, null)).toEqual([]);
+    expect(inbox(loading)).toHaveLength(1);
+    expect(listed).not.toHaveBeenCalled();
+  });
+
   it("says why in its own log, and only there", async () => {
-    await deliver(bucketHolding(3), 3);
+    await deliver(bucketHolding(3), 3, 3);
     expect(logs.some((line) => line.includes('"note_cap_reached"'))).toBe(true);
   });
 });

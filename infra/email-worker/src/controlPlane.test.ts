@@ -174,17 +174,22 @@ describe("the request cannot name a context", () => {
     expect(sent[0]!.body).toEqual({ ticket: "ticket-1" });
   });
 
-  it("reads the free tier's note cap beside the binding, and nothing else as one", async () => {
-    const capped = client({ binding: { status: "active" }, noteCap: 1000 });
+  it("reads the free tier's note cap and the tree's count beside the binding, and nothing else as one", async () => {
+    const capped = client({ binding: { status: "active" }, noteCap: 1000, noteCount: 912 });
     expect(await capped.plane.getBinding("ticket-1")).toEqual({
       binding: { status: "active" },
       noteCap: 1000,
+      noteCount: 912,
       managedEncryption: null,
       encryptionKey: null,
     });
     for (const noteCap of [undefined, 0, -1, 1.5, "1000", null]) {
       const { plane } = client({ binding: { status: "active" }, noteCap });
       expect((await plane.getBinding("ticket-1"))?.noteCap, String(noteCap)).toBeNull();
+    }
+    for (const noteCount of [undefined, -1, 1.5, "912", null]) {
+      const { plane } = client({ binding: { status: "active" }, noteCap: 1000, noteCount });
+      expect((await plane.getBinding("ticket-1"))?.noteCount, String(noteCount)).toBeNull();
     }
     expect(await client({ binding: null }).plane.getBinding("ticket-1")).toBeNull();
   });

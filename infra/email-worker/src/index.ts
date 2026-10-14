@@ -252,12 +252,17 @@ function storeFor(
   opened: {
     binding: Record<string, unknown>;
     noteCap: number | null;
+    noteCount?: number | null;
     managedEncryption: unknown;
     encryptionKey: unknown;
   },
   env: Env,
 ): ContextStore | null {
   const { binding, noteCap } = opened;
+  // The Convex tree's count, sent beside the cap; null admits (the tree is
+  // still loading). The bucket is never listed to count.
+  const counted = opened.noteCount ?? null;
+  const noteCount = async () => counted;
   if (binding.status !== "active") return null;
   try {
     // A managed bucket being or already encrypted gets the wrapper; a mode
@@ -268,7 +273,7 @@ function storeFor(
       String(binding.workspaceId ?? ""),
       (why: string) => new Error(why),
     );
-    return storeForBinding(binding, env, { noteCap, managedEncryption }) as unknown as ContextStore;
+    return storeForBinding(binding, env, { noteCap, noteCount, managedEncryption }) as unknown as ContextStore;
   } catch {
     return null;
   }
