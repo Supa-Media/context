@@ -10,8 +10,10 @@
  * the tree is not there yet, the answer is this explicit state, never a
  * bucket listing, and asking for it starts the copy if none is running.
  *
- * A store that cannot be listed in key order (`unsupported`, Dropbox) has no
- * tree at all, so it says so in its own words rather than loading for ever.
+ * A store that can be listed neither in key order nor by a continuation
+ * token (`unsupported`) has no tree, so it says so in its own words rather
+ * than loading for ever; Dropbox, which ignores key order, is paged by its
+ * token and has one (`sweep.ts`).
  */
 
 import { ConvexError } from "convex/values";
@@ -43,7 +45,7 @@ export const TREE_LOADING = "TREE_LOADING";
 
 export const TREE_LOADING_MESSAGE = "This workspace's files are still loading. They will appear here in a minute.";
 export const TREE_UNSUPPORTED_MESSAGE =
-  "This storage cannot be listed in order, so its files cannot be shown here yet. Notes still open by name.";
+  "This storage could not be listed, so its files cannot be shown here yet. Context tries again daily; notes still open by name.";
 
 export function treeLoadingError(readiness: Exclude<TreeReadiness, "served">): ConvexError<{ code: string; message: string }> {
   return new ConvexError({
@@ -78,7 +80,8 @@ export async function readinessAndKick(
   const readiness = treeReadiness(state);
   if (readiness === "served") return readiness;
   if (!bound) return "unbound";
-  if (readiness === "loading") await startNodesSweepIfDue(ctx as ActionCtx, workspaceId);
+  // An unlistable store is tried again once its day has passed (`nodeSweepDue`).
+  await startNodesSweepIfDue(ctx as ActionCtx, workspaceId);
   return readiness;
 }
 

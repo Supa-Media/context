@@ -14,7 +14,7 @@ import { requirePath, baseName, joinPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { writeFile } from "./writing";
-import { type WalkStop, walkStopped } from "./walk";
+import { type WalkStop, namesListing, walkStopped } from "./walk";
 
 /* -------------------------------------------------------------------------- */
 /*                             creating and copying                           */
@@ -84,17 +84,31 @@ export async function createFolder(
   await assertNoNameTwin(store, folder, options.clearance, "folder");
 
   const about = joinPath(folder, "about.md");
-  const existing = await store.get(about);
-  if (existing !== null) {
-    throw new FileOpError("DESTINATION_EXISTS", "That folder already exists.");
-  }
-  await writeFile(store, {
-    path: about,
-    text: renderNewFolderAbout(folder),
-    clearance: options.clearance,
-    now: options.now,
-  });
+  await writeNewAbout(store, about, renderNewFolderAbout(folder), options, "That folder already exists.");
   return { path: folder, readme: about };
+}
+
+/**
+ * Write a new folder's `about.md`, or `DESTINATION_EXISTS` if one is there.
+ *
+ * The note being written is the only thing read: `writeFile` with no
+ * `expectedEtag` refuses a key that exists (and writes `onlyIf: { absent }`
+ * where the store can), so the GET of the same key this used to make first
+ * asked the bucket twice. Its refusal is turned into the folder's own words.
+ */
+export async function writeNewAbout(
+  store: FileStore,
+  about: string,
+  text: string,
+  options: { clearance: Clearance; now: number },
+  exists: string,
+): Promise<void> {
+  try {
+    await writeFile(store, { path: about, text, clearance: options.clearance, now: options.now });
+  } catch (error) {
+    if (error instanceof FileOpError && error.code === "CONFLICT") throw new FileOpError("DESTINATION_EXISTS", exists);
+    throw error;
+  }
 }
 
 /**
@@ -118,16 +132,21 @@ export async function namesInUse(store: FileStore, folder: string): Promise<Set<
   let complete = false;
   let stop: WalkStop = "budget";
   const seen = new Set<string>();
+  // The tree's names (`namesListing`), never a bucket listing. Flat rather
+  // than delimited: the tree answers a delimited listing by reading every row,
+  // and a flat one reads only this folder's.
+  const tree = namesListing(store);
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
+    const listing = await tree.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
-      if (object.key !== prefix) names.add(baseName(object.key));
-    }
-    // Subfolder names count: a folder called `note copy.md` takes that name as
-    // surely as a note does, and landing a file key beside a folder prefix is
-    // the shape `movePath` refuses as unrepresentable on a Dropbox binding.
-    for (const raw of listing.delimitedPrefixes ?? []) {
-      names.add(baseName(raw.replace(/\/+$/, "")));
+      if (object.key === prefix) continue;
+      // Subfolder names count: a folder called `note copy.md` takes that name
+      // as surely as a note does, and landing a file key beside a folder
+      // prefix is the shape `movePath` refuses as unrepresentable on a
+      // Dropbox binding.
+      const rest = object.key.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      names.add(slash === -1 ? rest : rest.slice(0, slash));
     }
     // Truncated-with-no-cursor is not finished, it is unable to continue — see
     // `listFolder`. Folding the two into one `||` set `complete` on a short

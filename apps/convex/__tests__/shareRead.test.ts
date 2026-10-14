@@ -36,6 +36,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   asUser,
   captureError,
@@ -141,6 +142,8 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
     visibility: "team",
   });
 
+  // The tree copied, as a bound workspace's is: writes ask it which names are taken.
+  await copyTree(t, workspaceId);
   return { t, owner, lk, stranger, workspaceId, backend };
 }
 

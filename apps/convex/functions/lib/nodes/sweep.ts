@@ -12,10 +12,23 @@
  * listing answers, and a sweep that restarted at the top on every pass would
  * never finish a large workspace. The last key listed is kept in the sink
  * after every page, and the next pass lists from just after it with
- * `startAfter`. The store's own continuation token is never kept: it is not
- * ours to store, and on S3 it can name a private key. That only works for a
- * store that lists in byte order and honours the position, so the first sign
- * it does neither (Dropbox) marks the tree unsupported, and it is never served.
+ * `startAfter`. That only works for a store that lists in byte order and
+ * honours the position.
+ *
+ * **A store that does neither (Dropbox) is paged by its own continuation
+ * token instead** (step 3 of the convex-only plan, 2026-10-14). Until then
+ * the first out-of-order key marked the tree `unsupported` and it was never
+ * served, so once every reader of which notes exist moved to the tree such a
+ * workspace had no file list at all, and no write could ask whether a name
+ * was taken. Now the pass starts the listing again from the top, unordered,
+ * and keeps the store's token in the sink's cursor (`TOKEN_CURSOR`) so the
+ * next pass resumes there. Rows are not position-dependent: the finish still
+ * prunes whatever was not observed since the sweep began. The token is kept
+ * only for such a store: it is opaque state the provider hands back for this
+ * listing, and the control plane already holds every name it could stand
+ * for. What remains `unsupported` is a store that says a listing has more and
+ * offers neither a position nor a token, which nothing can page; it is tried
+ * again a day later (`nodeSweepDue`).
  *
  * Why `.context/` and the other dot folders are jumped over: they hold one
  * object per AI read and sort ahead of every note, so walking them page by page
@@ -55,6 +68,13 @@ export interface SweepResult {
  * can echo a private key, and the sink's `error` is shown to people.
  */
 export const FILL_FAILED = "Tree fill failed; inspect service logs";
+
+/**
+ * Marks a cursor that is a store's continuation token rather than a key: no
+ * key the sweep keeps begins with a control character (`nodeKey`), and an
+ * ordered pass never stores one.
+ */
+export const TOKEN_CURSOR = "\u0001token\u0001";
 
 /** A listing that said there was more and gave nothing new: it cannot make progress. */
 const NO_PROGRESS = "the storage listing said there was more but returned nothing new";
@@ -176,12 +196,12 @@ async function runPass(
   now: () => number,
   maxPages: number,
 ): Promise<SweepResult> {
-  const state = await sink.state();
-  if (state?.status === "unsupported") return { complete: false, unsupported: true, pages: 0, rows: 0 };
-
   const begun = await sink.begin(now());
   const startedAt = begun.startedAt;
   let cursor = begun.cursor;
+  if (cursor.startsWith(TOKEN_CURSOR)) {
+    return await tokenPass(store, sink, now, maxPages, startedAt, cursor.slice(TOKEN_CURSOR.length), 0, 0);
+  }
   let rows = 0;
   let sawPrivacy = false;
 
@@ -196,9 +216,11 @@ async function runPass(
       const key = (object as { key?: unknown } | null)?.key;
       if (typeof key !== "string") continue;
       if (last !== "" && compareKeys(key, last) <= 0) {
-        // Out of order, or the position was ignored: nothing after this is "the rest".
-        await sink.unsupported();
-        return { complete: false, unsupported: true, pages: page + 1, rows };
+        // Out of order, or the position was ignored: nothing after this is
+        // "the rest". Start again from the top, by the store's own token,
+        // and say so first, so a pass with no pages left resumes that way.
+        await sink.progress(TOKEN_CURSOR, now());
+        return await tokenPass(store, sink, now, maxPages - page - 1, startedAt, "", page + 1, rows);
       }
       last = key;
       const root = plumbingRootOf(key);
@@ -269,4 +291,72 @@ async function finishPass(
   }
   await sink.finish(now());
   return { complete: true, unsupported: false, pages, rows };
+}
+
+/**
+ * Pages of a store that ignores key order, by its continuation token, from
+ * `token` (`""` for the top). Every listed key outside a dot folder is
+ * observed, in whatever order it comes; the token is kept after every page so
+ * the next pass resumes there. A stored token the store no longer accepts is
+ * dropped and the listing starts again from the top, once per pass.
+ */
+async function tokenPass(
+  store: NodeListingStore,
+  sink: NodeSink,
+  now: () => number,
+  maxPages: number,
+  startedAt: number,
+  token: string,
+  pagesBefore: number,
+  rowsBefore: number,
+): Promise<SweepResult> {
+  let rows = rowsBefore;
+  let sawPrivacy = false;
+  let retried = false;
+  for (let page = 0; page < maxPages; page += 1) {
+    const observedAt = now();
+    let listing: Awaited<ReturnType<NodeListingStore["list"]>>;
+    try {
+      listing = await store.list({ limit: 1000, ...(token === "" ? {} : { cursor: token }) });
+    } catch (error) {
+      if (token === "" || retried) throw error;
+      // An expired token: list from the top again rather than fail for ever.
+      retried = true;
+      token = "";
+      page -= 1;
+      continue;
+    }
+    const kept: NodeRow[] = [];
+    let privacyRow: NodeRow | null = null;
+    for (const object of listing.objects ?? []) {
+      const key = (object as { key?: unknown } | null)?.key;
+      if (typeof key !== "string" || plumbingRootOf(key) !== null) continue;
+      const row = rowFromObject(object);
+      if (row === null) continue;
+      kept.push(row);
+      if (row.path === NODE_PRIVACY_KEY) privacyRow = row;
+    }
+    rows += kept.length;
+    await observeAll(sink, observedAt, kept);
+    if (privacyRow !== null) {
+      sawPrivacy = true;
+      const held = await sink.privacy();
+      if (held?.etag !== privacyRow.etag || held?.invalid === true) await refreshPrivacyMirror(store, sink, now);
+    }
+    const pages = pagesBefore + page + 1;
+    if (listing.truncated !== true) return await finishPass(store, sink, now, startedAt, sawPrivacy, pages, rows);
+    const next = typeof listing.cursor === "string" ? listing.cursor : "";
+    if (next === "") {
+      // More, and no way to ask for it: nothing can page this store.
+      await sink.unsupported();
+      return { complete: false, unsupported: true, pages, rows };
+    }
+    if (next === token) {
+      await sink.fail(NO_PROGRESS);
+      return { complete: false, unsupported: false, pages, rows };
+    }
+    token = next;
+    await sink.progress(`${TOKEN_CURSOR}${token}`, now());
+  }
+  return { complete: false, unsupported: false, pages: pagesBefore + maxPages, rows };
 }

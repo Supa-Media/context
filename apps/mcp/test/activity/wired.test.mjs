@@ -111,6 +111,8 @@ export async function runActivityWiredChecks(check) {
     NATIVE_BINDINGS: "CONTEXT_BUCKET",
     CONTEXT_BUCKET: bucket,
   };
+  // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+  controlPlane.serveTreesFrom(env);
 
   let id = 0;
   async function call(token, name, args = {}) {

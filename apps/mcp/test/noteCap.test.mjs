@@ -14,6 +14,8 @@
  *   `delete` keeping the stale count                                       1
  *   `copy` delegated without the check                                     1
  *   `activity.md` no longer exempt                                         1
+ *   the count walking the bucket instead of asking the tree                2
+ *   an unanswered count refusing (or caching "no notes") instead of admitting 1
  *
  * And in the worker suite (`noteCapGateway.test.mjs`): the factory no longer
  * applying the cap fails 4 checks; the move tools running outside the
@@ -26,7 +28,6 @@ import {
   NOTE_CAP_REACHED,
   NoteCapReached,
   asRelocation,
-  countNotesUpTo,
   isCountedNoteKey,
   withNoteCap,
 } from "../src/store/noteCap.js";
@@ -122,6 +123,25 @@ function storeWithNotes(n) {
   return store;
 }
 
+/**
+ * The Convex tree's count of `view`'s notes, as the control plane answers it:
+ * read off the objects directly, never through `list`, so a test can tell a
+ * bucket listing apart from a count. `asked` counts the questions.
+ */
+function treeOf(raw) {
+  const count = async () => {
+    count.asked += 1;
+    return [...raw.objects.keys()].filter((key) => isCountedNoteKey(key)).length;
+  };
+  count.asked = 0;
+  return count;
+}
+
+/** `withNoteCap` with the tree's count of `raw`, as every caller that builds a capped store passes it. */
+function capped(store, cap, raw = store) {
+  return withNoteCap(store, cap, treeOf(raw));
+}
+
 async function refusal(promise) {
   try {
     await promise;
@@ -142,23 +162,43 @@ test("a note is Markdown outside every dot-prefixed segment", () => {
   assert.equal(isCountedNoteKey(undefined), false);
 });
 
-test("the count skips plumbing and stops once it reaches the limit", async () => {
-  const store = storeWithNotes(5);
-  assert.equal(await countNotesUpTo(store, 100), 5);
-  const big = new MemoryStore();
-  for (let i = 0; i < 2500; i += 1) big.seed(`a/n-${String(i).padStart(4, "0")}.md`);
-  assert.equal(await countNotesUpTo(big, 1000), 1000);
-  assert.ok(big.lists <= 2, "a count that has its answer stops listing");
+test("the count is the tree's: the bucket is never listed to take it", async () => {
+  const raw = storeWithNotes(5);
+  const count = treeOf(raw);
+  const store = withNoteCap(raw, 5, count);
+  assert.ok((await refusal(store.put("1-projects/new.md", "x", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
+  assert.equal(count.asked, 1);
+  assert.equal(raw.lists, 0, "no bucket listing counts notes");
+});
+
+test("a tree that cannot answer admits the write, and the next create asks again", async () => {
+  const raw = storeWithNotes(5);
+  let answer = null;
+  let asked = 0;
+  const store = withNoteCap(raw, 5, async () => {
+    asked += 1;
+    if (answer instanceof Error) throw answer;
+    return answer;
+  });
+  assert.ok(await store.put("1-projects/a.md", "x", { onlyIf: { absent: true } }), "still loading: admitted");
+  answer = new Error("control plane unreachable");
+  assert.ok(await store.put("1-projects/b.md", "x", { onlyIf: { absent: true } }), "unreachable: admitted");
+  answer = 7;
+  assert.ok((await refusal(store.put("1-projects/c.md", "x", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
+  assert.equal(asked, 3);
+  assert.equal(raw.lists, 0);
+  // No count source at all is the same answer: nothing to count with.
+  assert.ok(await withNoteCap(storeWithNotes(5), 5).put("n.md", "x", { onlyIf: { absent: true } }));
 });
 
 test("under the cap a new note is written", async () => {
-  const store = withNoteCap(storeWithNotes(4), 5);
+  const store = capped(storeWithNotes(4), 5);
   assert.ok(await store.put("1-projects/new.md", "hello", { onlyIf: { absent: true } }));
 });
 
 test("at the cap a new note is refused, and nothing is written", async () => {
   const raw = storeWithNotes(5);
-  const store = withNoteCap(raw, 5);
+  const store = capped(raw, 5);
   const error = await refusal(store.put("1-projects/new.md", "hello", { onlyIf: { absent: true } }));
   assert.ok(error instanceof NoteCapReached);
   assert.equal(error.code, NOTE_CAP_REACHED);
@@ -170,19 +210,19 @@ test("at the cap a new note is refused, and nothing is written", async () => {
   assert.ok(unconditional instanceof NoteCapReached, "an unconditional put of a new note is a create too");
 });
 
-test("the cap counts across writes in one store without re-listing", async () => {
+test("the cap counts across writes in one store without asking again", async () => {
   const raw = storeWithNotes(3);
-  const store = withNoteCap(raw, 5);
+  const count = treeOf(raw);
+  const store = withNoteCap(raw, 5, count);
   await store.put("a.md", "1", { onlyIf: { absent: true } });
-  const listsAfterFirst = raw.lists;
   await store.put("b.md", "2", { onlyIf: { absent: true } });
-  assert.equal(raw.lists, listsAfterFirst);
+  assert.equal(count.asked, 1);
   assert.ok((await refusal(store.put("c.md", "3", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
 });
 
 test("at the cap everything that is not a new note still works", async () => {
   const raw = storeWithNotes(5);
-  const store = withNoteCap(raw, 5);
+  const store = capped(raw, 5);
   const current = await raw.get("1-projects/note-2.md");
   assert.ok(await store.put("1-projects/note-2.md", "edited", { onlyIf: { etagMatches: current.etag } }), "an edit");
   assert.ok(await store.put("1-projects/note-3.md", "overwritten"), "an unconditional write over a note that exists");
@@ -198,7 +238,7 @@ test("at the cap everything that is not a new note still works", async () => {
 });
 
 test("deleting a note makes room for the next one", async () => {
-  const store = withNoteCap(storeWithNotes(5), 5);
+  const store = capped(storeWithNotes(5), 5);
   assert.ok((await refusal(store.put("n.md", "x", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
   await store.delete("1-projects/note-2.md");
   assert.ok(await store.put("n.md", "x", { onlyIf: { absent: true } }));
@@ -206,7 +246,7 @@ test("deleting a note makes room for the next one", async () => {
 
 test("a move inside the context is never refused, and a create outside it still is", async () => {
   const raw = storeWithNotes(5);
-  const store = withNoteCap(raw, 5);
+  const store = capped(raw, 5);
   await asRelocation(store, async () => {
     const body = await (await raw.get("1-projects/note-2.md")).text();
     assert.ok(await store.put("2-areas/note-2.md", body, { onlyIf: { absent: true } }));
@@ -217,7 +257,7 @@ test("a move inside the context is never refused, and a create outside it still 
 });
 
 test("copying to a new note is a create", async () => {
-  const store = withNoteCap(storeWithNotes(5), 5);
+  const store = capped(storeWithNotes(5), 5);
   const error = await refusal(store.copy("1-projects/note-2.md", "1-projects/copy.md", { onlyIf: { absent: true } }));
   assert.ok(error instanceof NoteCapReached);
 });
@@ -233,7 +273,10 @@ test("no cap, or a cap that is not a positive integer, is the store itself", () 
 test("over the logical-delete view, a deleted note neither counts nor escapes the cap", async () => {
   const raw = storeWithNotes(5);
   const logical = withLogicalDelete(raw);
-  const store = withNoteCap(logical, 5);
+  // The tree is swept through the logical view, so a deleted note's marker is not a row.
+  const store = withNoteCap(logical, 5, async () =>
+    (await logical.list({ prefix: "" })).objects.filter(({ key }) => isCountedNoteKey(key)).length
+  );
   const current = await logical.get("1-projects/note-2.md");
   await store.delete("1-projects/note-2.md", { onlyIf: { etagMatches: current.etag } });
   assert.equal(await logical.get("1-projects/note-2.md"), null, "logically deleted");
@@ -248,7 +291,7 @@ test("a full store still hands out every note — the cap never touches the exit
   // and nothing else, so reading, listing and checking every note on a full
   // context must answer exactly as the raw bucket does.
   const raw = storeWithNotes(5);
-  const store = withNoteCap(raw, 5);
+  const store = capped(raw, 5);
   assert.ok((await refusal(store.put("new.md", "x", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
   for (const key of raw.objects.keys()) {
     const object = await store.get(key);

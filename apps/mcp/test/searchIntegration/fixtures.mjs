@@ -315,6 +315,8 @@ export async function createSearchIntegrationHarness() {
     BROKEN_BUCKET: broken,
     DEEP_BUCKET: deep,
   };
+  // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+  controlPlane.serveTreesFrom(env);
 
   return { controlPlane, restore, bucket, big, broken, deep, env };
 }

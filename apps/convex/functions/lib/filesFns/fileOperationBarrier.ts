@@ -44,6 +44,7 @@ import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation,
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
+import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -387,6 +388,8 @@ export async function runFileOperationHandler(
     store = storeForBinding(credential, undefined, {
       fetchImpl: timeoutFetch,
       noteCap,
+      // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
+      noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
     }) as unknown as FileStore;
   } catch {

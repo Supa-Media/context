@@ -28,6 +28,7 @@ import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { audiencesOf, treeAudiences } from "../functions/lib/treeAudiences";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   type TestConvex,
   addMember,
@@ -150,6 +151,8 @@ async function fixture(): Promise<Fixture> {
       updatedAt: Date.now(),
     }),
   );
+  // The tree copied, as a bound workspace's is: writes ask it which names are taken.
+  await copyTree(t, workspaceId);
   return { t, owner, member, outsider, workspaceId, backend };
 }
 

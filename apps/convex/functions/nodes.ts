@@ -359,12 +359,12 @@ export const requestSweep = internalMutation({
   },
 });
 
-/** The store cannot be listed in key order: never served, never swept again. */
+/** The store can be listed neither in key order nor by token: not served, tried again a day later. */
 export const unsupported = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
-    await updateTree(ctx, workspaceId, unsupportedState);
+    await updateTree(ctx, workspaceId, (state) => unsupportedState(state, Date.now()));
     return null;
   },
 });

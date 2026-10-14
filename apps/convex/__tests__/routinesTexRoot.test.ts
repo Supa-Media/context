@@ -4,7 +4,7 @@ import type { FileOperation, OperationResult } from "../functions/lib/filesFns/o
 import { routinePathsTouched } from "../functions/lib/routines/changes";
 import { MAX_ROUTINES_PER_WORKSPACE } from "../functions/lib/routines/model";
 import { routinePathsOf } from "../functions/lib/routines/sync";
-import { asUser } from "./fixtures.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
 import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, rowAt, rows, signal } from "./routines.helpers";
 
 /**
@@ -128,6 +128,8 @@ describe("a tex/routines/ note's runs", () => {
     const history = (text: string) => JSON.stringify({ version: 1, runs: [{ at: 1_700_000_000_000, outcome: "answered", text }] });
     f.backend.seed(".context/agent/routines/daily/standup.json", history("from the old one"));
     f.backend.seed(".context/agent/tex/routines/daily/standup.json", history("from the new one"));
+    // Whether a routine exists is the tree's to say, so the bucket is copied into it first.
+    await copyTree(f.t, f.workspaceId);
     const runsFor = (path: string) =>
       asUser(f.t, f.owner).action(api.functions.routines.routineRuns, { workspaceId: f.workspaceId, path });
     expect((await runsFor(TEX_DAILY)).map((run) => run.text)).toEqual(["from the new one"]);

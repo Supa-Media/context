@@ -188,6 +188,11 @@ export class DropboxStore {
       configurable: true,
     });
     this.rootPrefix = normalizeRootPrefix(options.rootPrefix);
+    // `list_folder` on a file's own path answers `not_folder`, so a one-key
+    // prefix listing never finds a file here, as it does on an object store.
+    // The Convex tree's re-check reads such a key by name instead
+    // (`apps/convex/functions/lib/nodes/touch.ts`).
+    this.prefixFindsFiles = false;
     this.fetch = options.fetch || globalThis.fetch.bind(globalThis);
     this.sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     // Not a claim taken on faith anywhere: `probeStore()` still proves it at

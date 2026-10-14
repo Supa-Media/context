@@ -195,7 +195,7 @@ describe("nodes: tenant isolation", () => {
 });
 
 describe("nodes: dirty, unsupported and failure bookkeeping", () => {
-  test("dirty creates the row when absent and an unsupported store refuses to sweep", async () => {
+  test("dirty creates the row when absent, and an unsupported store is tried again from the top", async () => {
     const t = convexTest(schema, modules);
     const ws = await workspace(t, "flags");
     await t.mutation(internal.functions.nodes.dirty, { workspaceId: ws });
@@ -205,11 +205,12 @@ describe("nodes: dirty, unsupported and failure bookkeeping", () => {
       files: 0,
     });
     await t.mutation(internal.functions.nodes.unsupported, { workspaceId: ws });
-    const error = await t
-      .mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 5 })
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ConvexError);
-    expect((error as ConvexError<{ code: string }>).data).toMatchObject({ code: "UNSUPPORTED" });
+    const unsupported = await t.query(internal.functions.nodes.state, { workspaceId: ws });
+    expect(unsupported).toMatchObject({ status: "unsupported" });
+    // Marked with when it was found unlistable, so the retry waits its day.
+    expect(typeof unsupported?.leaseAt).toBe("number");
+    expect(await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 5 })).toMatchObject({ cursor: "" });
+    expect(await t.query(internal.functions.nodes.state, { workspaceId: ws })).toMatchObject({ status: "filling" });
   });
 
   test("saveParity keeps its result on the row across a later sweep", async () => {

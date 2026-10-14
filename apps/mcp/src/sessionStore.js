@@ -12,6 +12,7 @@
  */
 
 import { StorageUnavailable, managedEncryptionForStore, storeForBinding } from "./store/factory.js";
+import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
@@ -96,8 +97,14 @@ export async function storeForSession(session, env, controlPlane) {
     typeof controlPlane.privacyAuthority === "function"
       ? controlPlane.privacyAuthority({ accessToken: session.accessToken }, session.workspaceId, opened.privacy ?? null)
       : null;
+  // The free plan's cap counts the Convex tree's notes, never the bucket
+  // (`store/noteCap.js`); asked only when a capped write would add a note.
+  const noteCount =
+    typeof controlPlane.readTreeFacts === "function"
+      ? () => treeNoteCount((request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request))
+      : null;
   const store = withPrivacyAuthority(
-    storeForBinding(binding, env, { noteCap, managedEncryption: managedEncryptionForStore(opened, binding) }),
+    storeForBinding(binding, env, { noteCap, noteCount, managedEncryption: managedEncryptionForStore(opened, binding) }),
     authority,
   );
   // The backend's name, for the search trace and nothing else. Latency is a

@@ -32,6 +32,7 @@ import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
+import { destinationRefusal } from "./destination.js";
 import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
@@ -84,7 +85,10 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   }
   const unsafeMove = moveSafetyRefusal(store);
   if (unsafeMove) return toolError(unsafeMove);
-  if (await getWithLegacyFallback(store, destination)) return toolError("conflict: destination already exists");
+  // Asked of the Convex tree (`tree/names.js`); the put below is
+  // `onlyIf: { absent: true }`, the truth for a note the tree has not heard of yet.
+  const destinationTaken = await destinationRefusal(store, destination);
+  if (destinationTaken) return destinationTaken;
   const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { ignore: source });
   if (twin) return toolError(twin);
 
@@ -115,7 +119,9 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
+      // A destination the tree had not heard of yet, refused by the conditional write.
+      if (code === "DESTINATION_EXISTS") return toolError("conflict: destination already exists");
+      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH"].includes(code)) {
         return toolError("conflict: source changed since it was read; re-read and retry");
       }
       return toolError("this note's move transition could not finish safely; re-read it and retry");

@@ -6,7 +6,7 @@
  */
 
 import { isEncryptedNote } from "../noteEncryption";
-import { canSee, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
+import { canSee, isPlumbing, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
 import { type Clearance } from "../clearance";
 import {
   eligible as collaborationEligible,
@@ -22,6 +22,7 @@ import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
+import { createAbsent, fileInTree, filesInTree } from "./treeChecks";
 import { type MoveResult, movePath } from "./moving";
 import { forgetPrivacy } from "./privacyRewrite";
 
@@ -87,8 +88,10 @@ export async function archivePath(
   // not a person clicking twice.
   const stamp = timestampSlug(options.now);
   let destination = `${archive}/${stamp}/${path}`;
+  // Asked of the tree (`treeChecks.ts`); `movePath` writes the destination
+  // conditionally where the store can, so a name the tree missed is refused.
   for (let attempt = 2; attempt <= 100; attempt += 1) {
-    if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
+    if (!(await isFolder(store, destination)) && !(await fileInTree(store, destination))) break;
     destination = `${archive}/${stamp}-${attempt}/${path}`;
   }
 
@@ -365,15 +368,21 @@ async function movePairs(
   store: FileStore,
   pairs: readonly { source: string; destination: string }[],
 ): Promise<void> {
+  // A restore's destination is a name in the tree; a trash entry is plumbing
+  // the tree never holds, so the sources are the bucket's (`hiddenKeysAt`).
+  // Restored names are asked of the tree, and written only if still absent
+  // where the store can hold that (`treeChecks.ts`).
+  const restoring = pairs.filter((pair) => !isPlumbing(pair.destination));
+  const taken = await filesInTree(store, restoring.map((pair) => pair.destination));
   for (const pair of pairs) {
-    if ((await store.get(pair.destination)) !== null) {
+    if (taken.has(pair.destination) || (isPlumbing(pair.destination) && (await store.get(pair.destination)) !== null)) {
       throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
     }
   }
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) throw notFound();
-    await store.put(pair.destination, await object.arrayBuffer());
+    await createAbsent(store, pair.destination, await object.arrayBuffer());
     await store.delete(pair.source);
   }
 }

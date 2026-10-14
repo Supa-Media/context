@@ -58,6 +58,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3 } from "./storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   addMember,
   asUser,
@@ -395,6 +396,7 @@ describe("places follow a move", () => {
         updatedAt: Date.now(),
       }),
     );
+    await copyTree(t, workspaceId);
     const me = asUser(t, owner);
     await me.mutation(pin, { workspaceId, path: "1-projects/clients", kind: "folder" });
     await me.action(api.functions.files.moveEntry, {

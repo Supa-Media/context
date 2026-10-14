@@ -13,9 +13,15 @@ import { clearanceOf } from "../../functions/lib/clearance";
 import { type FileStore, setFolderVisibility, setVisibility } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
-import { FILL_FAILED, sweepNodesPass, type NodeListingStore } from "../../functions/lib/nodes/sweep";
+import { FILL_FAILED, TOKEN_CURSOR, sweepNodesPass, type NodeListingStore } from "../../functions/lib/nodes/sweep";
 import { touchNodes } from "../../functions/lib/nodes/touch";
-import { NODE_TOUCH_FOLDER_PAGES, NODE_TOUCH_PATHS, type NodeSink } from "../../functions/lib/nodes/table";
+import {
+  NODE_TOUCH_FOLDER_PAGES,
+  NODE_TOUCH_PATHS,
+  NODE_UNSUPPORTED_RETRY_MS,
+  nodeSweepDue,
+  type NodeSink,
+} from "../../functions/lib/nodes/table";
 import { memoryNodeSink } from "../nodeTable.helpers";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 
@@ -136,15 +142,60 @@ describe("the sweep", () => {
     expect(paths).toContain("3-resources/added.md");
   });
 
-  test("a store that ignores startAfter is unsupported, and is never swept again", async () => {
+  test("a store that ignores startAfter is paged by its own token, across passes, and fills", async () => {
+    // Sabotage: mark it unsupported on the first out-of-order key (the old
+    // rule) and this never completes; drop the token from `progress` and the
+    // second pass starts again from the top and never reaches r19.
+    const store = memoryStore({ ignoreStartAfter: true }) as Store;
+    for (let index = 0; index < 20; index += 1) store.seed(`3-resources/r${index}.md`, "x");
+    store.seed(".context/activity/a.json", "{}");
+    const sink = memoryNodeSink();
+    const now = ticker();
+    const first = await sweepNodesPass(pagedStore(store, 7), sink, { now, maxPages: 2 });
+    expect(first).toMatchObject({ complete: false, unsupported: false });
+    expect(sink.treeState()?.cursor?.startsWith(TOKEN_CURSOR)).toBe(true);
+    let result = first;
+    for (let pass = 0; pass < 10 && !result.complete; pass += 1) {
+      result = await sweepNodesPass(pagedStore(store, 7), sink, { now, maxPages: 2 });
+    }
+    expect(result).toMatchObject({ complete: true, unsupported: false });
+    expect(sink.treeState()?.status).toBe("ready");
+    const live = sink.table.rows().filter((row) => row.kind === "file" && row.goneAt === undefined).map((row) => row.path);
+    expect(live.sort()).toEqual(Array.from({ length: 20 }, (_, index) => `3-resources/r${index}.md`).sort());
+  });
+
+  test("a token the store no longer takes starts the listing again rather than failing for ever", async () => {
     const store = memoryStore({ ignoreStartAfter: true }) as Store;
     for (let index = 0; index < 20; index += 1) store.seed(`3-resources/r${index}.md`, "x");
     const sink = memoryNodeSink();
-    const result = await sweepNodesPass(pagedStore(store, 7), sink, { now: ticker(), maxPages: 5 });
+    const now = ticker();
+    await sweepNodesPass(pagedStore(store, 7), sink, { now, maxPages: 2 });
+    const expiring: NodeListingStore = {
+      list: async (options) => {
+        if (options?.cursor !== undefined) throw new Error("expired cursor");
+        return await pagedStore(store, 50).list(options);
+      },
+      get: (key) => store.get(key),
+    };
+    expect(await sweepNodesPass(expiring, sink, { now })).toMatchObject({ complete: true });
+  });
+
+  test("a store that says there is more and gives no way to ask stays unsupported, and is tried again a day later", async () => {
+    const store = memoryStore({ ignoreStartAfter: true }) as Store;
+    for (let index = 0; index < 20; index += 1) store.seed(`3-resources/r${index}.md`, "x");
+    const tokenless: NodeListingStore = {
+      list: async (options) => ({ ...(await pagedStore(store, 7).list(options)), cursor: undefined }),
+      get: (key) => store.get(key),
+    };
+    const sink = memoryNodeSink();
+    const result = await sweepNodesPass(tokenless, sink, { now: ticker(), maxPages: 5 });
     expect(result).toMatchObject({ complete: false, unsupported: true });
     expect(sink.treeState()?.status).toBe("unsupported");
-    const again = await sweepNodesPass(pagedStore(store, 7), sink, { now: ticker() });
-    expect(again).toMatchObject({ complete: false, unsupported: true, pages: 0 });
+    const marked = { ...sink.treeState()!, leaseAt: 1_000 };
+    expect(nodeSweepDue(marked, 1_000 + 60_000)).toBe(false);
+    expect(nodeSweepDue(marked, 1_000 + NODE_UNSUPPORTED_RETRY_MS)).toBe(true);
+    // And the retry is a real pass: a store that now pages by token fills.
+    expect(await sweepNodesPass(pagedStore(store, 50), sink, { now: ticker() })).toMatchObject({ complete: true });
   });
 
   test("a failing pass records a fixed label, never the error text, and rethrows", async () => {

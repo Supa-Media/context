@@ -104,7 +104,7 @@ const stateOf = (row: Doc<"nodeTrees"> | null): NodeTreeState | null =>
  * `waiting` (never started), `copying`, `stuck` (the last pass failed),
  * `copied` (swept, not checked against the bucket yet), `matches`,
  * `differs` (the last check found mismatches), `skipped` (a store that
- * cannot be listed in order, Dropbox).
+ * can be listed neither in order nor by token, retried daily).
  */
 export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped";
 
@@ -236,7 +236,8 @@ async function startSweeps(ctx: MutationCtx, ids: readonly Id<"workspaces">[]): 
   let started = 0;
   for (const workspaceId of ids) {
     const state = stateOf(await treeOf(ctx, workspaceId));
-    if (state?.status === "unsupported") continue;
+    // An unlistable store is tried again only once its day has passed (`nodeSweepDue`).
+    if (state?.status === "unsupported" && !nodeSweepDue(state, now)) continue;
     // A pass that holds the lease is already running; a second would only double the work.
     if (state?.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) continue;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {

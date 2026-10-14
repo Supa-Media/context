@@ -15,6 +15,8 @@ import {
   FAKE_STORAGE,
   TEST_GATEWAY_SECRET,
   addMember,
+  copyTree,
+  drainDueScheduled,
   createUser,
   createWorkspace,
   gatewayPost,
@@ -198,6 +200,15 @@ export async function pair(
   if (options.mover === true) vi.stubEnv("STORAGE_MOVER_ORIGIN", MOVER);
   await bindBucket(t, from, mover, SOURCE_BUCKET);
   await bindBucket(t, to, into === "own" ? mover : other, DESTINATION_BUCKET);
+  // Both trees copied, as a bound workspace's are: a write's name checks ask
+  // the tree, never the bucket.
+  await copyTree(t, from);
+  await copyTree(t, to);
+  // The copies' own follow-ups (front matter read, parity) run now, so what
+  // the tests count outside the mover is the move's alone.
+  await drainDueScheduled(t);
+  outside.length = 0;
+  outsideReads.length = 0;
 
   return { t, mover, from, to, source, destination, outside, outsideReads, opened };
 }
@@ -224,3 +235,20 @@ export async function keysUnder(bucket: MemoryS3, prefix: string): Promise<strin
   return keys.sort();
 }
 
+
+/** A tree copied afresh, after a test staged its bucket by hand. */
+export async function recopyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    const tree = await ctx.db
+      .query("nodeTrees")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (tree) await ctx.db.delete(tree._id);
+  });
+  await copyTree(t, workspaceId);
+}

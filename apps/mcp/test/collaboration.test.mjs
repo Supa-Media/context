@@ -185,6 +185,8 @@ export async function runCollaborationChecks(check) {
       OTHER_BUCKET: other,
       UNSUPPORTED_BUCKET: unsupported,
     };
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(env);
     const read = await request(env, ownerToken, { path: "team/open.md" });
     const readBody = await read.json();
     check("collaboration reader receives the engine snapshot", read.status === 200 &&

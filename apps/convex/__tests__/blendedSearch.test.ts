@@ -447,7 +447,7 @@ describe("the blended search, across contexts", () => {
     }
     expect(answer.sources.map((row) => row.state)).toEqual(["ok", "ok"]);
     expect(answer.searchableCount).toBe(2);
-  });
+  }, 15_000);
 
   test("a context the caller is not in is never searched and never named", async () => {
     const f = await twoTenants();

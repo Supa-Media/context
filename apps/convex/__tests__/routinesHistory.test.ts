@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
-import { asUser, captureError, errorCode } from "./fixtures.helpers";
+import { asUser, captureError, copyTree, errorCode } from "./fixtures.helpers";
 import { DAILY, DAILY_TEXT, routineFixture, type RoutineFixture } from "./routines.helpers";
 
 /**
@@ -22,6 +22,9 @@ import { DAILY, DAILY_TEXT, routineFixture, type RoutineFixture } from "./routin
  *     → "a member cannot read the runs of a routine they cannot see" fails
  *   `readRoutineRuns` without its routine-path check
  *     → "only a routine's history, never another plumbing key" fails
+ *   `readRoutineRuns` asking the bucket rather than the tree whether the
+ *     routine exists → "a routine the tree no longer holds has no history,
+ *     whatever the bucket says" fails
  */
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -49,8 +52,10 @@ function shareRoutines(f: RoutineFixture) {
   );
 }
 
-function runsFor(f: RoutineFixture, user: RoutineFixture["owner"], path = DAILY, workspaceId = f.workspaceId) {
-  return asUser(f.t, user).action(api.functions.routines.routineRuns, { workspaceId, path });
+/** Whether the routine exists is the tree's to say, so the bucket is copied into it first. */
+async function runsFor(f: RoutineFixture, user: RoutineFixture["owner"], path = DAILY, workspaceId = f.workspaceId) {
+  await copyTree(f.t, f.workspaceId);
+  return await asUser(f.t, user).action(api.functions.routines.routineRuns, { workspaceId, path });
 }
 
 describe("a routine's recent runs", () => {
@@ -96,6 +101,18 @@ describe("a routine's recent runs", () => {
     const f = await routineFixture();
     seedRuns(f, 3);
     const refused = await captureError(() => runsFor(f, f.owner));
+    expect(errorCode(refused)).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a routine the tree no longer holds has no history, whatever the bucket says", async () => {
+    const f = await routineFixture();
+    seedRuns(f, 3);
+    await copyTree(f.t, f.workspaceId);
+    // Written past the tree, which has not swept since: the run log is not read.
+    f.backend.seed(DAILY, DAILY_TEXT);
+    const refused = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.routines.routineRuns, { workspaceId: f.workspaceId, path: DAILY }),
+    );
     expect(errorCode(refused)).toBe("FILE_NOT_FOUND");
   });
 

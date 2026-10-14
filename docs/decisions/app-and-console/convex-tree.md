@@ -556,11 +556,13 @@ bucket's physical objects.
 Reviewed again on 2026-10-13, three small listings also stay, each for a
 reason rather than by omission: the **connect-time snapshot** an agent is
 handed (one delimited listing of the root, which costs less than the tree's
-whole-tree manifest would); the **gateway's note cap** inside a write (it
-must count what the bucket holds at the moment of the create, and a free
-context's count stops at the cap within a page or two); and **search's
-literal scan**, the recovery path for an unusable index, which reads note
-text at the bucket's physical keys.
+whole-tree manifest would); and **search's literal scan**, the recovery path
+for an unusable index, which reads note text at the bucket's physical keys.
+The gateway's note cap, a third until 2026-10-14, now counts the tree (below).
+
+How a write asks the tree whether a name is taken, and how a store that
+ignores key order is paged, is in [convex-tree-writes](./convex-tree-writes.md)
+(2026-10-14).
 
 **A move of a folder is one row.** Paths are derived from parents, so moving
 or renaming a folder changes its own row and nothing beneath it. That is
