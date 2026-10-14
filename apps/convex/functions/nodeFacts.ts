@@ -8,6 +8,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
+import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
 import {
   FACT_FILL_NOTES,
   FACT_LEASE_MS,
@@ -186,6 +187,8 @@ export const record = internalMutation({
       const links = note.links.filter((row): row is [string, string] => row.length === 2);
       await writeFacts(ctx.db, node, { links, props: note.props });
     }
+    // A routine's schedule is read from these props, so a routine waiting on them is scanned again.
+    if (routinePathsOf(notes.map((note) => note.path)) !== null) await scheduleReconcile(ctx, workspaceId, []);
     return null;
   },
 });
@@ -341,6 +344,28 @@ export const propsAt = internalQuery({
         sealed: row.sealed === true,
         props: row.props ?? null,
       });
+    }
+    return found;
+  },
+});
+
+/**
+ * These notes' props as their rows hold them now, for the routine scan: each
+ * `current` (read at its version), `waiting` (changed since, or never read),
+ * or absent when the tree has no such note.
+ */
+export const propsNow = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.array(
+    v.object({ path: v.string(), current: v.boolean(), sealed: v.boolean(), props: v.union(v.string(), v.null()) }),
+  ),
+  handler: async (ctx, { workspaceId, paths }) => {
+    if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
+    const found = [];
+    for (const path of new Set(paths)) {
+      const row = await liveNode(ctx.db, workspaceId, path);
+      if (row === null) continue;
+      found.push({ path, current: factsCurrent(row), sealed: row.sealed === true, props: row.props ?? null });
     }
     return found;
   },

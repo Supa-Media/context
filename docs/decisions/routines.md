@@ -242,3 +242,23 @@ every other `.context/` read stays refused. Tests (`routinesHistory.test.ts`):
 "a member cannot read the runs of a routine they cannot see", "only a
 routine's history, never another plumbing key or a note's". The app also
 saves the device's time zone (`setMyTimeZone`) so routines run at local time.
+
+### A routine's schedule is read from the tree's front matter, never the note
+
+Decided by the owner, 2026-10-14: names and front matter come from the
+Convex tree, and storage is read only for a note's content. The scan lists the
+routine folders from the tree and takes each schedule (`at:`, `on:`,
+`to:`, `paused:`) from the front matter the tree's facts already hold
+(`nodeFacts.propsNow`), rather than opening every routine note.
+
+A routine whose facts were read before its latest write is **waiting**. The
+scan leaves its row alone, so nothing is deleted or rescheduled from stale
+words, and it keeps the writer its signal named. When the facts land
+(`nodeFacts.record`), another scan is scheduled. That scan is how a routine
+written a second ago gets scheduled, and the writer is kept so that the
+owner's private reach never stands in for an editor.
+
+**What fails if reversed:** `routinesSync.test.ts`, "a scan reads the tree,
+never the bucket" (no GET during a scan) and "a routine whose front matter
+the tree has not read yet waits, and keeps its writer". Removing either the
+facts hook or the writer hold turns the second one red.

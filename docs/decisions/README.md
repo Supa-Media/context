@@ -634,6 +634,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Intervals count from a fixed epoch, never from when the file was saved
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
+- A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)
 
