@@ -28,6 +28,7 @@ import { assertNotMainFolder, requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
+import { objectBody } from "./objectBody";
 import { keysUnder, isFolder } from "./walk";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
@@ -430,10 +431,11 @@ export async function movePath(
     if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
       throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
     }
-    const body = await object.text();
+    const { body, contentType } = await objectBody(pair.source, object);
+    const typed = contentType === undefined ? {} : { contentType };
     const created = atomic
-      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
-      : await store.put(pair.destination, body);
+      ? await store.put(pair.destination, body, { onlyIf: { absent: true }, ...typed })
+      : await store.put(pair.destination, body, typed);
     if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
     const removed = atomic
       ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })
