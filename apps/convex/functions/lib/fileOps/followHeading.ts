@@ -22,6 +22,7 @@ import type { Clearance } from "../clearance";
 import { isEncryptedNote } from "../noteEncryption";
 import { FileOpError } from "./errors";
 import type { MoveResult } from "./moving";
+import { readFile } from "./reading";
 import type { FileStore } from "./store";
 import { writeFile } from "./writing";
 
@@ -37,10 +38,18 @@ export async function followHeading(
 ): Promise<string | undefined> {
   if (moved.queued !== undefined || moved.etag === undefined || moved.paths.length !== 1) return undefined;
   if (moved.paths[0] !== moved.to) return undefined;
-  const object = await store.get(moved.to);
+  // Read as every open reads it, so a collaborative note's version is its
+  // document's, the one the move answered with, not the bucket object's.
+  let current;
+  try {
+    current = await readFile(store, { path: moved.to, clearance: options.clearance, forward: "never" });
+  } catch (error) {
+    if (error instanceof FileOpError) return undefined;
+    throw error;
+  }
   // Written since the move made it: that writer's text stands.
-  if (object === null || object.etag !== moved.etag) return undefined;
-  const text = await object.text();
+  if (current.etag !== moved.etag) return undefined;
+  const text = current.text;
   if (isEncryptedNote(text)) return undefined;
   const next = retitled(moved.from, moved.to, text);
   if (next === null) return undefined;
