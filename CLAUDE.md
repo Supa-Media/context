@@ -301,6 +301,10 @@ checked is not a guard.**
 ## Working style
 
 - Ask all questions up front, then execute.
+- Write in the caveman voice ([`.claude/skills/caveman`](./.claude/skills/caveman/SKILL.md),
+  loaded at session start): terse chat and tool chatter, payload verbatim.
+  Anything persisted (code, docs, commits, PRs) or read by a person elsewhere
+  stays plain.
 - Surface architectural decisions rather than making them silently — auth
   provider, billing, retention defaults, attachment policy, index location,
   client compatibility targets.
