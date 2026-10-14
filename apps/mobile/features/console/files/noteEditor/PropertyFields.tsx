@@ -175,13 +175,15 @@ export function EditableProperty({ row, onSet, onError }: {
  * value somebody can't see.
  */
 // eslint-disable-next-line @supa-media/keyboard-aware-forms -- two inline fields at the top of the note, inside its own scroller, not a form
-export function AddProperty({ onSet, onError }: {
+export function AddProperty({ onSet, onError, startAdding = false }: {
   onSet: SetProperty;
   onError: (message: string | null) => void;
+  /** Open as a field rather than as the row — "Other property…" under the chips. */
+  startAdding?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(startAdding);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const valueField = useRef<TextInput | null>(null);
