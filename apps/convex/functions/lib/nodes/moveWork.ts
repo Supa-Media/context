@@ -118,11 +118,8 @@ interface Walk {
   failed: number;
   /** Of those failures, how many were a note changing or a name taken, not storage refusing. */
   conflicts: number;
-<<<<<<< HEAD
   /** Of those failures, how many were too large to read through here. */
   tooLarge: number;
-=======
->>>>>>> origin/claude/project-thread-7iurff
   /** The walk reached the end of the old name before its time was up. */
   complete: boolean;
 }
@@ -145,13 +142,9 @@ async function walkOldName(
   deadline: number,
   steps: StepOptions,
 ): Promise<Walk> {
-<<<<<<< HEAD
   const walk: Walk = { listed: 0, moved: 0, failed: 0, conflicts: 0, tooLarge: 0, complete: false };
   const serverCopy = store.capabilities?.serverSideCopy === "same-store";
   const oneAtATime = turns();
-=======
-  const walk: Walk = { listed: 0, moved: 0, failed: 0, conflicts: 0, complete: false };
->>>>>>> origin/claude/project-thread-7iurff
   const prefix = `${claimed.from}/`;
   let cursor: string | undefined;
   for (;;) {
@@ -159,7 +152,6 @@ async function walkOldName(
     if (cursor !== undefined && Date.now() >= deadline) return walk;
     const at = Date.now();
     const listed = await store.list({ prefix, limit: LIST_PAGE, ...(cursor === undefined ? {} : { cursor }) });
-<<<<<<< HEAD
     const objects = (listed.objects as { key: string; size?: number }[]).filter((object) => object.key.startsWith(prefix));
     walk.listed += objects.length;
     const rows: NodeRow[] = [];
@@ -173,14 +165,6 @@ async function walkOldName(
       }
       const move = () => moveOneObject(store, key, logicalPath(key, claimed.moves) as string, steps);
       const outcome = !serverCopy && bytes > ONE_AT_A_TIME_BYTES ? await oneAtATime(move) : await move();
-=======
-    const keys = listed.objects.map((object) => object.key).filter((key) => key.startsWith(prefix));
-    walk.listed += keys.length;
-    const rows: NodeRow[] = [];
-    const gone: string[] = [];
-    await pool(keys, POOL, async (key) => {
-      const outcome = await moveOneObject(store, key, logicalPath(key, claimed.moves) as string, steps);
->>>>>>> origin/claude/project-thread-7iurff
       if (outcome.state === "failed") {
         walk.failed += 1;
         if (outcome.conflict) walk.conflicts += 1;
@@ -281,10 +265,7 @@ export async function runMoveWork(
   let moved = 0;
   let failed = 0;
   let conflicts = 0;
-<<<<<<< HEAD
   let tooLarge = 0;
-=======
->>>>>>> origin/claude/project-thread-7iurff
   let stage: "moving" | "finishing" = "moving";
   try {
     for (let first = true; first || Date.now() < deadline; first = false) {
@@ -292,10 +273,7 @@ export async function runMoveWork(
       moved += walk.moved;
       failed += walk.failed;
       conflicts += walk.conflicts;
-<<<<<<< HEAD
       tooLarge += walk.tooLarge;
-=======
->>>>>>> origin/claude/project-thread-7iurff
       if (walk.complete && walk.listed === 0) {
         stage = "finishing";
         await finishMove(ctx, workspaceId, store, claimed, projection);
@@ -304,11 +282,7 @@ export async function runMoveWork(
       if (!walk.complete || walk.failed > 0) break;
     }
     if (failed > 0 && moved === 0) {
-<<<<<<< HEAD
       const label = tooLarge > 0 ? MOVE_FAILED_TOO_LARGE : conflicts === failed ? MOVE_FAILED_CONFLICT : MOVE_FAILED_STORAGE;
-=======
-      const label = conflicts === failed ? MOVE_FAILED_CONFLICT : MOVE_FAILED_STORAGE;
->>>>>>> origin/claude/project-thread-7iurff
       console.error("nodes.move_failed", { workspaceId, label, failed });
       await ctx.runMutation(internal.functions.nodeMoves.failed, { id: claimed.id, label, now: Date.now() });
       return { kind: "nodesKept", complete: false };
