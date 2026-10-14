@@ -182,6 +182,9 @@ async function fixture(answer: Answerer = likesPushpins, fail: "never" | "once" 
   vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith(WORKER)) throw new Error(`unexpected fetch ${url}`);
+    // An older Worker with no fingerprint route: these are Clef's tests
+    // (`emojiMeaning.test.ts` has the suggestion by meaning).
+    if (url === `${WORKER}/embed`) return new Response(null, { status: 404 });
     const body = JSON.parse(String(init?.body));
     sent.push(body);
     if (body.questions.group !== undefined && (fail === "always" || (fail === "once" && sent.filter((one) => one.questions.group).length === 1))) {

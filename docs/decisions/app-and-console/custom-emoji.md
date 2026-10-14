@@ -153,6 +153,23 @@ person picks one. Opening the picker shows two quick picks above the grid:
   sent. Metered as the `iconSuggest` feature, every plan, editors only
   (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Organizer Eval
   (live)" workflow, prints what the real model suggests for real names.
+
+  **By meaning, first** (the owner, 2026-10-14, for speed: "do a meaning
+  fingerprint ... then you can search by meaning"). Two Clef questions cost
+  about three seconds, Clef's own time; Jev is not served and Clef Flash was
+  slower. So every standard emoji has a short written description
+  (`packages/shared/src/emojiAbout.generated.ts`), each description has a
+  meaning fingerprint made once with search by meaning's model and kept in
+  Convex (`emojiMeanings`, a vector index), and a suggestion fingerprints the
+  name's words alone and takes the closest emoji: one embedding call and one
+  vector search. The fingerprints are ours and the same for everybody, since
+  everybody has the same emoji; nothing from anyone's notes is in them. They
+  come from the inference Worker's `/embed` route over the secret Clef already
+  uses, so no credential is opened in the public action. A changed
+  description names a new build (`emojiMeaningSet()`), which the first
+  suggestion starts filling; Clef answers until it is ready, and whenever the
+  model fails. `iconSuggest.meaning.live.test.ts` prints the closest three
+  for real names.
 - **Random**: one from a shorter list of emoji that make a nice surprise,
   with Shuffle to roll again.
 

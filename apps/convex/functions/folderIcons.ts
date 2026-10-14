@@ -21,6 +21,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
+import { suggestByMeaning } from "./lib/emojiMeaningLookup";
 import { withJev } from "./lib/jev/client";
 import { clearanceOf } from "./lib/clearance";
 import { loadPrivacyState } from "./lib/fileOps";
@@ -99,6 +100,10 @@ export const set = action({
  * off, over the day's cap, or Clef not answering. Null is "no suggestion",
  * never an error; the picker still offers a random one.
  *
+ * The emoji whose meaning fingerprint is closest to the name's answers it
+ * (one embedding call, `lib/emojiMeaningLookup.ts`); Clef answers only while
+ * the fingerprints are being built or the model is down.
+ *
  * Only the name is sent, so nothing is read from the bucket and the answer
  * says nothing about whether `path` exists. Only an editor may ask, the one
  * who could set the icon, and it is metered on this workspace.
@@ -118,6 +123,8 @@ export const suggest = action({
     if (!nameSaysSomething(path)) return null;
     return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev): Promise<string | null> => {
       if (!jev) return null;
+      const near = await suggestByMeaning(ctx, args.workspaceId, path);
+      if (near !== "unready") return near;
       return await suggestIconFor(path, (request) => jev.decide(request));
     });
   },
