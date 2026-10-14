@@ -107,6 +107,22 @@ describe("the sweep", () => {
     expect(mirror?.notes).toContainEqual({ path: "1-projects/held-back.md", visibility: "private" });
   });
 
+  test("re-reads an unchanged privacy.md whose held copy did not parse", async () => {
+    // The parser can come to read bytes it once refused (a colon in a path,
+    // 2026-10-14). The etag has not moved, so an etag check alone would leave
+    // the workspace failed closed until someone edits the file.
+    const store = await workspace();
+    const sink = memoryNodeSink();
+    await sweepToEnd(store, sink);
+    const held = (await sink.privacy())!;
+    await sink.savePrivacy({ ...held, invalid: true, folders: [], notes: [] }, 3_000);
+    expect((await sink.privacy())?.invalid).toBe(true);
+    await sweepToEnd(store, sink, ticker(5_000));
+    const mirror = await sink.privacy();
+    expect(mirror?.invalid).toBe(false);
+    expect(mirror?.notes).toContainEqual({ path: "1-projects/held-back.md", visibility: "private" });
+  });
+
   test("a note deleted from the bucket is gone after the next completed sweep, and one added appears", async () => {
     const store = await workspace();
     const sink = memoryNodeSink();

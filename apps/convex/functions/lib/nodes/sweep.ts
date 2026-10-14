@@ -224,8 +224,12 @@ async function runPass(
 
     if (privacyRow !== null) {
       sawPrivacy = true;
-      // Only a changed file is re-read: the mirror is already what the bucket holds when the etag matches.
-      if ((await sink.privacy())?.etag !== privacyRow.etag) await refreshPrivacyMirror(store, sink, now);
+      // Only a changed file is re-read: the mirror is already what the bucket
+      // holds when the etag matches. Unless that copy did not parse: the same
+      // bytes can read differently once the parser changes (a colon in a path,
+      // 2026-10-14), and a mirror left invalid fails the whole workspace closed.
+      const held = await sink.privacy();
+      if (held?.etag !== privacyRow.etag || held?.invalid === true) await refreshPrivacyMirror(store, sink, now);
     }
 
     const finished = jump === null && listing.truncated !== true;
