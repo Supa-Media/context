@@ -57,7 +57,8 @@ test("the List is the Notes rows: one line each, extras after the name, and noth
 
 test("a folder with an emoji keeps its arrow, and the title has its row to itself", async ({ page }) => {
   await open(page);
-  const row = page.getByTestId("folder-row").filter({ hasText: "togather" }).first();
+  // Backlog has no status, so it keeps its emoji; a task's dot takes the emoji's place.
+  const row = page.getByTestId("folder-row").filter({ hasText: "backlog" }).first();
   const chevron = (await row.getByTestId("folder-row-chevron").boundingBox())!;
   const emoji = (await row.getByTestId("folder-row-emoji").boundingBox())!;
   // Side by side on one line, the arrow first.
@@ -67,6 +68,18 @@ test("a folder with an emoji keeps its arrow, and the title has its row to itsel
   const head = (await page.getByTestId("folder-head-row").boundingBox())!;
   const chaos = (await page.getByTestId("folder-chaos").boundingBox())!;
   expect(chaos.y).toBeGreaterThanOrEqual(head.y + head.height - 1);
+  const task = page.getByTestId("folder-row").filter({ hasText: "togather" }).first();
+  await expect(task.getByTestId("folder-row-emoji")).toHaveCount(0);
+  await expect(task.getByTestId("folder-row-status")).toHaveCount(1);
+});
+
+test("a folder's arrow opens it in place, and the row still opens its page", async ({ page }) => {
+  await open(page);
+  await page.getByLabel("Open togather here").click();
+  await expect(page.getByTestId("folder-row-children")).toContainText("launch-plan");
+  await expect(page.getByTestId("folder-head-row")).toContainText("projects");
+  await page.getByLabel("Close togather").click();
+  await expect(page.getByTestId("folder-row-children")).toHaveCount(0);
 });
 
 test("a writer types in the side peek opened from a Board card, and it is saved", async ({ page }) => {

@@ -370,7 +370,7 @@ describe("a folder of folders nobody has tracked yet", () => {
     source: { ...host(writes).source, load: async () => ({ notes: UNTRACKED, complete: true }) },
   });
 
-  test("opens in List with no nudge: the rows are the list, and a writer gives one a status from its dot's room", async () => {
+  test("opens in List with no nudge: the rows are the list, each with its folder's icon", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects"), LIST, untracked(writes));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
@@ -378,9 +378,8 @@ describe("a folder of folders nobody has tracked yet", () => {
     expect(all("folder-nudge")).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(2);
     expect(dots()).toHaveLength(0);
-    await press(all("folder-row-status")[0]!);
-    await press(one("menu-item-choice:3"));
-    expect(writes).toEqual([["1-projects/trip/overview.md", "status", "in progress", undefined]]);
+    expect(all("folder-row-icon")).toHaveLength(2);
+    expect(writes).toEqual([]);
   });
 
   test("a member is offered nothing to press on the rows", async () => {

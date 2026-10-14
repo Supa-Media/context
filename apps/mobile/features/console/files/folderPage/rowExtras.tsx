@@ -3,11 +3,10 @@
  * 2026-10-10, board 11: "I almost want the list view to look exactly like the
  * notes view, just with some thin extras").
  *
- * A row that is a task gets a small status dot before its name (a ring for
- * Not started, half for In progress, full for Done), and after it a grey
- * "3/9" when it has parts and the face of whoever owns it. A finished one is
- * drawn in grey. A row with no status is a note and gets nothing, but keeps
- * the dot's room so every name starts at the same place.
+ * A row that is a task gets a small status dot in its icon's place (a ring
+ * for Not started, half for In progress, full for Done), and after its name a
+ * grey "3/9" when it has parts and the face of whoever owns it. A finished
+ * one is drawn in grey. A row with no status is a note and keeps its icon.
  *
  * For somebody who may write, the dot and the face are the controls (the
  * owner, 2026-10-14: "I'm not able to click on the status circle to change
@@ -15,8 +14,7 @@
  * placeholder circle there to assign it"):
  *
  * - **The dot** opens the status menu a card's status opens, in the folder's
- *   groups. A note's empty room shows a faint ring under the pointer, which
- *   is how a note becomes a task without leaving the List.
+ *   groups.
  * - **The face** opens the owner picker. A task nobody owns shows an empty
  *   dashed ring where the face would be. A task with several owners keeps
  *   its faces as they are: one pick would replace them all, so that is the
@@ -121,17 +119,13 @@ export function useRowTrailShows(extra: RowExtra | null | undefined): boolean {
   return edit !== null && extra.tone !== null && extra.item !== undefined;
 }
 
-/**
- * The status dot, or its empty room. `touch` is a phone's row, which has no
- * pointer to show a note's faint ring under, so a note's room there stays
- * empty and only a task's dot is pressed.
- */
-export function RowExtraLead({ extra, touch = false }: { extra: RowExtra | null; touch?: boolean }) {
+/** A task's status dot, in its row's icon slot; for a writer, the button to its status menu. */
+export function RowExtraLead({ extra }: { extra: RowExtra | null }) {
   const styles = useThemedStyles(makeStyles);
   const edit = useRowEdit();
   const item = extra?.item;
   const dot = extra?.tone == null ? null : <StatusDot tone={extra.tone} />;
-  if (edit === null || item === undefined || (dot === null && touch)) {
+  if (edit === null || item === undefined || dot === null) {
     return <View style={styles.lead}>{dot}</View>;
   }
   return (
@@ -144,9 +138,8 @@ export function RowExtraLead({ extra, touch = false }: { extra: RowExtra | null;
         onEditList={edit.onEditStatuses}
         savesTo={item.creates ? NEW_FRONT_NOTE : null}
         onChoose={(value) => edit.onChoose(item, "status", value)}
-        lead={dot ?? <View style={styles.ring} testID="folder-row-status-empty" />}
+        lead={dot}
         glyph
-        quiet={dot === null}
         testID="folder-row-status"
       />
     </View>
@@ -211,10 +204,8 @@ const FACE = 20;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    // The dot is 15pt; the room is the same whether or not one is drawn, so names line up.
+    // The dot is 15pt, in the icon's 16pt slot.
     lead: { width: 15, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-    // A note's room under the pointer: the dot it would become, not yet anything.
-    ring: { width: 15, height: 15, borderRadius: radii.pill, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.lineStrong },
     trail: { flexDirection: "row", alignItems: "center", gap: space.x3, flexShrink: 0, marginLeft: "auto" as never },
     count: { color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
     faces: { flexDirection: "row", alignItems: "center" },

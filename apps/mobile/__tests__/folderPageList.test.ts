@@ -17,10 +17,9 @@
  * ("they are very similar"), so the switch is List · Board. And for somebody
  * who may write, the dot and the face are the controls: the dot opens the
  * status menu, the face (or an empty dashed one on a task nobody owns) the
- * owner picker.
+ * owner picker. A task's dot stands where its icon would be.
  *
- * The properties with teeth: a note (no status) gets no dot but keeps the
- * dot's room; pressing a dot or a face changes that task and never opens the
+ * The properties with teeth: a note (no status) keeps its icon and gets no dot; pressing a dot or a face changes that task and never opens the
  * row; and a member is shown no control at all.
  */
 
@@ -105,13 +104,12 @@ describe("the List", () => {
     expect(within(row("photos"), "folder-row-extras")).toHaveLength(0);
   });
 
-  test("on a phone, the rows are the card's, each with its icon and then its dot", async () => {
+  test("on a phone, the rows are the card's, a task's dot in its icon's place", async () => {
     windowOf(390, 844);
     await mount(host([]));
     expect(dotOf(row("kitchen"))).toBe("status-dot-in-progress");
     expect(strip(within(row("kitchen"), "folder-row-progress")[0]?.textContent)).toBe("2/3");
     expect(all("folder-add-bar")).toHaveLength(0);
-    // No pointer to show a note's faint ring under, so a note's room is only room.
     expect(within(row("budget"), "folder-row-status")).toHaveLength(0);
     expect(within(row("lease"), "folder-row-status")).toHaveLength(1);
   });
@@ -132,15 +130,13 @@ describe("changing a task from its row", () => {
     expect(selected).toEqual([]);
   });
 
-  test("a note's empty room is a quiet way to give it a status", async () => {
-    const writes: Write[] = [];
-    await mount(host(writes));
-    const room = within(row("budget"), "folder-row-status")[0] as HTMLElement;
-    expect(room.getAttribute("aria-label")).toBe("Set status");
-    expect(within(room, "folder-row-status-empty")).toHaveLength(1);
-    await press(room);
-    await press(all("menu-item-choice:2")[0]!);
-    expect(writes).toEqual([[`${CAFE}/budget.md`, "status", "to do", undefined]]);
+  test("a task's dot stands in its icon's place; a note keeps its icon", async () => {
+    await mount(host([]));
+    // The owner, 2026-10-14: "the emoji next to the status actually does not look great at all".
+    expect(within(row("lease"), "folder-row-icon")).toHaveLength(0);
+    expect(within(row("lease"), "folder-row-emoji")).toHaveLength(0);
+    expect(within(row("budget"), "folder-row-icon")).toHaveLength(1);
+    expect(within(row("budget"), "folder-row-status")).toHaveLength(0);
   });
 
   test("an empty face opens the owner picker, and a pick writes that task's owner", async () => {

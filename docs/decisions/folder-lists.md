@@ -156,10 +156,11 @@ folders by status?" line went with Notes, since all it did was switch to List.
 In the same message: "I'm not able to click on the status circle to change
 it" and "even if it's not assigned to anyone, there should still be like a
 placeholder circle there to assign it". So for somebody who may write, a
-task's dot opens its status menu (the folder's groups, as a card's does), a
-note's empty dot room shows a faint dashed ring under the pointer that gives
-it a status, and the face opens the owner picker, with an empty dashed ring
-where a task nobody owns would have one. A task with several owners keeps
+task's dot opens its status menu (the folder's groups, as a card's does) and
+the face opens the owner picker, with an empty dashed ring where a task nobody
+owns would have one. A note is made a task with **Make it a task**, as before;
+a faint ring under the pointer in its icon's place was tried and dropped with
+the dot beside the icon (below). A task with several owners keeps
 its faces as they are, because one pick would replace them all; the side
 panel adds and removes them one by one. A press on a dot or face never opens
 the row. They are not `<button>`s, since the row is one. A member gets no
@@ -169,7 +170,20 @@ control and no empty ring. Reversing it fails
 The rows also draw the tree's icon, the emoji or the plain folder or note
 icon, after the chevron's gutter. A folder's emoji used to stand in the
 chevron's place, which left some folders with no arrow ("when there's an
-emoji, the arrow is gone in the middle section, which is just funky").
+emoji, the arrow is gone in the middle section, which is just funky"). A
+task's status dot takes the icon's slot rather than sitting beside it: the
+two together "does not look great at all. Maybe we just maybe remove the
+emoji and keep the status" (the owner, 2026-10-14). A row with no status
+keeps its icon. Reversing it fails `__tests__/folderPageList.test.ts` ("a
+task's dot stands in its icon's place").
+
+The chevron opens the folder in place, as the tree's does ("the arrow isn't
+even clickable, which is stupid", the owner, 2026-10-14): its rows follow,
+indented, each folder among them openable in turn, from the file browser's
+own listings so the tree and the page never disagree. The rest of the row
+still opens the folder's page. Which rows are open belongs to that page alone
+and is forgotten on another. A phone has no arrow to press: its row is a card
+that goes somewhere. Reversing it fails `__tests__/folderRowNesting.test.ts`.
 
 ## A folder page shows its children by status
 

@@ -34,6 +34,7 @@ const ICONS: Readonly<Record<string, string>> = {
   [`${PROJECTS}/togather`]: "🤝",
   [`${PROJECTS}/cafe`]: "☕",
   [`${PROJECTS}/reading-list.md`]: "📚",
+  [`${PROJECTS}/backlog`]: "🗃️",
 };
 
 interface Toast {
@@ -103,6 +104,7 @@ export function ProjectsFixture({ member = false, slowBodies = 0 }: { member?: b
       <ScrollView contentContainerStyle={styles.page}>
         <FolderView
           iconOf={(path) => ICONS[path] ?? null}
+          nesting={{ listingOf: (path) => store.listing(path), loadListing: () => {} }}
           entry={{ kind: "folder", path: folder, name: baseName(folder), visibility: "team", inherited: "team", exception: false, readOnly: false }}
           listing={listing}
           canSetVisibility={!member}
