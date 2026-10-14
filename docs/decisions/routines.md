@@ -12,7 +12,7 @@ it, and moving it to another folder changes how often it runs. The body is the
 instruction in plain words; optional front matter fine-tunes it (`at`, `on`,
 `send`, `to`, `until`, `paused`, `timezone`).
 
-Folder names: `hourly`, `daily`, `weekly`, `bi-weekly` (or `every-2-weeks`),
+Folder names: `once` (see below), `hourly`, `daily`, `weekly`, `bi-weekly` (or `every-2-weeks`),
 `monthly`, `quarterly`, `yearly`, and `every-N-minutes|hours|days|weeks|months`
 for anything else. `routines/` sits at the top of the workspace, beside
 `website/`, because it has to work in a workspace that isn't sorted into
@@ -28,6 +28,28 @@ has one answer.
 Settings list that can disagree with the folder, means the files stop being the
 whole truth, and an export or an AI client editing the note no longer carries
 what the routine does. Tests: `apps/mcp/test/routines.test.mjs`.
+
+### A one-off reminder is a routine in `routines/once/`, marked `done:` when it has run
+
+Decided by the owner, 2026-10-14, after the texting assistant answered "remind
+me to…" with "I can't". A one-off is the same note as any routine, in
+`routines/once/`, with its date and time in `at:` (`at: 2026-10-15 9:00 am`, or
+the day in `on:` and the time in `at:`). A one-off with no date is a problem in
+words, never "today". It runs once at that wall-clock moment in the routine's
+time zone; after a run that did not fail the gateway writes `done: <when>` into
+the file (with the etag it read, so a concurrent edit is kept), and `done:` is
+read as paused, so it never runs again and stays as the record of what was
+sent. A run that failed is tried again every five minutes until thirty minutes
+after the moment it was set for, then left: a reminder that arrives hours late
+is worse than one that says it didn't run.
+
+**What a simplification would cost:** deleting the file after it runs loses the
+record and makes "did it remind me?" unanswerable from the notes; keeping a
+one-off in a database row breaks "the files are the whole truth". Tests: "a
+one-off runs once, at the date and time its file names" and "a one-off marked
+done: never runs again" (`apps/mcp/test/routines.test.mjs`), "a one-off texts
+its reminder, then stays where it is, marked done:"
+(`apps/mcp/test/agentRoutine.test.mjs`), and `apps/convex/__tests__/routinesOnce.test.ts`.
 
 ### A line the format can't read is said out loud, never defaulted
 

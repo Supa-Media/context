@@ -38,6 +38,7 @@ import {
   routineTimeZone,
   runOutcome,
   stopRoutine,
+  finishOnce,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
@@ -488,8 +489,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       */
       if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
       // A routine whose `until:` came true stops itself, recoverably.
-      if (ran.outcome === "finished") {
+      if (ran.outcome === "finished" && routine.cadence.unit !== "once") {
         await stopRoutine((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path);
+      }
+      // A one-off has run: it stays where it is, marked done (`finishOnce`).
+      if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
+        await finishOnce((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path, {
+          now: Date.now(),
+          timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
+        });
       }
       return json({
         outcome: ran.outcome,

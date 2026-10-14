@@ -613,6 +613,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Routines](./routines.md)
 
 - A routine is a note, and the folder it sits in says how often
+- A one-off reminder is a routine in `routines/once/`, marked `done:` when it has run
 - A line the format can't read is said out loud, never defaulted
 - Intervals count from a fixed epoch, never from when the file was saved
 - Nothing runs faster than every five minutes

@@ -34,6 +34,10 @@ export const ROUTINE_GRANT_TTL_MS = ROUTINE_LEASE_MS;
 /** Most runs one `/agent-texts/routines/due` call hands out. */
 export const MAX_DUE_RUNS = 20;
 
+/** How long after its time a failed one-off is still tried again, and how often. */
+export const ONE_OFF_RETRY_MS = 30 * 60 * 1000;
+export const ONE_OFF_RETRY_EVERY_MS = 5 * 60 * 1000;
+
 /** Most routines one workspace keeps rows for; the scan refuses past it. */
 export const MAX_ROUTINES_PER_WORKSPACE = 200;
 
@@ -92,6 +96,8 @@ export interface RoutineSchedule {
   at?: { hour: number; minute: number };
   days?: number[];
   monthDay?: number;
+  /** A one-off's day. */
+  date?: { year: number; month: number; day: number };
   timeZone?: string;
   paused: boolean;
   send: "text" | "note" | "both";
@@ -113,6 +119,7 @@ export function scheduleFromNote(path: string, text: string): RoutineSchedule | 
     ...(settings.at === null ? {} : { at: { hour: settings.at.hour, minute: settings.at.minute } }),
     ...(settings.days === null ? {} : { days: [...settings.days] }),
     ...(settings.monthDay === null ? {} : { monthDay: settings.monthDay }),
+    ...(settings.date === null ? {} : { date: { year: settings.date.year, month: settings.date.month, day: settings.date.day } }),
     ...(settings.timeZone === null ? {} : { timeZone: settings.timeZone }),
     paused: settings.paused,
     send: settings.send,
@@ -139,7 +146,7 @@ export function effectiveTimeZone(fileZone: string | undefined, accountZone: str
 
 /** When a stored schedule next runs after `afterMs`, or null if paused or never. */
 export function nextRunFor(
-  schedule: Pick<RoutineSchedule, "cadence" | "at" | "days" | "monthDay" | "paused">,
+  schedule: Pick<RoutineSchedule, "cadence" | "at" | "days" | "monthDay" | "date" | "paused">,
   timeZone: string,
   afterMs: number,
 ): number | null {
@@ -151,6 +158,7 @@ export function nextRunFor(
         at: schedule.at ?? null,
         days: schedule.days ?? null,
         monthDay: schedule.monthDay ?? null,
+        date: schedule.date ?? null,
         timeZone,
       },
       timeZone,

@@ -323,6 +323,7 @@ function scheduleFields(schedule: RoutineSchedule): Omit<
     at: schedule.at,
     days: schedule.days,
     monthDay: schedule.monthDay,
+    date: schedule.date,
     timeZone: schedule.timeZone,
     paused: schedule.paused,
     send: schedule.send,
