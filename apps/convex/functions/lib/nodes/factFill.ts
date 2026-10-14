@@ -15,6 +15,7 @@ import type { OperationResult } from "../filesFns/operationTypes";
 import { linkRowsOf } from "../../../../mcp/src/tree/links.js";
 import { propsOf } from "../../../../mcp/src/tree/props.js";
 import { indexableText } from "../../../../mcp/src/encryption/format.js";
+import { commonReadFailure, readFailureKind } from "../../../../mcp/src/store/readFailure.js";
 import { FACT_FILL_CHAIN, FACT_FILL_CONCURRENCY, FACT_RECORD_ROWS } from "./facts";
 
 interface Parsed {
@@ -36,8 +37,8 @@ export function factsOf(path: string, text: string): { links: string[][]; props:
   };
 }
 
-/** One note's facts, or `null` when it could not be read this time. */
-async function parse(store: FileStore, note: { path: string; etag?: string; gone?: boolean }): Promise<Parsed | null> {
+/** One note's facts, or why it could not be read this time (`readFailure.js`). */
+async function parse(store: FileStore, note: { path: string; etag?: string; gone?: boolean }): Promise<Parsed | { failed: string }> {
   if (note.gone === true) return { path: note.path, gone: true, links: [], props: null };
   try {
     const object = await store.get(note.path);
@@ -45,8 +46,8 @@ async function parse(store: FileStore, note: { path: string; etag?: string; gone
     // Gone since the tree saw it: its links go, its row stays unparsed, and the sweep that takes the row away settles it.
     if (!object) return { path: note.path, gone: true, links: [], props: null };
     return { path: note.path, ...version, ...factsOf(note.path, await object.text()) };
-  } catch {
-    return null;
+  } catch (error) {
+    return { failed: readFailureKind(error) };
   }
 }
 
@@ -104,6 +105,7 @@ export async function runFactFill(
   // whose pass died.
   if (state === null) return { kind: "nodesKept", complete: false };
   let failed: string[] = [];
+  const kinds: string[] = [];
   let next = state;
   let more = false;
   try {
@@ -115,8 +117,10 @@ export async function runFactFill(
       const wave = plan.notes.slice(start, start + FACT_FILL_CONCURRENCY);
       const read = await Promise.all(wave.map((note) => parse(store, note)));
       read.forEach((result, index) => {
-        if (result === null) failed.push(wave[index]!.path);
-        else parsed.push(result);
+        if ("failed" in result) {
+          failed.push(wave[index]!.path);
+          kinds.push(result.failed);
+        } else parsed.push(result);
       });
     }
     for (const batch of recordBatches(parsed)) {
@@ -128,11 +132,13 @@ export async function runFactFill(
     next = state;
     more = false;
     failed = state.retry ?? [];
+    kinds.length = 0;
   }
   await ctx.runMutation(internal.functions.nodeFacts.finish, {
     workspaceId,
     next: { ready: next.ready, seq: next.seq, ...(next.after === undefined ? {} : { after: next.after }), ...(next.startSeq === undefined ? {} : { startSeq: next.startSeq }) },
     failed,
+    ...(failed.length > 0 && kinds.length > 0 ? { failedKind: commonReadFailure(kinds) ?? "other" } : {}),
   });
   // Changes logged while this pass read are the next pass's.
   if (!more) more = await ctx.runQuery(internal.functions.nodeFacts.behind, { workspaceId }).catch(() => false);

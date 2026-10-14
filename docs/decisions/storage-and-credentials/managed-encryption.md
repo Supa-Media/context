@@ -115,6 +115,20 @@ is read again). Only then does the workspace become `encrypted`.
   "Paused".
 - **Scheduling:** at most two workspaces are walked at once, because this is
   our own R2 account.
+- **A plain writer that outlives the walk walks it again** (2026-10-14). A
+  store is built in the mode the workspace had when it was built, so one built
+  while the row was `waiting` writes plain. If the walk lists, seals and checks
+  the bucket while that store is still writing, what lands after the check
+  stays plain under encrypted-only reads, and every read refuses it: on
+  @segunawe the last two layout files could not be opened, indexed or read for
+  their links, and search sat on "Indexing 4 of 6". The layout step now calls
+  `afterPlainWrites` once its plain writes land, which restarts the walk from
+  the top unless the row is still `waiting` (`reseal.ts`). A workspace already
+  left like that is repaired by staff's **Seal again** in admin › Search ›
+  Indexes, shown on the File tree box while the facts fill reports notes it
+  cannot read as `unsealed` (`readFailure.js`). Not automatic on a refused
+  read: encrypted-only reads refuse a plain object as possible tampering too,
+  and serving it is a person's call. Audited as `managed_encryption.reseal`.
 
 ### Rollout
 
@@ -282,6 +296,10 @@ crafted upload hits this, and it can only stop its own workspace.
 - `apps/convex/__tests__/managedEncryptionEdges.test.ts` (partial failure and
   retry, rotation mid-walk, stale runs, hand-off mid-walk, final check, forged
   envelope, concurrency)
+- `apps/convex/__tests__/managedEncryptionLatePlain.test.ts` and
+  `managedEncryptionScaffold.test.ts` (a plain file landing after the walk:
+  walked again automatically, or by staff's Seal again)
+- `apps/mcp/test/readFailure.test.mjs` (a refused read named in a word)
 - `infra/email-worker/src/managedEncryption.test.ts`
 
 Each carries a sabotage record.

@@ -27,6 +27,8 @@ export type IndexActions = {
   check: (workspaceId: string) => void;
   retryMove: (id: string) => void;
   undoMove: (id: string) => void;
+  /** Walk a sealed bucket again, for notes saved unsealed after its walk. */
+  reseal: (workspaceId: string) => void;
 };
 
 const COLUMNS: readonly Column[] = [
