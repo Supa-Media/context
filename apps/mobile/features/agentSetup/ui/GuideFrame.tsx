@@ -190,6 +190,8 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       backgroundColor: colors.surface3,
       outlineWidth: 0,
+      // Safari draws its focus ring whatever the width; only `none` stops it.
+      outlineStyle: "none" as never,
     },
     closeFocused: { borderWidth: 1.5, borderColor: colors.accent },
     scroll: { flex: 1 },

@@ -16,6 +16,7 @@
  */
 import { ACTIVITY_PATH, mayBeReportable as mayBeActivity, nextFile as nextActivityFile } from "../../../../packages/shared/src/activity.cjs";
 import { AUDIT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
+import { isRoutinePath } from "../../../../packages/shared/src/routines.cjs";
 import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing, PRIVACY_KEY } from "../privacy/engine.js";
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
@@ -322,9 +323,6 @@ function announceWebsiteChange(store, action, paths) {
   }
 }
 
-/** The schedule folder (`packages/shared/src/routines.cjs`). */
-const ROUTINES_ROOT = "routines";
-
 /** At most this many paths go in one report; the control plane re-lists anyway. */
 export const MAX_ROUTINE_PATHS = 50;
 
@@ -332,9 +330,11 @@ export const MAX_ROUTINE_PATHS = 50;
  * Tell the control plane a routine may have been added, changed, moved or
  * deleted, and who did it: a routine runs as the person who last wrote it.
  *
- * Paths and the acting user, never text. The control plane re-reads the
- * `routines/` folder itself before it schedules anything, so a report is a
- * nudge and a writer, not a fact it trusts about the file. Deferred and
+ * A routine path is one under either root, `tex/routines/` or `routines/`, or
+ * the `tex` folder itself (`isRoutinePath`, `packages/shared/src/routines.cjs`).
+ * Paths and the acting user, never text. The control plane re-reads both
+ * roots itself before it schedules anything, so a report is a nudge and a
+ * writer, not a fact it trusts about the file. Deferred and
  * best-effort like its neighbours; a missed one costs the freshness the
  * control plane's periodic re-read restores.
  */
@@ -342,7 +342,7 @@ export function announceRoutineChange(store, paths) {
   if (typeof store.reportRoutineChange !== "function" || !Array.isArray(paths)) return;
   const touched = paths
     .map((path) => String(path).replace(/^\/+|\/+$/g, ""))
-    .filter((path) => path === ROUTINES_ROOT || path.startsWith(`${ROUTINES_ROOT}/`))
+    .filter((path) => isRoutinePath(path))
     .slice(0, MAX_ROUTINE_PATHS);
   if (touched.length === 0) return;
   const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});

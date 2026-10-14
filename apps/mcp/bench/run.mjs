@@ -5,7 +5,7 @@
  * the answers land in one result note to be judged later.
  *
  *   --dir <path>        the benchmarks folder (default: $AI_BENCH_DIR, else bench/ai/ here)
- *   --test <name>       the test file (default: the job's)
+ *   --test <name>       the test file (default: the job's core set, else the job's own)
  *   --setups a,b        setup file names in setups/<job>/ (default: all)
  *   --questions 1,4     only these questions
  *   --runs <n>          runs per question (default: the test's `runs`)
@@ -140,6 +140,20 @@ async function converse(world, question, person) {
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
 }
 
+/**
+ * The test a job runs when none is named. The texting assistant's is its core
+ * set, `tests/core.md` (decided by the owner, 2026-10-14: a short set of the
+ * basics, run often; the long sets stay for rounds, by name). A folder
+ * without the core set runs the job's own test, as before.
+ */
+export const DEFAULT_TESTS = Object.freeze({ "texting-assistant": "core" });
+
+export function testFor(options, tests) {
+  if (options.test) return options.test;
+  const core = DEFAULT_TESTS[options.job];
+  return core && Object.hasOwn(tests, core) ? core : options.job;
+}
+
 /** What a run reads before it answers anything: the folder, the test, the setups, the questions. */
 async function loadRun(options) {
   const dir = benchFolder(options);
@@ -149,7 +163,7 @@ async function loadRun(options) {
   const fluffOn = options["no-fluff"] !== true;
   const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
   const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
-  const testName = options.test ?? options.job;
+  const testName = testFor(options, bench.tests);
   const test = bench.tests[testName];
   if (!test) throw new Error(`no tests/${testName}.md`);
   const setups = await readSetups(dir, options.job, list(options.setups));
@@ -172,11 +186,11 @@ async function loadRun(options) {
 export const shardJobs = (jobs, index, count) => jobs.filter((_, k) => k % count === index);
 
 /** Answer `jobs` in this process, one conversation at a time. `label` prefixes the progress lines. */
-async function answerJobs(options, { bench, test, skills = [] }, jobs, label = "") {
+async function answerJobs(options, { bench, test, testName = options.test ?? options.job, skills = [] }, jobs, label = "") {
   // A test that runs on the scripted web (`front.web: scripted`, `sites.mjs`)
   // searches and browses the bench's sites, never the real web.
   const scripted = test.front.web === "scripted";
-  if (scripted && bench.sites.length === 0) throw new Error(`tests/${options.test ?? options.job}.md runs on the scripted web, but sites/ has no sites`);
+  if (scripted && bench.sites.length === 0) throw new Error(`tests/${testName}.md runs on the scripted web, but sites/ has no sites`);
   const send = claudeTransport(process.env);
   if (!options.fake) process.stderr.write(`${label}Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   // Production's texting assistant has web search, so a run must offer it too

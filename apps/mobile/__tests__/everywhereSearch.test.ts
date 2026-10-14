@@ -14,7 +14,6 @@ import {
   itemsFromBlended,
   loadedInScope,
   paletteStateOf,
-  parseScopedQuery,
   seconds,
   SLOW_MS,
   sourcesNotice,
@@ -62,34 +61,6 @@ function answer(overrides: Partial<BlendedAnswer> = {}): BlendedAnswer {
     ...overrides,
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/*                              parseScopedQuery                              */
-/* -------------------------------------------------------------------------- */
-
-describe("parseScopedQuery", () => {
-  const slugs = ["supa", "seyi"];
-
-  test("'@supa pricing' narrows to @supa and searches for 'pricing'", () => {
-    expect(parseScopedQuery("@supa pricing", slugs)).toEqual({ slug: "supa", query: "pricing" });
-  });
-
-  test("the slug is matched without regard to case, and the slug returned is the workspace's own", () => {
-    expect(parseScopedQuery("@SUPA x", slugs)).toEqual({ slug: "supa", query: "x" });
-  });
-
-  test("'@su' with no space after it names nothing yet, so the query is kept as written", () => {
-    expect(parseScopedQuery("@su", slugs)).toEqual({ slug: null, query: "@su" });
-  });
-
-  test("an '@' that names no workspace the person can search is searched for as written", () => {
-    expect(parseScopedQuery("@nobody rent", slugs)).toEqual({ slug: null, query: "@nobody rent" });
-  });
-
-  test("a plain query has no slug", () => {
-    expect(parseScopedQuery("rent", slugs)).toEqual({ slug: null, query: "rent" });
-  });
-});
 
 /* -------------------------------------------------------------------------- */
 /*                                 whyMatched                                 */

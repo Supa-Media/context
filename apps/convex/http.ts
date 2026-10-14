@@ -347,7 +347,7 @@ export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
 
 export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
 
-/* POST /gateway/routines — a write touched `routines/`; re-read the folder. */
+/* POST /gateway/routines — a write touched a routine root; re-read both. */
 export const gatewayRoutines = gatewayRoute(routines.gatewayRoutinesHandler);
 
 /* -------------------------------------------------------------------------- */

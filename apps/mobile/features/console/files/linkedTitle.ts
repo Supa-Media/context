@@ -2,27 +2,33 @@ import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { baseName, describeNameProblem, displayName, withoutSortPrefix } from "./paths";
 import type { Listings } from "./fileBrowser/types";
 import { namesIn } from "./tree";
-import { isUntitled, titleFor } from "./untitled";
+import { titleFor } from "./untitled";
+import { nameIsAddress } from "./addressNames";
+
+export { nameIsAddress };
 
 /**
- * THE TITLE IS THE NAME — while the two are the same.
+ * THE TITLE IS THE NAME.
  *
- * The owner asked for renaming a note from the page itself ("there is not a
- * smooth way of renaming a file within the page"), and the design that answered
- * it (`/rename-flow-artboards`, approved 2026-09-26) is one rule: **if a note's
- * first heading and its file name are the same, they stay the same.** Edit the
- * title, leave it, and the file follows. No dialog.
+ * A note's first heading and its file name are one thing: edit the title,
+ * leave it, and the file follows; rename the file anywhere — the tree, the
+ * dialog, the header — and the heading follows. No dialog.
  *
- * ## Why only while they already match
+ * ## Always, not only while they already match
  *
- * A bucket connected from years of Obsidian is full of deliberate differences —
- * `2026-09-12.md` whose heading is "Friday", a `README.md` titled after its
- * project. Renaming those because somebody fixed a typo in a heading would
- * refile a person's notes without asking. So a note is *linked* when its title
- * is its name (sort number aside — `01-intro.md` titled "intro" is linked, and
- * keeps its `01-`), or when it is an `untitled-<date>` note waiting for one.
- * Nothing is stored: whether two things match is read from the file, which is
- * the only place a plain-files product may keep it.
+ * The first version of this rule (`/rename-flow-artboards`, approved
+ * 2026-09-26) linked the two only while they were already equal, so a bucket
+ * imported from Obsidian — `2026-09-12.md` headed "Friday" — kept them
+ * apart. That left two ways to rename a note depending on something nobody
+ * could see: "rather than having a weird thing where some things you can edit
+ * the file name through the title and some things you have to edit it a
+ * different way … they should just be linked together" (owner, 2026-10-14).
+ *
+ * What still holds from the first version: nothing moves because somebody
+ * **opened** a note. And a file whose name is an address — a website page,
+ * a folder's `about.md`, the front page — is never renamed by its heading
+ * (`nameIsAddress`). A mismatched pair is linked from the first edit of
+ * either side, made by a person, under their own caret or in a rename.
  *
  * ## Why this refuses rather than repairs
  *
@@ -39,19 +45,13 @@ function stemOf(path: string): { stem: string; extension: string } {
 }
 
 /**
- * Whether this note's title and its name are one thing.
- *
- * Decided against the text as it was **opened**, not as it is being typed —
- * while somebody types a new title the two differ, and that is the edit this
- * rule exists to carry, not evidence that they were never linked.
+ * Whether editing this note's title renames its file: every note since
+ * 2026-10-14 (see the header), except one whose name is an address.
  */
-export function isLinkedTitle(path: string, openedText: string): boolean {
-  if (isUntitled(path)) return true;
-  const title = titleFor(openedText);
-  if (title === null) return false;
-  const { stem } = stemOf(path);
-  return title === stem || title === withoutSortPrefix(stem);
+export function isLinkedTitle(path: string, _openedText: string): boolean {
+  return !nameIsAddress(path);
 }
+
 
 export type TitleProposal =
   /** The title is the name already, or there is no title to follow. */
@@ -144,21 +144,19 @@ export function relabelled<T extends { path: string; label: string }>(
  * `null` when nothing should change.
  *
  * The other direction of the same rule, for a rename that did not start in the
- * title — the tree, the dialog, an undo. If the heading was the old name, it
- * becomes the new one, so the pair stays linked; a heading that was anything
- * else is the person's and is left alone. An `untitled-<date>` placeholder is
- * the old name too, which is what makes naming a new note from its row also
- * name its page.
+ * title — the tree, the dialog, the header, an undo. The heading becomes the
+ * new name, whatever it said before, so the pair is linked from then on. A
+ * note with no heading gets none: its name is drawn above it instead.
  */
 export function retitled(from: string, to: string, text: string): string | null {
+  if (nameIsAddress(from) || nameIsAddress(to)) return null;
   const title = titleFor(text);
   if (title === null) return null;
   const old = stemOf(from).stem;
   const next = stemOf(to).stem;
-  let replacement: string;
-  if (title === old) replacement = next;
-  else if (title === withoutSortPrefix(old) && old !== withoutSortPrefix(old)) replacement = withoutSortPrefix(next);
-  else return null;
+  // The heading follows whatever it said before (see the header): the whole
+  // new stem where it carried the sort number, the name without it otherwise.
+  const replacement = title === old ? next : withoutSortPrefix(next);
   if (replacement === title) return null;
   const lines = text.split("\n");
   // The line `titleFor` read: frontmatter skipped, then blank lines.

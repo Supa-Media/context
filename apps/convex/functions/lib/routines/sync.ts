@@ -3,9 +3,9 @@
  *
  * Two ways in, one way through: a signal (the gateway's `/gateway/routines`,
  * or a console write through the barrier) records who wrote which paths and
- * schedules one debounced scan of the workspace's `routines/` folder; the scan
- * reads the files through `runFileOperation`, keeps their schedules, and drops
- * the text. The rows are a derivative: deleting every one of them and running
+ * schedules one debounced scan of the workspace's routine folders
+ * (`routines/` and `tex/routines/`); the scan reads the files through
+ * `runFileOperation`, keeps their schedules, and drops the text. The rows are a derivative: deleting every one of them and running
  * a scan gives back the same schedule, because the folder is the truth.
  */
 
@@ -18,7 +18,7 @@ import {
   MAX_SIGNAL_PATHS,
   RECONCILE_AFTER_SIGNAL_MS,
   RECONCILE_STALE_MS,
-  ROUTINES_ROOT,
+  ROUTINE_SCAN_ROOTS,
   WRITER_GONE,
   effectiveTimeZone,
   isUnderRoutines,
@@ -30,7 +30,7 @@ import { accountTimeZone, userForActorName, workspaceOwner, writingRole } from "
 
 type Writer = { path: string; userId: Id<"users"> };
 
-/** The paths a signal may name: strings under `routines/`, bounded. */
+/** The paths a signal may name: strings under a routine root (or `tex` itself), bounded. */
 export function routinePathsOf(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const paths: string[] = [];
@@ -145,8 +145,12 @@ export interface RoutineScan {
 const OWNER_CLEARANCE = { scope: "private" as const, grantedNames: [] as string[] };
 
 /**
- * List `routines/<folder>/` and read each `.md` directly inside, at the
- * owner's clearance: the scan only learns *when*. Whether the writer may see
+ * List `<root>/<folder>/` for both roots (`routines/` and `tex/routines/`) and
+ * read each `.md` directly inside. Both roots count toward one
+ * `MAX_ROUTINES_PER_WORKSPACE`, and a root that is not there lists as empty,
+ * so a workspace with only one of them scans as it always did.
+ *
+ * At the owner's clearance: the scan only learns *when*. Whether the writer may see
  * the note is asked by the gateway when it runs (`read_note` on the writer's
  * own grant), so a scan reading more than the writer could never lets them
  * run more.
@@ -164,19 +168,22 @@ export async function scanRoutines(
     if (listing.kind !== "listing") throw new Error("routine listing returned an invalid result");
     return listing;
   };
-  const root = await list(ROUTINES_ROOT);
-  let complete = !root.truncated;
+  let complete = true;
   const files: string[] = [];
-  for (const folder of root.entries) {
-    if (folder.kind !== "folder") continue;
-    const inner = await list(folder.path);
-    if (inner.truncated) complete = false;
-    for (const entry of inner.entries) {
-      if (entry.kind === "file" && /\.md$/i.test(entry.path)) files.push(entry.path);
-    }
-    if (files.length > MAX_ROUTINES_PER_WORKSPACE) {
-      complete = false;
-      break;
+  scan: for (const rootPath of ROUTINE_SCAN_ROOTS) {
+    const root = await list(rootPath);
+    if (root.truncated) complete = false;
+    for (const folder of root.entries) {
+      if (folder.kind !== "folder") continue;
+      const inner = await list(folder.path);
+      if (inner.truncated) complete = false;
+      for (const entry of inner.entries) {
+        if (entry.kind === "file" && /\.md$/i.test(entry.path)) files.push(entry.path);
+      }
+      if (files.length > MAX_ROUTINES_PER_WORKSPACE) {
+        complete = false;
+        break scan;
+      }
     }
   }
 
@@ -323,6 +330,7 @@ function scheduleFields(schedule: RoutineSchedule): Omit<
     at: schedule.at,
     days: schedule.days,
     monthDay: schedule.monthDay,
+    date: schedule.date,
     timeZone: schedule.timeZone,
     paused: schedule.paused,
     send: schedule.send,

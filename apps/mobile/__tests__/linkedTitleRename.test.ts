@@ -419,29 +419,51 @@ describe("a note whose title differs from its name", () => {
     unmount = null;
   });
 
-  test("keeps its name whatever the heading becomes, and Rename uses the dialog", async () => {
+  /*
+    Linked from the first edit (owner, 2026-10-14: "they should just be linked
+    together"). It used to keep its name whatever the heading became, which
+    made renaming depend on whether the two happened to match already.
+  */
+  test("opening it moves nothing; editing its title renames the file", async () => {
     unmount = mount();
     await settle();
     await open(DAILY);
+    expect(moves()).toEqual([]);
+    expect(browser.focusTitle!(DAILY)).toBe(true);
     await caret(true);
     await type("# Saturday\n\nBody.\n");
     await caret(false);
+    expect(moves()).toEqual([{ from: DAILY, to: `${FOLDER}/Saturday.md` }]);
+  });
+
+  test("a heading somebody else typed is not this person's rename", async () => {
+    unmount = mount();
+    await settle();
+    await open(DAILY);
+    // The caret never entered the title: a collaborator's change.
+    await type("# Saturday\n\nBody.\n");
+    await caret(false);
     expect(moves()).toEqual([]);
-    expect(browser.titleEdit).toBeNull();
-    expect(browser.focusTitle!(DAILY)).toBe(false);
   });
 });
 
 describe("the rule itself", () => {
   const listings = { [FOLDER]: undefined };
 
-  test("linked when the title is the name, sort number aside, or the note is untitled", () => {
+  test("every note's title is linked to its name", () => {
     expect(isLinkedTitle(ROADMAP, "# Roadmap\n")).toBe(true);
-    expect(isLinkedTitle(`${FOLDER}/01-intro.md`, "# intro\n")).toBe(true);
     expect(isLinkedTitle(`${FOLDER}/untitled-2026-09-25.md`, "# anything\n")).toBe(true);
-    expect(isLinkedTitle(DAILY, "# Friday\n")).toBe(false);
-    expect(isLinkedTitle(ROADMAP, "No heading\n")).toBe(false);
-    expect(isLinkedTitle(ROADMAP, "---\nstatus: active\n---\n# Roadmap\n")).toBe(true);
+    expect(isLinkedTitle(DAILY, "# Friday\n")).toBe(true);
+    expect(isLinkedTitle(ROADMAP, "No heading\n")).toBe(true);
+  });
+
+  test("a name that is an address is never renamed by its heading, nor retitled", () => {
+    for (const path of ["index.md", `${FOLDER}/about.md`, "privacy.md", "todo.md", "website/about.md", "website/index.md", "website/layout.html.md", "website/site.css.md"]) {
+      expect(isLinkedTitle(path, "# Something else\n")).toBe(false);
+    }
+    expect(retitled("website/about.md", "website/team.md", "# About us\n")).toBeNull();
+    expect(retitled(`${FOLDER}/about.md`, `${FOLDER}/overview.md`, "# about\n")).toBeNull();
+    expect(isLinkedTitle(`${FOLDER}/about the move.md`, "# x\n")).toBe(true);
   });
 
   test("a sort number is kept, and a drawing keeps both extensions", () => {
@@ -488,12 +510,15 @@ describe("the rule itself", () => {
     }
   });
 
-  test("a title follows a rename only when it was the old name", () => {
+  test("a title follows every rename, whatever it said before", () => {
     expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "---\na: 1\n---\n\n# Roadmap\nx\n")).toBe(
       "---\na: 1\n---\n\n# Plan\nx\n",
     );
     expect(retitled(`${FOLDER}/01-intro.md`, `${FOLDER}/01-start.md`, "# intro\n")).toBe("# start\n");
-    expect(retitled(DAILY, `${FOLDER}/x.md`, "# Friday\n")).toBeNull();
+    expect(retitled(DAILY, `${FOLDER}/x.md`, "# Friday\n")).toBe("# x\n");
+    // A heading that said the name without its sort number keeps saying it so.
+    expect(retitled(`${FOLDER}/01-intro.md`, `${FOLDER}/01-start.md`, "# Welcome\n")).toBe("# start\n");
+    expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "# Plan\n")).toBeNull();
     expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "no heading\n")).toBeNull();
   });
 

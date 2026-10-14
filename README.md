@@ -22,20 +22,19 @@ scratch.
 up to 1,000 notes — or bring a bucket you own outright: Cloudflare R2, AWS S3,
 Backblaze B2, or any S3-compatible storage. A managed context can move every
 raw object into your bucket from Settings; Context copies and verifies first,
-then switches, for free and even after cancellation. Your notes remain plain
-Markdown either way.
+then switches, for free and even after cancellation. Every way out is plain
+Markdown, on either plan.
 
 That's not a feature we might remove later. It's the architecture:
 
 - **Plain files are canonical.** Markdown you can open in Obsidian, grep, or
   `rclone` out. Never a proprietary database that becomes the only copy.
-- **Your storage keeps its native shape.** In Dropbox, your workspace is an
-  ordinary folder. In object storage, tenancy is bucket-level: we never rewrite
-  your keys or namespace your paths. An existing one connects without a
-  migration.
+- **Your storage keeps its native shape.** Tenancy is bucket-level: we never
+  rewrite your keys or namespace your paths. An existing bucket connects
+  without a migration.
 - **The gateway is portable.** `apps/mcp` is a self-contained Cloudflare Worker.
-  If Context.LC disappears tomorrow, deploy it yourself and your bucket keeps
-  working.
+  If Context.LC disappears tomorrow, deploy it and the control plane in
+  `apps/convex` yourself, and your bucket keeps working.
 - **Indexes are disposable.** Search caches and embeddings are derivatives that
   can be rebuilt from the files. The files are the truth.
 
@@ -46,27 +45,38 @@ That's not a feature we might remove later. It's the architecture:
 ┌────────────────────┐      ┌──────────────────────┐      ┌────────────────────┐
 │ ChatGPT            │      │  Control plane       │      │  R2 / S3 / B2      │
 │ Claude             │─────▶│  (Convex)            │      │                    │
-│ Codex              │ MCP  │  accounts,           │      │  0-inbox/          │
-│ Notion AI          │ over │  workspaces,         │      │  1-projects/       │
-│ …                  │ OAuth│  OAuth grants,       │      │  2-areas/          │
-└────────────────────┘      │  storage bindings    │      │  3-resources/      │
-                            ├──────────────────────┤      │  4-archive/        │
-                            │  MCP gateway         │─────▶│  index.md          │
-                            │  (Cloudflare Worker) │OAuth │  privacy.md        │
-                            └──────────────────────┘/keys │  .context/         │
-                                                          └────────────────────┘
+│ Codex              │ MCP  │  accounts, workspaces│      │  0-inbox/          │
+│ Notion AI          │ over │  OAuth grants,       │      │  1-projects/       │
+│ …                  │ OAuth│  storage bindings,   │      │  2-areas/          │
+└────────────────────┘      │  file tree, privacy  │      │  3-resources/      │
+                            │  rules, audit        │      │  4-archive/        │
+                            ├──────────────────────┤      │  index.md          │
+   The app (web, phone,     │  MCP gateway         │─────▶│  privacy.md        │
+   desktop) and the     ───▶│  (Cloudflare Worker) │OAuth │  .context/         │
+   texting assistant        └──────────────────────┘/keys └────────────────────┘
    control plane holds names, links and List front matter — never a note's body
 ```
 
-Two planes, and the split is the whole point. The **control plane** knows who
-you are, which storage serves the workspace, and which AI clients you've
-authorized. To draw your tree, map and Lists without reading every file, it
-also keeps each note's name, its links, and the front matter, heading and
-first paragraph a List card shows: copies derived from your files, rebuilt
-from them, and deleted with your workspace. Your notes themselves stay in the
-bucket. The **data plane** is one bucket per workspace, either operated by
-Context or controlled by you. On customer-owned storage, deleting your Context
-account removes the control plane metadata and leaves the bucket untouched.
+Two planes, and the split is the whole point.
+
+The **control plane** knows who you are, which storage serves each workspace,
+which AI clients you've authorized, and who did what. It also holds each
+workspace's **file tree** — one row per file and folder, with its path, parent,
+version and size — and its privacy rules, so the sidebar, Lists, Home and the
+map all read one live tree that changes the moment a note is created, renamed
+or moved, with the files catching up behind it. To draw Lists and the map
+without opening every file, each note's row also carries its links and the
+front matter, heading and first paragraph a List card shows: derivatives
+rebuilt from your files and deleted with your workspace. Never a note's body.
+See [convex-tree](docs/decisions/app-and-console/convex-tree.md) and
+[convex-facts](docs/decisions/app-and-console/convex-facts.md).
+
+The **data plane** is one bucket per workspace, either operated by Context or
+controlled by you. The gateway reads and writes it with a credential decrypted
+per request and never cached. On customer-owned storage, deleting your Context
+account removes the control-plane metadata and leaves the bucket untouched.
+`privacy.md` stays in the bucket in the same format, so leaving keeps who sees
+what.
 
 ## Structure your context however you like
 
@@ -84,24 +94,11 @@ on setup:
 It's a suggestion, not a schema. Bring your own structure and Context works the
 same — the tools operate on paths, not on a fixed taxonomy.
 
-Context-owned data is kept under one reserved tree so the bucket root stays
-human-readable:
-
-```text
-.context/
-├── manifest.json
-├── access/note-acl/
-├── assets/images/
-├── audit/
-├── history/
-├── integrations/granola/events/
-├── meetings/sessions/
-├── migrations/
-├── probes/
-├── proposals/
-├── search/
-└── website/releases/
-```
+Context-owned data — audit records, attachments, editing history, search
+state and the like — is kept under one reserved `.context/` folder, so the
+bucket root stays yours and human-readable. Collaboration history under
+`.context/collaboration/` is your data too, backed up and exported with the
+notes; search indexes and caches are disposable and rebuilt from the files.
 
 Buckets created before storage-layout v1 continue to work through dual reads;
 the owner-only `migrate_storage_layout` tool copies and verifies legacy objects,
@@ -183,35 +180,109 @@ Two answers, and you want both:
 
 ## Privacy tiers
 
-Every note is `private` or `team`. Folder defaults live in a `privacy.md`
-manifest at the root of your bucket — visible to you in Obsidian, enforced
-server-side before any content is returned. Exact notes can override their
-folder in either direction.
+Every note is `private` or `team`. Folders set defaults and exact notes can
+override their folder in either direction; the gateway enforces this before
+any content is returned. The rules are held in the control plane and written
+out to a `privacy.md` at the root of your bucket in the same readable format,
+so a bucket you take with you keeps who sees what.
 
-`team` means *people you've named*, never the public internet. There is no
-anonymous tier.
+`team` means *people you've named*, never the public internet. No setting
+publishes a context. The one exception is a link an owner mints for one note
+or one folder and can revoke, and a folder link still hides whatever
+`privacy.md` holds back ([decision](docs/decisions/privacy-and-sharing.md)).
+
+## What else is in the box
+
+- **The app** — one Expo codebase that is the UI on web, iOS, Android and,
+  inside a thin Electron shell, macOS. Live collaborative editing, Lists and
+  Boards over folders, a live map of your notes, comments, forms, drawings.
+- **Meetings** — the desktop app notices a meeting and records it without a
+  bot joining the call; the note lands as Markdown in your bucket.
+- **Capture** — mail sent to `<username>@context.lc` lands in your personal
+  workspace's inbox. Shared workspaces have no capture address.
+- **Texting assistant** — text Context over iMessage and it answers from your
+  notes with your own grant ([decision](docs/decisions/texting-assistant.md)).
+- **Websites** — a workspace's `website/` folder can be published at
+  `context.lc/@<handle>`, `<handle>.ctxlc.site` or your own domain, narrowed by
+  `privacy.md` ([decision](docs/decisions/websites.md)).
 
 ## Repository layout
 
-| Path              | What it is                                                     |
-| ----------------- | -------------------------------------------------------------- |
-| `apps/convex/`    | Control plane — accounts, workspaces, storage bindings, grants  |
-| `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
-| `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
-| `packages/shared/`| Types and constants shared across apps                          |
-| `plugins/context/`| The agent plugin, and `npx @supa-media/context`, which installs it |
+| Path                              | What it is                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------- |
+| `apps/convex/`                    | Control plane — accounts, workspaces, grants, bindings, audit, file tree, privacy rules, billing |
+| `apps/mcp/`                       | The MCP gateway Worker — tools, OAuth, privacy engine, storage adapter. Self-hosting: [`apps/mcp/SETUP.md`](apps/mcp/SETUP.md) |
+| `apps/mobile/`                    | The Expo app: web, iOS, Android, and the UI the desktop shell hosts        |
+| `apps/desktop/`                   | Electron shell for macOS: menu bar, meeting capture, offline queue         |
+| `apps/agent/`                     | Worker behind the texting assistant (Linq iMessage webhook → gateway `/agent`) |
+| `infra/router/`                   | Worker fronting `context.lc`: the web app, Convex auth routes, websites    |
+| `infra/email-worker/`             | Email Worker that turns mail to `<username>@context.lc` into an inbox capture |
+| `infra/transcribe-worker/`        | Turns a chunk of meeting audio into text; stores nothing                   |
+| `infra/site-shots/`               | Screenshots a published website for an agent's site check                  |
+| `infra/egress-service/`           | Public-only network egress for already-authorized plugin requests          |
+| `infra/sentry-worker/`            | Turns new Sentry issues into short incident notes                          |
+| `infra/domain-connect/`           | Domain Connect template for custom website domains                         |
+| `packages/collaboration/`         | Yjs merging and the customer-bucket editing history                        |
+| `packages/meetings/`              | Meeting session state, detection and the Markdown a meeting becomes        |
+| `packages/communications/`        | What a day of mail or calendar becomes in the bucket                       |
+| `packages/drawings/`              | Excalidraw drawings as notes                                               |
+| `packages/desktop-bridge/`        | `window.desktop`: the typed contract between the app and the desktop shell |
+| `packages/obsidian-runtime/`      | Capability-scoped bridge for sandboxed Obsidian plugins                    |
+| `packages/encryption-decryptor/`  | Offline decryptor for encrypted notes, published to npm                    |
+| `packages/shared/`                | Types and constants shared across apps                                     |
+| `plugins/context/`                | The agent plugin, and `npx @supa-media/context`, which installs it         |
 
 ## Development
 
-Production monitoring, privacy rules, release verification, and the incident
-runbook live in [docs/observability.md](docs/observability.md).
+Node 22 and pnpm 9. Built on
+[supa-framework](https://github.com/Supa-Media/supa-framework); `@supa-media/*`
+packages come from npmjs, so a plain install needs no token.
 
 ```sh
 pnpm install
-npx convex dev          # creates your Convex deployment
-pnpm dev                # Convex + Expo together
-
-cd apps/mcp && pnpm test   # 442 checks, no dependencies, no network
+npx convex dev                       # links your own Convex deployment
+cp .env.example .env.local           # or `pnpm setup:secrets` with 1Password access
+pnpm dev                             # Convex + Expo together
+pnpm dev:convex / pnpm dev:mobile    # just one of them
+pnpm --filter @context/mcp dev       # the gateway under wrangler
 ```
 
-Built on [supa-framework](https://github.com/Supa-Media/supa-framework).
+Cloud and unattended sessions run `bash scripts/cloud-setup.sh` once; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for why.
+
+### Tests
+
+```sh
+pnpm test                            # every package, through turbo
+pnpm --filter @context/mcp test      # gateway suite: in-memory store, offline
+pnpm --filter @context/convex test   # control plane (vitest + convex-test)
+pnpm --filter @context/mobile test   # app (jest)
+pnpm typecheck
+pnpm architecture                    # file-size limits; run before calling work done
+```
+
+Change a test in the same commit as the behavior it covers. Security-sensitive
+changes need a test proving the attack fails.
+
+### Deploying
+
+Work goes through pull requests; nobody pushes to `main`. Every merge to
+`main` runs **Deploy Staging** (`staging.context.lc`), which deploys only the
+components the commit can affect. Production is a separate manual run of
+**Deploy to Production** on a commit that already passed staging. Desktop
+releases and native store builds are their own manual workflows. See
+[docs/staging.md](docs/staging.md).
+
+## Docs
+
+- [`CLAUDE.md`](CLAUDE.md) — the non-negotiables, architecture and vocabulary;
+  read it before changing anything.
+- [`docs/decisions/`](docs/decisions/README.md) — every durable decision, by
+  area, with what reversing it would cost.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — setup and review expectations.
+- [`SECURITY.md`](SECURITY.md) — reporting a vulnerability.
+- [`docs/staging.md`](docs/staging.md) — staging and production releases.
+- [`docs/observability.md`](docs/observability.md) — monitoring, privacy
+  rules for telemetry, release verification and the incident runbook.
+- [`apps/mcp/SETUP.md`](apps/mcp/SETUP.md) — connecting a client, and
+  self-hosting the gateway over your own bucket.

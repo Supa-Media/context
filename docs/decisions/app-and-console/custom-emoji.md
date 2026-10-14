@@ -94,7 +94,12 @@ folders, also can we add emojis to plain notes like activity"), reversing the
   Archive 🗄️, and `website` 🖥️). Nothing goes into the bucket, so every
   workspace has them without a migration, an icon somebody chose always wins,
   and removing it ("Use default 📥") brings the default back. Somebody's own
-  folders keep the plain folder glyph.
+  folders keep the plain folder glyph. The folders the product itself files
+  into one level under the inbox get one too (the owner, 2026-10-14):
+  calendar 🗓️, contacts 📇, email ✉️, forms 📝, google-chat 💬, imessage 📲,
+  meetings 🎙️, memories 💭, sessions 🤖, granola 🥣, and the capture folders
+  📨 (`DEFAULT_INBOX_FOLDER_ICONS`). Exact name, exact depth: `1-projects/email`
+  and `0-inbox/email/archive` are somebody's own.
 - **A note's icon is one more key in the same file**, the note's own path
   (`todo.md`). The file keeps its name because it is a stable on-bucket format.
   A note's icon is read back only when the note itself is visible (`canSee`),
@@ -111,3 +116,24 @@ folders, also can we add emojis to plain notes like activity"), reversing the
 **Reversing the visibility rule** (a note's icon shown with its folder) leaks
 held-back notes' names; `folderIcons.test.ts`'s "a member never sees the icon
 of a note held back" fails.
+
+## The picker suggests an emoji, and offers a random one
+
+Decided by the owner, 2026-10-14, after first asking for every new or renamed
+folder and note to be given an emoji on its own and then taking that back
+("don't add emojis immediately, automatically"). Nothing gets an icon unless a
+person picks one. Opening the picker shows two quick picks above the grid:
+
+- **Suggested**: Clef reads the name alone (never a note's text, never its
+  folders) and answers two choice questions, a topic and then an emoji in it,
+  from the list in `packages/shared/src/iconSuggest.ts`. Every emoji in that
+  list is one the picker offers under the same shortcode
+  (`folderIconPicks.test.ts`), so a suggestion is never something a person
+  could not have picked by hand. A name that says nothing (`untitled-…`,
+  `New folder`) is not sent. Metered as the `iconSuggest` feature, every plan,
+  editors only (`folderIcons.suggest`).
+- **Random**: one from the same list, with Shuffle to roll again.
+
+**Assigning icons automatically** would fill `folder-icons.json` with picks
+nobody made, and the owner said no.
+

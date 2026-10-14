@@ -47,6 +47,7 @@ import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { statusAdvice } from "./statusList.js";
 import { frontMatterChanged } from "../../activity/changes.js";
+import { aboutMeTooLong } from "../../agent/aboutMe.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -58,6 +59,9 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
+  // Tex's memory of the person has a hard size (owner, 2026-10-14), from every writer.
+  const tooLong = aboutMeTooLong(path, content);
+  if (tooLong) return toolError(tooLong);
   if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
     return toolError("personal communications can only be synced to a personal workspace");
   }

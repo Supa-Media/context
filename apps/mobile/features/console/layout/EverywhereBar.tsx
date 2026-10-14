@@ -51,12 +51,10 @@ export function TimingPill({
 export function WorkspaceChips({
   contexts,
   narrowed,
-  typedScope,
   onNarrow,
 }: {
   contexts: readonly SearchableContext[];
   narrowed: string | null;
-  typedScope: boolean;
   onNarrow: (slug: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -68,10 +66,8 @@ export function WorkspaceChips({
       <Pressable
         key={slug ?? "all"}
         onPress={() => onNarrow(slug)}
-        // Narrowed by "@name " in the field, the field is what widens it.
-        disabled={typedScope}
         accessibilityRole="button"
-        accessibilityState={{ selected: on, disabled: typedScope }}
+        accessibilityState={{ selected: on }}
         style={({ pressed }) => [styles.chip, on ? styles.chipOn : null, pressed ? styles.pressed : null]}
         testID={`palette-scope-${slug ?? "all"}`}
       >
@@ -88,7 +84,7 @@ export function WorkspaceChips({
         {contexts.map((context) => chip(context.slug, `@${context.slug}`))}
       </ScrollView>
       <Text style={styles.hint} numberOfLines={1}>
-        {typedScope ? "Delete the @name to search everywhere" : "or type @name first"}
+        or type in:
       </Text>
     </View>
   );
@@ -196,7 +192,6 @@ function EverywhereOn({
       <WorkspaceChips
         contexts={everywhere.contexts}
         narrowed={everywhere.narrowed}
-        typedScope={everywhere.typedScope}
         onNarrow={everywhere.narrow}
       />
       {open && everywhere.timing !== null ? <TimingPanel timing={everywhere.timing} /> : null}
@@ -231,6 +226,8 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       gap: space.x2,
       paddingHorizontal: layout.readingMargin,
+      // Clear of the field's rule above, as below (Dev2, 2026-10-14: "too close").
+      paddingTop: space.x3,
       paddingBottom: space.x2,
     },
     chips: { gap: space.x2 },

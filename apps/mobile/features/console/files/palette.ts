@@ -91,7 +91,8 @@ export interface PaletteItem {
   workspace?: { slug: string; current: boolean };
   /** Why a search result matched, drawn as a tag (`WHY_LABEL`). */
   why?: "name" | "words" | "meaning";
-  kind: "note" | "folder" | "command";
+  /** `filter`: a typed-filter suggestion in ⌘K (`layout/searchFilters.ts`), never a note. */
+  kind: "note" | "folder" | "command" | "filter";
 }
 
 /**

@@ -6,7 +6,7 @@
  * address into it, or it did not, and a model asked whether it did can be
  * talked round by an answer that says so. These lines are read from the
  * answer's own record (the tools it called, what the scripted browser did,
- * `sites.mjs`) and graded here; the judge never sees them.
+ * `sites.mjs`, the notes it wrote) and graded here; the judge never sees them.
  *
  *   - must call: read_skill          a tool call that did not fail
  *   - must not call: vault_add_link
@@ -17,17 +17,24 @@
  *   - must set: connected chatgpt    a flag a scripted button set
  *   - must publish: website          a site publish that went through (`siteStub.mjs`)
  *   - must connect: mayaruns.com     a domain connected to the workspace's site
+ *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
+ *                                    a note written at that path (a folder when
+ *                                    it ends in `/`), with that front matter
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
  */
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect):\s*(.+)$/;
+import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
+
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
   const m = line.trim().match(CHECK);
   if (!m) return null;
+  // A malformed write line fails when the test is read, not as a failed check.
+  if (m[2] === "write") writeTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
@@ -54,9 +61,114 @@ function happened(check, answer) {
       return events.includes("publish");
     case "connect":
       return events.some((event) => event.toLowerCase() === `connect ${value}`);
+    case "write":
+      return wrote(check.value, answer.changes ?? []);
     default:
       return false;
   }
+}
+
+/**
+ * A `write` check's target: `<workspace>/<path>`, then optionally `with` and
+ * the front matter lines the note must carry, comma-separated:
+ * `maya/routines/daily/ with at: 7:30 am, on: weekdays`. A comma inside a
+ * value (`on: mon, wed`) is kept: only one followed by `key:` starts a line.
+ */
+export function writeTarget(value) {
+  const at = value.search(/\s+with\s+/);
+  const place = at < 0 ? value : value.slice(0, at);
+  const fields = at < 0 ? "" : value.slice(at).replace(/^\s+with\s+/, "");
+  const front = {};
+  for (const part of fields.split(/,\s*(?=[A-Za-z][\w-]*:\s)/).filter((p) => p.trim())) {
+    const m = part.match(/^\s*([A-Za-z][\w-]*):\s*(.*?)\s*$/);
+    if (!m) throw new Error(`write check: "${part.trim()}" is not a front matter line (key: value)`);
+    front[m[1].toLowerCase()] = m[2];
+  }
+  return { place: place.trim(), front };
+}
+
+/**
+ * The notes an answer wrote, as `{ path, detail }` with the path prefixed by
+ * its workspace. A live run's record has the world's change objects; a result
+ * note read back has its "Changes recorded" lines (`report.mjs`), e.g.
+ * `- written maya/home/repairs.md: --- at: 9:00 am --- Text me...`.
+ */
+function writesOf(changes) {
+  const out = [];
+  for (const change of changes) {
+    if (typeof change === "string") {
+      const m = change.match(/^-\s+(\S+)\s+(.+?\.md):\s?(.*)$/) ?? change.match(/^-\s+(\S+)\s+([^:]+):\s?(.*)$/);
+      if (m && m[1] === "written") out.push({ path: m[2], detail: m[3] });
+    } else if (change?.kind === "written") out.push({ path: `${change.workspace}/${change.path}`, detail: change.detail ?? "" });
+  }
+  return out;
+}
+
+/**
+ * The front matter of a written note's recorded detail. The world records a
+ * note's text with its whitespace folded to single spaces (`world.mjs`), so
+ * the lines are found by their `key:` rather than by line breaks.
+ */
+export function recordedFront(detail) {
+  const m = /^---\s+(.*?)\s+---(?:\s|$)/.exec(String(detail).trim());
+  if (!m) return {};
+  const keys = [...m[1].matchAll(/(?:^|\s)([A-Za-z][\w-]*):(?=\s|$)/g)];
+  const out = {};
+  keys.forEach((key, i) => {
+    const raw = m[1].slice(key.index + key[0].length, i + 1 < keys.length ? keys[i + 1].index : m[1].length).trim();
+    out[key[1].toLowerCase()] = raw.replace(/^(["'])(.*)\1$/, "$2");
+  });
+  return out;
+}
+
+/** `9:00 am`, `2026-10-09 9:00 am` or `2026-10-09T09:00`: a date (or none) and a time. */
+function when(value) {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:T|\s+)(.+)$/.exec(value);
+  const time = parseTime(m ? m[2] : value);
+  return time ? { date: m ? m[1] : null, ...time } : null;
+}
+
+/** Whether a written front matter value says what the check wants, read the way routines.cjs reads it. */
+function sameValue(key, want, got) {
+  const a = String(want).trim();
+  const b = String(got ?? "").trim();
+  if (a.toLowerCase() === b.toLowerCase()) return true;
+  const wa = when(a);
+  const wb = when(b);
+  if (wa && wb) return wa.date === wb.date && wa.hour === wb.hour && wa.minute === wb.minute;
+  if (key === "on") {
+    const da = parseWeekdays(a);
+    const db = parseWeekdays(b);
+    return Boolean(da && db && da.join() === db.join());
+  }
+  return false;
+}
+
+/**
+ * Whether `path` is at `place`: the note itself, or anything under a folder
+ * that ends in `/`. Two routine folders that mean one schedule
+ * (`routines/daily/`, `routines/every-day/`) under the same root are one
+ * place; the two roots (`tex/routines/`, `routines/`) are not, because the
+ * check names where a new one belongs.
+ */
+function atPlace(place, path) {
+  if (!place.endsWith("/")) return path === place;
+  if (path.startsWith(place)) return true;
+  const want = /^([^/]+)\/((?:tex\/)?routines)\/([^/]+)\/$/.exec(place);
+  const got = /^([^/]+)\/((?:tex\/)?routines)\/([^/]+)\/[^/]+\.md$/.exec(path);
+  if (!want || !got || want[1] !== got[1] || want[2] !== got[2]) return false;
+  const a = cadenceFromFolder(want[3]);
+  const b = cadenceFromFolder(got[3]);
+  return Boolean(a && b && a.unit === b.unit && a.every === b.every);
+}
+
+function wrote(value, changes) {
+  const { place, front } = writeTarget(value);
+  return writesOf(changes).some((write) => {
+    if (!atPlace(place, write.path)) return false;
+    const fields = recordedFront(write.detail);
+    return Object.entries(front).every(([key, want]) => sameValue(key, want, fields[key]));
+  });
 }
 
 /** The question's checks graded on one answer, as verdicts. */

@@ -39,6 +39,12 @@
  *   open_web       optional `yes`: the assistant may open any public https
  *                  address it chooses (`trustedSites.js` `onOpenWeb`)
  *   tools          names the setup was proved with (recorded; not yet offered)
+ *   core_tools     optional `[a, b]`: the tools a turn is handed; every other
+ *                  one is named in the prompt and loaded with `find_tools`
+ *                  (`toolShelf.js`; owner, 2026-10-14). Absent: all of them.
+ *   history        optional 0-40: how many earlier texts (questions and
+ *                  answers each count) a turn is shown; the rest are read with
+ *                  `earlier_texts` (`conversation.js`). Absent: 12.
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
  *                  (`progress.js`) may go past it
@@ -59,6 +65,8 @@ import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
+import { readCoreTools } from "./toolShelf.js";
+import { readHistoryTurns } from "./conversation.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -135,6 +143,11 @@ async function parse(raw) {
   const openWeb = readOpenWeb(front.open_web);
   if (openWeb === null) return null;
 
+  const coreTools = readCoreTools(front.core_tools);
+  if (coreTools === null) return null;
+  const history = readHistoryTurns(front.history);
+  if (history === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -156,6 +169,8 @@ async function parse(raw) {
     trustedSites,
     openWeb,
     tools,
+    coreTools: coreTools ?? null,
+    history: history ?? null,
     maxSteps,
     prompt,
     version: await versionOf(raw),

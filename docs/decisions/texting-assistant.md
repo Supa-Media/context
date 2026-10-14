@@ -433,10 +433,11 @@ So the model never chooses an address:
   https address it chooses, query included. **This knowingly reopens the
   exfiltration this section was written to close**: a page can ask the
   assistant to put the person's notes in an address. What still holds:
-  saved passwords are filled by the gateway and never seen, typing stays
-  limited to the person's words and skill values, IP addresses, internal
-  names, ports and credentials are refused, and removing the line from the
-  setup note closes it again with no deploy.
+  saved passwords are filled by the gateway and never seen, IP addresses,
+  internal names, ports and credentials are refused, and removing the line
+  from the setup note closes it again with no deploy. Since 2026-10-14 it
+  also lifts the typing rule and raises the page budget; see the next
+  section.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
@@ -469,6 +470,10 @@ box" is the exfiltration the address guard closes, by another door. So:
 - The session id stays in the turn's closure: the model never sees it, and the
   browser is closed when the question is answered (it closes itself when idle
   regardless). At most 10 steps a call and 40 a question.
+
+All of this is the default. Under `open_web: yes` (owner, 2026-10-14) the
+typing rule is lifted and the step and page budgets raised:
+[open web lifts the browser's limits](./texting-assistant/open-web-browser.md).
 
 **Browserbase, and handing the browser to the person.** Decided by the owner
 the same day: Browserbase is the browser, stateless (no Contexts,
@@ -600,6 +605,8 @@ Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](.
 
 ### A text has every MCP tool
 
+_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
+
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
 phone. Then, after the assistant said it could not move notes between
@@ -618,7 +625,7 @@ withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
 ([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
 The dispatcher in front of the
 client's also refuses any path into a dot folder or `privacy.md` and a
-malformed routine under `routines/` ([routines](./routines.md)). Everything
+malformed routine under `tex/routines/` or `routines/` ([routines](./routines.md)). Everything
 else, including whether the person may write in another workspace, is the
 client's dispatcher's, unchanged. The prompt tells the model to check its tool
 list before saying it can't do something, and to change notes only because

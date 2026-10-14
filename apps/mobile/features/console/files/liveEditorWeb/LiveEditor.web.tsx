@@ -370,7 +370,7 @@ export function LiveEditor({
   // left — see `followNote`.
   const shownPath = useRef(notePath ?? null);
   useEffect(() => {
-    followNote({ view, shownPath, collab, bound, latestValue, notePath, value });
+    followNote({ view, shownPath, collab, bound, latestValue, notePath, value, shared: presence?.shared ?? null });
     // `value` is read, not depended on: a keystroke changes it under the same
     // path and is the effect below's business, not this one's.
     // eslint-disable-next-line react-hooks/exhaustive-deps

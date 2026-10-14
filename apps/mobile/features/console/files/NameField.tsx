@@ -104,6 +104,8 @@ const makeStyles = (colors: Colors) =>
       // RN Web draws a focus ring on a field; the caret and the tint say
       // this is being edited. See `MeetingTitleField`.
       outlineWidth: 0,
+      // Safari draws its focus ring whatever the width; only `none` stops it.
+      outlineStyle: "none" as never,
       minWidth: 0,
     },
     editing: { backgroundColor: colors.surface2 },

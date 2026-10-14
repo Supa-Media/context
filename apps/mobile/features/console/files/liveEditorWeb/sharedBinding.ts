@@ -62,6 +62,7 @@ export function followNote({
   latestValue,
   notePath,
   value,
+  shared,
 }: {
   view: { current: EditorView | null };
   shownPath: { current: string | null };
@@ -70,11 +71,26 @@ export function followNote({
   latestValue: { current: string };
   notePath: string | null | undefined;
   value: string;
+  /** The room the note on screen is in now. */
+  shared?: SharedDoc | null;
 }): void {
   const current = view.current;
   const path = notePath ?? null;
   if (current === null || path === shownPath.current) return;
   shownPath.current = path;
+  /*
+    The same room under a new name: this note was renamed while it was open,
+    and its document went with it (`retarget` in `collaboration/durable.ts`).
+    Nothing is left, so nothing is taken down — unbinding here left the editor
+    out of the room for good, since the room it would rebind to never changed,
+    and everything typed after the rename was then overwritten.
+
+    Asked of the room rather than assumed from it, because the room alone does
+    not tell a rename from a switch: the commit that brings a different note's
+    path down still carries the previous note's room (see above), and that
+    room still answers to the previous note's name.
+  */
+  if (bound.current !== null && shared === bound.current && shared.notePath?.() === path) return;
   unbind(current, collab.current);
   bound.current = null;
   latestValue.current = value;

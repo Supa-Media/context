@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { PaletteSearch } from "../../design/components/Palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "../search/useBlendedSearch";
 import type { SearchableContext } from "../search/results";
+import { workspaceFilters } from "./searchFilters";
+import type { PaletteFilters } from "../../design/components/PaletteFilterTokens";
 import {
   itemsFromBlended,
-  parseScopedQuery,
   paletteStateOf,
   sourcesNotice,
   timingBreakdown,
@@ -19,7 +20,7 @@ import {
  * search page's own blended search (`useBlendedSearch`: one request across
  * every workspace, debounced, stale answers dropped, bounded, answered from the
  * device's copies offline) behind the palette, narrowed by a chip or by typing
- * "@name " in front of the words.
+ * `in:` and picking a workspace (`searchFilters.ts`).
  *
  * `enabled` false asks nothing: the palette is closed, a folder narrowed it to
  * one workspace's subtree (which `useContextSearch` already serves), or this is
@@ -30,12 +31,12 @@ export interface EverywhereSearch {
   search: PaletteSearch;
   /** Every workspace this person can search, for the chips. */
   contexts: readonly SearchableContext[];
-  /** The workspace the search is narrowed to, by chip or by "@name ", or `null` for all of them. */
+  /** The workspace the search is narrowed to, by chip or by `in:`, or `null` for all of them. */
   narrowed: string | null;
   /** Pick a chip; `null` is "All workspaces". */
   narrow: (slug: string | null) => void;
-  /** Whether the narrowing came from "@name " in the field, which only the field can undo. */
-  typedScope: boolean;
+  /** `in:` for the palette's field, or `undefined` with only one workspace to search. */
+  filters: PaletteFilters | undefined;
   /** What the pill and its panel draw, or `null` before anything has answered. */
   timing: TimingBreakdown | null;
   /** Whether the pill belongs to the words on screen, rather than a search still running. */
@@ -52,30 +53,19 @@ export function useEverywhereSearch({
   currentSlug: string | null;
   device: BlendedDeviceSearch | null;
 }): EverywhereSearch {
-  const [raw, setRaw] = useState("");
-  const [chip, setChip] = useState<string | null>(null);
-  const onQuery = useCallback((next: string) => setRaw(next), []);
-
-  /*
-    The slugs come from the blended search's own list, a subscription that
-    arrives a render after the first; until it does "@supa " is searched for
-    as written, and its arrival re-renders this hook, which then narrows.
-    Read through a ref because the list is the blended search's answer and
-    the blended search needs the parsed query to ask.
-  */
-  const slugs = useRef<readonly string[]>([]);
-  const typed = parseScopedQuery(raw, slugs.current);
-  const narrowed = typed.slug ?? chip;
+  // The palette sends only the words: a filter is picked out of the field into `narrowed`.
+  const [query, setQuery] = useState("");
+  const [narrowed, narrow] = useState<string | null>(null);
+  const onQuery = useCallback((next: string) => setQuery(next), []);
   const blended = useBlendedSearch({
-    query: enabled ? typed.query : "",
+    query: enabled ? query : "",
     slugs: narrowed === null ? [] : [narrowed],
     device,
   });
-  slugs.current = blended.contexts.map((context) => context.slug);
 
   const items = useMemo(
-    () => itemsFromBlended(blended.results, typed.query, currentSlug),
-    [blended.results, typed.query, currentSlug],
+    () => itemsFromBlended(blended.results, query, currentSlug),
+    [blended.results, query, currentSlug],
   );
   const state = paletteStateOf(blended.state, blended.answer);
   const notice = blended.notice ?? sourcesNotice(blended.answer);
@@ -100,8 +90,8 @@ export function useEverywhereSearch({
     search,
     contexts: blended.contexts,
     narrowed,
-    narrow: setChip,
-    typedScope: typed.slug !== null,
+    narrow,
+    filters: useMemo(() => workspaceFilters(blended.contexts, narrowed, narrow), [blended.contexts, narrowed]),
     timing: useMemo(() => timingBreakdown(blended.answer, blended.took), [blended.answer, blended.took]),
     settled: blended.state !== "searching" && blended.state !== "idle",
   };

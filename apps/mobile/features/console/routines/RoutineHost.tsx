@@ -34,8 +34,8 @@ export function useRoutineHost(): RoutineHostValue | null {
 
 /**
  * Mounted by the live console around the note. Answers `null` for a note
- * outside `routines/`, and asks the control plane nothing unless the open note
- * is a scheduled routine.
+ * outside `tex/routines/` and `routines/`, and asks the control plane nothing
+ * unless the open note is a scheduled routine.
  */
 export function RoutineProvider({
   workspaceId,

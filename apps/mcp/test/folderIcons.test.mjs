@@ -106,6 +106,23 @@ test("built-in folders have a default emoji, only at the top level", () => {
   assert.equal(defaultFolderIcon("constructor"), null);
 });
 
+test("the folders the product files into inside the inbox show a default emoji", () => {
+  assert.equal(defaultFolderIcon("0-inbox/calendar"), "🗓️");
+  assert.equal(defaultFolderIcon("0-inbox/contacts"), "📇");
+  assert.equal(defaultFolderIcon("0-inbox/email"), "✉️");
+  assert.equal(defaultFolderIcon("0-inbox/forms"), "📝");
+  assert.equal(defaultFolderIcon("0-inbox/google-chat"), "💬");
+  assert.equal(defaultFolderIcon("0-inbox/imessage"), "📲");
+  assert.equal(defaultFolderIcon("0-inbox/meetings"), "🎙️");
+  assert.equal(defaultFolderIcon("inbox/memories"), "💭");
+  // Only one level under the inbox, only by exact name, only under the inbox.
+  assert.equal(defaultFolderIcon("0-inbox/email/archive"), null);
+  assert.equal(defaultFolderIcon("0-inbox/Email"), null);
+  assert.equal(defaultFolderIcon("1-projects/email"), null);
+  assert.equal(defaultFolderIcon("0-inbox/constructor"), null);
+  assert.equal(defaultFolderIcon("0-inbox/email.md"), null);
+});
+
 test("remapIcons carries several note icons in one write", async () => {
   const store = memory({ [FOLDER_ICONS_KEY]: serializeFolderIcons({ "a.md": "🅰️", "b.md": "🅱️", work: "💼" }) });
   let puts = 0;

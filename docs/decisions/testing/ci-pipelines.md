@@ -19,6 +19,16 @@ Sentry or control-plane test graphs. `scripts/check-ci-path-gates.mjs` names
 every scoped job, requires its owning packages and workflow file, and rejects
 any expensive step after the detector without the shared condition.
 
+A pull request's scope is the diff between its test merge
+(`refs/pull/N/merge`, what every job checks out) and that merge's first parent,
+the base branch as it is now. It is not `pull_request.base.sha`: that is the
+base as it stood when the pull request was opened or last pushed, so diffing it
+against today's merge also counted every pull request merged in between. On
+2026-10-14 a phone-only change ran the gateway suite, the Convex typecheck and
+the bundle rebuilds for that reason. The `ci-change-scope` self-test pins the
+first-parent rule. `ci / Lint` follows the reusable workflow's `mobile` filter
+(`lint-filter`), so a pull request that touches no app code does not lint.
+
 ## Per push, a real browser tests only the note editor
 
 _Decided by Dev2, 2026-10-07: "we don't need the browser to test settings

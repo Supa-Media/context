@@ -162,6 +162,7 @@ export default function ContextBrowseRoute() {
     canEdit: data.files.canEdit,
     scope: visibilityTierForRole(viewedContext?.role) === "private" ? "private" : "team",
     onCollaborationOwned: data.files.setCollaborationOwned,
+    renamed: data.files.renamed,
     onCollaborationText: data.files.setCollaborationDraft,
     onCollaborationState: data.files.setCollaborationState,
   });
