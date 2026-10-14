@@ -84,6 +84,7 @@ export function IndexesView() {
   const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
   const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
+  const reseal = useMutation(api.functions.managedEncryption.resealWorkspace);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
   const [show, setShow] = useState<"attention" | "all">("attention");
@@ -164,6 +165,11 @@ export function IndexesView() {
       void act(`undo:${id}`, async () => {
         await undoMove({ id: id as Id<"moveQueue"> });
         return "The folder is going back to where it was.";
+      }),
+    reseal: (workspaceId) =>
+      void act(`reseal:${workspaceId}`, async () => {
+        await reseal({ workspaceId: workspaceId as Id<"workspaces"> });
+        return "Walking the bucket again. Its notes open meanwhile, and are sealed as it goes.";
       }),
   };
 

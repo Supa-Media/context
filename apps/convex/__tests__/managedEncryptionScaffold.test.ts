@@ -20,9 +20,10 @@
  *   scaffold store built without `managedEncryption`                 1
  *   `probeCapabilities` returning before the encryption wrapper      1
  *   the option passed for a workspace with no encryption row         1
+ *   no `afterPlainWrites` once a plain layout has landed             1
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { asUser, drainScheduled } from "./fixtures.helpers";
@@ -66,6 +67,51 @@ describe("a layout applied to a sealed bucket", () => {
       path: "index.md",
     });
     expect(note.text.length).toBeGreaterThan(0);
+  });
+
+  test("a walk that finishes while the layout is laid plain walks again, and seals it", async () => {
+    // @segunawe, 2026-10-14: the layout began while the row was `waiting`, so
+    // its store wrote plain; the walk ran over the new bucket at the same
+    // moment and was `encrypted` before the last files landed.
+    const { t, staff, ours, backend } = await fixture();
+    backend.objects.clear();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("managedEncryptionRollout", { state: "running", scope: "ours", acceptsNew: false, updatedAt: Date.now() });
+      await ctx.db.insert("managedEncryptionWorkspaces", { workspaceId: ours, state: "waiting", filesDone: 0, runId: 0, updatedAt: Date.now() });
+    });
+    let raced = false;
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const response = await backend.fetchImpl(input, init);
+      const url = String(input instanceof Request ? input.url : input);
+      if (!raced && init?.method === "PUT" && url.includes("index.md")) {
+        raced = true;
+        // The walk, elsewhere, reaching `encrypted` between two layout writes.
+        await t.run(async (ctx) => {
+          const walked = await ctx.db
+            .query("managedEncryptionWorkspaces")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", ours))
+            .unique();
+          await ctx.db.patch(walked!._id, { state: "encrypted", completedAt: Date.now() });
+        });
+      }
+      return response;
+    });
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId: ours,
+      actorUserId: staff,
+      structure: PARA,
+    });
+    expect(raced).toBe(true);
+    // Walked again under a new run (it may already be under way).
+    expect((await row(t, ours))!.runId).toBe(1);
+    vi.stubGlobal("fetch", backend.fetchImpl);
+    await drainScheduled(t);
+
+    expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
+    const written = scaffolded(backend);
+    expect(written.length).toBeGreaterThan(2);
+    for (const key of written) expect(isSealed(backend.bytesOf(key)), `${key} was left in the clear`).toBe(true);
   });
 
   test("a bucket nobody enrolled is still written plain", async () => {

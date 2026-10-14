@@ -74,6 +74,7 @@ export class ManagedEncryptionError extends Error {
     super(`managed storage encryption: ${code}${detail ? ` (${detail})` : ""}`);
     this.name = "ManagedEncryptionError";
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
 

@@ -17,6 +17,7 @@
  * nothing reads a probe object through the gateway.
  */
 
+import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
@@ -52,10 +53,12 @@ export async function scaffoldStep(
   },
 ): Promise<ScaffoldStepResult> {
   let store: ScaffoldStore;
+  let sealing: Awaited<ReturnType<typeof managedEncryptionOption>> = null;
   try {
+    sealing = await managedEncryptionOption(ctx, options.workspaceId);
     store = storeForBinding(options.credential, undefined, {
       probeCapabilities: true,
-      managedEncryption: await managedEncryptionOption(ctx, options.workspaceId),
+      managedEncryption: sealing,
     }) as unknown as ScaffoldStore;
   } catch (error) {
     // A key that will not open is a refusal, never a plain write: the bucket
@@ -76,6 +79,17 @@ export async function scaffoldStep(
     kind: options.structure.kind ?? "personal",
     resume: options.resume,
   });
+  // Laid plain: a walk that started meanwhile may have passed these files
+  // and declared the bucket sealed, leaving them unreadable (`reseal.ts`).
+  // The layout itself landed either way: a refusal here must not fail it,
+  // and staff's Seal again still reaches anything left plain.
+  if (sealing === null && result.written.length > 0) {
+    try {
+      await ctx.runMutation(internal.functions.managedEncryption.afterPlainWrites, { workspaceId: options.workspaceId });
+    } catch {
+      console.error("scaffold.after_plain_writes_failed", { workspaceId: options.workspaceId });
+    }
+  }
   return {
     scaffolded: result.scaffolded,
     reason: result.reason,

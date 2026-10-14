@@ -261,6 +261,10 @@ export const nodeTables = {
     leaseAt: v.optional(v.number()),
     /** Notes whose read failed, tried again by the next pass and counted as unparsed until then. */
     retry: v.optional(v.array(v.string())),
+    /** Why most of them failed, a `readFailure.js` word: what admin says. */
+    retryKind: v.optional(v.string()),
+    /** Passes in a row that read and still failed some, so a hiccup is told from a note that never reads. */
+    retryPasses: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**

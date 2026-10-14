@@ -7,6 +7,9 @@
  * in phase 7 of the tree migration. The moves used to be their own panel under the table; the
  * owner approved folding them into the workspace's row (2026-10-13).
  *
+ * Seal again shows only while notes were saved unsealed into the sealed
+ * bucket (`unreadableOf`): it walks the bucket once more, which seals them.
+ *
  * Counts, times and fixed labels only: a workspace's handle, never a folder's
  * or a note's name.
  */
@@ -51,6 +54,9 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
         {copy === null
           ? null
           : button(`check:${row.workspaceId}`, "Check", "Checking…", () => actions.check(row.workspaceId), `admin-files-check-${id}`)}
+        {row.unreadable?.kind === "unsealed"
+          ? button(`reseal:${row.workspaceId}`, "Seal again", "Starting…", () => actions.reseal(row.workspaceId), `admin-files-reseal-${id}`)
+          : null}
       </View>
       <Line tone={row.convex.health} label={row.convex.label} text={copyNote(copy, now)} problem={row.convex.problem} />
       <Line

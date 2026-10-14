@@ -75,7 +75,7 @@ export const claim = internalMutation({
     if (row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS) return null;
     if (row.ready && !logReaches(stateOf(row), now)) {
       const fresh = freshWalk(await logHead(ctx.db, workspaceId, now));
-      await ctx.db.patch(row._id, { ...fresh, after: undefined, retry: undefined, leaseAt: now });
+      await ctx.db.patch(row._id, { ...fresh, after: undefined, retry: undefined, retryKind: undefined, retryPasses: undefined, leaseAt: now });
       return fresh;
     }
     await ctx.db.patch(row._id, { leaseAt: now });
@@ -192,14 +192,28 @@ export const record = internalMutation({
 
 /** Where the fill stands after a pass, and the notes to try again. Releases the pass's hold. */
 export const finish = internalMutation({
-  args: { workspaceId: v.id("workspaces"), next: stateValidator, failed: v.array(v.string()) },
+  args: {
+    workspaceId: v.id("workspaces"),
+    next: stateValidator,
+    failed: v.array(v.string()),
+    /** Why most of `failed` did not read, when this pass read them. */
+    failedKind: v.optional(v.string()),
+  },
   returns: v.null(),
-  handler: async (ctx, { workspaceId, next, failed }) => {
+  handler: async (ctx, { workspaceId, next, failed, failedKind }) => {
     const row = await factStateRow(ctx.db, workspaceId);
     // Forgotten with its workspace or its bucket while the pass ran.
     if (row === null) return null;
     const retry = [...new Set(failed)].slice(0, FACT_RETRY_CAP);
+    // A pass that died keeps the last pass's words and count: it read nothing.
+    const why =
+      retry.length === 0
+        ? { retryKind: undefined, retryPasses: undefined }
+        : failedKind === undefined
+          ? {}
+          : { retryKind: failedKind, retryPasses: (row.retryPasses ?? 0) + 1 };
     await ctx.db.patch(row._id, {
+      ...why,
       ready: next.ready,
       seq: next.seq,
       after: next.after,
