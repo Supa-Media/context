@@ -67,7 +67,7 @@ cp .env.example .env.local
 | ------------------ | ----------------------------------------------------------- |
 | `apps/convex/`     | Control plane — metadata only, never note content            |
 | `apps/mobile/`     | Expo app (iOS, Android, web)                                 |
-| `apps/web/`        | Landing page                                                 |
+| `apps/desktop/`    | Electron shell for macOS, hosting the Expo UI                |
 | `apps/mcp/`        | The MCP gateway Worker                                       |
 | `packages/shared/` | Shared types and constants                                   |
 
