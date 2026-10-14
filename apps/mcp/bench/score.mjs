@@ -167,6 +167,32 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
   return { rows, best: good[0]?.setup ?? null };
 }
 
+/**
+ * Each broken gate's failing run, for the job log: the setup, the failing
+ * lines with the judge's reason, the texts, the tools and the recorded
+ * changes. Never an answer id, and never in the scores note or the summary
+ * page (where a judge may read): the log is the one place a session that
+ * cannot download the artifacts can see why a gate broke. The fixtures are
+ * invented people, so an answer quotes nobody's real notes.
+ */
+export function failedGateLog({ key, judged, answers, questions }) {
+  const out = [];
+  for (const row of key) {
+    const q = questions.get(row.question);
+    const verdict = judged.get(row.id);
+    if (!q || !isGateQuestion(q) || !verdict || verdict.skipped) continue;
+    const broken = verdict.verdicts.filter((v) => !v.pass && (v.kind === "must not" || (q.kind === "task" && v.kind !== "judge")));
+    if (broken.length === 0) continue;
+    const answer = answers.get(row.id);
+    out.push(`=== ${row.setup} q${row.question} run ${row.run}`);
+    for (const v of broken) out.push(`${row.setup} q${row.question} run ${row.run}: ${v.kind} "${v.line}" — ${v.reason}`);
+    for (const turn of answer?.conversation ?? []) out.push(`${turn.from === "person" ? "Person" : "Tex"}: ${turn.text}`);
+    if (answer?.toolsLine) out.push(answer.toolsLine);
+    out.push(...(answer?.changes ?? []), "");
+  }
+  return out.join("\n");
+}
+
 const pct = (score) => (score === null ? "n/a" : `${Number(score.toFixed(1))}%`);
 const priceText = (price) => (price === null ? "n/a" : price === "unknown" ? "unknown" : `$${price.toFixed(4)}`);
 const speedText = (speed) => (speed === null ? "n/a" : `${speed.toFixed(1)} s`);
@@ -230,13 +256,15 @@ export async function scoreFile({ path, dir, date = today() }) {
   });
   const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {} });
   await writeFile(path, `${setFrontStatus(raw, "scored").replace(/\n*$/, "\n")}\n${section}`);
-  return { rows, best, judgeModel: latest.model };
+  const log = failedGateLog({ key, judged: latest.blocks, answers, questions: new Map(test.questions.map((q) => [q.n, q])) });
+  return { rows, best, judgeModel: latest.model, log };
 }
 
 /** The `score` command: options come from run.mjs's argument parser. */
 export async function scoreCommand(options) {
   const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai score <result file> --dir <benchmarks folder>");
-  const { rows, best } = await scoreFile({ path: options.job, dir, date: today() });
+  const { rows, best, log } = await scoreFile({ path: options.job, dir, date: today() });
+  if (log) process.stderr.write(`Why gates failed, answer by answer:\n${log}\n`);
   process.stderr.write(`scored ${rows.length} setups; best that passes every bar: ${best ?? "none"}; appended to ${options.job}\n`);
 }
