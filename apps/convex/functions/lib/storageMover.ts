@@ -26,9 +26,11 @@ import { MOVER_PAGE_TIMEOUT_MS } from "./managedProvisioningFns/constants";
 import type { MigrationPageResult } from "./managedProvisioningFns/migrationRun";
 
 type TicketPhase = Doc<"moverTickets">["phase"];
+type CarriedObject = { source: string; destination: string; size: number };
 type TicketFor =
-  | { migrationId: Id<"managedStorageMigrations">; walkRunId?: undefined }
-  | { walkRunId: number; migrationId?: undefined };
+  | { migrationId: Id<"managedStorageMigrations">; walkRunId?: undefined; contextMoveId?: undefined }
+  | { walkRunId: number; migrationId?: undefined; contextMoveId?: undefined }
+  | { contextMoveId: Id<"contextMoves">; objects: CarriedObject[]; migrationId?: undefined; walkRunId?: undefined };
 
 export const STORAGE_MOVER_ORIGIN_ENV_VAR = "STORAGE_MOVER_ORIGIN";
 const MOVER_PAGE_PATH = "/internal/mover/page";
@@ -97,6 +99,7 @@ async function handToMover(
     workspaceId,
     ...(page.migrationId === undefined ? {} : { migrationId: page.migrationId }),
     ...(page.walkRunId === undefined ? {} : { walkRunId: page.walkRunId }),
+    ...(page.contextMoveId === undefined ? {} : { contextMoveId: page.contextMoveId, objects: page.objects }),
     phase: page.phase,
     ...(page.expectedCursor === undefined ? {} : { expectedCursor: page.expectedCursor }),
     now: Date.now(),
@@ -191,4 +194,73 @@ export async function runWalkPageOnMover(
   }
   const nextCursor = typeof answer.nextCursor === "string" && answer.nextCursor !== "" ? answer.nextCursor : null;
   return { kind: "done", nextCursor, done };
+}
+
+export type ContextMoveBatchOutcome =
+  | {
+      kind: "done";
+      landed: { source: string; destination: string; bytes: number }[];
+      skipped: { path: string; reason: "encrypted" | "too_large" }[];
+      conflicts: string[];
+      failure: { destination: string; code: ContextMoveFailureCode } | null;
+    }
+  | { kind: "stale" }
+  | { kind: "unanswered" }
+  | { kind: "failed"; code: string };
+
+/** What a batch may stop on (`CONTEXT_MOVE_FAILURES` in the gateway), and nothing else. */
+export type ContextMoveFailureCode = "DESTINATION_EXISTS" | "NOTE_CAP_REACHED" | "STORAGE_UNSAFE" | "CONFLICT";
+const CONTEXT_MOVE_FAILURE_CODES = new Set<string>(["DESTINATION_EXISTS", "NOTE_CAP_REACHED", "STORAGE_UNSAFE", "CONFLICT"]);
+
+/**
+ * Hand one batch of a move into another context to the mover. The ticket
+ * names the move and the exact files (`objects`), which this deployment
+ * planned; the mover's answer is read for those files only, so it cannot
+ * report another key as moved.
+ */
+export async function runContextMoveBatchOnMover(
+  ctx: ActionCtx,
+  sourceWorkspaceId: Id<"workspaces">,
+  batch: { moveId: Id<"contextMoves">; objects: CarriedObject[] },
+  origin: string,
+  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {},
+): Promise<ContextMoveBatchOutcome> {
+  const body = await handToMover(
+    ctx,
+    sourceWorkspaceId,
+    { contextMoveId: batch.moveId, objects: batch.objects, phase: "carry" },
+    origin,
+    options,
+  );
+  if (body === null || typeof body !== "object") return { kind: "unanswered" };
+  const answer = body as Record<string, unknown>;
+  if (answer.ok !== true) {
+    if (answer.error === "STALE") return { kind: "stale" };
+    return { kind: "failed", code: typeof answer.error === "string" && WALK_CODE.test(answer.error) ? answer.error : "STORAGE_UNSAFE" };
+  }
+  const sources = new Map(batch.objects.map((object) => [object.source, object]));
+  const list = (value: unknown): Record<string, unknown>[] =>
+    Array.isArray(value) ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object") : [];
+  const landed = list(answer.landed).flatMap((entry) => {
+    const planned = typeof entry.source === "string" ? sources.get(entry.source) : undefined;
+    if (planned === undefined || entry.destination !== planned.destination) return [];
+    const bytes = typeof entry.bytes === "number" && Number.isFinite(entry.bytes) && entry.bytes >= 0 ? entry.bytes : 0;
+    return [{ source: planned.source, destination: planned.destination, bytes }];
+  });
+  const skipped = list(answer.skipped).flatMap((entry) =>
+    typeof entry.path === "string" && sources.has(entry.path) && (entry.reason === "encrypted" || entry.reason === "too_large")
+      ? [{ path: entry.path, reason: entry.reason as "encrypted" | "too_large" }]
+      : [],
+  );
+  const conflicts = Array.isArray(answer.conflicts)
+    ? answer.conflicts.filter((path): path is string => typeof path === "string" && sources.has(path))
+    : [];
+  const raw = answer.failure as Record<string, unknown> | null | undefined;
+  const failure = raw && typeof raw === "object"
+    ? {
+        destination: typeof raw.destination === "string" ? raw.destination : "",
+        code: (typeof raw.code === "string" && CONTEXT_MOVE_FAILURE_CODES.has(raw.code) ? raw.code : "STORAGE_UNSAFE") as ContextMoveFailureCode,
+      }
+    : null;
+  return { kind: "done", landed, skipped, conflicts, failure };
 }

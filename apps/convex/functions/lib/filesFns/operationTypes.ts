@@ -13,7 +13,9 @@ import type {
   ContextMoveExport,
   ContextMoveImport,
   ContextMoveObject,
+  ContextMoveSkip,
   FileContents,
+  PlannedContextMoveObject,
   ProjectionPass,
   SearchResults,
   ManifestEntry,
@@ -154,6 +156,16 @@ export type FileOperation =
       sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
     }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
+  /** A batch for the gateway's mover, by name only (`lib/contextMoveMover.ts`). */
+  | { kind: "contextMovePlan"; from: string; to: string; skip: string[]; maxObjectBytes: number }
+  | {
+      kind: "contextMovePrepare";
+      objects: Array<{ destination: string; sourceVisibility: "private" | "team" }>;
+      root?: string;
+    }
+  /** What the mover landed here, for the tree; nothing in the bucket. */
+  | { kind: "contextMoveArrived"; paths: string[]; root?: string }
+  | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
   | { kind: "trash"; path: string; expectedEtag?: string }
@@ -421,6 +433,13 @@ export type OperationResult =
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
   | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
   | { kind: "contextMoveFinished" }
+  | {
+      kind: "contextMovePlanned";
+      objects: PlannedContextMoveObject[];
+      skipped: ContextMoveSkip[];
+      remaining: boolean;
+    }
+  | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
   | {
       kind: "visibility";

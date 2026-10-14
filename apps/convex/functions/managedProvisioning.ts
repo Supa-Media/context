@@ -20,6 +20,7 @@ import {
 } from "./lib/managedProvisioningFns/migrationRun";
 import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
 import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
+import { type ContextMoveMoverPage, type ContextMoveTicket, openContextMovePage } from "./lib/contextMoveMover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -714,15 +715,22 @@ export const failManagedStorageMigration = internalMutation({
  * already passed opens nothing.
  */
 type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
+type MoverTicketJobs = {
+  walkRunId?: number;
+  migrationId?: Id<"managedStorageMigrations">;
+  contextMoveId?: Id<"contextMoves">;
+  objects?: ContextMoveTicket["objects"];
+};
 
 export const openMoverPage = internalAction({
   args: { hashedTicket: v.string() },
   returns: v.any(),
-  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | null> => {
-    const ticket: (Omit<WalkTicket, "walkRunId"> & { walkRunId?: number; migrationId?: Id<"managedStorageMigrations"> }) | null =
+  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | null> => {
+    const ticket: (Omit<WalkTicket, "walkRunId"> & MoverTicketJobs) | null =
       await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
     if (ticket === null) return null;
     if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
+    if (ticket.contextMoveId !== undefined) return await openContextMovePage(ctx, { ...ticket, contextMoveId: ticket.contextMoveId, objects: ticket.objects ?? [] });
     const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
       internal.functions.managedProvisioning.migrationForCopy,
       { workspaceId: ticket.workspaceId },
