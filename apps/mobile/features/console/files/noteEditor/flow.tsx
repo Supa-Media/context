@@ -12,6 +12,9 @@ import { layout } from "../../../design/tokens";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import type { NoteView } from "./view";
 
+/** How far the inline title's edit tint reaches past its text, each side. */
+const TITLE_INSET = 6;
+
 /**
  * Everything that scrolls, as one node — see the call site in `NoteEditor`,
  * which says why it is built once rather than written per density.
@@ -120,7 +123,12 @@ export function noteFlow(view: NoteView) {
         name={nameEdit!.name}
         onCommit={nameEdit!.onCommit}
         fontSize={pointerType.title}
-        style={[styles.inlineTitlePointer, { paddingHorizontal: noteGutterFor(docWidth) }]}
+        style={[
+          styles.inlineTitlePointer,
+          // The text starts at the note's first character; the edit tint
+          // reaches a few points past it either side rather than to the edges.
+          { marginHorizontal: Math.max(noteGutterFor(docWidth) - TITLE_INSET, 0), paddingHorizontal: TITLE_INSET },
+        ]}
         label="Note name"
         testID="note-inline-title"
       />
