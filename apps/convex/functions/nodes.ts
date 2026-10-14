@@ -32,6 +32,9 @@ import {
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { liveNode } from "./lib/nodes/facts";
+import { mirrorRules } from "./lib/nodes/log";
+import { canSee } from "./lib/privacy";
 import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
@@ -384,6 +387,25 @@ export const privacy = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.null(), mirrorValidator),
   handler: async (ctx, { workspaceId }) => await readMirror(ctx.db, workspaceId),
+});
+
+/**
+ * Whether a link's readers, at `team` with no names, would see this note, and
+ * whether its facts say it is sealed: the share-link mint's courtesy check,
+ * from the rows and the rules mirror rather than by opening the note. `null`
+ * while the tree does not serve. An unreadable `privacy.md` sees nothing.
+ */
+export const teamShareable = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.null(), v.object({ visible: v.boolean(), sealed: v.boolean() })),
+  handler: async (ctx, { workspaceId, path }) => {
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const row = await liveNode(ctx.db, workspaceId, path);
+    const mirror = await readMirror(ctx.db, workspaceId);
+    if (row === null || mirror?.invalid === true) return { visible: false, sealed: false };
+    const rules = await mirrorRules(mirror);
+    return { visible: canSee(path, "team", rules.rules, rules.overrides), sealed: row.sealed === true };
+  },
 });
 
 /**

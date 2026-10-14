@@ -26,7 +26,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
@@ -41,6 +41,8 @@ import {
   errorCode,
   setupTest,
   type TestConvex,
+  copyTree,
+  drainScheduled,
 } from "./fixtures.helpers";
 
 afterEach(() => {
@@ -131,6 +133,8 @@ async function fixture(): Promise<Fixture> {
     visibility: "team",
   });
 
+  // The mint asks the tree whether its readers would see the note.
+  await copyTree(t, workspaceId);
   return { t, owner, member, lk, workspaceId, backend };
 }
 
@@ -341,6 +345,16 @@ describe("what an unlisted link reaches", () => {
     const f = await fixture();
     const error = await captureError(() => unlisted(f, PRIVACY_KEY));
     expect(errorCode(error)).toBe("PATH_NOT_SHAREABLE");
+  });
+
+  test("minting asks the tree, and never opens the note", async () => {
+    const f = await fixture();
+    // What the tree's first copy scheduled (reading facts) runs first, so the
+    // requests below are the mint's own.
+    await drainScheduled(f.t);
+    f.backend.requests.length = 0;
+    await unlisted(f);
+    expect(f.backend.requests.filter((request) => request.key.endsWith(ENTRY))).toEqual([]);
   });
 
   test("only the owner may mint one", async () => {
@@ -808,6 +822,7 @@ describe("an unlisted link over an encrypted note", () => {
   test("cannot be minted", async () => {
     const f = await fixture();
     f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+    await readIntoTree(f);
 
     const error = await captureError(() => unlisted(f));
     expect(errorCode(error)).toBe("PATH_ENCRYPTED");
@@ -822,6 +837,7 @@ describe("an unlisted link over an encrypted note", () => {
     expect(errorCode(privateRefusal)).toBe("PATH_NOT_TEAM_VISIBLE");
 
     f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+    await readIntoTree(f);
     const encryptedRefusal = await captureError(() => unlisted(f));
     expect(errorCode(encryptedRefusal)).toBe("PATH_ENCRYPTED");
   });
@@ -874,3 +890,19 @@ describe("an unlisted link over an encrypted note", () => {
     expect((await readAnonymously(f, token)).text).toContain("# Chapter transition");
   });
 });
+
+/**
+ * What was written straight into the bucket reaches the tree and its facts,
+ * as a write through the product does: the mint reads whether a note is
+ * sealed off those facts, never off the note.
+ */
+async function readIntoTree(f: Fixture): Promise<void> {
+  await copyTree(f.t, f.workspaceId);
+  for (let pass = 0; pass < 4; pass += 1) {
+    await f.t.action(internal.functions.files.runFileOperation, {
+      workspaceId: f.workspaceId,
+      scope: "private" as const,
+      operation: { kind: "nodesFactFill" as const },
+    });
+  }
+}
