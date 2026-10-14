@@ -29,11 +29,11 @@ export function useFileActions(deps: FileActionsDeps) {
   const slug = options.slug ?? null;
 
   /*
-    One folder's listing: from the Convex tree where it serves this context
-    (phase 2, `nodesListing.listFolder`), and from the bucket otherwise. The
-    tree answers `null` until a parity check has proved it and whenever staff
-    pause the migration; any failure asking it falls to the bucket too, which
-    gives its own answer, refusals included.
+    One folder's listing, from the Convex tree (`nodesListing.listFolder`).
+    The bucket is never listed for it (decided by the owner, 2026-10-13). The
+    query answers `null` while the workspace's first copy has not finished;
+    then the `listFiles` action answers instead, from the same rows, and its
+    `TREE_LOADING` (which also starts the copy) or refusal is the answer.
   */
   // Read through a ref: `listFiles` keeps one identity for the context's whole
   // life, because the root load re-runs (and resets the tree) whenever it changes.
@@ -47,7 +47,7 @@ export function useFileActions(deps: FileActionsDeps) {
       try {
         fromTree = await convex.current.query(api.functions.nodesListing.listFolder, args);
       } catch {
-        // The bucket answers instead, and says why if it refuses too.
+        // The action answers instead, from the same tree, and says why if it refuses.
       }
       return fromTree ?? (await listFilesAction(args));
     },
