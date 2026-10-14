@@ -17,7 +17,10 @@
  * SABOTAGE (each a temporary local edit, reverted):
  *  - list without `source: "tree"` while moves are pending (`routes.ts`): the
  *    mid-move Publish case fails (it can no longer publish the moved pages);
- *  - drop `assertScanSawMoves`: the "tree not serving" case publishes;
+ *  - drop `assertScanSawMoves`: nothing fails any more, and it stays as a
+ *    second guard. Since 2026-10-13 a tree walk is only ever the tree's own
+ *    answer or `TREE_LOADING` (`lib/nodes/treeReads.ts`), so a scan that
+ *    cannot see the move stops there first, before this check is reached;
  *  - drop `get` from `AWAY_ANSWER` (`apps/mcp/src/moves/queued.js`): the
  *    moved-out page is served from its old key;
  *  - drop the `markWebsiteMoved` call in `nodeMoves.complete`: the finish case fails;
@@ -132,16 +135,21 @@ describe("a Publish while a folder move is queued", () => {
     expect(Object.keys(f.backend.snapshot())).toContain("website/posts/first.md");
   }, 30_000);
 
-  test("fails as incomplete, keeping the published site, when the tree cannot draw the move", async () => {
+  test("fails, keeping the published site, when the tree cannot draw the move", async () => {
     const f = await site();
     const before = await indexedKeys(f);
-    // Staff paused the tree: the listing is the bucket's, which does not draw the move.
+    // The tree is not there to draw it (its first copy is running again from
+    // scratch): the scan's walk answers "still loading" rather than list the
+    // bucket (decided by the owner, 2026-10-13), so nothing is published.
+    // Pause no longer does this either: it stops copying only.
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: Date.now() });
+      for (const row of await ctx.db.query("nodeTrees").collect()) {
+        await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
+      }
     });
     await queuedMove(f, "website/blog", "website/posts");
 
-    await expect(pressPublish(f)).rejects.toMatchObject({ data: { code: "WEBSITE_SCAN_INCOMPLETE" } });
+    await expect(pressPublish(f)).rejects.toMatchObject({ data: { code: "TREE_LOADING" } });
     expect(await indexedKeys(f)).toEqual(before);
   });
 

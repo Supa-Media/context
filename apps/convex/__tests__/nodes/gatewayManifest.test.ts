@@ -8,8 +8,9 @@
  *    sees what `privacy.md` gives the team, and a token for one context
  *    reads nothing of another;
  *  - every refusal (no token, an unknown or revoked token, another context,
- *    a malformed field, a tree that is not proved, staff's Pause) is the same
- *    bytes as a tree that does not serve, so the route is no oracle;
+ *    a malformed field) is the same bytes, so the route is no oracle; only a
+ *    reader the grant lets in is told the workspace's first copy is still
+ *    loading, and parity and staff's Pause change nothing;
  *  - a folder narrows the answer to its subtree, and pages carry on by the
  *    last path returned.
  *
@@ -29,7 +30,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
-import { gatewayPost, responseFingerprint } from "../fixtures.helpers";
+import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { gatewayReadClearance } from "../../functions/lib/nodes/gatewayManifest";
 
@@ -197,9 +198,29 @@ describe("POST /gateway/tree/manifest", () => {
     expect(notServed).toContain('{"served":false}');
   });
 
-  test("a tree whose check found differences is not served", async () => {
+  // Parity is an alarm for staff, and Pause stops copying only (decided by the owner, 2026-10-13).
+  test("a tree whose check found differences is still served", async () => {
     const { t, ws } = await fixture({ mismatches: 2 });
-    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toEqual({ served: false });
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toMatchObject({ served: true });
+  });
+
+  test("a first copy not finished says so to a reader it would answer, and kicks the copy", async () => {
+    const { t, ws, ownerId } = await fixture();
+    // Loading means a bucket is bound and not yet copied; with none there is nothing to load.
+    await seedStorageBinding(t as never, { workspaceId: ws, boundBy: ownerId, status: "connected" });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined, leaseAt: undefined });
+    });
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toEqual({ served: false, loading: true });
+    const sweeps = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => (job.args[0] as { operation?: { kind?: string } })?.operation?.kind === "nodesSweep",
+      ).length,
+    );
+    expect(sweeps).toBeGreaterThan(0);
+    // A token that may not read it learns nothing of the sort.
+    expect(await manifest(t, { accessToken: OTHER, expectedWorkspaceId: ws })).toEqual({ served: false });
   });
 
   test("rules that do not parse are not served: the gateway's own check fails closed on the bucket", async () => {
@@ -208,12 +229,12 @@ describe("POST /gateway/tree/manifest", () => {
     expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toEqual({ served: false });
   });
 
-  test("staff's Pause sends the gateway back to the bucket", async () => {
+  test("staff's Pause changes nothing for a reader", async () => {
     const { t, ws } = await fixture();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
     });
-    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toEqual({ served: false });
+    expect(await manifest(t, { accessToken: OWNER, expectedWorkspaceId: ws })).toMatchObject({ served: true });
   });
 
   test("the gateway secret is still the first door", async () => {

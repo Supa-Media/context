@@ -6,10 +6,12 @@
  * colleague, an agent, a captured email) redraws each tab that shows the
  * folder as soon as the tree records it, with no walk of the bucket.
  *
- * `null` means "ask the bucket": the tree is not one a parity check has
- * proved, or staff paused the migration (`treeServes`). The console then
- * calls `files.listFiles` exactly as before, so nothing depends on this being
- * on, and Pause in admin › Search › Indexes switches every reader back.
+ * `null` means "still loading": the workspace's first copy into the tree has
+ * not finished (`treeReadiness`). The console then asks `files.listFiles`,
+ * which starts the copy and answers `TREE_LOADING` (or the listing, if the
+ * copy finished in between) without opening the bucket. Since 2026-10-13
+ * nothing here falls back to the bucket: parity is a staff alarm, and Pause
+ * stops copying work only (decided by the owner).
  *
  * Who may read is decided first, by the same `resolveFileAccess` the bucket
  * listing uses, so a stranger is refused whether or not the tree serves; and
@@ -23,7 +25,7 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { listingValidator } from "./lib/filesFns/validators";
 import { listFolderFromNodes, treeServesNow } from "./lib/nodes/listing";
 
-/** One folder's contents at the caller's clearance, or `null` when the bucket must answer. */
+/** One folder's contents at the caller's clearance, or `null` while the first copy is still loading. */
 export const listFolder = query({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(v.null(), listingValidator),
@@ -39,8 +41,8 @@ export const listFolder = query({
 /**
  * The same listing for the file-operation barrier's `list` (the console's
  * fallback, shared folder links, share cards, routines and plugins), which
- * has already decided who is asking and at what clearance. `null` when the
- * tree does not serve, and the barrier lists the bucket as before.
+ * has already decided who is asking and at what clearance. `null` while the
+ * first copy is still loading, and the barrier answers `TREE_LOADING`.
  */
 export const listServed = internalQuery({
   args: {

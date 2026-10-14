@@ -3,16 +3,16 @@
  *
  * `provisioning.recountNotes` keeps the "912 of 1,000 notes" figure current,
  * and it runs whenever an owner opens a capped context (at most every five
- * minutes). Counting the bucket is up to forty sequential listings; where the
- * tree serves the workspace the same number is one read of the rows, and no
- * bucket credential is opened for it.
+ * minutes). Counting the bucket was up to forty sequential listings; the
+ * same number is one read of the rows, and no bucket credential is opened.
  *
  * A note is what `countNotes` counts (`isNoteKey`). The rows are folded
  * through pending moves, which renames keys and never adds or drops one, so a
  * move in flight changes nothing about the number. Anything short of a served
- * tree (not proved, staff's Pause, a failed read) is `null`, and the caller
- * counts the bucket exactly as before. Verifying a newly connected bucket
- * always counts the bucket: there is no tree for it yet.
+ * tree (a first copy still running, a failed read) is `null`, and the caller
+ * keeps the last figure: it never counts the bucket instead (decided by the
+ * owner, 2026-10-13). Verifying a newly connected bucket always counts the
+ * bucket: there is no tree for it yet.
  */
 
 import type { Id } from "../../../_generated/dataModel";

@@ -35,14 +35,7 @@ import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3 } from "./storeStub.helpers";
 import { PARA_FOLDERS } from "../functions/lib/scaffold";
-import {
-  FAKE_STORAGE,
-  asUser,
-  createUser,
-  createWorkspace,
-  setupTest,
-  type TestConvex,
-} from "./fixtures.helpers";
+import { FAKE_STORAGE, asUser, createUser, createWorkspace, setupTest, type TestConvex, copyTree } from "./fixtures.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -337,6 +330,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
         updatedAt: Date.now(),
       }),
     );
+    await copyTree(t, workspaceId);
     return { t, owner, workspaceId };
   }
 

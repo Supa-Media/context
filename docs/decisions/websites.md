@@ -75,11 +75,13 @@ moving folder without a word: renaming `website/blog` and pressing Publish
 before the copy finished put the site up without its blog. So while moves are
 pending the scan lists the Convex tree, which draws them, and reads each page
 at the name it now has (the read moves the object there first, as opening the
-note would). Where the tree cannot draw them (staff paused it), or a move
-started or was undone under the scan, and the move reaches a folder the scan
-walked, the scan fails as incomplete and the person is told to try again
-(`lib/websites/movingScan.ts`). A partial listing is never evidence that a page
-is gone.
+note would). Where the tree cannot draw them yet (its first copy is still
+running) the scan stops at the tree's own "still loading" (`TREE_LOADING`,
+since 2026-10-13: no reader of which notes exist lists the bucket instead).
+Where a move started or was undone under the scan, and the move reaches a
+folder the scan walked, the scan fails as incomplete and the person is told
+to try again (`lib/websites/movingScan.ts`). A partial listing is never
+evidence that a page is gone.
 
 The serving side does **not** fall back to a moved page's old key. A page a
 queued move carries away is off its old address at once, as it is after a move

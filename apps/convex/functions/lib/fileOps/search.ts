@@ -12,7 +12,7 @@ import { type Clearance } from "../clearance";
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
-import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
+import { syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { followChange } from "../../../../mcp/src/search/d1/follow.js";
@@ -184,42 +184,37 @@ export interface SearchResults {
  * Every note path this scope may see, for link resolution in the editor —
  * `docs/decisions/app-and-console.md`, "L1".
  *
- * A bare `[[name]]` and the `[[` completion both need the whole bucket's note
- * paths, and the console's file tree only knows the folders somebody has
- * expanded. Rather than a second index — a full bucket listing paid for on
- * the customer's request quota, which is exactly the cost
- * `1-projects/context-lc-search-performance/overview.md` spent Phase 2
- * removing from the search path — this reads the search index's own docmap,
- * which is already maintained behind every search's response.
+ * A bare `[[name]]` and the `[[` completion both need the whole workspace's
+ * note paths, and the console's file tree only knows the folders somebody has
+ * expanded. This reads the Convex tree's rows, which hold every note's name
+ * (decided by the owner, 2026-10-13; it read the search index's docmap from
+ * the bucket before).
  *
- * **Filtered through the caller's own `canSee`, the same as every hit a
- * search returns.** The docmap holds every note in the bucket regardless of
- * who asks, so skipping this filter would leak a private note's *existence* —
- * its path — to a team member who could not open it, through a completion
- * list rather than a listing. That is exactly the existence oracle rule #2 at
- * the top of this file exists to prevent, reached through a different door.
+ * **Filtered through the caller's own `canSee`.** The rows hold every note in
+ * the workspace regardless of who asks, so skipping this filter would leak a
+ * private note's *existence* — its path — to a team member who could not
+ * open it, through a completion list rather than a listing. That is exactly
+ * the existence oracle rule #2 at the top of this file exists to prevent,
+ * reached through a different door.
  *
- * `null` for every way the index is not there to answer from — nothing has
- * indexed this bucket, the docmap could not be read, no budget was left —
- * and deliberately not a partial or wrong answer instead: a link that stays
- * undrawn until the index catches up is dishonest about *timing*, never about
- * *destination*.
+ * `null` for a store that is not the tree's, and deliberately not a partial
+ * or wrong answer instead: a link that stays undrawn is dishonest about
+ * *timing*, never about *destination*.
  */
 export async function notePathIndex(
   store: FileStore,
   clearance: Clearance,
-  budget: number = CONSOLE_SEARCH_BUDGET,
 ): Promise<{ paths: string[] } | null> {
   const state = await loadPrivacyState(store);
   const isVisible = (path: string) =>
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
-  // Where the Convex tree serves, its rows are the paths (folded through
-  // pending moves): exact now, rather than as of the index's last sync.
-  const found = isServedStore(store)
-    ? { paths: (await servedKeys(store)).filter((path) => isIndexableNote(path)) }
-    : await loadDocmapPaths(store as unknown as Parameters<typeof loadDocmapPaths>[0], createSearchBudget(budget), 0);
-  if (found === null) return null;
-  return { paths: found.paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
+  // The Convex tree's rows are the paths (folded through pending moves),
+  // exact now. Any other store answers `null`, "not indexed yet": the search
+  // index's docmap is no longer read for this (decided by the owner,
+  // 2026-10-13), and the app only ever asks with the tree's store.
+  if (!isServedStore(store)) return null;
+  const paths = (await servedKeys(store)).filter((path) => isIndexableNote(path));
+  return { paths: paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
 
 export async function searchNotes(

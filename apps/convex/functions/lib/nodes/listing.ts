@@ -7,8 +7,8 @@
  * folder, and `privacy.md` as the tree's mirror renders it. So who sees which
  * name is still `canSee` and `folderVisibleAtScope` over the same rules, and a
  * withheld folder still answers exactly as an absent one does. What this file
- * owns is only which rows make up a folder, and when the tree may answer at all
- * (`treeServes`).
+ * owns is only which rows make up a folder, and when the tree is there to
+ * answer at all (`treeReadiness`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -19,7 +19,6 @@ import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile } from "./privacyMirror";
 import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
-import { migrationPaused } from "./pause";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 
 /**
@@ -30,19 +29,29 @@ import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 export const NODE_LISTING_ROWS = 5_000;
 
 /**
- * Whether this workspace's tree may answer a person's listing.
+ * Where a workspace's tree is, for a reader: `served` once its first copy has
+ * finished, `loading` before that, `unsupported` for a store that cannot be
+ * listed in key order (Dropbox), which no sweep can copy.
  *
- * Only a tree a parity check has proved equal to the bucket, at every
- * clearance, with the same rules, and whose last pass did not fail. Anything
- * else (never checked, differs, stuck, skipped, or staff paused the
- * migration) answers `false`, and the console reads the bucket as before. So
- * Pause in admin is also the way back for every reader at once.
+ * Decided by the owner, 2026-10-13 ("the only thing that should be reading
+ * from storage directly should be actually opening and editing a note"):
+ * Convex always answers. Until then a reader read the bucket wherever the
+ * last parity check differed, a pass failed, or staff paused the migration.
+ * Now parity is an alarm for staff, a failed pass is retried behind a tree
+ * that keeps serving, and Pause stops copying work only. A re-sweep of a
+ * finished copy keeps `ready`, so it keeps serving the rows it has.
  */
-export function treeServes(tree: Doc<"nodeTrees"> | null, paused: boolean): boolean {
-  if (paused || tree === null) return false;
-  if (tree.status !== "ready" || tree.error !== undefined) return false;
-  const parity = tree.parity;
-  return parity !== undefined && parity.mismatches === 0 && parity.privacyMatches;
+export type TreeReadiness = "served" | "loading" | "unsupported";
+
+export function treeReadiness(tree: Pick<Doc<"nodeTrees">, "status"> | null): TreeReadiness {
+  if (tree === null) return "loading";
+  if (tree.status === "unsupported") return "unsupported";
+  return tree.status === "ready" ? "served" : "loading";
+}
+
+/** Whether this workspace's tree answers its readers: its first copy has finished. */
+export function treeServes(tree: Pick<Doc<"nodeTrees">, "status"> | null): boolean {
+  return treeReadiness(tree) === "served";
 }
 
 /**
@@ -137,13 +146,18 @@ export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces
   };
 }
 
-/** Whether the tree serves this workspace now: its row, and the pause, read in the caller's transaction. */
-export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
+/** Where this workspace's tree is now, read in the caller's transaction. */
+export async function treeReadinessNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<TreeReadiness> {
   const tree = await db
     .query("nodeTrees")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return treeServes(tree, await migrationPaused(db));
+  return treeReadiness(tree);
+}
+
+/** Whether the tree serves this workspace now (`treeReadiness`). */
+export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
+  return (await treeReadinessNow(db, workspaceId)) === "served";
 }
 
 /** One folder's listing at `clearance`, from the tree's rows and its privacy mirror. */

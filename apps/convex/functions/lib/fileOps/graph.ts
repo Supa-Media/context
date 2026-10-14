@@ -188,19 +188,23 @@ export async function workspaceGraph(
   // first drawn note is round trips to the bucket, not bytes. Where the tree's
   // link table has read every note once, it answers both the notes and the
   // links in two queries and the search index is not read at all.
-  // Where the Convex tree serves, it says which notes exist and where they are
-  // drawn now, pending moves folded in; the table or the index only says
-  // what links to what.
+  // Where the Convex tree serves (every map the app draws,
+  // `lib/nodes/treeReads.ts`), it says which notes exist and where they are
+  // drawn now, pending moves folded in, and the link table only says what
+  // links to what. Nothing is then read from the bucket: not the search
+  // index, not the legacy move jobs under `.context/moves/` (decided by the
+  // owner, 2026-10-13).
+  const served = isServedStore(store);
   const [state, tableRows, jobs, treePaths] = await Promise.all([
     loadPrivacyState(store),
     table === null ? Promise.resolve(null) : readLinkTable(table),
-    loadMoveJobs(store),
-    isServedStore(store)
+    served ? Promise.resolve([]) : loadMoveJobs(store),
+    served
       ? servedKeys(store).then((keys) => keys.filter((key) => isIndexableNote(key)), () => null)
       : Promise.resolve(null),
   ]);
   const found =
-    tableRows === null
+    tableRows === null && !served
       ? await loadDocmap(store as unknown as Parameters<typeof loadDocmap>[0], budget, 0)
       : null;
   const isVisible = (path: string) =>

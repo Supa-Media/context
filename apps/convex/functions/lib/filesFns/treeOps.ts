@@ -1,66 +1,39 @@
 /**
- * The file tree, from the console's side: which store a walk or a map reads,
- * a folder's List and the chaos score from the Convex tree's facts, and
- * re-checking what a console change touched before its audiences are told.
+ * The file tree, from the console's side: which store an organizer pass or a
+ * website Publish walks, and re-checking what a console change touched
+ * before its audiences are told.
  *
+ * Every read of which notes exist (a folder, a whole-tree walk, the map, link
+ * completion, the folder picker, a List, the chaos score) is answered from
+ * the Convex tree before the bucket's credential is opened, and never from
+ * the bucket (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
  * Until phase 7 of `docs/decisions/app-and-console/convex-tree.md` this file
  * also kept a second copy of the tree in each context's fast-search database
- * (D1), with its links, front matter and chaos history, and fell back to it
- * while the Convex facts were not whole. That copy is gone: where the Convex
- * tree or its facts cannot answer, a reader gets what a context with no
- * search database always got — the bucket, the search index for the map,
- * `available: false` for a List (the app reads the folder from the bucket),
- * and `NO_CHAOS` for the score. The database itself stays, for fast search
- * (`lib/fastSearchFns/client.ts`).
+ * (D1); that is gone, and so are the bucket fallbacks that replaced it.
  *
- * Each use runs inside the credential barrier (`runFileOperation`), because
- * each needs the bucket.
+ * Each use runs inside the credential barrier (`runFileOperation`).
  */
 
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { folderNotesFromNodes, type FolderNotesResult } from "./folderNotes";
-import { liveChaosScoreOf, NO_CHAOS } from "./chaosOps";
-import { factChaosSource, factPropSource, factsReady } from "../nodes/factSources";
-import { clearanceOf } from "../clearance";
 import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps";
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { isServedStore, servedNodesStore } from "../nodes/manifestStore";
-import { attachLinkTable, convexLinkTable } from "../nodes/linkTable";
-import { scheduleFactFill } from "../nodes/factFill";
+import { servedNodesStore } from "../nodes/manifestStore";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
-import type { FileOperation, OperationResult } from "./operationTypes";
-
-export type TreeOperation = Extract<FileOperation, { kind: "folderNotes" | "chaosScore" }>;
-
-export function isTreeOperation(operation: { kind: string }): operation is TreeOperation {
-  return operation.kind === "folderNotes" || operation.kind === "chaosScore";
-}
-
-/** What a List gets where the Convex facts cannot answer: read the folder from the bucket. */
-const NO_FOLDER_NOTES: FolderNotesResult = {
-  kind: "folderNotes",
-  available: false,
-  notes: [],
-  cursor: null,
-  missing: [],
-  fill: false,
-};
-
-/** Operations that only read which notes exist, answered from the rows where the tree serves. */
-const SERVED_READS = new Set(["workspaceGraph", "notePaths", "folderPaths"]);
+import type { OperationResult } from "./operationTypes";
 
 /** Organizer actions that only read: `gather` (the sweep's work list) and `outline`. */
 const ORGANIZER_READS = new Set(["gather", "outline"]);
 
 /**
- * The store a walk reads: the Convex tree where it serves the workspace
- * (`servedNodesStore`), else the bucket. A walk the Convex tree answers says
- * `nodes`, and the first page of a `source: "tree"` walk carries where a
- * catch-up from the tree's change log starts.
+ * The store an operation inside the barrier walks. The organizer's read-only
+ * passes read the Convex tree where it serves; a website Publish's walk reads
+ * the bucket, on purpose (`docs/decisions/websites.md`). Every other walk of
+ * which notes exist is answered before the barrier opens the bucket
+ * (`lib/nodes/treeReads.ts`) and never reaches here.
  */
 export async function manifestSource(
   ctx: ActionCtx,
@@ -77,85 +50,11 @@ export async function manifestSource(
     const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
     return served === null ? { store, source: "bucket" } : { store: served, source: "nodes" };
   }
-  // The Convex tree's shadow starts filling on the first page of any walk (`lib/nodes/run.ts`).
+  // The Convex tree's copy starts on the first page of a walk (`lib/nodes/run.ts`).
   if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
     await startNodesSweepIfDue(ctx, args.workspaceId);
   }
-  // Read-only readers of which notes exist: the map, link completion and the
-  // folder picker read the rows where the tree serves (`servedNodesStore`),
-  // and the bucket or the search index where it does not.
-  if (SERVED_READS.has(args.operation.kind)) {
-    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-    const chosen = served ?? store;
-    const reading = args.operation.kind === "workspaceGraph" ? await withLinkTable(ctx, args, chosen) : chosen;
-    return { store: reading, source: served === null ? "bucket" : "nodes" };
-  }
-  if (args.operation.kind !== "manifest" || args.operation.source !== "tree") return { store, source: "bucket" };
-  // The Convex tree, where it serves: the rows the live listings read. The
-  // first page says where a catch-up from the tree's change log starts
-  // (`nodesFeed.ts`), read before the rows: a move or a rules change landing
-  // in between leaves the copy judged by the older version, which walks again,
-  // rather than claiming a version the rows were not read under.
-  const start = args.operation.cursor === undefined
-    ? await ctx
-      .runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() })
-      .catch(() => null)
-    : null;
-  const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-  if (served !== null) {
-    if (args.operation.cursor !== undefined) return { store: served, source: "nodes" };
-    return { store: served, source: "nodes", ...(start === null ? {} : start) };
-  }
   return { store, source: "bucket" };
-}
-
-/**
- * The map's store: the same store, carrying the Convex facts' link table
- * (`lib/nodes/linkTable.ts`) once they have read every note. Until then, and
- * wherever the tree does not serve, the map reads the search index; a fill is
- * started where the facts are missing or behind.
- */
-async function withLinkTable(
-  ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces"> },
-  store: FileStore,
-): Promise<FileStore> {
-  if (!isServedStore(store)) return store;
-  const table = await convexLinkTable(ctx, args.workspaceId, store).catch(() => null);
-  if (table === null || table.unparsed > 0) await scheduleFactFill(ctx, args.workspaceId);
-  return table === null ? store : attachLinkTable(store, table);
-}
-
-/**
- * A List's notes or the chaos score, from the Convex tree and its facts, with
- * the bucket the barrier opened. Neither has anything else to ask: where the
- * tree does not serve or its facts have not read every note, a List reads
- * the folder from the bucket and the score is not shown.
- */
-export async function runTreeOperation(
-  ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; scope: "private" | "team"; grantedNames?: string[]; operation: TreeOperation },
-  store: FileStore,
-): Promise<OperationResult> {
-  const operation = args.operation;
-  const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
-  const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-  if (operation.kind === "folderNotes") {
-    // Which notes are in the folder: the Convex tree where it serves and no
-    // move is pending (a note then reads at its old key). Their front matter:
-    // the rows' own, once the facts have read every note.
-    if (served === null || !(await factsReady(ctx, args.workspaceId))) {
-      return NO_FOLDER_NOTES;
-    }
-    const answer = await folderNotesFromNodes(served, factPropSource(ctx, args.workspaceId), operation, clearance);
-    if (answer.fill) await scheduleFactFill(ctx, args.workspaceId);
-    return answer.available ? answer : NO_FOLDER_NOTES;
-  }
-  // Counted from the Convex tree's keys where it serves, with its facts once
-  // they have read every note.
-  if (served === null) return NO_CHAOS;
-  const live = await liveChaosScoreOf(served, factChaosSource(ctx, args.workspaceId), operation, clearance).catch(() => null);
-  return live ?? NO_CHAOS;
 }
 
 async function markChanged(ctx: ActionCtx, workspaceId: Id<"workspaces">, audiences: string[]) {

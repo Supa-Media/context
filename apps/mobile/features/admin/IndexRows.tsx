@@ -20,7 +20,7 @@ import { INDEXES, healthTone, tierLabel, type IndexCell, type WorkspaceIndexes }
 export type IndexActions = {
   busy: string | null;
   restart: (workspaceId: string) => void;
-  /** The whole copy is paused (served from the bucket), so a copy cannot start. */
+  /** Copying is paused by staff (readers still read the tree), so a copy cannot start. */
   migrationPaused: boolean;
   /** Copy the workspace again; its facts follow the copy. */
   repair: (workspaceId: string) => void;

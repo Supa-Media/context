@@ -1,8 +1,7 @@
 import { inlineTags, noteHeading, noteProperties } from "../../../mcp/src/lists.js";
 import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
 import { noteLede } from "../console/files/folderPage/lede";
-import { isNotePath } from "./mirror";
-import type { BatchRead, ManifestPage } from "./mirrorSync";
+import type { BatchRead } from "./mirrorSync";
 import type { ListNote, ListSource, PropertyValue } from "../console/files/listBlock/model";
 
 /**
@@ -10,30 +9,27 @@ import type { ListNote, ListSource, PropertyValue } from "../console/files/listB
  *
  * **Online, the server answers** (decided by the owner, 2026-10-08), and in a
  * browser it is the only answer: the web keeps no copy of a workspace, only
- * the desktop and phone apps do. So a List walks the folder's manifest
- * (`syncManifest` with `folder`, filtered by the same `canSee` as every read)
- * and reads the notes whose version it has not parsed yet through `readNotes`,
- * fifty at a time and `READ_PARALLEL` calls at once. Parsed properties are
- * kept in memory only, keyed by version, so a redraw re-reads only notes that
- * changed; nothing is written to the device. `mirrorLists.ts` is the offline
- * half and parses the same way.
+ * the desktop and phone apps do. `mirrorLists.ts` is the offline half and
+ * parses the same way.
  *
- * The reads are plain (`readNotes` with `plain`): the Markdown as stored, one
- * bucket GET a note, without opening each note's collaboration document — a
- * List wants front matter, not an editable copy. That and asking several
- * batches at once is most of what took a project Board from minutes to
- * seconds (2026-10-08).
+ * The server answers from the Convex tree and each note's parsed front
+ * matter (`folderNotes`), one query a page, and never reads a note for it
+ * (decided by the owner, 2026-10-13: "the only thing that should be reading
+ * from storage directly should be actually opening and editing a note"). A
+ * note it has not parsed yet is a gap the List admits to (`missing`), and a
+ * note saved since shows what was last parsed until the facts catch up. It
+ * used to walk the folder and read every note whose version it had not
+ * parsed, fifty at a time; that read is gone, not kept as a fallback.
  */
 
 export interface ServerListIO {
-  manifest(folder: string, cursor: string | undefined): Promise<ManifestPage>;
+  /** Reads by name: the front notes a folder page inherits statuses from (`serverFrontNotes`). */
   readNotes(paths: string[]): Promise<BatchRead[]>;
   /**
-   * One page of the folder's notes from the tree's properties table
-   * (`folderNotes`): front matter already parsed, one query. Absent where
-   * there is no such call; `available: false` where the table cannot answer.
+   * One page of the folder's notes with their front matter already parsed.
+   * `available: false` where the server cannot answer yet.
    */
-  folderNotes?(folder: string, subfolders: boolean, cursor: string | undefined): Promise<FolderNotesPage>;
+  folderNotes(folder: string, subfolders: boolean, cursor: string | undefined): Promise<FolderNotesPage>;
 }
 
 export interface FolderNotesPage {
@@ -47,23 +43,19 @@ export interface FolderNotesPage {
 const MAX_TABLE_PAGES = 50;
 
 /**
- * The folder's notes from the tree's properties table, or null when the table
- * cannot answer and the folder is read from the bucket instead
- * (`serverListNotes`). Decided by the owner, 2026-10-09: a project Board is
- * one query, whatever the folder holds.
+ * The folder's notes from the server's parsed front matter (decided by the
+ * owner, 2026-10-09: a project Board is one query, whatever the folder
+ * holds). Where it cannot answer yet the List is drawn incomplete, never
+ * filled in by reading the notes. A failure to answer at all is thrown, so
+ * the caller can fall back to the device's copy.
  */
-export async function tableListNotes(
-  io: ServerListIO,
-  folder: string,
-  subfolders: boolean,
-): Promise<ListSource | null> {
-  if (io.folderNotes === undefined) return null;
+export async function tableListNotes(io: ServerListIO, folder: string, subfolders: boolean): Promise<ListSource> {
   const notes: ListNote[] = [];
   const missing: string[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_TABLE_PAGES; page += 1) {
     const answer = await io.folderNotes(folder, subfolders, cursor);
-    if (!answer.available) return null;
+    if (!answer.available) return { notes: [], complete: false };
     for (const row of answer.notes) {
       const parsed = JSON.parse(row.props) as {
         properties?: Record<string, PropertyValue>;
@@ -87,21 +79,7 @@ export async function tableListNotes(
   return { notes, complete: false };
 }
 
-/** Parsed notes by path, each at the version it was parsed from. */
-export type ServerListMemo = Map<string, { etag: string; note: ListNote }>;
-
 const READ_BATCH = 50;
-/** `readNotes` calls in flight at once. Each is one Convex action reading eight notes at a time. */
-export const READ_PARALLEL = 4;
-const MAX_PAGES = 20;
-
-function inFolder(path: string, folder: string, subfolders: boolean): boolean {
-  const prefix = folder === "" ? "" : `${folder}/`;
-  if (!path.startsWith(prefix)) return false;
-  const rest = path.slice(prefix.length);
-  if (rest.split("/").some((segment) => segment.startsWith("."))) return false;
-  return subfolders || !rest.includes("/");
-}
 
 export function parseListNote(path: string, body: string, updatedAt?: number): ListNote {
   return {
@@ -112,86 +90,6 @@ export function parseListNote(path: string, body: string, updatedAt?: number): L
     heading: noteHeading(body) as string | null,
     lede: noteLede(body),
   };
-}
-
-export async function serverListNotes(
-  io: ServerListIO,
-  memo: ServerListMemo,
-  folder: string,
-  subfolders: boolean,
-): Promise<ListSource> {
-  const listed: { path: string; etag?: string; updatedAt?: number }[] = [];
-  let complete = true;
-  let cursor: string | undefined;
-  for (let page = 0; ; page += 1) {
-    if (page >= MAX_PAGES) {
-      complete = false;
-      break;
-    }
-    const result = await io.manifest(folder, cursor);
-    for (const entry of result.entries) {
-      if (isNotePath(entry.path) && inFolder(entry.path, folder, subfolders)) listed.push(entry);
-    }
-    if (result.truncated) complete = false;
-    if (result.truncated || result.cursor === null || result.cursor === cursor) break;
-    cursor = result.cursor;
-  }
-
-  const notes: ListNote[] = [];
-  const missing: string[] = [];
-  const wanted: string[] = [];
-  const versions = new Map<string, { etag?: string; updatedAt?: number }>();
-  for (const entry of listed) {
-    versions.set(entry.path, entry);
-    const known = memo.get(entry.path);
-    if (known !== undefined && entry.etag !== undefined && known.etag === entry.etag) notes.push(known.note);
-    else wanted.push(entry.path);
-  }
-
-  const queue = [...wanted];
-  let stalled = false;
-  const reader = async (): Promise<void> => {
-    while (queue.length > 0 && !stalled) {
-      const batch = queue.splice(0, READ_BATCH);
-      const results = await io.readNotes(batch);
-      const deferred: string[] = [];
-      let read = 0;
-      for (const result of results) {
-        if (!batch.includes(result.path)) continue; // an answer to a question not asked
-        if (result.outcome === "deferred") {
-          deferred.push(result.path);
-          continue;
-        }
-        if (result.outcome === "error") {
-          // Refused or gone since the walk: not a row, and not a gap either.
-          if (result.code !== "FILE_NOT_FOUND") missing.push(result.path);
-          continue;
-        }
-        read += 1;
-        // Encrypted notes are left out, as offline: their frontmatter is sealed.
-        if (result.note.encrypted === true) continue;
-        const version = versions.get(result.path);
-        const note = parseListNote(result.path, result.note.text, version?.updatedAt);
-        memo.set(result.path, { etag: version?.etag ?? result.note.etag, note });
-        notes.push(note);
-      }
-      if (read === 0 && deferred.length === batch.length) {
-        // The byte budget let nothing through; asking again would ask forever.
-        stalled = true;
-        missing.push(...deferred, ...queue.splice(0));
-        return;
-      }
-      queue.unshift(...deferred);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(READ_PARALLEL, Math.ceil(queue.length / READ_BATCH)) }, reader));
-  // Anything another reader put back after one stalled was never answered.
-  missing.push(...queue.splice(0));
-
-  for (const path of [...memo.keys()]) {
-    if (inFolder(path, folder, subfolders) && !versions.has(path)) memo.delete(path);
-  }
-  return { notes, complete: complete && missing.length === 0, ...(complete ? { missing } : {}) };
 }
 
 /**

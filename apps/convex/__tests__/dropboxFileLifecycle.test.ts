@@ -96,6 +96,10 @@ async function scenario() {
       encryptedAccessToken: access, accessTokenExpiresAt: Date.now() + 3_600_000,
       dropboxAccountId: "dbid:TEST", capabilities: { conditionalWrite: true, conditionalCreate: true },
     });
+    // Dropbox cannot list in key order, so a sweep marks its tree unsupported
+    // (`lib/nodes/run.ts`); the fixture's tree was copied while it was S3.
+    const tree = await ctx.db.query("nodeTrees").withIndex("by_workspace", q => q.eq("workspaceId", f.workspaceId)).unique();
+    if (tree) await ctx.db.patch(tree._id, { status: "unsupported" });
   });
   return { ...f, http };
 }
@@ -125,9 +129,10 @@ describe("Dropbox file lifecycle through authorized actions", () => {
     } else if (operation === "move") {
       const source = await asUser(f.t, f.owner).action(api.functions.files.readNote, { workspaceId: f.workspaceId, path });
       expect(source.path).toBe(result.to); // Old links follow the move's forwarding record.
-      const listing = await asUser(f.t, f.owner).action(api.functions.files.listFiles, { workspaceId: f.workspaceId, path: "1-projects" });
-      expect(listing.entries.map(entry => entry.path)).not.toContain(path);
-      expect(listing.entries.map(entry => entry.path)).toContain(result.to);
+      // The bucket is never listed for the app (decided by the owner,
+      // 2026-10-13), and a store with no tree says so rather than list it.
+      const listing = await captureError(() => asUser(f.t, f.owner).action(api.functions.files.listFiles, { workspaceId: f.workspaceId, path: "1-projects" }));
+      expect(errorCode(listing)).toBe("TREE_LOADING");
     } else {
       const error = await captureError(() => asUser(f.t, f.owner).action(api.functions.files.readNote, { workspaceId: f.workspaceId, path }));
       expect(errorCode(error)).toBe("FILE_NOT_FOUND");

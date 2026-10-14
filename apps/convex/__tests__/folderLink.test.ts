@@ -48,6 +48,7 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
@@ -150,6 +151,7 @@ async function fixture(): Promise<Fixture> {
     visibility: "private",
   });
 
+  await copyTree(t, workspaceId);
   return { t, owner, member, stranger, workspaceId, backend };
 }
 

@@ -558,18 +558,19 @@ export const verifyStorageBinding = internalAction({
  *
  * The free plan's warning ("912 of 1,000 notes") is only as good as the count
  * behind it, and the binding's count was otherwise taken only when storage was
- * verified. This is the census half of `verifyStorageBinding` without the
- * probe: no object is written, and a bucket that will not answer records
- * nothing rather than a zero. Scheduled by `billing.refreshNoteCount`, which
- * decides whether a count is due.
+ * verified. This counts the Convex tree's rows (`lib/nodes/servedCount.ts`)
+ * and never opens the bucket: where the tree cannot answer yet (its first
+ * copy is still running) the last figure stands rather than a bucket walk
+ * replacing it (decided by the owner, 2026-10-13: no fallbacks to the
+ * bucket). Scheduled by `billing.refreshNoteCount`, which decides whether a
+ * count is due. Verifying a newly connected bucket still counts the bucket
+ * (`record`): there is no tree for it yet.
  */
 export const recountNotes = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    // Where the Convex tree serves this workspace, its rows are the count and
-    // the bucket is never opened (`lib/nodes/servedCount.ts`).
-    const counted = (await servedNoteCount(ctx, args.workspaceId)) ?? (await countBucketNotes(ctx, args.workspaceId));
+    const counted = await servedNoteCount(ctx, args.workspaceId);
     if (counted === null) return null;
     try {
       await ctx.runMutation(internal.functions.storage.recordNoteCount, {
@@ -578,29 +579,11 @@ export const recountNotes = internalAction({
         truncated: counted.truncated,
       });
     } catch {
-      // Disconnected while we were walking. Same race `record` tolerates.
+      // Disconnected while we were counting. Same race `record` tolerates.
     }
     return null;
   },
 });
-
-/** The bucket's own count, for a workspace the tree does not serve yet. */
-async function countBucketNotes(ctx: ActionCtx, workspaceId: Id<"workspaces">) {
-  let credential: GatewayCredential | null;
-  try {
-    credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, { workspaceId });
-  } catch {
-    return null;
-  }
-  if (credential === null) return null;
-  let store: ScaffoldStore;
-  try {
-    store = storeForBinding(credential) as unknown as ScaffoldStore;
-  } catch {
-    return null;
-  }
-  return await countNotes(store);
-}
 
 /**
  * Persist the outcome and hand it back.

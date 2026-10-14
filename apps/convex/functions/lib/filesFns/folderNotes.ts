@@ -11,35 +11,26 @@
  * note's path, status or "it is encrypted", and a folder the reader cannot see
  * answers as an empty one.
  *
- * **A stale row is read again, never served.** A row parsed at another version
- * than its tree row (a save the facts have not caught up with) is re-read from
- * the bucket through `readFiles`, which re-asks `canSee`, before the answer
- * goes out; the facts fill keeps what the change says. More stale rows on a
- * page than `STALE_READ_CAP` and the answer is `available: false`: the caller
- * reads the folder from the bucket as before.
+ * **From the Convex tree, no note read** (`folderNotesFromNodes`, decided by
+ * the owner, 2026-10-13). A row parsed at another version than the tree's
+ * shows what was last parsed until the facts fill catches up; a note never
+ * parsed is a gap (`missing`).
  */
 
 import { canSee } from "../privacy";
 import type { Clearance } from "../clearance";
-import { type FileStore, READ_BATCH_PATHS, loadPrivacyState, readFiles } from "../fileOps";
+import { type FileStore, loadPrivacyState } from "../fileOps";
 import { folderVisibleAtScope } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
-import { propsOf } from "../../../../mcp/src/tree/props.js";
 import { servedMoves } from "../nodes/manifestStore";
 import { physicalCandidates } from "../../../../mcp/src/moves/queued.js";
 
 /** Notes one page of a List asks for: a bound on one answer. */
 export const FOLDER_PAGE_ROWS = 2_000;
 
-/** Stale rows one page may re-read before the facts are not worth asking. */
-export const STALE_READ_CAP = 200;
-
-/** `readFiles` batches in flight at once while re-reading stale rows. */
-const STALE_READ_PARALLEL = 4;
-
 export interface FolderNotesResult {
   kind: "folderNotes";
-  /** False: the facts cannot answer yet; read the folder from the bucket. */
+  /** False: the facts cannot answer yet; the List is drawn incomplete, never read from the bucket. */
   available: boolean;
   /** Each visible note: `props` is `{ properties, heading, lede }` as JSON. */
   notes: { path: string; updatedAt?: number; props: string }[];
@@ -123,7 +114,7 @@ export async function folderNotesFromNodes(
       if (row !== undefined) props.set(object.key, row);
     }
   } catch {
-    // No props yet, or a source that cannot be read: the bucket answers.
+    // No props yet, or a source that cannot be read: not available, and a fill is asked for.
     return unavailable(true);
   }
   const visible: PropRow[] = tree.map((object) => {
@@ -140,7 +131,34 @@ export async function folderNotesFromNodes(
       props: row?.props ?? null,
     };
   });
-  return await answerRows(served, visible, cursor, clearance);
+  return answerFromFacts(visible, cursor);
+}
+
+/**
+ * Visible rows to an answer, reading no note (decided by the owner,
+ * 2026-10-13: nothing before opening a note reads storage). A note whose
+ * facts were parsed at an older version shows what was last parsed, as the
+ * List drew it a moment ago; the facts fill the change started catches it up,
+ * and the List redraws. A note never parsed yet is `missing`, a gap the List
+ * says it may have, and `fill` asks the caller to start the facts fill.
+ */
+export function answerFromFacts(visible: readonly PropRow[], cursor: string | null): FolderNotesResult {
+  const notes: FolderNotesResult["notes"] = [];
+  const missing: string[] = [];
+  let fill = false;
+  for (const row of visible) {
+    if (row.stale) fill = true;
+    // Encrypted notes are left out, as from the bucket: their front matter is sealed.
+    if (row.encrypted) continue;
+    // Never parsed (no facts for it yet): a gap, never an empty note.
+    if (row.props === null) {
+      missing.push(row.path);
+      fill = true;
+      continue;
+    }
+    notes.push({ path: row.path, ...(row.uploaded === null ? {} : { updatedAt: row.uploaded }), props: row.props });
+  }
+  return { kind: "folderNotes", available: true, notes, cursor, missing, fill };
 }
 
 /** One note of the page: its tree version, and the props its row holds, if any. */
@@ -151,57 +169,4 @@ interface PropRow {
   stale: boolean;
   encrypted: boolean;
   props: string | null;
-}
-
-/** Visible rows to an answer: stale ones read again and their rows fixed. */
-async function answerRows(
-  store: FileStore,
-  visible: PropRow[],
-  cursor: string | null,
-  clearance: Clearance,
-): Promise<FolderNotesResult> {
-  const stale = visible.filter((row) => row.stale);
-  if (stale.length > STALE_READ_CAP) return unavailable(true);
-
-  // Re-read what changed since it was parsed, plain (one GET a note).
-  const fresh = new Map<string, string | null>();
-  const gone = new Set<string>();
-  const missing: string[] = [];
-  const batches: string[][] = [];
-  for (let at = 0; at < stale.length; at += READ_BATCH_PATHS) {
-    batches.push(stale.slice(at, at + READ_BATCH_PATHS).map((row) => row.path));
-  }
-  const reader = async () => {
-    for (let batch = batches.shift(); batch !== undefined; batch = batches.shift()) {
-      for (const result of await readFiles(store, { paths: batch, clearance, plain: true })) {
-        if (result.outcome === "read") {
-          const props = propsOf(result.note.text);
-          fresh.set(result.path, props === null ? null : JSON.stringify(props));
-        } else if (result.outcome === "deferred" || result.code !== "FILE_NOT_FOUND") {
-          missing.push(result.path);
-        } else {
-          // Gone since the tree saw it: not a row.
-          gone.add(result.path);
-        }
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(STALE_READ_PARALLEL, batches.length) }, reader));
-  // The rows are kept by the facts fill, which the change already started.
-
-  const notes: FolderNotesResult["notes"] = [];
-  for (const row of visible) {
-    let props: string | null;
-    if (row.stale) {
-      // Gone, or a gap already in `missing`.
-      if (gone.has(row.path) || !fresh.has(row.path)) continue;
-      props = fresh.get(row.path) ?? null;
-    } else {
-      props = row.encrypted ? null : row.props;
-    }
-    // Encrypted notes are left out, as from the bucket: their front matter is sealed.
-    if (props === null) continue;
-    notes.push({ path: row.path, ...(row.uploaded === null ? {} : { updatedAt: row.uploaded }), props });
-  }
-  return { kind: "folderNotes", available: true, notes, cursor, missing, fill: false };
 }

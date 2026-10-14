@@ -9,8 +9,9 @@
  * `full: true` means walk the manifest instead.
  *
  * Where the Convex tree serves the workspace its change log answers
- * (`nodesFeed.ts`, phase 6); elsewhere the answer is a walk (phase 7: the D1
- * table's log is gone).
+ * (`nodesFeed.ts`, phase 6); elsewhere the answer is a walk, and that walk
+ * (`source: "tree"`) is of the Convex rows, or "still loading", never the
+ * bucket (decided by the owner, 2026-10-13).
  *
  * Its own module because `files.ts` is past the size a file may grow from.
  */

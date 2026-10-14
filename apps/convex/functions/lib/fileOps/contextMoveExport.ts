@@ -162,11 +162,11 @@ export function landingVisibility(
  * For the destination picker: "move this into @work" needs @work's folders,
  * and the console's tree only ever holds the folders of the context it is
  * standing in. Asking for them one `listFiles` at a time would be one Convex
- * action — and one bucket credential — per folder, so the walk happens here,
- * inside the single call that already has the store open.
+ * action per folder, so the walk happens here, in one call. The store is the
+ * Convex tree's (`lib/nodes/treeReads.ts`): its listings are the rows, and no
+ * bucket is opened for it (decided by the owner, 2026-10-13).
  *
- * Bounded twice over, because the bucket is a customer's and somebody is
- * waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
+ * Bounded twice over, because somebody is waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
  * listings. Past either it reports `truncated` and returns what it has, which
  * is the honest shape for a picker — a short list somebody can still use beats
  * a refusal, and the destination they wanted can always be typed into a

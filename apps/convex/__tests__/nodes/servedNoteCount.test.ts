@@ -8,16 +8,21 @@
  *    attachments and `privacy.md` excluded alike;
  *  - it is read without a single bucket listing;
  *  - a pending folder move changes nothing about the number;
- *  - where the tree does not serve, or its read fails, the answer is `null`
- *    and the caller counts the bucket as before.
+ *  - where the tree does not serve, or its read fails, the answer is `null`,
+ *    and `recountNotes` keeps the last figure rather than count the bucket
+ *    (decided by the owner, 2026-10-13: no fallbacks to the bucket).
  *
  * Sabotage (temporary local edits, reverted):
  *  - counting every key instead of `isNoteKey`: "counts what the bucket
  *    walk counts" fails;
- *  - dropping the `catch`: "a failing tree read is no answer" fails.
+ *  - dropping the `catch`: "a failing tree read is no answer" fails;
+ *  - counting the bucket again where the tree has no answer: "keeps the last
+ *    figure" fails (the bucket is fetched, and the figure changes).
  */
 
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { internal } from "../../_generated/api";
+import { createUser, createWorkspace, seedStorageBinding, setupTest } from "../fixtures.helpers";
 import { getFunctionName } from "convex/server";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
@@ -98,5 +103,27 @@ describe("the free plan's note count from the tree", () => {
   test("a failing tree read is no answer", async () => {
     const ctx = { runQuery: vi.fn(async () => { throw new Error("down"); }) } as never;
     expect(await servedNoteCount(ctx, WS)).toBeNull();
+  });
+});
+
+describe("recountNotes", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test("keeps the last figure while the tree has not copied, and opens no bucket", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "count-owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "count-me");
+    await seedStorageBinding(t, { workspaceId, boundBy: owner, status: "connected" });
+    await t.run(async (ctx) => {
+      const binding = await ctx.db.query("storageBindings").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
+      await ctx.db.patch(binding!._id, { noteCount: 912, noteCountedAt: 1 });
+    });
+    const fetched = vi.fn(async () => new Response("<ListBucketResult></ListBucketResult>", { status: 200 }));
+    vi.stubGlobal("fetch", fetched);
+    await t.action(internal.functions.provisioning.recountNotes, { workspaceId });
+    expect(fetched).not.toHaveBeenCalled();
+    const binding = await t.run((ctx) => ctx.db.query("storageBindings").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique());
+    expect(binding!.noteCount).toBe(912);
+    expect(binding!.noteCountedAt).toBe(1);
   });
 });

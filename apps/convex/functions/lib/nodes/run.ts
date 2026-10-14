@@ -158,10 +158,14 @@ export async function runNodesOperation(
     }
   }
 
-  // Paused by staff: a sweep stops here (its chain with it) and a re-check
-  // only marks the tree dirty, so resuming catches up. Parity still runs.
-  if (operation.kind !== "nodesParity" && (await ctx.runQuery(internal.functions.nodes.paused, {}))) {
-    if (operation.kind === "nodesTouch") await sink.dirty().catch(() => {});
+  // Paused by staff: copying work stops here, a sweep (its chain with it)
+  // and a facts fill, and resuming starts what is due. A change's re-check
+  // still runs, because every reader reads this tree (decided by the owner,
+  // 2026-10-13: Pause no longer sends anyone to the bucket). Parity still runs.
+  if (
+    (operation.kind === "nodesSweep" || operation.kind === "nodesFactFill") &&
+    (await ctx.runQuery(internal.functions.nodes.paused, {}))
+  ) {
     return { kind: "nodesKept", complete: false };
   }
 
@@ -214,7 +218,7 @@ export async function runNodesOperation(
   }
 
   // While a queued move copies, rows and bucket change under the check; a
-  // mismatch then is the copy in flight, and must not stop the tree serving
+  // mismatch then is the copy in flight, and must not raise the alarm over
   // the move it is drawing. The check runs again at the next clearance.
   if ((await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId })).length > 0) {
     return { kind: "nodesKept", complete: false };
@@ -224,7 +228,7 @@ export async function runNodesOperation(
   const result = await checkParity(store, rows, mirror);
   // The check walks the bucket and then the tree, so a write landing between
   // the two (its re-check a second or so behind it) reads as a difference.
-  // Asked once more before it stops the tree serving, by when that write has
+  // Asked once more before it raises the alarm, by when that write has
   // reached the tree: only a difference that stays is recorded.
   const differs = result.mismatches > 0 || !result.privacyMatches;
   if (differs && operation.confirm !== true) {
@@ -285,8 +289,8 @@ export async function scheduleNodesTouch(
  * what it touched **before the change answers**, so the tab that made it, and
  * every tab subscribed to the folder, reads the new tree the moment the change
  * returns (phase 2: the console reads this tree). Never throws, and a change
- * too big to re-check, or one made while staff paused the migration, only
- * marks the tree for a sweep, as the scheduled re-check does.
+ * too big to re-check only marks the tree for a sweep, as the scheduled
+ * re-check does. Staff's Pause does not stop it: readers read nothing else.
  *
  * `left` says who could see each key the change took away, before it: a move
  * rewrites the rules before this re-check, and the tree's gone rows narrow to
@@ -300,10 +304,6 @@ export async function touchNodesNow(
 ): Promise<void> {
   const sink = sinkFor(ctx, workspaceId);
   try {
-    if (await ctx.runQuery(internal.functions.nodes.paused, {})) {
-      await sink.dirty();
-      return;
-    }
     const { dirty } = await touchNodes(listingOf(workspaceId, store), sink, change);
     if (dirty) await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId });
     // What the changed notes now say is read after the change answers.

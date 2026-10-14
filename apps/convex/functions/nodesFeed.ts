@@ -15,8 +15,9 @@
  *    table's log.
  *  - `walkStart` is where a catch-up after a whole walk starts.
  *
- * All of it answers only where the tree serves the workspace (`treeServes`),
- * so Pause in admin stops the feed with everything else, and a device walks.
+ * All of it answers once the workspace's first copy has finished
+ * (`treeReadiness`); before that it is `null`, and a device's walk is told
+ * the tree is still loading. Staff's Pause does not stop it.
  */
 
 import { v } from "convex/values";
