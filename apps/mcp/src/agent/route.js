@@ -12,6 +12,7 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
+import { readAboutMe } from "./aboutMe.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { searchSettingsOf } from "../search/settings.js";
@@ -490,6 +491,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       history: shown,
       local: earlier,
       coreTools: production?.coreTools ?? null,
+      // What Tex keeps about them, in their own workspace (`aboutMe.js`), on a texted turn.
+      aboutMe: texting ? await readAboutMe((name, args) => callToolForSession({ name, arguments: args }, store, session)) : null,
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,

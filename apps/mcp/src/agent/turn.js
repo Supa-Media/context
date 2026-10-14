@@ -50,6 +50,7 @@ import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
+import { aboutMePrompt } from "./aboutMe.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -245,6 +246,8 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   those and `find_tools`, the rest by name (`toolShelf.js`); null offers all
  * @param {Array<{tool: object, call: Function}>} [options.local] tools this
  *   turn answers itself rather than through the MCP
+ * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
+ *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
 export async function runTurn(options) {
@@ -270,6 +273,7 @@ export async function runTurn(options) {
     toolTimeouts = {},
     coreTools = null,
     local = [],
+    aboutMe = null,
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -335,7 +339,8 @@ export async function runTurn(options) {
     }) +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
-    (shelf ? shelf.prompt() : "");
+    (shelf ? shelf.prompt() : "") +
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") }));
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),

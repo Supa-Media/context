@@ -46,3 +46,21 @@ written after such a read, as the shown part already does.
 bloat the owner asked to remove; dropping the file loses "the second one".
 Tests: "a turn is shown the newest texts its setup asks for, and
 earlier_texts reads them all", `apps/mcp/test/agentConversation.test.mjs`.
+
+## Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)
+
+Same conversation: Tex "knows nothing about me when the text arrives", and
+its memory belongs in a `tex/` folder, "memory about me that it's always
+updating", not in a framework's opaque store. A texted turn reads
+`tex/about-me.md` from the person's own workspace through the session's
+dispatcher (so `privacy.md` and the grant decide, as for any read), puts up
+to 6,000 characters of it in the system prompt, and, when it can write, is
+told to add lasting facts there with `write_note`, reading first. A missing or
+unreadable note is an empty one, never a failed turn
+(`apps/mcp/src/agent/aboutMe.js`). It is an ordinary note: the person reads,
+corrects or deletes it like any other, every change is in its history, and it
+leaves with an export.
+
+**What a simplification would cost:** keeping the profile anywhere but a note
+makes it the opaque memory the owner ruled out. Tests:
+`apps/mcp/test/agentAboutMe.test.mjs`.
