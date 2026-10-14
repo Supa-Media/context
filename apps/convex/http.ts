@@ -124,6 +124,7 @@ import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
+import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
@@ -539,9 +540,18 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
       workspaceId: binding.workspaceId,
     })
     .catch(() => null);
+  // What the cap counts, from the Convex tree's rows and never the bucket
+  // (`lib/nodes/servedCount.ts`); asked only when there is a cap. Absent when
+  // the tree cannot say, and the worker then admits the note.
+  const counted = noteCap === null ? null : await servedNoteCount(ctx, binding.workspaceId);
   const managed = await ingestEncryptionSiblings(ctx, binding.workspaceId);
   if (managed === null) return json({ binding: null });
-  return json({ binding, ...(noteCap === null ? {} : { noteCap }), ...managed });
+  return json({
+    binding,
+    ...(noteCap === null ? {} : { noteCap }),
+    ...(counted === null ? {} : { noteCount: counted.notes }),
+    ...managed,
+  });
 });
 
 /* -------------------------------------------------------------------------- */
