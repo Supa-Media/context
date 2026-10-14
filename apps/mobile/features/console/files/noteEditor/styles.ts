@@ -54,6 +54,22 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   /**
+   * The same title on a pointer layout, where the editor scrolls itself and
+   * this sits over it: set as the note's own `# H1` is (the reading face,
+   * 30 at 600, `livePreview.ts`), so a note that has no heading and one that
+   * has look like the same page. The side padding is the editor's gutter and
+   * is added where it is drawn, because the column is centred and moves.
+   */
+  inlineTitlePointer: {
+    marginTop: space.x4,
+    fontFamily: fonts.reading,
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.3),
+    fontWeight: "600",
+    color: colors.text,
+  },
+
+  /**
    * The Properties row and the editor under it, as one column.
    *
    * `flex: 1` with `minHeight: 0` so the editor keeps scrolling itself and the

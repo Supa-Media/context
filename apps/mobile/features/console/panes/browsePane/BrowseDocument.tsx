@@ -17,6 +17,7 @@ import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
 import { NoteLoading } from "./NoteLoading";
+import { noteNameEdit } from "./nameEdit";
 import { isMarkdown } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
@@ -517,6 +518,7 @@ export function BrowseDocument({
         onTitleCaret={files.setTitleCaret}
         titleNote={files.titleEdit?.path === files.editor.path ? files.titleEdit.note : null}
         titleFocus={files.titleFocus}
+        nameEdit={noteNameEdit(files, files.editor.path, files.editor.readOnly)}
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}
