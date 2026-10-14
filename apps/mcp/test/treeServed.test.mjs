@@ -262,7 +262,9 @@ test("a tool outside the six, writes included, never asks the tree", async () =>
     bucket.objects.set(key, { text: String(body), etag: "new", uploaded: Date.now() });
     return { key, etag: "new" };
   };
-  const tree = treeOf(bucket);
+  // No facts route, so a write's chaos report (`chaos/change.js`, which asks
+  // the tree for the score on purpose) stays out of this count of listings.
+  const { facts: _facts, ...tree } = treeOf(bucket);
   await callTool("write_note", { path: "1-projects/gamma.md", content: "# Gamma\n" }, served(bucket, tree), "private");
   await callTool("read_note", { path: "1-projects/beta.md" }, served(bucket, tree), "private");
   // Search lists the bucket when it has no index, and is not one of the six.
