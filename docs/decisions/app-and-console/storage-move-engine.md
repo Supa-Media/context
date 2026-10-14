@@ -35,3 +35,11 @@ enough to never fail").
   each way per move, at most 12 an hour (`storageLag.ts`). Handles, counts
   and times only. Mailing on every check, or anybody off `ADMIN_EMAILS`,
   fails `__tests__/nodes/storageLag.test.ts`.
+- **Between two workspaces, a file over 8 MiB stays where it is, named**
+  (decided 2026-10-14, step D). A cross-workspace batch is read whole in one
+  action and crosses the 16 MiB argument limit twice, so such a file used to
+  wedge every batch after it. It is now sized with a HEAD before it is read,
+  left in the source, and listed in the move's notice beside the encrypted
+  notes ("too large to move between workspaces yet"). It stays there until the
+  mover carries files between buckets (step F). Dropping either
+  size check fails `__tests__/contextMoveLarge.test.ts`.

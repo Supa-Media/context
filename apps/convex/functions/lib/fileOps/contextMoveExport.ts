@@ -76,10 +76,11 @@ export const CONTEXT_MOVE_BATCH_OBJECTS = 40;
  * Convex caps a function's arguments and return value at 16 MiB, and one batch
  * crosses that boundary twice — out of the export barrier and into the import
  * one — so the real ceiling is well under half of it. Eight megabytes leaves
- * room for the paths and etags travelling beside the bodies, and a single
- * object larger than this is still carried: the check is made *before* each
- * read rather than after, so a batch always carries at least one object and a
- * move can never wedge on a note it refuses to pick up.
+ * room for the paths and etags travelling beside the bodies. The check is made
+ * *before* each read rather than after, so a batch always carries at least one
+ * object; one object larger than this on its own is never picked up at all but
+ * left in place and named (`CONTEXT_MOVE_OBJECT_MAX_BYTES`), so a move can
+ * never wedge on it either.
  */
 export const CONTEXT_MOVE_BATCH_BYTES = 8 * 1024 * 1024;
 
@@ -116,10 +117,19 @@ export interface ContextMoveObject {
   sourceVisibility: "private" | "team";
 }
 
+/**
+ * One object larger than this is left where it is, named, rather than read:
+ * a batch crosses the 16 MiB argument limit twice, and reading it whole could
+ * overflow the action. Carrying such a file across in parts needs a seal that
+ * works in parts for a managed destination, which is a decision still open
+ * (project file `move-engine/plan.md`, step D).
+ */
+export const CONTEXT_MOVE_OBJECT_MAX_BYTES = CONTEXT_MOVE_BATCH_BYTES;
+
 /** A key this move will not carry, and the reason it can be shown. */
 export interface ContextMoveSkip {
   path: string;
-  reason: "encrypted";
+  reason: "encrypted" | "too_large";
 }
 
 export interface ContextMoveExport {
@@ -345,9 +355,21 @@ export async function exportContextMoveBatch(
     // rather than refused forever. The pass after this one starts behind it.
     if (carried > 0 && carried >= maxBytes) break;
     looked += 1;
+    // Sized before it is read, where the store can say: a recording or a video
+    // in the folder stays, named, instead of wedging every batch after it.
+    const meta = typeof store.head === "function" ? await store.head(key) : undefined;
+    if (meta === null) continue; // deleted underneath us; nothing to carry
+    if (typeof meta?.size === "number" && meta.size > CONTEXT_MOVE_OBJECT_MAX_BYTES) {
+      skipped.push({ path: key, reason: "too_large" });
+      continue;
+    }
     const object = await store.get(key);
     if (object === null) continue; // deleted underneath us; nothing to carry
     let bytes = await object.arrayBuffer();
+    if (bytes.byteLength > CONTEXT_MOVE_OBJECT_MAX_BYTES) {
+      skipped.push({ path: key, reason: "too_large" });
+      continue;
+    }
     const sourceText = key.endsWith(".md") ? new TextDecoder().decode(bytes) : null;
     if (sourceText !== null && isEncryptedNote(sourceText)) {
       /*

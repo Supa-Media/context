@@ -307,7 +307,7 @@ export const contextMoveExportedValidator = v.object({
   })),
   skipped: v.array(v.object({
     path: v.string(),
-    reason: v.literal("encrypted"),
+    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
   })),
   remaining: v.boolean(),
 });

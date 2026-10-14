@@ -64,7 +64,7 @@ export const jobTables = {
      */
     skipped: v.array(v.object({
       path: v.string(),
-      reason: v.union(v.literal("encrypted")),
+      reason: v.union(v.literal("encrypted"), v.literal("too_large")),
     })),
     /** Set on `failed`, and written for a person rather than a log. */
     error: v.optional(v.string()),

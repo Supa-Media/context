@@ -77,6 +77,7 @@ export type { MoveResult } from "./fileOps/moving";
 export {
   CONTEXT_MOVE_BATCH_OBJECTS,
   CONTEXT_MOVE_BATCH_BYTES,
+  CONTEXT_MOVE_OBJECT_MAX_BYTES,
   CONTEXT_MOVE_SKIP_CAP,
   landingVisibility,
   FOLDER_PATH_CAP,
