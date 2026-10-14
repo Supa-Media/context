@@ -3,6 +3,9 @@ import { baseName, describeNameProblem, displayName, withoutSortPrefix } from ".
 import type { Listings } from "./fileBrowser/types";
 import { namesIn } from "./tree";
 import { titleFor } from "./untitled";
+import { nameIsAddress } from "./addressNames";
+
+export { nameIsAddress };
 
 /**
  * THE TITLE IS THE NAME.
@@ -49,21 +52,6 @@ export function isLinkedTitle(path: string, _openedText: string): boolean {
   return !nameIsAddress(path);
 }
 
-/**
- * The files whose name is an address rather than a title, which a heading
- * never renames and a rename never retitles: a workspace's front page and
- * to-do list, a folder's `about.md`, `privacy.md`, and every website file —
- * `website/about.md` is the page at `/about`, and its heading is what the page
- * says. Renaming one of those because somebody reworded its heading would
- * take a page off the web or a front note off its folder without a word.
- */
-const ADDRESS_NAMES = /^(index|about|readme|privacy|todo)\.md$/i;
-
-export function nameIsAddress(path: string): boolean {
-  if (path === "website" || path.startsWith("website/")) return true;
-  const name = baseName(path);
-  return ADDRESS_NAMES.test(name) || /\.(html|css)\.md$/i.test(name);
-}
 
 export type TitleProposal =
   /** The title is the name already, or there is no title to follow. */

@@ -33,7 +33,7 @@
 
 import { ChangeSet, EditorState, type Extension, type Transaction, type TransactionSpec } from "@codemirror/state";
 import { isDrawingPath } from "@context/drawings";
-import { nameIsAddress } from "./linkedTitle";
+import { nameIsAddress } from "./addressNames";
 import { titleRange } from "./liveEditorWeb/titleLine";
 import { noteNameOf } from "./noteName";
 import { describeNameProblem } from "./paths";
