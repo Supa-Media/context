@@ -19,10 +19,12 @@
  *   handed to the unchanged `syncManifest` through `servedNodesStore`, so
  *   `canSee` decides what comes back, as it decides the sidebar's listings.
  *   The gateway filters again with its own engine; this only narrows.
- * - **The tree answers only where it is proved.** Not served, paused, an
- *   unknown token, a malformed request, a walk that could not finish, and a
- *   rules file that would not parse are all `{ served: false }`, the same
- *   bytes, and the gateway reads the bucket exactly as before.
+ * - **The tree answers once the workspace's first copy has finished**
+ *   (`treeReadiness`); parity is a staff alarm and Pause stops copying only.
+ *   An unknown token, a malformed request, a walk that could not finish and
+ *   a rules file that would not parse are all `{ served: false }`, the same
+ *   bytes. A reader the grant lets in whose workspace is still on its first
+ *   copy is told `{ served: false, loading: true }`, and the copy is started.
  *
  * No bucket is opened here: the store under the rows refuses every read but
  * the two `servedNodesStore` answers itself, so a manifest page never spends
@@ -37,10 +39,10 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { NO_NAMES } from "../clearance";
 import { contextsForGrant, resolveLiveGrant } from "../controlPlane/liveGrants";
 import { TOKEN_HASH_PATTERN, hashToken } from "../crypto";
-import type { FileStore } from "../fileOps/store";
 import { json } from "../gatewayAuth";
 import { syncManifest } from "../fileOps/syncManifest";
 import { servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, readinessAndKick } from "./treeLoading";
 
 /**
  * Keys one answer carries. The console's walk stops at `MANIFEST_PAGE_ENTRIES`
@@ -104,24 +106,19 @@ export interface GatewayManifestEntry {
 
 export type GatewayManifestPage =
   | { served: true; entries: GatewayManifestEntry[]; cursor: string | null }
-  | { served: false };
+  | { served: false; loading?: true };
 
 const NOT_SERVED: GatewayManifestPage = { served: false };
 
 /**
- * The store under the rows: no bucket at all. `servedNodesStore` answers
- * `list` from the rows and `privacy.md` from the mirror itself, so anything
- * that reaches this is a read the manifest should never have made, and it
- * fails the page (which answers `served: false`) rather than open the bucket.
+ * Told only to a reader the grant already let in: the workspace's first copy
+ * has not finished (and has been started), so there is nothing to list yet.
+ * Never a bucket listing in its place (decided by the owner, 2026-10-13).
  */
-export const NO_BUCKET: FileStore = {
-  list: async () => {
-    throw new Error("the tree manifest reads no bucket");
-  },
-  get: async () => {
-    throw new Error("the tree manifest reads no bucket");
-  },
-} as unknown as FileStore;
+export const STILL_LOADING = { served: false, loading: true } as const;
+
+/** The store under the rows: no bucket at all (`treeLoading.ts`). */
+export { NO_BUCKET };
 
 /**
  * One page of the keys `scope` may see in `workspaceId`, from the tree, or
@@ -134,7 +131,7 @@ export async function gatewayManifestPage(
   options: { cursor?: string; folder?: string },
 ): Promise<GatewayManifestPage> {
   const store = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
-  if (store === null) return NOT_SERVED;
+  if (store === null) return (await readinessAndKick(ctx, workspaceId)) === "loading" ? STILL_LOADING : NOT_SERVED;
   const manifest = await syncManifest(store, {
     clearance: { scope, names: NO_NAMES },
     pageEntries: GATEWAY_PAGE_ENTRIES,

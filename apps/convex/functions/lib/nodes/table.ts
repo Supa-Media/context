@@ -174,7 +174,7 @@ export const NODE_EDIT_LOST_MS = 5 * 60_000;
  * is never renewed is a guess about today from the day it was made.
  */
 export const NODE_PARITY_STALE_MS = 24 * 60 * 60_000;
-/** A check that found differences is run once more after this, before it stops the tree serving. */
+/** A check that found differences is run once more after this, before it raises the staff alarm. */
 export const NODE_PARITY_CONFIRM_MS = 30_000;
 
 /**

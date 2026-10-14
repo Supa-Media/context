@@ -135,9 +135,13 @@ describe("a Publish while a folder move is queued", () => {
   test("fails as incomplete, keeping the published site, when the tree cannot draw the move", async () => {
     const f = await site();
     const before = await indexedKeys(f);
-    // Staff paused the tree: the listing is the bucket's, which does not draw the move.
+    // The tree is not there to draw it (its first copy is running again from
+    // scratch): the scan cannot see the move. Pause no longer does this, since
+    // 2026-10-13 it stops copying only.
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: Date.now() });
+      for (const row of await ctx.db.query("nodeTrees").collect()) {
+        await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
+      }
     });
     await queuedMove(f, "website/blog", "website/posts");
 

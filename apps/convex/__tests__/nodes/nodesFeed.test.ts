@@ -212,10 +212,20 @@ describe("catching up", () => {
     expect((await catchUp(t, ws, memberId, { privacy: "nodes:privacy-2" }))?.full).toBe(false);
   });
 
-  test("not served: null, so the D1 log or a walk answers", async () => {
+  test("staff's Pause changes nothing: the feed still answers", async () => {
     const { t, ws, memberId } = await fixture();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+    });
+    expect(await catchUp(t, ws, memberId)).not.toBeNull();
+    expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() })).not.toBeNull();
+  });
+
+  test("a first copy not finished: null, and the device walks", async () => {
+    const { t, ws, memberId } = await fixture();
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await catchUp(t, ws, memberId)).toBeNull();
     expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() })).toBeNull();
@@ -229,7 +239,8 @@ describe("catching up", () => {
   test("the action answers a cursor from this log with a walk once the tree stops serving", async () => {
     const { t, ws, member } = await fixture();
     await t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     const result = await member.action(api.functions.treeChanges.syncTreeChanges, {
       workspaceId: ws,
@@ -270,7 +281,8 @@ describe("the live head", () => {
     const after = await member.query(api.functions.nodesFeed.head, { workspaceId: ws });
     expect(after?.token).not.toBe(before?.token);
     await t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await member.query(api.functions.nodesFeed.head, { workspaceId: ws })).toBeNull();
   });

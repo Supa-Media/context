@@ -13,10 +13,12 @@
  * its facts shown in each row's detail, and folder moves still copying show
  * on their workspace's row instead of a panel. The D1 tree's details and
  * their Fill left in phase 7 of the migration. The card carries the switch
- * that sends everyone back to the bucket (`nodesMigration.setPaused`), still
- * the way back until the bucket readers are removed. Start all, Fill all and
- * Refresh went: `nodesMigration.keepCurrent` copies every due workspace, and
- * fills its facts, every 15 minutes, and a row's Repair does the rest.
+ * that pauses copying (`nodesMigration.setPaused`); since 2026-10-13 it no
+ * longer sends anyone to the bucket, because no reader has a bucket path left
+ * (decided by the owner), and a check that differs is an alarm here and
+ * nothing more. Start all, Fill all and Refresh went:
+ * `nodesMigration.keepCurrent` copies every due workspace, and fills its
+ * facts, every 15 minutes, and a row's Repair does the rest.
  *
  * Search by meaning, the copy, its facts and the moves are all live queries.
  */
@@ -124,8 +126,8 @@ export function IndexesView() {
     const next = !paused;
     return act("convex:pause", async () => {
       const { started } = await setMigrationPaused({ paused: next });
-      if (next) return "Everyone reads from the bucket now. Each copy stops at its next pass.";
-      return `Serving from the file tree again. Restarted ${started === 1 ? "1 workspace" : `${started} workspaces`}.`;
+      if (next) return "Copying paused. Each copy stops at its next pass; everyone still reads the file tree.";
+      return `Copying again. Restarted ${started === 1 ? "1 workspace" : `${started} workspaces`}.`;
     });
   };
 
@@ -189,14 +191,14 @@ export function IndexesView() {
                     <Text variant="meta" style={styles.grow}>
                       {paused
                         ? migration.changedAt === null
-                          ? "Everyone reads from the bucket"
-                          : `Everyone reads from the bucket since ${whenLabel(migration.changedAt, Date.now())}`
+                          ? "Copying paused · served live to everyone"
+                          : `Copying paused since ${whenLabel(migration.changedAt, Date.now())} · served live to everyone`
                         : "Served live to everyone"}
                       {migration.privacyAuthority ? " · rules from Convex" : " · rules from privacy.md"}
                       {migration.owedExports > 0 ? ` (${migration.owedExports} files being written)` : ""}
                     </Text>
                     <Button
-                      label={busy === "convex:pause" ? "Saving…" : paused ? "Serve from the tree" : "Serve from bucket"}
+                      label={busy === "convex:pause" ? "Saving…" : paused ? "Resume copying" : "Pause copying"}
                       disabled={busy !== null}
                       onPress={() => void togglePaused()}
                       testID="admin-files-serve"

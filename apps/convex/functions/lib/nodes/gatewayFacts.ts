@@ -5,7 +5,9 @@
  *
  * The same rules as `/gateway/tree/manifest` (`gatewayManifest.ts`): the
  * gateway secret gets the request in, the person's access token chooses the
- * workspace and the clearance, and every refusal is `{ served: false }`.
+ * workspace and the clearance, and every refusal is `{ served: false }`; a
+ * reader whose workspace is still on its first copy is told
+ * `{ served: false, loading: true }`.
  * Every path that comes back has passed `canSee` at that clearance, over the
  * tree's own rules mirror; the gateway filters again with its own engine.
  *
@@ -26,7 +28,8 @@ import { hashToken } from "../crypto";
 import { loadPrivacyState } from "../fileOps";
 import { json } from "../gatewayAuth";
 import { canSee } from "../privacy";
-import { GATEWAY_PATH_LENGTH, NO_BUCKET } from "./gatewayManifest";
+import { GATEWAY_PATH_LENGTH, NO_BUCKET, STILL_LOADING } from "./gatewayManifest";
+import { readinessAndKick } from "./treeLoading";
 import { MOVE_RENAMES_CAP, dayOf } from "./facts";
 import { servedNodesStore } from "./manifestStore";
 
@@ -65,7 +68,8 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     });
     if (reader === null) return NOT_SERVED;
     const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET);
-    if (served === null) return NOT_SERVED;
+    // Still on its first copy (now started): said so to this reader, never answered from the bucket.
+    if (served === null) return (await readinessAndKick(ctx, reader.workspaceId)) === "loading" ? STILL_LOADING : NOT_SERVED;
     const state = await loadPrivacyState(served);
     if (state.invalid) return NOT_SERVED;
     const visible = (path: string) => canSee(path, reader.scope, state.rules, state.overrides, NO_NAMES);

@@ -92,15 +92,33 @@ describe("a paused migration", () => {
     expect(mutations).toEqual([]);
   });
 
-  test("a re-check only marks the tree dirty, so resuming catches it up", async () => {
-    const { ctx, store, mutations } = pausedCtx();
-    const result = await runNodesOperation(
+  // Pause stops copying work only (decided by the owner, 2026-10-13): every
+  // reader reads this tree, so a change's own re-check still lands.
+  test("a re-check still runs while paused, so readers see the change", async () => {
+    const { ctx, mutations } = pausedCtx();
+    const listed: unknown[] = [];
+    const store = {
+      list: async (options: unknown) => {
+        listed.push(options);
+        return { objects: [], truncated: false };
+      },
+      get: async () => null,
+    };
+    await runNodesOperation(
       ctx as never,
       { workspaceId, scope: "private", operation: { kind: "nodesTouch", paths: ["a"], files: [] } },
       store as never,
     );
+    // The bucket was listed for the path: the re-check ran rather than only marking the tree dirty.
+    expect(listed.length).toBeGreaterThan(0);
+    expect(mutations.length).toBeGreaterThan(0);
+  });
+
+  test("a scheduled facts fill stops before it reads anything", async () => {
+    const { ctx, store, mutations } = pausedCtx();
+    const result = await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesFactFill" } }, store as never);
     expect(result).toEqual({ kind: "nodesKept", complete: false });
-    expect(mutations).toEqual([{ workspaceId }]);
+    expect(mutations).toEqual([]);
   });
 });
 

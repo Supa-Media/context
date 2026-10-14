@@ -207,6 +207,17 @@ describe("POST /gateway/tree/facts", () => {
     expect(notServed).toContain('{"served":false}');
   });
 
+  test("a first copy not finished is still loading for a reader the grant lets in; parity changes nothing", async () => {
+    const { t, ws } = await fixture({ mismatches: 3 });
+    await withFacts(t, ws);
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toMatchObject({ served: true });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
+    });
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false, loading: true });
+  });
+
   test("another workspace's links never answer", async () => {
     const { t, ws, other } = await fixture();
     await withFacts(t, ws);

@@ -1,11 +1,15 @@
 /**
  * The console's live tree (`functions/nodesListing.ts`): a folder listed from
  * Convex must say exactly what the bucket's listing says, at every clearance,
- * and must answer `null` (ask the bucket) whenever the tree is not proved.
+ * and must answer `null` ("still loading") only while the workspace's first
+ * copy has not finished. Parity is an alarm and Pause stops copying: neither
+ * sends a reader anywhere (decided by the owner, 2026-10-13).
  *
  * Sabotage:
  *  - drop the `resolveFileAccess` call and the stranger case fails;
- *  - make `treeServes` ignore parity, or the pause, and the not-served cases fail;
+ *  - make `treeServes` gate on parity, an error, or the pause again and the
+ *    "still answer" cases fail; make it answer before a first copy finished
+ *    and the "still loading" case fails;
  *  - drop the `goneAt` skip in `childrenOf` and the gone-file case fails;
  *  - drop `retireEmptyFolders` (`observe.ts`) and the emptied-folder case fails;
  *  - hand `listFolder` a mirror-less store and the team cases fail.
@@ -113,43 +117,68 @@ describe("who may read", () => {
 });
 
 describe("when the tree answers", () => {
-  test("never checked, differing, failing or paused: null, so the bucket answers", async () => {
+  // Decided by the owner, 2026-10-13: Convex always answers once the first
+  // copy has finished. Parity is a staff alarm and Pause stops copying; a
+  // tree that is not there yet is "still loading" (null), never the bucket.
+  test("once the first copy finished: differing, failing or paused still answer", async () => {
     const { t, ws, owner } = await fixture();
     const ask = () => owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" });
     expect(await ask()).not.toBeNull();
 
     await matches(t, ws, 3);
-    expect(await ask()).toBeNull();
-    await matches(t, ws);
+    expect(await ask()).not.toBeNull();
 
     await t.mutation(internal.functions.nodes.fail, { workspaceId: ws, label: "Tree sweep failed; inspect service logs" });
-    expect(await ask()).toBeNull();
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeTrees").first();
-      if (row) await ctx.db.patch(row._id, { error: undefined });
-    });
     expect(await ask()).not.toBeNull();
 
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
     });
-    expect(await ask()).toBeNull();
+    expect(await ask()).not.toBeNull();
   });
 
-  test("a walk is handed the tree's rules only while it serves", async () => {
+  test("a walk is handed the tree's rules whatever its parity", async () => {
     const { t, ws } = await fixture();
     expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag: "privacy-1" } });
     await matches(t, ws, 1);
-    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toBeNull();
+    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toMatchObject({ mirror: { etag: "privacy-1" } });
   });
 
-  test("a tree with no parity yet is not served", async () => {
+  test("a tree with no parity yet is served", async () => {
     const { t, ws, owner } = await fixture();
     await t.run(async (ctx) => {
       const row = await ctx.db.query("nodeTrees").first();
       if (row) await ctx.db.patch(row._id, { parity: undefined });
     });
-    expect(await owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" })).toBeNull();
+    expect(await owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" })).not.toBeNull();
+  });
+
+  test("a first copy still running, never started, or unsupported is still loading: null", async () => {
+    const { t, ws, owner } = await fixture();
+    const ask = () => owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" });
+    const setStatus = (status: "empty" | "filling" | "unsupported") =>
+      t.run(async (ctx) => {
+        const row = await ctx.db.query("nodeTrees").first();
+        if (row) await ctx.db.patch(row._id, { status, sweptAt: undefined });
+      });
+    await setStatus("filling");
+    expect(await ask()).toBeNull();
+    await setStatus("empty");
+    expect(await ask()).toBeNull();
+    await setStatus("unsupported");
+    expect(await ask()).toBeNull();
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.delete(row._id);
+    });
+    expect(await ask()).toBeNull();
+    expect(await t.query(internal.functions.nodes.served, { workspaceId: ws })).toBeNull();
+  });
+
+  test("a re-sweep of a finished copy keeps serving the rows it has", async () => {
+    const { t, ws, owner } = await fixture();
+    await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 40 });
+    expect(await owner.query(api.functions.nodesListing.listFolder, { workspaceId: ws, path: "" })).not.toBeNull();
   });
 });
 
@@ -239,15 +268,19 @@ describe("the barrier's one-folder listing (`listServed`)", () => {
     }
   });
 
-  test("null whenever the tree does not serve, so the bucket answers", async () => {
+  test("null only while the first copy has not finished; parity and Pause change nothing", async () => {
     const { t, ws } = await fixture();
     const ask = () => t.query(internal.functions.nodesListing.listServed, { workspaceId: ws, path: "", scope: "team" });
     expect(await ask()).not.toBeNull();
     await matches(t, ws, 2);
-    expect(await ask()).toBeNull();
-    await matches(t, ws);
+    expect(await ask()).not.toBeNull();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+    });
+    expect(await ask()).not.toBeNull();
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await ask()).toBeNull();
   });

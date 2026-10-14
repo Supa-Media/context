@@ -15,6 +15,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { migrationPaused } from "./lib/nodes/pause";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
 import { followMovesForMembers } from "./lib/placesFollow";
@@ -115,7 +116,8 @@ export const reserve = internalMutation({
     // layout rather than the tree's. It waits instead.
     const overlaps = queue.some((row) => movesOverlap(row, args));
     const refuse = (reason: "not_served" | "busy") => ({ ok: false as const, reason: overlaps ? "reserved" as const : reason });
-    if (!(await treeServesNow(ctx.db, args.workspaceId))) return refuse("not_served");
+    // Staff's Pause stops background copying, so a folder moves in one go while it holds.
+    if (!(await treeServesNow(ctx.db, args.workspaceId)) || (await migrationPaused(ctx.db))) return refuse("not_served");
     if (queue.length >= MOVES_PER_WORKSPACE) return refuse("busy");
     // A move still being prepared is not drawn yet, so nothing may be moved into or out of its names.
     // A drawn one may be moved onward from where it now is (a chain), but nothing may be moved

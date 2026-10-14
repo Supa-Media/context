@@ -8,8 +8,10 @@
  * the tests runs), and writes the result back. Keeping the rules out of here
  * is what lets them be tested without a deployment.
  *
- * Phase 1 is a shadow (`docs/decisions/app-and-console/convex-tree.md`):
- * nothing answers a person from these rows yet.
+ * Every reader of which notes exist answers from these rows once the
+ * workspace's first copy has finished (`treeReadiness`,
+ * `docs/decisions/app-and-console/convex-tree.md`); the bucket stays the
+ * files' truth, and the sweeps keep these rows to it.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -261,7 +263,8 @@ export const finish = internalMutation({
     // a tree keeps earning it, and how one that drifted earns it back. Until
     // 2026-10-13 only the first ran: a tree proved once served for ever, and
     // one a single in-flight write made differ fell back to the bucket for
-    // ever, both until staff pressed Check.
+    // ever, both until staff pressed Check. Since 2026-10-13 the check is an
+    // alarm for staff and serves nobody differently.
     if (nodeParityDue(row?.parity, at)) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
@@ -384,9 +387,10 @@ export const privacy = internalQuery({
 });
 
 /**
- * Whether the tree answers this workspace's walks (`treeServes`), and with
- * which rules: read in one transaction, so a walk never pairs a served tree
- * with rules from before the check.
+ * Whether the tree answers this workspace's walks (its first copy finished,
+ * `treeReadiness`), and with which rules: read in one transaction, so a walk
+ * never pairs a served tree with rules from before the check. `null` is
+ * "still loading", never "ask the bucket".
  */
 export const served = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -434,7 +438,7 @@ export const savePrivacy = internalMutation({
  * A check that newly finds differences (the last one matched, or there was
  * none) also marks the tree dirty, so the cron sweeps it within its interval
  * and the finished sweep checks again (`finish`): a difference a sweep can
- * repair stops the tree serving only until then. One that persists waits for
+ * repair shows staff an alarm only until then. One that persists waits for
  * the hourly sweep, so a real bug is never a sweep loop.
  */
 export const saveParity = internalMutation({
@@ -477,8 +481,8 @@ export const saveParity = internalMutation({
  *
  * A tree that was never swept is left alone: its first sweep lists these. Past
  * `NODE_TOUCH_PATHS` gathered notes the tree is marked dirty instead, as a
- * re-check that names too much is. While staff paused the migration the tree
- * is only marked dirty, as a paused re-check does.
+ * re-check that names too much is. Staff's Pause does not hold edits back:
+ * every reader reads this tree, so it stops copying work only.
  */
 export const queueEdits = internalMutation({
   args: { workspaceId: v.id("workspaces"), files: v.array(v.string()) },
@@ -486,10 +490,6 @@ export const queueEdits = internalMutation({
   handler: async (ctx, { workspaceId, files }): Promise<null> => {
     const row = await treeRowQuery(ctx, workspaceId);
     if (row === null || row.status === "unsupported") return null;
-    if (await migrationPaused(ctx.db)) {
-      await ctx.db.patch(row._id, { dirty: true });
-      return null;
-    }
     const held = new Set(row.edits ?? []);
     for (const file of files) {
       const path = nodePath(file);
