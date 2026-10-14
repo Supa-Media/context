@@ -133,9 +133,8 @@ row's name is grey. A row with no status gets nothing but keeps the dot's
 room, so names line up. A row opens what it names, exactly as in Notes.
 
 There is no search, filter bar, status groups, Backlog band, "+ Add" line or
-Notes section on the List any more, and nothing on it writes; statuses,
-owners, priority and the rest are set on the Board and in the side panel,
-which are unchanged. The extras reach the rows through a context
+Notes section on the List any more. Priority, tags and the rest are set on
+the Board and in the side panel, which are unchanged. The extras reach the rows through a context
 (`folderPage/rowExtras.tsx`) rather than a second row component, so List and
 Notes cannot come to list different things. Reversing this means bringing a
 second row back; `__tests__/folderPageList.test.ts` fails first, on "is the
@@ -144,20 +143,42 @@ describe the List's groups, filter bar, row cells and add lines record the
 List before this decision; where they describe the Board or the panel they
 still hold.
 
+## Notes and List are one view, and its dot and face are its controls
+
+Decided by the owner on 2026-10-14: "I also think we should collapse notes and
+list view because they are very similar. It's just that for projects, we have
+special UI on it." So a projects folder's switch is **List · Board**: List is
+the listing with the extras above, and there is no Notes view to switch to. A
+view remembered as "files" from before reads as List. Folders outside
+projects are their listing with no switch, as before. The quiet "Track these
+folders by status?" line went with Notes, since all it did was switch to List.
+
+In the same message: "I'm not able to click on the status circle to change
+it" and "even if it's not assigned to anyone, there should still be like a
+placeholder circle there to assign it". So for somebody who may write, a
+task's dot opens its status menu (the folder's groups, as a card's does), a
+note's empty dot room shows a faint dashed ring under the pointer that gives
+it a status, and the face opens the owner picker, with an empty dashed ring
+where a task nobody owns would have one. A task with several owners keeps
+its faces as they are, because one pick would replace them all; the side
+panel adds and removes them one by one. A press on a dot or face never opens
+the row. They are not `<button>`s, since the row is one. A member gets no
+control and no empty ring. Reversing it fails
+`__tests__/folderPageList.test.ts` ("changing a task from its row").
+
+The rows also draw the tree's icon, the emoji or the plain folder or note
+icon, after the chevron's gutter. A folder's emoji used to stand in the
+chevron's place, which left some folders with no arrow ("when there's an
+emoji, the arrow is gone in the middle section, which is just funky").
+
 ## A folder page shows its children by status
 
 A folder's own page is where projects are seen and set, with no block to write.
-Every projects folder page offers **Notes · List · Board** on its title's row:
-Notes is the listing as it always was (called Files until 2026-09-28: "files"
-is a word for the storage, not for what is in it), List draws the same rows
-with a status dot, a count and faces (see above), Board draws the tasks as
-columns.
-A folder opens in List once anything in it has a status, and in Notes
-otherwise; what each viewer picks is remembered per folder in that browser's
-storage, never shared and never required. When two or more subfolders exist
-and nothing has a status yet, one quiet line offers an owner or editor the
-list, and closing it is per viewer too; a member, who could set nothing
-there, is not offered it.
+Every projects folder page offers **List · Board** on its title's row (it was
+Notes · List · Board until 2026-10-14; see above): List draws the listing's
+rows with a status dot, a count and faces, Board draws the tasks as columns.
+A folder opens in List; what each viewer picks is remembered per folder in
+that browser's storage, never shared and never required.
 
 It differs from `rows: projects` on purpose. A list block shows what already
 *is* a project; a folder page is where something becomes one. So every folder

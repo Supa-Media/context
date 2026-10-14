@@ -2,7 +2,10 @@
  * `/e2e-fixture?screen=projects` — a projects folder's page, the real
  * `FolderView` and everything under it (List, Board, Backlog, the side peek),
  * on an in-memory folder (`projectsStore.ts`), at whatever size the browser
- * is. `role=member` draws it for somebody who may only read.
+ * is. `role=member` draws it for somebody who may only read; `slow=<ms>`
+ * holds every note's words back that long, as the bucket does, so a folder's
+ * about can be watched arriving into the room kept for it. Some rows carry an
+ * emoji, and each page its chaos line, counted from the folder itself.
  *
  * Why a fixture of its own: the console fixture's folder pages read this
  * device's copy through Convex, which a fixture build has no deployment
@@ -24,6 +27,14 @@ import type { TaskHost } from "../../console/files/folderPage/tasks/taskHost";
 import type { PeekEditing } from "../../console/files/folderPage/panel/peekEditing";
 import type { EditorState } from "../../console/files/editor";
 import { PROJECTS, projectsStore } from "./projectsStore";
+import { ChaosProvider, type ChaosView } from "../../chaos/ChaosContext";
+
+/** Emoji on some rows, as somebody's picks are: a folder's, a note's. */
+const ICONS: Readonly<Record<string, string>> = {
+  [`${PROJECTS}/togather`]: "🤝",
+  [`${PROJECTS}/cafe`]: "☕",
+  [`${PROJECTS}/reading-list.md`]: "📚",
+};
 
 interface Toast {
   readonly id: number;
@@ -31,9 +42,27 @@ interface Toast {
   readonly undo?: () => void;
 }
 
-export function ProjectsFixture({ member = false }: { member?: boolean }) {
+export function ProjectsFixture({ member = false, slowBodies = 0 }: { member?: boolean; slowBodies?: number }) {
   const styles = useThemedStyles(makeStyles);
-  const store = useMemo(() => projectsStore({ canWrite: !member }), [member]);
+  const store = useMemo(() => projectsStore({ canWrite: !member, slowBodies }), [member, slowBodies]);
+  const chaos = useMemo<ChaosView>(
+    () => ({
+      result: null,
+      version: 0,
+      refresh: () => {},
+      panel: null,
+      openPanel: () => {},
+      closePanel: () => {},
+      open: () => {},
+      // The folder's own count, scored as the server would: thin, calm or crowded.
+      folderScore: async (at: string) => {
+        const items = store.listing(at).entries.filter((each) => !/\/(overview|about)\.md$/.test(each.path)).length;
+        const score = items === 0 ? 100 : items < 4 ? 40 : items <= 5 ? 0 : Math.min(100, (items - 5) * 10);
+        return { kind: "chaosScore", available: true, score, word: null, weekAgo: null, folders: [], longNotes: [], folder: { folder: at, items, chaos: score } };
+      },
+    }),
+    [store],
+  );
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   const [folder, setFolder] = useState(PROJECTS);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
@@ -69,9 +98,11 @@ export function ProjectsFixture({ member = false }: { member?: boolean }) {
   );
   const listing = store.listing(folder);
   return (
+    <ChaosProvider value={chaos}>
     <View style={styles.screen} testID="projects-fixture">
       <ScrollView contentContainerStyle={styles.page}>
         <FolderView
+          iconOf={(path) => ICONS[path] ?? null}
           entry={{ kind: "folder", path: folder, name: baseName(folder), visibility: "team", inherited: "team", exception: false, readOnly: false }}
           listing={listing}
           canSetVisibility={!member}
@@ -111,6 +142,7 @@ export function ProjectsFixture({ member = false }: { member?: boolean }) {
         ))}
       </View>
     </View>
+    </ChaosProvider>
   );
 }
 

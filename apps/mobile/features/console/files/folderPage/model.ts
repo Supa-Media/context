@@ -35,7 +35,12 @@ import type { FileEntry } from "../types";
 import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
 import { comparePriority, priorityOf, type Priority } from "./taskProps";
 
-export type FolderPageView = "files" | "list" | "board";
+/**
+ * A projects folder's two views: its rows (List, which every other folder
+ * shows with no switch) and its tasks as columns (Board). Notes and List were
+ * one view drawn twice until the owner merged them, 2026-10-14.
+ */
+export type FolderPageView = "list" | "board";
 
 /** Where a new front note is written, when a folder has none. */
 export const NEW_FRONT_NOTE: string = FRONT_NOTES[0]!;
@@ -340,11 +345,6 @@ export function isProjectsFolder(folder: string): boolean {
 export function rowsAreProjects(folder: string): boolean {
   const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
   return isProjectsFolder(folder) && !isProjectsFolder(parent);
-}
-
-/** The grouped list once anything has a status; the files otherwise. */
-export function defaultFolderView(items: readonly FolderItem[]): FolderPageView {
-  return items.some((item) => item.status !== "") ? "list" : "files";
 }
 
 /**

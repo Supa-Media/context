@@ -1,6 +1,8 @@
 /**
- * Which view somebody last picked for a folder — Notes, List or Board — kept
- * per viewer, per workspace, per folder. It is never written to a note.
+ * Which view somebody last picked for a folder — List or Board — kept per
+ * viewer, per workspace, per folder. It is never written to a note. A "files"
+ * remembered from when Notes was a view of its own reads as nothing, so the
+ * folder opens in List, which is what Notes became.
  *
  * A convenience and nothing more: it lives in this browser's storage where
  * there is one, and in memory for the session where there is not (a native
@@ -12,7 +14,7 @@
 import type { FolderPageView } from "./model";
 
 const PREFIX = "context.folderView";
-const VIEWS: readonly FolderPageView[] = ["files", "list", "board"];
+const VIEWS: readonly FolderPageView[] = ["list", "board"];
 const memory = new Map<string, FolderPageView>();
 
 function keyOf(workspaceId: string, folder: string): string {
@@ -49,36 +51,7 @@ export function rememberView(workspaceId: string, folder: string, view: FolderPa
   }
 }
 
-const dismissed = new Set<string>();
-
-/** Whether this viewer closed the "track these by status?" line on this folder. */
-export function nudgeDismissed(workspaceId: string, folder: string): boolean {
-  const key = `${keyOf(workspaceId, folder)}\u001fnudge`;
-  if (dismissed.has(key)) return true;
-  try {
-    return storage()?.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function dismissNudge(workspaceId: string, folder: string): void {
-  const key = `${keyOf(workspaceId, folder)}\u001fnudge`;
-  dismissed.add(key);
-  try {
-    storage()?.setItem(key, "1");
-  } catch {
-    // Dismissed for this session only.
-  }
-}
-
-/** Where this device keeps "no" to the track nudge for a whole workspace. */
-export function trackNudgeKey(workspaceId: string): string {
-  return `context.lc.track-nudge.dismissed.v1.${workspaceId}`;
-}
-
 /** For tests: forget everything held in memory. */
 export function forgetViews(): void {
   memory.clear();
-  dismissed.clear();
 }
