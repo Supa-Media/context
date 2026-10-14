@@ -484,6 +484,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       aboutMe: texting ? await readAboutMe((name, args) => callToolForSession({ name, arguments: args }, store, session)) : null,
       // Their clock: a routine's own zone, else the one the texting Worker sent (`localNow.js`).
       localNow: { now: Date.now(), timeZone: runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE },
+      workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
