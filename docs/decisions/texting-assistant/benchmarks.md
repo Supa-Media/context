@@ -526,7 +526,11 @@ logically better, the split is by who changes a thing and when:
   (`pnpm ai publish`): the front matter, the run's summary and latest scores
   (a search result's misses too), and the run's address, never an answer and
   never an id. The answers and the key stay the run's artifacts: big, and the
-  key never sits beside the result.
+  key never sits beside the result. A broken gate is listed with the test's own
+  failing lines and how many runs failed each (2026-10-14: the artifacts can't
+  be downloaded from every place an agent works, so "failed (q8)" alone left
+  nothing to fix from); the judge's reason stays out, since it can quote the
+  answer.
 
 **How the runner is somebody's consent.** The gateway mints no machine
 credential (`oauth.js`), and that line holds: the runner is an ordinary OAuth
