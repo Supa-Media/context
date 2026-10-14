@@ -125,8 +125,12 @@ export async function archivePath(
  * gateway, self-hosting without the tree) trashes the old way.
  */
 type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
-/** Turn a still-queued trash around: `true` when it was, `false` when the bucket holds the trash. */
-type RestoreQueued = (restore: { trash: string; path: string }) => Promise<boolean>;
+/**
+ * Turn a still-queued trash around: `true` when it was, `false` when the
+ * bucket holds the trash, or the store to restore through when the bucket
+ * moved while this waited for it.
+ */
+type RestoreQueued = (restore: { trash: string; path: string }) => Promise<boolean | FileStore>;
 
 /**
  * Move a visible entry into hidden, recoverable trash without rewriting its
@@ -269,9 +273,10 @@ export async function trashPath(
 
 /** Restore one trash result to the original path encoded inside its key. */
 export async function restoreTrashedPath(
-  store: FileStore,
+  given: FileStore,
   options: { from: string; to: string; clearance: Clearance },
 ): Promise<MoveResult> {
+  let store = given;
   const from = requirePath(options.from);
   const to = requirePath(options.to);
   assertWritablePath(to);
@@ -283,9 +288,9 @@ export async function restoreTrashedPath(
   if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
   // Deleted a moment ago, its trash may still be queued: turned around, the tree draws it back at once.
   const restoreQueued = (store as { restoreQueuedTrash?: RestoreQueued }).restoreQueuedTrash;
-  if (typeof restoreQueued === "function" && (await restoreQueued({ trash: from, path: to }))) {
-    return { from, to, paths: [to], queued: 1 };
-  }
+  const queued = typeof restoreQueued === "function" ? await restoreQueued({ trash: from, path: to }) : false;
+  if (queued === true) return { from, to, paths: [to], queued: 1 };
+  if (queued !== false) store = queued;
   const sources = await hiddenKeysAt(store, from);
   if (sources.length === 0 && collaborationSupported(store)) {
     throw notFound();

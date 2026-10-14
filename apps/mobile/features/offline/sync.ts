@@ -186,6 +186,8 @@ export interface OpSent {
   path: string;
   /** For a move: where the note is now. */
   to?: string;
+  /** For a delete: the trash key it went to, when the server said — what Restore takes it back from. */
+  trash?: string;
   /** The note's version where the op left it, when the server said. */
   etag?: string;
   /** The op's `updatedAt` when it went — see `Sent.sentUpdatedAt`. */
@@ -342,6 +344,7 @@ export async function drainOutbox(
         kind: op.kind,
         path: op.path,
         ...(op.to === undefined ? {} : { to: op.to }),
+        ...(op.kind === "trash" && outcome.to !== undefined ? { trash: outcome.to } : {}),
         ...(outcome.etag === undefined ? {} : { etag: outcome.etag }),
         sentUpdatedAt: op.updatedAt,
       };

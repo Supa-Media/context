@@ -135,6 +135,19 @@ export function useOfflineQueue(deps: OfflineQueueDeps) {
     [sendOpTo, workspaceId],
   );
 
+  /*
+    Who else hears that a queued op landed: the open note held as trashed by
+    a delete that waited in the queue learns its trash key from it
+    (`useTrashedNote`), and that part is declared after this one.
+  */
+  const landedListeners = useRef(new Set<(done: OpSent) => void>());
+  const onOpLanded = useCallback((handler: (done: OpSent) => void) => {
+    landedListeners.current.add(handler);
+    return () => {
+      landedListeners.current.delete(handler);
+    };
+  }, []);
+
   /**
    * A queued rename reached the bucket: the open note follows it onto the
    * version the rename produced, so its next save is not a conflict with the
@@ -142,6 +155,13 @@ export function useOfflineQueue(deps: OfflineQueueDeps) {
    * holding (`rebased`).
    */
   const onOpDrained = useCallback((done: OpSent) => {
+    for (const handler of [...landedListeners.current]) {
+      try {
+        handler(done);
+      } catch {
+        // A listener that throws must not stop the rename below being followed.
+      }
+    }
     if (done.kind !== "move" || done.etag === undefined || done.to === undefined) return;
     if (editorRef.current.path !== done.to) return;
     dispatch({ type: "rebased", from: opFromEtag.current.get(done.id) ?? null, etag: done.etag });
@@ -285,7 +305,7 @@ export function useOfflineQueue(deps: OfflineQueueDeps) {
   useEffect(() => () => releaseAncestors(editorHold), [editorHold]);
 
   return {
-    onExternalWrite, onSaved, announceSaved, offline, offlineRef, listings, listingsRef,
+    onExternalWrite, onSaved, announceSaved, onOpLanded, offline, offlineRef, listings, listingsRef,
     mirrorStatus,
   };
 }

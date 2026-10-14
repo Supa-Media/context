@@ -83,15 +83,19 @@ export {
   FOLDER_PATH_CAP,
   listFolderPaths,
   exportContextMoveBatch,
+  planContextMoveBatch,
 } from "./fileOps/contextMoveExport";
 export type {
   ContextMoveObject,
+  PlannedContextMoveObject,
   ContextMoveSkip,
   ContextMoveExport,
 } from "./fileOps/contextMoveExport";
 export {
   importContextMoveBatch,
   deleteMovedSources,
+  forgetMovedSources,
+  prepareContextMoveLanding,
   clearMovedSourceRules,
 } from "./fileOps/contextMoveImport";
 export type { ContextMoveImport } from "./fileOps/contextMoveImport";

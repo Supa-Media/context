@@ -1,7 +1,7 @@
 /**
- * Mover tickets: one page of a whole-bucket move, or of the managed-storage
- * encryption walk, handed to the gateway's mover
- * (`apps/mcp/src/moves/mover.js`). See `moverTickets` in `lib/schema/jobs.ts`
+ * Mover tickets: one page of a whole-bucket move, of the managed-storage
+ * encryption walk, or one batch of a move into another context, handed to
+ * the gateway's mover (`apps/mcp/src/moves/mover.js`). See `moverTickets` in `lib/schema/jobs.ts`
  * for what a ticket is, and `lib/storageMover.ts` for the call that mints and
  * hands one over.
  *
@@ -21,7 +21,10 @@ const pagePhase = v.union(
   v.literal("check"),
   v.literal("unseal"),
   v.literal("confirm"),
+  v.literal("carry"),
 );
+
+const carriedObjects = v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }));
 
 /** Store one page's ticket, hashed, and clear this workspace's expired ones. */
 export const mintPage = internalMutation({
@@ -30,14 +33,21 @@ export const mintPage = internalMutation({
     workspaceId: v.id("workspaces"),
     migrationId: v.optional(v.id("managedStorageMigrations")),
     walkRunId: v.optional(v.number()),
+    contextMoveId: v.optional(v.id("contextMoves")),
+    objects: v.optional(carriedObjects),
     phase: pagePhase,
     expectedCursor: v.optional(v.string()),
     now: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    // Exactly one job per ticket, so a spent ticket can never be read as the other.
-    if ((args.migrationId === undefined) === (args.walkRunId === undefined)) throw new Error("COPY_FAILED");
+    // Exactly one job per ticket, so a spent ticket can never be read as another.
+    const jobs = [args.migrationId, args.walkRunId, args.contextMoveId].filter((job) => job !== undefined).length;
+    if (jobs !== 1) throw new Error("COPY_FAILED");
+    // A context move's ticket names its files; no other ticket carries any.
+    if ((args.contextMoveId !== undefined) !== (args.objects !== undefined && args.phase === "carry")) {
+      throw new Error("COPY_FAILED");
+    }
     const old = await ctx.db
       .query("moverTickets")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -48,6 +58,7 @@ export const mintPage = internalMutation({
       workspaceId: args.workspaceId,
       ...(args.migrationId === undefined ? {} : { migrationId: args.migrationId }),
       ...(args.walkRunId === undefined ? {} : { walkRunId: args.walkRunId }),
+      ...(args.contextMoveId === undefined ? {} : { contextMoveId: args.contextMoveId, objects: args.objects }),
       phase: args.phase,
       ...(args.expectedCursor === undefined ? {} : { expectedCursor: args.expectedCursor }),
       createdAt: args.now,
@@ -66,6 +77,8 @@ export const claimPage = internalMutation({
       workspaceId: v.id("workspaces"),
       migrationId: v.optional(v.id("managedStorageMigrations")),
       walkRunId: v.optional(v.number()),
+      contextMoveId: v.optional(v.id("contextMoves")),
+      objects: v.optional(carriedObjects),
       phase: pagePhase,
       expectedCursor: v.optional(v.string()),
     }),
@@ -82,6 +95,7 @@ export const claimPage = internalMutation({
       workspaceId: row.workspaceId,
       ...(row.migrationId === undefined ? {} : { migrationId: row.migrationId }),
       ...(row.walkRunId === undefined ? {} : { walkRunId: row.walkRunId }),
+      ...(row.contextMoveId === undefined ? {} : { contextMoveId: row.contextMoveId, objects: row.objects ?? [] }),
       phase: row.phase,
       ...(row.expectedCursor === undefined ? {} : { expectedCursor: row.expectedCursor }),
     };

@@ -332,6 +332,26 @@ export const contextMoveFinishedValidator = v.object({
   kind: v.literal("contextMoveFinished"),
 });
 
+/** A batch for the gateway's mover: names, sizes and tiers, never a byte. */
+export const contextMovePlannedValidator = v.object({
+  kind: v.literal("contextMovePlanned"),
+  objects: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    size: v.number(),
+    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+  })),
+  skipped: v.array(v.object({
+    path: v.string(),
+    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
+  })),
+  remaining: v.boolean(),
+});
+
+export const contextMoveSettledValidator = v.object({
+  kind: v.literal("contextMoveSettled"),
+});
+
 export const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),

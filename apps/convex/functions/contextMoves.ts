@@ -25,6 +25,12 @@
  * credential at all, is what puts them in order. The engine half is the
  * "moving between two contexts" section of `lib/fileOps.ts`.
  *
+ * Where the gateway's mover is set (`STORAGE_MOVER_ORIGIN`), the owner chose
+ * the other side of that trade (2026-10-14, "Two keys"): the gateway holds
+ * both buckets for one batch and carries the files itself, while this
+ * deployment still opens one workspace per call to plan, narrow and record
+ * (`lib/contextMoveMover.ts`). The three-call batches below are the fallback.
+ *
  * ## It has no size limit, so it cannot be one request
  *
  * `FOLDER_OPERATION_CAP` refuses a single-store move past five hundred files,
@@ -69,7 +75,9 @@ import {
   mutation,
   query,
 } from "../_generated/server";
-import { CONTEXT_MOVE_SKIP_CAP } from "./lib/fileOps";
+import { carryHere } from "./lib/contextMoveBatches";
+import { CONTEXT_MOVE_RETRY_MS, type MoverPass, carryOnMover } from "./lib/contextMoveMover";
+import { storageMoverOrigin } from "./lib/storageMover";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 
 /**
@@ -610,158 +618,61 @@ export const advanceContextMove = internalAction({
       );
     }
 
-    try {
-      for (let batch = 0; batch < BATCHES_PER_PASS && remaining; batch += 1) {
-        const exported = await ctx.runAction(internal.functions.files.runFileOperation, {
-          workspaceId: row.sourceWorkspaceId,
-          scope: source.scope,
-          grantedNames: source.grantedNames,
-          operation: {
-            kind: "contextMoveExport",
-            from: row.from,
-            to: row.to,
-            skip: skipped.map((entry) => entry.path),
-          },
+    /*
+      THE GATEWAY'S MOVER, WHERE THIS DEPLOYMENT HAS ONE: the files go bucket
+      to bucket there and never through here (`lib/contextMoveMover.ts`). The
+      batches below are the fallback, and what a self-hosted deployment runs.
+    */
+    const origin = storageMoverOrigin();
+    if (origin !== null) {
+      let pass: MoverPass;
+      try {
+        pass = await carryOnMover(ctx, {
+          moveId: args.moveId,
+          row,
+          source,
+          destination,
+          skipped,
+          origin,
+          batches: BATCHES_PER_PASS,
         });
-        if (exported.kind !== "contextMoveExported") return await stop("failed", UNEXPECTED);
-        remaining = exported.remaining;
-        for (const entry of exported.skipped) {
-          if (!skipped.some((seen) => seen.path === entry.path)) skipped.push(entry);
-        }
-        if (skipped.length > CONTEXT_MOVE_SKIP_CAP) {
-          return await stop(
-            "failed",
-            `More than ${CONTEXT_MOVE_SKIP_CAP} notes here are encrypted to this context and cannot move. Take them out of the encrypted state first, or move this in smaller pieces.`,
-          );
-        }
-        if (exported.objects.length === 0) {
-          /*
-            NOTHING TO CARRY, ON A MOVE THAT HAS CARRIED NOTHING.
-
-            Every other way of reaching an empty export is ordinary — a batch
-            whose candidates were all skipped, or the pass after the last
-            object went. This one is not: it means the path somebody typed or
-            picked is not there, and completing on it would tell them their
-            note is in the other context.
-
-            `movePath` throws `notFound` for the same case. Here the export
-            cannot: an export that refused an empty subtree would refuse the
-            final pass of every successful move.
-          */
-          if (row.movedObjects + movedObjects === 0 && skipped.length === 0) {
-            return await stop(
-              "failed",
-              `There is nothing at ${row.from} to move.`,
-            );
-          }
-          break;
-        }
-
-        const landed = await ctx.runAction(internal.functions.files.runFileOperation, {
-          workspaceId: row.destinationWorkspaceId,
-          scope: destination.scope,
-          grantedNames: destination.grantedNames,
-          operation: {
-            kind: "contextMoveImport",
-            objects: exported.objects,
-            /*
-              Only while nothing of this move has landed yet. It is the check
-              that refuses a merge onto a folder the destination already has —
-              and by the second batch the folder it would be looking at is this
-              move's own, so asking again would refuse the move halfway through
-              itself.
-            */
-            ...(row.movedObjects + movedObjects === 0 ? { root: row.to } : {}),
-          },
-        });
-        if (landed.kind !== "contextMoveLanded") return await stop("failed", UNEXPECTED);
-
-        if (landed.landed.length > 0) {
-          const carried = new Map(
-            exported.objects.map((object) => [object.source, object.bytes.byteLength]),
-          );
-          const removed = await ctx.runAction(internal.functions.files.runFileOperation, {
-            workspaceId: row.sourceWorkspaceId,
-            scope: source.scope,
-            grantedNames: source.grantedNames,
-            operation: {
-              kind: "contextMoveDelete",
-              sources: landed.landed.map((entry) => {
-                const exportedObject = exported.objects.find(
-                  (object) => object.source === entry.source,
-                )!;
-                return {
-                  path: entry.source,
-                  etag: exportedObject.etag,
-                  ...(exportedObject.collaborationEtag === undefined
-                    ? {}
-                    : { collaborationEtag: exportedObject.collaborationEtag }),
-                };
-              }),
-            },
-          });
-          if (removed.kind !== "contextMoveRemoved") return await stop("failed", UNEXPECTED);
-          movedObjects += removed.deleted.length;
-          for (const path of removed.deleted) movedBytes += carried.get(path) ?? 0;
-
-          if (removed.conflicts.length > 0) {
-            /*
-              SOMEBODY EDITED IT BETWEEN THE COPY AND THE DELETE.
-
-              The copy at the destination is the older text, so it is the copy
-              that goes: taking the source out instead would lose the edit,
-              and leaving both would quietly fork the note. Everything else in
-              this batch has already moved and stays moved, and running the
-              move again picks the note up with its new etag.
-            */
-            const stale = landed.landed.filter((entry) =>
-              removed.conflicts.includes(entry.source),
-            );
-            await ctx
-              .runAction(internal.functions.files.runFileOperation, {
-                workspaceId: row.destinationWorkspaceId,
-                scope: destination.scope,
-                grantedNames: destination.grantedNames,
-                // The same conditional-delete operation the source half uses,
-                // pointed the other way: it removes each copy only if it still
-                // holds the etag this move gave it, and clears the exception
-                // the import wrote beside it. A plain delete would take
-                // whatever is at that path, including something the
-                // destination's own owner put there in between.
-                operation: {
-                  kind: "contextMoveDelete",
-                  sources: stale.map((entry) => ({
-                    path: entry.destination,
-                    etag: entry.etag,
-                  })),
-                },
-              })
-              .catch(() => undefined);
-            return await stop(
-              "failed",
-              "A note changed while it was being moved, so the move stopped. Everything already moved is in the new context; run it again to finish.",
-            );
-          }
-        }
-        if (landed.failure !== null) {
-          return await stop(
-            "failed",
-            landed.failure.code === "DESTINATION_EXISTS"
-              ? "Something is already at that path in the other context, so the move stopped. Pick a name nothing there is using and run it again."
-              : landed.failure.message,
-          );
-        }
+      } catch (error) {
+        return await stop("failed", messageOf(error));
       }
-    } catch (error) {
-      return await stop("failed", messageOf(error));
+      movedObjects = pass.movedObjects;
+      movedBytes = pass.movedBytes;
+      remaining = pass.remaining;
+      if (pass.failed !== undefined) return await stop("failed", pass.failed);
+      if (pass.retry === true) {
+        if (args.passesLeft <= 1) return await stop("failed", TOO_MANY_PASSES);
+        await ctx.runMutation(internal.functions.contextMoves.recordMoveProgress, {
+          moveId: args.moveId,
+          movedObjects,
+          movedBytes,
+          skipped,
+          status: "moving",
+        });
+        await ctx.scheduler.runAfter(CONTEXT_MOVE_RETRY_MS, internal.functions.contextMoves.advanceContextMove, {
+          moveId: args.moveId,
+          passesLeft: args.passesLeft - 1,
+        });
+        return null;
+      }
+    } else {
+      try {
+        const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS });
+        movedObjects = pass.movedObjects;
+        movedBytes = pass.movedBytes;
+        remaining = pass.remaining;
+        if (pass.failed !== undefined) return await stop("failed", pass.failed);
+      } catch (error) {
+        return await stop("failed", messageOf(error));
+      }
     }
 
     if (remaining) {
       if (args.passesLeft <= 1) {
-        return await stop(
-          "failed",
-          "This move is taking more passes than expected and has stopped. Everything already moved is in the new context; run it again to finish.",
-        );
+        return await stop("failed", TOO_MANY_PASSES);
       }
       await ctx.runMutation(internal.functions.contextMoves.recordMoveProgress, {
         moveId: args.moveId,
@@ -803,6 +714,8 @@ export const advanceContextMove = internalAction({
 });
 
 const UNEXPECTED = "The move could not be completed. Nothing further was moved.";
+const TOO_MANY_PASSES =
+  "This move is taking more passes than expected and has stopped. Everything already moved is in the new context; run it again to finish.";
 
 function messageOf(error: unknown): string {
   if (error instanceof ConvexError) {

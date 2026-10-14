@@ -203,8 +203,8 @@ index a79d6586..a37acff7 100644
 +      throw new Error(FOLDED_TWIN_REFUSAL);
 +    }
      const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
-     if (put) return;
+     // Nothing to record: a team note in a team folder, written again. Every
+     // team write lands here, and a write of an unchanged manifest is a round
 diff --git a/apps/mcp/src/tools/moves/archive.js b/apps/mcp/src/tools/moves/archive.js
 index 9d9b3748..7460b8e5 100644
 --- a/apps/mcp/src/tools/moves/archive.js

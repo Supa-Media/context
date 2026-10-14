@@ -263,7 +263,8 @@ export const claim = internalMutation({
  * the move is turned around, as staff's Undo turns a move around, and the
  * tree draws the note back at once. `busy` while a pass holds it (the caller
  * waits a moment and asks again); `none` when no such move is queued, and the
- * trash is restored from the bucket the usual way.
+ * trash is restored from the bucket the usual way. A note restored on its own
+ * out of a folder whose trash is still queued is `busy` until that move lands.
  */
 export const undoTrash = internalMutation({
   args: { workspaceId: v.id("workspaces"), trash: v.string(), path: v.string(), now: v.number() },
@@ -272,7 +273,16 @@ export const undoTrash = internalMutation({
     const row = (await queueOf(ctx, workspaceId)).find(
       (candidate) => candidate.trash === true && candidate.undone !== true && candidate.from === path && candidate.to === trash,
     );
-    if (row === undefined) return "none" as const;
+    if (row === undefined) {
+      // One note out of a folder whose trash is still queued: the bucket has not carried it into the trash
+      // yet, and the folder's move cannot leave one note behind. Waited out, and then restored from the trash.
+      const carrying = (await queueOf(ctx, workspaceId)).some(
+        (candidate) =>
+          candidate.trash === true && candidate.undone !== true && path.startsWith(`${candidate.from}/`) &&
+          trash === `${candidate.to}${path.slice(candidate.from.length)}`,
+      );
+      return carrying ? "busy" as const : "none" as const;
+    }
     if (row.state !== "moving" || (row.leaseAt !== undefined && now - row.leaseAt < MOVE_LEASE_MS)) return "busy" as const;
     await ctx.db.patch(row._id, {
       from: row.to,

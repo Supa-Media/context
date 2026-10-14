@@ -142,7 +142,14 @@ export async function storeWithMoves(
  * Let `movePath` queue a folder move through this store. Non-enumerable, as
  * the barrier's other seams are, so nothing that walks the store carries it.
  */
-export function attachQueueMove(ctx: ActionCtx, args: BarrierArgs, store: FileStore, bucket: FileStore): void {
+export function attachQueueMove(
+  ctx: ActionCtx,
+  args: BarrierArgs,
+  store: FileStore,
+  bucket: FileStore,
+  /** How Restore waits on a queued trash; tests run the worker in it. */
+  wait?: (ms: number) => Promise<void>,
+): void {
   if (args.operation.kind === "trash") {
     Object.defineProperty(store, "queueTrash", {
       value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
@@ -153,8 +160,13 @@ export function attachQueueMove(ctx: ActionCtx, args: BarrierArgs, store: FileSt
   }
   if (args.operation.kind === "restoreTrash") {
     Object.defineProperty(store, "restoreQueuedTrash", {
-      value: (restore: { trash: string; path: string }) =>
-        restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore }),
+      value: async (restore: { trash: string; path: string }): Promise<boolean | FileStore> => {
+        const answer = await restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore, ...(wait === undefined ? {} : { wait }) });
+        if (answer !== "landed") return answer === "undone";
+        // The trash landed while Restore waited: the moves this request read through are over, and a
+        // store still folding them would refuse to write the note back at a name they carried away.
+        return await storeWithMoves(ctx, args, bucket, await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: args.workspaceId }));
+      },
       enumerable: false,
       configurable: true,
     });

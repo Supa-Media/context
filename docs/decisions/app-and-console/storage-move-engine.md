@@ -91,3 +91,30 @@ enough to never fail").
   mover is set, or failing on no answer fails
   `__tests__/storageMoverWalk.test.ts`; dropping the bucket's workspace or key
   check fails `apps/mcp/test/moverWalk.test.mjs`.
+- **A move into another workspace is carried by the mover, which holds both
+  workspaces' keys for one batch** (decided by the owner, 2026-10-14: "Two
+  keys"). This deployment still never holds two customers' storage secrets in
+  one scope: the credential barrier opens one workspace per call as before,
+  and only the gateway, for one ticket, gets both buckets
+  (`lib/contextMoveMover.ts`, `moves/contextMovePage.js`). Everything a person
+  could be exposed by stays here: the batch is planned by name in the source
+  (`contextMovePlan`), the destination's merge check and narrowing exceptions
+  are written before anything lands (`contextMovePrepare`), the ticket names
+  the exact files and opens only while the move runs out of its workspace and
+  every file sits under its source and lands under its destination, and each
+  tree hears afterwards what arrived and what left (`contextMoveArrived`,
+  `contextMoveForget`). The mover keeps the move's own discipline per file:
+  land only if absent, retire the source only on the etag it read, and take
+  the copy back when somebody edited the note in between. Files up to the 20 MB
+  limit now cross (the 8 MiB cap was the Convex argument limit). One cost,
+  accepted: a note the mover finds encrypted to its own workspace was already
+  given its narrowing exception at the destination, which stays as a private
+  rule for a path nothing is at. Clearing it would race a writer who creates
+  that path, and a stale private rule exposes nobody. A queued move still
+  settling around either path holds the pass back for 30 seconds, as an
+  unanswered mover does. Carrying a batch in the action while the mover is set,
+  a ticket opening a file outside its move, or failing on no answer fails
+  `__tests__/contextMoveMover.test.ts`; the whole move suite runs both ways in
+  `__tests__/contextMoveEndToEnd.test.ts`; retiring without the etag, landing
+  over something, carrying an encrypted note or one page naming one workspace
+  twice fails `apps/mcp/test/moverContextMove.test.mjs`.

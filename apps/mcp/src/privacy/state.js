@@ -147,6 +147,10 @@ export async function persistExactVisibility(store, path, visibility, rules) {
     if (visibility === inherited) state.overrides.delete(path);
     else state.overrides.set(path, visibility);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
+    // Nothing to record: a team note in a team folder, written again. Every
+    // team write lands here, and a write of an unchanged manifest is a round
+    // trip to the control plane (or the bucket) that can only fail.
+    if (next === state.text) return;
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
   }
