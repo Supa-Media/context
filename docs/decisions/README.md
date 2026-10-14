@@ -297,6 +297,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A database we own holds a copy of somebody's notes only where they asked
 - A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding
+- A context with a search database is answered by it alone, never by the bucket
 - Progress is reported to the control plane, which owns the row
 - The backfill percentage is derived, and inherits the census's owner-only gate
 - The switch lives in a context's settings, and the server owns who may throw it

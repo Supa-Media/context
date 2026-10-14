@@ -110,13 +110,8 @@ export async function runFileOperationHandler(
    * This context's search database, if the row is in the state the caller
    * needs and this deployment is configured.
    *
-   * Two callers now and they want opposite states, which is the whole reason
-   * this is a parameter rather than a constant: a projection pass may only
-   * run against a row that is still `backfilling`, and a search may only
-   * READ one the control plane has called `ready` — the same gate the
-   * gateway applies, because a projection that is still filling answers a
-   * query about a note it has not copied with a silence a reader would take
-   * for a miss.
+   * A projection pass may only run against a row that is still
+   * `backfilling`; a search opens its own target below, ready or filling.
    *
    * `null` for every way of saying no, and they are deliberately
    * indistinguishable to the caller: not opted in, not provisioned, wrong
@@ -150,18 +145,22 @@ export async function runFileOperationHandler(
    * to explain why is the bug that whole path exists to close. A search must
    * do the opposite: somebody typed a word, and a deployment whose
    * Cloudflare credential is missing must not have their search flip a
-   * provisioning row to `failed` as a side effect. It falls through to the
-   * R2 index, which is what every context without fast search does anyway.
+   * provisioning row to `failed` as a side effect.
    */
   // Search by meaning is asked beside it, on the same terms: a `null` is
   // "words only", never a row written (`meaningSearchDescriptor`).
   let meaningSearch: MeaningSearchDescriptor | null = null;
   if (args.operation.kind === "search") {
+    // Ready or still filling: a context with a database answers from it alone
+    // (`searchNotes`), so a filling one is read too and says it is behind.
     const [target, meaningTarget] = await Promise.all([
-      projectionTarget("ready"),
+      ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId }),
       meaningSearchDescriptor(ctx, args.workspaceId),
     ]);
-    if (target !== null) projection = await clientFor(target);
+    if (target !== null && (target.state === "ready" || target.state === "backfilling")) {
+      const client = await clientFor(target);
+      if (client !== null) projection = Object.assign(client, { filling: target.state !== "ready" });
+    }
     meaningSearch = meaningTarget;
   }
 
