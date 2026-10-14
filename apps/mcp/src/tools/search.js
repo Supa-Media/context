@@ -283,7 +283,7 @@ export async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
   if (seen && present && !obj) present = false;
   if (!seen || !present) {
     const forwarded = forwardPath(await readForwarding(store), path);
-    if (forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
+    if (forwarded !== null && forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
       const landed = await probeWithLegacyFallback(store, forwarded);
       if (landed && seen && !present) {
         const landedObject = await getWithLegacyFallback(store, forwarded);

@@ -143,7 +143,7 @@ async function filtersFor(session, store, privacy, forwarding) {
       entries.map((entry) => ({ ...entry, paths: entry.paths.map((path) => forwardPath(forwarding, path)) })),
       {
         owner: session.scope === "private",
-        canSee: (path) => canSee(path, session.scope, privacy.rules, privacy.overrides, session.grantedGroups),
+        canSee: (path) => path !== null && canSee(path, session.scope, privacy.rules, privacy.overrides, session.grantedGroups),
       },
     );
   const reads = (records) => {

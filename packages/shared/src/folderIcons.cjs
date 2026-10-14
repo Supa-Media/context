@@ -22,6 +22,21 @@
  * it is still the customer's (in their bucket, exported with everything else),
  * and it is plumbing (`.context/`), so no note and no AI client ever sees it.
  *
+ * ## Held in the control plane, and the file is the export
+ *
+ * Since 2026-10-14 (the owner's "Names only") the icons are rows in Convex
+ * (`folderIcons`, `apps/convex/functions/lib/schema/smallData.ts`), and every
+ * reader reads those. This file is still written, in this format, from the
+ * rows after every change, so the customer's export and their own bucket keep
+ * the icons; nothing on a request path reads it back. It is read once more,
+ * to import a workspace (`lib/smallData/sync.ts`).
+ *
+ * A store opened by the console's barrier or the gateway's session carries
+ * the rows as `store.folderIconsHeld` (`remap`, `drop`), and the helpers
+ * below change the rows through it. Only a store with no control plane at
+ * all (the gateway's in-memory test stub, a self-hosted gateway without one)
+ * keeps the file as the record, read and written here.
+ *
  * ## Paths, not ids
  *
  * A folder has no id, only a path, so a move has to carry its icon along:
@@ -30,7 +45,7 @@
  * `dropFolderIcons` after a folder or note is deleted for good. Both are best-effort by design. An icon is decoration; a move must
  * never fail, or half-happen, because the decoration could not be written.
  *
- * Pure parsing plus two store helpers that take any adapter with `get` and
+ * Pure parsing plus store helpers that take any adapter with `get` and
  * `put`, so the gateway and the control plane share one engine.
  */
 
@@ -220,13 +235,15 @@ async function updateFolderIcons(store, change) {
   return null;
 }
 
+/** The control plane's icon rows a store carries, or `null` for a store with none. */
+function heldIcons(store) {
+  const held = store?.folderIconsHeld;
+  return held && typeof held.remap === "function" && typeof held.drop === "function" ? held : null;
+}
+
 /** Carry icons along with a folder move. Never throws. */
 async function remapFolderIcons(store, from, to) {
-  try {
-    return await updateFolderIcons(store, (icons) => iconsAfterMove(icons, from, to));
-  } catch {
-    return null;
-  }
+  return await remapIcons(store, [{ from, to }]);
 }
 
 /**
@@ -237,6 +254,11 @@ async function remapFolderIcons(store, from, to) {
 async function remapIcons(store, moves) {
   if (!Array.isArray(moves) || moves.length === 0) return null;
   try {
+    const held = heldIcons(store);
+    if (held !== null) {
+      await held.remap(moves.map(({ from, to }) => ({ from, to })));
+      return null;
+    }
     return await updateFolderIcons(store, (icons) => {
       let next = icons;
       let changed = false;
@@ -257,6 +279,11 @@ async function remapIcons(store, moves) {
 /** Forget the icons of a folder deleted for good. Never throws. */
 async function dropFolderIcons(store, path) {
   try {
+    const held = heldIcons(store);
+    if (held !== null) {
+      await held.drop(path);
+      return null;
+    }
     return await updateFolderIcons(store, (icons) => iconsAfterDelete(icons, path));
   } catch {
     return null;

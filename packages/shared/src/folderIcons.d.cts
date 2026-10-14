@@ -10,6 +10,14 @@ interface IconStore {
     options?: { onlyIf?: { etagMatches?: string; absent?: true } },
   ): Promise<{ etag: string } | null>;
   capabilities?: { conditionalCreate?: boolean };
+  /** The control plane's rows, where the store was opened with them: then the file is never read. */
+  folderIconsHeld?: FolderIconsHeld;
+}
+
+/** The control plane's icon rows, as a store carries them. */
+export interface FolderIconsHeld {
+  remap(moves: ReadonlyArray<{ from: string; to: string }>): Promise<unknown>;
+  drop(path: string): Promise<unknown>;
 }
 
 export declare const FOLDER_ICONS_KEY: string;
