@@ -414,3 +414,29 @@ test("permanent tombstone purges retained collaboration content but leaves a con
   assert.deepEqual(keys, []);
   await assert.rejects(() => restoreDocument(store, "purge.md"), /history|retained|unavailable/i);
 });
+
+test("a name a note moved away from can be taken by another note's move", async () => {
+  const store = new MemoryStore();
+  store.seed("kings-20.md", "first\n");
+  await readDocument(store, "kings-20.md");
+  await moveDocument(store, "kings-20.md", ".context/trash/t/kings-20.md", { internalTrash: true });
+  store.seed("untitled.md", "second\n");
+  const second = await readDocument(store, "untitled.md");
+  const moved = await moveDocument(store, "untitled.md", "kings-20.md");
+  assert.equal(moved.documentId, second.documentId);
+  assert.equal(await (await store.get("kings-20.md")).text(), "second\n");
+  const read = await readDocument(store, "kings-20.md");
+  assert.equal(read.documentId, second.documentId);
+});
+
+test("a deleted note's name can be taken by another note's move", async () => {
+  const store = new MemoryStore();
+  store.seed("gone.md", "first\n");
+  await readDocument(store, "gone.md");
+  await tombstoneDocument(store, "gone.md");
+  store.seed("other.md", "second\n");
+  const second = await readDocument(store, "other.md");
+  const moved = await moveDocument(store, "other.md", "gone.md");
+  assert.equal(moved.documentId, second.documentId);
+  assert.equal((await readDocument(store, "gone.md")).text, "second\n");
+});

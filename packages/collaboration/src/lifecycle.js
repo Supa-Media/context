@@ -22,6 +22,7 @@ import {
   readState,
   readStructural,
   requireConditionalDelete,
+  vacatedHead,
   validateState,
   writeStructural,
 } from "./records.js";
@@ -159,7 +160,9 @@ export async function moveDocument(store, from, to, options = {}) {
   const destinationHead = await readHead(store, to);
   const destinationObject = await readObject(store, to);
   const returning = destinationHead?.status === "moved" && destinationHead.documentId === loaded.state.documentId && destinationHead.destination === from;
-  if ((destinationHead && !returning) || destinationObject) throw fail("DESTINATION_EXISTS", "destination path already exists");
+  if ((destinationHead && !returning && !vacatedHead(destinationHead, destinationObject)) || destinationObject) {
+    throw fail("DESTINATION_EXISTS", "destination path already exists");
+  }
   const operation = structuralOperation({
     kind: "move",
     operationId: randomId("move"),
