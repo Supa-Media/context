@@ -60,3 +60,21 @@ enough to never fail").
   and `copyPath` decoded every object as text, which broke any image or PDF in
   a folder moved that way. Putting `text()` back fails
   `__tests__/fileOps/binaryMoves.test.ts`.
+- **File bytes move in the gateway's mover, never through Convex** (decided by
+  the owner, 2026-10-14: a Worker mover rather than rclone in a container).
+  The control plane still decides what moves and keeps the rows, pace, retries
+  and alerts; a page that opens files goes to `POST /internal/mover/page` on
+  the gateway (`apps/mcp/src/moves/mover.js`) with the gateway secret and a
+  single-use, five-minute ticket minted for that one page. The mover spends the
+  ticket at `/gateway/mover/open` and gets both buckets back; the request names
+  nothing, so a leaked secret alone opens nothing, and a ticket for a page the
+  move has passed opens nothing either. The page logic is one module both sides
+  run (`moves/migrationPage.js`), and `STORAGE_MOVER_ORIGIN` unset runs it in
+  the Convex action as before, which is the brake and what a self-hosted
+  deployment gets. A Worker holds six connections and 128 MB, so its waves are
+  six wide and 16 MiB. Whole-bucket moves went first (they carry the most
+  bytes); queued folder moves, moves between workspaces, the encryption walk
+  and one-go moves follow. Letting the action read a bucket while the mover is
+  set, skipping the ticket's page check, or reusing a ticket fails
+  `__tests__/storageMover.test.ts`; dropping the mover's secret check fails
+  `apps/mcp/test/mover.test.mjs`.

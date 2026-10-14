@@ -62,9 +62,15 @@ import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
+import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
+
+    // The control plane's own call to the mover, on the raw path so no
+    // workspace selector is ever read off it. It takes no person's token: the
+    // gateway secret and a ticket the control plane minted (`moves/mover.js`).
+    if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
 
     const origin = publicOrigin(request, env);
 
