@@ -89,6 +89,7 @@ export function createControlPlaneStub(options = {}) {
   /** Problem reports `/gateway/feedback` accepted, token and message as sent. */
   const feedback = [];
   const siteCalls = [];
+  const vaultCalls = [];
   const flags = {
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
@@ -704,6 +705,16 @@ export function createControlPlaneStub(options = {}) {
         return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
       }
 
+      case "/gateway/vault/request": {
+        // The real route (`gatewayRoutes/vault.ts`): the editor clearance, then
+        // a link to the app's vault page for that person. Every issued one is kept.
+        const kind = ["add", "share", "view"].includes(body.kind) ? body.kind : null;
+        const cleared = kind ? await clearedEditor(body) : null;
+        if (!cleared) return ok({ url: null });
+        vaultCalls.push({ kind, workspaceId: cleared.workspaceId, userId: cleared.actorUserId });
+        return ok({ url: `https://app.context.test/vault/stub-${vaultCalls.length}` });
+      }
+
       case "/gateway/links/create": {
         const cleared = await clearedOwner(body);
         if (!cleared) return ok({ link: null, shortRefused: null });
@@ -921,6 +932,7 @@ export function createControlPlaneStub(options = {}) {
     flags,
     feedback,
     siteCalls,
+    vaultCalls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

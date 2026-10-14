@@ -26,7 +26,7 @@ Decided by the owner on 2026-10-14: "we have like sixty questions, we probably n
 
 Every question is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines and the `every_answer` lines grade nothing; the share of `every_answer` lines passed is the setup's voice, held to the `voice` bar.
 
-Most questions are copied from the long sets with their wording, the person asking and their lines, so a result here reads against the same question there: 1 is `texting-assistant.md` 1, 2 is 9, 3 is 16, 4 is 21, 5 is 59, 6 is 30, 7 is 33, 8 is 57, 9 is 51, 10 is 58; 11 is `tasks.md` 5, 12 is task 1, 13 is task 3. Questions 14 and 15 are new: a reminder is a routine note, acknowledged the way a friend would ("Will do.", the owner, 2026-10-14, after Tex restated a whole reminder back) (`docs/decisions/routines.md`), and a one-off reminder is a note in `tex/routines/once/` whose `at:` names the full date and time (new routines go in Tex's own `tex/` folder, the owner, 2026-10-14).
+Most questions are copied from the long sets with their wording, the person asking and their lines, so a result here reads against the same question there: 1 is `texting-assistant.md` 1, 2 is 9, 3 is 16, 4 is 21, 5 is 59, 6 is 30, 7 is 33, 8 is 57, 9 is 51, 10 is 58; 11 is `tasks.md` 5, 12 is task 1, 13 is task 3. Question 10 names Tex since the owner named the assistant (2026-10-14). Questions 14 and 15 are new: a reminder is a routine note, acknowledged the way a friend would ("Will do.", the owner, 2026-10-14, after Tex restated a whole reminder back) (`docs/decisions/routines.md`), and a one-off reminder is a note in `tex/routines/once/` whose `at:` names the full date and time (new routines go in Tex's own `tex/` folder, the owner, 2026-10-14).
 
 Today is Thursday, October 8, 2026, the long set's day, so "Friday" is October 9 and "tomorrow" is October 9 too. The web is scripted (`web: scripted`, `bench/sites.mjs`): every site lives in `sites/` and nothing reaches the real web. Lines like `must call`, `must reach` and `must write` are checked from the run's own record (`bench/checks.mjs`), never by the judge. `must write: <workspace>/<path>` is a note the answer wrote there (under a folder when the path ends in `/`), and `with key: value, ...` names front matter it must carry, read the way `packages/shared/src/routines.cjs` reads a routine.
 
@@ -122,7 +122,7 @@ A greeting with nothing asked.
 ## 10. are you a bot?
 
 - kind: task
-- must: say in one short text that it's her Context, the assistant in her notes, and not a person
+- must: say in one short text that it's Tex, the assistant in her Context (her notes), and not a person
 - must not: pretend to be a person
 - must not: give a speech about what it can do, or send more than one text
 
