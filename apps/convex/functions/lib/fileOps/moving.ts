@@ -23,11 +23,13 @@ import {
   supported as collaborationSupported,
 } from "@context/collaboration";
 import type { FileStore } from "./store";
+import { assertNoNameTwin, assertNotProtectedFolder } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
-import { assertNotMainFolder, requirePath } from "./paths";
+import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
+import { objectBody } from "./objectBody";
 import { keysUnder, isFolder } from "./walk";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
@@ -133,7 +135,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
-  assertNotMainFolder(from);
+  await assertNotProtectedFolder(store, from, options.clearance);
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }
@@ -150,6 +152,9 @@ export async function movePath(
       "A folder cannot be moved onto a folder it is already inside.",
     );
   }
+
+  // `projects` beside `Projects` is refused by name before anything moves.
+  await assertNoNameTwin(store, to, options.clearance, "folder", from);
 
   // A move asked against a version is about one note, which never queues.
   if (options.expectedEtag === undefined) {
@@ -430,10 +435,11 @@ export async function movePath(
     if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
       throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
     }
-    const body = await object.text();
+    const { body, contentType } = await objectBody(pair.source, object);
+    const typed = contentType === undefined ? {} : { contentType };
     const created = atomic
-      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
-      : await store.put(pair.destination, body);
+      ? await store.put(pair.destination, body, { onlyIf: { absent: true }, ...typed })
+      : await store.put(pair.destination, body, typed);
     if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
     const removed = atomic
       ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })

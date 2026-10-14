@@ -15,6 +15,8 @@ const {
   compareTopLevelFolders,
   rolesIn,
   missingMainRoles,
+  isProtectedFolder,
+  siblingTwin,
   indexingPriority,
   compareIndexingOrder,
   countByIndexingPriority,
@@ -97,4 +99,32 @@ test("indexing priority: everything else first, then the inbox, then the archive
     { priority: 2, indexed: 1, pending: 1 },
     { priority: 3, indexed: 0, pending: 2 },
   ]);
+});
+
+test("only one folder per main role is protected; its duplicate is an ordinary folder", () => {
+  // @shyoh's workspace, 2026-10-14: an agent made `projects` beside `Projects`.
+  const root = ["Projects", "projects", "Areas", "Resources", "Archive", "website"];
+  assert.equal(isProtectedFolder("Projects", root), true);
+  assert.equal(isProtectedFolder("projects", root), false);
+  assert.equal(isProtectedFolder("projects/", root), false);
+  // A numbered pair: the one rolesIn files into stays protected.
+  assert.equal(isProtectedFolder("4-archive", ["4-archive", "9-archive"]), true);
+  assert.equal(isProtectedFolder("9-archive", ["4-archive", "9-archive"]), false);
+  // Alone, it is protected whether or not the caller passed its own name.
+  assert.equal(isProtectedFolder("projects", ["Areas"]), true);
+  assert.equal(isProtectedFolder("projects", []), true);
+  // Never a folder without a main role, or one below the root.
+  assert.equal(isProtectedFolder("clients", ["clients", "Clients"]), false);
+  assert.equal(isProtectedFolder("Projects/projects", root), false);
+});
+
+test("a new name may not twin a sibling by case, nor a root folder's role", () => {
+  assert.equal(siblingTwin("projects", ["Projects", "Areas"]), "Projects");
+  assert.equal(siblingTwin("Pay.md", ["pay.md"]), "pay.md");
+  assert.equal(siblingTwin("café", ["Cafe\u0301"]), "Cafe\u0301");
+  assert.equal(siblingTwin("projects", ["Projects"], { topLevelFolder: true }), "Projects");
+  assert.equal(siblingTwin("1-projects", ["Projects"], { topLevelFolder: true }), "Projects");
+  assert.equal(siblingTwin("1-projects", ["Projects"]), null, "below the root a number is just a name");
+  assert.equal(siblingTwin("Projects", ["Projects"]), null, "the name itself is not its twin");
+  assert.equal(siblingTwin("project-x", ["Project-Y", "projects"]), null);
 });

@@ -94,6 +94,24 @@ describe("when it finishes", () => {
     expect(notice.text).toContain("1-projects/acme/pay.md");
   });
 
+  test("a file too large to cross is named apart from the encrypted notes", () => {
+    const notice = describeContextMove(
+      move({
+        status: "complete",
+        objects: 4,
+        skipped: [
+          { path: "1-projects/acme/secret.md", reason: "encrypted" },
+          { path: "1-projects/acme/talk.mp4", reason: "too_large" },
+        ],
+      }),
+    );
+    expect(notice.tone).toBe("warn");
+    expect(notice.text).toContain("One note stayed here because they are encrypted");
+    expect(notice.text).toContain("One file stayed here because they are too large to move between workspaces yet");
+    expect(notice.text).toContain("1-projects/acme/talk.mp4");
+    expect(notice.text).not.toMatch(/encrypted[^.]*talk\.mp4/);
+  });
+
   test("one of them is named in the singular", () => {
     const notice = describeContextMove(
       move({

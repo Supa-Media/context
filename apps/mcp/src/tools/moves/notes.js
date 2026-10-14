@@ -34,6 +34,7 @@ import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
@@ -155,6 +156,10 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       if (fastArchiveCandidate) preloadedBody = sourceText;
     } else if (fastArchiveCandidate) {
       preloadedBody = new TextEncoder().encode(sourceText);
+    }
+    if (!destinationObject) {
+      const twin = await nameTwinRefusal(store, scope, rules, overrides, move.destination, { ignore: move.source });
+      if (twin) return toolError(twin);
     }
     preflight.push({
       ...move,
