@@ -103,3 +103,25 @@ export async function gatewayJobsReportHandler(
   }
   return json({ ok: true });
 }
+
+/**
+ * `POST /gateway/mover/open`: the mover spends one page's ticket and gets that
+ * page's two buckets back (`managedProvisioning.openMoverPage`). The ticket is
+ * the only field read; a spent, expired or overtaken one answers `null`.
+ */
+export async function gatewayMoverOpenHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const ticket = stringField(body, "ticket");
+  if (ticket === null) return json({ page: null });
+  try {
+    const page: unknown = await ctx.runAction(internal.functions.managedProvisioning.openMoverPage, {
+      hashedTicket: await hashToken(ticket),
+    });
+    return json({ page: page ?? null });
+  } catch {
+    // The mover answers SOURCE_UNAVAILABLE and the page is retried.
+    return json({ ok: false }, 503);
+  }
+}

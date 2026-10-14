@@ -39,6 +39,19 @@ export const MIGRATION_SKIPPED_KEYS_MAX = 50;
 export const MIGRATION_WAVE_WIDTH = 16;
 export const MIGRATION_WAVE_BYTE_BUDGET = 32 * 1024 * 1024;
 
+/**
+ * The same bounds for a page the gateway's mover runs (`lib/storageMover.ts`).
+ * A Worker may hold six connections open at once and has 128 MB, so the wave
+ * is six wide and carries at most 16 MiB: one 20 MB file still gets a wave of
+ * its own, with its source, target and read-back bodies held at once.
+ */
+export const MOVER_WAVE_WIDTH = 6;
+export const MOVER_WAVE_BYTE_BUDGET = 16 * 1024 * 1024;
+/** How long a mover ticket may wait to be spent. */
+export const MOVER_TICKET_TTL_MS = 5 * 60 * 1000;
+/** How long the action waits for the mover's page before retrying it. */
+export const MOVER_PAGE_TIMEOUT_MS = 4 * 60 * 1000;
+
 export const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
 
 /**

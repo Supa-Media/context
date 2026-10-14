@@ -134,6 +134,37 @@ export const jobTables = {
     .index("by_expiresAt", ["expiresAt"]),
 
   /**
+   * One page of a whole-bucket move, handed to the gateway's mover
+   * (`apps/mcp/src/moves/mover.js`, `functions/storageMover.ts`).
+   *
+   * The ticket is the mover's second proof beside the gateway secret, the
+   * same shape as `ingestionTickets`: minted here for exactly one page of one
+   * workspace's move, stored hashed, a few minutes long, and deleted when it
+   * is spent. The mover sends the ticket and nothing else; the workspace, the
+   * buckets and the page are read back off this row and the migration row, so
+   * a leaked gateway secret on its own opens nothing.
+   *
+   * No path: the page's position is the migration's cursor, as on that row.
+   */
+  moverTickets: defineTable({
+    /** SHA-256 of the opaque ticket, lowercase hex. Never the plaintext. */
+    hashedTicket: v.string(),
+    workspaceId: v.id("workspaces"),
+    migrationId: v.id("managedStorageMigrations"),
+    /** The migration's phase and cursor when the page was handed out. */
+    phase: v.union(
+      v.literal("copy"),
+      v.literal("verify_source"),
+      v.literal("verify_target"),
+    ),
+    expectedCursor: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace", ["workspaceId"]),
+
+  /**
    * A short-lived capability the email worker presents to fetch a credential.
    *
    * ## What it is for

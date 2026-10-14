@@ -192,6 +192,12 @@ describe("no public function can reach a storage secret", () => {
         // resumable copy page. Internal-only; the source binding remains live
         // until a quiet verification pass and atomic source-id-checked cutover.
         "functions.managedProvisioning.runManagedStorageMigration",
+        // The same page, handed to the gateway's mover so the files go bucket
+        // to bucket and never through this deployment. Spends a single-use
+        // ticket minted by the action above, reads the workspace off it, and
+        // refuses a page the move has already passed. internalAction; the only
+        // thing that reaches it is `/gateway/mover/open`.
+        "functions.managedProvisioning.openMoverPage",
         // The readiness gate in front of that copy, and the narrowest use of
         // the same parked credential: it opens the destination secret to ask
         // the new bucket one question — does it answer, and will it take a
@@ -292,6 +298,10 @@ describe("no public function can reach a storage secret", () => {
         // and an opaque job ticket that was minted under a live owner/private
         // grant; there is no workspace id in the request shape.
         "http.gatewayJobsOpen",
+        // THE MOVER'S DOOR. `/gateway/mover/open`: the gateway secret and a
+        // single-use ticket minted for one page of one running whole-bucket
+        // move. See its CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayMoverOpen",
         // THE SECOND ONE. `/gateway/ingest/binding`. Requires the email worker's
         // own secret and a ticket we minted; there is no user token, because an
         // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
