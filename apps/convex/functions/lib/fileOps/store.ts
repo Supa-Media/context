@@ -77,6 +77,8 @@ export interface FileStore extends ScaffoldStore {
     key: string,
     options?: { onlyIf?: { etagMatches?: string } },
   ): Promise<void | null>;
+  /** Metadata without the body, where the adapter has it: `null` when absent. */
+  head?(key: string): Promise<{ etag?: string; size?: number } | null>;
   capabilities?: {
     conditionalWrite: boolean;
     conditionalCreate?: boolean;

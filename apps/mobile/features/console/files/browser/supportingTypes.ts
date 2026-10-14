@@ -75,7 +75,7 @@ export interface ContextMoveProgress {
    * than swallowed: "moved, except for three of them" is a fact the person
    * needs before they go looking in the other context.
    */
-  skipped: readonly { path: string; reason: "encrypted" }[];
+  skipped: readonly { path: string; reason: "encrypted" | "too_large" }[];
   error?: string;
 }
 
