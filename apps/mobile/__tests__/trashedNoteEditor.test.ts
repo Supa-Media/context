@@ -11,7 +11,10 @@
  * Sabotage:
  *  - drop `trashed === undefined` from `editable` and the read-only case fails;
  *  - drop the `toolbarAway` trashed half and the phone case fails;
- *  - drop the byline from `flow.tsx` and both copy cases fail.
+ *  - drop the byline from `flow.tsx` and both copy cases fail;
+ *  - drop `trashed === undefined` from `flow.tsx`'s `ManifestNotice` arm and
+ *    a trashed note opened by its address (read-only, as `showTrashedInstead`
+ *    opens it) carries the privacy.md banner again (Dev2, 2026-10-14).
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -58,8 +61,8 @@ type TrashedView = import("../features/console/files/noteEditor/trashed").Trashe
 const PATH = "1-projects/offsite-plan.md";
 const FILE = ["Three days in Lisbon, the second week of March.", "", "Flights are cheapest on the Tuesday."].join("\n");
 
-function stateFor(): EditorState {
-  return { ...emptyEditor, status: "clean", path: PATH, baseline: FILE, draft: FILE };
+function stateFor(readOnly = false): EditorState {
+  return { ...emptyEditor, status: "clean", path: PATH, baseline: FILE, draft: FILE, readOnly };
 }
 
 const roots: (() => void)[] = [];
@@ -70,7 +73,7 @@ afterEach(() => {
   accessory.length = 0;
 });
 
-function mount(width: number, trashed?: TrashedView): HTMLDivElement {
+function mount(width: number, trashed?: TrashedView, readOnly = false): HTMLDivElement {
   Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
   Object.defineProperty(document.documentElement, "clientHeight", { value: 900, configurable: true });
   window.dispatchEvent(new Event("resize"));
@@ -84,7 +87,7 @@ function mount(width: number, trashed?: TrashedView): HTMLDivElement {
   act(() => {
     root.render(
       createElement(NoteEditor, {
-        state: stateFor(),
+        state: stateFor(readOnly),
         canEdit: true,
         commenter: "@seyi",
         trashed,
@@ -109,6 +112,13 @@ describe("a trashed note on screen", () => {
     mount(1280, { byYou: true, byName: null, at: Date.now() });
     expect(lastProps!.editable).toBe(false);
     expect(lastProps!.value).toContain("Three days in Lisbon");
+  });
+
+  test("opened read-only by its address, it carries no privacy.md banner", () => {
+    const banner = "generated from your visibility settings";
+    expect(mount(1280, { byYou: true, byName: null, at: Date.now() }, true).textContent).not.toContain(banner);
+    // The banner is still privacy.md's: a read-only note out of the trash keeps it.
+    expect(mount(1280, undefined, true).textContent).toContain(banner);
   });
 
   test("an ordinary note in the same editor is still editable", () => {
