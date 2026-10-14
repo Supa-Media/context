@@ -103,7 +103,8 @@
     "docs/deferred/folded-twin-refusals.patch": "One deferred change kept as a patch that deferredPatches.test.ts applies whole; it grew only because its hunks now land in the modules the gateway split moved the code to.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file.",
     "apps/mcp/test/linkTools.test.mjs": "One suite of the three link tools' boundary checks (the gateway builds no address, minting is the owner's, revoke is uniform); it grew only by the console grants and the approving call the egress gate's tests now need, which hold a link until the owner's app releases it.",
-    "apps/mcp/test/privacyGroups.test.mjs": "One privacy-rule scenario: what each tool does with a group rule it meets, over one shared fixture; it grew only by the console grant and the approving call the egress gate's tests now need, so a held write can be released by the owner's app."
+    "apps/mcp/test/privacyGroups.test.mjs": "One privacy-rule scenario: what each tool does with a group rule it meets, over one shared fixture; it grew only by the console grant and the approving call the egress gate's tests now need, so a held write can be released by the owner's app.",
+    "apps/convex/__tests__/contextMove.test.ts": "One cross-context move scenario over two in-memory buckets, driven by a local copy of the loop `advanceContextMove` runs with the scheduler and the credential barrier taken out; every case shares that harness and the two manifests it reads, so splitting it would either duplicate the loop or separate each widening check from the move that produces it."
   },
   "baseline": {}
 }
