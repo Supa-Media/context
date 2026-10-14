@@ -229,13 +229,15 @@ export function readPicks(request: SuggestRequest, answers: Record<string, unkno
 /**
  * The emoji to suggest for `path`, from its name alone, or `null`: a name
  * that says nothing (nothing is asked), or Clef answering nothing usable.
- * A group request Clef fails is left out rather than failing the rest.
+ * A group request Clef fails twice is left out rather than failing the rest.
  */
 export async function suggestIconFor(path: string, decide: SuggestDecide): Promise<string | null> {
   if (!nameSaysSomething(path)) return null;
   const kind = path.toLowerCase().endsWith(".md") ? "note" : "folder";
   const rounds = groupRequests(path, kind);
-  const winners = (await Promise.all(rounds.map(async (request) => readPicks(request, await decide(request))))).flat();
+  // The engine now and then fails one request; asked once more, it answers.
+  const ask = async (request: SuggestRequest) => (await decide(request)) ?? (await decide(request));
+  const winners = (await Promise.all(rounds.map(async (request) => readPicks(request, await ask(request))))).flat();
   if (winners.length === 0) return null;
   const all = suggestCandidates();
   if (winners.length === 1) return all[winners[0]!]!.char;

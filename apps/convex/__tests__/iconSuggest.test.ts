@@ -11,7 +11,8 @@
  *  - a name that says nothing (`untitled-…`, `New folder`) sends nothing;
  *  - the answer is always one of the emoji a question offered, so an answer
  *    outside it is no suggestion rather than a guess;
- *  - one failed request leaves out its groups, not the suggestion;
+ *  - a failed request is asked once more, and failing again leaves out its
+ *    groups, not the suggestion;
  *  - switched off, nothing is sent;
  *  - a member who could not set the icon cannot ask.
  *
@@ -145,7 +146,7 @@ type Answerer = (question: string, criteria: Record<string, string>) => string;
 const likesPushpins: Answerer = (_question, criteria) =>
   Object.keys(criteria).find((key) => criteria[key]!.startsWith(PUSHPIN)) ?? Object.keys(criteria)[0]!;
 
-async function fixture(answer: Answerer = likesPushpins, failFirst = false): Promise<Fixture> {
+async function fixture(answer: Answerer = likesPushpins, fail: "never" | "once" | "always" = "never"): Promise<Fixture> {
   const t = setupTest();
   const owner = await createUser(t, "seyi@example.invalid");
   const editor = await createUser(t, "sayo@example.invalid");
@@ -162,7 +163,9 @@ async function fixture(answer: Answerer = likesPushpins, failFirst = false): Pro
     if (!url.startsWith(WORKER)) throw new Error(`unexpected fetch ${url}`);
     const body = JSON.parse(String(init?.body));
     sent.push(body);
-    if (failFirst && body.questions.g0 !== undefined) return new Response("no", { status: 503 });
+    if (body.questions.g0 !== undefined && (fail === "always" || (fail === "once" && sent.filter((one) => one.questions.g0).length === 1))) {
+      return new Response("no", { status: 503 });
+    }
     const answers: Record<string, unknown> = {};
     for (const [name, question] of Object.entries(body.questions as Fixture["sent"][number]["questions"])) {
       answers[name] = { type: "choice", choice: answer(name, question.criteria), confidence: 0.7 };
@@ -199,8 +202,14 @@ describe("folderIcons.suggest", () => {
     expect(f.sent).toHaveLength(groupRequests("2-areas/taxes", "folder").length);
   });
 
-  test("a failed request leaves out its groups, not the suggestion", async () => {
-    const f = await fixture(likesPushpins, true);
+  test("a request that fails once is asked again", async () => {
+    const f = await fixture((_question, criteria) => Object.keys(criteria)[0]!, "once");
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(suggestCandidates()[0]!.char);
+    expect(f.sent.filter((one) => one.questions.g0)).toHaveLength(2);
+  });
+
+  test("a request that fails twice leaves out its groups, not the suggestion", async () => {
+    const f = await fixture(likesPushpins, "always");
     // The pushpin is far from the table's start, so a later request offers it.
     expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
   });
