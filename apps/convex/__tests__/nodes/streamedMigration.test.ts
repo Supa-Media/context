@@ -48,7 +48,7 @@ const page = (b: ReturnType<typeof buckets>, keys: string[], extra: Partial<Para
     ...extra,
   });
 
-const same = (left: Uint8Array | undefined, right: Uint8Array) => left !== undefined && Buffer.from(left).equals(Buffer.from(right));
+const same = (left: Uint8Array | null | undefined, right: Uint8Array) => left != null && Buffer.from(left).equals(Buffer.from(right));
 const wholeReads = (stub: ReturnType<typeof s3CopyStub>, key: string) =>
   stub.log.filter((entry) => entry.method === "GET" && entry.key === key && !entry.query.includes("uploads")).length;
 
