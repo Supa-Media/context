@@ -5,7 +5,8 @@ import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
-import { useColors, useThemedStyles, type Colors } from "../design/theme";
+import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
+import { setAppearance } from "../design/appearance";
 import { layout, radii, space } from "../design/tokens";
 import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
@@ -150,6 +151,7 @@ export function SwitcherMenu({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const scheme = useScheme();
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -232,6 +234,17 @@ export function SwitcherMenu({
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
       : []),
+    /*
+      The quick way between light and dark (Dev2, 2026-10-14), for everyone
+      including the homepage's visitor: it names the one you would switch to.
+      Settings › Profile has the third choice, following the device.
+    */
+    {
+      id: "appearance",
+      label: scheme === "dark" ? "Light mode" : "Dark mode",
+      leading: <Icon name="sun" size={14} />,
+      testID: "switcher-appearance",
+    },
     /*
       Signed in only — `onSignOut` is the card's own word for that — and only
       where this build can send a report at all. The phone's way in, since its
@@ -318,6 +331,7 @@ export function SwitcherMenu({
     else if (id === "signup") onCreateAccount?.();
     else if (id === "app") onOpenApp?.();
     else if (id === "whatsnew") whatsNew?.onOpen();
+    else if (id === "appearance") void setAppearance(scheme === "dark" ? "light" : "dark");
   };
 
   if (trigger === "phone") {

@@ -14,7 +14,9 @@ import { ensureFontsLoaded } from "../features/design/fonts";
 import { keepAppShellOffline } from "../features/offline/appShell";
 import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { appearanceLoaded } from "../features/design/appearance";
+import { useAccountAppearanceSync } from "../features/design/useAccountAppearanceSync";
 import { SiteRoot } from "../features/site/SiteRoot";
 import { EmailProofHost } from "../features/account/EmailProofDialog";
 import { siteHostname } from "../features/site/host";
@@ -112,6 +114,7 @@ export default function RootLayout() {
 function AppGround() {
   const colors = useColors();
   const scheme = useScheme();
+  useAccountAppearanceSync();
 
   /*
     The launch image comes down when there is something behind it.
@@ -125,16 +128,24 @@ function AppGround() {
   */
   const { isAuthenticated, isLoading } = useConvexAuth();
   /*
-    Only the session is worth waiting for. The other lever here used to be the
-    remembered appearance: a stored Light arriving one render late painted
-    dark first and then flipped, so the launch image was held until the device
-    had answered. Nothing is stored any more — the app follows the device, and
-    `useColorScheme` answers on the first render — so that wait had nothing
-    left to wait for.
+    And the person's Light / Dark choice (Dev2, 2026-10-14). On web it is read
+    synchronously before the first render, so this is already settled; on
+    native it is one AsyncStorage read, and holding the launch image for it is
+    what stops a pinned Light from painting the device's dark first.
   */
+  const [appearanceReady, setAppearanceReady] = useState(false);
   useEffect(() => {
-    if (!isLoading) releaseSplash();
-  }, [isLoading]);
+    let live = true;
+    void appearanceLoaded().then(() => {
+      if (live) setAppearanceReady(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!isLoading && appearanceReady) releaseSplash();
+  }, [isLoading, appearanceReady]);
 
   // An expired or remotely-revoked session has no sign-out button to run its
   // cleanup. Clear vendor identity as soon as Convex resolves that state, so a

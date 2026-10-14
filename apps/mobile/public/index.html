@@ -120,7 +120,40 @@
         }
         ::selection { background: rgba(107,200,193,.32); color: #EDE8E0; }
       }
+
+      /*
+        The person's own choice, which outranks the device (Dev2, 2026-10-14).
+        The script below sets the attribute before anything paints; the app
+        keeps it in step afterwards (`features/design/appearance.ts`).
+      */
+      html[data-appearance="light"],
+      html[data-appearance="light"] body,
+      html[data-appearance="light"] #root {
+        background-color: #FFFDF9;
+        color-scheme: light;
+      }
+      html[data-appearance="light"] ::selection { background: rgba(14,108,105,.20); color: #1A1714; }
+      html[data-appearance="dark"],
+      html[data-appearance="dark"] body,
+      html[data-appearance="dark"] #root {
+        background-color: #100F0E;
+        color-scheme: dark;
+      }
+      html[data-appearance="dark"] ::selection { background: rgba(107,200,193,.32); color: #EDE8E0; }
     </style>
+    <!--
+      Light, Dark or follow the device, read from the device's copy of the
+      person's choice before the first paint, so a pinned appearance never
+      flashes the device's. Same key as `APPEARANCE_KEY`; the shell test pins
+      the two together.
+    -->
+    <script id="context-appearance">
+      try {
+        var chosen = JSON.parse(localStorage.getItem("context.appearance.v1") || "null");
+        chosen = chosen && chosen.appearance;
+        if (chosen === "light" || chosen === "dark") document.documentElement.setAttribute("data-appearance", chosen);
+      } catch (e) {}
+    </script>
 
     <!--
       X ads' pixel, so sign-ups from an ad are counted (Dev2, 2026-10-05).

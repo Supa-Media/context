@@ -76,6 +76,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of telemetryPreferences) await ctx.db.delete(row._id);
 
+  // Light, Dark or follow the device: one word and a time.
+  const appearancePreferences = await ctx.db
+    .query("appearancePreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of appearancePreferences) await ctx.db.delete(row._id);
+
   // When they dismissed the early-beta notice: a time.
   const betaNoticeReads = await ctx.db
     .query("betaNoticeReads")
