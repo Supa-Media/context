@@ -58,7 +58,9 @@ export const MAX_WRONG_TRIES = 5;
 
 /** The client id texting grants are filed under, and what the person sees. */
 export const TEXTS_CLIENT_ID = "context_texts";
-const TEXTS_CLIENT_NAME = "Texts (iMessage)";
+export const TEXTS_CLIENT_NAME = "Tex";
+/** What the client was called before it took Tex's name (owner, 2026-10-14). */
+export const LEGACY_TEXTS_CLIENT_NAME = "Texts (iMessage)";
 
 /**
  * A grant per text, short-lived. The Worker mints one for each message it
@@ -535,7 +537,12 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
     .query("oauthClients")
     .withIndex("by_clientId", (q) => q.eq("clientId", TEXTS_CLIENT_ID))
     .unique();
-  if (existing !== null) return;
+  if (existing !== null) {
+    // A row made under the old name takes Tex's on the next text, so every
+    // place that draws the client (caret flags, activity, Connected apps) says Tex.
+    if (existing.clientName !== TEXTS_CLIENT_NAME) await ctx.db.patch(existing._id, { clientName: TEXTS_CLIENT_NAME });
+    return;
+  }
   await ctx.db.insert("oauthClients", {
     clientId: TEXTS_CLIENT_ID,
     clientName: TEXTS_CLIENT_NAME,

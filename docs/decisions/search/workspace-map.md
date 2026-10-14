@@ -162,7 +162,9 @@ hash of its name so it never changes. The classification is one pure module
 (`map/live/agentKind.ts`) that the React faces and the canvas both read, so the
 feed and the map agree. It reads the tool's name after the owner's possessive,
 never the owner's, and the texting assistant is recognised by its client name
-(`Texts (iMessage)`), since the activity file records no client id. A person is
+(`Tex`, and `Texts (iMessage)`, its name before 2026-10-14, which older lines
+still carry and which is drawn as Tex), since the activity file records no
+client id. A person is
 never an AI, and an edit the app's own console made is drawn as the person who
 made it, not as a tool named after its client (`Context (this app)`). The
 server records nothing differently. People keep their whole face palette:
