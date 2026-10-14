@@ -341,4 +341,29 @@ export const platformTables = {
     updatedAt: v.number(),
     createdAt: v.number(),
   }).index("by_name", ["name"]),
+
+  /**
+   * Each standard emoji's meaning fingerprint, for the icon picker's
+   * suggestion (`functions/emojiMeaning.ts`). Ours, not a customer's: made
+   * from the descriptions in `packages/shared/src/emojiAbout.generated.ts`,
+   * the same rows for every workspace. `set` names the build
+   * (`emojiMeaningSet()`), so a search reads one build only and a changed
+   * description is filled beside the old rows before they are dropped.
+   */
+  emojiMeanings: defineTable({
+    set: v.string(),
+    char: v.string(),
+    vector: v.array(v.float64()),
+  })
+    .index("by_set_char", ["set", "char"])
+    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 1024, filterFields: ["set"] }),
+
+  /** Whether a build of `emojiMeanings` is being filled or ready: one row per set. */
+  emojiMeaningSets: defineTable({
+    set: v.string(),
+    state: v.union(v.literal("filling"), v.literal("ready")),
+    startedAt: v.number(),
+    /** Rows written so far, counted here so nothing reads 1,870 fingerprints to know. */
+    filled: v.number(),
+  }).index("by_set", ["set"]),
 };

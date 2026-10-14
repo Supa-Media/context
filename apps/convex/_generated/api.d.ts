@@ -35,6 +35,7 @@ import type * as functions_customDomainsProvision from "../functions/customDomai
 import type * as functions_devlog from "../functions/devlog.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
 import type * as functions_emoji from "../functions/emoji.js";
+import type * as functions_emojiMeaning from "../functions/emojiMeaning.js";
 import type * as functions_emailProof from "../functions/emailProof.js";
 import type * as functions_signInAlerts from "../functions/signInAlerts.js";
 import type * as functions_emailRecovery from "../functions/emailRecovery.js";
@@ -198,6 +199,7 @@ declare const fullApi: ApiFromModules<{
   "functions/devlog": typeof functions_devlog;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
   "functions/emoji": typeof functions_emoji;
+  "functions/emojiMeaning": typeof functions_emojiMeaning;
   "functions/emailProof": typeof functions_emailProof;
   "functions/signInAlerts": typeof functions_signInAlerts;
   "functions/emailRecovery": typeof functions_emailRecovery;

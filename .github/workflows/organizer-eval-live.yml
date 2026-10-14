@@ -29,7 +29,7 @@ on:
         required: false
         default: "0.9"
       models:
-        description: "Also compare decision models (Clef, Clef Flash, Jev) on the icon suggestion"
+        description: "Also compare decision models (Clef, Clef Flash, Jev) and meaning fingerprints on the icon suggestion"
         type: boolean
         required: false
         default: false
@@ -83,4 +83,4 @@ jobs:
         env:
           ICON_MODELS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ICON_MODELS_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
-        run: npx vitest run __tests__/iconSuggest.models.live.test.ts
+        run: npx vitest run __tests__/iconSuggest.models.live.test.ts __tests__/iconSuggest.meaning.live.test.ts
