@@ -456,3 +456,18 @@ a reader.
 Reversing it costs the jump back; `__tests__/reveal.test.ts` fails if closed
 draws an element, if opening does not start collapsed, or if closing drops its
 content before the room has closed.
+
+**What is already there and changes size settles; what leaves closes in place
+(2026-10-14).** The owner: "When the about content loads in a folder,
+everything is jumpy, can we have smooth animnations on the page whenever
+something loads in late? or whenever a note is deleted or added?" A folder
+page's head answers in pieces — the chaos line, the status line, the about's
+words — and an open `Reveal` follows such changes a jump at a time. `Settle`
+(`features/design/components/Settle.tsx`) eases a block to each new height its
+content takes, over the same token, drawing the first height at once; the
+folder page's head is one. A list row deleted while the folder is open is kept
+in its place by `useDepartures` (`features/design/useDepartures.ts`) while its
+`Reveal` closes, by `useArrivals`' rules mirrored: not a rename, not more than
+three at once. Reversing it costs the jumps back;
+`__tests__/folderPageMotion.test.ts` fails if `Settle` stops following its
+content or a deleted row vanishes in one frame.

@@ -32,6 +32,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
+import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -415,6 +416,8 @@ export function FolderPage({
         />
         {isProject ? null : rule}
       </FolderHead>
+      {/* Lines that come and go above the list ease in and out rather than shoving it. */}
+      <Reveal open={problem !== null || loaded.saving}>
       {problem !== null ? (
         <Text variant="treeMeta" style={styles.problem} role="alert" testID="folder-problem">
           {problem}
@@ -425,6 +428,7 @@ export function FolderPage({
           Saving…
         </Text>
       ) : null}
+      </Reveal>
       {editing && edits.savesTo !== null ? (
         <StatusesDialog
           list={list}
@@ -463,11 +467,11 @@ export function FolderPage({
             </View>
           )
         ) : null}
-        {tracks && !waiting && !loaded.complete && notes !== null ? (
+        <Reveal open={tracks && !waiting && !loaded.complete && notes !== null}>
           <Text variant="treeMeta" style={styles.aside}>
             This device is still fetching some notes, so a status may be missing.
           </Text>
-        ) : null}
+        </Reveal>
         {view === "board" && skipped > 0 ? (
           <Text variant="treeMeta" style={styles.aside} onPress={() => choose("list")} role="link" testID="folder-skipped">
             {skipped === 1 ? "1 other file is in the List" : `${skipped} other files are in the List`}
