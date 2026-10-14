@@ -152,7 +152,7 @@ export function SwitcherMenu({
    * arrived since you last opened it. Omitted for the homepage's visitor and
    * the demo, which have nobody to have shared anything with them.
    */
-  shared?: { unseen: number; onOpen: () => void };
+  shared?: { unseen: number; onOpen: () => void; /** You are on @shared: its row is ticked, no workspace's is. */ here?: boolean };
   /**
    * `"phone"`: the top-left account slot, opening a bottom sheet — see the
    * header. A visitor who is not signed in sees a "Sign in" pill there.
@@ -231,7 +231,7 @@ export function SwitcherMenu({
           ) : null}
         </View>
       ),
-      checked: context.slug === current?.slug,
+      checked: context.slug === current?.slug && shared?.here !== true,
       testID: `switcher-context-${context.slug}`,
     })),
     /*
@@ -247,6 +247,7 @@ export function SwitcherMenu({
           // What's new's dot, and on a phone its "new": only while something is.
           accessibilityLabel: sharedNew ? `@shared, ${shared.unseen} new` : undefined,
           badge: sharedNew,
+          checked: shared.here === true,
           leading: (
             <View style={styles.sharedMark}>
               <Icon name="tray" size={14} />

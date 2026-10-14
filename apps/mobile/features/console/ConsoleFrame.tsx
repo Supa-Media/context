@@ -17,6 +17,7 @@ import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
 import { SharedInboxHost, type SharedEntry } from "./shared/SharedInboxHost";
 import { SHARED_HREF } from "./shared/sharedInbox";
+import { onShared, sharedFrameSlots } from "./shared/sharedSlots";
 import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
@@ -254,6 +255,7 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  const sharedHere = onShared(route);
   const { search, paletteItems, recent, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
@@ -385,7 +387,7 @@ export function ConsoleFrame({
     onOpenApp: visitor.openApp,
   } : {
     data,
-    label: insideContext ? contextLabel : "Your context",
+    label: sharedHere ? "Shared with me" : insideContext ? contextLabel : "Your context",
     onOpenContext: (slug: string) => {
       const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
       if (sameRoute(next, route)) return;
@@ -429,7 +431,7 @@ export function ConsoleFrame({
       whatsNewShown && whatsNewEntry !== null
         ? { ...whatsNewEntry, onOpen: () => setWhatsNewOpen(true) }
         : undefined,
-    shared: sharedShown ? { ...sharedEntry, onOpen: () => router.push(SHARED_HREF) } : undefined,
+    shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
   return (
@@ -533,11 +535,10 @@ export function ConsoleFrame({
         aside={consoleAsidePanel({
           data, meetingsAt, router, approvals,
         })}
-        explorer={consoleExplorer({
-          browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
-          switcherProps, router,
+        {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router }),
+          status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
-        status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
           browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
           note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel } : null,
@@ -581,7 +582,7 @@ export function ConsoleFrame({
             phone, current, route, router, data, contextHrefFrom,
           })}
         >
-          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
+          <EditorRegion browse={browsing || sharedHere} failure={data.failure} phone={phone}>
             {children}
           </EditorRegion>
         </NavBandProvider>

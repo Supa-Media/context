@@ -15,6 +15,7 @@
  *
  *   drop the dedupe in listSharedWithMeHandler                     1
  *   sharedByHandle always null                                     1
+ *   title ignores front matter `title:`                            1
  *   markSharedSeen patches without the `now > seenAt` guard         0 (time only moves forward in one process)
  *   drop the sharedInboxReads sweep from personalRows              1
  */
@@ -79,6 +80,40 @@ describe("what @shared lists", () => {
       displayName: "Atlas",
       sharedByHandle: "ana",
     });
+  });
+
+  test("each row carries the note's own title and its sharer's name", async () => {
+    const t = setupTest();
+    const { ana, lk, anaOwn, atlas } = await scenario(t);
+    await share(t, ana, anaOwn, "1-projects/beneath-the-chaos.md");
+    await share(t, ana, atlas, "1-projects/plan.md");
+    await share(t, ana, atlas, "1-projects/sealed.md");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ana, { name: "Ana Ruiz" });
+      const row = { kind: "file" as const, observedAt: 1 };
+      await ctx.db.insert("nodes", {
+        ...row,
+        workspaceId: anaOwn,
+        path: "1-projects/beneath-the-chaos.md",
+        name: "beneath-the-chaos.md",
+        props: JSON.stringify({ properties: {}, heading: "Beneath  the\nChaos" }),
+      });
+      await ctx.db.insert("nodes", {
+        ...row,
+        workspaceId: atlas,
+        path: "1-projects/plan.md",
+        name: "plan.md",
+        props: JSON.stringify({ properties: { title: "Launch week plan" }, heading: "Plan" }),
+      });
+      // Sealed: no props, so no title.
+      await ctx.db.insert("nodes", { ...row, workspaceId: atlas, path: "1-projects/sealed.md", name: "sealed.md" });
+    });
+
+    const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
+    const byPath = new Map(rows.map((row) => [row.entryPath, row]));
+    expect(byPath.get("1-projects/beneath-the-chaos.md")).toMatchObject({ title: "Beneath the Chaos", sharedByName: "Ana Ruiz" });
+    expect(byPath.get("1-projects/plan.md")?.title).toBe("Launch week plan");
+    expect(byPath.get("1-projects/sealed.md")?.title).toBeNull();
   });
 
   test("nobody else sees the row", async () => {
