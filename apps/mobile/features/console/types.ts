@@ -1,3 +1,4 @@
+import type { LeftBehind } from "./storage/handoff/leftBehind";
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { ManagedEncryptionView } from "./storage/encryptionView";
 import type { MeetingDestination } from "../meetings/destination";
@@ -48,15 +49,6 @@ import type { NoteLimit } from "./noteLimit";
  * somebody else's bucket, drawn forever) is written down.
  */
 export type StatusTone = "ok" | "warn" | "crit" | "neutral";
-
-/** Files over the file limit a finished move left in the bucket it came from. */
-export interface LeftBehind {
-  bucket: string;
-  /** Up to 50 of them, by name. */
-  keys: string[];
-  count: number;
-  at: number;
-}
 
 /** One entry in the rail's "Contexts" group. */
 export interface ConsoleContext {

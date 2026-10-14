@@ -1,5 +1,5 @@
 import type { Id } from "@context/convex/_generated/dataModel";
-import type { LeftBehind } from "../types";
+import type { LeftBehind } from "../storage/handoff/leftBehind";
 
 /*
   The shapes the live console reads off Convex, and the two guards every read

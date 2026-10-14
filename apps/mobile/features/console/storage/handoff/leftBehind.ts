@@ -4,7 +4,14 @@
  * tested without a renderer.
  */
 
-import type { LeftBehind } from "../../types";
+/** Files over the file limit a finished move left in the bucket it came from. */
+export interface LeftBehind {
+  bucket: string;
+  /** Up to 50 of them, by name. */
+  keys: string[];
+  count: number;
+  at: number;
+}
 
 export const FILE_LIMIT_WORDS = "20 MB";
 

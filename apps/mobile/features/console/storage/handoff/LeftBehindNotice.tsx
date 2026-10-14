@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
-import type { LeftBehind } from "../../types";
+import type { LeftBehind } from "./leftBehind";
 import { leftBehindLine, leftBehindMore, leftBehindTitle } from "./leftBehind";
 
 /**
