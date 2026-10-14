@@ -298,7 +298,7 @@ export function sectionsFor(
     const seen = new Set<string>(WORKSPACE_ICON_EMOJI);
     return [
       { title: "This workspace", cells: own(custom) },
-      { title: "Suggested", cells: WORKSPACE_ICON_EMOJI.map((char) => ({ icon: char, label: char })) },
+      { title: "Popular", cells: WORKSPACE_ICON_EMOJI.map((char) => ({ icon: char, label: char })) },
       {
         title: "All emoji",
         cells: allStandardEmoji()
