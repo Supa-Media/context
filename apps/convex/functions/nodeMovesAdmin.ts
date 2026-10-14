@@ -16,6 +16,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
+import { CATCH_UP_TARGET_MS, etaMs, lateReason, workspaceEtaMs } from "./lib/nodes/moveLag";
 import { MOVE_LEASE_MS, STUCK_ATTEMPTS, movesOverlap } from "./lib/nodes/moveRules";
 import { readMirror } from "./lib/nodes/listing";
 import { followMovesForMembers } from "./lib/placesFollow";
@@ -61,11 +62,25 @@ const rowValidator = v.object({
   canUndo: v.boolean(),
   createdAt: v.number(),
   updatedAt: v.number(),
+  /** Files a second at the measured pace, and the time left at it; null until a pass has measured one. */
+  rate: v.union(v.number(), v.null()),
+  etaMs: v.union(v.number(), v.null()),
+  /** Why it is late against the five-hour promise (`moveLag.ts`), or null while it is on time. */
+  late: v.union(v.literal("stuck"), v.literal("old"), v.literal("slow"), v.null()),
+});
+
+/** The deployment's lag: the oldest move still copying, and the longest any one bucket has left. */
+const lagValidator = v.object({
+  oldestMs: v.union(v.number(), v.null()),
+  catchUpMs: v.union(v.number(), v.null()),
+  remaining: v.number(),
+  late: v.number(),
+  targetMs: v.number(),
 });
 
 export const report = query({
   args: {},
-  returns: v.object({ rows: v.array(rowValidator), truncated: v.boolean() }),
+  returns: v.object({ rows: v.array(rowValidator), truncated: v.boolean(), lag: lagValidator }),
   handler: async (ctx) => {
     await staffOnly(ctx);
     const now = Date.now();
@@ -90,11 +105,34 @@ export const report = query({
         canUndo: undoable(row, queues.get(row.workspaceId)!),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        rate: row.rate ?? null,
+        etaMs: etaMs(row),
+        late: lateReason(row, now),
       });
     }
-    return { rows, truncated: all.length > REPORT_ROWS };
+    return { rows, truncated: all.length > REPORT_ROWS, lag: lagOf(all.slice(0, REPORT_ROWS), queues, now) };
   },
 });
+
+function lagOf(rows: readonly Doc<"moveQueue">[], queues: ReadonlyMap<string, Doc<"moveQueue">[]>, now: number) {
+  let oldestMs: number | null = null;
+  let remaining = 0;
+  let late = 0;
+  for (const row of rows) {
+    oldestMs = Math.max(oldestMs ?? 0, now - row.createdAt);
+    remaining += Math.max(0, row.total - row.moved);
+    if (lateReason(row, now) !== null) late += 1;
+  }
+  // Buckets catch up side by side, each one's moves in turn: the slowest bucket decides.
+  let catchUpMs: number | null = rows.length === 0 ? 0 : null;
+  let unknown = false;
+  for (const queue of queues.values()) {
+    const eta = workspaceEtaMs(queue);
+    if (eta === null) unknown = true;
+    else catchUpMs = Math.max(catchUpMs ?? 0, eta);
+  }
+  return { oldestMs, catchUpMs: unknown ? null : catchUpMs, remaining, late, targetMs: CATCH_UP_TARGET_MS };
+}
 
 async function schedulePass(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
   await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {

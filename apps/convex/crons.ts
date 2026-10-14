@@ -263,6 +263,13 @@ crons.interval(
   {},
 );
 
+/**
+ * Storage falling behind the file tree: a folder move four hours old, whose
+ * pace will miss five, or stuck, is marked once and mailed to the staff who
+ * asked (`storageLag.ts`).
+ */
+crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",

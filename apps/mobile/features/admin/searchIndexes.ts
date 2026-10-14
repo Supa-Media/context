@@ -265,9 +265,13 @@ export function filesCell(copy: IndexCell, moves: readonly MoveRow[]): IndexCell
   let cell = copy;
   if (moves.length > 0) {
     const stuck = moves.find((move) => move.stuck);
+    const behind = moves.find((move) => move.late !== null && move.late !== "stuck");
     const figure = [cell.figure, movesLabel(moves.length)].filter(Boolean).join(" · ");
     if (stuck && RANK[cell.health] > RANK.stuck) {
       cell = { ...cell, health: "stuck", figure, problem: `A folder move is stuck${stuck.lastError ? `: ${stuck.lastError}` : ""}` };
+    } else if (behind && RANK[cell.health] > RANK.stuck) {
+      // The bucket is missing the five-hour promise: a person should look, as at a stuck move.
+      cell = { ...cell, health: "stuck", figure, problem: `A folder move is behind: ${behind.late === "old" ? "over 4 hours old" : "on pace to miss 5 hours"}` };
     } else if (!stuck && RANK[cell.health] > RANK.working) {
       cell = { ...cell, health: "working", figure };
     } else {
