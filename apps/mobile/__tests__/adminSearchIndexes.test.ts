@@ -56,7 +56,7 @@ const migration = (fields: Partial<Omit<MigrationRow, "workspaceId">> & { worksp
     dirty: false,
     error: null,
     parity: { checkedAt: 4_000, mismatches: 0, privacyMatches: true },
-    facts: { ready: true, running: false, retrying: 0 },
+    facts: { ready: true, running: false, retrying: 0, retryKind: null, retryPasses: 0 },
     ...fields,
   }) as MigrationRow;
 
@@ -197,6 +197,9 @@ const move = (fields: Partial<Omit<MoveRow, "id" | "workspaceId">> & { id?: stri
     canUndo: true,
     createdAt: 5_000,
     updatedAt: 6_000,
+    rate: null,
+    etaMs: null,
+    late: null,
     ...fields,
   }) as MoveRow;
 
@@ -205,7 +208,7 @@ describe("the file tree column", () => {
 
   test("the copy decides it, whatever its facts are doing", () => {
     expect(filesCell(ready, [])).toEqual(ready);
-    const [filling] = joinIndexes([], [migration({ facts: { ready: false, running: true, retrying: 0 } })]);
+    const [filling] = joinIndexes([], [migration({ facts: { ready: false, running: true, retrying: 0, retryKind: null, retryPasses: 0 } })]);
     expect(filling!.files).toEqual(ready);
     expect(filling!.details).toMatchObject({ health: "working", label: "Filling" });
   });
@@ -237,14 +240,14 @@ describe("the file tree column", () => {
 });
 
 describe("each index in words", () => {
-  test("the facts: ready once every note is read, never stuck, paused with the copy", () => {
+  test("the facts: ready once every note is read, paused with the copy", () => {
     expect(factsCell(migration())).toMatchObject({ health: "ok", label: "Ready" });
     expect(factsCell(migration({ facts: null }))).toMatchObject({ health: "working", label: "Not started" });
-    expect(factsCell(migration({ facts: { ready: false, running: false, retrying: 0 } }))).toMatchObject({
+    expect(factsCell(migration({ facts: { ready: false, running: false, retrying: 0, retryKind: null, retryPasses: 0 } }))).toMatchObject({
       health: "working",
       label: "Filling",
     });
-    expect(factsCell(migration({ facts: { ready: true, running: false, retrying: 3 } }))).toMatchObject({
+    expect(factsCell(migration({ facts: { ready: true, running: false, retrying: 3, retryKind: null, retryPasses: 0 } }))).toMatchObject({
       health: "working",
       label: "Retrying",
       figure: "3 to read again",
@@ -252,6 +255,46 @@ describe("each index in words", () => {
     expect(factsCell(migration({ facts: null }), true)).toMatchObject({ health: "off", label: "Paused" });
     expect(factsCell(migration(), true)).toMatchObject({ health: "ok" });
     expect(factsCell(null).health).toBe("none");
+  });
+
+  test("notes that will not read say why: at once when lasting, after a few passes when not", () => {
+    const facts = (retryKind: string | null, retryPasses: number, retrying = 2) => ({
+      facts: { ready: true, running: false, retrying, retryKind, retryPasses },
+    });
+    expect(factsCell(migration(facts("unsealed", 1)))).toMatchObject({
+      health: "stuck",
+      label: "Can't read",
+      figure: "2 notes",
+      problem: expect.stringMatching(/^2 notes were saved unsealed .* Seal again/),
+    });
+    expect(factsCell(migration(facts("unsealed", 1, 1))).problem).toMatch(/^1 note was saved unsealed .* seals it\.$/);
+    // A refused read may be a hiccup: retried quietly, stuck once it keeps happening.
+    expect(factsCell(migration(facts("storage", 2)))).toMatchObject({ health: "working", label: "Retrying" });
+    expect(factsCell(migration(facts("storage", 3)))).toMatchObject({ health: "stuck", problem: "2 notes were refused by the storage." });
+    // Stuck is said even while the copy is paused: pausing does not make a note readable.
+    expect(factsCell(migration(facts("unsealed", 1)), true).health).toBe("stuck");
+  });
+
+  test("search short of the end by only the unreadable notes is waiting on them, not indexing", () => {
+    const stuckCopy = migration({ files: 7, facts: { ready: true, running: false, retrying: 2, retryKind: "unsealed", retryPasses: 4 } });
+    const segunawe = meaning({
+      status: "backfilling",
+      notesIndexed: 4,
+      notesPending: 2,
+      fastSearch: { status: "backfilling", notesIndexed: 4, notesPending: 2, priorities: null },
+    });
+    const [row] = joinIndexes([segunawe], [stuckCopy]);
+    expect(row!.fast).toMatchObject({ health: "stuck", label: "Waiting", problem: "Waiting on 2 notes that can't be read. See File tree." });
+    expect(row!.meaning).toMatchObject({ health: "stuck", label: "Waiting" });
+    expect(row!.details).toMatchObject({ health: "stuck", label: "Can't read" });
+    expect(row!.unreadable).toMatchObject({ count: 2, kind: "unsealed" });
+    expect(needsAttention(row!)).toBe(true);
+    // More left than the unreadable notes explain: still indexing.
+    const [busy] = joinIndexes(
+      [meaning({ fastSearch: { status: "backfilling", notesIndexed: 4, notesPending: 30, priorities: null } })],
+      [stuckCopy],
+    );
+    expect(busy!.fast).toMatchObject({ health: "working", label: "Indexing" });
   });
 
   test("fast search and meaning show how far they got, with a bar only while there is more", () => {

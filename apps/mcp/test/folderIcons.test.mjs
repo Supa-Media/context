@@ -123,6 +123,28 @@ test("the folders the product files into inside the inbox show a default emoji",
   assert.equal(defaultFolderIcon("0-inbox/email.md"), null);
 });
 
+test("Tex's folder, its about note, its routines and each how-often folder show a default emoji", () => {
+  assert.equal(defaultFolderIcon("tex"), "✨");
+  assert.equal(defaultFolderIcon("tex/about-me.md"), "🪪");
+  assert.equal(defaultFolderIcon("tex/routines"), "🔁");
+  assert.equal(defaultFolderIcon("tex/routines/once"), "📌");
+  assert.equal(defaultFolderIcon("tex/routines/daily"), "☀️");
+  assert.equal(defaultFolderIcon("tex/routines/every-day"), "☀️");
+  assert.equal(defaultFolderIcon("tex/routines/weekly"), "📅");
+  assert.equal(defaultFolderIcon("tex/routines/biweekly"), "📅");
+  assert.equal(defaultFolderIcon("tex/routines/hourly"), "⏳");
+  assert.equal(defaultFolderIcon("tex/routines/every-30-minutes"), "⏱️");
+  assert.equal(defaultFolderIcon("tex/routines/monthly"), "🌙");
+  assert.equal(defaultFolderIcon("tex/routines/yearly"), "🎆");
+  // A name that means no cadence, a folder deeper down, and a tex/ that is not at the top are somebody's own.
+  assert.equal(defaultFolderIcon("tex/routines/someday"), null);
+  assert.equal(defaultFolderIcon("tex/routines/once/trip"), null);
+  assert.equal(defaultFolderIcon("tex/routines/daily/standup.md"), null);
+  assert.equal(defaultFolderIcon("1-projects/tex"), null);
+  assert.equal(defaultFolderIcon("tex/notes"), null);
+  assert.equal(defaultFolderIcon("tex/routines/constructor"), null);
+});
+
 test("remapIcons carries several note icons in one write", async () => {
   const store = memory({ [FOLDER_ICONS_KEY]: serializeFolderIcons({ "a.md": "🅰️", "b.md": "🅱️", work: "💼" }) });
   let puts = 0;

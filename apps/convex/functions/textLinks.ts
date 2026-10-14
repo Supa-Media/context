@@ -4,6 +4,7 @@ import { ConvexError, v } from "convex/values";
 import {
   action,
   internalMutation,
+  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -22,6 +23,8 @@ import {
 import { hashToken } from "./lib/crypto";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { getMembership } from "./lib/workspaceAuth";
+import { accountTimeZone } from "./lib/routines/access";
+import { effectiveTimeZone } from "./lib/routines/model";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -555,3 +558,20 @@ export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): 
     for (const row of rows) await ctx.db.delete(row._id);
   }
 }
+
+/**
+ * The zone a linked phone's texts are answered in: the account's own (the app
+ * keeps it in step with their device), else the routines' default. The same
+ * zone their reminders run in, so "in 2 minutes" lands two minutes from now.
+ */
+export const textsTimeZone = internalQuery({
+  args: { phone: v.string() },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("phoneLinks")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .first();
+    return effectiveTimeZone(undefined, link === null ? null : await accountTimeZone(ctx, link.userId));
+  },
+});

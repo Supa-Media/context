@@ -35,6 +35,7 @@
  */
 
 const { topLevelRole } = require("./folderRoles.cjs");
+const { cadenceFromFolder } = require("./routines.cjs");
 
 const FOLDER_ICONS_KEY = ".context/folder-icons.json";
 const FOLDER_ICONS_VERSION = 1;
@@ -113,10 +114,44 @@ const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
   capture: "📨",
 });
 
-/** The default emoji for the folder at `path`, or `null` for one with none. */
+/**
+ * Tex's folder, the texting assistant's (decided by the owner, 2026-10-14):
+ * `tex/` itself, its `about-me.md`, `tex/routines/`, and each how-often
+ * folder under it by what its name means (`routines.cjs`'s
+ * `cadenceFromFolder`), so `every-3-hours` gets the hourly one. Only those
+ * exact paths: a folder somebody made inside `tex/routines/once/` is theirs.
+ */
+const TEX_ICONS = Object.freeze({
+  tex: "✨",
+  "tex/about-me.md": "🪪",
+  "tex/routines": "🔁",
+});
+const CADENCE_ICONS = Object.freeze({
+  once: "📌",
+  minute: "⏱️",
+  hour: "⏳",
+  day: "☀️",
+  week: "📅",
+  month: "🌙",
+});
+const YEARLY_ICON = "🎆";
+
+function texIcon(path) {
+  if (Object.prototype.hasOwnProperty.call(TEX_ICONS, path)) return TEX_ICONS[path];
+  const segments = path.split("/");
+  if (segments.length !== 3 || segments[0] !== "tex" || segments[1] !== "routines") return null;
+  const cadence = cadenceFromFolder(segments[2]);
+  if (cadence === null) return null;
+  if (cadence.unit === "month" && cadence.every >= 12) return YEARLY_ICON;
+  return CADENCE_ICONS[cadence.unit] ?? null;
+}
+
+/** The default emoji for the folder (or built-in note) at `path`, or `null` for one with none. */
 function defaultFolderIcon(path) {
   if (typeof path !== "string") return null;
   if (path === WEBSITE_FOLDER) return WEBSITE_ICON;
+  const tex = texIcon(path);
+  if (tex !== null) return tex;
   const segments = path.split("/");
   if (segments.length === 2 && topLevelRole(segments[0]) === "inbox") {
     return Object.prototype.hasOwnProperty.call(DEFAULT_INBOX_FOLDER_ICONS, segments[1])

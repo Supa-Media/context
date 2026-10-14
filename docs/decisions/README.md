@@ -201,6 +201,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - The List is the Notes rows, with three thin extras
+- Notes and List are one view, and its dot and face are its controls — see below
 - A folder page shows its children by status
 - Tasks and notes
 - A row's name takes the room
@@ -229,6 +230,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)
+
+## [One List view](./one-list-view.md)
+
+- Notes and List are one view, and its dot and face are its controls
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 
@@ -339,6 +344,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
 - [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
+- [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
@@ -646,6 +652,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

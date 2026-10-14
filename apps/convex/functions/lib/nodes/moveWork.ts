@@ -23,24 +23,36 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { recordForwarding } from "../../../../mcp/src/forwarding.js";
-import { MoveObjectConflict, logicalPath, moveObject } from "../../../../mcp/src/moves/queued.js";
+import { MoveObjectConflict, logicalPath } from "../../../../mcp/src/moves/queued.js";
 import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { clearanceOf } from "../clearance";
-import { loadPrivacyState } from "../fileOps/privacyState";
+import { type PrivacyState, loadPrivacyState } from "../fileOps/privacyState";
 import { rewriteReferences } from "../fileOps/references";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import type { OperationResult } from "../filesFns/operationTypes";
 import { PRIVACY_KEY } from "../privacy";
 import { releasePrivacy } from "./movePrivacy";
+import { type StepOptions, moveOneObject } from "./moveSteps";
 import { touchNodesNow } from "./run";
 import { rowFromObject } from "./sweep";
 import { type NodeRow, OBSERVE_BATCH } from "./table";
 
 /** Keys one listing of the old name reads. */
 const LIST_PAGE = 200;
-/** Objects moved at once. */
+/** Objects moved at once when each one is read and written through here. */
 const POOL = 6;
+/** Objects moved at once when the bucket copies them itself (nothing held in memory). */
+const SERVER_COPY_POOL = 16;
+/**
+ * Read-and-write moves hold a file in memory, and a Convex action has 64 MB:
+ * files past `ONE_AT_A_TIME_BYTES` take turns, and a file past
+ * `BUFFERED_MAX_BYTES` is not attempted on a bucket that cannot copy it
+ * itself. It is reported (and the move shown as stuck) rather than taking
+ * the whole pass down with it.
+ */
+const ONE_AT_A_TIME_BYTES = 4 * 1024 * 1024;
+export const BUFFERED_MAX_BYTES = 24 * 1024 * 1024;
 /** A pass stops starting new pages after this long, and schedules the next. */
 const PASS_BUDGET_MS = 60_000;
 /** Rows one finishing link rewrite reads, a page at a time. */
@@ -50,11 +62,22 @@ const RENAME_PAGE = 2_000;
 export const MOVE_FAILED_CONFLICT = "A note changed or a name was taken while moving; retrying";
 export const MOVE_FAILED_STORAGE = "Storage refused a move; retrying";
 export const MOVE_FAILED_FINISH = "Finishing the move failed; retrying";
+export const MOVE_FAILED_TOO_LARGE = "A file is too large to move on this storage";
 
 type Claimed = NonNullable<Awaited<ReturnType<typeof claimMove>>>;
 
 function claimMove(ctx: ActionCtx, workspaceId: Id<"workspaces">, now: number) {
   return ctx.runMutation(internal.functions.nodeMoves.claim, { workspaceId, now });
+}
+
+/** Run one job at a time through the returned gate, in the order they ask. */
+function turns(): <T>(job: () => Promise<T>) => Promise<T> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(job: () => Promise<T>) => {
+    const run = tail.then(job, job);
+    tail = run.catch(() => undefined);
+    return run;
+  };
 }
 
 async function pool<T>(items: readonly T[], size: number, work: (item: T) => Promise<void>): Promise<void> {
@@ -87,30 +110,81 @@ async function observeMoved(
   }
 }
 
+/** What one walk of the old name did. */
+interface Walk {
+  /** Objects the walk found still at the old name. */
+  listed: number;
+  moved: number;
+  failed: number;
+  /** Of those failures, how many were a note changing or a name taken, not storage refusing. */
+  conflicts: number;
+  /** Of those failures, how many were too large to read through here. */
+  tooLarge: number;
+  /** The walk reached the end of the old name before its time was up. */
+  complete: boolean;
+}
+
 /**
- * Move one page of what is still at the old name. Answers how many objects it
- * moved, or `null` when nothing was left there.
+ * Walk everything still at the old name once, from the start, a page at a
+ * time, moving each object straight to where the tree draws it now.
+ *
+ * Paged by the store's own cursor, never by "list again until empty": a page
+ * can come back with no objects while more follow it (deleted-note markers
+ * are hidden from listings, so a page of 200 of them is an empty page), and a
+ * file that could not move this time stays first in line. Either way the
+ * objects behind it are still reached.
  */
-async function movePage(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: FileStore, claimed: Claimed): Promise<number | null> {
-  const at = Date.now();
-  const listed = await store.list({ prefix: `${claimed.from}/`, limit: LIST_PAGE });
-  const keys = listed.objects.map((object) => object.key).filter((key) => key.startsWith(`${claimed.from}/`));
-  if (keys.length === 0) return null;
-  const rows: NodeRow[] = [];
-  const gone: string[] = [];
-  let moved = 0;
-  await pool(keys, POOL, async (key) => {
-    const destination = logicalPath(key, claimed.moves) as string;
-    const answer = await moveObject(store, key, destination);
-    if (answer.state === "moved") {
-      moved += 1;
-      const row = rowFromObject({ key: destination, etag: answer.etag, size: answer.size });
-      if (row !== null) rows.push(row);
+async function walkOldName(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  store: FileStore,
+  claimed: Claimed,
+  deadline: number,
+  steps: StepOptions,
+): Promise<Walk> {
+  const walk: Walk = { listed: 0, moved: 0, failed: 0, conflicts: 0, tooLarge: 0, complete: false };
+  const serverCopy = store.capabilities?.serverSideCopy === "same-store";
+  const oneAtATime = turns();
+  const prefix = `${claimed.from}/`;
+  let cursor: string | undefined;
+  for (;;) {
+    // The first page always runs, so a pass that started late still moves something.
+    if (cursor !== undefined && Date.now() >= deadline) return walk;
+    const at = Date.now();
+    const listed = await store.list({ prefix, limit: LIST_PAGE, ...(cursor === undefined ? {} : { cursor }) });
+    const objects = (listed.objects as { key: string; size?: number }[]).filter((object) => object.key.startsWith(prefix));
+    walk.listed += objects.length;
+    const rows: NodeRow[] = [];
+    const gone: string[] = [];
+    await pool(objects, serverCopy ? SERVER_COPY_POOL : POOL, async ({ key, size }) => {
+      const bytes = typeof size === "number" ? size : 0;
+      if (!serverCopy && bytes > BUFFERED_MAX_BYTES) {
+        walk.failed += 1;
+        walk.tooLarge += 1;
+        return;
+      }
+      const move = () => moveOneObject(store, key, logicalPath(key, claimed.moves) as string, steps);
+      const outcome = !serverCopy && bytes > ONE_AT_A_TIME_BYTES ? await oneAtATime(move) : await move();
+      if (outcome.state === "failed") {
+        walk.failed += 1;
+        if (outcome.conflict) walk.conflicts += 1;
+        return;
+      }
+      if (outcome.state === "moved") {
+        walk.moved += 1;
+        const row = rowFromObject({ key: outcome.path, etag: outcome.etag, size: outcome.size });
+        if (row !== null) rows.push(row);
+      }
+      if (rowFromObject({ key }) !== null) gone.push(key);
+    });
+    await observeMoved(ctx, workspaceId, at, rows, gone);
+    const { cursor: next, truncated } = listed as { cursor?: string; truncated?: boolean };
+    if (truncated === false || typeof next !== "string" || next === "" || next === cursor) {
+      walk.complete = true;
+      return walk;
     }
-    if (rowFromObject({ key }) !== null) gone.push(key);
-  });
-  await observeMoved(ctx, workspaceId, at, rows, gone);
-  return moved;
+    cursor = next;
+  }
 }
 
 /** Every move of the finished folder, old name to new, for the one link rewrite. */
@@ -162,29 +236,59 @@ async function finishMove(
   await ctx.runMutation(internal.functions.nodeMoves.complete, { id: claimed.id });
 }
 
-/** One pass of the oldest queued move in this workspace. */
+/**
+ * One pass of the oldest queued move in this workspace.
+ *
+ * Walks the old name until a whole walk finds nothing left there, then
+ * finishes the move. A walk that moved everything it found is followed by
+ * another, which is what proves the old name empty. A walk with failures ends
+ * the pass: what moved is counted as progress, and when nothing moved at all
+ * the pass counts as failed and backs off, so a move that cannot progress is
+ * shown as stuck rather than spinning.
+ */
 export async function runMoveWork(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   store: FileStore,
   projection: ProjectionClient | null = null,
+  options: { wait?: (ms: number) => Promise<void>; budgetMs?: number } = {},
 ): Promise<OperationResult> {
   const started = Date.now();
   const claimed = await claimMove(ctx, workspaceId, started);
   if (claimed === null) return { kind: "nodesKept", complete: true };
+  const deadline = started + (options.budgetMs ?? PASS_BUDGET_MS);
+  let rules: Promise<PrivacyState> | null = null;
+  const steps: StepOptions = {
+    privacy: () => (rules ??= loadPrivacyState(store)),
+    ...(options.wait === undefined ? {} : { wait: options.wait }),
+  };
   let moved = 0;
+  let failed = 0;
+  let conflicts = 0;
+  let tooLarge = 0;
   let stage: "moving" | "finishing" = "moving";
   try {
-    while (Date.now() - started < PASS_BUDGET_MS) {
-      const page = await movePage(ctx, workspaceId, store, claimed);
-      if (page === null) {
+    for (let first = true; first || Date.now() < deadline; first = false) {
+      const walk = await walkOldName(ctx, workspaceId, store, claimed, deadline, steps);
+      moved += walk.moved;
+      failed += walk.failed;
+      conflicts += walk.conflicts;
+      tooLarge += walk.tooLarge;
+      if (walk.complete && walk.listed === 0) {
         stage = "finishing";
         await finishMove(ctx, workspaceId, store, claimed, projection);
         return { kind: "nodesKept", complete: true };
       }
-      moved += page;
+      if (!walk.complete || walk.failed > 0) break;
     }
-    await ctx.runMutation(internal.functions.nodeMoves.progress, { id: claimed.id, moved, now: Date.now() });
+    if (failed > 0 && moved === 0) {
+      const label = tooLarge > 0 ? MOVE_FAILED_TOO_LARGE : conflicts === failed ? MOVE_FAILED_CONFLICT : MOVE_FAILED_STORAGE;
+      console.error("nodes.move_failed", { workspaceId, label, failed });
+      await ctx.runMutation(internal.functions.nodeMoves.failed, { id: claimed.id, label, now: Date.now() });
+      return { kind: "nodesKept", complete: false };
+    }
+    const now = Date.now();
+    await ctx.runMutation(internal.functions.nodeMoves.progress, { id: claimed.id, moved, now, ms: now - started });
     return { kind: "nodesKept", complete: false };
   } catch (error) {
     const label = stage === "finishing"

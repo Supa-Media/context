@@ -34,7 +34,8 @@ import { IndexRows, type IndexActions } from "./IndexRows";
 import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
-import { restartedLine, stuckMeaningCount } from "./meaningIndexes";
+import { fastRestartedLine, restartedLine, stuckMeaningCount } from "./meaningIndexes";
+import { StorageLag } from "./StorageLag";
 import {
   INDEXES,
   countParts,
@@ -76,6 +77,7 @@ export function IndexesView() {
   const styles = useThemedStyles(makeStyles);
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
   const restart = useMutation(api.functions.meaningAdmin.restartMeaningIndexing);
+  const restartFast = useMutation(api.functions.meaningAdmin.restartFastSearch);
   const migration = useQuery(api.functions.nodesMigration.report, {});
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
   const startMigration = useMutation(api.functions.nodesMigration.start);
@@ -84,6 +86,7 @@ export function IndexesView() {
   const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
   const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
+  const reseal = useMutation(api.functions.managedEncryption.resealWorkspace);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
   const [show, setShow] = useState<"attention" | "all">("attention");
@@ -152,6 +155,10 @@ export function IndexesView() {
   const actions: IndexActions = {
     busy,
     restart: restartMeaning,
+    restartFast: (workspaceId) =>
+      void act(`fast:${workspaceId}`, async () =>
+        fastRestartedLine((await restartFast({ workspaceId: workspaceId as Id<"workspaces"> })).outcome),
+      ),
     migrationPaused: paused,
     repair,
     check: checkOne,
@@ -165,6 +172,11 @@ export function IndexesView() {
         await undoMove({ id: id as Id<"moveQueue"> });
         return "The folder is going back to where it was.";
       }),
+    reseal: (workspaceId) =>
+      void act(`reseal:${workspaceId}`, async () => {
+        await reseal({ workspaceId: workspaceId as Id<"workspaces"> });
+        return "Walking the bucket again. Its notes open meanwhile, and are sealed as it goes.";
+      }),
   };
 
   if (rows === null) return <Loading />;
@@ -175,6 +187,7 @@ export function IndexesView() {
 
   return (
     <View style={styles.view} testID="admin-indexes">
+      {moves ? <StorageLag lag={moves.lag} /> : null}
       <View style={styles.cards}>
         {INDEXES.map((index) => (
           <SummaryCard

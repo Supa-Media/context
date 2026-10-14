@@ -148,9 +148,19 @@ const rowValidator = v.object({
    * The facts fill (`lib/nodes/facts.ts`): the links, front matter and chaos
    * details Lists, Boards, the map and the chaos score read. `null` before
    * its first pass. `ready` once it has read every note; `retrying` counts
-   * notes whose read failed and is tried again.
+   * notes whose read failed and is tried again; `retryKind` says why most
+   * failed (`readFailure.js`) and `retryPasses` how many passes in a row did.
    */
-  facts: v.union(v.null(), v.object({ ready: v.boolean(), running: v.boolean(), retrying: v.number() })),
+  facts: v.union(
+    v.null(),
+    v.object({
+      ready: v.boolean(),
+      running: v.boolean(),
+      retrying: v.number(),
+      retryKind: v.union(v.string(), v.null()),
+      retryPasses: v.number(),
+    }),
+  ),
 });
 
 function factsOf(row: Doc<"nodeFactState"> | null, now: number) {
@@ -159,6 +169,8 @@ function factsOf(row: Doc<"nodeFactState"> | null, now: number) {
     ready: row.ready,
     running: row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS,
     retrying: row.retry?.length ?? 0,
+    retryKind: row.retryKind ?? null,
+    retryPasses: row.retryPasses ?? 0,
   };
 }
 

@@ -212,9 +212,12 @@ export function runStoreFactoryChecks(check) {
         ?.conditionalCreate === false
   );
   check(
-    "an s3 binding preserves raw server-side-copy probing but disables copy on the logical view",
+    // The logical view's `copy` is the bucket's own for a file that is not a
+    // note (a HEAD rules out a deletion marker first) and a read and write
+    // for a note, so it says what the raw view proved (move-engine plan, B).
+    "an s3 binding's logical view copies server-side exactly where the raw view was proved to",
     rawAttempt(S3_BINDING).store?.capabilities?.serverSideCopy === "same-store" &&
-      attempt(S3_BINDING).store?.capabilities?.serverSideCopy === false &&
+      attempt(S3_BINDING).store?.capabilities?.serverSideCopy === "same-store" &&
       rawAttempt({
         ...S3_BINDING,
         capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
@@ -225,7 +228,7 @@ export function runStoreFactoryChecks(check) {
       }).store?.capabilities?.serverSideCopy === false
   );
   check(
-    "an s3 binding preserves the boolean server-side-copy probe only on the raw view",
+    "an s3 binding reads the boolean server-side-copy probe, on the raw and the logical view",
     // `"same-store"` is the probe's vocabulary and the row holds a boolean
     // (`storageBindings.capabilities.serverSideCopy`). Reading only the string
     // is how the capability was lost: probed since #374, and until the schema
@@ -247,7 +250,7 @@ export function runStoreFactoryChecks(check) {
           conditionalDelete: true,
           serverSideCopy: true,
         },
-      }).store?.capabilities?.serverSideCopy === false
+      }).store?.capabilities?.serverSideCopy === "same-store"
   );
   check(
     "a binding written before the capability fields existed moves nothing",

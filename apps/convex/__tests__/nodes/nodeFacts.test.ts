@@ -21,7 +21,9 @@
  *  - `record` writing whatever version it is handed: "a read that the note
  *    outran is not recorded" fails;
  *  - dropping `dropLinks` for a gone note: "a note that has gone loses its
- *    links" fails.
+ *    links" fails;
+ *  - `finish` ignoring `failedKind`: "a note that keeps failing says why"
+ *    fails.
  */
 
 import { describe, expect, test } from "vitest";
@@ -29,6 +31,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
 import { runFactFill } from "../../functions/lib/nodes/factFill";
+import { ManagedEncryptionError } from "../../../mcp/src/store/managedEncryption.js";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { factCtx, fillAll, observeBucket, observeGone, tester, workspace } from "./facts.helpers";
 
@@ -161,6 +164,32 @@ describe("the facts fill", () => {
     await runFactFill(ctx, ws, store, 0);
     expect(await t.query(internal.functions.nodeFacts.readiness, { workspaceId: ws })).toEqual({ ready: true, unparsed: 0 });
     expect((await rowOf(t, ws, "2-areas/area.md"))!.parsed).toBeDefined();
+  });
+
+  test("a note that keeps failing says why, pass after pass, and forgets it once it reads", async () => {
+    const t = tester();
+    const ws = await workspace(t, "zeta");
+    const store = bucket();
+    await observeBucket(t, ws, store);
+    const get = store.get.bind(store);
+    let failing = true;
+    store.get = (async (key: string, ...rest: unknown[]) => {
+      // What the sealed-only wrapper throws for @segunawe's late layout files.
+      if (failing && key === "2-areas/area.md") throw new ManagedEncryptionError("ENCRYPTED_UNREADABLE", "plain object in encrypted workspace");
+      return await (get as (...args: unknown[]) => Promise<unknown>)(key, ...rest);
+    }) as never;
+    const state = () => t.run(async (ctx) => (await ctx.db.query("nodeFactState").collect()).find((row) => row.workspaceId === ws)!);
+    await fillAll(t, ws, store);
+    const first = await state();
+    expect(first).toMatchObject({ retry: ["2-areas/area.md"], retryKind: "unsealed" });
+    await runFactFill(factCtx(t).ctx, ws, store, 0);
+    expect((await state()).retryPasses).toBe((first.retryPasses ?? 0) + 1);
+    failing = false;
+    await runFactFill(factCtx(t).ctx, ws, store, 0);
+    const healed = await state();
+    expect(healed.retry).toBeUndefined();
+    expect(healed.retryKind).toBeUndefined();
+    expect(healed.retryPasses).toBeUndefined();
   });
 
   test("a note with more links than one write holds keeps the first and stays unparsed", async () => {

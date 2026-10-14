@@ -100,6 +100,10 @@ folders, also can we add emojis to plain notes like activity"), reversing the
   meetings 🎙️, memories 💭, sessions 🤖, granola 🥣, and the capture folders
   📨 (`DEFAULT_INBOX_FOLDER_ICONS`). Exact name, exact depth: `1-projects/email`
   and `0-inbox/email/archive` are somebody's own.
+  Tex's folder gets them too (the owner, same day): `tex` ✨, `tex/about-me.md`
+  🪪, `tex/routines` 🔁, and each how-often folder under it by what its name
+  means (`cadenceFromFolder`): once 📌, minutes ⏱️, hours ⏳, days ☀️, weeks 📅,
+  months 🌙, yearly 🎆.
 - **A note's icon is one more key in the same file**, the note's own path
   (`todo.md`). The file keeps its name because it is a stable on-bucket format.
   A note's icon is read back only when the note itself is visible (`canSee`),

@@ -217,6 +217,10 @@ export const nodeTables = {
     lastError: v.optional(v.string()),
     /** The next pass is due at this time (a back-off after a failure). */
     nextAt: v.number(),
+    /** Objects a second, smoothed over passes (`moveLag.ts`): what an estimate of the time left divides by. */
+    rate: v.optional(v.number()),
+    /** When staff were told this move fell behind; a recovery mail follows its finish. */
+    lateAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -261,6 +265,10 @@ export const nodeTables = {
     leaseAt: v.optional(v.number()),
     /** Notes whose read failed, tried again by the next pass and counted as unparsed until then. */
     retry: v.optional(v.array(v.string())),
+    /** Why most of them failed, a `readFailure.js` word: what admin says. */
+    retryKind: v.optional(v.string()),
+    /** Passes in a row that read and still failed some, so a hiccup is told from a note that never reads. */
+    retryPasses: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**

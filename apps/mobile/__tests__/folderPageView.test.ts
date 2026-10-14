@@ -8,9 +8,9 @@
  * Reported from staging: somebody opened `projects/do this`, an empty folder,
  * and asked how to see the projects view and how to set a status. The answer
  * was "insert a list block into a note", which nobody finds. So the folder
- * page itself offers Notes · List · Board — List the Notes rows with a status
- * dot on each task (the owner, 2026-10-10; `folderPageList.test.ts`), Board
- * a column per status — and gives anybody who may write a `Set status` on the
+ * page itself offers List · Board — List the listing's rows with a status
+ * dot on each task (the owner, 2026-10-10; Notes merged into it 2026-10-14;
+ * `folderPageList.test.ts`), Board a column per status — and gives anybody who may write a `Set status` on the
  * folder and on every card, writing the status into the note's own
  * frontmatter, or a folder's front note, or a new `about.md` where a folder
  * has none.
@@ -217,11 +217,12 @@ describe("a folder whose children have statuses", () => {
 });
 
 describe("the switch", () => {
-  test("offers Notes, List and Board, and remembers the choice for this folder", async () => {
+  test("offers List and Board, and remembers the choice for this folder", async () => {
     await mount(entry("folder", "1-projects"), PROJECTS, host([]));
     expect(all("folder-view-switch")).toHaveLength(1);
-    // The listing is called Notes: "Files" was a word for the storage, not for what is in it.
-    expect(strip(one("folder-view-files").textContent)).toBe("Notes");
+    // Notes was a third word until the owner merged it into List (2026-10-14).
+    expect(all("folder-view-files")).toHaveLength(0);
+    expect(strip(one("folder-view-switch").textContent)).toBe("List·Board");
     await press(one("folder-view-board"));
     // Every status in the folder's list is somewhere to drop, empty or not — Backlog as its box — and notes are not cards.
     expect(one("folder-board-backlog-box").getAttribute("aria-label")).toBe("Backlog, 0");
@@ -232,15 +233,20 @@ describe("the switch", () => {
       "Paused, 1",
       "Finished, 0",
     ]);
-    await press(one("folder-view-files"));
-    expect(all("folder-row").length).toBeGreaterThan(0);
-    expect(dots()).toHaveLength(0);
 
     roots.pop()!();
     await mount(entry("folder", "1-projects"), PROJECTS, host([]));
-    expect(one("folder-view-files").getAttribute("aria-selected")).toBe("true");
-    expect(dots()).toHaveLength(0);
+    expect(one("folder-view-board").getAttribute("aria-selected")).toBe("true");
+    await press(one("folder-view-list"));
     expect(all("folder-row").length).toBeGreaterThan(0);
+    expect(dots()).toHaveLength(2);
+  });
+
+  test("a folder somebody last saw as Notes opens in List, which is what Notes became", async () => {
+    localStorage.setItem("context.folderView\u001fws_test\u001f1-projects", "files");
+    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
+    expect(dots()).toHaveLength(2);
   });
 });
 
@@ -321,10 +327,9 @@ describe("a folder outside projects", () => {
   const AREAS = listing("2-areas", [entry("folder", "2-areas/apps"), entry("folder", "2-areas/health"), entry("file", "2-areas/loose.md")]);
   const areas = (): FolderPageHost => ({ ...host([]), source: { load: async () => ({ notes: AREA_NOTES, complete: true }), setProperty: async () => null } });
 
-  test("is its files, with no switch and no nudge, even when things in it have a status", async () => {
+  test("is its files, with no switch and no dots, even when things in it have a status", async () => {
     await mount(entry("folder", "2-areas"), AREAS, areas());
     expect(all("folder-view-switch")).toHaveLength(0);
-    expect(all("folder-nudge")).toHaveLength(0);
     expect(dots()).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(3);
   });
@@ -365,33 +370,22 @@ describe("a folder of folders nobody has tracked yet", () => {
     source: { ...host(writes).source, load: async () => ({ notes: UNTRACKED, complete: true }) },
   });
 
-  test("opens as files, with one line offering the list, which only switches the view", async () => {
+  test("opens in List with no nudge: the rows are the list, each with its folder's icon", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects"), LIST, untracked(writes));
-    expect(all("folder-row")).toHaveLength(2);
-    expect(strip(one("folder-nudge").textContent)).toContain("Track these folders by status?");
-    await press(one("folder-nudge-show"));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
-    // Nothing has a status yet, so both are notes: the same two rows, with no dot.
+    // There was a "Track these folders by status?" line, which only switched to List; List is where it opens now.
+    expect(all("folder-nudge")).toHaveLength(0);
     expect(all("folder-row")).toHaveLength(2);
     expect(dots()).toHaveLength(0);
-    expect(all("folder-nudge")).toHaveLength(0);
+    expect(all("folder-row-icon")).toHaveLength(2);
     expect(writes).toEqual([]);
   });
 
-  test("is not offered to a member, who could set nothing in the list it opens", async () => {
+  test("a member is offered nothing to press on the rows", async () => {
     await mount(entry("folder", "1-projects"), LIST, { ...host(null), source: { load: async () => ({ notes: UNTRACKED, complete: true }) } });
     expect(all("folder-row")).toHaveLength(2);
-    expect(all("folder-nudge")).toHaveLength(0);
-  });
-
-  test("closed, it stays closed for this viewer", async () => {
-    await mount(entry("folder", "1-projects"), LIST, untracked());
-    await press(one("folder-nudge-dismiss"));
-    expect(all("folder-nudge")).toHaveLength(0);
-    roots.pop()!();
-    await mount(entry("folder", "1-projects"), LIST, untracked());
-    expect(all("folder-nudge")).toHaveLength(0);
+    expect(all("folder-row-status")).toHaveLength(0);
   });
 });
 

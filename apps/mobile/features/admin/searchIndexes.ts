@@ -73,6 +73,8 @@ export type WorkspaceIndexes = {
   migrationRow: MigrationRow | null;
   /** Folder moves still copying in this workspace. */
   moves: readonly MoveRow[];
+  /** Notes no reader of the bucket can read, and why; null when there are none. */
+  unreadable: Unreadable | null;
 };
 
 /** The dot colour for a health. */
@@ -97,21 +99,73 @@ function progressOf(indexed: number | null, pending: number | null) {
   return { figure: `${format(indexed)} of ${format(indexed + pending)}`, progress: { done: indexed, total: indexed + pending } };
 }
 
+/** Passes in a row a passing kind of failure gets before it reads as stuck rather than a hiccup. */
+export const UNREADABLE_AFTER_PASSES = 3;
+
+/** Why the notes do not read, after "1 note" / "2 notes", in words (`apps/mcp/src/store/readFailure.js`). */
+const UNREADABLE_WORDS: Record<string, readonly [one: string, many: string]> = {
+  unsealed: [
+    "was saved unsealed after this workspace was sealed, so it can't be opened. Seal again walks the bucket and seals it.",
+    "were saved unsealed after this workspace was sealed, so they can't be opened. Seal again walks the bucket and seals them.",
+  ],
+  sealed: ["is sealed but doesn't open with this workspace's key.", "are sealed but don't open with this workspace's key."],
+  name: ["has a name storage can't address.", "have names storage can't address."],
+  storage: ["was refused by the storage.", "were refused by the storage."],
+  other: ["keeps failing to read.", "keep failing to read."],
+};
+const LASTING = new Set(["unsealed", "sealed", "name"]);
+
+export type Unreadable = { count: number; kind: string; problem: string };
+
+/**
+ * Notes the facts fill cannot read, once it is clear they will not read on
+ * their own: at once for a lasting kind (a note saved unsealed into a sealed
+ * bucket never opens however often it is tried), after a few passes for the
+ * rest. Every reader of the bucket meets the same notes, so this is also why
+ * search sits short of the end (@segunawe, 2026-10-14).
+ */
+export function unreadableOf(row: MigrationRow | null): Unreadable | null {
+  const facts = row?.facts ?? null;
+  if (facts === null || facts.retrying === 0 || facts.retryKind === null) return null;
+  if (!LASTING.has(facts.retryKind) && facts.retryPasses < UNREADABLE_AFTER_PASSES) return null;
+  const count = facts.retrying;
+  const notes = `${format(count)} ${count === 1 ? "note" : "notes"}`;
+  const [one, many] = UNREADABLE_WORDS[facts.retryKind] ?? UNREADABLE_WORDS.other!;
+  return { count, kind: facts.retryKind, problem: `${notes} ${count === 1 ? one : many}` };
+}
+
 /**
  * The copy's facts (`lib/nodes/facts.ts` in the control plane): `Ready` once
- * the fill has read every note. Never stuck: a failed read is retried by the
- * next pass, and the 15-minute round starts a fill that is due. Paused with
- * the copy, since the round starts nothing while it is.
+ * the fill has read every note. A failed read is retried by the next pass, and
+ * the 15-minute round starts a fill that is due; one that will not read on its
+ * own is stuck and says why (`unreadableOf`). Paused with the copy, since the
+ * round starts nothing while it is.
  */
 export function factsCell(row: MigrationRow | null, paused = false): IndexCell {
   if (row === null) return NONE;
   const base = { figure: null, progress: null, problem: null, tiers: null };
   const facts = row.facts;
   if (facts !== null && facts.ready && facts.retrying === 0) return { ...base, health: "ok", label: "Ready" };
+  const unreadable = unreadableOf(row);
+  if (unreadable !== null) {
+    return { ...base, health: "stuck", label: "Can't read", figure: `${format(unreadable.count)} ${unreadable.count === 1 ? "note" : "notes"}`, problem: unreadable.problem };
+  }
   if (paused) return { ...base, health: "off", label: "Paused" };
   if (facts === null) return { ...base, health: "working", label: "Not started" };
   if (!facts.ready) return { ...base, health: "working", label: "Filling" };
   return { ...base, health: "working", label: "Retrying", figure: `${format(facts.retrying)} to read again` };
+}
+
+/**
+ * A search index still short of the end by no more notes than the bucket
+ * cannot read is not indexing: it is waiting on those notes, and says so
+ * rather than sitting on "Indexing 4 of 6".
+ */
+export function waitingOnUnreadable(cell: IndexCell, unreadable: Unreadable | null): IndexCell {
+  if (unreadable === null || cell.health !== "working" || cell.progress === null) return cell;
+  const left = cell.progress.total - cell.progress.done;
+  if (left <= 0 || left > unreadable.count) return cell;
+  return { ...cell, health: "stuck", label: "Waiting", problem: `Waiting on ${format(left)} ${left === 1 ? "note" : "notes"} that can't be read. See File tree.` };
 }
 
 export function fastCell(fast: MeaningIndexRow["fastSearch"] | null): IndexCell {
@@ -211,9 +265,13 @@ export function filesCell(copy: IndexCell, moves: readonly MoveRow[]): IndexCell
   let cell = copy;
   if (moves.length > 0) {
     const stuck = moves.find((move) => move.stuck);
+    const behind = moves.find((move) => move.late !== null && move.late !== "stuck");
     const figure = [cell.figure, movesLabel(moves.length)].filter(Boolean).join(" · ");
     if (stuck && RANK[cell.health] > RANK.stuck) {
       cell = { ...cell, health: "stuck", figure, problem: `A folder move is stuck${stuck.lastError ? `: ${stuck.lastError}` : ""}` };
+    } else if (behind && RANK[cell.health] > RANK.stuck) {
+      // The bucket is missing the five-hour promise: a person should look, as at a stuck move.
+      cell = { ...cell, health: "stuck", figure, problem: `A folder move is behind: ${behind.late === "old" ? "over 4 hours old" : "on pace to miss 5 hours"}` };
     } else if (!stuck && RANK[cell.health] > RANK.working) {
       cell = { ...cell, health: "working", figure };
     } else {
@@ -263,12 +321,13 @@ export function joinIndexes(
     const archived = entry.meaning?.archived === true || copy?.archived === true;
     const convex = archived ? ARCHIVED : convexCell(copy, paused);
     const pending = movesOf.get(workspaceId) ?? [];
+    const unreadable = unreadableOf(copy);
     return {
       workspaceId,
       slug: entry.slug,
       files: archived ? ARCHIVED : filesCell(convex, pending),
-      fast: archived ? ARCHIVED : fastCell(entry.meaning?.fastSearch ?? null),
-      meaning: archived ? ARCHIVED : meaningCell(entry.meaning),
+      fast: archived ? ARCHIVED : waitingOnUnreadable(fastCell(entry.meaning?.fastSearch ?? null), unreadable),
+      meaning: archived ? ARCHIVED : waitingOnUnreadable(meaningCell(entry.meaning), unreadable),
       convex,
       details: archived ? ARCHIVED : factsCell(copy, paused),
       archived,
@@ -276,6 +335,7 @@ export function joinIndexes(
       meaningRow: entry.meaning,
       migrationRow: copy,
       moves: pending,
+      unreadable: archived ? null : unreadable,
     };
   });
   return rows.sort(

@@ -81,5 +81,7 @@ export interface FileStore extends ScaffoldStore {
     conditionalWrite: boolean;
     conditionalCreate?: boolean;
     conditionalDelete?: boolean;
+    /** `"same-store"` where the bucket proved at connect that it copies server-side with preconditions. */
+    serverSideCopy?: "same-store" | false;
   };
 }

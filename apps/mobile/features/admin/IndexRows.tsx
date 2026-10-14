@@ -20,6 +20,8 @@ import { INDEXES, healthTone, tierLabel, type IndexCell, type WorkspaceIndexes }
 export type IndexActions = {
   busy: string | null;
   restart: (workspaceId: string) => void;
+  /** Start the fast search copy again now, rather than on the sweep. */
+  restartFast: (workspaceId: string) => void;
   /** Copying is paused by staff (readers still read the tree), so a copy cannot start. */
   migrationPaused: boolean;
   /** Copy the workspace again; its facts follow the copy. */
@@ -27,6 +29,8 @@ export type IndexActions = {
   check: (workspaceId: string) => void;
   retryMove: (id: string) => void;
   undoMove: (id: string) => void;
+  /** Walk a sealed bucket again, for notes saved unsealed after its walk. */
+  reseal: (workspaceId: string) => void;
 };
 
 const COLUMNS: readonly Column[] = [
@@ -172,7 +176,18 @@ function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions
   const meaning = row.meaningRow;
   const canRestart = meaning !== null && canRestartMeaning(meaning);
   const columns = [
-    { key: "fast", action: null, note: row.fast.health === "none" ? "No fast search for this workspace." : null },
+    {
+      key: "fast",
+      action: row.fast.health === "working" || row.fast.health === "stuck" ? (
+        <Button
+          label={actions.busy === `fast:${row.workspaceId}` ? "Restarting…" : "Restart"}
+          disabled={actions.busy !== null}
+          onPress={() => actions.restartFast(row.workspaceId)}
+          testID={`admin-fast-restart-${id}`}
+        />
+      ) : null,
+      note: row.fast.health === "none" ? "No fast search for this workspace." : null,
+    },
     {
       key: "meaning",
       action: canRestart ? (

@@ -10,6 +10,7 @@
 import { setNoteProperty } from "../../../../mcp/src/lists.js";
 import type { FolderListSource, ListNote, PropertyValue } from "../../console/files/listBlock/model";
 import { noteFromText } from "../../console/files/folderPage/tasks/pendingNotes";
+import { noteLede, setNoteLede } from "../../console/files/folderPage/lede";
 import { entriesIn } from "../../console/files/folderPage/model";
 import type { FileEntry, FolderListing } from "../../console/files/types";
 import { baseName } from "../../console/files/paths";
@@ -42,6 +43,7 @@ function seed(): Map<string, string> {
     ...[1, 2, 3, 4].map((at): [string, string] => [`${PROJECTS}/context-search/part-${at}.md`, note(`Search part ${at}`, { status: "to do" }, "A part of search.")]),
     [`${PROJECTS}/context-sharing/overview.md`, note("Context sharing links for one folder", { status: "in progress", priority: "p3", owner: "@seyi", tags: ["context", "sharing"] }, "A link an owner mints and can revoke.")],
     ...[1, 2, 3].map((at): [string, string] => [`${PROJECTS}/context-sharing/part-${at}.md`, note(`Sharing part ${at}`, { status: at === 1 ? "finished" : "to do" }, "A part of sharing.")]),
+    [`${PROJECTS}/retention/overview.md`, note("Personal communication retention migration", { status: "in progress" }, "Keep raw texts, emails and chat messages from the current calendar month and the previous two months in the inbox. Archive older raw captures under the archive, one folder per month, and leave a pointer behind so nothing is lost on the way.")],
     [`${PROJECTS}/cafe/overview.md`, note("Café opening", { status: "to do", owner: "@sayo", tags: ["cafe"], due: "2026-11-14" }, "Open a café on the corner by spring.")],
     [`${PROJECTS}/winter-retreat.md`, note("Winter retreat", { status: "finished", owner: "@sayo" }, "Done in January.")],
     [`${PROJECTS}/reading-list.md`, note("Reading list for the team", {}, "Books worth a look.")],
@@ -73,7 +75,7 @@ export interface ProjectsStore {
   subscribe(listener: () => void): () => void;
 }
 
-export function projectsStore(options: { canWrite: boolean }): ProjectsStore {
+export function projectsStore(options: { canWrite: boolean; slowBodies?: number }): ProjectsStore {
   const files = seed();
   const times = new Map<string, number>();
   let clock = Date.now() - 60 * 60_000;
@@ -82,7 +84,8 @@ export function projectsStore(options: { canWrite: boolean }): ProjectsStore {
   const changed = () => {
     for (const listener of [...listeners]) listener();
   };
-  const notes = (): ListNote[] => [...files].map(([path, text]) => noteFromText(path, text, times.get(path) ?? 0));
+  // With the opening paragraph the server's rows carry, so a page can draw it before the note itself is read.
+  const notes = (): ListNote[] => [...files].map(([path, text]) => ({ ...noteFromText(path, text, times.get(path) ?? 0), lede: noteLede(text) }));
   const touch = (path: string) => times.set(path, Date.now());
   const setProperties = async (path: string, changes: readonly (readonly [string, Value])[], opts?: { create?: boolean }) => {
     let text = files.get(path) ?? (opts?.create === true ? "" : null);
@@ -105,6 +108,7 @@ export function projectsStore(options: { canWrite: boolean }): ProjectsStore {
     load: async (folder) => ({ notes: notes().filter((each) => folder === "" || each.path.startsWith(`${folder}/`)), complete: true }),
     subscribe,
     readBody: async (path) => {
+      if ((options.slowBodies ?? 0) > 0) await new Promise((resolve) => setTimeout(resolve, options.slowBodies));
       const text = files.get(path);
       return text === undefined ? null : { text, encrypted: false };
     },
@@ -121,6 +125,16 @@ export function projectsStore(options: { canWrite: boolean }): ProjectsStore {
       ? {
           setProperty: (path: string, key: string, value: string | null, opts?: { create?: boolean }) => setProperties(path, [[key, value]], opts),
           setProperties,
+          setLede: async (path: string, text: string, opts?: { create?: boolean }) => {
+            const before = files.get(path) ?? (opts?.create === true ? "" : null);
+            if (before === null) return "That note isn’t here any more.";
+            const next = setNoteLede(before, text);
+            if ("error" in next) return next.error;
+            files.set(path, next.text);
+            touch(path);
+            changed();
+            return null;
+          },
         }
       : {}),
   };
