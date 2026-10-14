@@ -6,7 +6,12 @@
  * A row that is a task gets a small status dot in its icon's place (a ring
  * for Not started, half for In progress, full for Done), and after its name a
  * grey "3/9" when it has parts and the face of whoever owns it. A finished
- * one is drawn in grey. A row with no status is a note and keeps its icon.
+ * one is drawn in grey. A row with no status is a project item all the same,
+ * with an empty dashed circle for its dot (the owner, 2026-10-14: "all items
+ * in project folders should have statuses and be treated like an project item
+ * with no status if status is not set unless it explicitly has status:note").
+ * Only a row that says `status: note` is a note, and keeps its icon; the
+ * status menu's Just a note writes that.
  *
  * For somebody who may write, the dot and the face are the controls (the
  * owner, 2026-10-14: "I'm not able to click on the status circle to change
@@ -46,6 +51,8 @@ export interface RowExtra {
   readonly faces: readonly Face[];
   /** What the row's dot and face write to; absent only in tests that build extras by hand. */
   readonly item?: FolderItem;
+  /** A project item with no status yet: an empty circle where the dot goes. */
+  readonly unset?: boolean;
 }
 
 /** How a writer changes a row from the List: the page's own write and menus. */
@@ -53,6 +60,8 @@ export interface RowEdit {
   readonly onChoose: (item: FolderItem, key: string, value: string | null) => void;
   readonly statusMenu: readonly StatusMenuSection[];
   readonly onEditStatuses: (() => void) | null;
+  /** What Just a note writes (`status: note`). */
+  readonly noteWord: string;
   readonly owners: OwnerChoice;
 }
 
@@ -64,15 +73,19 @@ export function rowExtras(
   items: readonly FolderItem[],
   toneOf: (status: string) => StatusTone,
   faceOf: (owner: string) => Face,
+  /** A row with no status that is not a project item all the same: the Backlog folder. */
+  quiet?: (item: FolderItem) => boolean,
 ): ReadonlyMap<string, RowExtra> {
   const extras = new Map<string, RowExtra>();
   for (const item of items) {
-    if (item.status === "") {
+    if (item.noted || (item.status === "" && quiet?.(item) === true)) {
       extras.set(item.path, { tone: null, progress: null, faces: [], item });
       continue;
     }
     const progress = item.progress !== null && item.progress.total > 0 ? item.progress : null;
-    extras.set(item.path, { tone: toneOf(item.status), progress, faces: ownersOf(item.properties).map(faceOf), item });
+    const faces = ownersOf(item.properties).map(faceOf);
+    if (item.status === "") extras.set(item.path, { tone: null, progress, faces, item, unset: true });
+    else extras.set(item.path, { tone: toneOf(item.status), progress, faces, item });
   }
   return extras;
 }
@@ -104,6 +117,11 @@ function useRowEdit(): RowEdit | null {
   return useContext(RowExtrasContext)?.edit ?? null;
 }
 
+/** Whether a row is a project item: a status, or none yet. */
+export function isItem(extra: RowExtra | null | undefined): boolean {
+  return extra != null && (extra.tone !== null || extra.unset === true);
+}
+
 /** The task's owner one pick replaces: its only one, or "" for none; null when it has several. */
 function soleOwner(item: FolderItem): string | null {
   const owners = ownersOf(item.properties);
@@ -116,7 +134,7 @@ export function useRowTrailShows(extra: RowExtra | null | undefined): boolean {
   const edit = useRowEdit();
   if (extra == null) return false;
   if (extra.progress !== null || extra.faces.length > 0) return true;
-  return edit !== null && extra.tone !== null && extra.item !== undefined;
+  return edit !== null && isItem(extra) && extra.item !== undefined;
 }
 
 /** A task's status dot, in its row's icon slot; for a writer, the button to its status menu. */
@@ -124,7 +142,8 @@ export function RowExtraLead({ extra }: { extra: RowExtra | null }) {
   const styles = useThemedStyles(makeStyles);
   const edit = useRowEdit();
   const item = extra?.item;
-  const dot = extra?.tone == null ? null : <StatusDot tone={extra.tone} />;
+  const dot =
+    extra?.tone != null ? <StatusDot tone={extra.tone} /> : extra?.unset === true ? <View style={styles.unset} testID="folder-row-status-unset" /> : null;
   if (edit === null || item === undefined || dot === null) {
     return <View style={styles.lead}>{dot}</View>;
   }
@@ -136,6 +155,7 @@ export function RowExtraLead({ extra }: { extra: RowExtra | null }) {
         choices={[]}
         sections={edit.statusMenu}
         onEditList={edit.onEditStatuses}
+        noteWord={edit.noteWord}
         savesTo={item.creates ? NEW_FRONT_NOTE : null}
         onChoose={(value) => edit.onChoose(item, "status", value)}
         lead={dot}
@@ -153,7 +173,7 @@ export function RowExtraTrail({ extra }: { extra: RowExtra | null }) {
   const shows = useRowTrailShows(extra);
   if (extra === null || !shows) return null;
   const item = extra.item;
-  const sole = item === undefined || extra.tone === null ? null : soleOwner(item);
+  const sole = item === undefined || !isItem(extra) ? null : soleOwner(item);
   const shown = extra.faces.slice(0, MAX_FACES);
   const more = extra.faces.length - shown.length;
   const faces =
@@ -210,6 +230,8 @@ const makeStyles = (colors: Colors) =>
     count: { color: colors.chromeMuted, fontVariant: ["tabular-nums"] },
     faces: { flexDirection: "row", alignItems: "center" },
     overlap: { marginLeft: -4 },
+    // A status not set yet: the dot's own ring, dashed (StatusDot is 15pt).
+    unset: { width: 15, height: 15, borderRadius: radii.pill, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.chromeMuted },
     // Where a face goes once somebody owns it: the face's own size, dashed.
     nobody: { width: FACE, height: FACE, borderRadius: radii.pill, borderWidth: 1, borderStyle: "dashed", borderColor: colors.lineStrong },
   });

@@ -58,6 +58,7 @@ import {
   folderItems,
   groupFolderItems,
   isProjectsFolder,
+  NOTE_STATUS,
   propertyChoices,
   rowsAreProjects,
   summarizeFolder,
@@ -254,8 +255,9 @@ export function FolderPage({
   // The List: the Notes rows, each with its status dot, its "3/9" and its owners' faces (`rowExtras.tsx`).
   const faceOf = taskOwners.faceOf;
   const extras = useMemo(
-    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner)),
-    [items, toneOf, faceOf, owners],
+    // The Backlog folder is where projects are parked, not one of them: it has no status circle.
+    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner), (item) => item.path === parkedIn?.path),
+    [items, toneOf, faceOf, owners, parkedIn],
   );
 
   if (host === undefined) {
@@ -321,7 +323,7 @@ export function FolderPage({
   const rowEdit: RowEdit | null =
     actions.onChoose === null
       ? null
-      : { onChoose: actions.onChoose, statusMenu: menuSections, onEditStatuses, owners };
+      : { onChoose: actions.onChoose, statusMenu: menuSections, onEditStatuses, owners, noteWord: NOTE_STATUS };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
   // The about note drawn atop the page: the listing's, else the device copy's front note. A

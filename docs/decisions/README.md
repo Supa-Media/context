@@ -234,6 +234,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [One List view](./one-list-view.md)
 
 - Notes and List are one view, and its dot and face are its controls
+- In a projects folder, everything is a project item
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 

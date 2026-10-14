@@ -21,7 +21,7 @@ import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { isGroupVisibility } from "./types";
-import { RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
+import { isItem, RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
 
 /** How far each level of a folder opened in place sits in from its folder (`NestedRows.tsx`). */
@@ -93,7 +93,7 @@ export function FolderRow({
   // In the List view: the status dot, the count and the faces (`folderPage/rowExtras.tsx`). `undefined` in Notes.
   const extra = useRowExtra(row.path);
   const done = extra?.tone === "done";
-  const task = extra?.tone != null;
+  const task = isItem(extra);
   const extraShown = useRowTrailShows(extra);
   /*
     THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
@@ -189,7 +189,7 @@ export function FolderRow({
           </View>
         ) : card && task ? (
           // A phone's List: a task's status dot takes the icon's slot (board 13).
-          <RowExtraLead extra={extra} />
+          <RowExtraLead extra={extra ?? null} />
         ) : card ? (
           <RowGlyph row={row} icon={folderIcon} size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} emojiStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} plainFile />
         ) : row.kind === "folder" && onToggle !== undefined ? (
@@ -232,7 +232,7 @@ export function FolderRow({
         <View style={styles.glyph}>
           {task ? (
             // In the List a task's status dot is its icon: the two side by side were one mark too many (the owner, 2026-10-14).
-            <RowExtraLead extra={extra} />
+            <RowExtraLead extra={extra ?? null} />
           ) : row.kind === "folder" || isNote(row) ? (
             <RowGlyph row={row} icon={folderIcon} size={15} color={colors.chromeMuted} emojiStyle={styles.cardEmojiPointer} />
           ) : null}
