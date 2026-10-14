@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  isNoteStatus,
   isProjectsFolder,
   folderItems,
   groupFolderItems,
@@ -109,6 +110,17 @@ describe("a folder's children as items", () => {
     const { items } = folderItems("p", entries, notes);
     expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
     expect(items.find((item) => item.path === "p/backlog")!.progress).toBeNull();
+  });
+  test("status: note says only a note: no status, never a column word, and not counted as a part", () => {
+    const noted = [...notes, note("p/loose.md", { status: "Note" }), note("p/web/readme-ish.md", { status: "notes" })];
+    const { items } = folderItems("p", entries, noted.filter((each) => !(each.path === "p/loose.md" && each.properties.status === "paused")));
+    const loose = items.find((item) => item.path === "p/loose.md")!;
+    expect(loose).toMatchObject({ status: "", noted: true });
+    // No status written at all is not the same thing: a project item with none yet.
+    expect(items.find((item) => item.path === "p/do this")).toMatchObject({ status: "", noted: false });
+    expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
+    expect(isNoteStatus(" NOTE ")).toBe(true);
+    expect(isNoteStatus("notable")).toBe(false);
   });
 });
 
