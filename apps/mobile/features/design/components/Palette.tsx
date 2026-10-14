@@ -23,6 +23,7 @@ import { Text } from "./Text";
 import { makeStyles } from "./PaletteStyles";
 import { PaletteSheet, type PaletteLookIn } from "./PaletteSheet";
 import { usePaletteKeys } from "./usePaletteKeys";
+import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 
 /**
  * One filterable, keyboard-driven list, behind every surface that needs one.
@@ -237,9 +238,12 @@ export interface PaletteProps {
   fieldAccessory?: ReactNode;
   /** A phone's Look in chips and folder and tag results; ignored on a pointer layout. */
   lookIn?: PaletteLookIn;
+  /** Typed filters (⌘K's `in:`): suggestions while one is typed, chips once picked. */
+  filters?: PaletteFilters;
 }
 
 export { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
+export type { PaletteFilters } from "./PaletteFilterTokens";
 
 /* -------------------------------------------------------------------------- */
 /*                                  palette                                   */
@@ -258,6 +262,7 @@ export function Palette({
   scopeBar,
   fieldAccessory,
   lookIn,
+  filters,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -276,10 +281,17 @@ export function Palette({
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
   const rowHeight = touch ? TOUCH_ROW_HEIGHT : POINTER_ROW_HEIGHT;
 
-  const untyped = query.trim() === "" && recent !== undefined && recent.length > 0;
+  /*
+    A filter being typed ("rent in:ac") turns the list into its suggestions,
+    and only the words before it are searched; with none, the field is the query.
+  */
+  const typing = useMemo(() => filters?.suggest(query) ?? null, [filters, query]);
+  const words = typing?.rest ?? query;
+
+  const untyped = words.trim() === "" && recent !== undefined && recent.length > 0;
   const ranked = useMemo(
-    () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(query, items)),
-    [untyped, recent, query, items],
+    () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(words, items)),
+    [untyped, recent, words, items],
   );
 
   /**
@@ -346,17 +358,21 @@ export function Palette({
     [query, onSeeAll],
   );
   const matches = useMemo(() => {
+    const unranked = (item: PaletteItem) => ({ item, score: 0, ranges: [] as readonly [number, number][] });
+    if (typing !== null) return typing.items.map(unranked);
     const rows = merged ?? [...local, ...remote];
+    // Under an empty field the filters follow Recent, so Enter still opens the last note.
+    const idle = query.trim() === "" && filters?.idle ? filters.idle.items.map(unranked) : [];
     // The handoff is last, so it is never what Enter reaches by accident.
-    if (handoff === null) return rows;
-    return [...rows, { item: handoff, score: 0, ranges: [] as readonly [number, number][] }];
-  }, [merged, local, remote, handoff]);
+    if (handoff === null) return [...rows, ...idle];
+    return [...rows, ...idle, unranked(handoff)];
+  }, [typing, merged, local, remote, handoff, query, filters]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
     if (!onSearchQuery) return;
-    onSearchQuery(query);
-  }, [onSearchQuery, query]);
+    onSearchQuery(words);
+  }, [onSearchQuery, words]);
 
   /**
    * The highlight is always on a row that exists. `cursor` is intent — where
@@ -373,12 +389,22 @@ export function Palette({
    * id into `onChoose` would have every caller writing the same guard, and the
    * one that forgot would try to open a note called `\u0000see-all`.
    */
+  const open = useCallback(
+    (item: PaletteItem) => {
+      if (item.id === SEE_ALL_ID) onSeeAll?.(query);
+      else if (item.kind === "filter" && filters !== undefined) {
+        // A filter is picked into the field, which keeps the caret.
+        setQuery(filters.pick(item, query));
+        setCursor(0);
+        input.current?.focus();
+      } else onChoose(item);
+    },
+    [onChoose, onSeeAll, query, filters],
+  );
   const choose = useCallback(() => {
     const match = matches[selected];
-    if (match === undefined) return;
-    if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-    else onChoose(match.item);
-  }, [matches, selected, onChoose, onSeeAll, query]);
+    if (match !== undefined) open(match.item);
+  }, [matches, selected, open]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -437,9 +463,14 @@ export function Palette({
       ref={input}
       value={query}
       onChangeText={(next) => {
-        setQuery(next);
+        setQuery(filters ? filters.absorb(next) : next);
         // A new query is a new list; the highlight belongs on its top row.
         setCursor(0);
+      }}
+      onKeyPress={(event) => {
+        // Backspace in an empty field takes off the last filter chip, as in Slack.
+        const last = filters?.active[filters.active.length - 1];
+        if (event.nativeEvent.key === "Backspace" && query === "" && last !== undefined) filters?.remove(last.key);
       }}
       onSubmitEditing={choose}
       autoFocus
@@ -464,6 +495,7 @@ export function Palette({
    * and "nothing matches" would be worse than what it replaced.
    */
   const emptyText = (() => {
+    if (typing !== null) return typing.empty;
     if (search?.state === "searching") return search.searchingText ?? "Searching the rest of this workspace…";
     if (search?.state === "indexing") {
       return "This workspace is still being indexed. Try again in a moment.";
@@ -535,7 +567,7 @@ export function Palette({
         which is the one those states were written for.
       */}
       {looked?.places}
-      {notes && found === 0 ? (
+      {notes && (typing !== null ? typing.items.length === 0 : found === 0) ? (
         <View style={styles.empty} testID="palette-empty">
           <Text variant="rowSub">{emptyText}</Text>
         </View>
@@ -547,9 +579,14 @@ export function Palette({
             whole context found. Rendered at the boundary rather than as a
             wrapper, so the flat `matches` list the keyboard walks stays flat.
           */}
-          {index === local.length && searchNote !== null ? (
+          {index === local.length && searchNote !== null && typing === null ? (
             <Text variant="eyebrow" style={styles.heading} testID="palette-search-heading">
               {searchNote}
+            </Text>
+          ) : null}
+          {match.item.kind === "filter" && (index === 0 || matches[index - 1].item.kind !== "filter") ? (
+            <Text variant="eyebrow" style={styles.heading} testID="palette-filters-heading">
+              {typing?.heading ?? filters?.idle?.heading}
             </Text>
           ) : null}
           <PaletteRow
@@ -558,8 +595,7 @@ export function Palette({
             touch={touch}
             onPress={() => {
               setCursor(index);
-              if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-              else onChoose(match.item);
+              open(match.item);
             }}
             testID={`palette-row-${index}`}
           />
@@ -571,7 +607,7 @@ export function Palette({
         on found rows for the same reason as the block above: with none, the
         empty text already says it, and both would say it twice.
       */}
-      {found > 0 && search?.state === "searching" ? (
+      {found > 0 && typing === null && search?.state === "searching" ? (
         <View style={styles.empty} testID="palette-searching">
           <Text variant="rowSub">{search.searchingText ?? "Searching the rest of this workspace…"}</Text>
         </View>
@@ -580,7 +616,7 @@ export function Palette({
   );
 
   const heading =
-    emptyHeading && notes && query.trim() === "" && matches.length > 0 ? (
+    emptyHeading && notes && query.trim() === "" && found > 0 ? (
       <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
         {emptyHeading}
       </Text>
@@ -591,7 +627,7 @@ export function Palette({
 
   if (touch) {
     return (
-      <PaletteSheet field={field} onDismiss={onDismiss}>
+      <PaletteSheet field={<><FilterTokens filters={filters} />{field}</>} onDismiss={onDismiss}>
         {fieldAccessory}
         {scopeBar}
         {looked?.chips}
@@ -627,6 +663,7 @@ export function Palette({
         >
           <View style={styles.panelHeader}>
             <Icon name="search" size={16} color={colors.muted} />
+            <FilterTokens filters={filters} />
             {field}
             {fieldAccessory}
           </View>

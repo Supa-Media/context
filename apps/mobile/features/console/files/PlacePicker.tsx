@@ -167,6 +167,8 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 10,
       // Its own petrol border when focused, not the browser's orange outline.
       outlineWidth: 0,
+      // Safari draws its focus ring whatever the width; only `none` stops it.
+      outlineStyle: "none" as never,
     },
     list: {
       maxHeight: 380,
