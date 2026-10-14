@@ -30,7 +30,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import { asUser, drainScheduled } from "./fixtures.helpers";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { keysUnder, pair as pairOf } from "./contextMove.helpers";
+import { keysUnder, pair as pairOf, recopyTree } from "./contextMove.helpers";
 
 // Durable lifecycle writes add real SigV4/crypto requests per note. Keep this
 // multi-batch integration test bounded without the unit-suite 5-second ceiling.
@@ -234,6 +234,7 @@ describe.each([
   test("a move onto a folder the destination already has is refused, and nothing moves", async () => {
     const p = await pair({ notes: 4 });
     p.destination.seed("work/acme/theirs.md", "# theirs\n");
+    await recopyTree(p.t, p.to);
 
     const { moveId } = await asUser(p.t, p.mover).action(
       api.functions.contextMoves.startContextMove,
@@ -305,6 +306,9 @@ describe.each([
     await p.t.run((ctx) =>
       ctx.db.patch(moveId, { status: "failed", movedObjects: 3, error: "stopped" }),
     );
+    // Both trees as that half-finished move leaves them.
+    await recopyTree(p.t, p.from);
+    await recopyTree(p.t, p.to);
 
     await asUser(p.t, p.mover).action(api.functions.contextMoves.resumeContextMove, { moveId });
     await drainScheduled(p.t);

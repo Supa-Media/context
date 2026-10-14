@@ -44,7 +44,9 @@ describe("a move into another context on the mover", { timeout: 30_000 }, () => 
     // Outside it nothing was written under either folder, and nothing read
     // there answered a note's text: only the markers the mover left behind.
     expect(p.outside.filter((request) => !request.startsWith("GET ") && /^(PUT|POST|DELETE) (1-projects\/acme|work\/acme)\//.test(request))).toEqual([]);
-    const readNotes = p.outsideReads.filter((read) => read.key.startsWith("1-projects/acme/") || read.key.startsWith("work/acme/"));
+    // The destination's notes are read once they land, by its tree's front
+    // matter fill (convex-facts.md), never by the move; the source's never.
+    const readNotes = p.outsideReads.filter((read) => read.key.startsWith("1-projects/acme/"));
     expect(readNotes.filter((read) => /^# \d+/.test(read.body))).toEqual([]);
   });
 
