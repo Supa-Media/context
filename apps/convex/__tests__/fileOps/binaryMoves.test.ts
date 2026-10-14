@@ -30,7 +30,7 @@ async function seedPicture(store: ReturnType<typeof bucket>, key: string) {
 }
 
 function contentTypeOf(store: ReturnType<typeof bucket>, key: string) {
-  return store.get(key).then((object) => object?.contentType ?? object?.httpMetadata?.contentType);
+  return store.get(key).then((object) => (object as { contentType?: string } | null)?.contentType);
 }
 
 describe("a picture keeps its bytes and type", () => {
