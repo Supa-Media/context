@@ -56,19 +56,13 @@ import { inviteHref } from "../auth/redirect";
  * Search is first, and it is app level rather than a context's, for the reason
  * it exists: the question it answers — "where did anybody write about the
  * review cycle" — is the one question in this product that spans more than one
- * context. Putting it inside a context would make the default scope "this one",
- * which is the search that already exists behind ⌘K.
+ * context. Inside a context its default scope would be "this one", ⌘K's search.
  */
 export const APP_SECTIONS = [
   { key: "search", label: "Search", href: "/console/search" },
   { key: "map", label: "Map", href: "/console/map" },
   { key: "connections", label: "Connections", href: "/console/connections" },
-  /*
-    @shared: what people shared with you by name, across workspaces you may
-    not be in (Dev2, 2026-10-14). Account-wide like Search, so it is app level;
-    its door is the account menu's @shared row rather than a rail row.
-  */
-  { key: "shared", label: "@shared", href: "/console/shared" },
+  { key: "shared", label: "@shared", href: "/console/shared" }, // Dev2, 2026-10-14; door: the account menu
 ] as const;
 
 export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];

@@ -153,7 +153,6 @@ describe("validateName (pure rules)", () => {
     // impersonation handle: `workspace@context.lc` receives mail people
     // believed was going to the product, and `@context/...` reads as a product
     // path rather than a person's.
-    // `shared` is @shared, the list of what was shared with you (2026-10-14).
     for (const name of ["workspace", "workspaces", "context", "shared"]) {
       expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
       expect(validateName(name)).toMatchObject({ ok: false, reason: "reserved" });
