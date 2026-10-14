@@ -73,6 +73,7 @@ export const operationResultValidator = v.union(
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
+  v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
   v.object({
     kind: v.literal("moveQueued"),
     queued: v.boolean(),
@@ -265,6 +266,8 @@ export const operationValidator = v.union(
    * stopped being `backfilling`, or a projection that reached `ready`.
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
+  /** Remove a `ready` database's rows for notes that are gone; scheduled only, like `projectIndex`. */
+  v.object({ kind: v.literal("pruneIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */

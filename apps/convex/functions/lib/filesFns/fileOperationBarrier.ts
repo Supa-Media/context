@@ -62,9 +62,11 @@ import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
   type FileOperation,
   IDLE_PROJECTION,
+  IDLE_PRUNE,
   type OperationResult,
 } from "./operationTypes";
 import { operationValidator } from "./operationValidators";
+import { runPrunePass } from "./prunePass";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
@@ -162,9 +164,13 @@ export async function runFileOperationHandler(
   // A change re-indexed behind its operation is followed into a `ready`
   // projection too, so a rename or move is found at its new path at once
   // (`search/d1/follow.js`). Silent on every no, as a search is.
-  if (args.operation.kind === "indexNotes") {
-    const target = await projectionTarget("ready");
+  // So is a queued folder move when its copy lands, and the daily check of a
+  // `ready` database removes rows for notes that are gone (`prunePass.ts`).
+  if (args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+    // Never fails the operation it rides on: a move's copy must not stop over a derivative.
+    const target = await projectionTarget("ready").catch(() => null);
     if (target !== null) projection = await clientFor(target).catch(() => null);
+    if (args.operation.kind === "pruneIndex" && projection === null) return IDLE_PRUNE;
   }
 
   if (args.operation.kind === "projectIndex") {
@@ -405,7 +411,8 @@ export async function runFileOperationHandler(
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
-  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
+  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
+  if (args.operation.kind === "pruneIndex") return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;

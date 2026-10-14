@@ -18,6 +18,7 @@ import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
+import { freshenMeaningAfterActivity } from "./lib/meaningFns/rows";
 import { followMovesForMembers } from "./lib/placesFollow";
 import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
 
@@ -311,6 +312,8 @@ export const complete = internalMutation({
     await ctx.db.delete(id);
     // The copy is done and the old name's rules are gone: the site is rebuilt from where its pages now sit.
     await markWebsiteMoved(ctx, row.workspaceId, row);
+    // Search by meaning holds the notes at their old names, which it no longer folds: catch it up.
+    await freshenMeaningAfterActivity(ctx, row.workspaceId);
     const rest = (await queueOf(ctx, row.workspaceId)).filter((other) => other.state === "moving");
     if (rest.length > 0) await scheduleWork(ctx, row.workspaceId);
     return null;

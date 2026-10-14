@@ -22,6 +22,7 @@ import { clearanceOf } from "../clearance";
 import { FileOpError } from "../fileOps/errors";
 import { assertNotMainFolder, requirePath } from "../fileOps/paths";
 import { assertWritablePath } from "../fileOps/writing";
+import type { ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import type { PendingMove } from "./moveOverlay";
@@ -54,11 +55,16 @@ export function pendingMovesLookup(ctx: ActionCtx, workspaceId: Id<"workspaces">
   return lookup;
 }
 
-export async function runMoveOperation(ctx: ActionCtx, args: BarrierArgs & { operation: MoveOperation }, store: FileStore): Promise<OperationResult> {
+export async function runMoveOperation(
+  ctx: ActionCtx,
+  args: BarrierArgs & { operation: MoveOperation },
+  store: FileStore,
+  projection: ProjectionClient | null = null,
+): Promise<OperationResult> {
   if (args.operation.kind === "nodesMoveWork") {
     // The finishing link rewrite lists the tree's notes, not the bucket's.
     attachTreeListing(ctx, args.workspaceId, store);
-    return await runMoveWork(ctx, args.workspaceId, store);
+    return await runMoveWork(ctx, args.workspaceId, store, projection);
   }
   let moved;
   try {

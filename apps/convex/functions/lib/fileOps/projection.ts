@@ -18,6 +18,7 @@ import {
   projectPass,
   worthReporting,
 } from "../../../../mcp/src/search/d1/backfill.js";
+import { deleteStatements } from "../../../../mcp/src/search/d1/project.js";
 import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
@@ -342,7 +343,7 @@ export async function projectSearchIndex(
  * docmap held, so rows already copied stay current. `null` when the listing
  * fails, and the pass falls back to the index's census rather than stopping.
  */
-async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
+export async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
   try {
     const listing = await listNoteObjects(store, budget, 0, (key: string) => key.endsWith(".md") && !isPlumbing(key));
     const census = new Map<string, string>();
@@ -372,7 +373,7 @@ const GONE_CHECK_KEEP = 100;
  * listing cannot know about, and deleting it would hide a fresh note from
  * search until the next sweep. A query or a read that fails deletes nothing.
  */
-async function goneFromBucket(
+export async function goneFromBucket(
   store: FileStore,
   client: ProjectionClient,
   budget: ReturnType<typeof createSearchBudget>,
@@ -398,4 +399,39 @@ async function goneFromBucket(
     }
   }
   return gone;
+}
+
+/** Store operations one pruning pass may spend: a listing and the notes asked for by name. */
+const PRUNE_PASS_BUDGET = 1_200;
+
+/**
+ * Rows of a `ready` database whose notes are gone, removed.
+ *
+ * The copy above deletes such rows while it runs, but it only runs until the
+ * database is `ready`. After that every write the product makes says what it
+ * removed (`search/d1/follow.js`), and nothing else ever did: a note deleted in
+ * Obsidian or the bucket's own console, or a row left behind before writes were
+ * followed (seen on @supa, 2026-10-13), answered searches at a path that opens
+ * nothing, for good. This is the same check, run on its own: the bucket listed,
+ * a row the listing lacks asked for by name, and deleted only when absent.
+ *
+ * `checked: false` when the listing or the database failed; nothing was
+ * deleted then. Counts only, never a path.
+ */
+export async function pruneSearchIndex(
+  store: FileStore,
+  client: ProjectionClient,
+  options: { budget?: number } = {},
+): Promise<{ deleted: number; checked: boolean }> {
+  const budget = createSearchBudget(options.budget ?? PRUNE_PASS_BUDGET);
+  const listed = await listingCensus(store, budget);
+  if (listed === null) return { deleted: 0, checked: false };
+  const gone = await goneFromBucket(store, client, budget, listed);
+  if (gone.length === 0) return { deleted: 0, checked: true };
+  try {
+    await client.runAll(gone.flatMap((path) => deleteStatements(path)));
+  } catch {
+    return { deleted: 0, checked: false };
+  }
+  return { deleted: gone.length, checked: true };
 }

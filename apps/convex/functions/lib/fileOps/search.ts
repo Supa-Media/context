@@ -564,10 +564,11 @@ export async function indexChangedNotes(
  * The same change, followed into a `ready` fast search database: a moved
  * note's old rows out and its new path projected, a moved folder renamed in
  * place, a gone note removed (`search/d1/follow.js`, shared with the gateway).
- * A queued folder move is skipped by the caller: the bucket has not moved yet.
+ * A queued folder move is skipped by the caller: the bucket has not moved yet,
+ * and the move's worker follows it here when its copy lands (`nodes/moveWork.ts`).
  * Never throws: the database is a derivative, and the sweep repairs it.
  */
-async function followInProjection(
+export async function followInProjection(
   store: FileStore,
   change: { written: string[]; gone: string[]; moved?: string[][] },
   projection: ProjectionClient,

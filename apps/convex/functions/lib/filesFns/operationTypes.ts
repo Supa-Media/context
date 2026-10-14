@@ -47,6 +47,9 @@ export const IDLE_PROJECTION = {
   report: false,
 } as const;
 
+/** What a pruning pass answers when there is no `ready` database to prune. */
+export const IDLE_PRUNE = { kind: "indexPruned", deleted: 0, checked: false } as const;
+
 /** What a meaning pass answers when its index is not there to fill. */
 export const IDLE_MEANING = {
   kind: "meaningProjected",
@@ -99,6 +102,8 @@ export type FileOperation =
    */
   | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
   | { kind: "projectIndex"; passes?: number }
+  /** Remove a `ready` database's rows for notes that are gone. See `prunePass.ts`. */
+  | { kind: "pruneIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
   /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
@@ -376,6 +381,8 @@ export type OperationResult =
       privacy?: string | null;
     } & SyncManifest)
   | { kind: "nodesKept"; complete: boolean }
+  /** `pruneIndex`: rows removed, and whether the bucket and database were both reached. */
+  | { kind: "indexPruned"; deleted: number; checked: boolean }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }

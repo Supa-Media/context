@@ -194,6 +194,13 @@ export const platformTables = {
      * outlives Convex's action limit, then expires if an action is lost. */
     projectionLease: v.optional(v.object({ token: v.string(), until: v.number() })),
     /**
+     * When the daily check last asked the bucket for every note this `ready`
+     * database still lists (`fastSearchFns/prune.ts`). A note deleted outside
+     * the product, in Obsidian or the bucket's own console, leaves rows no
+     * write ever tells search about; absent until the first check.
+     */
+    prunedAt: v.optional(v.number()),
+    /**
      * Where provisioning the managed bucket has got to, for the one context
      * this plan is for.
      *
@@ -222,7 +229,9 @@ export const platformTables = {
   })
     .index("by_workspace", ["workspaceId"])
     /** For the sweep that finishes releases and retries failures. */
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    /** For the daily check of `ready` databases, the longest unchecked first. */
+    .index("by_status_pruned", ["status", "prunedAt"]),
 
   /**
    * Where "on for everyone" has walked to in `storageBindings`: one row, the
