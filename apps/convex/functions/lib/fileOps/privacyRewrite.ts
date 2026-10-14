@@ -17,12 +17,14 @@ import {
   nextOverrides,
   overrideFor,
   replacePrivacyRulesBlock,
+  UnreadableManifestError,
   visibilityOf,
 } from "../privacy";
 import { MANIFEST_CAS_ATTEMPTS, type FileStore } from "./store";
 import { FileOpError } from "./errors";
 import { loadPrivacyState } from "./privacyState";
 import { rulesSurvivorsRestOn, oneRulePerPrefix, rulesAfterFolderMove } from "./moveRules";
+import { UNWRITABLE_PATH_MESSAGE } from "./privacyReset";
 
 /* -------------------------------------------------------------------------- */
 /*                          rewriting privacy.md safely                       */
@@ -62,7 +64,13 @@ export async function mutateManifest(
     }
 
     const next = change({ rules: state.rules, overrides: state.overrides });
-    const text = replacePrivacyRulesBlock(state.text, next.rules, next.overrides);
+    let text: string;
+    try {
+      text = replacePrivacyRulesBlock(state.text, next.rules, next.overrides);
+    } catch (error) {
+      if (error instanceof UnreadableManifestError) throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
+      throw error;
+    }
     if (text === state.text) return next; // nothing changed; do not churn the file
 
     const put =
