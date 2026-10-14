@@ -121,6 +121,13 @@ export function BrowseDocument({
   const tasks = useTaskHost(files, local === undefined ? current?.id : undefined, folderLists, setFolderDialog);
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
   const editing = usePeekEditing(files, presence);
+  // A folder row's arrow opens it in place from the tree's own listings (`files/NestedRows.tsx`).
+  const listings = files.listings;
+  const ensureListing = files.ensureListing;
+  const folderNesting = useMemo(
+    () => ({ listingOf: (path: string) => listings[path], loadListing: (path: string) => ensureListing(path) }),
+    [listings, ensureListing],
+  );
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -414,6 +421,7 @@ export function BrowseDocument({
         }
         phoneRows={phoneRowsFor}
         iconOf={files.iconOf}
+        nesting={folderNesting}
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />

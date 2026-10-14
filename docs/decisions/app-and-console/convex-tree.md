@@ -223,7 +223,33 @@ folder at its new name at once, and the bucket catches up behind it.
   object once (chains collapse). One pass works for a minute, a pool of six
   at a time, reports what moved, and schedules the next (`moveWork.ts`). An
   edit landing mid-copy keeps the edit and retries; a name taken by a stranger
-  is a conflict, never an overwrite (`moveObject`).
+  is never overwritten (`moveObject`).
+- **The worker never stops short and never sticks on one object** (decided
+  2026-10-14, project file `move-engine/plan.md`). It walks the old name with
+  the store's cursor, because a page of hidden deleted-note markers lists as
+  empty while files follow it, and finishes only after a whole walk finds
+  nothing left. Each object is retried in place (three tries) and a failure
+  leaves it for the next pass while the objects behind it keep moving
+  (`moveSteps.ts`). A stranger's object at the destination is kept, and the
+  moving one lands beside it as `name (moved).ext`, then `(moved 2)`: the
+  conflicted-copy rule sync tools use, so neither is lost. Only where that name
+  is exactly as visible as the destination: if either name has a rule of its
+  own the object stays put and the move shows as stuck. Reverting to "list
+  until empty" or "throw on a clash" fails `__tests__/nodes/moveEngine.test.ts`.
+- **A file that is not a note moves by the bucket's own copy** (decided
+  2026-10-14, `move-engine/plan.md` step B), so its bytes never pass through
+  Convex: one `CopyObject` up to 5 GiB, a multipart `UploadPartCopy` past
+  that, every part pinned to the source version it started from, the
+  completion only onto nothing, and any failure aborting the upload. A
+  multipart copy is stamped `x-amz-meta-context-copy-of: <source etag>` so a
+  pass that died before retiring the source recognises its own copy. The
+  store reports `serverSideCopy: "same-store"` only where the connect probe
+  proved a conditional copy; elsewhere a file over 24 MiB is left in place
+  and the move shows "A file is too large to move on this storage" rather
+  than overflowing the action. Notes still move by read and write, so their
+  history and stamp go with them. A deleted note's marker at the destination
+  is a clash like any stranger's object, never a failure for ever. Reading
+  the source or dropping the part pin fails `__tests__/nodes/serverCopy.test.ts`.
 - **Opening a note promotes it.** A request's store reads through the pending
   moves (`withPendingMoves`): touching the new name moves that object there
   first, collaboration history included; an old name still holding its object

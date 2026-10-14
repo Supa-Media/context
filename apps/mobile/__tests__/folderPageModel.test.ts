@@ -7,7 +7,6 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
-  defaultFolderView,
   isProjectsFolder,
   folderItems,
   groupFolderItems,
@@ -152,15 +151,6 @@ describe("groups", () => {
       [note("p/old/overview.md", { status: "active" }, { updatedAt: 1 }), note("p/new/overview.md", { status: "active" }, { updatedAt: 9 })],
     ).items;
     expect(groupFolderItems(within, "status", defaultStatusList() as StatusList)[0].items.map((item) => item.path)).toEqual(["p/new", "p/old"]);
-  });
-});
-
-describe("the view a folder opens in", () => {
-  test("is the grouped list once anything in it has a status, and files otherwise", () => {
-    const withStatus = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "active" })]).items;
-    const without = folderItems("p", [folder("p/a"), folder("p/b")], []).items;
-    expect(defaultFolderView(withStatus)).toBe("list");
-    expect(defaultFolderView(without)).toBe("files");
   });
 });
 

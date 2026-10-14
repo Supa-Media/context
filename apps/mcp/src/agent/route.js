@@ -12,6 +12,7 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
+import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readAboutMe } from "./aboutMe.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -481,6 +482,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       coreTools: production?.coreTools ?? null,
       // What Tex keeps about them, in their own workspace (`aboutMe.js`), on a texted turn.
       aboutMe: texting ? await readAboutMe((name, args) => callToolForSession({ name, arguments: args }, store, session)) : null,
+      // Their clock: a routine's own zone, else the one the texting Worker sent (`localNow.js`).
+      localNow: { now: Date.now(), timeZone: runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE },
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,

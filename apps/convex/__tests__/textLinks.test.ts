@@ -246,3 +246,25 @@ describe("what a text can reach", () => {
     expect(left).toEqual([]);
   });
 });
+
+describe("the clock a text is answered by", () => {
+  // Tex asked for the phone's time before "remind me in 2 minutes" (owner,
+  // 2026-10-14): a session carries the zone their reminders run in.
+  test("a linked phone's session carries its account's time zone, else the routines' default", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    const { code } = await startLink(t, userId);
+    expect(await link(t, PHONE, code)).toBe("linked");
+    expect((await session(t, PHONE)).timeZone).toBe("America/New_York");
+
+    await asUser(t, userId).mutation(api.functions.routines.setMyTimeZone, { timeZone: "Europe/London" });
+    const opened = await session(t, PHONE);
+    expect(opened).toMatchObject({ status: "linked", timeZone: "Europe/London" });
+    expect(typeof opened.accessToken).toBe("string");
+  });
+
+  test("an unlinked phone learns no zone", async () => {
+    const t = setupTest();
+    expect(await session(t, PHONE)).toEqual({ status: "unlinked" });
+  });
+});

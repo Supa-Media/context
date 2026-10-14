@@ -33,6 +33,7 @@ import {
 import { isEncryptedNote } from "../encryption.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { LOGICAL_DELETE_CONTENT_TYPE, WRITABLE_CONTENT_TYPES } from "../store/contentTypes.js";
+import { notAMarker } from "../store/logicalDelete.js";
 import { deleteCreatedDestination, retireMovedSource } from "./objects.js";
 
 /** `key` renamed by one move, or `null` when the move does not reach it. */
@@ -124,14 +125,22 @@ function isOldName(key, moves) {
  */
 const AWAY_ANSWER = { get: null, head: null, exists: false, existsMetadata: false };
 
-/** A conflict a move cannot settle by itself; the worker counts it and retries. */
+/**
+ * A conflict a move cannot settle by itself. `clash` says which: `true` when a
+ * different object already sits at the destination (the worker can settle
+ * that by keeping both, `lib/nodes/moveSteps.ts`), `false` when the source
+ * changed while it was copied (the next try copies the newest version).
+ */
 export class MoveObjectConflict extends Error {
   constructor(reason) {
     super(`move conflict: ${reason}`);
     this.name = "MoveObjectConflict";
     this.code = "MOVE_CONFLICT";
+    this.clash = reason === DESTINATION_EXISTS;
   }
 }
+
+const DESTINATION_EXISTS = "destination exists";
 
 function bytesEqual(left, right) {
   const a = new Uint8Array(left);
@@ -160,6 +169,10 @@ function bytesEqual(left, right) {
  */
 export async function moveObject(store, source, destination) {
   if (source === destination) return { state: "already" };
+  if (serverCopies(store) && !source.endsWith("/") && !source.endsWith(".md") && !destination.endsWith(".md")) {
+    const fast = await moveByServerCopy(store, source, destination);
+    if (fast !== null) return fast;
+  }
   const object = await store.get(source);
   if (object === null || object === undefined) {
     const landed = await store.get(destination);
@@ -174,7 +187,7 @@ export async function moveObject(store, source, destination) {
         return { state: "moved", ...(typeof moved?.etag === "string" ? { etag: moved.etag } : {}) };
       } catch (error) {
         if (error?.code === "MOVED") return { state: "already" };
-        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict("destination exists");
+        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict(DESTINATION_EXISTS);
         if (error?.code === "CONFLICT" || error?.code === "BASE_MISSING" || error?.code === "GENERATION_MISMATCH") {
           throw new MoveObjectConflict("note changed while moving");
         }
@@ -188,7 +201,16 @@ export async function moveObject(store, source, destination) {
   // An image stays an image: the type it was stored as goes with it, where it is one a store may write.
   const type = object.contentType || object.httpMetadata?.contentType;
   const keepType = typeof type === "string" && type !== LOGICAL_DELETE_CONTENT_TYPE && WRITABLE_CONTENT_TYPES.has(type);
-  const created = await store.put(destination, body, { onlyIf: { absent: true }, ...(keepType ? { contentType: type } : {}) });
+  let created;
+  try {
+    created = await store.put(destination, body, { onlyIf: { absent: true }, ...(keepType ? { contentType: type } : {}) });
+  } catch (error) {
+    // The logical view refuses to bring a file that is not a note back over a
+    // deleted file's marker: the name is held, which is a clash the worker
+    // settles by keeping the file beside it, never a failure to retry for ever.
+    if (/over a logical tombstone/.test(String(error?.message))) throw new MoveObjectConflict(DESTINATION_EXISTS);
+    throw error;
+  }
   if (created === null || created === undefined) {
     // Something is at the destination already. Our own earlier copy (a pass
     // that died before retiring the source, or another request promoting the
@@ -197,7 +219,7 @@ export async function moveObject(store, source, destination) {
     // a bucket without conditional deletes leaves when its delete failed.
     const there = await store.get(destination);
     const ours = there && (body.byteLength === 0 || bytesEqual(await there.arrayBuffer(), body));
-    if (!ours) throw new MoveObjectConflict("destination exists");
+    if (!ours) throw new MoveObjectConflict(DESTINATION_EXISTS);
     const retired = await retireMovedSource(store, source, object.etag);
     if (retired !== "retired") {
       if ((await store.get(source)) === null) return { state: "already" };
@@ -213,6 +235,68 @@ export async function moveObject(store, source, destination) {
     throw new MoveObjectConflict("note changed while moving");
   }
   return { state: "moved", ...(typeof created.etag === "string" ? { etag: created.etag } : {}), size: body.byteLength };
+}
+
+/** Whether this bucket proved at connect that it copies server-side, preconditions and all. */
+function serverCopies(store) {
+  return store?.capabilities?.serverSideCopy === "same-store" &&
+    typeof store.copy === "function" && typeof store.head === "function";
+}
+
+/** Past this a clash is decided by size and etag alone; under it the bytes are compared. */
+const COMPARE_BYTES_MAX = 8 * 1024 * 1024;
+
+/**
+ * Move an object that is not a note by the bucket's own copy: a HEAD, a
+ * create-only copy pinned to that version, and the guarded retire. Its bytes
+ * never pass through here, whatever its size (`S3Store.copy` copies past
+ * 5 GiB in parts). Answers `null` where it cannot decide, and the caller
+ * takes the read-and-write path, which can: a HEAD that cannot rule out a
+ * deletion marker, or a small destination whose bytes need comparing.
+ */
+async function moveByServerCopy(store, source, destination) {
+  const meta = await store.head(source);
+  if (meta === undefined) return null;
+  if (meta === null) {
+    const landed = await store.head(destination);
+    return { state: landed ? "already" : "missing" };
+  }
+  if (!notAMarker(meta)) return null;
+  const moved = (etag) => ({ state: "moved", ...(typeof etag === "string" && etag ? { etag } : {}), size: meta.size });
+  const copied = await store.copy(source, destination, {
+    onlyIf: { absent: true },
+    sourceOnlyIf: { etagMatches: meta.etag },
+    size: meta.size,
+    ...(typeof meta.contentType === "string" ? { contentType: meta.contentType } : {}),
+  });
+  if (copied === null || copied === undefined) {
+    const there = await store.head(destination);
+    if (there === null || there === undefined) {
+      if ((await store.head(source)) === null) return { state: "already" };
+      throw new MoveObjectConflict("note changed while moving");
+    }
+    // Our own earlier copy (a pass that died before retiring the source): same size and the
+    // version it was copied from, as its etag or, for a copy made in parts, its stamp.
+    // A deleted file's marker holds the name: a clash, kept beside rather than written over.
+    if (!notAMarker(there)) throw new MoveObjectConflict(DESTINATION_EXISTS);
+    const ours = there.size === meta.size && (there.etag === meta.etag || there.copyOf === meta.etag);
+    if (!ours) {
+      if (meta.size <= COMPARE_BYTES_MAX) return null;
+      throw new MoveObjectConflict(DESTINATION_EXISTS);
+    }
+    const retired = await retireMovedSource(store, source, meta.etag);
+    if (retired !== "retired") {
+      if ((await store.head(source)) === null) return { state: "already" };
+      throw new MoveObjectConflict("note changed while moving");
+    }
+    return moved(there.etag);
+  }
+  const retired = await retireMovedSource(store, source, meta.etag);
+  if (retired !== "retired") {
+    await deleteCreatedDestination(store, destination, copied.etag);
+    throw new MoveObjectConflict("note changed while moving");
+  }
+  return moved(copied.etag);
 }
 
 /** Thrown for a write to an old name whose object a pending move already carried away. */

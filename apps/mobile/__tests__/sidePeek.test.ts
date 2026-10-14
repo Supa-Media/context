@@ -217,12 +217,12 @@ describe("the file tree while the panel is open", () => {
     expect(tree.hidden).toBe(true);
   });
 
-  test("comes back when the page shows its Notes, where there is no panel", async () => {
+  test("comes back when the page shows its List, where there is no panel", async () => {
     const tree: Tree = { hidden: false };
     await mount(host([]), LISTING, undefined, tree);
     await open("Sign the lease");
     expect(tree.hidden).toBe(true);
-    await press(one("folder-view-files"));
+    await press(one("folder-view-list"));
     expect(all("task-panel")).toHaveLength(0);
     expect(tree.hidden).toBe(false);
   });

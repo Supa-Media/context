@@ -23,6 +23,7 @@ import {
   stripListResult,
   assertWritableContentType,
 } from "./index.js";
+import { COPY_OF_HEADER, COPY_PART_BYTES, SINGLE_COPY_MAX_BYTES, multipartCopy } from "./s3Multipart.js";
 
 const ALGORITHM = "AWS4-HMAC-SHA256";
 const SERVICE = "s3";
@@ -119,6 +120,9 @@ export class S3Store {
     this.forcePathStyle = config.forcePathStyle ?? true;
     this.fetchImpl = config.fetchImpl || ((...args) => globalThis.fetch(...args));
     this.now = config.now || (() => new Date());
+    // One CopyObject's limit on S3 and R2; bigger objects copy in parts.
+    this.singleCopyMaxBytes = config.singleCopyMaxBytes ?? SINGLE_COPY_MAX_BYTES;
+    this.copyPartBytes = config.copyPartBytes ?? COPY_PART_BYTES;
     this.capabilities = {
       conditionalWrite: true,
       conditionalCreate: true,
@@ -206,10 +210,13 @@ export class S3Store {
     if (!response.ok) throw await s3Error("HEAD", key, response);
     const contentLength = response.headers.get("content-length");
     const declaredSize = contentLength === null ? NaN : Number(contentLength);
+    const copyOf = response.headers.get(COPY_OF_HEADER);
     return {
       etag: normalizeEtag(response.headers.get("etag") || ""),
       size: Number.isFinite(declaredSize) && declaredSize >= 0 ? declaredSize : undefined,
       contentType: response.headers.get("content-type") || undefined,
+      // Set by a multipart copy (whose etag is not the source's), so a re-run can tell its own copy.
+      ...(copyOf ? { copyOf: normalizeEtag(copyOf) } : {}),
     };
   }
 
@@ -260,11 +267,24 @@ export class S3Store {
     return { etag: normalizeEtag(response.headers.get("etag") || "") };
   }
 
-  async copy(sourceKey, destinationKey, options = {}) {
+  /** The `x-amz-copy-source` value naming one of this bucket's keys. */
+  copySource(sourceKey) {
     const source = applyRootPrefix(this.rootPrefix, assertSafeKey(sourceKey));
+    return `/${this.bucket}/${source.split("/").map(encodeRfc3986).join("/")}`;
+  }
+
+  /**
+   * Server-side copy. `options.size`, when the caller knows it from a HEAD,
+   * sends an object past one CopyObject's limit through a multipart copy
+   * (`s3Multipart.js`); nothing passes through this process either way.
+   */
+  async copy(sourceKey, destinationKey, options = {}) {
     const destination = assertSafeKey(destinationKey);
+    if (typeof options?.size === "number" && options.size > this.singleCopyMaxBytes) {
+      return await multipartCopy(this, sourceKey, destination, options);
+    }
     const headers = {
-      "x-amz-copy-source": `/${this.bucket}/${source.split("/").map(encodeRfc3986).join("/")}`,
+      "x-amz-copy-source": this.copySource(sourceKey),
       "x-amz-metadata-directive": "COPY",
     };
     if (options?.onlyIf?.absent === true) headers["if-none-match"] = "*";
@@ -328,7 +348,7 @@ export class S3Store {
  * hundreds of MB into a 128MB Worker. Streaming lets us stop at the cap instead
  * of after the damage.
  */
-async function readCappedText(response, cap, operation) {
+export async function readCappedText(response, cap, operation) {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > cap) {
     throw new Error(`S3 ${operation} response exceeds ${cap} bytes`);
@@ -363,7 +383,7 @@ async function readCappedText(response, cap, operation) {
   return new TextDecoder().decode(merged);
 }
 
-async function s3Error(operation, key, response) {
+export async function s3Error(operation, key, response) {
   let detail = "";
   try {
     const body = await readCappedText(response, ERROR_RESPONSE_BYTE_CAP, operation);
@@ -406,7 +426,7 @@ export function parseListObjectsV2(xml) {
   return { objects, delimitedPrefixes, truncated, cursor };
 }
 
-function readTag(xml, name) {
+export function readTag(xml, name) {
   const match = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`));
   return match ? match[1] : null;
 }
@@ -422,7 +442,7 @@ function codePointToText(value) {
   return String.fromCodePoint(value);
 }
 
-function decodeXmlText(value) {
+export function decodeXmlText(value) {
   if (value === null || value === undefined) return null;
   return value
     .replace(/&lt;/g, "<")

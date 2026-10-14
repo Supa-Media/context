@@ -80,6 +80,24 @@ assert.ok(signedIn.tokens?.token, "persona sign-in failed");
 convex.setAuth(signedIn.tokens.token);
 pass("signed in as the alpha persona");
 
+// Before texting: the gateway's own answer to one app turn for this persona,
+// so a broken workspace (no reachable storage, no model) fails here with its
+// reason instead of as Tex's opaque "Something went wrong". Status and error
+// code only.
+{
+  const workspaces = await convex.query(ref("functions/workspaces:listMyWorkspaces"), {});
+  const personal = workspaces.find((w) => w.kind === "personal") ?? workspaces[0];
+  const grant = await convex.action(ref("functions/agentGrant:mintConsoleGrant"), { workspaceId: personal._id ?? personal.workspaceId });
+  const answered = await fetch("https://mcp-staging.context.lc/agent", {
+    method: "POST",
+    headers: { authorization: `Bearer ${grant.accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ question: "Hi", timeZone: "America/New_York" }),
+  });
+  const body = await answered.json().catch(() => ({}));
+  assert.equal(answered.status, 200, `the gateway refused the persona's turn: ${answered.status} ${body.error ?? ""} ${body.error_description ?? ""}`);
+  pass("the gateway answers the persona's own turn");
+}
+
 let failed = null;
 try {
   const { code } = await convex.action(ref("functions/textLinks:startPhoneLink"), { phone });
@@ -90,6 +108,27 @@ try {
   const quick = await text("Hey, what are you?");
   assert.ok(quick.length >= 1 && !quick.some((reply) => /Something went wrong/.test(reply)), "quick answer failed");
   pass("a quick question is answered");
+
+  // Tex knows the time where the person is (owner, 2026-10-14: it once asked
+  // for the phone's time). A reminder "in 2 minutes" is set without a question
+  // about the time, and its text arrives from the routine a few minutes later.
+  const reminder = await text("Remind me to stretch in 2 minutes", { timeoutMs: 3 * 60_000 });
+  assert.ok(
+    !reminder.some((reply) => /what time|your phone|don't have a clock|can't see the time/i.test(reply)),
+    `reminder reply asked for the time: ${reminder.join(" | ")}`,
+  );
+  pass("a reminder in 2 minutes is set without asking what time it is");
+  const set = Date.now();
+  const seen = (await sim("thread")).messages.length;
+  let reminded = null;
+  while (reminded === null) {
+    assert.ok(Date.now() - set < 6 * 60_000, "no reminder text within 6 minutes");
+    await pause(10_000);
+    const fresh = (await sim("thread")).messages.slice(seen).filter((entry) => entry.dir === "in");
+    reminded = fresh.find((entry) => /stretch/i.test(entry.text)) ?? null;
+  }
+  console.log(`< [reminder after ${Math.round((reminded.at - set) / 1000)}s] ${redact(reminded.text)}`);
+  pass("the reminder texts on time, from its routine");
 
   const long = await text(
     "Find the opening hours of the Louvre on the web, then save them to a new note in my inbox called louvre-hours.md, and tell me when it's done.",

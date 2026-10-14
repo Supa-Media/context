@@ -201,6 +201,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - The List is the Notes rows, with three thin extras
+- Notes and List are one view, and its dot and face are its controls — see below
 - A folder page shows its children by status
 - Tasks and notes
 - A row's name takes the room
@@ -229,6 +230,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)
+
+## [One List view](./one-list-view.md)
+
+- Notes and List are one view, and its dot and face are its controls
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 
@@ -647,6 +652,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

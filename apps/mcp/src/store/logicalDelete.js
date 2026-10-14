@@ -104,6 +104,12 @@ export function isLogicalDeleteMarker(value) {
   return Boolean(isSafeMarkerBody(body));
 }
 
+/** A HEAD that proves an object is not a deletion marker: its type is not ours and its size is not a marker's. */
+export function notAMarker(meta) {
+  return Boolean(meta) && contentTypeOf(meta) !== LOGICAL_DELETE_CONTENT_TYPE &&
+    typeof meta.size === "number" && meta.size !== MARKER_BODY_BYTES;
+}
+
 async function buffered(object) {
   if (object === null) return null;
   if (object.__logicalDeleteBuffered) return object;
@@ -247,6 +253,8 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
   const canLogicalWrite =
     store.capabilities?.conditionalWrite === true && store.capabilities?.conditionalCreate === true;
   const canWriteMarkers = logicalDelete === true && canLogicalWrite;
+  const serverCopies = store.capabilities?.serverSideCopy === "same-store" &&
+    typeof store.copy === "function" && typeof store.head === "function";
   let chargeExtraOperation = null;
   const inspections = new Map();
   const rememberInspection = (key, inspected) => {
@@ -299,7 +307,9 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
     capabilities: {
       ...store.capabilities,
       conditionalDelete: physicalDelete || canWriteMarkers,
-      serverSideCopy: false,
+      // `copy` below is the bucket's own for a file that is not a note, and a
+      // read and write for a note; either way it keeps both preconditions.
+      serverSideCopy: serverCopies ? "same-store" : false,
     },
     setExtraOperationCharge(callback) {
       const previous = chargeExtraOperation;
@@ -395,6 +405,16 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
         return store.put(key, stamped.value, stamped.options);
       }
       const raw = beginRawOperation();
+      // A file that is not a note, written over a version the caller names:
+      // a HEAD tells it from a marker without downloading it, which is what
+      // a move's claim on a large attachment would otherwise cost. The
+      // provider still enforces the etag; nothing is stamped on a non-note.
+      if (!isMarkdownPath(key) && typeof store.head === "function" &&
+          typeof options.onlyIf?.etagMatches === "string" && options.onlyIf.absent !== true) {
+        const meta = await raw.head(key);
+        if (meta === null) return null;
+        if (notAMarker(meta)) return raw.put(key, value, options);
+      }
       const current = await raw.get(key);
       const inspected = await inspect(current, key);
       if (!inspected?.marker) {
@@ -440,8 +460,12 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       inspections.delete(key);
       const raw = beginRawOperation();
       for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
-        const current = await raw.get(key);
-        const inspected = await inspect(current, key);
+        // A file that is not a note is told from a marker by a HEAD, so
+        // retiring a moved video never downloads it; anything a HEAD cannot
+        // rule out is read and inspected as before.
+        const meta = !isMarkdownPath(key) && typeof store.head === "function" ? await raw.head(key) : undefined;
+        if (meta === null) return null;
+        const inspected = notAMarker(meta) ? { object: meta, marker: null } : await inspect(await raw.get(key), key);
         if (!inspected) return null;
         if (inspected.marker) {
           const expected = options.onlyIf?.etagMatches;
@@ -502,6 +526,25 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
     },
 
     async copy(source, destination, options = {}) {
+      // A file that is not a note copies server-side where the bucket proved
+      // it can, so its bytes never pass through here: what a move of an image,
+      // a PDF or a video costs. A note keeps the read and write below, which
+      // is what carries its generation stamp; so does anything a HEAD cannot
+      // rule out as a deletion marker, and any copy that is not create-only.
+      if (serverCopies && options.onlyIf?.absent === true && !isMarkdownPath(source) && !isMarkdownPath(destination)) {
+        const meta = await beginRawOperation().head(source);
+        if (meta === null) return null;
+        if (notAMarker(meta)) {
+          const expected = options.sourceOnlyIf?.etagMatches;
+          if (expected !== undefined && expected !== meta.etag) return null;
+          return store.copy(source, destination, {
+            ...options,
+            sourceOnlyIf: { etagMatches: expected ?? meta.etag },
+            size: meta.size,
+            ...(meta.contentType === undefined ? {} : { contentType: meta.contentType }),
+          });
+        }
+      }
       const object = await this.get(source);
       if (!object) return null;
       if (options.sourceOnlyIf?.etagMatches !== undefined &&
