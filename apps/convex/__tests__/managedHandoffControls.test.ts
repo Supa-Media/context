@@ -160,7 +160,8 @@ describe("a move stopped by particular files", () => {
           text: async () =>
             '<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>' +
             "<Contents><Key>1-projects/plan.md</Key><Size>40</Size></Contents>" +
-            "<Contents><Key>meetings/kickoff.m4a</Key><Size>99999999</Size></Contents>" +
+            // Past what a streamed copy carries (`STREAM_MAX_BYTES`): no copy can move it.
+            "<Contents><Key>meetings/kickoff.m4a</Key><Size>4000000000</Size></Contents>" +
             "</ListBucketResult>",
           headers: new Headers(),
         };

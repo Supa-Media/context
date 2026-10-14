@@ -4,6 +4,7 @@ import {
   LOGICAL_DELETE_CONTENT_TYPE,
 } from "../../../mcp/src/store/index.js";
 import { isLogicalDeleteMarker } from "../../../mcp/src/store/logicalDelete.js";
+import { canStream, streamObject } from "../../../mcp/src/store/s3Stream.js";
 
 interface ReadableObject {
   contentType?: string;
@@ -280,4 +281,146 @@ export async function reconcileMigrationPage(options: {
     }
   }
   return { copied, changes };
+}
+
+/**
+ * Past the whole-object cap, an object is copied in parts
+ * (`mcp/src/store/s3Stream.js`, project file `move-engine/plan.md` step D) —
+ * up to this size, which one action copies well inside its ten minutes at a
+ * pessimistic 10 MiB a second. Larger still fails as `OBJECT_TOO_LARGE`,
+ * named, as every oversized object did before.
+ */
+export const STREAM_MAX_BYTES = 3 * 1024 ** 3;
+/** The pace a streamed copy is planned at, to decide whether one more fits this action. */
+const STREAM_PLANNED_BYTES_PER_SECOND = 10 * 1024 * 1024;
+/** Streamed copies start only while the page's action has this much of its time left to spend. */
+const STREAM_ACTION_BUDGET_MS = 6 * 60 * 1000;
+
+/** The page ran out of its action's time between two large objects: run it again, nothing failed. */
+export class PageContinues extends Error {
+  constructor() {
+    super("PAGE_CONTINUES");
+  }
+}
+
+/** Objects this move cannot copy, named so the owner is shown which. */
+export class ObjectsTooLarge extends Error {
+  constructor(readonly keys: string[]) {
+    super("OBJECT_TOO_LARGE");
+  }
+}
+
+interface StreamingStore extends MigrationStore {
+  head(key: string): Promise<{ etag: string; size?: number; copyOf?: string; contentType?: string } | null>;
+  copy?(source: string, destination: string, options: Record<string, unknown>): Promise<{ etag?: string } | null>;
+  managedEncryption?: { mode: string };
+}
+
+/** Whether a large object can be streamed from `source` into `target` at all. */
+function streamable(source: unknown, target: unknown): boolean {
+  if (!canStream(source) || !canStream(target)) return false;
+  if (typeof (source as StreamingStore).head !== "function" || typeof (target as StreamingStore).head !== "function") return false;
+  // A destination that seals what it is given needs the whole object to seal it.
+  const sealing = (target as StreamingStore).managedEncryption?.mode;
+  return sealing === undefined || sealing === "decrypting";
+}
+
+/** One object past the whole-object cap, reconciled as `reconcileMigrationObject` does, a part at a time. */
+export async function reconcileLargeObject(options: {
+  source: StreamingStore;
+  target: StreamingStore;
+  key: string;
+  listedFromTarget: boolean;
+  byteCap: number;
+  deleteUnmatchedTarget?: boolean;
+  deleteOnlyUnder?: string;
+  keepTargetConflicts?: boolean;
+}): Promise<{ copied: number; changes: number }> {
+  const { source, target, key } = options;
+  const from = await source.head(key);
+  // Gone, or no longer large: the whole-object path decides, with its own rules.
+  if (from === null || typeof from.size !== "number" || from.size <= options.byteCap) {
+    return await reconcileMigrationObject(options);
+  }
+  if (from.size > STREAM_MAX_BYTES) throw new ObjectsTooLarge([key]);
+  const there = await target.head(key);
+  // Ours already: the same version, as its etag or as the stamp a copy in parts carries.
+  if (there !== null && there.size === from.size && (there.etag === from.etag || there.copyOf === from.etag)) {
+    return { copied: 1, changes: 0 };
+  }
+  if (there !== null && options.keepTargetConflicts === true) {
+    const copyKey = conflictCopyKey(key);
+    if ((await target.head(copyKey)) === null) {
+      const kept = await target.copy?.(key, copyKey, {
+        onlyIf: { absent: true },
+        sourceOnlyIf: { etagMatches: there.etag },
+        ...(typeof there.size === "number" ? { size: there.size } : {}),
+        ...(there.contentType ? { contentType: there.contentType } : {}),
+      });
+      if (!kept && (await target.head(copyKey)) === null) throw new Error("VERIFY_FAILED");
+    }
+  }
+  const streamed = await streamObject(source, target, key, {
+    size: from.size,
+    etag: from.etag,
+    contentType: key.toLowerCase().endsWith(".md") ? MARKDOWN_CONTENT_TYPE : ATTACHMENT_CONTENT_TYPE,
+  });
+  // A sealed managed object is one encrypted piece: it cannot be opened a part at a time.
+  if (streamed.state === "sealed") throw new ObjectsTooLarge([key]);
+  // Edited mid-copy: nothing landed; the page is retried and copies the new version.
+  if (streamed.state === "changed") throw new Error("SOURCE_CHANGED");
+  const landed = await target.head(key);
+  if (landed === null || landed.size !== from.size || landed.copyOf !== from.etag) throw new Error("VERIFY_FAILED");
+  return { copied: 1, changes: 1 };
+}
+
+/**
+ * One listed page of a whole-bucket move: each object past the cap streamed,
+ * one at a time, then the rest through `reconcileMigrationPage`.
+ *
+ * An object no streamed copy can carry (a store that cannot stream, past
+ * `STREAM_MAX_BYTES`) fails the page before anything on it is written, as every
+ * oversized object did before. Large objects go first and start only while the
+ * action has time for them; past that the page throws `PageContinues` and runs
+ * again, where the copies already made are recognised by their stamp and skipped.
+ */
+export async function reconcileListedPage(
+  options: Parameters<typeof reconcileMigrationPage>[0] & { startedAt?: number; now?: () => number },
+): Promise<{ copied: number; changes: number }> {
+  const now = options.now ?? Date.now;
+  const startedAt = options.startedAt ?? now();
+  const isLarge = (object: MigrationListedObject) => typeof object.size === "number" && object.size > options.byteCap;
+  const large = options.objects.filter(isLarge);
+  const canStreamHere = streamable(options.source, options.target);
+  const unstreamable = large.filter((object) => !canStreamHere || (object.size ?? 0) > STREAM_MAX_BYTES);
+  if (unstreamable.length > 0) throw new ObjectsTooLarge(unstreamable.slice(0, 50).map((object) => object.key));
+
+  // Large objects first, while the action is fresh; the first always starts, so
+  // a page with one big object moves. A re-run skips the ones already copied.
+  const result = { copied: 0, changes: 0 };
+  let first = true;
+  for (const object of large) {
+    const planned = ((object.size ?? 0) / STREAM_PLANNED_BYTES_PER_SECOND) * 1000;
+    if (!first && now() - startedAt + planned > STREAM_ACTION_BUDGET_MS) throw new PageContinues();
+    first = false;
+    const one = await reconcileLargeObject({
+      source: options.source as StreamingStore,
+      target: options.target as StreamingStore,
+      key: object.key,
+      listedFromTarget: options.listedFromTarget,
+      byteCap: options.byteCap,
+      deleteUnmatchedTarget: options.deleteUnmatchedTarget,
+      deleteOnlyUnder: options.deleteOnlyUnder,
+      keepTargetConflicts: options.keepTargetConflicts,
+    });
+    result.copied += one.copied;
+    result.changes += one.changes;
+  }
+  // The rest of the page is bounded (a page of objects under the cap), but not
+  // after a long stream: then the page runs again, past its finished copies.
+  if (large.length > 0 && now() - startedAt > STREAM_ACTION_BUDGET_MS) throw new PageContinues();
+  const small = await reconcileMigrationPage({ ...options, objects: options.objects.filter((object) => !isLarge(object)) });
+  result.copied += small.copied;
+  result.changes += small.changes;
+  return result;
 }

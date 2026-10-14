@@ -369,7 +369,8 @@ describe("waiting for a managed bucket that has only just been made", () => {
           status: 200,
           text: async () =>
             '<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>' +
-            "<Contents><Key>big.md</Key><Size>99999999</Size>" +
+            // Past what a streamed copy carries (`STREAM_MAX_BYTES`): no copy can move it.
+            "<Contents><Key>big.md</Key><Size>4000000000</Size>" +
             "<LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents></ListBucketResult>",
           headers: new Headers(),
         };

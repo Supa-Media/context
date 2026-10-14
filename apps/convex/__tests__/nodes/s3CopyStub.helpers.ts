@@ -22,10 +22,12 @@ export interface CopyStubHooks {
   beforePart?: (partNumber: number) => number | void;
   /** Called before a completion; may change the bucket (a stranger's write). */
   beforeComplete?: () => void;
+  /** Called before each ranged read. */
+  beforeRange?: (key: string) => void;
 }
 
-export function s3CopyStub(hooks: CopyStubHooks = {}) {
-  const base = memoryS3("bkt", { ignoreConditionalDelete: true });
+export function s3CopyStub(hooks: CopyStubHooks = {}, bucket = "bkt") {
+  const base = memoryS3(bucket, { ignoreConditionalDelete: true });
   const meta = new Map<string, Record<string, string>>();
   const uploads = new Map<string, Upload>();
   const log: { method: string; key: string; query: string }[] = [];
@@ -42,6 +44,21 @@ export function s3CopyStub(hooks: CopyStubHooks = {}) {
     log.push({ method, key, query: url.search });
     const uploadId = url.searchParams.get("uploadId");
 
+    if (method === "GET" && key === "" && url.searchParams.has("uploads")) {
+      const prefix = url.searchParams.get("prefix") ?? "";
+      const open = [...uploads.entries()].filter(([, upload]) => upload.key.startsWith(prefix));
+      return xml(`<ListMultipartUploadsResult>${open.map(([id, upload]) => `<Upload><Key>${upload.key}</Key><UploadId>${id}</UploadId></Upload>`).join("")}</ListMultipartUploadsResult>`);
+    }
+    if (method === "GET" && key !== "" && headers.has("range")) {
+      hooks.beforeRange?.(key);
+      const value = base.objects.get(key);
+      if (!value) return new Response("", { status: 404 });
+      const expected = headers.get("if-match")?.replace(/^"(.*)"$/, "$1");
+      if (expected && value.etag !== expected) return new Response("", { status: 412 });
+      const [, start, end] = /^bytes=(\d+)-(\d+)$/.exec(headers.get("range") ?? "") ?? [];
+      const bytes = value.bytes.slice(Number(start), Number(end) + 1);
+      return new Response(bytes as unknown as BodyInit, { status: 206, headers: { etag: `"${value.etag}"` } });
+    }
     if (method === "HEAD" && key !== "") {
       const value = base.objects.get(key);
       if (!value) return new Response(null, { status: 404 });
@@ -62,7 +79,7 @@ export function s3CopyStub(hooks: CopyStubHooks = {}) {
         if (name.startsWith("x-amz-meta-")) own[name] = value;
       });
       uploads.set(id, { key, contentType: headers.get("content-type") ?? undefined, meta: own, parts: new Map() });
-      return xml(`<InitiateMultipartUploadResult><Bucket>bkt</Bucket><Key>${key}</Key><UploadId>${id}</UploadId></InitiateMultipartUploadResult>`);
+      return xml(`<InitiateMultipartUploadResult><Bucket>${bucket}</Bucket><Key>${key}</Key><UploadId>${id}</UploadId></InitiateMultipartUploadResult>`);
     }
     if (method === "PUT" && uploadId !== null) {
       const upload = uploads.get(uploadId);
@@ -70,6 +87,12 @@ export function s3CopyStub(hooks: CopyStubHooks = {}) {
       const partNumber = Number(url.searchParams.get("partNumber"));
       const answer = hooks.beforePart?.(partNumber);
       if (typeof answer === "number") return xml("<Error><Code>InternalError</Code></Error>", answer);
+      if (!headers.has("x-amz-copy-source")) {
+        // UploadPart: the body is the part.
+        const etag = `p${++counter}`;
+        upload.parts.set(partNumber, { bytes: new Uint8Array(init.body as Uint8Array), etag });
+        return new Response(null, { status: 200, headers: { etag: `"${etag}"` } });
+      }
       const sourceKey = decodeURIComponent(headers.get("x-amz-copy-source") ?? "").replace(/^\/+/, "").split("/").slice(1).join("/");
       const source = base.objects.get(sourceKey);
       if (!source) return xml("<Error><Code>NoSuchKey</Code></Error>", 404);
@@ -122,7 +145,7 @@ export function s3CopyStub(hooks: CopyStubHooks = {}) {
     const store = new S3Store({
       endpoint: "https://s3.example.test",
       region: "auto",
-      bucket: "bkt",
+      bucket,
       accessKeyId: "AKIAFAKEFAKEFAKE",
       secretAccessKey: "fake-secret-fake-secret-fake-secret",
       forcePathStyle: true,

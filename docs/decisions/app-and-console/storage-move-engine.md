@@ -35,3 +35,17 @@ enough to never fail").
   each way per move, at most 12 an hour (`storageLag.ts`). Handles, counts
   and times only. Mailing on every check, or anybody off `ADMIN_EMAILS`,
   fails `__tests__/nodes/storageLag.test.ts`.
+- **A whole-bucket move copies a large file in parts, never fails on its size
+  alone** (decided 2026-10-14, step D). Moving to managed storage or to the
+  customer's own bucket read each object whole, so anything over 25 MB failed
+  the move for good. Now a file past that is streamed: read 8 MiB at a time,
+  each range pinned to the version listed (`If-Match`), uploaded as one part
+  of a multipart upload stamped with the source's etag, aborted on any
+  failure, and an upload a dead worker left open is aborted by the next try
+  (`mcp/src/store/s3Stream.js`). Large files go first in a page while the
+  action is fresh; out of time, the page runs again and skips copies already
+  stamped. Up to 3 GiB, what one action carries at a pessimistic 10 MiB/s;
+  past that, a store that cannot stream, or a sealed managed file (one
+  encrypted piece until chunked sealing is decided) still fails named, as
+  before. Dropping the range pin or the abort fails
+  `__tests__/nodes/streamedMigration.test.ts`.

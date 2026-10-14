@@ -12,10 +12,7 @@ import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { directionOf, intoOwnersBucket, outOfManagedBucket } from "./lib/managedProvisioningFns/direction";
-import {
-  reconcileMigrationPage,
-  type MigrationStore,
-} from "./lib/managedMigration";
+import { ObjectsTooLarge, PageContinues, reconcileListedPage, type MigrationStore } from "./lib/managedMigration";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -767,6 +764,7 @@ export const runManagedStorageMigration = internalAction({
       return { copied: 0, complete: false };
     }
     let failedKeys: string[] | undefined;
+    const startedAt = Date.now();
     try {
       const sourceCredential = await ctx.runAction(
         internal.functions.storage.getBindingForGateway,
@@ -806,22 +804,10 @@ export const runManagedStorageMigration = internalAction({
       let changes = 0;
       // The census only counts what it lists; it opens no object at all.
       if (migration.phase !== "count") {
-        // Ahead of the walk rather than inside it, so a page carrying an object
-        // too large to move fails before any of that page is reconciled. Inside
-        // the waves this would depend on which wave the object landed in.
-        const oversized = page.objects
-          .filter(
-            (object) =>
-              typeof object.size === "number" &&
-              object.size > MIGRATION_OBJECT_BYTE_CAP,
-          )
-          .map((object) => object.key);
-        if (oversized.length > 0) {
-          // Named, so the owner is shown which files and can download them.
-          failedKeys = oversized.slice(0, 50);
-          throw new Error("OBJECT_TOO_LARGE");
-        }
-        const result = await reconcileMigrationPage({
+        // An object too large for any copy fails the page before anything on it
+        // is written, named; one past the whole-object cap is copied in parts.
+        const result = await reconcileListedPage({
+          startedAt,
           source: source as unknown as MigrationStore,
           target: target as unknown as MigrationStore,
           objects: page.objects,
@@ -876,6 +862,13 @@ export const runManagedStorageMigration = internalAction({
       );
       return { copied, complete: false };
     } catch (error) {
+      // Out of time between two large files, nothing wrong: the same page again, at once.
+      if (error instanceof PageContinues) {
+        await ctx.scheduler.runAfter(0, internal.functions.managedProvisioning.runManagedStorageMigration, { workspaceId: args.workspaceId });
+        return { copied: 0, complete: false };
+      }
+      // Named, so the owner is shown which files and can download them.
+      if (error instanceof ObjectsTooLarge) failedKeys = error.keys;
       const errorCode =
         error instanceof Error &&
         ["SOURCE_UNAVAILABLE", "OBJECT_TOO_LARGE", "VERIFY_FAILED"].includes(
