@@ -25,7 +25,7 @@ import type { ActionCtx } from "../../_generated/server";
 import { isLogicalDeleteMarker, withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { setExactVisibility } from "../../functions/lib/fileOps";
 import { runMoveWork } from "../../functions/lib/nodes/moveWork";
-import { MOVE_FAILED_CONFLICT, MOVE_FAILED_STORAGE } from "../../functions/lib/nodes/moveWork";
+import { BUFFERED_MAX_BYTES, MOVE_FAILED_CONFLICT, MOVE_FAILED_STORAGE, MOVE_FAILED_TOO_LARGE } from "../../functions/lib/nodes/moveWork";
 import { clashName } from "../../functions/lib/nodes/moveSteps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { type Call, type Fixture, type Store, bucketKeys, fixture, start } from "./moveFixture.helpers";
@@ -139,6 +139,17 @@ describe("a different file already at the destination", () => {
     expect(row!.lastError).toBe(MOVE_FAILED_CONFLICT);
   });
 
+  test("a deleted file's marker holding the name is a clash too, not a failure for ever", async () => {
+    const f = await fixture();
+    const view = withLogicalDelete(f.store) as unknown as Store;
+    await view.put("3-resources/launch/pic.png", "old png", { contentType: "image/png" });
+    await view.delete("3-resources/launch/pic.png");
+    await start(f, "1-projects/launch", "3-resources/launch");
+    await drainWith(f, view);
+    expect(f.store.snapshot()["3-resources/launch/pic (moved).png"]).toBe("png");
+    expect(await queueRows(f)).toEqual([]);
+  });
+
   test("a note clashing under a team folder is kept beside it", async () => {
     const f = await fixture();
     await start(f, "1-projects/launch", "3-resources/launch");
@@ -181,6 +192,24 @@ describe("a file that fails", () => {
     broken = false;
     await drainWith(f, store);
     expect(f.store.snapshot()["3-resources/launch/pic.png"]).toBe("png");
+  });
+});
+
+describe("a file too large to read through here", () => {
+  test("on a bucket that cannot copy it itself is reported, not attempted, and the rest still move", async () => {
+    const f = await fixture();
+    f.store.seed("1-projects/launch/huge.mov", new Uint8Array(BUFFERED_MAX_BYTES + 1));
+    let touched = false;
+    const store = faulty(f.store, (method, key) => {
+      if (key === "1-projects/launch/huge.mov" && method !== "list") touched = true;
+      return false;
+    });
+    await start(f, "1-projects/launch", "3-resources/launch");
+    await expect(drainWith(f, store, 3)).rejects.toThrow("did not drain");
+    expect(touched).toBe(false);
+    expect(f.store.snapshot()["3-resources/launch/brief.md"]).toBe("# Brief\n");
+    const [row] = await queueRows(f);
+    expect(row!.lastError).toBe(MOVE_FAILED_TOO_LARGE);
   });
 });
 
