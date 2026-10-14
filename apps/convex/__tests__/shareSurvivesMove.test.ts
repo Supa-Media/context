@@ -18,9 +18,10 @@
  *     inherits an audience its author never chose. Resolving the ledger
  *     *before* the live path is what makes this impossible, and reversing
  *     those two lines is what this test exists to catch.
- *  3. **Forwarding never widens.** A note moved into a private folder is as
- *     absent through the share as it would be if the reader asked for its
- *     current path — the manifest is still re-derived live on every read.
+ *  3. **Forwarding never widens a link.** A note moved into a private folder
+ *     is as absent through a link as it would be if the reader asked for its
+ *     current path. A share addressed to a named person follows the note
+ *     anywhere (Drive's rule, 2026-10-14) and still opens for nobody else.
  *  4. **A folder share follows its folder**, including a reader arriving with
  *     a path inside the folder's old name.
  *
@@ -226,14 +227,39 @@ describe("what the forwarding must never do", () => {
     expect(result.text).not.toContain(IMPOSTOR_MARKER);
   });
 
-  test("a note moved into a private folder is absent, not forwarded into", async () => {
+  test("a link moved into a private folder is absent, not forwarded into", async () => {
     const f = await fixture();
-    const token = await shareEntry(f);
+    const made = await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
+      workspaceId: f.workspaceId,
+      path: ENTRY,
+      kind: "note",
+    });
 
     // `2-areas` is private in the seeded manifest, and a move never publishes.
     await move(f, ENTRY, "2-areas/overview.md");
 
-    const error = await captureError(() => read(f, f.lk, token));
+    const error = await captureError(() => read(f, f.lk, made.token));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+  });
+
+  /*
+    Google Drive's rule (Dev2, 2026-10-14): a note shared with a named person
+    is theirs to open wherever the owner files it, a private folder included.
+    The owner addressed one reader by name; moving the note does not take
+    that back — revoking does.
+  */
+  test("a note shared with a person follows it into a private folder, and only for them", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f);
+    const stranger = await createUser(f.t, "stranger@example.invalid");
+
+    await move(f, ENTRY, "2-areas/overview.md");
+
+    const result = await read(f, f.lk, token);
+    expect(result.path).toBe("2-areas/overview.md");
+    expect(result.text).toContain("# Chapter transition");
+
+    const error = await captureError(() => read(f, stranger, token));
     expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
   });
 });
