@@ -8,7 +8,7 @@
  * round's own blocks are handed back unchanged to the next, all of them are
  * dropped at once when the tool list changes (the API checks a block against
  * the tools it was made with), a setup can say how hard each model thinks,
- * and a round has 8192 tokens of room.
+ * and a round has the models' full 128K tokens of room.
  *
  * ## Sabotage record
  *
@@ -70,7 +70,7 @@ async function turn(fetchImpl, extra = {}) {
 
 test("a round has room to think and answer, and a setup's effort is sent", () => {
   const body = gatewayBody({ model: HAIKU, system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "high" });
-  assert.equal(body.max_tokens, 8192);
+  assert.equal(body.max_tokens, 128_000);
   assert.deepEqual(body.output_config, { effort: "high" });
   assert.equal(gatewayBody({ model: HAIKU, system: "s", messages: [{ role: "user", text: "hi" }], tools: [], effort: "huge" }).output_config, undefined);
 });

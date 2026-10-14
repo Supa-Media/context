@@ -475,7 +475,7 @@ export async function runAgentGatewayChecks(check) {
       { name: "search", description: "Searches" },
     ],
   });
-  check("the body names the model without its anthropic/ prefix", shaped.model === "claude-haiku-5-5" && shaped.max_tokens === 8192);
+  check("the body names the model without its anthropic/ prefix", shaped.model === "claude-haiku-5-5" && shaped.max_tokens === 128_000);
   check(
     "the system prompt is one text block carrying an ephemeral cache breakpoint",
     Array.isArray(shaped.system) &&
