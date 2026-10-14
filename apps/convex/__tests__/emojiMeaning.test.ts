@@ -13,7 +13,9 @@
  *    words alone, and no Clef question;
  *  - a fill that dies is claimed again only once it has gone quiet, a
  *    repeated batch adds no row twice, and a new build drops the old one;
- *  - when the fingerprint model fails, Clef answers.
+ *  - when the fingerprint model fails, Clef answers;
+ *  - past the day's cap on Clef's questions the lookup still answers, and
+ *    switched off nothing is sent.
  *
  * `iconSuggest.meaning.live.test.ts` asks the real model.
  *
@@ -25,6 +27,7 @@
  *   `claimFill` ignoring a live fill's age                              1 failed
  *   `suggestByMeaning` sending the whole path                           1 failed
  *   `emojiMeaningTexts` dropping the description                        2 failed
+ *   `suggest` refusing the lookup past the day's cap                    1 failed
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -144,6 +147,28 @@ describe("folderIcons.suggest, by meaning", () => {
     expect(await suggest(f, "2-areas/private-client/teeth cleaning-2026.md")).toBe(TOOTH);
     expect(f.clef).toBe(0);
     expect(f.embedded).toEqual([["teeth cleaning"]]);
+  }, 120_000);
+
+  test("past the day's cap for Clef, the lookup by meaning still answers; switched off, nothing is sent", async () => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    await suggest(f, "2-areas/taxes");
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    // The first suggestion's Clef questions made today's row; fill it to the cap.
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db.query("jevUsage").unique();
+      await ctx.db.patch(row!._id, { calls: 10_000 });
+    });
+    f.embedded.length = 0;
+    f.clef = 0;
+    expect(await suggest(f, "2-areas/teeth cleaning")).toBe(TOOTH);
+    expect(f.clef).toBe(0);
+
+    await f.t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "iconSuggest", off: true, updatedAt: Date.now() }));
+    f.embedded.length = 0;
+    expect(await suggest(f, "2-areas/teeth cleaning")).toBeNull();
+    expect(f.embedded).toHaveLength(0);
+    expect(f.clef).toBe(0);
   }, 120_000);
 
   test("when the fingerprint model fails, Clef answers", async () => {

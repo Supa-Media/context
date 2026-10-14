@@ -106,7 +106,8 @@ export const set = action({
  *
  * Only the name is sent, so nothing is read from the bucket and the answer
  * says nothing about whether `path` exists. Only an editor may ask, the one
- * who could set the icon, and it is metered on this workspace.
+ * who could set the icon, and Clef's questions are metered on this
+ * workspace; past the day's cap the lookup by meaning still answers.
  */
 export const suggest = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
@@ -121,10 +122,14 @@ export const suggest = action({
     });
     const path = args.path.slice(0, 1024);
     if (!nameSaysSomething(path)) return null;
-    return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev): Promise<string | null> => {
-      if (!jev) return null;
+    return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev, refusal): Promise<string | null> => {
+      // The day's cap counts Clef's questions. A lookup by meaning is one
+      // small embedding call, so a workspace past the cap still gets one;
+      // switched off, or with no inference Worker, it gets nothing.
+      if (!jev && refusal !== "daily_cap") return null;
       const near = await suggestByMeaning(ctx, args.workspaceId, path);
       if (near !== "unready") return near;
+      if (!jev) return null;
       return await suggestIconFor(path, (request) => jev.decide(request));
     });
   },
