@@ -74,6 +74,7 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
   v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
   v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
+  v.object({ kind: v.literal("trashedText"), path: v.string(), text: v.string(), encrypted: v.boolean() }),
   v.object({
     kind: v.literal("moveQueued"),
     queued: v.boolean(),
@@ -463,6 +464,8 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
+  /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */
+  v.object({ kind: v.literal("readTrashed"), path: v.string(), trash: v.string() }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),

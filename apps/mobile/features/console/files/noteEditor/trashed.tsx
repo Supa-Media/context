@@ -35,7 +35,8 @@ export function trashedViewOf(files: Pick<FileBrowser, "editor" | "trashed" | "r
     byYou: trashed.byYou,
     byName: trashed.byName,
     at: trashed.at,
-    onRestore: trashed.trash === null ? undefined : files.restoreTrashed,
+    // A delete still in this device's queue is taken back out of it (`useTrashedNote`).
+    onRestore: trashed.trash === null && trashed.undoQueued === undefined ? undefined : files.restoreTrashed,
     restoring: files.restoringTrashed === true,
   };
 }

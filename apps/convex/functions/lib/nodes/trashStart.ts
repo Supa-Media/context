@@ -98,16 +98,20 @@ export async function startQueuedTrash(
 
 /**
  * Restore of `trash` to `path` while its trash is still queued: turn the move
- * around and answer `true`, or `false` when nothing is queued for it and the
- * bucket holds the trash already. A pass carrying it right now is waited out:
- * one note takes a moment, and then it is either turned around or landed.
+ * around and answer `undone`, or `none` when nothing is queued for it and the
+ * bucket holds the trash already. A pass carrying it right now is waited out
+ * (one note takes a moment, and then it is either turned around or landed),
+ * and so is a folder's trash carrying a note restored on its own; `landed`
+ * says the bucket moved while this waited, so the moves the request began
+ * with are out of date.
  */
 export async function restoreQueuedTrash(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; trash: string; path: string; wait?: (ms: number) => Promise<void> },
-): Promise<boolean> {
+): Promise<"undone" | "none" | "landed"> {
   const wait = args.wait ?? sleep;
   const until = Date.now() + RESTORE_WAIT_MS;
+  let waited = false;
   for (;;) {
     const answer = await ctx.runMutation(internal.functions.nodeMoves.undoTrash, {
       workspaceId: args.workspaceId,
@@ -115,8 +119,10 @@ export async function restoreQueuedTrash(
       path: args.path,
       now: Date.now(),
     });
-    if (answer !== "busy") return answer === "undone";
+    if (answer === "undone") return "undone";
+    if (answer === "none") return waited ? "landed" : "none";
     if (Date.now() >= until) throw new FileOpError("CONFLICT", "That note is still moving to the trash. Try again in a moment.");
+    waited = true;
     await wait(RESTORE_POLL_MS);
   }
 }
