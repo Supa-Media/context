@@ -5,14 +5,13 @@
  * name, out of every emoji the picker offers (decided by the owner,
  * 2026-10-14; nothing is given one on its own). What has teeth:
  *
- *  - every standard emoji is asked about, each exactly once, in questions
- *    and requests Clef accepts;
+ *  - every standard emoji is in exactly one of 64 even groups, and both
+ *    questions are ones the Worker accepts;
  *  - only the name is sent, never a path's folders and never a note's text;
  *  - a name that says nothing (`untitled-…`, `New folder`) sends nothing;
  *  - the answer is always one of the emoji a question offered, so an answer
  *    outside it is no suggestion rather than a guess;
- *  - a failed request is asked once more, and failing again leaves out its
- *    groups, not the suggestion;
+ *  - a failed request is asked once more;
  *  - switched off, nothing is sent;
  *  - a member who could not set the icon cannot ask.
  *
@@ -23,8 +22,8 @@
  * Run as temporary local edits and reverted.
  *
  *   `nameSaysSomething` always true                                     2 failed
- *   `readPicks` without the offered-options check                       2 failed
- *   `groupRequests` dropping the last group                             2 failed
+ *   `readPicks` without the offered-options check                       1 failed
+ *   `suggestGroups` dropping the table's last emoji                     1 failed
  *   `suggest` authorizing at "member"                                   1 failed
  */
 
@@ -32,16 +31,18 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
-  GROUP_SIZE,
+  GROUPS,
   SUGGEST_EMOJI,
-  finalRequest,
-  groupRequests,
+  emojiRequest,
+  groupRequest,
   nameSaysSomething,
   nameWords,
   randomIcon,
   readPicks,
   suggestCandidates,
+  suggestGroups,
 } from "@context/shared/src/iconSuggest";
+import { readDecideRequest } from "../../../infra/transcribe-worker/src/decide";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import {
   type TestConvex,
@@ -63,29 +64,25 @@ const WORKER = "https://inference.example.invalid";
 const PUSHPIN = "📌";
 
 describe("the questions, as data", () => {
-  test("every standard emoji is asked about exactly once, in questions and requests Clef accepts", () => {
-    const requests = groupRequests("1-projects/once", "folder");
-    const asked: string[] = [];
-    for (const request of requests) {
-      const names = Object.keys(request.questions);
-      expect(names.length).toBeGreaterThanOrEqual(1);
-      expect(names.length).toBeLessThanOrEqual(16);
-      expect(JSON.stringify(request).length).toBeLessThan(160_000);
-      for (const [name, question] of Object.entries(request.questions)) {
-        expect(name).toMatch(/^[a-z][a-z0-9_]{0,39}$/);
-        const keys = Object.keys(question.criteria);
-        expect(keys.length).toBeGreaterThanOrEqual(2);
-        expect(keys.length).toBeLessThanOrEqual(GROUP_SIZE);
-        for (const key of keys) expect(key).toMatch(/^[a-z0-9][a-z0-9_-]{0,59}$/);
-        for (const about of Object.values(question.criteria)) expect(about.length).toBeLessThanOrEqual(400);
-        asked.push(...keys);
-      }
-    }
+  test("every standard emoji is in exactly one of 64 even groups, and both questions are ones the Worker takes", () => {
     const total = suggestCandidates().length;
     expect(total).toBeGreaterThan(1800);
-    expect(new Set(asked).size).toBe(total);
-    expect(asked).toHaveLength(total);
-    expect(requests.length).toBeLessThanOrEqual(2);
+    const groups = suggestGroups();
+    expect(groups).toHaveLength(GROUPS);
+    const sizes = groups.map((group) => group.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(64);
+    expect(groups.flat()).toEqual(Array.from({ length: total }, (_, at) => at));
+
+    const first = groupRequest("tex/routines/once", "folder");
+    expect(readDecideRequest(first).ok).toBe(true);
+    expect(Object.keys(first.questions.group!.criteria)).toHaveLength(GROUPS);
+    for (const [group] of groups.entries()) {
+      const second = emojiRequest("tex/routines/once", "folder", group)!;
+      expect(readDecideRequest(second).ok).toBe(true);
+    }
+    expect(emojiRequest("x", "folder", GROUPS)).toBeNull();
+    expect(emojiRequest("x", "folder", -1)).toBeNull();
   });
 
   test("a name that says nothing is not worth asking about", () => {
@@ -108,17 +105,19 @@ describe("the questions, as data", () => {
   });
 
   test("the question carries the name and nothing else", () => {
-    const [request] = groupRequests("2-areas/private-client/taxes-2026.md", "note");
-    expect(request!.state).toContain('"taxes"');
-    expect(request!.state).not.toContain("private-client");
-    expect(finalRequest("2-areas/private-client/taxes-2026.md", "note", [0, 1]).state).not.toContain("private-client");
+    const request = groupRequest("2-areas/private-client/taxes-2026.md", "note");
+    expect(request.state).toContain('"taxes"');
+    expect(request.state).not.toContain("private-client");
+    expect(emojiRequest("2-areas/private-client/taxes-2026.md", "note", 3)!.state).not.toContain("private-client");
   });
 
   test("an answer is an emoji the question offered, or nothing", () => {
-    const request = finalRequest("taxes", "folder", [3, 40]);
+    const request = emojiRequest("taxes", "folder", 1)!;
+    const inside = suggestGroups()[1]![0]!;
+    const outside = suggestGroups()[2]![0]!;
     const pick = (choice: string) => ({ emoji: { type: "choice", choice, confidence: 0.4 } });
-    expect(readPicks(request, pick("e40"))).toEqual([40]);
-    expect(readPicks(request, pick("e41"))).toEqual([]);
+    expect(readPicks(request, pick(`e${inside}`))).toEqual([inside]);
+    expect(readPicks(request, pick(`e${outside}`))).toEqual([]);
     expect(readPicks(request, pick("constructor"))).toEqual([]);
     expect(readPicks(request, { emoji: { type: "noul", noul: 1 } })).toEqual([]);
     expect(readPicks(request, null)).toEqual([]);
@@ -142,9 +141,10 @@ interface Fixture {
 
 type Answerer = (question: string, criteria: Record<string, string>) => string;
 
-/** Picks the pushpin wherever it is offered, and otherwise the first option. */
+/** Picks the pushpin, or the group that lists it, and otherwise the first option. */
 const likesPushpins: Answerer = (_question, criteria) =>
-  Object.keys(criteria).find((key) => criteria[key]!.startsWith(PUSHPIN)) ?? Object.keys(criteria)[0]!;
+  Object.keys(criteria).find((key) => criteria[key]!.startsWith(PUSHPIN) || criteria[key]!.includes(`, ${PUSHPIN} `)) ??
+  Object.keys(criteria)[0]!;
 
 async function fixture(answer: Answerer = likesPushpins, fail: "never" | "once" | "always" = "never"): Promise<Fixture> {
   const t = setupTest();
@@ -163,7 +163,7 @@ async function fixture(answer: Answerer = likesPushpins, fail: "never" | "once" 
     if (!url.startsWith(WORKER)) throw new Error(`unexpected fetch ${url}`);
     const body = JSON.parse(String(init?.body));
     sent.push(body);
-    if (body.questions.g0 !== undefined && (fail === "always" || (fail === "once" && sent.filter((one) => one.questions.g0).length === 1))) {
+    if (body.questions.group !== undefined && (fail === "always" || (fail === "once" && sent.filter((one) => one.questions.group).length === 1))) {
       return new Response("no", { status: 503 });
     }
     const answers: Record<string, unknown> = {};
@@ -179,14 +179,12 @@ const suggest = (f: Fixture, userId: Id<"users">, path: string) =>
   asUser(f.t, userId).action(api.functions.folderIcons.suggest, { workspaceId: f.workspaceId, path });
 
 describe("folderIcons.suggest", () => {
-  test("asks about every emoji, then about each group's best, from the name alone", async () => {
+  test("asks which group, then which emoji in it, from the name alone", async () => {
     const f = await fixture();
     expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
-    const rounds = groupRequests("tex/routines/once", "folder").length;
-    expect(f.sent).toHaveLength(rounds + 1);
-    const final = f.sent.at(-1)!.questions.emoji!.criteria;
-    expect(Object.keys(final).length).toBe(Math.ceil(suggestCandidates().length / GROUP_SIZE));
-    expect(Object.values(final).some((about) => about.startsWith(PUSHPIN))).toBe(true);
+    expect(f.sent).toHaveLength(2);
+    expect(Object.keys(f.sent[0]!.questions.group!.criteria)).toHaveLength(GROUPS);
+    expect(Object.values(f.sent[1]!.questions.emoji!.criteria).some((about) => about.startsWith(PUSHPIN))).toBe(true);
     expect(f.sent.every((one) => one.state.includes('"once"') && !one.state.includes("routines"))).toBe(true);
   });
 
@@ -199,19 +197,19 @@ describe("folderIcons.suggest", () => {
   test("an emoji the question did not offer is no suggestion", async () => {
     const f = await fixture(() => "e99999");
     expect(await suggest(f, f.editor, "2-areas/taxes")).toBeNull();
-    expect(f.sent).toHaveLength(groupRequests("2-areas/taxes", "folder").length);
+    expect(f.sent).toHaveLength(1);
   });
 
   test("a request that fails once is asked again", async () => {
-    const f = await fixture((_question, criteria) => Object.keys(criteria)[0]!, "once");
-    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(suggestCandidates()[0]!.char);
-    expect(f.sent.filter((one) => one.questions.g0)).toHaveLength(2);
+    const f = await fixture(likesPushpins, "once");
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
+    expect(f.sent.filter((one) => one.questions.group)).toHaveLength(2);
   });
 
-  test("a request that fails twice leaves out its groups, not the suggestion", async () => {
+  test("a request that fails twice is no suggestion", async () => {
     const f = await fixture(likesPushpins, "always");
-    // The pushpin is far from the table's start, so a later request offers it.
-    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBeNull();
+    expect(f.sent).toHaveLength(2);
   });
 
   test("switched off, nothing is sent", async () => {

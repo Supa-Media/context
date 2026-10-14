@@ -102,10 +102,10 @@ export const JEV_FEATURES = {
   iconSuggest: {
     label: "Icon suggestions",
     onByDefault: true,
-    // Three requests a picker opened on a name that says something: two
-    // reading every emoji in groups, one choosing among the groups' best.
-    dailyCallsPerWorkspace: 900,
-    dailyCallsFree: 300,
+    // Two requests a picker opened on a name that says something: which
+    // group of emoji, then which emoji in it.
+    dailyCallsPerWorkspace: 600,
+    dailyCallsFree: 200,
     plan: "everyone",
   },
 } as const satisfies Record<string, JevFeature>;

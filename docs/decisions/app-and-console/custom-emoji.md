@@ -134,8 +134,12 @@ person picks one. Opening the picker shows two quick picks above the grid:
   folders) against every standard emoji the picker offers, about 1,900, the
   owner's call the same day ("give it the entire emoji set as possible
   outputs"). Clef picks one of at most 64 options a question, so the table is
-  cut into groups of 64; it picks each group's best in two requests side by
-  side, then the best of those in a third (`packages/shared/src/iconSuggest.ts`).
+  cut into 64 even groups in Unicode's order; Clef picks the group most likely
+  to hold the icon, each listed by its emoji, then the emoji in it, two
+  requests one after the other (the owner's design, the same day, after a
+  first knockout over every group took ~3.5 seconds;
+  `packages/shared/src/iconSuggest.ts`). A group's option text is ~30 emoji
+  long, so the Worker takes options up to 1,000 characters.
   The answer is always an emoji a question offered, so a suggestion is never
   something a person could not have picked by hand. It replaced a first cut
   that asked for a topic out of 27 and then an emoji out of ~320, which

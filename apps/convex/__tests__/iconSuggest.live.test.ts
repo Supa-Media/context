@@ -9,7 +9,7 @@
  *
  * Skipped unless ORGANIZER_LIVE_URL and ORGANIZER_LIVE_SECRET are set, as the
  * "Organizer Eval (live)" workflow sets them. Only invented names are sent;
- * a run is three requests a name.
+ * a run is two requests a name.
  */
 
 import { describe, expect, test } from "vitest";

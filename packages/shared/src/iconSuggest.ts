@@ -4,20 +4,23 @@
  * 2026-10-14: nothing is given an emoji on its own; the picker offers one
  * suggested from the name, and a random one).
  *
- * ## Why every emoji, in a knockout
+ * ## Why every emoji, narrowed down twice
  *
  * The suggestion comes from Clef (`lib/jev/`), which never writes text: it
- * picks one of at most 64 options it is given, at most 16 questions a
- * request. The owner asked for the name to be read against the whole emoji
- * set, not a short list, so the picker's own table (`standardEmoji.generated.ts`,
- * about 1,900 emoji) is cut into groups of 64 in Unicode's order, which keeps
- * like with like. Clef picks the best of each group, two requests side by
- * side, then the best of the winners in a third. Every answer is therefore an
+ * picks one of at most 64 options it is given. The owner asked for the name
+ * to be read against the whole emoji set, not a short list, and then for it
+ * to be narrowed down rather than knocked out (2026-10-14: "choose one out of
+ * 64 evenly divided groups ... then we do it again"). So the picker's own
+ * table (`standardEmoji.generated.ts`, 1,870 emoji) is cut into 64 even runs
+ * in Unicode's order, which keeps like with like; Clef picks the group most
+ * likely to hold the icon, each group listed by its emoji, then the emoji in
+ * it. 64 × 64 covers the table, so it is two requests. Every answer is an
  * emoji the picker itself offers, and an answer outside what was asked is no
  * suggestion rather than a guess.
  *
- * It replaced a list of 27 topics and ~320 emoji asked in two steps, which
- * answered "none of these" for a name like `once` and so suggested nothing.
+ * It replaced, the same day, a list of 27 topics that answered "none of
+ * these" for a name like `once`, and then a knockout over every group that
+ * took three requests and ~3.5 seconds.
  *
  * A name that says nothing (`untitled-2026-10-14`, `New folder`, `asdf`) is
  * never sent at all: there is nothing in it to read, and the random roll is
@@ -32,6 +35,9 @@ import { STANDARD_EMOJI_TABLE } from "./standardEmoji.generated";
 /** One emoji a suggestion can be: the character the picker stores, and what Clef reads about it. */
 export interface SuggestCandidate {
   readonly char: string;
+  /** Its first shortcode, spaced: what a group lists it as. */
+  readonly short: string;
+  /** Its description and tags: what the second question reads. */
   readonly about: string;
 }
 
@@ -42,18 +48,31 @@ export function suggestCandidates(): readonly SuggestCandidate[] {
   if (candidates !== null) return candidates;
   candidates = [];
   for (const line of STANDARD_EMOJI_TABLE.split("\n")) {
-    const [char, , tags, description] = line.split("\t");
-    if (char === undefined || char === "" || description === undefined) continue;
+    const [char, names, tags, description] = line.split("\t");
+    if (char === undefined || char === "" || names === undefined || description === undefined) continue;
     const extra = tags === undefined || tags === "" ? "" : ` (${tags.split(" ").join(", ")})`;
-    candidates.push({ char, about: `${char} ${description}${extra}` });
+    const short = `${char} ${names.split(",")[0]!.replace(/_/g, " ")}`;
+    candidates.push({ char, short, about: `${char} ${description}${extra}` });
   }
   return candidates;
 }
 
-/** Options in one question: Clef's own ceiling. */
-export const GROUP_SIZE = 64;
-/** Questions in one request: Clef's own ceiling. */
-const QUESTIONS_PER_REQUEST = 16;
+/** Options in one question: Clef's own ceiling, and so the number of groups. 64 × 64 covers the table. */
+export const GROUPS = 64;
+
+let groups: number[][] | null = null;
+
+/** The table cut into `GROUPS` even runs, in its own order, so each holds like with like. */
+export function suggestGroups(): readonly (readonly number[])[] {
+  if (groups !== null) return groups;
+  const total = suggestCandidates().length;
+  groups = Array.from({ length: GROUPS }, (_, group) => {
+    const start = Math.floor((group * total) / GROUPS);
+    const end = Math.floor(((group + 1) * total) / GROUPS);
+    return Array.from({ length: end - start }, (_, at) => start + at);
+  });
+  return groups;
+}
 
 /** The emoji a random roll draws from: ones that make a nice surprise, by shortcode. */
 const RANDOM_LIST = `
@@ -158,7 +177,10 @@ function stateFor(path: string, kind: "folder" | "note"): string {
   return `A ${kind} in someone's notes is named "${nameWords(path)}".`;
 }
 
-const instructionsFor = (kind: "folder" | "note") =>
+const groupInstructions = (kind: "folder" | "note") =>
+  `Which of these groups of emoji most likely holds the best icon for this ${kind}, judging by its name?`;
+
+const emojiInstructions = (kind: "folder" | "note") =>
   `Which emoji would make the best icon for this ${kind}, judging by its name? ` +
   "Pick the one whose meaning is closest to the name, even if none is perfect.";
 
@@ -171,44 +193,24 @@ export interface SuggestRequest {
 /** Asks Clef, and answers its answers or `null` when it did not. */
 export type SuggestDecide = (request: SuggestRequest) => Promise<Record<string, unknown> | null>;
 
-const keyOf = (index: number) => `e${index}`;
-
-function criteriaFor(indexes: readonly number[]): Record<string, string> {
+/** The first question: which group most likely holds the emoji? Each group is listed by its emoji. */
+export function groupRequest(path: string, kind: "folder" | "note"): SuggestRequest {
   const all = suggestCandidates();
   const criteria: Record<string, string> = {};
-  for (const index of indexes) criteria[keyOf(index)] = all[index]!.about;
-  return criteria;
+  for (const [group, members] of suggestGroups().entries()) {
+    criteria[`g${group}`] = members.map((index) => all[index]!.short).join(", ");
+  }
+  return { state: stateFor(path, kind), questions: { group: { type: "choice", instructions: groupInstructions(kind), criteria } } };
 }
 
-/**
- * The first round: every emoji, in groups of `GROUP_SIZE`, one question a
- * group, as few requests as Clef's question ceiling allows, split evenly.
- */
-export function groupRequests(path: string, kind: "folder" | "note"): SuggestRequest[] {
-  const total = suggestCandidates().length;
-  const groups: number[][] = [];
-  for (let start = 0; start < total; start += GROUP_SIZE) {
-    groups.push(Array.from({ length: Math.min(GROUP_SIZE, total - start) }, (_, at) => start + at));
-  }
-  const requests = Math.ceil(groups.length / QUESTIONS_PER_REQUEST);
-  const per = Math.ceil(groups.length / requests);
-  const out: SuggestRequest[] = [];
-  for (let at = 0; at < groups.length; at += per) {
-    const questions: SuggestRequest["questions"] = {};
-    for (const [offset, group] of groups.slice(at, at + per).entries()) {
-      questions[`g${at + offset}`] = { type: "choice", instructions: instructionsFor(kind), criteria: criteriaFor(group) };
-    }
-    out.push({ state: stateFor(path, kind), questions });
-  }
-  return out;
-}
-
-/** The final: the best of each group's winner. */
-export function finalRequest(path: string, kind: "folder" | "note", winners: readonly number[]): SuggestRequest {
-  return {
-    state: stateFor(path, kind),
-    questions: { emoji: { type: "choice", instructions: instructionsFor(kind), criteria: criteriaFor(winners) } },
-  };
+/** The second question: which emoji in that group? `null` for a group that does not exist. */
+export function emojiRequest(path: string, kind: "folder" | "note", group: number): SuggestRequest | null {
+  const members = suggestGroups()[group];
+  if (members === undefined) return null;
+  const all = suggestCandidates();
+  const criteria: Record<string, string> = {};
+  for (const index of members) criteria[`e${index}`] = all[index]!.about;
+  return { state: stateFor(path, kind), questions: { emoji: { type: "choice", instructions: emojiInstructions(kind), criteria } } };
 }
 
 /**
@@ -229,19 +231,17 @@ export function readPicks(request: SuggestRequest, answers: Record<string, unkno
 /**
  * The emoji to suggest for `path`, from its name alone, or `null`: a name
  * that says nothing (nothing is asked), or Clef answering nothing usable.
- * A group request Clef fails twice is left out rather than failing the rest.
+ * Two questions, one after the other: the group, then the emoji in it.
  */
 export async function suggestIconFor(path: string, decide: SuggestDecide): Promise<string | null> {
   if (!nameSaysSomething(path)) return null;
   const kind = path.toLowerCase().endsWith(".md") ? "note" : "folder";
-  const rounds = groupRequests(path, kind);
   // The engine now and then fails one request; asked once more, it answers.
   const ask = async (request: SuggestRequest) => (await decide(request)) ?? (await decide(request));
-  const winners = (await Promise.all(rounds.map(async (request) => readPicks(request, await ask(request))))).flat();
-  if (winners.length === 0) return null;
-  const all = suggestCandidates();
-  if (winners.length === 1) return all[winners[0]!]!.char;
-  const final = finalRequest(path, kind, winners);
-  const [pick] = readPicks(final, await decide(final));
-  return pick === undefined ? null : all[pick]!.char;
+  const first = groupRequest(path, kind);
+  const [group] = readPicks(first, await ask(first));
+  const second = group === undefined ? null : emojiRequest(path, kind, group);
+  if (second === null) return null;
+  const [pick] = readPicks(second, await ask(second));
+  return pick === undefined ? null : suggestCandidates()[pick]!.char;
 }
