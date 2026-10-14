@@ -105,8 +105,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: 0,
     // RN Web draws a focus ring on a `TextInput`. The caret and the keyboard
     // are what say this is focused; a box around the meeting's name is noise.
-    // `outlineWidth` rather than `outlineStyle`, which React Native's own
-    // `TextStyle` types as solid/dotted/dashed — see `NotesPad`.
+    // Width and style both, because Safari ignores the width — see `NotesPad`.
     outlineWidth: 0,
+    // Safari draws its focus ring whatever the width; only `none` stops it.
+    outlineStyle: "none" as never,
   },
 });

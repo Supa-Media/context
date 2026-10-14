@@ -406,6 +406,8 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface,
       // Its own border is the field; no browser focus ring on top of it.
       outlineWidth: 0,
+      // Safari draws its focus ring whatever the width; only `none` stops it.
+      outlineStyle: "none" as never,
     },
     scope: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     scopeButton: {

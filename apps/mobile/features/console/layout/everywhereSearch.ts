@@ -7,8 +7,8 @@
  * (`files.searchContexts`, through `useBlendedSearch`), so ⌘K and the page
  * answer alike and both answer like an AI client's `search_notes`
  * (`apps/convex/__tests__/searchParity.test.ts`). What is left for ⌘K is this
- * file: reading "@supa pricing" as a narrowed search, turning the page's rows
- * into palette rows, and the arithmetic behind the timing pill.
+ * file: turning the page's rows into palette rows, and the arithmetic behind
+ * the timing pill. Narrowing by typing (`in:`) is `searchFilters.ts`.
  *
  * No React here, for the reason `files/palette.ts` gives: these are rules that
  * are trivial to pin in a test and impossible to check by clicking around.
@@ -17,30 +17,6 @@
 import { displayPath, parentPath } from "../files/paths";
 import { WHY_LABEL, type PaletteItem } from "../files/palette";
 import type { BlendedAnswer, BlendedResult, PageState } from "../search/results";
-
-/** The words a person typed, and the workspace an "@name " in front of them narrows to. */
-export interface ScopedQuery {
-  /** The workspace's slug when the query starts with "@slug ", else `null`. */
-  slug: string | null;
-  /** What is searched for: the query without the "@slug ". */
-  query: string;
-}
-
-/**
- * "@supa pricing" searches @supa for "pricing".
- *
- * Only a slug this person can search counts, matched without regard to case,
- * and only once a space follows it — so typing "@su" on the way to "@supa"
- * searches nothing in particular rather than flickering between scopes, and an
- * "@" that names no workspace is searched for as written.
- */
-export function parseScopedQuery(raw: string, slugs: readonly string[]): ScopedQuery {
-  const match = /^\s*@([^\s@]+)\s+([\s\S]*)$/.exec(raw);
-  if (match === null) return { slug: null, query: raw };
-  const named = match[1].toLowerCase();
-  const slug = slugs.find((each) => each.toLowerCase() === named);
-  return slug === undefined ? { slug: null, query: raw } : { slug, query: match[2] };
-}
 
 /** Why a note is in the list, drawn as a tag on its row. */
 export type WhyMatched = "name" | "words" | "meaning";
@@ -96,7 +72,7 @@ export function itemsFromBlended(
 /**
  * The loaded rows ⌘K may rank by name. They are the workspace being browsed,
  * so narrowed to another workspace they are out of scope and only the
- * commands stay — "@other rent" must not offer this workspace's Rent note.
+ * commands stay — "in: @other" then "rent" must not offer this workspace's Rent note.
  */
 export function loadedInScope<T extends { kind: string }>(
   items: T[],

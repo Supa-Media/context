@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { Palette } from "../../design/components/Palette";
 import { noteHref, searchHref } from "../nav";
 import { PaletteSearchHost } from "./EverywhereBar";
-import { loadedInScope, parseScopedQuery } from "./everywhereSearch";
+import { loadedInScope } from "./everywhereSearch";
 import { scopeLabel, SearchScopeChips } from "./SearchScope";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -70,6 +70,7 @@ export function consolePalette({
           )
         }
         fieldAccessory={accessory}
+        filters={everywhere?.filters}
         /*
           Reached only when the whole-context search is idle too — under
           `MIN_QUERY`, or with no context selected. Once it has run, the
@@ -101,10 +102,9 @@ export function consolePalette({
             ? undefined
             : (query) => {
                 setPaletteOpen(false);
-                // "@supa pricing" opens the page on @supa, searching "pricing".
-                const typed = parseScopedQuery(query, everywhere?.contexts.map((each) => each.slug) ?? []);
-                const slug = typed.slug ?? everywhere?.narrowed ?? null;
-                router.push(searchHref(typed.query.trim(), slug === null ? [] : [slug]));
+                // "in: @supa" then "pricing" opens the page on @supa, searching "pricing".
+                const slug = everywhere?.narrowed ?? null;
+                router.push(searchHref(query.trim(), slug === null ? [] : [slug]));
               }
         }
         onChoose={(item) => {

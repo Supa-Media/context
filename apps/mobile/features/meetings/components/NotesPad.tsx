@@ -147,10 +147,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
     // RN Web draws a focus ring on a `TextInput`; the pad *is* the screen, so a
     // ring around the whole of it is noise. Focus is unmistakable here — the
-    // caret is in it and the keyboard is up. `outlineWidth` rather than
-    // `outlineStyle: "none"`, which React Native's own `TextStyle` does not
-    // accept: its union is solid/dotted/dashed, and a zero width is the same
-    // picture through a property both platforms type.
+    // caret is in it and the keyboard is up. A zero width alone is not enough:
+    // Safari draws its `auto` ring whatever the width, so `outlineStyle` says
+    // `none` too, cast because React Native's `TextStyle` types only
+    // solid/dotted/dashed.
     outlineWidth: 0,
+    // Safari draws its focus ring whatever the width; only `none` stops it.
+    outlineStyle: "none" as never,
   },
 });
