@@ -92,10 +92,37 @@ const DEFAULT_FOLDER_ICONS = Object.freeze({
 const WEBSITE_FOLDER = "website";
 const WEBSITE_ICON = "🖥️";
 
+/**
+ * The folders the product itself files into inside the inbox, and what each
+ * shows when nobody chose an icon (decided by the owner, 2026-10-14). Matched
+ * by exact name one level under the inbox only, so `0-inbox/email` is ours and
+ * `1-projects/email` or `0-inbox/email/archive` are somebody's own.
+ */
+const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
+  calendar: "🗓️",
+  contacts: "📇",
+  email: "✉️",
+  forms: "📝",
+  "google-chat": "💬",
+  imessage: "📲",
+  meetings: "🎙️",
+  memories: "💭",
+  sessions: "🤖",
+  granola: "🥣",
+  inbox: "📨",
+  capture: "📨",
+});
+
 /** The default emoji for the folder at `path`, or `null` for one with none. */
 function defaultFolderIcon(path) {
   if (typeof path !== "string") return null;
   if (path === WEBSITE_FOLDER) return WEBSITE_ICON;
+  const segments = path.split("/");
+  if (segments.length === 2 && topLevelRole(segments[0]) === "inbox") {
+    return Object.prototype.hasOwnProperty.call(DEFAULT_INBOX_FOLDER_ICONS, segments[1])
+      ? DEFAULT_INBOX_FOLDER_ICONS[segments[1]]
+      : null;
+  }
   const role = topLevelRole(path);
   return role === null ? null : DEFAULT_FOLDER_ICONS[role] ?? null;
 }
@@ -240,6 +267,7 @@ module.exports = {
   FOLDER_ICONS_KEY,
   FOLDER_ICONS_VERSION,
   DEFAULT_FOLDER_ICONS,
+  DEFAULT_INBOX_FOLDER_ICONS,
   defaultFolderIcon,
   parseFolderIcons,
   serializeFolderIcons,
