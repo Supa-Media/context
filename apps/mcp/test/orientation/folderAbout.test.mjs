@@ -4,14 +4,16 @@
  *
  * What the map promises, and what each check holds it to:
  *
- * - a description comes from the folder's own `about.md`, first prose line;
+ * - a description comes from the folder's own `about.md`, first paragraph,
+ *   as the Convex tree's props keep it (`factProps`), never from the note;
  * - `overview.md` describes a folder that has no `about.md`, and `about.md`
  *   beats it when both exist;
  * - a note the caller cannot see is neither read nor named, so a team caller
  *   learns nothing about a private folder's or a private note's text;
  * - the placeholders we wrote long ago, and an encrypted note's body, are never
  *   shown;
- * - the reads are bounded, so a context with many folders pays a fixed price.
+ * - no front note is opened: a context with many folders is described from
+ *   one props request per hundred folders, and the bucket is never read for it.
  */
 
 import { orientText, createBucket, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./fixtures.mjs";
@@ -112,6 +114,7 @@ export async function runOrientationFolderAboutChecks(check, harness) {
     bucket.seed(key, text);
   }
   const env = workspaceEnv("ws_folderabout", bucket);
+  controlPlane.serveTree("ws_folderabout", bucket);
   const ownerMap = await orientText(env, owner);
   const teamMap = await orientText(env, team);
 
@@ -189,37 +192,38 @@ export async function runOrientationFolderAboutChecks(check, harness) {
     ownerMap?.includes("first line of its `about.md`") && ownerMap?.includes("write or update its `about.md`")
   );
 
-  // -- a bounded number of reads -----------------------------------------------
-  // Thirty folders, each with an about.md, on a bucket that counts what it is
-  // asked for. The map draws every folder, but reads only as many descriptions
-  // as the budget allows, and says nothing about the rest rather than guessing.
+  // -- no note is opened ---------------------------------------------------------
+  // Thirty folders, each with an about.md. The tree is copied from a second
+  // bucket, so the gateway's own bucket counts only what the gateway reads:
+  // nothing, because every description comes from the tree's props.
   const budget = await addWorkspaceWithTokens(controlPlane, "ws_folderbudget", "folderbudget");
   const many = createBucket();
-  many.seed("privacy.md", MANY_FOLDERS_MANIFEST);
-  many.seed("index.md", "# Front page");
-  for (let n = 0; n < 30; n += 1) {
-    const folder = `p${String(n).padStart(2, "0")}`;
-    many.seed(`${folder}/about.md`, `Folder ${folder} is for work.\n`);
+  const copied = createBucket();
+  for (const target of [many, copied]) {
+    target.seed("privacy.md", MANY_FOLDERS_MANIFEST);
+    target.seed("index.md", "# Front page");
+    for (let n = 0; n < 30; n += 1) {
+      const folder = `p${String(n).padStart(2, "0")}`;
+      target.seed(`${folder}/about.md`, `Folder ${folder} is for work.\n`);
+    }
   }
+  controlPlane.serveTree("ws_folderbudget", copied);
   const aboutReads = [];
   const realGet = many.get;
   many.get = async (key) => {
     if (key.endsWith("/about.md")) aboutReads.push(key);
     return realGet(key);
   };
+  const asked = controlPlane.treeRequests.length;
   const manyText = await orientText(workspaceEnv("ws_folderbudget", many), budget.owner);
   const described = (manyText || "")
     .split("\n")
     .filter((line) => /^- p\d\d\/ \(1 note\) — Folder p\d\d is for work\.$/.test(line));
+  check("orient opens no front note to describe a folder", aboutReads.length === 0);
   check(
-    "a context with many folders reads no more front notes than the orient budget allows",
-    aboutReads.length <= 24 && aboutReads.length > 0
-  );
-  check(
-    "...describes exactly as many folders as it read, and draws the rest without a description",
-    described.length === aboutReads.length &&
-      described.length === 24 &&
-      manyText?.includes("- p29/ (1 note)\n")
+    "...and describes every folder it draws, from one props request",
+    described.length === 30 &&
+      controlPlane.treeRequests.slice(asked).filter(({ body }) => body.ask === "props").length === 1
   );
 }
 

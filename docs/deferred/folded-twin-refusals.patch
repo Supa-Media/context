@@ -249,25 +249,24 @@ index 9d9b3748..7460b8e5 100644
    if (collaborationBase) {
      if (store.capabilities?.conditionalDelete !== true) {
 diff --git a/apps/mcp/src/tools/moves/folder.js b/apps/mcp/src/tools/moves/folder.js
-index 45227163..27b714db 100644
+index 374b182..29e46fb 100644
 --- a/apps/mcp/src/tools/moves/folder.js
 +++ b/apps/mcp/src/tools/moves/folder.js
-@@ -14,7 +14,13 @@ import {
-   replacePrivacyRulesBlock,
+@@ -15,7 +15,12 @@ import {
+   narrowerVisibility,
    visibilityOf,
  } from "../../privacy/engine.js";
--import { clearExactVisibility, loadPrivacyState, persistExactVisibility } from "../../privacy/state.js";
+-import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
 +import {
 +  clearExactVisibility,
 +  FOLDED_TWIN_REFUSAL,
 +  foldedTwinBlocks,
-+  loadPrivacyState,
 +  persistExactVisibility,
 +} from "../../privacy/state.js";
  import {
    clearExactVisibilityIfAbsent,
    deleteCreatedDestination,
-@@ -272,6 +278,19 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg,
+@@ -155,6 +160,19 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg,
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }

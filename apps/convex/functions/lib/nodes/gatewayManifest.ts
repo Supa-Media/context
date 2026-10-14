@@ -48,9 +48,12 @@ import { NO_BUCKET, readinessAndKick } from "./treeLoading";
  * Keys one answer carries. The console's walk stops at `MANIFEST_PAGE_ENTRIES`
  * because its pages cross a Convex function boundary, which refuses an array
  * past 8,192 elements; this page leaves as an HTTP body, so it can hold most
- * workspaces whole, and an agent's listing costs the gateway one request.
+ * workspaces whole, and an agent's listing costs the gateway one request. Ten
+ * thousand names stay inside the gateway's cap on a tree answer
+ * (`TREE_RESPONSE_BYTE_CAP`, `apps/mcp/src/controlPlane/tree.js`) even at the
+ * longest path a request may name.
  */
-export const GATEWAY_PAGE_ENTRIES = 20_000;
+export const GATEWAY_PAGE_ENTRIES = 10_000;
 
 /** Paths in one request field: a folder or a cursor is one path, never more. */
 export const GATEWAY_PATH_LENGTH = 1024;

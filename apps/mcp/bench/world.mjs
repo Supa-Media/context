@@ -175,6 +175,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The listing tools list from the Convex tree, copied here from each S3 bucket.
+  controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
   const copies = [];
   const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;

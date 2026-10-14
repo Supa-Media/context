@@ -393,6 +393,7 @@ export async function createCrossContextHarness() {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
   };
+  controlPlane.serveTreesFrom(env, { s3 });
 
   return { hooks, restoreS3, controlPlane, restoreControlPlane, mine, theirs, stranger, env };
 }

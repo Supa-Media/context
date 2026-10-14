@@ -29,7 +29,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
-import { rewriteReferencesOrQueue } from "./references.js";
+import { rewriteReferencesAfterMove } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
@@ -138,11 +138,11 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     await clearExactVisibility(store, path);
     await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
     await remapIcons(store, [{ from: path, to: dest }]);
-    const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[path, dest]]));
+    const references = await rewriteReferencesAfterMove(store, scope, rules, overrides, new Map([[path, dest]]));
     await recordChange(store, "archive_note", scope, [path, dest], {
       visibility: destinationVisibility,
       team_visible: destinationVisibility === "team",
-      references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+      references: references.capped ? "not-rewritten" : references.links,
     });
     return withActivityHint(toolText(
       `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
@@ -187,7 +187,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   */
   await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
   await remapIcons(store, [{ from: path, to: dest }]);
-  const references = await rewriteReferencesOrQueue(
+  const references = await rewriteReferencesAfterMove(
     store,
     scope,
     rules,
@@ -197,7 +197,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   await recordChange(store, "archive_note", scope, [path, dest], {
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
-    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+    references: references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)

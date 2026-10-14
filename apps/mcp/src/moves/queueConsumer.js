@@ -7,7 +7,7 @@
 import { createControlPlane } from "../controlPlane.js";
 import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { MOVE_AUTOMATIC_BATCH } from "./limits.js";
-import { moveErrorForControlPlane, moveProgressFromText } from "./jobs.js";
+import { moveErrorForControlPlane, moveFinished, moveProgressFromText } from "./jobs.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { storeForOpenedBinding } from "../session.js";
 import { withPrivacyAuthority } from "../store/privacyAuthority.js";
@@ -100,7 +100,7 @@ export async function handleGatewayJobMessage(message, env, { materialize = tool
           nextDelaySeconds = retry.delaySeconds;
           nextMessage = { ...body, transientFailures: retry.transientFailures };
         }
-      } else if (text.includes("complete") || text.includes("no active work")) {
+      } else if (moveFinished(text)) {
         status = "complete";
       } else {
         status = "queued";

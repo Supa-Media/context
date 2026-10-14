@@ -26,6 +26,8 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createTreeRoutes } from "./tree.mjs";
+
 const encoder = new TextEncoder();
 
 export async function sha256Hex(value) {
@@ -285,6 +287,9 @@ export function createControlPlaneStub(options = {}) {
     }
     return rows;
   }
+
+  // `/gateway/tree/manifest` and `/gateway/tree/facts`, from the store a test names (`tree.mjs`).
+  const tree = createTreeRoutes(grantForAccessToken, bindings);
 
   function ok(body) {
     return new Response(JSON.stringify(body), {
@@ -848,8 +853,11 @@ export function createControlPlaneStub(options = {}) {
         return ok({ applied: events.length });
       }
 
-      default:
+      default: {
+        const answered = await tree.handle(path, body);
+        if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+      }
     }
   }
 
@@ -887,6 +895,13 @@ export function createControlPlaneStub(options = {}) {
 
   return {
     gatewayCalls,
+    serveTree: tree.serveTree,
+    serveTreesFrom: tree.serveTreesFrom,
+    stopServing: tree.stopServing,
+    resumeServing: tree.resumeServing,
+    treeRequests: tree.requests,
+    /** Whether the stub's tree routes are reading the bucket right now (so a test counting the gateway's reads can leave them out). */
+    treeReading: () => tree.reading > 0,
     origin,
     secret,
     handle,

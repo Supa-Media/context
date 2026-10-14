@@ -3,7 +3,6 @@
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { encryptedNoteRefusal, openStoredNote } from "../notes/sealing.js";
 import { forwardPath, readForwarding } from "../forwarding.js";
-import { getVisibleMovedNote } from "../notes/visibleKeys.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { normalizePath, noteUrl } from "../notes/paths.js";
 import { NOTE_INDEX_CHAR_CAP } from "../search/maintain.js";
@@ -275,38 +274,21 @@ export async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
     against 3.
   */
   const seen = canSee(path, scope, rules, overrides);
-  const found = await getVisibleMovedNote(
-    store,
-    scope,
-    rules,
-    overrides,
-    path,
-    probeWithLegacyFallback,
-  );
-  let present = Boolean(found.object);
-  let physicalPath = found.physicalPath;
+  let present = Boolean(await probeWithLegacyFallback(store, path));
   // Metadata can report a logical-delete marker as present. Resolve the
   // authorized logical object before deciding whether the stale path needs
   // forwarding, exactly as read_note does; otherwise a tombstone suppresses
   // the forwarding lookup and the fetch ends as a false not-found.
-  let obj = seen && present ? await getWithLegacyFallback(store, physicalPath) : null;
+  let obj = seen && present ? await getWithLegacyFallback(store, path) : null;
   if (seen && present && !obj) present = false;
   if (!seen || !present) {
     const forwarded = forwardPath(await readForwarding(store), path);
     if (forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
-      const landed = await getVisibleMovedNote(
-        store,
-        scope,
-        rules,
-        overrides,
-        forwarded,
-        probeWithLegacyFallback,
-      );
-      if (landed.object && seen && !present) {
-        const landedObject = await getWithLegacyFallback(store, landed.physicalPath);
+      const landed = await probeWithLegacyFallback(store, forwarded);
+      if (landed && seen && !present) {
+        const landedObject = await getWithLegacyFallback(store, forwarded);
         if (landedObject) {
           present = true;
-          physicalPath = landed.physicalPath;
           obj = landedObject;
         }
       }

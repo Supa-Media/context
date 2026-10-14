@@ -367,6 +367,7 @@ export async function createTenancyHarness() {
     // that names it must not be able to reach it.
     LOCAL_CONTEXT_BUCKET: memoryR2({ "secret.md": "CRON-ONLY-MARKER" }),
   };
+  controlPlane.serveTreesFrom(env, { s3, dropbox });
 
   return {
     s3,

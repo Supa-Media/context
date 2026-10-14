@@ -470,6 +470,7 @@ async function runWiredChecks(check) {
     NATIVE_BINDINGS: "CONTEXT_BUCKET",
     CONTEXT_BUCKET: bucket,
   };
+  controlPlane.serveTreesFrom(env);
 
   let id = 0;
   async function call(token, name, args = {}) {

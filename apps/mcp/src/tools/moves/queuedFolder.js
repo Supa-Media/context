@@ -9,9 +9,11 @@
  * whether the destination exists, what the moved notes may be seen as), so
  * this file only asks and words the answer.
  *
- * `null` means "move it here, the old way": the tree does not serve this
- * workspace yet, staff paused it, or the folder holds something this caller
- * cannot see, which the old way leaves behind as it always has.
+ * `null` means the queue did not take it: the tree does not serve this
+ * workspace yet, the storage cannot move an object safely, or the folder
+ * holds something this caller cannot see. `move_folder` then moves a folder
+ * of up to `LOGICAL_FOLDER_MOVE_THRESHOLD` objects in one go, which leaves
+ * what the caller cannot see behind as it always has, and refuses a larger one.
  */
 
 import { withActivityHint } from "../../live/activityHint.js";
