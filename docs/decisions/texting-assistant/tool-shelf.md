@@ -129,3 +129,26 @@ A setup may say how hard each model thinks: `models.effort` for `main` and
 
 What reversing it costs: Tex reasons from scratch after every tool call, and
 hard texts come back empty. `test/agentThinking.test.mjs` fails.
+
+## Tex's jobs are task notes on the project's board (2026-10-14)
+
+The owner decided Tex's plans live in Context where people can see them, never
+in a framework's hidden store, and asked for multi-step jobs to become project
+tasks Tex assigns itself. Every texted turn that can write is told how a job
+becomes a task note:
+- the note goes in the projects folder of the workspace the job belongs to,
+  beside that project's notes;
+- its front matter carries `status: in progress` and `owner: @maya's Tex`,
+  using that folder's own status words;
+- its body is a checklist of the steps.
+
+A line for each open job goes in `tex/jobs.md` in the person's own workspace,
+and that list is read into every texted turn beside `tex/about-me.md`
+(`apps/mcp/src/agent/jobs.js`). The next text can then pick a job up from its
+first unticked step. A finished job is marked done and leaves the list. The
+gateway writes nothing itself: every change is a tool call the model makes,
+attributed in history.
+
+What reversing it costs: a job Tex can't finish in one text is lost when the
+text ends, and nobody can see what Tex is doing. `test/agentJobs.test.mjs`
+fails.
