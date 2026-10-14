@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat \"$CLAUDE_PROJECT_DIR/.claude/skills/caveman/SKILL.md\""
+            "command": "cat \"${CLAUDE_PROJECT_DIR}/.claude/skills/caveman/SKILL.md\""
           }
         ]
       }

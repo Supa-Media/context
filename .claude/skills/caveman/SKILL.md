@@ -9,7 +9,7 @@ description: >
 # caveman
 
 <!-- Adapted from https://github.com/JuliusBrussee/caveman skills/caveman/SKILL.md
-(Apache License 2.0, Copyright 2026 Julius Brussee). Changes: dropped the
+(Apache License 2.0, full text in LICENSE beside this file; Copyright 2026 Julius Brussee). Changes: dropped the
 ultra/wenyan/status aliases (those skills are not vendored here) and added
 "Messages people read" below. -->
 
