@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   convexCell,
   countParts,
+  factsCell,
   filesCell,
   fastCell,
   healthCounts,
@@ -11,10 +12,8 @@ import {
   needsAttention,
   parityWords,
   tierLabel,
-  treeCell,
   type MigrationRow,
   type MoveRow,
-  type TreeIndexRow,
 } from "../features/admin/searchIndexes";
 import type { MeaningIndexRow } from "../features/admin/meaningIndexes";
 
@@ -23,7 +22,7 @@ import type { MeaningIndexRow } from "../features/admin/meaningIndexes";
  * joined into one row each. The rules worth a red test: a workspace with only
  * one of them still shows, stuck rows come first, an owner's off never reads
  * as needing attention, a failure says why, and the file tree column folds the
- * copy, its D1 details and its folder moves without a busy detail ever
+ * copy and its folder moves, with the copy's facts beside it and never
  * reading as a problem.
  */
 
@@ -44,18 +43,6 @@ const meaning = (fields: Partial<Omit<MeaningIndexRow, "workspaceId">> & { works
     ...fields,
   }) as MeaningIndexRow;
 
-const tree = (fields: Partial<Omit<TreeIndexRow, "workspaceId">> & { workspaceId?: string } = {}): TreeIndexRow =>
-  ({
-    workspaceId: "w1",
-    slug: "maya",
-    status: "ready",
-    rows: 120,
-    sweptAt: 2_000,
-    dirty: false,
-    error: null,
-    ...fields,
-  }) as TreeIndexRow;
-
 const migration = (fields: Partial<Omit<MigrationRow, "workspaceId">> & { workspaceId?: string } = {}): MigrationRow =>
   ({
     workspaceId: "w1",
@@ -67,32 +54,32 @@ const migration = (fields: Partial<Omit<MigrationRow, "workspaceId">> & { worksp
     dirty: false,
     error: null,
     parity: { checkedAt: 4_000, mismatches: 0, privacyMatches: true },
+    facts: { ready: true, running: false, retrying: 0 },
     ...fields,
   }) as MigrationRow;
 
 describe("one row per workspace", () => {
-  test("joins the three by workspace, keeping workspaces that have only one", () => {
+  test("joins them by workspace, keeping workspaces that have only one", () => {
     const rows = joinIndexes(
-      [tree(), tree({ workspaceId: "w2", slug: "supa", status: "empty", rows: null, sweptAt: null })],
       [meaning(), meaning({ workspaceId: "w3", slug: "sam" })],
+      [migration({ sweptAt: 2_000 }), migration({ workspaceId: "w2", slug: "supa", stage: "stuck", error: "Listing failed" })],
     );
     expect(rows.map((row) => row.slug)).toEqual(["supa", "maya", "sam"]);
     const supa = rows[0]!;
-    expect(supa.details.label).toBe("Not filled");
-    expect(supa.files).toMatchObject({ health: "stuck", problem: "Lists, Boards and map details: not filled" });
+    expect(supa.files).toMatchObject({ health: "stuck", problem: "Listing failed" });
     expect(supa.meaning.health).toBe("none");
     expect(rows.find((row) => row.slug === "sam")!.files.health).toBe("none");
     expect(rows.find((row) => row.slug === "maya")!.changedAt).toBe(2_000);
   });
 
-  test("rows show before the tree read lands", () => {
-    const rows = joinIndexes(null, [meaning()]);
+  test("rows show before the migration report lands", () => {
+    const rows = joinIndexes([meaning()]);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.details.health).toBe("none");
   });
 
   test("stuck first, then working, then ready, each by name", () => {
-    const rows = joinIndexes(null, [
+    const rows = joinIndexes([
       meaning({ workspaceId: "a", slug: "alpha" }),
       meaning({ workspaceId: "b", slug: "beta", status: "backfilling", notesPending: 5 }),
       meaning({ workspaceId: "c", slug: "gamma", status: "failed", errorCode: "RATE_LIMITED" }),
@@ -102,7 +89,7 @@ describe("one row per workspace", () => {
   });
 
   test("an owner's off is not something to fix", () => {
-    const [row] = joinIndexes(null, [meaning({ enabled: false, status: "off" })]);
+    const [row] = joinIndexes([meaning({ enabled: false, status: "off" })]);
     expect(row!.meaning.label).toBe("Off by owner");
     expect(needsAttention(row!)).toBe(false);
   });
@@ -148,9 +135,9 @@ describe("the Convex copy column", () => {
   });
 
   test("a copy that has not started needs attention, unless the migration is paused", () => {
-    const [waiting] = joinIndexes(null, [], [migration({ stage: "waiting", files: 0 })]);
+    const [waiting] = joinIndexes([], [migration({ stage: "waiting", files: 0 })]);
     expect(needsAttention(waiting!)).toBe(true);
-    const [paused] = joinIndexes(null, [], [migration({ stage: "waiting", files: 0 })], true);
+    const [paused] = joinIndexes([], [migration({ stage: "waiting", files: 0 })], true);
     expect(needsAttention(paused!)).toBe(false);
   });
 
@@ -163,11 +150,11 @@ describe("the Convex copy column", () => {
   });
 
   test("a workspace only the migration report has still gets a row", () => {
-    const rows = joinIndexes(null, [meaning()], [migration({ workspaceId: "w9", slug: "lee", stage: "copied", parity: null })]);
+    const rows = joinIndexes([meaning()], [migration({ workspaceId: "w9", slug: "lee", stage: "copied", parity: null })]);
     expect(rows.map((row) => row.slug)).toEqual(["lee", "maya"]);
     const lee = rows.find((row) => row.slug === "lee")!;
     expect(lee.convex.label).toBe("Copied");
-    expect(lee.details.health).toBe("none");
+    expect(lee.details).toMatchObject({ health: "ok", label: "Ready" });
     expect(lee.migrationRow?.workspaceId).toBe("w9");
     expect(lee.changedAt).toBe(3_000);
   });
@@ -194,38 +181,25 @@ const move = (fields: Partial<Omit<MoveRow, "id" | "workspaceId">> & { id?: stri
 
 describe("the file tree column", () => {
   const ready = convexCell(migration());
-  const filled = treeCell(tree());
 
-  test("the copy decides it when the details are fine or only catching up", () => {
-    expect(filesCell(ready, filled, [])).toEqual(ready);
-    expect(filesCell(ready, treeCell(tree({ dirty: true })), [])).toEqual(ready);
-    expect(filesCell(ready, treeCell(null), [])).toEqual(ready);
-  });
-
-  test("stuck details make it stuck, and say it is the details", () => {
-    expect(filesCell(ready, treeCell(tree({ error: "timeout" })), [])).toMatchObject({
-      health: "stuck",
-      label: "Matches",
-      problem: "Lists, Boards and map details: Last pass failed: timeout",
-    });
-  });
-
-  test("a stuck copy keeps its own reason over the details'", () => {
-    const stuck = convexCell(migration({ stage: "stuck", error: "Listing failed" }));
-    expect(filesCell(stuck, treeCell(tree({ error: "timeout" })), [])).toMatchObject({ problem: "Listing failed" });
+  test("the copy decides it, whatever its facts are doing", () => {
+    expect(filesCell(ready, [])).toEqual(ready);
+    const [filling] = joinIndexes([], [migration({ facts: { ready: false, running: true, retrying: 0 } })]);
+    expect(filling!.files).toEqual(ready);
+    expect(filling!.details).toMatchObject({ health: "working", label: "Filling" });
   });
 
   test("a move copying is work on its way; a stuck one wants a person", () => {
-    expect(filesCell(ready, filled, [move()])).toMatchObject({ health: "working", figure: "40 · 1 move copying" });
-    expect(filesCell(ready, filled, [move(), move({ id: "m2" })]).figure).toBe("40 · 2 moves copying");
-    expect(filesCell(ready, filled, [move({ stuck: true, running: false, lastError: "Copy failed" })])).toMatchObject({
+    expect(filesCell(ready, [move()])).toMatchObject({ health: "working", figure: "40 · 1 move copying" });
+    expect(filesCell(ready, [move(), move({ id: "m2" })]).figure).toBe("40 · 2 moves copying");
+    expect(filesCell(ready, [move({ stuck: true, running: false, lastError: "Copy failed" })])).toMatchObject({
       health: "stuck",
       problem: "A folder move is stuck: Copy failed",
     });
   });
 
   test("a workspace only the moves report has still gets a row, with its moves", () => {
-    const rows = joinIndexes(null, [meaning()], [], false, [move({ workspaceId: "w7", slug: "kai" })]);
+    const rows = joinIndexes([meaning()], [], false, [move({ workspaceId: "w7", slug: "kai" })]);
     const kai = rows.find((row) => row.slug === "kai")!;
     expect(kai.moves).toHaveLength(1);
     expect(kai.files.health).toBe("working");
@@ -233,7 +207,7 @@ describe("the file tree column", () => {
   });
 
   test("its summary counts in its own words", () => {
-    const rows = joinIndexes(null, [], [migration(), migration({ workspaceId: "w2", slug: "b", stage: "differs" })]);
+    const rows = joinIndexes([], [migration(), migration({ workspaceId: "w2", slug: "b", stage: "differs" })]);
     expect(countParts("files", healthCounts(rows, "files"))).toEqual([
       { health: "ok", text: "1 ready" },
       { health: "stuck", text: "1 stuck or differ" },
@@ -242,11 +216,21 @@ describe("the file tree column", () => {
 });
 
 describe("each index in words", () => {
-  test("the tree: a failed pass reads as stuck with its reason, a big change as catching up", () => {
-    expect(treeCell(tree({ error: "timeout" }))).toMatchObject({ health: "stuck", problem: "Last pass failed: timeout" });
-    expect(treeCell(tree({ dirty: true }))).toMatchObject({ health: "working", label: "Catching up" });
-    expect(treeCell(tree({ status: "unsupported" })).health).toBe("off");
-    expect(treeCell(tree()).figure).toBe("120");
+  test("the facts: ready once every note is read, never stuck, paused with the copy", () => {
+    expect(factsCell(migration())).toMatchObject({ health: "ok", label: "Ready" });
+    expect(factsCell(migration({ facts: null }))).toMatchObject({ health: "working", label: "Not started" });
+    expect(factsCell(migration({ facts: { ready: false, running: false, retrying: 0 } }))).toMatchObject({
+      health: "working",
+      label: "Filling",
+    });
+    expect(factsCell(migration({ facts: { ready: true, running: false, retrying: 3 } }))).toMatchObject({
+      health: "working",
+      label: "Retrying",
+      figure: "3 to read again",
+    });
+    expect(factsCell(migration({ facts: null }), true)).toMatchObject({ health: "off", label: "Paused" });
+    expect(factsCell(migration(), true)).toMatchObject({ health: "ok" });
+    expect(factsCell(null).health).toBe("none");
   });
 
   test("fast search and meaning show how far they got, with a bar only while there is more", () => {
@@ -263,7 +247,7 @@ describe("each index in words", () => {
   });
 
   test("summary counts say only what is there", () => {
-    const rows = joinIndexes(null, [
+    const rows = joinIndexes([
       meaning({ workspaceId: "a", slug: "a" }),
       meaning({ workspaceId: "b", slug: "b", status: "failed" }),
     ]);

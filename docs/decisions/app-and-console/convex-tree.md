@@ -347,12 +347,30 @@ the D1 table.** A device's catch-up asks the Convex feed, and where that does
 not reach it walks whole; the `treeChanges` file operation, its D1 reader and
 `tree_log` itself are gone (the gateway drops the table on its next touch).
 A whole-tree walk the Convex tree does not serve lists the bucket. The D1
-`tree` table stays for now, written by the gateway and swept, because the
-front matter, links and chaos details behind Lists, Boards and the map still
-take their notes from it; those move onto the Convex rows next, and the
-table, `keepTreeTable` and the sweeps go with them. What fails if reversed:
-`treeTableOps.test.ts` (a swept table is not walked; the bucket is) and
-`treeRecord.test.mjs`.
+`tree` table stayed until part 2.
+
+**Phase 7, part 2, as built (2026-10-13): the D1 tree is gone.** Once the
+links, front matter and chaos history had moved onto the Convex rows
+([convex-facts](./convex-facts.md)), nothing needed the search database's
+copy of the tree. The gateway no longer writes it (`keepTreeTable`, the
+projection's tree and link rows) and drops `tree`, `tree_gone`, `tree_log`,
+`tree_links`, `tree_link_sources`, `tree_props`, `tree_chaos` and their
+`index_state` keys on its next search write (`apps/mcp/src/tree/retired.js`).
+The `sweepTree`, `touchTree` and `treeState` file operations, the admin Tree
+index screens and their D1 fills are removed; a console change touches the
+Convex tree and then tells its audiences (`keepTreeAndAnnounce`,
+`lib/filesFns/treeOps.ts`). A reader the Convex tree or its facts cannot
+answer reads what a workspace with no search database always read: the
+bucket, the search index for the map, no chaos score. A write's chaos report
+is counted from the tree's keys before the change and the same keys with the
+change applied (`apps/mcp/src/chaos/change.js`); the control plane hears of
+the change only after that read, so "before" is never already the change.
+What fails if reversed: `apps/convex/__tests__/treeOps.test.ts` (nothing
+schedules a D1 operation; a List with facts not whole reads the bucket; the
+tree is touched before audiences are told), `nodesOperationRouting.test.ts`
+(the D1 kinds are refused), `apps/mcp/test/treeRecord.test.mjs` (no tree row
+is written and the tables are dropped, never at the cost of the note) and
+`chaosChange.test.mjs`.
 
 **The rest of the app's readers, as built (2026-10-13).** Everything in the
 app that asks only *which notes exist and where* reads the rows where

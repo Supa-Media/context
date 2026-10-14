@@ -3,9 +3,10 @@
  * chaos score's extras, from `/gateway/tree/facts`
  * (`apps/convex/functions/lib/nodes/gatewayFacts.ts`), in place of the search
  * database's `tree_links` and `tree_props` (decided by the owner,
- * 2026-10-13). Each answers `null` wherever the tree does not serve this
- * call, its facts are not whole, or the request fails; the caller then asks
- * the search database, or walks, as before.
+ * 2026-10-13), which were retired in phase 7 (`retired.js`). Each answers
+ * `null` wherever the tree does not serve this call, its facts are not whole,
+ * or the request fails; the caller then walks the bucket, or says nothing of
+ * the score, as before.
  */
 
 import { bareNameOf } from "./links.js";

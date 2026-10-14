@@ -1,17 +1,16 @@
 /**
  * The map's link table (`workspaceGraph` in `lib/fileOps/graph.ts`): every
- * note and every link, read without opening a note. Where the Convex tree
- * serves and its facts have read every note once, the rows are Convex's
- * (`nodeLinks`, `lib/nodes/facts.ts`); elsewhere the workspace's search
- * database's (`tree_links`), as before. Either way it rides on the store the
- * barrier hands the map, non-enumerable, as the meaning index does, so
+ * note and every link, read without opening a note, from the Convex tree's
+ * rows and its facts (`nodeLinks`, `lib/nodes/facts.ts`) once they have read
+ * every note. Elsewhere the map reads the search index (the search
+ * database's `tree_links` it replaced left in phase 7). It rides on the store
+ * the barrier hands the map, non-enumerable, as the meaning index does, so
  * nothing that walks the store carries it out.
  */
 
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
 import type { FileStore } from "../fileOps/store";
 import { isFactNote } from "./facts";
 import { servedKeys } from "./manifestStore";
@@ -36,17 +35,6 @@ export function linkTableOf(store: FileStore): LinkTable | null {
   return table && typeof table === "object" && typeof table.read === "function" ? table : null;
 }
 
-/** The search database's table. */
-export function d1LinkTable(client: Parameters<typeof treeNotePaths>[0], unparsed: number): LinkTable {
-  return {
-    unparsed,
-    read: async () => {
-      const [paths, links] = await Promise.all([treeNotePaths(client), treeLinkRows(client)]);
-      return { paths, links };
-    },
-  };
-}
-
 /** Every link Convex holds for one workspace, in source order. */
 export async function convexLinkRows(ctx: Pick<ActionCtx, "runQuery">, workspaceId: Id<"workspaces">): Promise<string[][]> {
   const links: string[][] = [];
@@ -66,7 +54,7 @@ export async function convexLinkRows(ctx: Pick<ActionCtx, "runQuery">, workspace
 /**
  * Convex's table for a served store, or `null` while its facts have not read
  * every note once (the fill is then started, and the map reads the search
- * database or index meanwhile). Notes are the served rows; links are
+ * index meanwhile). Notes are the served rows; links are
  * `nodeLinks`, whose sources the fill drops as their notes go.
  */
 export async function convexLinkTable(

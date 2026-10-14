@@ -3,7 +3,8 @@
  * the few notes it needs more than a key for, and its daily history. The
  * score itself is counted at read time from the served keys
  * (`apps/mcp/src/chaos/live.js`); before 2026-10-13 both of these were the
- * search database's (`tree_props`, `chaos_daily`).
+ * search database's (`tree_props`, `chaos_daily`), whose history was never
+ * carried further than this table's first days.
  */
 
 import { v } from "convex/values";
@@ -19,8 +20,8 @@ const extraValidator = v.object({
 
 /**
  * Long notes and contact pages waiting on review, by bucket key; `null`
- * until the facts have read every note once, and the search database
- * answers instead. Names and numbers, never text.
+ * until the facts have read every note once, and no score is shown. Names
+ * and numbers, never text.
  */
 export const extras = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -42,15 +43,11 @@ export const extras = internalQuery({
   },
 });
 
-/**
- * The score some days ago for both audiences (the closest recorded day at or
- * before then), and how many days are recorded at all.
- */
+/** The score some days ago for both audiences: the closest recorded day at or before then. */
 export const history = internalQuery({
   args: { workspaceId: v.id("workspaces"), daysAgo: v.number(), now: v.number() },
   returns: v.object({
     then: v.union(v.null(), v.object({ all: v.number(), team: v.number() })),
-    recorded: v.number(),
   }),
   handler: async (ctx, { workspaceId, daysAgo, now }) => {
     const target = dayOf(now - daysAgo * 86_400_000);
@@ -59,13 +56,7 @@ export const history = internalQuery({
       .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId).lte("day", target))
       .order("desc")
       .first();
-    const recorded = (
-      await ctx.db
-        .query("nodeChaosDays")
-        .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))
-        .take(CHAOS_DAYS + 1)
-    ).length;
-    return { then: row === null ? null : { all: row.all, team: row.team }, recorded };
+    return { then: row === null ? null : { all: row.all, team: row.team } };
   },
 });
 
@@ -73,27 +64,19 @@ const dayValidator = v.object({ day: v.string(), all: v.number(), team: v.number
 
 const rounded = (value: number) => Math.round(value * 10) / 10;
 
-/**
- * Record today's score, and any days `seed` carries over from the search
- * database the first time (a day already recorded is kept). Days past
- * `CHAOS_DAYS` are dropped.
- */
+/** Record today's score. Days past `CHAOS_DAYS` are dropped. */
 export const recordDay = internalMutation({
-  args: { workspaceId: v.id("workspaces"), today: dayValidator, seed: v.optional(v.array(dayValidator)) },
+  args: { workspaceId: v.id("workspaces"), today: dayValidator },
   returns: v.null(),
-  handler: async (ctx, { workspaceId, today, seed }) => {
-    const write = async (entry: { day: string; all: number; team: number }, replace: boolean) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.day) || !Number.isFinite(entry.all) || !Number.isFinite(entry.team)) return;
-      const fields = { all: rounded(entry.all), team: rounded(entry.team) };
-      const existing = await ctx.db
-        .query("nodeChaosDays")
-        .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId).eq("day", entry.day))
-        .unique();
-      if (existing === null) await ctx.db.insert("nodeChaosDays", { workspaceId, day: entry.day, ...fields });
-      else if (replace && (existing.all !== fields.all || existing.team !== fields.team)) await ctx.db.patch(existing._id, fields);
-    };
-    for (const entry of (seed ?? []).slice(-CHAOS_DAYS)) await write(entry, false);
-    await write(today, true);
+  handler: async (ctx, { workspaceId, today }) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today.day) || !Number.isFinite(today.all) || !Number.isFinite(today.team)) return null;
+    const fields = { all: rounded(today.all), team: rounded(today.team) };
+    const existing = await ctx.db
+      .query("nodeChaosDays")
+      .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId).eq("day", today.day))
+      .unique();
+    if (existing === null) await ctx.db.insert("nodeChaosDays", { workspaceId, day: today.day, ...fields });
+    else if (existing.all !== fields.all || existing.team !== fields.team) await ctx.db.patch(existing._id, fields);
     const days = await ctx.db
       .query("nodeChaosDays")
       .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))

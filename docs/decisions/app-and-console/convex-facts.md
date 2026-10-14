@@ -71,11 +71,13 @@ counted as unparsed meanwhile; a log too old to reach starts a fresh walk.
   notes pointing at what moved (`tree/facts.js`), filtered by `canSee` at the
   grant's clearance.
 
-Each falls back to the D1 table, then to the bucket, while the facts are not
-whole, so nothing waits on the first fill. **Phase 7 of the tree migration
-does not port any of this again**: once every served workspace's facts are
-whole, the D1 link, props and chaos fills and their tables are dead code and
-leave with the D1 `tree`.
+Each fell back to the D1 table, then to the bucket, while the facts were not
+whole. Since phase 7 of the tree migration (2026-10-13) the D1 tables are
+gone, and a reader the facts cannot answer yet does what a workspace with no
+search database always did: a List reads its folder from the bucket, the map
+draws from the search index, and the chaos score says nothing until the
+facts are whole. A write's chaos report is counted from the tree's keys and
+the facts (`apps/mcp/src/chaos/change.js`).
 
 **What a "simplification" would cost.** Keeping the facts in D1 keeps the D1
 tree alive only to tell the fills what changed. Storing who may see a link or
@@ -86,9 +88,9 @@ read at another version than the row's would show a List an edit late.
 walk, only the changed note re-read, a gone note's links dropped, a read the
 note outran not recorded, a failed read retried, one pass at a time, a move's
 candidates, isolation); `servedReaders.test.ts` (a List and the map from the
-facts answer what the D1 table's answer, at every clearance, a moving folder
-too); `servedChaos.test.ts` (the chaos score from the facts equals the
-table's, and the history carries over once); `gatewayFacts.test.ts` (the
+facts answer what the bucket's answer, at every clearance, a moving folder
+too); `servedChaos.test.ts` (the chaos score from the
+facts); `gatewayFacts.test.ts` (the
 gateway route answers at the grant's clearance, and every refusal is the same
 bytes); `nodesPurge.test.ts`, `nodesMigration.test.ts`; and
 `apps/mcp/test/treeFacts.test.mjs` (the gateway's rewrite and orient read the

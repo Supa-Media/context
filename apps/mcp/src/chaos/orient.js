@@ -6,9 +6,7 @@
  */
 
 import { canSee } from "../privacy/engine.js";
-import { treeClientOf } from "../tree/record.js";
-import { chaosOn, chaosReady, chaosSummary } from "./table.js";
-import { chaosExtras, extrasAtTreeNames, liveSummary, liveTotals, scoreKeys } from "./live.js";
+import { extrasAtTreeNames, liveSummary, liveTotals, scoreKeys } from "./live.js";
 import { factChaos } from "../tree/facts.js";
 import { chaosWord } from "./rubric.js";
 import { within } from "./report.js";
@@ -21,21 +19,17 @@ export const CHAOS_RULES =
   "counted. Every write and move answers with what it did to the score.";
 
 /**
- * The orient section, or null when the score is not kept here yet.
+ * The orient section, or null where the Convex tree does not serve this call
+ * or its facts cannot answer: the search database's score table that answered
+ * before was retired in phase 7 (`tree/retired.js`).
  *
  * @param {object} store
  * @param {string} scope the connection's scope; anything but `private` reads the team numbers
  */
 export async function chaosSection(store, scope, rules, overrides) {
-  const client = treeClientOf(store);
   const audience = scope === "private" ? "all" : "team";
   const visible = (path) => canSee(path, scope, rules, overrides);
-  const summary = await within(
-    factSection(store, audience, visible, rules, overrides)
-      .then((live) => live ?? (client === null ? null : liveSection(store, client, audience, visible, rules, overrides)))
-      .then((live) => live ?? (client === null ? null : chaosSummary(client, { audience, limit: 4, visible }))),
-    2500,
-  );
+  const summary = await within(factSection(store, audience, visible, rules, overrides), 2500);
   if (!summary) return null;
   const score = Math.round(summary.score);
   const was = summary.weekAgo === null ? "" : `; a week ago ${Math.round(summary.weekAgo)}`;
@@ -76,28 +70,6 @@ export async function factSection(store, audience, visible, rules, overrides) {
       else void keep();
     }
     return liveSummary(folders, extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo: facts.weekAgo });
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The summary counted from the Convex tree's keys (`live.js`) where this call
- * is served from it (`tree/served.js`), or null when it is not and the
- * table's numbers answer. The keys are the grant's; the team numbers count
- * only what the team may open, so an owner and a member are told what the
- * table would tell them.
- */
-export async function liveSection(store, client, audience, visible, rules, overrides) {
-  if (typeof store.treeKeys !== "function") return null;
-  try {
-    if (!(await chaosReady(client))) return null;
-    const [keys, filed] = await Promise.all([store.treeKeys(), chaosExtras(client)]);
-    const extras = extrasAtTreeNames(filed, store.pendingMoves);
-    if (keys === null) return null;
-    const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides));
-    const weekAgo = await chaosOn(client, 7, audience);
-    return liveSummary(folders, extras, { team: audience === "team", present: new Set(keys), visible, limit: 4, weekAgo });
   } catch {
     return null;
   }

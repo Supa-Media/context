@@ -1,19 +1,17 @@
 /**
  * The Convex facts (`lib/nodes/facts.ts`) as the sources a List and the chaos
- * score read, in place of the search database's `tree_props` and
- * `chaos_daily` (decided by the owner, 2026-10-13). Each answers only once
- * the facts have read every note; until then the caller reads the search
- * database as before.
+ * score read (decided by the owner, 2026-10-13; the search database's
+ * `tree_props` and `chaos_daily` they replaced left in phase 7). Each answers
+ * only once the facts have read every note; until then a List reads its
+ * folder from the bucket and the score is not shown.
  */
 
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { chaosDays } from "../../../../mcp/src/chaos/table.js";
 import type { ChaosSource } from "../filesFns/chaosOps";
 import type { PropSource } from "../filesFns/folderNotes";
-import type { ProjectionClient } from "../fileOps";
-import { CHAOS_DAYS, PROPS_AT_PATHS, dayOf } from "./facts";
+import { PROPS_AT_PATHS, dayOf } from "./facts";
 
 type Ctx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
@@ -39,13 +37,8 @@ export function factPropSource(ctx: Ctx, workspaceId: Id<"workspaces">): PropSou
   };
 }
 
-/**
- * The chaos score's extras and history from Convex. The first day it records,
- * the search database's days (`client`, where there is one) are carried over,
- * so "a week ago" does not go blank for a week.
- */
-export function factChaosSource(ctx: Ctx, workspaceId: Id<"workspaces">, client: ProjectionClient | null): ChaosSource {
-  let recorded: number | null = null;
+/** The chaos score's extras and history from Convex; the history starts the first day it records. */
+export function factChaosSource(ctx: Ctx, workspaceId: Id<"workspaces">): ChaosSource {
   return {
     extras: async () => {
       const rows = await ctx.runQuery(internal.functions.nodeChaos.extras, { workspaceId });
@@ -54,15 +47,12 @@ export function factChaosSource(ctx: Ctx, workspaceId: Id<"workspaces">, client:
     },
     weekAgo: async (audience) => {
       const history = await ctx.runQuery(internal.functions.nodeChaos.history, { workspaceId, daysAgo: 7, now: Date.now() });
-      recorded = history.recorded;
       return history.then === null ? null : history.then[audience];
     },
     record: async (totals) => {
-      const seed = recorded === 0 && client !== null ? (await chaosDays(client)).slice(-CHAOS_DAYS) : [];
       await ctx.runMutation(internal.functions.nodeChaos.recordDay, {
         workspaceId,
         today: { day: dayOf(Date.now()), ...totals },
-        ...(seed.length === 0 ? {} : { seed }),
       });
     },
   };

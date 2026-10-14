@@ -55,8 +55,8 @@ The rules, all the owner's:
 Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule; the A to Z and
 contacts rules are "folders named A to Z are one run" and "contacts are scored
 on hygiene, not on how many there are". "a contact page's review: question
-reaches the score" in `chaosTable.test.mjs` proves the flag travels from
-frontmatter through the tree database.
+reaches the score" travels from frontmatter through the Convex facts
+(`apps/convex/__tests__/nodes/nodeFacts.test.ts`, `servedChaos.test.ts`).
 
 ## It reports; it never tidies
 
@@ -103,14 +103,17 @@ nothing rather than holding the agent up.
 
 ## Kept incrementally, proven equal to a full pass
 
-The score lives in the tree database (`tree_chaos`, one row per folder).
-A change rescores only the folders it touched and walks up while a folder
-appears, vanishes or changes team presence; the properties fill pass rescores
-everything once it has read something new. The property test "rescoring only
-what each change touched always lands where a full pass would" in
-`apps/mcp/test/chaosTable.test.mjs` runs sixty random creates, moves, folder
-moves and deletes and compares each step with a full recompute. Sabotaged: it
-fails without the parent walk and without carrying a moved note's length.
+The score is counted from the Convex tree's keys and facts whenever it is
+asked (`apps/mcp/src/chaos/live.js`), with the closing number per day kept in
+`nodeChaosDays` for "a week ago". It was kept in the search database
+(`tree_chaos`) and rescored per change until phase 7 of
+[convex-tree](./app-and-console/convex-tree.md) retired that table
+(2026-10-13). A write's report counts the tree's keys from before the change
+and the same keys with the change applied (`apps/mcp/src/chaos/change.js`),
+and names the folders it touched and the parents above any folder that
+appeared or vanished; `apps/mcp/test/chaosChange.test.mjs` covers a created
+note, a moved note and a moved folder, and a change the tree already shows
+counted once.
 
 ## Two audiences, and a member learns nothing held back
 
@@ -120,7 +123,8 @@ names, so it fails closed). A member is answered from the team numbers, and a
 folder is named to them only where a note they may open sits beneath it. A
 score that counted held-back notes would let a member watch it move and learn
 that something exists. Test: "a team member never counts, sees or is named a
-private folder or note" in `apps/convex/__tests__/chaosScore.test.ts`.
+private folder or note", now in `apps/convex/__tests__/nodes/servedChaos.test.ts`
+and, for a write's report, `apps/mcp/test/chaosChange.test.mjs`.
 
 ## A derivative, like every index
 

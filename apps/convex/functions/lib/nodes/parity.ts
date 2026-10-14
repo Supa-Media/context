@@ -28,7 +28,7 @@ const WALK_PAGES = 1_000;
 /**
  * A store that answers listings from the tree's rows, and `privacy.md` from
  * the tree's privacy mirror. Every other method is the bucket's own, through
- * the prototype, the way `treeListingStore` (`apps/mcp/src/tree/source.js`)
+ * the prototype, the way the retired D1 table's `treeListingStore`
  * does it.
  *
  * `list` honours `prefix`, `startAfter` and a cursor, and its cursor is the

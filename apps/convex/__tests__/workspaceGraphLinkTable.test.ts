@@ -2,17 +2,17 @@
  * The map drawn from the tree's link table is the map the search index draws,
  * without reading the index.
  *
- * Once every note's links have been read into the table beside the tree
- * (`apps/mcp/src/tree/links.js`), the barrier hands `workspaceGraph` the
- * table (`linkTable` on the store) and the notes and links come from two
- * queries instead of every shard. The privacy property does not move: a note
+ * Once the Convex facts have read every note's links (`lib/nodes/facts.ts`,
+ * `linkTable.ts`), the barrier hands `workspaceGraph` the table (`linkTable`
+ * on the store) and the notes and links come from a few queries instead of
+ * every shard. Here the table is built from the bucket by the very parser the
+ * facts fill runs (`factsOf`), so the map's side is what is under test. The privacy property does not move: a note
  * is drawn only if `canSee` passes, a link only if both ends are drawn, and a
  * bare name resolves only among drawn notes. So the assertion is equality
  * with the index's answer, at owner and team clearance, with a note held back
  * by name — and that the index is not read at all.
  */
 
-import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
@@ -20,33 +20,10 @@ import { type FileStore, maintainSearchIndex, setFolderVisibility, setVisibility
 import { LINKS_BEHIND_MIN, LINKS_BEHIND_SHARE, linksBehind, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
-import { sweepTreePass } from "../../mcp/src/tree/sweep.js";
-import { linkFillPass } from "../../mcp/src/tree/links.js";
-import { attachLinkTable, d1LinkTable } from "../functions/lib/nodes/linkTable";
+import { attachLinkTable } from "../functions/lib/nodes/linkTable";
+import { factsOf } from "../functions/lib/nodes/factFill";
+import { isFactNote } from "../functions/lib/nodes/facts";
 import { DOCMAP_KEY } from "../../mcp/src/search/shards/constants.js";
-
-// Through `require`: Vite cannot resolve the `node:sqlite` builtin as an import.
-const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
-
-function sqliteClient() {
-  const db = new DatabaseSync(":memory:");
-  return {
-    async query(sql: string, params: unknown[] = []) {
-      return db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
-    },
-    async runAll(statements: readonly { sql: string; params?: unknown[] }[]) {
-      db.exec("BEGIN");
-      try {
-        for (const { sql, params = [] } of statements) db.prepare(sql).run(...(params as never[]));
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-      return { applied: statements.length, skipped: false };
-    },
-  };
-}
 
 type Bucket = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");
@@ -68,11 +45,16 @@ async function workspace(): Promise<Bucket> {
   throw new Error("the index never converged");
 }
 
+/** Every note's links read once, as the facts fill records them, attached as the map's table. */
 async function withTable(store: Bucket): Promise<Bucket> {
-  const client = sqliteClient();
-  while (!(await sweepTreePass(store, client)).complete);
-  for (let pass = 0; pass < 20; pass += 1) if ((await linkFillPass(store, client)).ready) break;
-  attachLinkTable(store, d1LinkTable(client, 0));
+  const listing = await store.list({ limit: 10_000 });
+  const paths = (listing.objects as { key: string }[]).map((object) => object.key).filter(isFactNote);
+  const links: string[][] = [];
+  for (const path of paths) {
+    const object = await store.get(path);
+    if (object) for (const [kind, target] of factsOf(path, await object.text()).links) links.push([path, kind!, target!]);
+  }
+  attachLinkTable(store, { unparsed: 0, read: async () => ({ paths, links }) });
   return store;
 }
 

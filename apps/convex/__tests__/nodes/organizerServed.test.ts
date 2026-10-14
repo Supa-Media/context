@@ -21,7 +21,7 @@ import { describe, expect, test, vi } from "vitest";
 import { getFunctionName } from "convex/server";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
-import { manifestSource } from "../../functions/lib/filesFns/treeTableOps";
+import { manifestSource } from "../../functions/lib/filesFns/treeOps";
 import { nodesPagedStore } from "../../functions/lib/nodes/manifestStore";
 import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
 import type { NodeRow } from "../../functions/lib/nodes/table";

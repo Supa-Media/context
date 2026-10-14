@@ -22,8 +22,8 @@ export type IndexActions = {
   restart: (workspaceId: string) => void;
   /** The whole copy is paused (served from the bucket), so a copy cannot start. */
   migrationPaused: boolean;
-  /** Copy the workspace again and refill its details, whichever of the two can run. */
-  repair: (workspaceId: string, what: { copy: boolean; fill: boolean }) => void;
+  /** Copy the workspace again; its facts follow the copy. */
+  repair: (workspaceId: string) => void;
   check: (workspaceId: string) => void;
   retryMove: (id: string) => void;
   undoMove: (id: string) => void;

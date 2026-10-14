@@ -1,11 +1,12 @@
 /**
  * What notes' text says about them, kept in Convex beside the rows they name
  * (decided by the owner, 2026-10-13): each note's links (`nodeLinks`) and its
- * front matter (`props` on its own `nodes` row). Until now both lived in the
- * workspace's search database (`apps/mcp/src/tree/links.js`, `props.js`),
- * each filled by a chain that walked the whole D1 tree to find what had
- * changed; here the tree's own change log (`nodeLog`) says which notes to
- * read again, and one read of a note fills both.
+ * front matter (`props` on its own `nodes` row). Until then both lived in the
+ * workspace's search database (`tree_links`, `tree_props`, retired with the
+ * D1 tree in phase 7), each filled by a chain that walked the whole D1 tree
+ * to find what had changed; here the tree's own change log (`nodeLog`) says
+ * which notes to read again, and one read of a note fills both, parsed by the
+ * gateway's `linkRowsOf` and `propsOf`.
  *
  * ## How the facts follow the tree
  *
@@ -36,8 +37,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "../../../_generated/server";
 import { expiredBefore, seqAt } from "./log";
 import { CONTACTS_FOLDER } from "../../../../../packages/communications/src/protocol.js";
-import { LONG_NOTE_LINES } from "../../../../mcp/src/chaos/rubric.js";
-import { hasReview, isExempt } from "../../../../mcp/src/chaos/table.js";
+import { hasReview, isExempt, LONG_NOTE_LINES } from "../../../../mcp/src/chaos/rubric.js";
 
 /** Notes one fill pass reads from the bucket. */
 export const FACT_FILL_NOTES = 200;
@@ -149,7 +149,7 @@ export interface ChaosExtra {
 }
 
 /**
- * What the chaos score needs beyond a note's key (`chaosExtras` in
+ * What the chaos score needs beyond a note's key (`scoreKeys`' extras in
  * `apps/mcp/src/chaos/live.js`), or `null` for a note it needs nothing more
  * of: one past the long-note line, or a contact page carrying a `review:`.
  */

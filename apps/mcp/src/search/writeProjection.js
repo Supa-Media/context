@@ -20,9 +20,7 @@
 import { countProjected } from "./d1/backfill.js";
 import { createD1Client } from "./d1/client.js";
 import { projectNote, upsertStatements } from "./d1/project.js";
-import { TREE_STATEMENTS } from "../tree/table.js";
-import { writtenStatements } from "../tree/touch.js";
-import { LINK_STATEMENTS, linkWriteStatements } from "../tree/links.js";
+import { RETIRED_TREE_STATEMENTS } from "../tree/retired.js";
 import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
@@ -132,17 +130,12 @@ export async function projectWrittenNoteAfterResponse(
           visibility,
           content,
         });
-        // The tree table's row for the note, and its links, ride the same
-        // request, with the tables' own `CREATE ... IF NOT EXISTS` in front
-        // so a database no sweep has reached yet cannot fail the projection.
-        // The links are recorded at the version the tree row is, so the note
-        // is parsed as of this save and no fill pass reads it again.
-        await client.runAll([
-          ...upsertStatements(path, projected),
-          ...[...TREE_STATEMENTS, ...LINK_STATEMENTS].map((sql) => ({ sql, params: [] })),
-          ...writtenStatements([{ path, etag: version }], Date.now()),
-          ...linkWriteStatements(path, version, indexableText(content)),
-        ]);
+        // The retired tree tables are dropped in the same call
+        // (`tree/retired.js`), on the first attempt only: should retiring
+        // them ever fail, the retry writes the note without them, so a
+        // derivative nobody reads can never cost the search write.
+        const retire = attempt === 0 ? RETIRED_TREE_STATEMENTS.map((sql) => ({ sql, params: [] })) : [];
+        await client.runAll([...upsertStatements(path, projected), ...retire]);
         if (typeof store.reportSearchIndexProgress === "function") {
           const notesIndexed = await countProjected(client);
           await store.reportSearchIndexProgress({

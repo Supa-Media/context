@@ -9,23 +9,21 @@
  * buttons are `./IndexRows`.
  *
  * Three cards since every reader moved to the Convex tree (the owner approved
- * the board, 2026-10-13): the file tree card folds the old Sidebar tree (the
- * D1 tables, now only the details Lists, Boards and the map read) and the
- * migration's Convex copy card into one, and folder moves still copying show
- * on their workspace's row instead of a panel. The card carries the switch
+ * the board, 2026-10-13): the file tree card is the migration's Convex copy,
+ * its facts shown in each row's detail, and folder moves still copying show
+ * on their workspace's row instead of a panel. The D1 tree's details and
+ * their Fill left in phase 7 of the migration. The card carries the switch
  * that sends everyone back to the bucket (`nodesMigration.setPaused`), still
  * the way back until the bucket readers are removed. Start all, Fill all and
- * Refresh went: `nodesMigration.keepCurrent` copies every due workspace every 15
- * minutes, and a row's Repair does the rest.
+ * Refresh went: `nodesMigration.keepCurrent` copies every due workspace, and
+ * fills its facts, every 15 minutes, and a row's Repair does the rest.
  *
- * Search by meaning, the copy and the moves are live queries. The D1 details
- * live in each workspace's own database, so they are an action read on open
- * and again after a Repair.
+ * Search by meaning, the copy, its facts and the moves are all live queries.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Card, Dot, Text, TextField, space, useThemedStyles, type Colors } from "../design";
@@ -44,7 +42,6 @@ import {
   matchesFind,
   needsAttention,
   type IndexKey,
-  type TreeIndexRow,
   type WorkspaceIndexes,
 } from "./searchIndexes";
 
@@ -59,7 +56,7 @@ export function useIndexesAttention(): number | null {
     () =>
       report === undefined
         ? null
-        : joinIndexes(null, report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []).filter(
+        : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []).filter(
             needsAttention,
           ).length,
     [report, migration, moves],
@@ -76,8 +73,6 @@ const checkingLine = (started: number) =>
 export function IndexesView() {
   const styles = useThemedStyles(makeStyles);
   const report = useQuery(api.functions.meaningAdmin.meaningIndexReport, {});
-  const readTree = useAction(api.functions.treeAdmin.treeIndexes);
-  const fillTree = useAction(api.functions.treeAdmin.fillTreeIndexesNow);
   const restart = useMutation(api.functions.meaningAdmin.restartMeaningIndexing);
   const migration = useQuery(api.functions.nodesMigration.report, {});
   const setMigrationPaused = useMutation(api.functions.nodesMigration.setPaused);
@@ -87,30 +82,17 @@ export function IndexesView() {
   const moves = useQuery(api.functions.nodeMovesAdmin.report, {});
   const retryMove = useMutation(api.functions.nodeMovesAdmin.retry);
   const undoMove = useMutation(api.functions.nodeMovesAdmin.undo);
-  const [tree, setTree] = useState<TreeIndexRow[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
   const [show, setShow] = useState<"attention" | "all">("attention");
   const [find, setFind] = useState("");
 
-  const refreshTree = useCallback(async () => {
-    try {
-      setTree((await readTree({})).rows);
-    } catch (caught) {
-      setSaid({ text: messageFor(caught, "Couldn't read the Lists, Boards and map details. Try again."), tone: "crit" });
-    }
-  }, [readTree]);
-
-  useEffect(() => {
-    void refreshTree();
-  }, [refreshTree]);
-
   const rows = useMemo(
     () =>
       report === undefined
         ? null
-        : joinIndexes(tree, report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []),
-    [report, tree, migration, moves],
+        : joinIndexes(report.rows, migration?.rows ?? null, migration?.paused ?? false, moves?.rows ?? []),
+    [report, migration, moves],
   );
   const paused = migration?.paused ?? false;
 
@@ -126,17 +108,10 @@ export function IndexesView() {
     }
   }
 
-  const repair = (workspaceId: string, what: { copy: boolean; fill: boolean }) =>
+  const repair = (workspaceId: string) =>
     act(`repair:${workspaceId}`, async () => {
-      const id = workspaceId as Id<"workspaces">;
-      if (what.copy) await startMigration({ workspaceId: id });
-      if (what.fill) await fillTree({ workspaceId: id });
-      if (what.fill) await refreshTree();
-      return what.copy && what.fill
-        ? "Copying the file tree again and refilling its details."
-        : what.copy
-          ? "Copying the file tree again."
-          : "Refilling the Lists, Boards and map details.";
+      await startMigration({ workspaceId: workspaceId as Id<"workspaces"> });
+      return "Copying the file tree again. Its details follow the copy.";
     });
 
   const restartMeaning = (workspaceId?: string) =>

@@ -18,7 +18,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
-import { factsDue } from "./lib/nodes/facts";
+import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
@@ -128,7 +128,23 @@ const rowValidator = v.object({
     v.null(),
     v.object({ checkedAt: v.number(), mismatches: v.number(), privacyMatches: v.boolean() }),
   ),
+  /**
+   * The facts fill (`lib/nodes/facts.ts`): the links, front matter and chaos
+   * details Lists, Boards, the map and the chaos score read. `null` before
+   * its first pass. `ready` once it has read every note; `retrying` counts
+   * notes whose read failed and is tried again.
+   */
+  facts: v.union(v.null(), v.object({ ready: v.boolean(), running: v.boolean(), retrying: v.number() })),
 });
+
+function factsOf(row: Doc<"nodeFactState"> | null, now: number) {
+  if (row === null) return null;
+  return {
+    ready: row.ready,
+    running: row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS,
+    retrying: row.retry?.length ?? 0,
+  };
+}
 
 /** Where the migration is, for every workspace with storage. */
 export const report = query({
@@ -169,6 +185,7 @@ export const report = query({
           tree?.parity === undefined
             ? null
             : { checkedAt: tree.parity.checkedAt, mismatches: tree.parity.mismatches, privacyMatches: tree.parity.privacyMatches },
+        facts: factsOf(await factStateRow(ctx.db, workspaceId), now),
       });
     }
     return {

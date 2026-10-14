@@ -13,10 +13,8 @@ import { forwardPath, readForwarding } from "../../forwarding.js";
 import { MOVE_JOB_VERSION } from "../../moves/limits.js";
 import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
-import { linkCandidates } from "../../tree/links.js";
 import { factCandidates } from "../../tree/facts.js";
 import { servedListingStore } from "../../tree/served.js";
-import { treeClientOf } from "../../tree/record.js";
 
 /**
  * Point every link at where its note went.
@@ -90,8 +88,8 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     }
   }
   keys = keys.filter((key) => !unavailable.has(key));
-  // The tree's link table named the notes that can hold a link to what moved
-  // (`tree/links.js`): only those are read. Every visible note still feeds
+  // The Convex tree's facts named the notes that can hold a link to what
+  // moved (`tree/facts.js`): only those are read. Every visible note still feeds
   // `byName` below, because a bare link is unambiguous only across them all.
   if (candidates) keys = keys.filter((key) => candidates.has(key));
   const paged = Number.isInteger(limit) && limit > 0;
@@ -309,25 +307,17 @@ export async function rewriteReferencesOrQueue(store, scope, rules, overrides, r
 
 /**
  * The notes that can hold a link to what moved, as `rewriteReferences`
- * options: from the Convex tree's facts where it serves (`tree/facts.js`),
- * else the search database's link table; `null` where neither can be trusted
- * yet, and the rewrite walks every note as before.
+ * options, from the Convex tree's facts where it serves (`tree/facts.js`);
+ * `null` where it does not, and the rewrite walks every note as before. The
+ * search database's link table that once answered here was retired in phase 7
+ * of `docs/decisions/app-and-console/convex-tree.md`.
  */
 export async function referenceCandidates(store, renames) {
   if (renames.size === 0) return null;
   const fromFacts = await factCandidates(store, renames);
-  if (fromFacts !== null) {
-    const inventory = await treeNoteInventory(store, renames);
-    if (inventory !== null) return { inventoryKeys: inventory, candidates: fromFacts };
-  }
-  const client = treeClientOf(store);
-  if (client === null) return null;
-  const found = await linkCandidates(client, renames);
-  if (found === null) return null;
-  // Which notes exist comes from the Convex tree where it serves; the link
-  // table still says which of them point at what moved.
+  if (fromFacts === null) return null;
   const inventory = await treeNoteInventory(store, renames);
-  return { inventoryKeys: inventory ?? found.inventory, candidates: found.candidates };
+  return inventory === null ? null : { inventoryKeys: inventory, candidates: fromFacts };
 }
 
 /**

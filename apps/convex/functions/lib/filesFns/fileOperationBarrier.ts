@@ -33,17 +33,8 @@ import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
-import {
-  announceTreeChange,
-  manifestSource,
-  runTreeOperation,
-  searchDatabaseClient,
-  type TreeOperation,
-  treeOperationClient,
-  answersWithoutTable,
-  noTreeTable,
-  treeStateOf,
-} from "./treeTableOps";
+import { announceTreeChange, isTreeOperation, manifestSource, runTreeOperation } from "./treeOps";
+import { searchDatabaseClient } from "../fastSearchFns/client";
 import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
 import { servedReadAnswer } from "../nodes/servedReads";
@@ -140,7 +131,7 @@ export async function runFileOperationHandler(
    * and a missing Cloudflare credential is a reported failure for a pass and
    * a silent fall-through for a search.
    */
-  // Both or neither secret, as `provisionIndex` reads them (`treeTableOps.ts`).
+  // Both or neither secret, as `provisionIndex` reads them (`fastSearchFns/client.ts`).
   const clientFor = (target: { databaseId: string; state: string }) => searchDatabaseClient(ctx, target);
 
   /*
@@ -274,12 +265,6 @@ export async function runFileOperationHandler(
     }
   }
 
-  // A tree operation asks for its database before the bucket's credential, as a projection pass does.
-  const treeOperation = await treeOperationClient(ctx, args);
-  if (treeOperation !== null && treeOperation.client === null && !answersWithoutTable(args.operation)) {
-    return noTreeTable(args.operation as TreeOperation);
-  }
-  if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
   // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
   const served = await servedReadAnswer(ctx, args);
   if (served !== null) return served;
@@ -410,9 +395,7 @@ export async function runFileOperationHandler(
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
 
-  if (treeOperation !== null) {
-    return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
-  }
+  if (isTreeOperation(args.operation)) return await runTreeOperation(ctx, { ...args, operation: args.operation }, store);
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;

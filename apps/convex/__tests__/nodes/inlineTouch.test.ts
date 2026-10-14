@@ -14,7 +14,7 @@ import { getFunctionName } from "convex/server";
 import { describe, expect, test, vi } from "vitest";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
-import { announceTreeChange } from "../../functions/lib/filesFns/treeTableOps";
+import { announceTreeChange } from "../../functions/lib/filesFns/treeOps";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 
 const ARGS = { workspaceId: "w1" as Id<"workspaces">, scope: "private" as const };

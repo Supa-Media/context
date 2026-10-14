@@ -1,8 +1,10 @@
 /**
  * The file tree's box in an Indexes row's detail (`./IndexRows`): the Convex
- * copy (what the app and AI clients list notes from), the D1 details behind
- * Lists, Boards and the map, and the folder moves still copying, each with
- * its buttons. The moves used to be their own panel under the table; the
+ * copy (what the app and AI clients list notes from), its facts behind Lists,
+ * Boards, the map and the chaos score, and the folder moves still copying,
+ * each with its buttons. The facts fill follows the copy, so Repair copies
+ * again and the facts catch up after it; the D1 tables and their Fill left
+ * in phase 7 of the tree migration. The moves used to be their own panel under the table; the
  * owner approved folding them into the workspace's row (2026-10-13).
  *
  * Counts, times and fixed labels only: a workspace's handle, never a folder's
@@ -13,7 +15,7 @@ import { StyleSheet, View } from "react-native";
 import { Button, Dot, Text, space, useThemedStyles, type Colors } from "../design";
 import { whenLabel } from "./agent";
 import { relativeTime } from "./report";
-import { healthTone, parityWords, type IndexHealth, type MigrationRow, type MoveRow, type TreeIndexRow, type WorkspaceIndexes } from "./searchIndexes";
+import { healthTone, parityWords, type IndexHealth, type MigrationRow, type MoveRow, type WorkspaceIndexes } from "./searchIndexes";
 import type { IndexActions } from "./IndexRows";
 
 export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
@@ -21,9 +23,7 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
   const id = row.slug ?? row.workspaceId;
   const now = Date.now();
   const copy = row.migrationRow;
-  const tree = row.treeRow;
   const canCopy = copy !== null && !actions.migrationPaused;
-  const canFill = tree !== null && tree.status !== "unsupported" && tree.status !== "unreachable";
   const button = (key: string, label: string, busyLabel: string, onPress: () => void, testID: string, disabled = false) => (
     <Button
       label={actions.busy === key ? busyLabel : label}
@@ -39,12 +39,12 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
         <Text variant="rowTitle" style={styles.grow}>
           File tree
         </Text>
-        {canCopy || canFill
+        {canCopy
           ? button(
               `repair:${row.workspaceId}`,
               "Repair",
               "Starting…",
-              () => actions.repair(row.workspaceId, { copy: canCopy, fill: canFill }),
+              () => actions.repair(row.workspaceId),
               `admin-files-repair-${id}`,
             )
           : null}
@@ -56,7 +56,7 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
       <Line
         tone={row.details.health}
         label={row.details.label}
-        text={`Lists, Boards and map details. ${detailsNote(tree, now)}`}
+        text={`Lists, Boards and map details. ${factsNote(copy)}`}
         problem={row.details.problem}
       />
       {row.moves.map((move) => (
@@ -115,16 +115,16 @@ export function copyNote(copy: MigrationRow | null, now: number): string {
   return `${files}. ${copied}. ${parityWords(copy.parity)}.${dirty}`;
 }
 
-/** One sentence for the D1 details: how many rows, when they were last filled. */
-export function detailsNote(tree: TreeIndexRow | null, now: number): string {
-  if (tree === null) return "Not read yet.";
-  return [
-    tree.rows === null ? null : `${tree.rows.toLocaleString("en-US")} notes and files.`,
-    tree.sweptAt === null ? "Never filled." : `Last filled ${whenLabel(tree.sweptAt, now)}.`,
-    tree.dirty ? "A big change is waiting for the next pass." : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+/** One sentence for the copy's facts: whether they have read every note. */
+export function factsNote(copy: MigrationRow | null): string {
+  const facts = copy?.facts ?? null;
+  if (copy === null) return "None without a file tree.";
+  if (facts === null) return "Not read yet.";
+  if (!facts.ready) return facts.running ? "Reading every note once." : "Part way through reading every note once.";
+  if (facts.retrying > 0) {
+    return `Every note read; ${facts.retrying.toLocaleString("en-US")} ${facts.retrying === 1 ? "note" : "notes"} to read again.`;
+  }
+  return "Every note read, and kept current after each change.";
 }
 
 /** One sentence for a folder move still copying. */

@@ -28,7 +28,7 @@ export type NodePage = (after: string | undefined, limit: number) => Promise<{ r
 /**
  * A store whose listings page the tree's rows and whose `privacy.md` is the
  * tree's rules. Every other read is the bucket's own, through the prototype,
- * as `treeListingStore` (`apps/mcp/src/tree/source.js`) does it.
+ * as the retired D1 table's `treeListingStore` does it.
  *
  * The cursor it hands back is the last key of the page, a path the caller was
  * given, never anything about rows it was not.

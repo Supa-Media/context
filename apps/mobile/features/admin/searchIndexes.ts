@@ -7,13 +7,12 @@
  * of different things like tree index, search by meaning etc … not the best
  * UI"): three stacked tables became one, opening on what needs attention.
  *
- * The file tree column folds three sources into one (the owner approved the
- * board, 2026-10-13, once every reader had moved to the Convex tree): the
- * Convex copy itself, which the sidebar, folder pages, Home and agents read;
- * the workspace's own D1 tables, which now only hold the front matter, links
- * and chaos history that Lists, Boards and the map read; and the folder moves
- * still copying behind the tree. Pure, so the rules are pinned by
- * `adminSearchIndexes.test.ts`.
+ * The file tree column is the Convex copy, which the sidebar, folder pages,
+ * Home and agents read, with the folder moves still copying behind it (the
+ * owner approved the board, 2026-10-13). Its detail adds the copy's facts:
+ * the links and front matter Lists, Boards, the map and the chaos score read,
+ * which lived in each workspace's own D1 tables until phase 7 of the tree
+ * migration. Pure, so the rules are pinned by `adminSearchIndexes.test.ts`.
  */
 
 import type { FunctionReturnType } from "convex/server";
@@ -21,7 +20,6 @@ import type { api } from "@context/convex/_generated/api";
 import type { DotTone } from "../design";
 import { meaningFailureLine, meaningStatePill, type MeaningIndexRow } from "./meaningIndexes";
 
-export type TreeIndexRow = FunctionReturnType<typeof api.functions.treeAdmin.treeIndexes>["rows"][number];
 export type MigrationRow = FunctionReturnType<typeof api.functions.nodesMigration.report>["rows"][number];
 export type MoveRow = FunctionReturnType<typeof api.functions.nodeMovesAdmin.report>["rows"][number];
 type Priorities = MeaningIndexRow["priorities"];
@@ -58,18 +56,17 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
 export type WorkspaceIndexes = {
   workspaceId: string;
   slug: string | null;
-  /** The file tree column: the copy, its details and its moves, worst first. */
+  /** The file tree column: the copy and its moves, worst first. */
   files: IndexCell;
   fast: IndexCell;
   meaning: IndexCell;
   /** The Convex copy alone, for the row's detail. */
   convex: IndexCell;
-  /** The D1 tables behind Lists, Boards and the map, for the row's detail. */
+  /** The copy's facts behind Lists, Boards, the map and the chaos score, for the row's detail. */
   details: IndexCell;
   /** Newest change we know of across them, for the Changed column. */
   changedAt: number | null;
   /** The raw rows, for the buttons that act on them. */
-  treeRow: TreeIndexRow | null;
   meaningRow: MeaningIndexRow | null;
   migrationRow: MigrationRow | null;
   /** Folder moves still copying in this workspace. */
@@ -91,22 +88,21 @@ function progressOf(indexed: number | null, pending: number | null) {
   return { figure: `${format(indexed)} of ${format(indexed + pending)}`, progress: { done: indexed, total: indexed + pending } };
 }
 
-export function treeCell(row: TreeIndexRow | null): IndexCell {
+/**
+ * The copy's facts (`lib/nodes/facts.ts` in the control plane): `Ready` once
+ * the fill has read every note. Never stuck: a failed read is retried by the
+ * next pass, and the 15-minute round starts a fill that is due. Paused with
+ * the copy, since the round starts nothing while it is.
+ */
+export function factsCell(row: MigrationRow | null, paused = false): IndexCell {
   if (row === null) return NONE;
-  const figure = row.rows === null ? null : format(row.rows);
-  const base = { figure, progress: null, problem: null, tiers: null };
-  if (row.status === "unreachable") return { ...base, health: "stuck", label: "Can't reach", problem: row.error };
-  if (row.error !== null) return { ...base, health: "stuck", label: "Stuck", problem: `Last pass failed: ${row.error}` };
-  switch (row.status) {
-    case "ready":
-      return row.dirty ? { ...base, health: "working", label: "Catching up" } : { ...base, health: "ok", label: "Ready" };
-    case "filling":
-      return { ...base, health: "working", label: "Filling" };
-    case "empty":
-      return { ...base, health: "stuck", label: "Not filled" };
-    case "unsupported":
-      return { ...base, health: "off", label: "Can't fill" };
-  }
+  const base = { figure: null, progress: null, problem: null, tiers: null };
+  const facts = row.facts;
+  if (facts !== null && facts.ready && facts.retrying === 0) return { ...base, health: "ok", label: "Ready" };
+  if (paused) return { ...base, health: "off", label: "Paused" };
+  if (facts === null) return { ...base, health: "working", label: "Not started" };
+  if (!facts.ready) return { ...base, health: "working", label: "Filling" };
+  return { ...base, health: "working", label: "Retrying", figure: `${format(facts.retrying)} to read again` };
 }
 
 export function fastCell(fast: MeaningIndexRow["fastSearch"] | null): IndexCell {
@@ -199,21 +195,11 @@ export function movesLabel(count: number): string {
 
 /**
  * The file tree column. The copy decides it, because the copy is what people
- * see. The D1 details can only make it worse, and only when they are stuck,
- * since a stuck fill leaves Lists, Boards and the map without front matter or
- * links. A folder move still copying is work on its way, and a stuck one wants
+ * see. A folder move still copying is work on its way, and a stuck one wants
  * a person.
  */
-export function filesCell(copy: IndexCell, details: IndexCell, moves: readonly MoveRow[]): IndexCell {
+export function filesCell(copy: IndexCell, moves: readonly MoveRow[]): IndexCell {
   let cell = copy;
-  if (details.health === "stuck" && RANK[cell.health] > RANK.stuck) {
-    cell = {
-      ...cell,
-      health: "stuck",
-      label: cell.health === "none" ? details.label : cell.label,
-      problem: `Lists, Boards and map details: ${details.problem ?? details.label.toLowerCase()}`,
-    };
-  }
   if (moves.length > 0) {
     const stuck = moves.find((move) => move.stuck);
     const figure = [cell.figure, movesLabel(moves.length)].filter(Boolean).join(" · ");
@@ -242,50 +228,40 @@ export function needsAttention(row: Pick<WorkspaceIndexes, IndexKey>): boolean {
 }
 
 /**
- * One row per workspace that has any of them. `tree` (the D1 details) is null
- * until its read lands (it is an action, read on open), and the rows show
- * without it rather than wait. `migration` is null while its report loads;
- * `paused` is the whole copy's switch; `moves` are the folder moves still
- * copying.
+ * One row per workspace that has any of them. `migration` is null while its
+ * report loads; `paused` is the whole copy's switch; `moves` are the folder
+ * moves still copying.
  */
 export function joinIndexes(
-  tree: readonly TreeIndexRow[] | null,
   meaning: readonly MeaningIndexRow[],
   migration: readonly MigrationRow[] | null = null,
   paused = false,
   moves: readonly MoveRow[] = [],
 ): WorkspaceIndexes[] {
-  const byId = new Map<string, { slug: string | null; tree: TreeIndexRow | null; meaning: MeaningIndexRow | null }>();
-  for (const row of meaning) byId.set(row.workspaceId, { slug: row.slug, tree: null, meaning: row });
-  for (const row of tree ?? []) {
-    const found = byId.get(row.workspaceId);
-    if (found) found.tree = row;
-    else byId.set(row.workspaceId, { slug: row.slug, tree: row, meaning: null });
-  }
+  const byId = new Map<string, { slug: string | null; meaning: MeaningIndexRow | null }>();
+  for (const row of meaning) byId.set(row.workspaceId, { slug: row.slug, meaning: row });
   for (const row of [...(migration ?? []), ...moves]) {
-    if (!byId.has(row.workspaceId)) byId.set(row.workspaceId, { slug: row.slug, tree: null, meaning: null });
+    if (!byId.has(row.workspaceId)) byId.set(row.workspaceId, { slug: row.slug, meaning: null });
   }
   const movesOf = new Map<string, MoveRow[]>();
   for (const move of moves) movesOf.set(move.workspaceId, [...(movesOf.get(move.workspaceId) ?? []), move]);
   const copies = new Map<string, MigrationRow>((migration ?? []).map((row) => [row.workspaceId, row] as const));
   const rows = [...byId.entries()].map(([workspaceId, entry]): WorkspaceIndexes => {
     const copy = copies.get(workspaceId) ?? null;
-    const changed = [entry.meaning?.updatedAt ?? null, entry.tree?.sweptAt ?? null, copy?.sweptAt ?? null].filter(
+    const changed = [entry.meaning?.updatedAt ?? null, copy?.sweptAt ?? null].filter(
       (n): n is number => n !== null,
     );
     const convex = convexCell(copy, paused);
-    const details = treeCell(entry.tree);
     const pending = movesOf.get(workspaceId) ?? [];
     return {
       workspaceId,
-      slug: entry.slug ?? entry.tree?.slug ?? null,
-      files: filesCell(convex, details, pending),
+      slug: entry.slug,
+      files: filesCell(convex, pending),
       fast: fastCell(entry.meaning?.fastSearch ?? null),
       meaning: meaningCell(entry.meaning),
       convex,
-      details,
+      details: factsCell(copy, paused),
       changedAt: changed.length === 0 ? null : Math.max(...changed),
-      treeRow: entry.tree,
       meaningRow: entry.meaning,
       migrationRow: copy,
       moves: pending,
