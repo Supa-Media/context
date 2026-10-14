@@ -348,6 +348,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
 - [A write asks the Convex tree whether a name is taken](./app-and-console/convex-tree-writes.md) (2026-10-14)
 - [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
+- [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)

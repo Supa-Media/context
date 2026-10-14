@@ -33,6 +33,7 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { Settle } from "../../../design/components/Settle";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
@@ -132,7 +133,15 @@ export function FolderHead({
     </Text>
   );
   return (
-    <>
+    /*
+      What is under the title answers late — the chaos line, the status line,
+      the about's words — so the head eases to its height rather than pushing
+      the list down a frame at a time (the owner, 2026-10-14: "When the about
+      content loads in a folder, everything is jumpy"). The title row is in
+      the box too, so the page column's gap between the head's parts is the
+      box's own and an empty head adds none.
+    */
+    <Settle testID="folder-head-settle" contentStyle={styles.stack}>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
         <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
           {icon === null ? null : (
@@ -167,7 +176,7 @@ export function FolderHead({
       {/* Under the title, on every page: beside it, it squeezed a long name onto two lines. */}
       {folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
-    </>
+    </Settle>
   );
 }
 
@@ -260,6 +269,8 @@ const ICON_LARGE = touchType.title;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    // The page column's gap (`FolderView` `column`), between the head's own parts.
+    stack: { gap: space.x2 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
     headLarge: { paddingTop: space.x2 },

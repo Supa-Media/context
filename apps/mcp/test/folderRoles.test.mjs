@@ -128,3 +128,16 @@ test("a new name may not twin a sibling by case, nor a root folder's role", () =
   assert.equal(siblingTwin("Projects", ["Projects"]), null, "the name itself is not its twin");
   assert.equal(siblingTwin("project-x", ["Project-Y", "projects"]), null);
 });
+
+test("a new name may not twin a sibling it only looks like: another dash, an invisible character", () => {
+  // Two rows reading "kings-1" in one folder (2026-10-14): most likely a
+  // non-breaking hyphen beside an ASCII one. Every character is escaped so a
+  // reviewer can see which one is meant.
+  assert.equal(siblingTwin("kings\u20111.md", ["kings-1.md"]), "kings-1.md", "non-breaking hyphen");
+  assert.equal(siblingTwin("kings\u20131.md", ["kings-1.md"]), "kings-1.md", "en dash");
+  assert.equal(siblingTwin("kings-1.md", ["kings\u22121.md"]), "kings\u22121.md", "minus sign");
+  assert.equal(siblingTwin("kings-1\u200b.md", ["kings-1.md"]), "kings-1.md", "zero-width space");
+  assert.equal(siblingTwin("\u2068kings-1\u2069.md", ["kings-1.md"]), "kings-1.md", "display isolates");
+  assert.equal(siblingTwin("\uff4b\uff49\uff4e\uff47\uff53-1.md", ["kings-1.md"]), "kings-1.md", "fullwidth letters");
+  assert.equal(siblingTwin("kings-1.md", ["kings-10.md", "kings 1.md", "kings_1.md"]), null, "a different name is not a twin");
+});

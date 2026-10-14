@@ -16,6 +16,7 @@
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { withoutSortPrefix as sharedWithoutSortPrefix } from "@context/shared/src/linkedHeading";
 import { FRONT_NOTES } from "../../../../mcp/src/lists/grammar.js";
 
 /** The folder a path sits in. `""` is the root. */
@@ -107,10 +108,10 @@ export function isMarkdown(name: string): boolean {
  * word are a naming problem the person can see and fix; Rename, Move and the
  * palette all still spell the number out.
  */
-const SORT_PREFIX = /^\d{1,2}-(?![\d.])(?=.)/;
+// The pattern itself lives in `linkedHeading.ts`, shared with the control plane.
 
 /**
- * `1-projects` → `projects`. **Display only** — see `SORT_PREFIX` above, and
+ * `1-projects` → `projects`. **Display only** — see the sort-number pattern above, and
  * the warning on `displayName`, which this half is subject to just as much.
  *
  * Nothing but a prefix is ever removed, which is the property worth holding it
@@ -118,7 +119,7 @@ const SORT_PREFIX = /^\d{1,2}-(?![\d.])(?=.)/;
  * came off is always a sort number or nothing.
  */
 export function withoutSortPrefix(name: string): string {
-  return name.replace(SORT_PREFIX, "");
+  return sharedWithoutSortPrefix(name);
 }
 
 /**
@@ -184,7 +185,7 @@ export function folderLabel(name: string): string {
  *
  * `1-projects` is drawn as `projects` for the same reason and by the same
  * argument: the number is there so a listing sorts, not so a person reads it.
- * `SORT_PREFIX` above is where that rule is stated and bounded.
+ * the sort-number pattern above is where that rule is stated and bounded.
  *
  * **This is display only, and the distinction is load-bearing.** The name on
  * disk never changes: `TreeRow.name` and `TreeRow.path` still carry the real

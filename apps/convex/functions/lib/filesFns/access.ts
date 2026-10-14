@@ -52,9 +52,14 @@ export function treeChangeOf(operation: FileOperation): TreeChange | null {
       };
     case "move":
     case "restoreTrash":
+    // An Obsidian plugin's rename and delete are a move and a delete too: the
+    // tree they never told went on drawing the old name, and every name check
+    // asks the tree now.
+    case "pluginRename":
       return { paths: [operation.from, operation.to], narrows: true, gone: [operation.from] };
     case "delete":
     case "removeNewFolder":
+    case "pluginDelete":
       return { paths: [operation.path], narrows: true, gone: [operation.path] };
     case "archive":
     case "trash":
