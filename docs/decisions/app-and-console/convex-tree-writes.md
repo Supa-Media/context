@@ -1,0 +1,42 @@
+# App and console — a write asks the Convex tree whether a name is taken
+
+Split out of [convex-tree](./convex-tree.md) on 2026-10-14, step 3 of the
+owner's "only opening or editing a note reads storage" sweep (2026-10-13).
+
+**A write asks the tree whether a name is taken** (step 3, 2026-10-14). Every
+destination check of the console's moves, copies, restores, archive stamps,
+new folders, Undo of a new folder, routine runs and privacy reset, and of the
+gateway's `move_note`, `archive_note`, `move_folder` and
+`set_folder_visibility`, reads the rows through pending moves
+(`lib/nodes/treeTaken.ts`; for the gateway, `/gateway/tree/facts` with
+`ask: "names"`, unfiltered and so only for an owner or editor with
+`context:write`). The free plan's cap counts the same rows, and admits a
+create while the tree cannot answer. A tree still loading refuses the write.
+The rows lag a write made past us, and the gateway's touch by a second, so
+**the write itself is the truth**: every destination is put `onlyIf: {
+absent: true }` where the store can hold it, and a folder move or copy that
+meets such a name stops part way, what moved keeping its visibility. **On B2
+and Wasabi**, which cannot, the tree's answer is the whole check: a file
+written there past us in the last seconds can be overwritten by a move onto
+its name, and that is the honest limit of such storage, as `moveSafetyRefusal`
+already says for the gateway. What still reads the bucket: the note being
+written; plumbing (trash names, a routine's run log, collaboration history);
+the queued move worker, sweeps and touches; `move_folder`'s source listing;
+and the cross-context move's and vault import's destination checks, not yet
+moved.
+
+**A store that ignores key order is paged by its own token** (2026-10-14).
+Dropbox lists recursively and ignores `startAfter`; the sweep sees a key out
+of order and pages by the continuation cursor instead, kept in the tree's row,
+restarting once if it expires. `unsupported` is left only for a store with
+neither, retried daily. Dropbox's prefix listing cannot find a file by its own
+path, so its touch reads that file by name (`prefixFindsFiles`).
+
+What fails if reversed:
+
+- `apps/convex/__tests__/files/treeWriteNames.test.ts`,
+  `fileOps/partialMove.test.ts`, `nodes/gatewayNames.test.ts` and
+  `apps/mcp/test/treeWriteNames.test.mjs`: a name only the tree holds is
+  refused, one only the bucket holds is refused by the write, a loading tree
+  refuses, and only a writer is told names; `nodes/sweepTouch.test.ts`: a
+  tree is filled by its store's token.
