@@ -139,6 +139,10 @@ export function useRowCommands(deps: RowCommandsDeps) {
       const epoch = workspaceGenerationRef.current.epoch;
       const shown = editorRef.current;
       if ((shown.path === from || shown.path === to) && shown.status !== "clean" && shown.status !== "saved") return;
+      // The note on screen already says its new name — the rename started in
+      // its title — so there is nothing to write, and no read to wait for
+      // before the editor moves on to the new name.
+      if ((shown.path === from || shown.path === to) && retitled(from, to, shown.draft) === null) return;
       try {
         const note = await readNote({ workspaceId: workspaceId!, path: to });
         if (workspaceGenerationRef.current.epoch !== epoch || note.readOnly || note.encrypted === true) return;
