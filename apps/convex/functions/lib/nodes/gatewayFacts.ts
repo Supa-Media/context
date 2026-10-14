@@ -19,6 +19,12 @@
  *   the keys, and the score a week ago for this reader's audience. With
  *   `today` from an owner reading privately (the only reader whose keys
  *   count both audiences), today's score is kept too.
+ * - `ask: "props"` with `paths` (at most `PROPS_REQUEST_PATHS`): each note's
+ *   props as its row keeps them (`props`, `sealed`, the `version` they were
+ *   read at), for the notes the reader may see. A note whose text the facts
+ *   have not read yet is absent. This is what `orient`'s folder descriptions,
+ *   `evaluate_lists`, `list_meetings`, `list_channel_days` and
+ *   `list_contacts` show in place of reading note bodies.
  */
 
 import { internal } from "../../../_generated/api";
@@ -30,10 +36,13 @@ import { json } from "../gatewayAuth";
 import { canSee } from "../privacy";
 import { GATEWAY_PATH_LENGTH, NO_BUCKET, STILL_LOADING } from "./gatewayManifest";
 import { readinessAndKick } from "./treeLoading";
-import { MOVE_RENAMES_CAP, dayOf } from "./facts";
+import { MOVE_RENAMES_CAP, PROPS_AT_PATHS, dayOf } from "./facts";
 import { servedNodesStore } from "./manifestStore";
 
 const NOT_SERVED = { served: false } as const;
+
+/** Notes one props request may name: one `propsAt` query's worth. */
+export const PROPS_REQUEST_PATHS = PROPS_AT_PATHS;
 
 /** A list of paths no longer than `cap`, each one path; `null` for anything else. */
 function pathList(value: unknown, cap: number): string[] | null {
@@ -57,10 +66,13 @@ export async function gatewayTreeFactsHandler(ctx: ActionCtx, body: Record<strin
 async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const accessToken = typeof body.accessToken === "string" && body.accessToken !== "" ? body.accessToken : null;
   const expected = typeof body.expectedWorkspaceId === "string" ? body.expectedWorkspaceId : null;
-  if (accessToken === null || expected === null || (body.ask !== "links" && body.ask !== "chaos")) return NOT_SERVED;
+  if (accessToken === null || expected === null || (body.ask !== "links" && body.ask !== "chaos" && body.ask !== "props")) {
+    return NOT_SERVED;
+  }
   const sources = body.ask === "links" ? pathList(body.sources, MOVE_RENAMES_CAP) : [];
   const names = body.ask === "links" ? pathList(body.names, MOVE_RENAMES_CAP) : [];
-  if (sources === null || names === null) return NOT_SERVED;
+  const paths = body.ask === "props" ? pathList(body.paths, PROPS_REQUEST_PATHS) : [];
+  if (sources === null || names === null || paths === null) return NOT_SERVED;
   try {
     const reader = await ctx.runQuery(internal.functions.nodesGateway.readClearance, {
       hashedAccessToken: await hashToken(accessToken),
@@ -85,6 +97,13 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
         served: true,
         candidates: { pointing: found.pointing.filter(visible), unparsed: found.unparsed.filter(visible) },
       };
+    }
+
+    if (body.ask === "props") {
+      // Filtered before the lookup, so a path the reader may not see is never read.
+      const seen = [...new Set(paths)].filter(visible);
+      const props = seen.length === 0 ? [] : await ctx.runQuery(internal.functions.nodeFacts.propsAt, { workspaceId: reader.workspaceId, paths: seen });
+      return { served: true, props };
     }
 
     const extras = await ctx.runQuery(internal.functions.nodeChaos.extras, { workspaceId: reader.workspaceId });

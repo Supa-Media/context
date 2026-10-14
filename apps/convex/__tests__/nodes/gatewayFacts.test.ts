@@ -9,11 +9,15 @@
  *  - every refusal is the same bytes as a tree that does not serve;
  *  - facts not yet whole say so (`candidates: null`, `chaos: null`), and the
  *    gateway falls back;
- *  - today's score is kept only from an owner's private read.
+ *  - today's score is kept only from an owner's private read;
+ *  - a note's props (front matter, heading, first paragraph) come back only
+ *    for notes the reader may see, and a note never read is absent.
  *
  * Sabotage (temporary local edits, reverted):
  *  - dropping the `visible` filter on candidates: the member case fails;
- *  - dropping the `private` check on `today`: the team-record case fails.
+ *  - dropping the `private` check on `today`: the team-record case fails;
+ *  - dropping the `visible` filter on props: "props are only for notes the
+ *    reader may see" fails at member clearance.
  */
 
 import { describe, expect, test } from "vitest";
@@ -199,6 +203,9 @@ describe("POST /gateway/tree/facts", () => {
       { accessToken: OWNER, expectedWorkspaceId: ws, ask: "links", sources: "1-projects/plan.md", names: [] },
       { accessToken: OWNER, expectedWorkspaceId: ws, ask: "links", sources: ["x".repeat(2_000)], names: [] },
       { accessToken: OWNER, expectedWorkspaceId: ws, ask: "links", sources: Array.from({ length: 2_001 }, (_, n) => `${n}.md`), names: [] },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "props", paths: "1-projects/plan.md" },
+      { accessToken: OWNER, expectedWorkspaceId: ws, ask: "props", paths: Array.from({ length: 101 }, (_, n) => `${n}.md`) },
+      { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "props", paths: ["1-projects/plan.md"] },
     ];
     for (const body of refusals) {
       const response = await gatewayPost(t, "/gateway/tree/facts", body);
@@ -217,6 +224,41 @@ describe("POST /gateway/tree/facts", () => {
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false, loading: true });
+  });
+
+  test("props are only for notes the reader may see, and a note never read is absent", async () => {
+    const { t, ws } = await fixture();
+    await withFacts(t, ws);
+    await t.run(async (ctx) => {
+      const db = ctx.db as unknown as MutationCtx["db"];
+      const rowOf = (path: string) =>
+        db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).eq("path", path)).unique();
+      const secret = await rowOf("1-projects/secret/codes.md");
+      await ctx.db.patch(secret!._id, { parsed: secret!.etag, props: JSON.stringify({ properties: { owner: "x" } }) });
+      const plan = await rowOf("1-projects/plan.md");
+      await ctx.db.patch(plan!._id, { parsed: plan!.etag, sealed: true });
+    });
+    const paths = ["1-projects/later.md", "1-projects/plan.md", "1-projects/secret/codes.md", "2-areas/mine.md", "2-areas/shared.md", "1-projects/nope.md"];
+    const owner = await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ask: "props", paths });
+    expect(owner.props.map((row: { path: string }) => row.path).sort()).toEqual([
+      "1-projects/later.md",
+      "1-projects/plan.md",
+      "1-projects/secret/codes.md",
+      "2-areas/mine.md",
+    ]);
+    expect(owner.props.find((row: { path: string }) => row.path === "1-projects/plan.md")).toEqual({
+      path: "1-projects/plan.md",
+      version: "e-1-projects/plan.md",
+      sealed: true,
+      props: null,
+    });
+    for (const reader of [MEMBER, OWNER_TEAM]) {
+      const team = await facts(t, { accessToken: reader, expectedWorkspaceId: ws, ask: "props", paths });
+      expect(team.props.map((row: { path: string }) => row.path).sort()).toEqual(["1-projects/later.md", "1-projects/plan.md"]);
+      expect(team.props.find((row: { path: string }) => row.path === "1-projects/later.md").props).toBe(
+        JSON.stringify({ properties: {}, lines: 1_500 }),
+      );
+    }
   });
 
   test("another workspace's links never answer", async () => {
