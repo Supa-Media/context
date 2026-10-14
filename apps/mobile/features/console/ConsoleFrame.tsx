@@ -656,7 +656,7 @@ export function ConsoleFrame({
           not the key.
         */}
         {meetingSheet}
-        {/* The chaos panel from a folder page's chip or the phone's Home; the tree's foot draws its own. */}
+        {/* The chaos panel, from a folder page's line or the phone's Home. */}
         <ChaosSheet />
       </AppFrame>
       </CustomEmojiProvider>

@@ -28,14 +28,12 @@ export const makeChaosStyles = (colors: Colors, shadows: Shadows) =>
     how: { color: colors.muted, paddingHorizontal: space.x2 },
     rule: { height: 1, backgroundColor: colors.line },
 
-    /* A folder page's Tex, beside its title, and the words that roll in after it. */
-    folderTex: { flexDirection: "row", alignItems: "center", gap: space.x2, flexShrink: 2, minWidth: 0 },
-    folderTexFigure: { marginVertical: -10, borderRadius: radii.pill },
-    folderTexOwnLine: { marginTop: space.x1 },
-    folderTexFigureOwnLine: { marginVertical: 0 },
-    folderTexWords: { flexShrink: 1, minWidth: 0 },
-    folderTexLead: { color: colors.text2 },
-    /* What Tex says when pressed. */
+    /* A folder page's line, beside its title. */
+    folderLine: { flexDirection: "row", alignItems: "center", flexShrink: 2, minWidth: 0 },
+    folderLineOwnLine: { marginTop: space.x1 },
+    folderLinePress: { flexShrink: 1, minWidth: 0 },
+    /* The folder's advice, when its line is pressed. */
+    adviceLead: { paddingHorizontal: space.x2 },
     tip: { flexDirection: "row", gap: space.x2, paddingHorizontal: space.x2, paddingVertical: 3 },
     tipText: { flexShrink: 1, color: colors.text },
     link: { color: colors.accent, fontWeight: "600" },

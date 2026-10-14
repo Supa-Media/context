@@ -25,7 +25,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
-import { FolderTex } from "../../../chaos/FolderTex";
+import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -101,7 +101,7 @@ export function FolderHead({
   folder,
 }: {
   title: string;
-  /** The folder this page is, for its Tex beside the title (`features/chaos`); absent draws none. */
+  /** The folder this page is, for its chaos line beside the title (`features/chaos`); absent draws none. */
   folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
@@ -152,13 +152,13 @@ export function FolderHead({
             </Pressable>
           )}
           </View>
-          {besideTitle ? <FolderTex folder={folder} /> : null}
+          {besideTitle ? <FolderChaosLine folder={folder} /> : null}
         </View>
         {switcher}
         {actions}
       </View>
-      {/* A phone's big title needs the row's width, so its Tex stands on the line under it. */}
-      {large && folder !== undefined ? <FolderTex folder={folder} ownLine /> : null}
+      {/* A phone's big title needs the row's width, so its chaos line sits under it. */}
+      {large && folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
     </>
   );

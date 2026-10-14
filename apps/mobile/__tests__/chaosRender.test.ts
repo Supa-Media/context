@@ -6,8 +6,10 @@
  * THE CHAOS SCORE, ON THE GLASS.
  *
  * `chaosModel.test.ts` proves the words; this proves the surfaces draw them
- * and that each press lands: Tex at the tree's foot and the panel it opens, a
- * folder page's Tex and what it says, the phone Home's line, and the figure's eyes. And the
+ * and that each press lands: a folder page's line and its advice, the panel,
+ * the phone Home's line, and that the app draws no Tex (Dev2, 2026-10-14: the
+ * figure stays on the homepage only). The figure's own eyes and colours are
+ * checked here too, for the homepage. And the
  * claim that matters for every workspace not scored yet: `available: false`
  * draws nothing at all, and neither does a console with no score.
  */
@@ -28,7 +30,7 @@ import { Tex } from "../features/chaos/Tex";
 import { texColors } from "../features/design/tokens/landingColors";
 import { ChaosHomeLine } from "../features/chaos/ChaosHomeLine";
 import { ChaosSheet } from "../features/chaos/ChaosPopover";
-import { FolderTex } from "../features/chaos/FolderTex";
+import { FolderChaosLine } from "../features/chaos/FolderChaosLine";
 import type { ChaosScore } from "../features/chaos/chaosModel";
 import type { ChaosSource } from "../features/chaos/useChaosScore";
 
@@ -162,47 +164,29 @@ const press = async (element: Element | null) => {
 const explorer = () =>
   createElement(Explorer, { files: browser(), contextLabel: "@seyi" });
 
-describe("the tree's foot line", () => {
-  test("no score, or not scored yet: the foot is the one it always was", async () => {
-    await mount(explorer());
-    expect(byId("explorer-chaos")).toBeNull();
-    await mount(explorer(), source(UNSCORED));
-    expect(byId("explorer-chaos")).toBeNull();
-    await mount(explorer(), source(null));
-    expect(byId("explorer-chaos")).toBeNull();
-    expect(byId("explorer-counts")).not.toBeNull();
-  });
+const line = (folder = "0-inbox") => createElement(FolderChaosLine, { folder });
+const crowded = { folder: "0-inbox", items: 12, chaos: 33 };
 
-  test("Tex alone, no words: the score, its word and the way it went are its label", async () => {
-    await mount(explorer(), source(SCORED));
-    const line = byId("explorer-chaos");
-    expect(strip(line?.textContent)).toBe("");
-    expect(line?.getAttribute("aria-label")).toContain("Chaos 34 of 100, crowded");
-    expect(line?.getAttribute("aria-label")).toContain(
-      "down 7 from a week ago",
-    );
-    expect(line?.querySelector("svg")).not.toBeNull();
-  });
+/** The workspace's panel, reached the one way a wide window has: a folder's line, its advice, the whole score. */
+async function openPanel(opened: string[] = [], result: ChaosScore = SCORED) {
+  await mount(line(), source(result, crowded), opened);
+  await press(byId("folder-chaos-line"));
+  await press(byId("folder-chaos-whole"));
+}
 
-  test("no trend without a week ago", async () => {
-    await mount(explorer(), source({ ...SCORED, weekAgo: null }));
-    expect(byId("explorer-chaos")?.getAttribute("aria-label")).not.toContain("week ago");
-  });
-
-  test("pressing it opens the panel over the tree, and pressing again closes it", async () => {
-    await mount(explorer(), source(SCORED));
-    expect(byId("chaos-panel")).toBeNull();
-    await press(byId("explorer-chaos"));
-    expect(byId("chaos-panel")).not.toBeNull();
-    await press(byId("explorer-chaos"));
-    expect(byId("chaos-panel")).toBeNull();
+describe("the tree's foot", () => {
+  test("has no chaos line, scored or not: Tex is gone from the app", async () => {
+    for (const src of [undefined, source(UNSCORED), source(null), source(SCORED)]) {
+      await mount(explorer(), src);
+      expect(byId("explorer-chaos")).toBeNull();
+      expect(byId("explorer-counts")).not.toBeNull();
+    }
   });
 });
 
 describe("the panel", () => {
   test("says the score, a week ago, the biggest wins with their hints, long notes and how it's scored", async () => {
-    await mount(explorer(), source(SCORED));
-    await press(byId("explorer-chaos"));
+    await openPanel();
     const panel = strip(byId("chaos-panel")?.textContent);
     expect(panel).toContain("Chaos 34 of 100");
     expect(panel).toContain("crowded");
@@ -217,11 +201,11 @@ describe("the panel", () => {
     expect(panel).toContain("1,420 lines");
     expect(panel).toContain("How it’s scored");
     expect(panel).toContain("Archive is never scored");
+    expect(byId("chaos-panel")?.querySelector("svg")).toBeNull();
   });
 
   test("reports and does not nag: no tidy button anywhere", async () => {
-    await mount(explorer(), source(SCORED));
-    await press(byId("explorer-chaos"));
+    await openPanel();
     expect(strip(byId("chaos-panel")?.textContent).toLowerCase()).not.toMatch(
       /tidy|clean up|you should/,
     );
@@ -229,12 +213,12 @@ describe("the panel", () => {
 
   test("a folder or a note opens it, and the panel closes", async () => {
     const opened: string[] = [];
-    await mount(explorer(), source(SCORED), opened);
-    await press(byId("explorer-chaos"));
+    await openPanel(opened);
     await press(byId("chaos-win-0-inbox"));
     expect(opened).toEqual(["0-inbox"]);
     expect(byId("chaos-panel")).toBeNull();
-    await press(byId("explorer-chaos"));
+    await press(byId("folder-chaos-line"));
+    await press(byId("folder-chaos-whole"));
     await press(byId("chaos-long-2-areas/journal/2026.md"));
     expect(opened).toEqual(["0-inbox", "2-areas/journal/2026.md"]);
   });
@@ -245,84 +229,65 @@ describe("the panel", () => {
       items: 20,
       chaos: 65 - i,
     }));
-    await mount(explorer(), source({ ...SCORED, folders }));
-    await press(byId("explorer-chaos"));
+    await openPanel([], { ...SCORED, folders });
     expect(
       document.querySelectorAll('[data-testid^="chaos-win-"]'),
     ).toHaveLength(5);
   });
 });
 
-describe("a folder page's Tex", () => {
-  const tex = (folder = "0-inbox") => createElement(FolderTex, { folder });
-
-  test("asks about its own folder, then Tex and its words: how many things, and what calm is", async () => {
+describe("a folder page's line", () => {
+  test("asks about its own folder, then one plain line: how many things, and what calm is", async () => {
     const asked: string[] = [];
-    await mount(
-      tex(),
-      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }, asked),
-    );
+    await mount(line(), source(SCORED, crowded, asked));
     expect(asked).toEqual(["0-inbox"]);
-    expect(byId("folder-tex-figure")?.querySelector("svg")).not.toBeNull();
-    expect(byId("folder-tex-line")?.textContent).toBe("12 things in here · calm is 4 or 5");
+    expect(byId("folder-chaos-line")?.textContent).toBe("12 things in here · calm is 4 or 5");
   });
 
-  test("a stressed Tex: it has hold of its yarn", async () => {
-    await mount(
-      tex(),
-      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
-    );
-    // The yarn is a path drawn only in the tugging pose.
-    const paths = byId("folder-tex-figure")?.querySelectorAll("path").length ?? 0;
-    const container = await mount(createElement(Tex, { chaos: 33, size: 40 }));
-    expect(paths).toBe(container.querySelectorAll("path").length + 1);
+  test("words only: no figure", async () => {
+    await mount(line(), source(SCORED, crowded));
+    expect(byId("folder-chaos")?.querySelector("svg")).toBeNull();
   });
 
   test("thin says so", async () => {
     await mount(
-      tex(),
+      line(),
       source(SCORED, { folder: "0-inbox", items: 2, chaos: 20 }),
     );
-    expect(byId("folder-tex-line")?.textContent).toBe("Only 2 things in here · calm is 4 or 5");
+    expect(byId("folder-chaos-line")?.textContent).toBe("Only 2 things in here · calm is 4 or 5");
   });
 
-  test("a calm or fine folder, an unscored workspace, or no score: no Tex", async () => {
+  test("a calm or fine folder, an unscored workspace, or no score: no line", async () => {
     await mount(
-      tex(),
+      line(),
       source(SCORED, { folder: "0-inbox", items: 8, chaos: 15 }),
     );
-    expect(byId("folder-tex")).toBeNull();
+    expect(byId("folder-chaos")).toBeNull();
     await mount(
-      tex(),
+      line(),
       source(UNSCORED, { folder: "0-inbox", items: 20, chaos: 65 }),
     );
-    expect(byId("folder-tex")).toBeNull();
-    await mount(tex());
-    expect(byId("folder-tex")).toBeNull();
+    expect(byId("folder-chaos")).toBeNull();
+    await mount(line());
+    expect(byId("folder-chaos")).toBeNull();
   });
 
-  test("pressing Tex: it says how this folder could be calmer, and moves nothing", async () => {
-    await mount(
-      tex(),
-      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
-    );
-    expect(byId("folder-tex-talk")).toBeNull();
-    await press(byId("folder-tex-figure"));
-    const talk = strip(byId("folder-tex-talk")?.textContent);
-    expect(talk).toContain("I'm holding 12 things. Folders feel calm with 4 or 5.");
-    expect(talk).toContain("two to five themes");
-    expect(talk).toContain("ask your AI to organize inbox");
-    expect(talk.toLowerCase()).not.toMatch(/you should|tidy|clean up/);
+  test("pressing it: how this folder could be calmer, with no figure, and nothing moves", async () => {
+    await mount(line(), source(SCORED, crowded));
+    expect(byId("folder-chaos-advice")).toBeNull();
+    await press(byId("folder-chaos-line"));
+    const advice = byId("folder-chaos-advice");
+    const words = strip(advice?.textContent);
+    expect(words).toContain("12 things in here. Folders feel calm with 4 or 5.");
+    expect(words).toContain("two to five themes");
+    expect(words).toContain("ask your AI to organize inbox");
+    expect(words.toLowerCase()).not.toMatch(/you should|tidy|clean up/);
+    expect(advice?.querySelector("svg")).toBeNull();
   });
 
   test("from there, the whole workspace's score opens the panel", async () => {
-    await mount(
-      tex(),
-      source(SCORED, { folder: "0-inbox", items: 12, chaos: 33 }),
-    );
-    await press(byId("folder-tex-figure"));
-    await press(byId("folder-tex-whole"));
-    expect(byId("folder-tex-talk")).toBeNull();
+    await openPanel();
+    expect(byId("folder-chaos-advice")).toBeNull();
     expect(strip(byId("chaos-panel")?.textContent)).toContain(
       "Chaos 34 of 100",
     );
@@ -335,6 +300,7 @@ describe("the phone's Home", () => {
     const line = byId("phone-home-chaos");
     expect(strip(line?.textContent)).toContain("Chaos 34 · crowded");
     expect(strip(line?.textContent)).toContain("a week ago 41 ↓");
+    expect(line?.querySelector("svg")).toBeNull();
     await press(line);
     expect(byId("chaos-panel")).not.toBeNull();
   });

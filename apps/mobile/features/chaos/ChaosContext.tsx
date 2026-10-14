@@ -1,8 +1,8 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import type { ChaosSource } from "./useChaosScore";
 
-/** Where the panel is drawn: over the tree from its foot line, or as a sheet from anywhere else. */
-export type ChaosPanelPlace = "foot" | "sheet";
+/** Where the panel is drawn: a sheet, from a folder page's line or the phone's Home. */
+export type ChaosPanelPlace = "sheet";
 
 /** The chaos score as every surface reads it: the numbers, the panel, and where a press goes. */
 export interface ChaosView extends ChaosSource {
@@ -17,8 +17,7 @@ export interface ChaosView extends ChaosSource {
  * The chaos score, handed down from the console layout.
  *
  * A context for the reason auto-organize's is one (`OrganizerContext`): the
- * surfaces are scattered — the explorer's foot, a folder page's head, the
- * phone's Home — and each treats absence as "draw nothing", so the demo
+ * surfaces are scattered — a folder page's head, the phone's Home — and each treats absence as "draw nothing", so the demo
  * console, the homepage and every render harness keep the screen they had.
  */
 const ChaosContext = createContext<ChaosView | undefined>(undefined);
