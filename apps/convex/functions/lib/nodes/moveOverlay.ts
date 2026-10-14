@@ -114,6 +114,8 @@ export function foldRows<R extends { path: string }>(rows: R[], moves: readonly 
   const out: R[] = [];
   for (const row of rows) {
     const folded = logicalPath(row.path, moves) as string;
+    // A note a queued trash carries folds under `.context/`, which the tree never holds.
+    if (folded.startsWith(".")) continue;
     if (seen.has(folded)) continue;
     seen.add(folded);
     out.push({ ...row, path: folded });

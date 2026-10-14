@@ -105,6 +105,8 @@ export const reserve = internalMutation({
     scope: v.union(v.literal("private"), v.literal("team")),
     grantedNames: v.array(v.string()),
     actorUserId: v.optional(v.id("users")),
+    /** A move into the hidden trash (`lib/nodes/trashStart.ts`). */
+    trash: v.optional(v.boolean()),
     now: v.number(),
   },
   returns: v.union(
@@ -137,6 +139,7 @@ export const reserve = internalMutation({
       kind: "file",
       state: "preparing",
       ...(args.actorUserId === undefined ? {} : { actorUserId: args.actorUserId }),
+      ...(args.trash === true ? { trash: true } : {}),
       scope: args.scope,
       grantedNames: args.grantedNames,
       total: 0,
@@ -182,7 +185,8 @@ export const activate = internalMutation({
     const row = await ctx.db.get(args.id);
     if (row === null || row.state !== "preparing") return false;
     const mirror = await readMirror(ctx.db, row.workspaceId);
-    const rulesCurrent = (mirror?.etag ?? null) === args.privacyEtag;
+    // A trash writes no rules: its names are hidden plumbing nobody is shown.
+    const rulesCurrent = row.trash === true || (mirror?.etag ?? null) === args.privacyEtag;
     if (!rulesCurrent || !(await treeServesNow(ctx.db, row.workspaceId))) {
       await ctx.db.delete(args.id);
       return false;
@@ -196,7 +200,8 @@ export const activate = internalMutation({
       updatedAt: args.now,
     });
     // Every screen draws the new name from here, so pins and recents go there now (`placesFollow.ts`).
-    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
+    // A trashed note's stay at its name, as a trash made in one go leaves them, for Restore to find.
+    if (row.trash !== true) await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
     // The pages it carries are at new names for every reader now, the site's scan included.
     await markWebsiteMoved(ctx, row.workspaceId, row);
     await scheduleWork(ctx, row.workspaceId);
@@ -212,6 +217,7 @@ const claimValidator = v.union(
     to: v.string(),
     kind: v.union(v.literal("file"), v.literal("folder")),
     undone: v.boolean(),
+    trash: v.boolean(),
     scope: v.union(v.literal("private"), v.literal("team")),
     grantedNames: v.array(v.string()),
     added: ruleListValidator,
@@ -241,11 +247,44 @@ export const claim = internalMutation({
       to: oldest.to,
       kind: oldest.kind,
       undone: oldest.undone === true,
+      trash: oldest.trash === true,
       scope: oldest.scope,
       grantedNames: oldest.grantedNames,
       added: oldest.added,
       moves: moving.map((row) => ({ from: row.from, to: row.to })),
     };
+  },
+});
+
+/**
+ * Restore asked for a note whose trash is still queued (`trash` to `path`):
+ * the move is turned around, as staff's Undo turns a move around, and the
+ * tree draws the note back at once. `busy` while a pass holds it (the caller
+ * waits a moment and asks again); `none` when no such move is queued, and the
+ * trash is restored from the bucket the usual way.
+ */
+export const undoTrash = internalMutation({
+  args: { workspaceId: v.id("workspaces"), trash: v.string(), path: v.string(), now: v.number() },
+  returns: v.union(v.literal("undone"), v.literal("busy"), v.literal("none")),
+  handler: async (ctx, { workspaceId, trash, path, now }) => {
+    const row = (await queueOf(ctx, workspaceId)).find(
+      (candidate) => candidate.trash === true && candidate.undone !== true && candidate.from === path && candidate.to === trash,
+    );
+    if (row === undefined) return "none" as const;
+    if (row.state !== "moving" || (row.leaseAt !== undefined && now - row.leaseAt < MOVE_LEASE_MS)) return "busy" as const;
+    await ctx.db.patch(row._id, {
+      from: row.to,
+      to: row.from,
+      undone: true,
+      moved: 0,
+      attempts: 0,
+      lastError: undefined,
+      nextAt: now,
+      updatedAt: now,
+    });
+    await markWebsiteMoved(ctx, workspaceId, { from: row.to, to: row.from });
+    await scheduleWork(ctx, workspaceId);
+    return "undone" as const;
   },
 });
 

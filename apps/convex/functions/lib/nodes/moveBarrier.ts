@@ -11,7 +11,9 @@
  *    there before it is read or written, and opening one at its old name moves
  *    it on first, so the read follows the forwarding entry like any moved note.
  *  - `attachQueueMove` lets `movePath` queue a folder move (the console's move
- *    and archive, and the organizer, which moves through `movePath` too).
+ *    and archive, and the organizer, which moves through `movePath` too), and
+ *    lets `trashPath` queue a trash and `restoreTrashedPath` turn a queued one
+ *    around (`trashStart.ts`).
  */
 
 import { internal } from "../../../_generated/api";
@@ -27,6 +29,7 @@ import type { FileStore } from "../fileOps/store";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import type { PendingMove } from "./moveOverlay";
 import { startQueuedMove } from "./moveStart";
+import { restoreQueuedTrash, startQueuedTrash } from "./trashStart";
 import { runMoveWork } from "./moveWork";
 import { rowFromObject } from "./sweep";
 import { attachTreeListing } from "./treeNames";
@@ -134,6 +137,22 @@ export async function storeWithMoves(
  * the barrier's other seams are, so nothing that walks the store carries it.
  */
 export function attachQueueMove(ctx: ActionCtx, args: BarrierArgs, store: FileStore, bucket: FileStore): void {
+  if (args.operation.kind === "trash") {
+    Object.defineProperty(store, "queueTrash", {
+      value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
+        startQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, ...trash }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  if (args.operation.kind === "restoreTrash") {
+    Object.defineProperty(store, "restoreQueuedTrash", {
+      value: (restore: { trash: string; path: string }) =>
+        restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
   if (!QUEUEING.has(args.operation.kind)) return;
   Object.defineProperty(store, "queueMove", {
     value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>

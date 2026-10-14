@@ -210,6 +210,13 @@ export const nodeTables = {
     }),
     /** Set by Undo: the move now carries everything back. */
     undone: v.optional(v.boolean()),
+    /**
+     * A move into the hidden trash (`lib/nodes/trashStart.ts`): `to` is under
+     * `.context/trash/`, so every listing drops the note at once. It carries no
+     * rules and rewrites no links, as a trash made in one go never did, and a
+     * Restore while it is pending turns it around (`undone`).
+     */
+    trash: v.optional(v.boolean()),
     /** A pass holding this move; another one waits. */
     leaseAt: v.optional(v.number()),
     /** Failed passes in a row, and a fixed, path-free label for the last one. */
