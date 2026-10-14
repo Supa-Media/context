@@ -247,14 +247,22 @@ export async function bindFakeStorage(
  * that way asserts on the state before verification and passes or fails for
  * reasons unrelated to the code. So: yield, drain, repeat until the queue is
  * empty, and fail loudly rather than silently proceeding if it never is.
+ *
+ * A job queued for later than `LATER_MS` from now is left alone: on real
+ * timers no drain could reach it, and the one that motivated this (the tree's
+ * parity re-check, half a minute after a write in flight made the first check
+ * differ) is a staff alarm no test is about.
  */
+const LATER_MS = 10_000;
 export async function drainScheduled(t: TestConvex): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
     const outstanding = jobs.filter(
-      (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
+      (job) =>
+        (job.state.kind === "pending" && job.scheduledTime <= Date.now() + LATER_MS) ||
+        job.state.kind === "inProgress",
     );
     if (outstanding.length === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -284,6 +292,26 @@ export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Pr
     if (state?.status === "ready" && state.cursor === undefined) return;
   }
   throw new Error("the tree's first copy never finished");
+}
+
+/**
+ * Run the scheduled jobs that are actually due, and leave the future alone.
+ *
+ * `drainScheduled` waits for the queue to empty, which never happens once a
+ * job is queued for later (a form digest an hour out, a parity re-check half
+ * a minute out). A test can still say "everything due has run".
+ */
+export async function drainDueScheduled(t: TestConvex): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const due = jobs.filter(
+      (job) => (job.state.kind === "pending" && job.scheduledTime <= Date.now()) || job.state.kind === "inProgress",
+    );
+    if (due.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+  }
+  throw new Error("due scheduled functions never drained");
 }
 
 /**

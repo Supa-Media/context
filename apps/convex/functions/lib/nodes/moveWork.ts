@@ -156,6 +156,12 @@ async function walkOldName(
     const at = Date.now();
     const listed = await store.list({ prefix, limit: LIST_PAGE, ...(cursor === undefined ? {} : { cursor }) });
     const objects = (listed.objects as { key: string; size?: number }[]).filter((object) => (single ? object.key === claimed.from : object.key.startsWith(prefix)));
+    // A store whose prefix listing cannot find a file (Dropbox) is asked for
+    // the one note by name; without this a queued trash there moved nothing.
+    if (single && objects.length === 0 && (store as { prefixFindsFiles?: boolean }).prefixFindsFiles === false) {
+      const object = await store.get(claimed.from);
+      if (object !== null) objects.push({ key: claimed.from, size: (object as { size?: number }).size });
+    }
     walk.listed += objects.length;
     const rows: NodeRow[] = [];
     const gone: string[] = [];

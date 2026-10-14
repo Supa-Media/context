@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
-import { asUser, captureError, copyTree, errorCode } from "./fixtures.helpers";
+import { asUser, captureError, copyTree, drainDueScheduled, errorCode } from "./fixtures.helpers";
 import { fixture, share, type Fixture } from "./files/fixtures.helpers";
 
 /**
@@ -122,6 +122,8 @@ describe("Dropbox file lifecycle through authorized actions", () => {
     const path = "1-projects/shared.md";
     const original = f.http.files.get(path)!.text;
     const result = await perform(f, f.owner, operation, path);
+    // With a tree to serve, a trash is a queued move: the copy lands behind it.
+    await drainDueScheduled(f.t);
     expect(f.http.probes).toContain(path);
     expect(f.http.files.get(result.to)?.text).toBe(original);
     // Dropbox has no conditional delete, so the store's logical-delete view
