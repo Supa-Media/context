@@ -32,6 +32,7 @@ import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
@@ -84,6 +85,8 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   const unsafeMove = moveSafetyRefusal(store);
   if (unsafeMove) return toolError(unsafeMove);
   if (await getWithLegacyFallback(store, destination)) return toolError("conflict: destination already exists");
+  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { ignore: source });
+  if (twin) return toolError(twin);
 
   const body = new TextEncoder().encode(sourceText);
   const sourceEtag = sourceObject.etag;

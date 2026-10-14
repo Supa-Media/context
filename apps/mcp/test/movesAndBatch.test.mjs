@@ -91,9 +91,9 @@ export async function runMovesAndBatchChecks() {
       folderDryRun.content[0].text.includes("preflight ok") &&
       objects.has("1-projects/portable-moved/batch-a.md")
   );
-  // The five built-in folders cannot be renamed or moved, by owner or team,
-  // under any number, and the refusal is the same whether the folder exists.
-  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"], ["priv-token", "4-archive"], ["priv-token", "9-archive"], ["priv-token", "Inbox"]]) {
+  // The folder playing each built-in role cannot be renamed or moved, by
+  // owner or team, under any number (a duplicate of it can: tree/twins.js).
+  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"]]) {
     const refused = await call(token, "move_folder", { source, destination: "renamed-main-folder", dry_run: true });
     check(
       `move_folder refuses the built-in folder ${source}`,

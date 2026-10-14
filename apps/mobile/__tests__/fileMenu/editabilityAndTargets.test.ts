@@ -153,6 +153,18 @@ describe("a built-in folder stays where it is", () => {
     expect(find(menu({ kind: "row", row: dir("1-projects/archive") }), "moveTo")).toBeDefined();
   });
 
+  /** @shyoh's `projects` beside `Projects` (2026-10-14): the duplicate is an ordinary folder. */
+  test("with the root loaded, a duplicate of the role's folder can be renamed, moved and trashed", () => {
+    const root = { topLevelFolders: ["Projects", "projects", "Areas"] };
+    const duplicate = menu({ kind: "row", row: dir("projects") }, root);
+    expect(find(duplicate, "rename")?.disabled).toBeUndefined();
+    expect(find(duplicate, "moveTo")).toBeDefined();
+    expect(find(duplicate, "delete")?.disabled).toBeUndefined();
+    expect(find(menu({ kind: "row", row: dir("Projects") }, root), "rename")?.disabled).toBe(true);
+    // Alone, it is the role's folder again.
+    expect(find(menu({ kind: "row", row: dir("projects") }, { topLevelFolders: ["projects"] }), "rename")?.disabled).toBe(true);
+  });
+
   test("a selection holding one cannot be moved, archived or trashed as a whole", () => {
     const both = menu({ kind: "selection", rows: [dir("1-projects"), dir("recipes")] });
     for (const id of ["moveTo", "archive", "delete"] as const) expect(find(both, id)).toBeUndefined();
