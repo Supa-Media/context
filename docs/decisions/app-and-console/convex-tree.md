@@ -250,6 +250,17 @@ folder at its new name at once, and the bucket catches up behind it.
   history and stamp go with them. A deleted note's marker at the destination
   is a clash like any stranger's object, never a failure for ever. Reading
   the source or dropping the part pin fails `__tests__/nodes/serverCopy.test.ts`.
+- **Storage catches up within five hours, and staff hear when it won't**
+  (decided 2026-10-14, `move-engine/plan.md` step C). Each pass records its
+  pace on the move row, smoothed over passes, and admin › Search › Indexes
+  shows each move's time left and one line for the deployment: files still to
+  copy, the oldest move's age, and when the slowest bucket catches up. A move
+  four hours old, on pace to miss five, or stuck is *late*: a check every 15
+  minutes marks it once and mails the staff who turned on "Email me when
+  storage falls behind", and its finish mails that it caught up — one mail
+  each way per move, at most 12 an hour (`storageLag.ts`). Handles, counts
+  and times only. Mailing on every check, or anybody off `ADMIN_EMAILS`,
+  fails `__tests__/nodes/storageLag.test.ts`.
 - **Opening a note promotes it.** A request's store reads through the pending
   moves (`withPendingMoves`): touching the new name moves that object there
   first, collaboration history included; an old name still holding its object

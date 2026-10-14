@@ -35,6 +35,7 @@ import { messageFor } from "./SecretDialogs";
 import { Segments } from "./Segments";
 import { whenLabel } from "./agent";
 import { fastRestartedLine, restartedLine, stuckMeaningCount } from "./meaningIndexes";
+import { StorageLag } from "./StorageLag";
 import {
   INDEXES,
   countParts,
@@ -186,6 +187,7 @@ export function IndexesView() {
 
   return (
     <View style={styles.view} testID="admin-indexes">
+      {moves ? <StorageLag lag={moves.lag} /> : null}
       <View style={styles.cards}>
         {INDEXES.map((index) => (
           <SummaryCard
