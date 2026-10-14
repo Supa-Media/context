@@ -253,10 +253,19 @@ export function scoresPathFor(resultFile) {
 export async function publishResult({ result, runUrl = null, connection, fetchImpl = fetch }) {
   const raw = await readFile(result, "utf8");
   const path = scoresPathFor(result);
+  // A re-judged run (`judge_run_id`) writes the same scores note again, and
+  // the gateway replaces a note only for the etag read from it.
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
   const written = await callTool(
     connection,
     "write_note",
-    { path, content: scoresNote(raw, { runUrl }), summary: `benchmark scores for ${basename(result, ".md")}` },
+    {
+      path,
+      content: scoresNote(raw, { runUrl }),
+      summary: `benchmark scores for ${basename(result, ".md")}`,
+      ...(etag ? { expected_etag: etag } : {}),
+    },
     fetchImpl,
   );
   if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
