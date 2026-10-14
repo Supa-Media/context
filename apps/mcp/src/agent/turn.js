@@ -53,6 +53,7 @@ import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
 import { aboutMePrompt } from "./aboutMe.js";
+import { jobsPrompt } from "./jobs.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -276,6 +277,8 @@ export async function runTurn(options) {
     coreTools = null,
     local = [],
     aboutMe = null,
+    // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    jobs = null,
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
@@ -349,6 +352,7 @@ export async function runTurn(options) {
     (progress ? PROGRESS_PROMPT : "") +
     (shelf ? shelf.prompt() : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces);
   let system = systemFor(model);
