@@ -179,11 +179,13 @@ describe("a note whose title is its name", () => {
       files.set(path, text);
       return { path, etag: `etag:${path}:${text.length}`, conflictCheck: "conditional" };
     };
+    // The server's move, heading step included (`lib/fileOps/followHeading.ts`):
+    // the console asks for it and writes no heading of its own.
     actions[fn("moveEntry")] = async (args: never) => {
-      const { from, to } = args as { from: string; to: string };
+      const { from, to, followHeading } = args as { from: string; to: string; followHeading?: boolean };
       const text = files.get(from);
       files.delete(from);
-      if (text !== undefined) files.set(to, text);
+      if (text !== undefined) files.set(to, followHeading === true ? retitled(from, to, text) ?? text : text);
       return { path: to };
     };
   });
@@ -370,6 +372,8 @@ describe("a note whose title is its name", () => {
     });
     await settle();
     expect(files.get(`${FOLDER}/Plan.md`)).toBe("# Plan\n\nBody.\n");
+    // One writer for the heading, the move itself: no second write races the editor.
+    expect(calls.filter((c) => c.name === fn("writeNote"))).toHaveLength(0);
   });
 
   test("Rename on its row goes to the title; on anything else it does not", async () => {

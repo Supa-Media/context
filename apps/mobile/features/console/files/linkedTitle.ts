@@ -141,38 +141,10 @@ export function relabelled<T extends { path: string; label: string }>(
 
 /**
  * The note's text with its title following a rename from `from` to `to`, or
- * `null` when nothing should change.
- *
- * The other direction of the same rule, for a rename that did not start in the
- * title — the tree, the dialog, the header, an undo. The heading becomes the
- * new name, whatever it said before, so the pair is linked from then on. A
- * note with no heading gets none: its name is drawn above it instead.
+ * `null` when nothing should change. Shared with the control plane, whose
+ * rename rewrites the heading as part of the move (`linkedHeading.ts`).
  */
-export function retitled(from: string, to: string, text: string): string | null {
-  if (nameIsAddress(from) || nameIsAddress(to)) return null;
-  const title = titleFor(text);
-  if (title === null) return null;
-  const old = stemOf(from).stem;
-  const next = stemOf(to).stem;
-  // The heading follows whatever it said before (see the header): the whole
-  // new stem where it carried the sort number, the name without it otherwise.
-  const replacement = title === old ? next : withoutSortPrefix(next);
-  if (replacement === title) return null;
-  const lines = text.split("\n");
-  // The line `titleFor` read: frontmatter skipped, then blank lines.
-  let index = 0;
-  if (lines[0]?.trim() === "---") {
-    index = 1;
-    while (index < lines.length && lines[index]?.trim() !== "---") index += 1;
-    index += 1;
-  }
-  while (index < lines.length && lines[index]!.trim() === "") index += 1;
-  const line = lines[index]!;
-  const marker = /^(\s*#\s+)/.exec(line)![1]!;
-  // A CRLF note keeps its line ending: `split("\n")` leaves the `\r` on it.
-  lines[index] = `${marker}${replacement}${line.endsWith("\r") ? "\r" : ""}`;
-  return lines.join("\n");
-}
+export { retitled } from "@context/shared/src/linkedHeading";
 
 /**
  * Whether an edit made on this device changed the note's title.

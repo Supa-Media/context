@@ -196,9 +196,30 @@ function isProtectedFolder(path, names) {
   return rolesIn([...names, name])[role] === name;
 }
 
-/** How sibling names are compared: case-blind, and blind to how an accent was typed. */
+/**
+ * Characters that draw as nothing: zero-width spaces and joiners, the soft
+ * hyphen, the byte-order mark, and the direction marks and isolates
+ * (`displayText.cjs` adds isolates around names it draws).
+ */
+const INVISIBLE = /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+/**
+ * Dashes that draw as a hyphen: the Unicode hyphens (an AI client writing
+ * "kings‑1" with a non-breaking hyphen is the case that found this,
+ * 2026-10-14), the figure, en and em dashes, the minus sign, and their
+ * small and fullwidth forms.
+ */
+const DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * How sibling names are compared: as a person reads them. Case-blind, blind
+ * to how an accent was typed, blind to compatibility forms (fullwidth
+ * letters), to characters that draw as nothing, and to which dash was used.
+ * Two names that fold alike look like one name in the tree, and the second is
+ * refused (`siblingTwin`).
+ */
 function foldName(name) {
-  return String(name).normalize("NFC").toLowerCase();
+  return String(name).normalize("NFKC").replace(INVISIBLE, "").replace(DASHES, "-").toLowerCase();
 }
 
 /**

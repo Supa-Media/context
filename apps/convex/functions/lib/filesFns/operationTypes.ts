@@ -147,7 +147,7 @@ export type FileOperation =
   | { kind: "createFolder"; path: string }
   /** Undo of a new folder, only while it holds nothing but its placeholder (`removeNewFolder`). */
   | { kind: "removeNewFolder"; path: string }
-  | { kind: "move"; from: string; to: string; expectedEtag?: string }
+  | { kind: "move"; from: string; to: string; expectedEtag?: string; followHeading?: boolean }
   | { kind: "copy"; from: string; to: string }
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }

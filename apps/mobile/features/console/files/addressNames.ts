@@ -1,4 +1,3 @@
-import { baseName } from "./paths";
 
 /**
  * The files whose name is an address rather than a title, which a heading
@@ -8,10 +7,4 @@ import { baseName } from "./paths";
  * says. Renaming one of those because somebody reworded its heading would
  * take a page off the web or a front note off its folder without a word.
  */
-const ADDRESS_NAMES = /^(index|about|readme|privacy|todo)\.md$/i;
-
-export function nameIsAddress(path: string): boolean {
-  if (path === "website" || path.startsWith("website/")) return true;
-  const name = baseName(path);
-  return ADDRESS_NAMES.test(name) || /\.(html|css)\.md$/i.test(name);
-}
+export { nameIsAddress } from "@context/shared/src/linkedHeading";
