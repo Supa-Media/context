@@ -89,6 +89,17 @@ export const APP_ORIGIN_ENV_VAR = "APP_ORIGIN";
 const MAX_REQUEST_BYTES = 64_000;
 
 /**
+ * The one exception: `/gateway/privacy` carries a workspace's whole rule set
+ * on every change (`functions/lib/gatewayRoutes/privacy.ts`), and a workspace
+ * that keeps every saved session or archived note as its own rule passes
+ * 64 KB long before it is unusual. Under the old cap the route answered 400
+ * and every privacy change in that workspace failed. The rules are held in one
+ * row, so the row's own limit (1 MiB) is the real bound; this is that, plus
+ * room for the token and the request's other fields.
+ */
+export const MAX_PRIVACY_REQUEST_BYTES = 1_100_000;
+
+/**
  * How long a parked authorization request, and then the code it becomes,
  * stays alive.
  *
@@ -261,9 +272,10 @@ export function badRequest(): Response {
 /** Read a JSON object body, or `null` for anything that is not one. */
 export async function readJsonBody(
   request: Request,
+  maxBytes: number = MAX_REQUEST_BYTES,
 ): Promise<Record<string, unknown> | null> {
   const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) return null;
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
 
   let text: string;
   try {
@@ -271,7 +283,7 @@ export async function readJsonBody(
   } catch {
     return null;
   }
-  if (text.length > MAX_REQUEST_BYTES) return null;
+  if (text.length > maxBytes) return null;
 
   let parsed: unknown;
   try {
