@@ -1,8 +1,9 @@
 /**
- * Mover tickets: one page of a whole-bucket move handed to the gateway's
- * mover (`apps/mcp/src/moves/mover.js`). See `moverTickets` in
- * `lib/schema/jobs.ts` for what a ticket is, and `lib/storageMover.ts` for the
- * call that mints and hands one over.
+ * Mover tickets: one page of a whole-bucket move, or of the managed-storage
+ * encryption walk, handed to the gateway's mover
+ * (`apps/mcp/src/moves/mover.js`). See `moverTickets` in `lib/schema/jobs.ts`
+ * for what a ticket is, and `lib/storageMover.ts` for the call that mints and
+ * hands one over.
  *
  * Nothing here opens a credential: `managedProvisioning.openMoverPage` spends
  * the ticket through `claimPage` and opens the buckets itself.
@@ -12,20 +13,31 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { MOVER_TICKET_TTL_MS } from "./lib/managedProvisioningFns/constants";
 
-const pagePhase = v.union(v.literal("copy"), v.literal("verify_source"), v.literal("verify_target"));
+const pagePhase = v.union(
+  v.literal("copy"),
+  v.literal("verify_source"),
+  v.literal("verify_target"),
+  v.literal("seal"),
+  v.literal("check"),
+  v.literal("unseal"),
+  v.literal("confirm"),
+);
 
 /** Store one page's ticket, hashed, and clear this workspace's expired ones. */
 export const mintPage = internalMutation({
   args: {
     hashedTicket: v.string(),
     workspaceId: v.id("workspaces"),
-    migrationId: v.id("managedStorageMigrations"),
+    migrationId: v.optional(v.id("managedStorageMigrations")),
+    walkRunId: v.optional(v.number()),
     phase: pagePhase,
     expectedCursor: v.optional(v.string()),
     now: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Exactly one job per ticket, so a spent ticket can never be read as the other.
+    if ((args.migrationId === undefined) === (args.walkRunId === undefined)) throw new Error("COPY_FAILED");
     const old = await ctx.db
       .query("moverTickets")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -34,7 +46,8 @@ export const mintPage = internalMutation({
     await ctx.db.insert("moverTickets", {
       hashedTicket: args.hashedTicket,
       workspaceId: args.workspaceId,
-      migrationId: args.migrationId,
+      ...(args.migrationId === undefined ? {} : { migrationId: args.migrationId }),
+      ...(args.walkRunId === undefined ? {} : { walkRunId: args.walkRunId }),
       phase: args.phase,
       ...(args.expectedCursor === undefined ? {} : { expectedCursor: args.expectedCursor }),
       createdAt: args.now,
@@ -51,7 +64,8 @@ export const claimPage = internalMutation({
     v.null(),
     v.object({
       workspaceId: v.id("workspaces"),
-      migrationId: v.id("managedStorageMigrations"),
+      migrationId: v.optional(v.id("managedStorageMigrations")),
+      walkRunId: v.optional(v.number()),
       phase: pagePhase,
       expectedCursor: v.optional(v.string()),
     }),
@@ -66,7 +80,8 @@ export const claimPage = internalMutation({
     if (row.expiresAt <= args.now) return null;
     return {
       workspaceId: row.workspaceId,
-      migrationId: row.migrationId,
+      ...(row.migrationId === undefined ? {} : { migrationId: row.migrationId }),
+      ...(row.walkRunId === undefined ? {} : { walkRunId: row.walkRunId }),
       phase: row.phase,
       ...(row.expectedCursor === undefined ? {} : { expectedCursor: row.expectedCursor }),
     };

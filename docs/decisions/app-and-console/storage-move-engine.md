@@ -78,3 +78,16 @@ enough to never fail").
   set, skipping the ticket's page check, or reusing a ticket fails
   `__tests__/storageMover.test.ts`; dropping the mover's secret check fails
   `apps/mcp/test/mover.test.mjs`.
+- **The encryption walk seals and opens objects in the mover too.** A ticket
+  names one job, a move's page or a walk's (`walkRunId`), never both. A walk
+  ticket opens only while the walk row is on the same run, phase and cursor,
+  and the mover receives that workspace's own bucket and data key for that one
+  page (`lib/managedEncryptionFns/walkMover.ts`, `moves/walkPage.js`). The
+  census and the step that mints the key stay in Convex, since neither reads an
+  object. A mover that does not answer is tried again in 30 seconds rather than
+  failing the workspace and pausing the rollout: the bucket did nothing wrong,
+  and the watchdog's stall limit still ends a walk whose mover never returns.
+  Skipping the ticket's phase or cursor check, sealing in the action while the
+  mover is set, or failing on no answer fails
+  `__tests__/storageMoverWalk.test.ts`; dropping the bucket's workspace or key
+  check fails `apps/mcp/test/moverWalk.test.mjs`.
