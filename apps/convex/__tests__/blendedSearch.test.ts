@@ -447,8 +447,6 @@ describe("the blended search, across contexts", () => {
     }
     expect(answer.sources.map((row) => row.state)).toEqual(["ok", "ok"]);
     expect(answer.searchableCount).toBe(2);
-    // Two tenants, a share and an index build take about 4s alone, which a
-    // loaded CI runner pushed past the 5s default.
   }, 15_000);
 
   test("a context the caller is not in is never searched and never named", async () => {
