@@ -489,6 +489,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
       router,
+      efforts: production?.efforts ?? null,
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
       // A browser call can open a page and settle it (`infra/site-shots`

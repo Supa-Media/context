@@ -113,9 +113,9 @@ function count(value) {
  *   for a gateway model: the gateway (`aiGatewayConfig`) and the labels its
  *   cost is filed under
  */
-export async function requestBuiltin({ model, system, messages, tools }, ai, options = {}) {
+export async function requestBuiltin({ model, system, messages, tools, effort }, ai, options = {}) {
   if (isGatewayModel(model)) {
-    return await requestViaGateway({ model, system, messages, tools }, options.gateway ?? null, options);
+    return await requestViaGateway({ model, system, messages, tools, effort }, options.gateway ?? null, options);
   }
   if (typeof ai?.run !== "function") throw new ProviderError("built-in model not configured");
   const catalog = isCatalogModel(model);
