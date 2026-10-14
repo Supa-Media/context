@@ -171,9 +171,9 @@ export function Breadcrumb({
   */
   /*
     Except the note's name, once it can be changed there. "We should be able
-    to rename a note from the note header itself" (owner, 2026-10-14): the H1
-    this line deferred to is only the name while the two match, and a note
-    with no heading had no name on its page at all. So with `rename` the leaf
+    to rename a note from the note header itself" (owner, 2026-10-14): a note
+    with no heading had no name on its page at all, and the H1 this line
+    deferred to scrolls away. So with `rename` the leaf
     is back, as the field that renames it, the way Obsidian's path line ends
     in the note's name.
   */

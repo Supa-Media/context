@@ -180,8 +180,8 @@ export interface FileBrowser extends BesideEditing {
   /** A request, by id, to put the caret in this note's title. See `focusTitle`. */
   titleFocus?: { path: string; id: number } | null;
   /**
-   * Rename by way of the title: `true` when `path` is the open note and its
-   * title is its name, and the caret is on its way there. `false` for
+   * Rename by way of the title: `true` when `path` is the open note and has
+   * a title, and the caret is on its way there. `false` for
    * anything else, which the caller renames the old way.
    */
   focusTitle?: (path: string) => boolean;
