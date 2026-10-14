@@ -53,6 +53,8 @@ export async function prepareRun(bench, { today = null, ai = null } = {}) {
 
   const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
   const controlPlane = createControlPlaneStub();
+  // The listing tools list from the Convex tree, copied here from each S3 bucket.
+  controlPlane.serveTreesFrom(null, { s3 });
   const d1 = createD1Backend();
   const vectorize = ai ? createVectorizeBackend() : null;
   const restore = [s3.install(), controlPlane.install(), d1.install(), ...(vectorize ? [vectorize.install()] : [])];

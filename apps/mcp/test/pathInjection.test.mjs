@@ -157,6 +157,7 @@ export async function runPathInjectionChecks(check) {
       NATIVE_BINDINGS: "INJECT_BUCKET",
       INJECT_BUCKET: bucket,
     };
+    controlPlane.serveTreesFrom(env);
 
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# front page");

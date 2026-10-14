@@ -156,9 +156,8 @@ test("a session's store reads a moved note where people see it", async () => {
   is gone by the time the read reaches it and the miss is forwarded, where
   `canSee` is asked again at the destination. The gateway has no such step.
 
-  So the store answers an old name as the move engine before it did
-  (`getVisibleMovedNote` returns nothing for a path under a move job's
-  source): not found. The note is read at the name the tree draws it under,
+  So the store answers an old name as the old move engine did for a path
+  under its job's source: not found. The note is read at the name the tree draws it under,
   which is the name its privacy is judged by.
 */
 test("a note a pending move is carrying away is not read at its old name", async () => {

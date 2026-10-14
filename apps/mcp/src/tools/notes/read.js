@@ -6,7 +6,7 @@ import { describeDrawing, isDrawingPath, parseDrawing } from "../../../../../pac
 import { drawingEmbedLine } from "../../notes/embeds.js";
 import { encryptedNoteRefusal, openStoredNote } from "../../notes/sealing.js";
 import { forwardPath, readForwarding } from "../../forwarding.js";
-import { getVisibleMovedNote, listVisibleNoteKeysWithMoves } from "../../notes/visibleKeys.js";
+import { listVisibleNoteKeys } from "../../notes/visibleKeys.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
@@ -17,7 +17,7 @@ import comments from "../../../../../packages/shared/src/comments.cjs";
 export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const visible = await listVisibleNoteKeysWithMoves(store, scope, rules, overrides, prefix);
+  const visible = await listVisibleNoteKeys(store, scope, rules, overrides, prefix);
   if (!visible.length) return toolText("(no visible notes under that prefix)");
   const lines = visible
     .sort((a, b) => a.key.localeCompare(b.key))
@@ -75,18 +75,10 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   */
   const seen = canSee(requested, scope, rules, overrides);
   let path = requested;
-  const found = await getVisibleMovedNote(
-    store, scope, rules, overrides, requested, probeWithLegacyFallback,
-  );
-  let present = Boolean(found.object);
-  // The logical path is what the reader is told; the physical one is where the
-  // bytes are. A note caught mid-move answers at its source and is reported at
-  // its destination, so conflating the two reports the wrong address.
-  let physicalPath = found.physicalPath;
-  let logicalMove = found.logicalMove === true;
+  let present = Boolean(await probeWithLegacyFallback(store, requested));
   // Metadata may describe a deletion marker. Resolve only authorized bytes
   // before deciding whether the old path needs forwarding.
-  let obj = seen && present ? await getWithLegacyFallback(store, physicalPath) : null;
+  let obj = seen && present ? await getWithLegacyFallback(store, requested) : null;
   if (seen && present && !obj) present = false;
   if (!present || !seen) {
     /*
@@ -109,16 +101,12 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
     */
     const forwarded = forwardPath(await readForwarding(store), requested);
     if (forwarded !== requested && canSee(forwarded, scope, rules, overrides)) {
-      const landed = await getVisibleMovedNote(
-        store, scope, rules, overrides, forwarded, probeWithLegacyFallback,
-      );
-      if (landed.object && !present && seen) {
-        const landedObject = await getWithLegacyFallback(store, landed.physicalPath);
+      const landed = await probeWithLegacyFallback(store, forwarded);
+      if (landed && !present && seen) {
+        const landedObject = await getWithLegacyFallback(store, forwarded);
         if (landedObject) {
           present = true;
           path = forwarded;
-          physicalPath = landed.physicalPath;
-          logicalMove = landed.logicalMove === true;
           obj = landedObject;
         }
       }
@@ -137,11 +125,9 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   if (!opened.ok) return encryptedNoteRefusal(path);
   const marker = opened.encrypted ? "\nencryption: v1" : "";
   let collaboration = null;
-  if (!logicalMove && !opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
+  if (!opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
     try {
-      // Reads must not create a collaboration identity while the raw
-      // large-folder materializer still owns the path.
-      collaboration = await readCollaborationDocument(store, physicalPath);
+      collaboration = await readCollaborationDocument(store, path);
     } catch {
       // Once a supported store has initialized collaboration state, the
       // engine's materialized text is authoritative. Serving the raw object

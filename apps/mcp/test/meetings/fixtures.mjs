@@ -428,6 +428,7 @@ export async function createMeetingHarness() {
   neighbour.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "n0" });
 
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  controlPlane.serveTreesFrom(env, { s3 });
 
   harness.recorder = recorder;
   harness.neighbour = neighbour;

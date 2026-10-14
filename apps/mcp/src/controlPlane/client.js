@@ -23,7 +23,8 @@ export const CONTROL_PLANE_SITE_TIMEOUT_MS = 30_000;
  * Small on purpose: every documented payload is a few hundred bytes, and the
  * gateway has no reason to buffer more from anything, including a service it
  * trusts. A trusted service having a bad day is still a way to exhaust a
- * Worker.
+ * Worker. A route that answers with a page of names (the tree's manifest)
+ * passes its own, larger cap.
  */
 export const CONTROL_PLANE_RESPONSE_BYTE_CAP = 256_000;
 
@@ -108,7 +109,7 @@ function requireConfig(env) {
  * could carry into the next tenant's request.
  */
 export function createTransport(env, fetchImpl) {
-  async function post(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS } = {}) {
+  async function post(path, body, { timeoutMs = CONTROL_PLANE_TIMEOUT_MS, maxBytes = CONTROL_PLANE_RESPONSE_BYTE_CAP } = {}) {
     const { base, secret } = requireConfig(env);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -155,7 +156,7 @@ export function createTransport(env, fetchImpl) {
       );
     }
     const declared = Number(response.headers?.get?.("content-length"));
-    if (Number.isFinite(declared) && declared > CONTROL_PLANE_RESPONSE_BYTE_CAP) {
+    if (Number.isFinite(declared) && declared > maxBytes) {
       throw new ControlPlaneError("response too large");
     }
     let text;
@@ -164,7 +165,7 @@ export function createTransport(env, fetchImpl) {
     } catch {
       throw new ControlPlaneError("response unreadable");
     }
-    if (text.length > CONTROL_PLANE_RESPONSE_BYTE_CAP) {
+    if (text.length > maxBytes) {
       throw new ControlPlaneError("response too large");
     }
     let parsed;

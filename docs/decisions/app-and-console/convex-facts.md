@@ -73,14 +73,26 @@ counted as unparsed meanwhile; a log too old to reach starts a fresh walk.
 - **A move's link rewrite** in the gateway asks `/gateway/tree/facts` for the
   notes pointing at what moved (`tree/facts.js`), filtered by `canSee` at the
   grant's clearance.
+- **The gateway's listing tools** (`list_meetings`, `list_channel_days`,
+  `list_contacts`, `evaluate_lists`, and `orient`'s folder descriptions) ask
+  the same route for notes' props (`ask: "props"`, up to 100 named paths a
+  request; built 2026-10-13). The route answers only for the paths the
+  grant's clearance may see, and a note whose facts are not read yet is
+  absent from the answer.
 
 Each fell back to the D1 table, then to the bucket, while the facts were not
 whole. Since phase 7 of the tree migration (2026-10-13) the D1 tables are
 gone, and since 2026-10-13 a reader the facts cannot answer yet never falls
 back to the bucket either: a List shows its gaps, the map draws every note
 and says it is behind on links, and the chaos score is counted from the
-tree's keys alone and kept out of the history until the facts are whole. A write's chaos report is counted from the tree's keys and
-the facts (`apps/mcp/src/chaos/change.js`).
+tree's keys alone and kept out of the history until the facts are whole. A
+write's chaos report is counted from the tree's keys and the facts
+(`apps/mcp/src/chaos/change.js`). The gateway's agent tools likewise (owner,
+2026-10-13: nothing but opening a note reads storage): a note with no props
+is listed as "(details still loading)", a List leaves it out and says
+`pending`, a rewrite whose candidates are not whole reads every note the tree
+lists (reading the notes it may edit, not a listing of storage), and orient
+draws a folder without its description.
 
 **What a "simplification" would cost.** Keeping the facts in D1 keeps the D1
 tree alive only to tell the fills what changed. Storing who may see a link or
@@ -99,4 +111,6 @@ facts); `gatewayFacts.test.ts` (the
 gateway route answers at the grant's clearance, and every refusal is the same
 bytes); `nodesPurge.test.ts`, `nodesMigration.test.ts`; and
 `apps/mcp/test/treeFacts.test.mjs` (the gateway's rewrite and orient read the
-facts and fall back when they cannot).
+facts), `treeServed.test.mjs` (the listing tools answer as the bucket does
+and open no note) and `listingProps.test.mjs` (what a row says when the props
+are missing or sealed).

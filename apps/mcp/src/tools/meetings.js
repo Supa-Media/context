@@ -3,18 +3,21 @@
 import { canSee, effectiveVisibility } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { isMeetingNotePath, MEETINGS_FOLDER } from "../../../../packages/meetings/src/paths.js";
-import { listAllKeys, mapInBatches, probeWithLegacyFallback } from "../notes/storage.js";
+import { listAllKeys, probeWithLegacyFallback } from "../notes/storage.js";
+import { factProps } from "../tree/facts.js";
 import { meetingFileName } from "./communicationsSupport.js";
 import { normalizePath } from "../notes/paths.js";
-import { parseMeetingNote, splitTranscript } from "../../../../packages/meetings/src/note.js";
+import { splitTranscript } from "../../../../packages/meetings/src/note.js";
 import { toolError, toolText } from "./results.js";
 
 /**
  * The meetings this connection can see, newest first.
  *
- * Read off the **notes**, never off an index: the files are canonical and
- * `isMeetingNotePath` recognises one, so there is no second list to fall out of
- * step with what is actually in the bucket. A meeting whose note its owner
+ * Listed from the Convex tree, each row drawn from the tree's props of the
+ * note (its front matter and first heading) rather than by opening it (owner,
+ * 2026-10-13: only opening a note reads storage); a meeting the tree has not
+ * read yet is listed by its date and says its details are still loading.
+ * `isMeetingNotePath` recognises one off its path. A meeting whose note its owner
  * moved out of the folder stops being listed here and is still a note — which
  * is the correct behaviour for a product whose whole claim is that the files
  * are theirs.
@@ -51,25 +54,22 @@ export async function toolListMeetings(store, scope, rules, overrides, limitArg)
     .slice(0, limit);
   if (!visible.length) return toolText("(no meetings recorded yet)");
 
-  const rows = await mapInBatches(visible, 10, async ({ key }) => {
-    const object = await getWithLegacyFallback(store, key);
-    if (!object) return null;
-    const note = parseMeetingNote(await object.text());
-    const front = note.frontmatter || {};
-    const attendees = Array.isArray(front.attendees)
-      ? front.attendees.join(", ")
-      : String(front.attendees || "");
-    const parts = [
-      String(front.started || "").slice(0, 10) || "undated",
-      note.title || "(untitled meeting)",
-    ];
+  const facts = (await factProps(store, visible.map(({ key }) => key))) ?? new Map();
+  const rows = visible.map(({ key }) => {
+    const fact = facts.get(key);
+    const filed = meetingFileName(key).slice(0, 10);
+    if (!fact) return `${filed} · (details still loading)\n  ${key}`;
+    if (fact.sealed) return `${filed} · (encrypted)\n  ${key}`;
+    const front = fact.props.properties;
+    const attendees = Array.isArray(front.attendees) ? front.attendees.join(", ") : String(front.attendees || "");
+    const parts = [String(front.started || "").slice(0, 10) || "undated", fact.props.heading || "(untitled meeting)"];
     if (front.duration) parts.push(String(front.duration));
     if (attendees) parts.push(attendees);
     return `${parts.join(" · ")}\n  ${key}`;
   });
 
   return toolText(
-    `${rows.filter(Boolean).join("\n")}\n\n` +
+    `${rows.join("\n")}\n\n` +
       "Pass a path to read_meeting. Transcripts are held in the same note and omitted " +
       "unless you ask for them."
   );

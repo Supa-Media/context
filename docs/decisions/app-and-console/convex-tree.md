@@ -204,7 +204,15 @@ folder at its new name at once, and the bucket catches up behind it.
 - **Only folders queue.** A single note still moves in one go. A folder move
   falls back to the one-go move when the tree does not serve, when another
   move is being set up, or when the folder holds anything the mover cannot
-  see, since only a move made in one go knows how to leave that behind.
+  see, since only a move made in one go knows how to leave that behind. An
+  agent's `move_folder` falls back only for a folder of up to 100 objects; a
+  larger one the queue declines is refused with the reason (owner,
+  2026-10-13). It used to write an old-style logical move job under
+  `.context/moves/` instead, which every `read_note`, search and listing then
+  had to look through; nothing on the way to a note reads those jobs now. A
+  job already in a bucket is still finished by the gateway's background drain
+  and `materialize_move`, and `write_note` still refuses a path a draining
+  job is copying out of.
 - **Privacy is carried, never stored on a row.** The start copies the source's
   rules to the new name in `privacy.md` and narrows the destination, exactly as
   a one-go move would (`movePrivacy.ts`); the old name's rules go when the copy
@@ -265,7 +273,12 @@ step along a chain of moves, which forwarding covers.
   `move_folder` that falls back to moving in one go still lists the bucket it
   is about to change: an agent's note written a moment earlier reaches the
   tree about a second later, and a move that listed the tree would leave it
-  behind. The link table still says which notes point at what moved.
+  behind. The tree's facts say which notes point at what moved
+  ([convex-facts](./convex-facts.md)). A rewrite too large for one call, or
+  one the tree cannot list for yet, is reported as not done and left to
+  forwarding; it no longer queues a repair job in the bucket (2026-10-13).
+  The background drain of an old job, which has no person's grant to ask the
+  tree with, still inventories the bucket a page per pass.
 
 What a "simplification" would cost: retargeting every member's places without
 `canSee` hands a member the new name of a folder they may not see; judging
@@ -275,9 +288,16 @@ lets the worker carry the files the delete missed to the new name.
 
 **Phase 5, agents' listings, as built (2026-10-13).** `orient`'s map and
 counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
-and `evaluate_lists` list from the tree wherever `treeServes` holds, and
-auto-organize's `gather` and `outline` passes do too. Note text is still
-read from the bucket.
+and `evaluate_lists` list from the tree and only from the tree (owner,
+2026-10-13: "the only thing that should be reading from storage directly
+should be actually opening and editing a note ... I don't want to see even
+fallbacks"), and auto-organize's `gather` and `outline` passes list from it
+too. The front matter those tools show (a meeting's date and attendees, a
+day's account and message count, a contact's name and organization, a List's
+columns) is the tree's props of each note (`ask: "props"`,
+[convex-facts](./convex-facts.md)), so they open no note; `orient` describes a
+folder from its front note's first paragraph the same way. `evaluate_lists`
+opens the one note it was asked to evaluate, and `orient` its front page.
 
 - **The gateway asks `/gateway/tree/manifest`** (`lib/nodes/gatewayManifest.ts`)
   with the person's own access token, as `/gateway/site` does. The workspace
@@ -289,18 +309,30 @@ read from the bucket.
   filter with `canSee` over the bucket's `privacy.md`, as they filtered the
   bucket's listing. A key reaches an agent only if both agree.
 - **One request per call, not one walk per folder.** An answer carries up
-  to 20,000 keys (it leaves as an HTTP body, so the 8,192-element limit on
+  to 10,000 keys (it leaves as an HTTP body, so the 8,192-element limit on
   function results does not apply), and the gateway reuses it for every
-  listing in the same tool call (`apps/mcp/src/tree/served.js`).
+  listing in the same tool call (`apps/mcp/src/tree/served.js`). A tree
+  answer may be up to 16 MB (`TREE_RESPONSE_BYTE_CAP`); every other
+  control-plane answer stays under 256 KB. Held to 256 KB, a manifest refused
+  every workspace past about three thousand notes, which then listed the
+  bucket.
 - **Only the six listing tools.** A tool that writes lists the bucket it is
   about to change, and a listing of plumbing (`.context/`) always goes to the
   bucket, because the tree never holds it.
-- **A refusal is one shape.** An unknown token, a malformed field, a walk
-  that stopped short, rules that do not parse, and a failed or slow request
-  all answer `{ served: false }` (the same bytes for each). A reader the
-  grant lets in, on a workspace whose first copy has not finished, is told
-  `{ served: false, loading: true }` and the copy is started; parity and
-  Pause no longer refuse (2026-10-13, above).
+- **A refusal is one shape, and never the bucket instead.** An unknown
+  token, a malformed field, a walk that stopped short, rules that do not
+  parse, and a failed or slow request all answer `{ served: false }` (the
+  same bytes for each). A reader the grant lets in, on a workspace whose first
+  copy has not finished, is told `{ served: false, loading: true }` and the
+  copy is started; parity and Pause no longer refuse (2026-10-13, above). The
+  tool says the workspace is still loading and that `read_note`, `write_note`
+  and `search_notes` work meanwhile; a failed, slow or malformed request says
+  the list could not be read just now. `orient` still answers, without a map.
+  A note the props have not read yet is listed with "(details still
+  loading)", and a List leaves it out and says `pending`. The one store that
+  lists its bucket is one with no control plane at all (the single-tenant
+  token deployment, a self-hosted gateway): there is no tree to ask, so it is
+  not a fallback.
 
 A rename or move made in the console re-checks the tree as soon as its bytes
 land, before the links pointing at it are repaired (`lib/nodes/landedTouch.ts`),

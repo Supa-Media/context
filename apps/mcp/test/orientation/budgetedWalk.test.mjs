@@ -1,14 +1,16 @@
 /**
- * The budgeted walk: `orient` must never claim an exact count it did not
- * finish computing, and one bad folder must not blank out the rest of the
- * survey. See orientation.test.mjs for the module overview and the
- * sabotage-testing record (§1–2 cover this section).
+ * The survey's counts, from the Convex tree: `orient` lists the whole tree in
+ * one answer (`tree/served.js`), so a folder of any size is counted exactly,
+ * and a workspace the tree cannot answer for yet says so rather than walking
+ * the bucket. These checks used to hold the bucket walk's page budget and its
+ * "5000+" floors; the walk is gone (decided by the owner, 2026-10-13), and
+ * with it the floors. See orientation.test.mjs for the module overview.
  */
 
-import { orientText, createBucket, PRIVACY_MANIFEST, OWNER_TOKEN, TEAM_TOKEN } from "./fixtures.mjs";
+import { callText, orientText, PRIVACY_MANIFEST, OWNER_TOKEN, TEAM_TOKEN } from "./fixtures.mjs";
 
 export async function runOrientationBudgetedWalkChecks(check, harness) {
-  const { bucket, env } = harness;
+  const { bucket, env, controlPlane } = harness;
 
   bucket.seed("privacy.md", PRIVACY_MANIFEST);
   bucket.seed("index.md", "# The front page\n\nShipping the gateway.");
@@ -21,7 +23,7 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
     "the decision",
     new Date(Date.now() - 3 * 60 * 60 * 1000)
   );
-  // One folder past the walk budget: five pages of a thousand keys.
+  // One folder past the old walk budget (five pages of a thousand keys).
   for (let index = 0; index < 5_001; index += 1) {
     bucket.seed(
       `1-projects/bulk/note-${String(index).padStart(5, "0")}.md`,
@@ -35,27 +37,26 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   // A folder name the storage adapter refuses outright. Seeded straight into
   // the backing map, because `assertSafeKey` is exactly what stops it being
   // written through the adapter — and rclone or Obsidian are under no such
-  // obligation.
+  // obligation. The tree holds it like any other name.
   bucket.seed("1-projects\\legacy/note.md", "written by something else");
 
   const owner = await orientText(env, OWNER_TOKEN);
 
   check(
-    "orient reports a folder past its budget as a floor",
-    /^- 1-projects\/ \(5000\+ notes\)$/m.test(owner)
+    "orient counts a folder past the old walk budget exactly",
+    /^- 1-projects\/ \(5002 notes\)$/m.test(owner)
   );
   check(
-    "a floor travels down to the child folders drawn from the same walk",
-    /^ {2}- 1-projects\/bulk\/ \(\d+\+ notes\)$/m.test(owner)
+    "a child folder is counted exactly too",
+    /^ {2}- 1-projects\/bulk\/ \(5001 notes\)$/m.test(owner)
   );
-  check("orient's total is a floor when any folder was truncated", /^5\d{3}\+ notes visible/m.test(owner));
-  check("orient explains the floor markers when it prints one", owner.includes("are floors"));
+  check("orient's total is exact, never a floor", /^5007 notes visible/m.test(owner) && !owner.includes("are floors"));
   check(
-    "a folder the adapter refuses to list is named, not dropped",
-    owner.includes("1-projects\\legacy/ — could not be listed")
+    "a folder the adapter refuses to list is still on the map, from the tree",
+    owner.includes("- 1-projects\\legacy/ (1 note)")
   );
   check(
-    "one unlistable folder does not suppress the rest of the survey",
+    "every folder is on the survey",
     owner.includes("- 2-areas/ (2 notes)") && owner.includes("1-projects/gateway/")
   );
   // Asserted as presence *and* order. The first version of this compared two
@@ -68,63 +69,29 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
       recent.indexOf("index.md — ") < recent.indexOf("2-areas/handbook.md —") &&
       recent.indexOf("2-areas/handbook.md —") < recent.indexOf("1-projects/bulk/")
   );
-  check(
-    "a sampled recency list says it is a sample",
-    recent.includes("this call reached")
-  );
   check("orient carries the customer's own front page", owner.includes("Shipping the gateway."));
 
-  // A store that reports another page and then offers no continuation token.
-  // `IsTruncated` and `NextContinuationToken` are read from independent tags
-  // in `store/s3.js` with nothing checking they agree, so this pair is what a
-  // slightly-wrong endpoint produces. `listBoundedKeys` computed its cursor as
-  // `page.truncated ? page.cursor : undefined` and left `truncated` false, so
-  // the walk stopped and orient printed a short count as an exact total —
-  // "never a total" is the rule the whole survey is built on.
-  const stalling = {
-    ...bucket,
-    list: async (options) => {
-      const page = await bucket.list(options);
-      // Only the flat per-folder walk, so the folder map itself is unaffected
-      // and this probe changes exactly one thing.
-      return !options?.delimiter && options?.prefix === "2-areas/"
-        ? { ...page, truncated: true, cursor: undefined }
-        : page;
-    },
+  // A workspace whose first copy into the tree has not finished: orient says
+  // so, still carries the front page, and lists nothing from the bucket.
+  const listed = [];
+  const realList = bucket.list;
+  bucket.list = async (options) => {
+    listed.push(options?.prefix ?? "");
+    return realList(options);
   };
-  const stalled = await orientText({ ...env, LARGE_BUCKET: stalling }, OWNER_TOKEN);
+  controlPlane.stopServing("ws_large");
+  const loading = await orientText(env, OWNER_TOKEN);
+  const listing = await callText(env, OWNER_TOKEN, "list_notes", {});
+  controlPlane.resumeServing("ws_large");
+  bucket.list = realList;
   check(
-    "a folder whose walk the store would not finish is a floor, not a total",
-    /^- 2-areas\/ \(\d+\+ notes\)$/m.test(stalled) && !/^- 2-areas\/ \(\d+ notes\)$/m.test(stalled)
+    "a workspace still loading is told so, with its front page and no map",
+    loading.includes("still loading") && loading.includes("Shipping the gateway.") && !loading.includes("1-projects/bulk/")
   );
-  // NOT asserted on `stalled`: the LARGE_BUCKET fixture already seeds 5001
-  // keys under `1-projects/bulk/`, so its total is a floor in the honest run
-  // too. A check that passes on `main`, with the fix, and with the fix
-  // reverted is a green check that did not execute anything — the same
-  // vacuity as an assertion on a path that had already moved away. The floor
-  // marker on the folder line above is the one that isolates this stall; the
-  // total is proved on a bucket small enough for it to mean something.
-  const smallBucket = createBucket();
-  smallBucket.seed("privacy.md", PRIVACY_MANIFEST);
-  smallBucket.seed("2-areas/handbook.md", "team reference", new Date("2024-06-01T00:00:00Z"));
-  const smallEnv = { ...env, LARGE_BUCKET: smallBucket };
-  const honest = await orientText(smallEnv, OWNER_TOKEN);
+  check("...and list_notes says it is still loading", /still loading/.test(listing) && !listing.includes("1-projects/"));
   check(
-    "a small context that walks cleanly prints an exact total",
-    /^1 notes visible/m.test(honest)
-  );
-  const smallStalling = {
-    ...smallBucket,
-    list: async (options) => {
-      const page = await smallBucket.list(options);
-      return !options?.delimiter && options?.prefix === "2-areas/"
-        ? { ...page, truncated: true, cursor: undefined }
-        : page;
-    },
-  };
-  check(
-    "and the same context on a stalling store prints a floor instead",
-    /^1\+ notes visible/m.test(await orientText({ ...env, LARGE_BUCKET: smallStalling }, OWNER_TOKEN))
+    "...and neither listed the bucket",
+    listed.every((prefix) => prefix.startsWith("."))
   );
 
   const member = await orientText(env, TEAM_TOKEN);

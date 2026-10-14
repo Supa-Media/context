@@ -47,13 +47,20 @@ it only ever would by having been told; "who does this person correspond with"
 had no answer at all, on a surface whose whole claim is that the answer is one
 call away. `list_contacts` and `read_contact` are that pair, built the same way
 `list_channel_days` and `read_channel_day` are — a listing from the folder
-listing and then the notes, never an index, so a page the owner moved out stops
-being listed and stays a note of theirs — and they carry the
+listing, never an index, so a page the owner moved out stops being listed and
+stays a note of theirs — and they carry the
 [`context-contacts` plugin](../plugins.md)'s switch.
 
 Three things they do that the channel-day pair does not have to, all from one
 fact: **a contact's key is chosen by whoever sent the user a message.**
 
+- *Since 2026-10-13 the listing opens no page.* Each row is drawn from the
+  Convex tree's props of the page (front matter, first heading, first
+  paragraph; [convex-facts](../app-and-console/convex-facts.md)): the name, the
+  organization and when the page was updated, and no longer the identifier
+  count or the last activity, which live in the body and `read_contact` shows.
+  The front matter's `type: contact` (or an imported page's
+  `role: communication-contact`) is the marker below, read from the props.
 - **`isContactNote`, not a successful parse, decides whether a page is ours.**
   `parseContactView` is lenient by design; pointed at the owner's own note at a
   contact's key — or at ciphertext — it returns a person with an empty name.

@@ -41,6 +41,7 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
       NATIVE_BINDINGS: `${id.toUpperCase()}_BUCKET`,
       [`${id.toUpperCase()}_BUCKET`]: bucket,
     };
+    controlPlane.serveTree(id, bucket);
     return await orientText(env, token);
   };
 

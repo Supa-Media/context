@@ -3,7 +3,7 @@
  *
  * ## WHY THIS SUITE EXISTS
  *
- * `move_folder` has two implementations, chosen by size. Under
+ * `move_folder` had two implementations, chosen by size. Under
  * `LOGICAL_FOLDER_MOVE_THRESHOLD` objects it builds one `moves` entry per note
  * and writes, for each, the NARROWER of what the note was and what the
  * destination folder grants — the rule that stops a move widening, argued in
@@ -28,11 +28,17 @@
  * Fixed there; never checked here, because the comparison that found it read
  * `move_note` and stopped.
  *
+ * Since 2026-10-13 the gateway has no logical path: a folder past the
+ * threshold moves through the Convex move queue, which decides each moved
+ * note's visibility in the control plane (and is tested there), or is
+ * refused when the queue cannot take it. A job the old path left in a bucket
+ * is still drained (1b), and the drain decides no visibility.
+ *
  * What is proved here:
  *
  *  1. a folder of more than `LOGICAL_FOLDER_MOVE_THRESHOLD` notes, private only
- *     by inheritance, moved into a `team` folder, is still private to a team
- *     connection — before and after materialization;
+ *     by inheritance, that the queue cannot take is refused and publishes
+ *     nothing;
  *  2. the same move under the threshold already behaved that way, so the two
  *     paths agree rather than one being dragged to the other's answer;
  *  3. a note's own `team` exception still survives the bulk move, so the fix
@@ -46,6 +52,7 @@ import {
   createControlPlaneStub,
   createS3Backend,
 } from "./controlPlaneStub.mjs";
+import { seedLegacyFolderMoveInMap } from "./legacyMoveJob.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 
@@ -160,6 +167,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
   });
 
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  controlPlane.serveTreesFrom(env, { s3 });
 
   const primary = s3.bucketFor("bulk-visibility");
   primary.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "pm1" });
@@ -183,58 +191,27 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     textOf(beforeTeam).includes("not found")
   );
 
+  /*
+    Past the threshold the gateway no longer moves a folder itself: the
+    Convex move queue does, and decides there what each moved note may be
+    seen as. With no queue (this harness) the move is refused, so nothing is
+    published by it. The checks that drove the gateway's own logical move here
+    ("cuts over logically", materialization, forwarding) are gone with it
+    (2026-10-13).
+  */
   const bulk = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "2-areas/deep",
     destination: "1-projects/deep",
   });
   check(
-    "a folder past the threshold cuts over logically",
-    !bulk?.isError && /logical move active/.test(textOf(bulk))
+    "a folder past the threshold the queue cannot take is refused",
+    bulk?.isError === true && /could not queue this move/.test(textOf(bulk))
   );
-
-  const afterTeam = await callTool(env, TOKEN_TEAM, "read_note", { path: moved });
   check(
-    "THE ROW: a bulk move into a team folder does not publish a note that was private by inheritance",
-    textOf(afterTeam).includes("not found")
-  );
-
-  const moveId = /move_id: (\S+)/.exec(textOf(bulk))?.[1];
-  let passes = 0;
-  let last = "";
-  while (passes < 40 && moveId) {
-    const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: moveId });
-    last = textOf(pass);
-    passes += 1;
-    if (pass?.isError || /complete|no active work/.test(last)) break;
-  }
-  // The background `defer` often finishes the job before this loop runs, in
-  // which case `materialize_move` answers "not found" for an id that no longer
-  // exists. Either way the claim is about the BYTES, so assert those rather
-  // than the driver that moved them.
-  check(
-    "...and the move still materializes: the bytes are at the destination",
-    primary.get(moved)?.body === "SECRET-0"
-  );
-  const oldSource = await callTool(env, TOKEN_OWNER, "read_note", { path: witness });
-  check(
-    "...and the source path forwards to the one live destination",
-    !oldSource?.isError &&
-      textOf(oldSource).includes(`path: ${moved}`) &&
-      textOf(oldSource).includes(`moved_from: ${witness}`),
-  );
-
-  const afterMaterialized = await callTool(env, TOKEN_TEAM, "read_note", {
-    path: moved,
-  });
-  check(
-    "...and it is still private once the bytes have physically landed",
-    textOf(afterMaterialized).includes("not found")
-  );
-
-  const ownerReads = await callTool(env, TOKEN_OWNER, "read_note", { path: moved });
-  check(
-    "...while the owner still reads their own note at its new path",
-    textOf(ownerReads).includes("SECRET-0")
+    "THE ROW: a refused bulk move publishes nothing it would have moved",
+    textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: moved })).includes("not found") &&
+      primary.get(moved) === undefined &&
+      textOf(await callTool(env, TOKEN_TEAM, "read_note", { path: witness })).includes("not found")
   );
 
   /* ------- 1b. large materialization preserves collaboration history ----- */
@@ -251,15 +228,9 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "reading one note in a large folder gives it active collaboration history",
     textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
   );
-  const activeMove = await callTool(env, TOKEN_OWNER, "move_folder", {
-    source: "2-areas/active",
-    destination: "1-projects/active",
-  });
-  check(
-    "a folder past the threshold accepts a note with collaboration history",
-    !activeMove?.isError && textOf(activeMove).includes("logical move active"),
-  );
-  const activeMoveId = /move_id: (\S+)/.exec(textOf(activeMove))?.[1];
+  // A job an older gateway left behind for this folder still finishes, and
+  // keeps the history a note gained before it was copied.
+  const activeMoveId = seedLegacyFolderMoveInMap(primary, "2-areas/active", "1-projects/active");
   if (activeMoveId) {
     let checkedReferenceBound = false;
     for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -296,8 +267,9 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     source: "2-areas/medium",
     destination: "1-projects/medium",
   });
-  check("a 101-note folder uses the resumable logical move",
-    !medium?.isError && textOf(medium).includes("logical move active"));
+  check("a 101-note folder is past the one-go threshold: the queue's, and refused without it",
+    medium?.isError === true && /could not queue this move/.test(textOf(medium)) &&
+      primary.get("1-projects/medium/note-0.md") === undefined);
 
   /* ---------------- 2. the small path, for the same shape ----------------- */
 
@@ -374,7 +346,9 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     NOTHING: on two tiers the only branch that pushes always computes
     `private`, so the literal is indistinguishable there.
   */
-  const GROUP_BULK = 600;
+  // Under the threshold, so the gateway moves it in one go (past it, the
+  // Convex move queue carries the group, and is tested there).
+  const GROUP_BULK = 60;
   for (let n = 0; n < GROUP_BULK; n += 1) {
     primary.set(`2-areas/circle/inner/note-${String(n).padStart(4, "0")}.md`, {
       body: `CIRCLE-${n}`,
@@ -385,11 +359,15 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     source: "2-areas/circle/inner",
     destination: "1-projects/circle",
   });
-  check("a group-held folder past the threshold moves", !groupMove?.isError);
+  check("a group-held folder moves", !groupMove?.isError);
   const manifest = primary.get("privacy.md")?.body || "";
+  // In one go, each moved note carries its narrower value as its own
+  // exception (the logical path wrote one folder rule; the queue's tests hold
+  // that shape now).
+  const groupNotes = [...manifest.matchAll(/^  1-projects\/circle\/note-\d{4}\.md: (\S+)$/gm)].map((match) => match[1]);
   check(
-    "...and the destination rule carries the GROUP, not a retiering to private",
-    /1-projects\/circle: @bulkvis-circle/.test(manifest)
+    "...and each moved note carries the GROUP, not a retiering to private",
+    groupNotes.length === GROUP_BULK && groupNotes.every((value) => value === "@bulkvis-circle")
   );
   check(
     "...and a team connection still cannot read it",
@@ -434,11 +412,11 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
         .includes("BODY-secret-topic"),
   );
 
-  // Into `2-areas` (private), into `1-projects/circle` (@bulkvis-circle, from
-  // section 3), and within `1-projects` (team) — one referrer, three fates.
+  // Into `2-areas` (private), into `2-areas/circle` (@bulkvis-circle, by its
+  // folder rule), and within `1-projects` (team) — one referrer, three fates.
   for (const [from, to] of [
     ["1-projects/linkhub/secret-topic.md", "2-areas/vault/secret-topic.md"],
-    ["1-projects/linkhub/circle-topic.md", "1-projects/circle/circle-topic.md"],
+    ["1-projects/linkhub/circle-topic.md", "2-areas/circle/circle-topic.md"],
     ["1-projects/linkhub/open-topic.md", "1-projects/open/open-topic.md"],
   ]) {
     const moved = await callTool(env, TOKEN_OWNER, "move_note", { source: from, destination: to });
@@ -458,7 +436,7 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
   );
   check(
     "...nor the path of one moved into a group it is not in",
-    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("1-projects/circle/circle-topic"),
+    hubAsTeam.includes("# Hub") && !hubAsTeam.includes("2-areas/circle/circle-topic"),
   );
   check(
     "POSITIVE CONTROL: a move within team visibility still rewrites the link",
