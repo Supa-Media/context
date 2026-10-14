@@ -247,7 +247,10 @@ So a move appends to `.context/forwarding.json`: `{ from, to, kind, at }`,
 written by the gateway and by the console through one module
 (`apps/mcp/src/forwarding.js`, imported by `fileOps.ts` exactly as the search
 modules are), so a rename through the app and the same rename through an MCP
-client leave the same trail.
+client leave the same trail. *Since 2026-10-14 the ledger is held in Convex,
+read by the gateway filtered to the reader, and the file is written from it
+and never read back where a control plane exists
+([convex-small-data](../app-and-console/convex-small-data.md)).*
 
 **The shape is a trail between paths, not an index of references, and that is
 the decision.** An index — "who links to what" — is the obvious way to make a

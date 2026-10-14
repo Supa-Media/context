@@ -229,8 +229,9 @@ What a simplification of any of this costs, and the test that fails:
 
 **A line points at a note, not at a path it once had.** An entry written on
 Tuesday names where the note was on Tuesday, so every path is forwarded through
-`.context/forwarding.json` — the ledger "A move leaves a forwarding address"
-added, the same trail a share link follows — before a row is drawn or filtered.
+the forwarding ledger — the one "A move leaves a forwarding address" added,
+held in Convex since 2026-10-14 ([convex-small-data](./convex-small-data.md)),
+the same trail a share link follows — before a row is drawn or filtered.
 Following a row then lands on the note rather than on a gone path, and `canSee`
 is asked about where the note *is*, so one moved into a private folder drops
 out of lines written while it was shared. The historical path is not lost:

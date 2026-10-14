@@ -23,7 +23,10 @@ owner confirmed is linked from the Context note `2-areas/apps/context/custom-emo
   uploads `upload-`, icons `icon-`). The name rule (`CUSTOM_EMOJI_NAME` in
   `@context/shared`) is inside the store's leaf class, so a name cannot build a
   leaf that walks out of the store. The bytes decide the type; SVG and HEIC are
-  refused; 2 MB at most.
+  refused; 2 MB at most. *Since 2026-10-14 the names (and leaves) are also
+  rows in Convex, read in place of listing the store, and a picture copied in
+  by hand appears only through the one-time import; the pictures stay here
+  ([convex-small-data](./convex-small-data.md)).*
 - **Every member sees every emoji; editors and owners change them.** An emoji
   has no note to borrow a visibility from and is drawn in any note that names
   it, so it belongs to the workspace like its icon. `read` takes a name, never
@@ -72,7 +75,9 @@ one step.
 
 The icons stay in one bucket file, `.context/folder-icons.json`
 (`packages/shared/src/folderIcons.cjs`), not in each folder's front note: one
-read draws every row of a listing. Setting `:name:` is refused unless that
+read draws every row of a listing. *Since 2026-10-14 Convex holds them and the
+file is written from its rows, never read back
+([convex-small-data](./convex-small-data.md)).* Setting `:name:` is refused unless that
 emoji exists, so an icon never names a picture nobody can draw; one removed
 later shows the plain folder glyph. Every place that draws a folder icon (tree,
 listing rows, Home, the folder page's title) draws it through `EmojiGlyph`.
