@@ -71,11 +71,6 @@ export const imageValidator = v.object({
   bytes: v.bytes(),
 });
 
-export const emojiListValidator = v.object({
-  kind: v.literal("emojiList"),
-  emoji: v.array(v.object({ name: v.string(), leaf: v.string() })),
-});
-
 export const emojiImageValidator = v.object({
   kind: v.literal("emojiImage"),
   bytes: v.bytes(),
@@ -89,12 +84,6 @@ export const emojiStoredValidator = v.object({
 });
 
 export const emojiRemovedValidator = v.object({ kind: v.literal("emojiRemoved") });
-
-/** Pairs rather than a record: a Convex record key cannot be every folder name. */
-export const folderIconsValidator = v.object({
-  kind: v.literal("folderIcons"),
-  icons: v.array(v.object({ path: v.string(), icon: v.string() })),
-});
 
 export const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),

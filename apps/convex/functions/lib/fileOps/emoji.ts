@@ -1,11 +1,13 @@
 /**
- * A workspace's own emoji, in its bucket.
+ * A workspace's own emoji's pictures, in its bucket.
  *
- * Each one is a single object in the opaque image store, `emoji-<name>.<ext>`,
- * and the object's name is the whole record — see `@context/shared`'s
- * `customEmoji.ts` for why there is no list file. Everything here goes through
- * `writeImage` and `readImage`, so the store's own leaf rule, type allow-list
- * and size cap still decide what may land.
+ * Each one is a single object in the opaque image store, `emoji-<name>.<ext>`.
+ * Since 2026-10-14 their names, and the leaf each is under, are held in
+ * Convex (`customEmoji`, `functions/emoji.ts`), which every list and every
+ * "does this emoji exist" reads; the image store is listed only to import a
+ * workspace (`listCustomEmoji`, `lib/smallData/sync.ts`). Everything here goes
+ * through `writeImage` and `readImage`, so the store's own leaf rule, type
+ * allow-list and size cap still decide what may land.
  */
 
 import {
@@ -27,7 +29,7 @@ export interface CustomEmoji {
 }
 
 /**
- * Every emoji in the store, sorted by name.
+ * Every emoji in the store, sorted by name. Read only by the import.
  *
  * Two objects for one name (`emoji-x.png` beside `emoji-x.gif`, which only a
  * hand-copied file can produce) list once, as the first by leaf, so a name
@@ -55,22 +57,6 @@ export async function listCustomEmoji(store: FileStore): Promise<CustomEmoji[]> 
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Every leaf a name is stored under: normally one. */
-async function leavesFor(store: FileStore, name: string): Promise<string[]> {
-  const all: string[] = [];
-  const listing = await store.list({ prefix: `${IMAGE_PREFIX}${CUSTOM_EMOJI_LEAF_PREFIX}${name}.`, limit: 1000 });
-  for (const object of listing.objects) {
-    const leaf = object.key.slice(IMAGE_PREFIX.length);
-    if (parseCustomEmojiLeaf(leaf)?.name === name) all.push(leaf);
-  }
-  return all.sort();
-}
-
-/** Whether this workspace has an emoji called `name`. */
-export async function hasCustomEmoji(store: FileStore, name: string): Promise<boolean> {
-  return CUSTOM_EMOJI_NAME.test(name) && (await leavesFor(store, name)).length > 0;
-}
-
 function assertName(name: string): void {
   if (!CUSTOM_EMOJI_NAME.test(name)) {
     throw new FileOpError(
@@ -81,16 +67,26 @@ function assertName(name: string): void {
 }
 
 /**
+ * The leaf Convex holds for `name`, checked: an emoji's own leaf and nothing
+ * else in the image store, whatever a row says.
+ */
+function leafOf(name: string, leaf: string): string {
+  if (!CUSTOM_EMOJI_NAME.test(name) || parseCustomEmojiLeaf(leaf)?.name !== name) throw notFound();
+  return leaf;
+}
+
+/**
  * Store an emoji. The bytes decide the type, never the caller.
  *
- * A name already taken is `DESTINATION_EXISTS` unless `replace` is set, and a
- * replacement of another type removes the old object afterwards, so a name
- * never ends up meaning two pictures. Written before anything is removed: a
- * failure part-way leaves the old picture, not none.
+ * Whether the name is free, or is being replaced, is the caller's to decide
+ * from the names Convex holds (`functions/emoji.ts`); `previous` is the leaf
+ * the name was stored under, removed afterwards when the new picture is of
+ * another type, so a name never ends up meaning two pictures. Written before
+ * anything is removed: a failure part-way leaves the old picture, not none.
  */
 export async function storeCustomEmoji(
   store: FileStore,
-  options: { name: string; bytes: Uint8Array; replace: boolean },
+  options: { name: string; bytes: Uint8Array; previous: string | null },
 ): Promise<CustomEmoji> {
   assertName(options.name);
   if (options.bytes.byteLength > CUSTOM_EMOJI_MAX_BYTES) {
@@ -101,55 +97,43 @@ export async function storeCustomEmoji(
   if (type === null || leaf === null) {
     throw new FileOpError("PATH_INVALID", "An emoji must be a PNG, JPEG, GIF or WebP image.");
   }
-  const existing = await leavesFor(store, options.name);
-  if (existing.length > 0 && !options.replace) {
-    throw new FileOpError("DESTINATION_EXISTS", `This workspace already has :${options.name}:.`);
-  }
+  const previous = options.previous === null ? null : leafOf(options.name, options.previous);
   await writeImage(store, { leaf, bytes: options.bytes, contentType: type.contentType });
-  for (const old of existing) {
-    if (old !== leaf) await store.delete(IMAGE_PREFIX + old);
-  }
+  if (previous !== null && previous !== leaf) await store.delete(IMAGE_PREFIX + previous);
   return { name: options.name, leaf };
 }
 
-/** An emoji's bytes and type, by name. Missing is `FILE_NOT_FOUND`. */
+/** An emoji's bytes and type, by the leaf Convex holds for its name. Missing is `FILE_NOT_FOUND`. */
 export async function readCustomEmoji(
   store: FileStore,
-  name: string,
+  options: { name: string; leaf: string },
 ): Promise<{ bytes: ArrayBuffer; contentType: string }> {
-  if (!CUSTOM_EMOJI_NAME.test(name)) throw notFound();
-  const [leaf] = await leavesFor(store, name);
-  if (leaf === undefined) throw notFound();
+  const leaf = leafOf(options.name, options.leaf);
   const bytes = await readImage(store, leaf);
   const extension = parseCustomEmojiLeaf(leaf)?.extension;
   return { bytes, contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}` };
 }
 
-/** Remove an emoji. Notes that use it are not touched: they show the name. */
-export async function removeCustomEmoji(store: FileStore, name: string): Promise<void> {
-  assertName(name);
-  const leaves = await leavesFor(store, name);
-  if (leaves.length === 0) throw notFound();
-  for (const leaf of leaves) await store.delete(IMAGE_PREFIX + leaf);
+/** Remove an emoji's picture. Notes that use it are not touched: they show the name. */
+export async function removeCustomEmoji(store: FileStore, options: { name: string; leaf: string }): Promise<void> {
+  assertName(options.name);
+  await store.delete(IMAGE_PREFIX + leafOf(options.name, options.leaf));
 }
 
 /**
- * Rename an emoji: a copy under the new name, then the old one removed. The
- * new name must be free. Notes keep the old `:name:`, which then shows as text.
+ * Rename an emoji: a copy under the new name, then the old one removed.
+ * Whether the new name is free is the caller's to decide from Convex. Notes
+ * keep the old `:name:`, which then shows as text.
  */
 export async function renameCustomEmoji(
   store: FileStore,
-  options: { from: string; to: string },
+  options: { from: string; to: string; leaf: string },
 ): Promise<CustomEmoji> {
   assertName(options.from);
   assertName(options.to);
   if (options.from === options.to) throw new FileOpError("DESTINATION_EXISTS", `That is already its name.`);
-  const read = await readCustomEmoji(store, options.from);
-  const stored = await storeCustomEmoji(store, {
-    name: options.to,
-    bytes: new Uint8Array(read.bytes),
-    replace: false,
-  });
-  await removeCustomEmoji(store, options.from);
+  const read = await readCustomEmoji(store, { name: options.from, leaf: options.leaf });
+  const stored = await storeCustomEmoji(store, { name: options.to, bytes: new Uint8Array(read.bytes), previous: null });
+  await store.delete(IMAGE_PREFIX + options.leaf);
   return stored;
 }

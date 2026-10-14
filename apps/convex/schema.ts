@@ -39,6 +39,7 @@ import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
 import { routineTables } from "./functions/lib/schema/routines";
 import { nodeTables } from "./functions/lib/schema/nodes";
+import { smallDataTables } from "./functions/lib/schema/smallData";
 
 /**
  * Control-plane schema for Context.
@@ -47,7 +48,8 @@ import { nodeTables } from "./functions/lib/schema/nodes";
  * each workspace's file tree (names, versions) and privacy rules
  * (`lib/schema/nodes.ts`), and since 2026-10-13 each note's links and the
  * front matter, heading and first paragraph a List shows, as derivatives
- * rebuilt from the bucket (`lib/nodes/facts.ts`). Note bodies live exclusively in the customer's own bucket
+ * rebuilt from the bucket (`lib/nodes/facts.ts`), and since 2026-10-14 its folder
+ * icons, emoji names and forwarding ledger (`lib/schema/smallData.ts`). Note bodies live exclusively in the customer's own bucket
  * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,
@@ -113,6 +115,7 @@ const schema = defineSchema({
   ...meaningTables,
   ...routineTables,
   ...nodeTables,
+  ...smallDataTables,
 });
 
 export default schema;

@@ -83,12 +83,6 @@ export const visiblePathsValidator = v.object({
   paths: v.array(v.string()),
 });
 
-/** The answer to `forward`: the same paths, each where it is now. */
-export const forwardedValidator = v.object({
-  kind: v.literal("forwarded"),
-  paths: v.array(v.string()),
-});
-
 /**
  * One blended answer: a page of results, and one row per context it asked.
  *

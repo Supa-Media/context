@@ -13,6 +13,8 @@
  *    the authority and the last write of the file is owed (phase 3).
  *  - `nodesFactFill`: read the notes that changed and record their links and
  *    front matter (`factFill.ts`).
+ *  - `nodesSmallData`: import the icons, emoji and forwarding files once, then
+ *    write the files from the Convex rows (`lib/smallData/sync.ts`).
  *
  * Phase 1 of `docs/decisions/app-and-console/convex-tree.md` is a shadow: the
  * scheduling helpers here swallow every error, because a shadow must never
@@ -29,11 +31,12 @@ import { type NodeListingStore, sweepNodesPass } from "./sweep";
 import { touchNodes } from "./touch";
 import { followPlacesAfter } from "./followPlaces";
 import { runFactFill, scheduleFactFill } from "./factFill";
+import { runSmallDataSync } from "../smallData/sync";
 import { type LeftAudiences, type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_CHAIN, type Observation, nodeSweepDue } from "./table";
 
 export type NodesOperation = Extract<
   FileOperation,
-  { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesPrivacyExport" | "nodesFactFill" }
+  { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesPrivacyExport" | "nodesFactFill" | "nodesSmallData" }
 >;
 
 export function isNodesOperation(operation: { kind: string }): operation is NodesOperation {
@@ -42,7 +45,8 @@ export function isNodesOperation(operation: { kind: string }): operation is Node
     operation.kind === "nodesTouch" ||
     operation.kind === "nodesParity" ||
     operation.kind === "nodesPrivacyExport" ||
-    operation.kind === "nodesFactFill"
+    operation.kind === "nodesFactFill" ||
+    operation.kind === "nodesSmallData"
   );
 }
 
@@ -156,6 +160,11 @@ export async function runNodesOperation(
       console.error("nodes.privacy_export_failed", { workspaceId });
       return { kind: "nodesKept", complete: false };
     }
+  }
+
+  // The icons, emoji and forwarding files: not part of the copy, so a pause never holds them back.
+  if (operation.kind === "nodesSmallData") {
+    return { kind: "nodesKept", complete: await runSmallDataSync(ctx, workspaceId, store) };
   }
 
   // Paused by staff: copying work stops here, a sweep (its chain with it)
