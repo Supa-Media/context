@@ -15,8 +15,28 @@
 
 export const ABOUT_ME_PATH = "tex/about-me.md";
 
-/** The most of the note a prompt carries. Past it, the note is too long to be a summary. */
-export const MAX_ABOUT_ME_CHARS = 6_000;
+/**
+ * The note's hard size, in lines (the owner, 2026-10-14: "it doesn't need to
+ * be more than 500 lines"). Every write to it is refused past this, from any
+ * writer (`tools/notes/write.js`, which `remember` also goes through), so the
+ * prompt always carries the whole note.
+ */
+export const MAX_ABOUT_ME_LINES = 500;
+
+/** A bound on characters too, so 500 very long lines can't stand in for a book. */
+export const MAX_ABOUT_ME_CHARS = 40_000;
+
+/** Why a write of `content` to `path` is refused, or null. */
+export function aboutMeTooLong(path, content) {
+  if (path !== ABOUT_ME_PATH || typeof content !== "string") return null;
+  const lines = content.replace(/\n$/, "").split("\n").length;
+  if (lines <= MAX_ABOUT_ME_LINES && content.length <= MAX_ABOUT_ME_CHARS) return null;
+  return (
+    `too long: ${ABOUT_ME_PATH} holds at most ${MAX_ABOUT_ME_LINES} lines and ${MAX_ABOUT_ME_CHARS} characters ` +
+    `(this is ${lines} lines, ${content.length} characters). Nothing was written. ` +
+    "Condense it: merge repeated facts, drop what's stale, keep one short line per fact."
+  );
+}
 
 /** read_note's header lines (`etag: …`, `path: …`) end at the first blank line. */
 const HEADER_LINE = /^[a-z_]+: /;
@@ -53,13 +73,15 @@ export async function readAboutMe(callTool) {
 export function aboutMePrompt(text, { edits }) {
   const body = typeof text === "string" ? text.trim() : "";
   const keep = edits
-    ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write_note: read it first and keep the rest. Keep it short: facts, not a diary.`
+    ? `When you learn something lasting about them (a preference, a correction, someone in their life, how they like things done), add it to ${ABOUT_ME_PATH} in their own workspace with write_note: read it first and keep the rest. One short line per fact, never more than ${MAX_ABOUT_ME_LINES} lines: when it's getting long, merge and drop what's stale.`
     : "";
   if (body.length === 0) {
     return edits ? `\n\nYou keep what you learn about them in ${ABOUT_ME_PATH} in their own workspace. It doesn't exist yet. ${keep}` : "";
   }
   const shown =
-    body.length > MAX_ABOUT_ME_CHARS ? `${body.slice(0, MAX_ABOUT_ME_CHARS)}\n[cut: the note is longer; read it for the rest]` : body;
+    body.length > MAX_ABOUT_ME_CHARS || body.split("\n").length > MAX_ABOUT_ME_LINES
+      ? `${body.split("\n").slice(0, MAX_ABOUT_ME_LINES).join("\n").slice(0, MAX_ABOUT_ME_CHARS)}\n[cut: the note is over its limit; condense it]`
+      : body;
   return [
     "",
     "",

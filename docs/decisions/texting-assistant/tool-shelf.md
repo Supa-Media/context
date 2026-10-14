@@ -54,13 +54,20 @@ its memory belongs in a `tex/` folder, "memory about me that it's always
 updating", not in a framework's opaque store. A texted turn reads
 `tex/about-me.md` from the person's own workspace through the session's
 dispatcher (so `privacy.md` and the grant decide, as for any read), puts up
-to 6,000 characters of it in the system prompt, and, when it can write, is
+all of it in the system prompt, and, when it can write, is
 told to add lasting facts there with `write_note`, reading first. A missing or
 unreadable note is an empty one, never a failed turn
 (`apps/mcp/src/agent/aboutMe.js`). It is an ordinary note: the person reads,
 corrects or deletes it like any other, every change is in its history, and it
 leaves with an export.
 
+The note has a hard size: 500 lines and 40,000 characters (the owner,
+2026-10-14: "it doesn't need to be more than 500 lines"). `write_note` refuses
+any write past it, whoever the writer, and `remember` goes through the same
+check, so the prompt always carries the whole note and Tex is told to merge
+and drop what's stale as it grows.
+
 **What a simplification would cost:** keeping the profile anywhere but a note
 makes it the opaque memory the owner ruled out. Tests:
-`apps/mcp/test/agentAboutMe.test.mjs`.
+`apps/mcp/test/agentAboutMe.test.mjs`, and "Tex's memory note holds at most 500
+lines, from write_note and remember alike" (`apps/mcp/test/remember.test.mjs`).

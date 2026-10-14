@@ -64,7 +64,7 @@ test("the prompt says what the note holds, bounded, and to keep it only when the
   assert.equal(aboutMePrompt("", { edits: false }), "");
   const long = aboutMePrompt("x".repeat(MAX_ABOUT_ME_CHARS + 500), { edits: true });
   assert.ok(long.length < MAX_ABOUT_ME_CHARS + 600);
-  assert.match(long, /\[cut: the note is longer/);
+  assert.match(long, /\[cut: the note is over its limit/);
 });
 
 test("a texted turn is told what the note says, and to keep it", async () => {
