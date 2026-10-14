@@ -50,6 +50,13 @@ export interface SharedDoc {
   /** The current text, for the client elected to write it to the bucket. */
   markdown: () => string;
   destroy: () => void;
+  /**
+   * The note this document is for now. A durable document goes with its note
+   * across a rename (`DurableCollaborationController.follow`), and the editor
+   * reads this to tell a rename, which keeps the room, from a switch to
+   * another note, which leaves it. Absent where a room is one note for good.
+   */
+  notePath?: () => string;
 }
 
 /**

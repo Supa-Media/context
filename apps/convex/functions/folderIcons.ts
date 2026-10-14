@@ -9,10 +9,13 @@
  */
 
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { emojiRequest, nameSaysSomething, readEmoji, readTopic, topicRequest } from "@context/shared/src/iconSuggest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
+import { withJev } from "./lib/jev/client";
 import type { FileOperation as Operation, OperationResult } from "./lib/filesFns/operationTypes";
 
 type Icons = Array<{ path: string; icon: string }>;
@@ -53,4 +56,38 @@ export const set = action({
   returns: iconsValidator,
   handler: async (ctx, args): Promise<Icons> =>
     await run(ctx, args.workspaceId, "editor", { kind: "folderIconSet", path: args.path, icon: args.icon }),
+});
+
+/**
+ * The emoji the picker suggests for `path`, from its name alone, or `null`:
+ * a name that says nothing (`untitled-2026-10-14`), no topic fits, switched
+ * off, over the day's cap, or Clef not answering. Null is "no suggestion",
+ * never an error; the picker still offers a random one.
+ *
+ * Only the name is sent, so nothing is read from the bucket and the answer
+ * says nothing about whether `path` exists. Only an editor may ask, the one
+ * who could set the icon, and it is metered on this workspace.
+ */
+export const suggest = action({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args): Promise<string | null> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId: userId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const path = args.path.slice(0, 1024);
+    if (!nameSaysSomething(path)) return null;
+    const kind = path.toLowerCase().endsWith(".md") ? "note" : "folder";
+    return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev): Promise<string | null> => {
+      if (!jev) return null;
+      const topic = readTopic(await jev.decide(topicRequest(path, kind)));
+      if (topic === null) return null;
+      const request = emojiRequest(path, kind, topic);
+      return request === null ? null : readEmoji(await jev.decide(request), topic);
+    });
+  },
 });

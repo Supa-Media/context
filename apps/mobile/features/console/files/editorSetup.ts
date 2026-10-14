@@ -44,6 +44,7 @@ import { formHost, type FormHostRef } from "./formBlock";
 import { diagramHost, type DiagramHost } from "./livePreview/diagram";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
+import { titleLock } from "./titleLock";
 import { emojiHost, type EmojiHostRef } from "./emoji/host";
 import { emojiInline } from "./emoji/emojiInline";
 import { emojiTyping } from "./emoji/emojiComplete";
@@ -631,6 +632,12 @@ export function editorExtensions(options: {
       refuses to draw as links.
     */
     ...(links === undefined ? [] : [noteLinks(links)]),
+    /*
+      A note's `# title` stays, and stays a name a file can have — see
+      `titleLock`. On `links` because that is where the note's path lives on
+      both hosts; a surface with no path has no file to name.
+    */
+    ...(links === undefined ? [] : [titleLock(() => links.current.path)]),
     /*
       Completion is unconditional where `noteLinks` is not: the `[[` half needs
       a note list and a form block needs nothing but the text it is in. A

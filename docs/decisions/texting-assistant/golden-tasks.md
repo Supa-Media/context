@@ -61,7 +61,7 @@ with their wording and lines; the two reminders are new.
   long sets, `texting-assistant.md` (59 questions) and `tasks.md`, are kept
   unchanged and run by name, for a full round before a promotion.
 - **A reminder is graded on the note it wrote**, not on the reply:
-  `must write: maya/routines/once/ with at: 2026-10-09 9:00 am` passes only
+  `must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am` passes only
   when the run's record has a note written under that folder whose front
   matter says that date and time, read the way `routines.cjs` reads it, so
   `9am` and `09:00` are the same and tomorrow's date is not today's.

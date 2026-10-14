@@ -53,7 +53,7 @@ const scheduleValidator = v.object({
 
 // ── Keeping the rows a description of the bucket ───────────────────────────
 
-/** A write touched `routines/`: who wrote which paths. Ids and paths only. */
+/** A write touched a routine root (`routines/`, `tex/routines/`): who wrote which paths. Ids and paths only. */
 export const recordRoutineSignal = internalMutation({
   args: {
     workspaceId: v.string(),

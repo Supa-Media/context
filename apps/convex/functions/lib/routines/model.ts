@@ -7,14 +7,25 @@
  */
 
 import {
+  ROUTINES_FOLDER,
+  TEX_ROUTINES_FOLDER,
+  isRoutinePath,
   nextRunAt as nextRunOf,
   routineFromPath,
   routineSettings,
   type RoutineCadence,
 } from "@context/shared/src/routines.cjs";
 
-/** Where a person's routines live. Matched case-insensitively, like the shared module. */
-export const ROUTINES_ROOT = "routines";
+/**
+ * The folders a scan lists, both of them every time (the owner, 2026-10-14):
+ * `routines/`, where routines lived first and keep running, then
+ * `tex/routines/`, where new ones go. The old root first, so a workspace at
+ * `MAX_ROUTINES_PER_WORKSPACE` keeps the routines it already had running and a
+ * new one past the cap is the one left out.
+ */
+export const ROUTINE_SCAN_ROOTS: readonly string[] = [ROUTINES_FOLDER, TEX_ROUTINES_FOLDER].map((root) =>
+  root.replace(/\/$/, ""),
+);
 
 /** The zone a routine runs in when neither its file nor its writer names one. */
 export const DEFAULT_ROUTINE_TIME_ZONE = "America/New_York";
@@ -83,10 +94,14 @@ export function isRoutineOutcome(value: unknown): value is RoutineOutcome {
   return typeof value === "string" && (ROUTINE_OUTCOMES as readonly string[]).includes(value);
 }
 
-/** Whether a path is `routines/` or anything under it (scheduled or not). */
+/**
+ * Whether a path is a routine root, the folder holding one (`tex`, whose move
+ * or deletion takes `tex/routines/` with it), or anything under a root,
+ * scheduled or not. The shared module's answer, so the gateway's signal and
+ * this agree. Case-insensitive, like the shared module.
+ */
 export function isUnderRoutines(path: string): boolean {
-  const normalized = path.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
-  return normalized === ROUTINES_ROOT || normalized.startsWith(`${ROUTINES_ROOT}/`);
+  return isRoutinePath(path);
 }
 
 /** The schedule a routine file carries, as stored. No body, no `until`, no problems. */

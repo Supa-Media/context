@@ -72,6 +72,7 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
     ...useFileActions({ options, folderIcons }),
     iconOf: folderIcons.iconOf,
     setIcon: folderIcons.setIcon,
+    suggestIcon: folderIcons.suggestIcon,
   };
   const withBrowserState = { ...bound, ...useBrowserState(bound.workspaceGenerationRef) };
   const withWritesAndImages = { ...withBrowserState, ...useWritesAndImages(withBrowserState) };

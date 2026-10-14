@@ -1,10 +1,11 @@
-/** Which successful console operations touched `routines/`, and where. */
+/** Which successful console operations touched a routine root, and where. */
 
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import { isUnderRoutines } from "./model";
 
 /**
- * The paths under `routines/` an operation changed, either side of a move,
+ * The paths under a routine root (`routines/`, `tex/routines/`, or the `tex`
+ * folder that holds one) an operation changed, either side of a move,
  * or an empty list. A false positive costs one scan of a small folder; a
  * false negative leaves a routine on its old schedule until the six-hourly
  * sweep, so the moved shapes are read off the result as well as the request.

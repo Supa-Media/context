@@ -39,6 +39,8 @@ export function useNoteRoom(options: {
   canEdit?: boolean;
   scope?: CacheScope;
   onCollaborationOwned?: (path: string, owned: boolean) => void;
+  /** The last rename this console started; see `useCollaboration`. */
+  renamed?: { id: number; from: string; to: string } | null;
   onCollaborationText?: (text: string) => void;
   onCollaborationState?: (state: { text: string; etag: string | null; status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked"; pending: number; recovery?: { baseline: string; desired: string; baseEtag?: string | null }; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => void;
 }): { presence: Presence; drawingCollaboration: DrawingCollaboration | undefined } {
@@ -77,6 +79,7 @@ export function useNoteRoom(options: {
       });
     },
     onOwned: options.onCollaborationOwned,
+    rename: options.renamed ?? null,
   });
   const presence = usePresence({
     workspaceId: options.workspaceId,

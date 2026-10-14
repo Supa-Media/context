@@ -2,7 +2,9 @@
  * A routine's recent runs, read for someone who can see the routine.
  *
  * The history is Context's plumbing in the customer's bucket
- * (`.context/agent/routines/<folder>/<name>.json`, written by the gateway's
+ * (`.context/agent/routines/<folder>/<name>.json` for a `routines/` note,
+ * `.context/agent/tex/routines/<folder>/<name>.json` for a `tex/routines/` one,
+ * both from `routineRunsKey`; written by the gateway's
  * `apps/mcp/src/agent/routine.js`), so no ordinary read reaches it: every
  * path check refuses a dot segment. This is the one narrow way in, and it is
  * named by the *routine note's* path, never by the plumbing key: the caller

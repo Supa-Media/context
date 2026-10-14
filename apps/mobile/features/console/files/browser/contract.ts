@@ -653,6 +653,13 @@ export interface FileBrowser extends BesideEditing {
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
   /**
+   * The emoji the icon picker suggests for `path` from its name (Clef, through
+   * `folderIcons.suggest`), or `null` for none. Never rejects. Absent where
+   * nothing can be asked (the demo, tests), and the picker then offers only a
+   * random one.
+   */
+  suggestIcon?: (path: string) => Promise<string | null>;
+  /**
    * Make one of the workspace's built-in folders (`builtInFolders.add`): an
    * extra the workspace lacks, or a main folder an older one does not have.
    * Resolves with its path. Rejects with the server's own refusal, which the

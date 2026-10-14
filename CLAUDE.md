@@ -134,13 +134,16 @@ address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
 apps/convex/     control plane: accounts, workspaces, usernames, storage
                  bindings, OAuth clients + grants, audit events, the file
                  tree (names only) and privacy rules
-apps/mobile/     Expo (iOS/Android/web): onboarding, dashboard, health
-apps/web/        landing page
+apps/mobile/     Expo (iOS/Android/web): the one app UI, also hosted by desktop
+apps/desktop/    Electron shell for macOS: menu bar, meeting capture
 apps/agent/      Cloudflare Worker: the assistant people text (Linq iMessage
                  webhook → per-sender queue → gateway /agent)
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
-packages/shared/ types and constants shared across apps
+infra/           edge Workers: router (context.lc), email, transcription,
+                 site screenshots, egress, Sentry inbox
+packages/        shared, collaboration, meetings, communications, drawings,
+                 desktop-bridge, obsidian-runtime, encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the
                  `npx @supa-media/context` CLI that installs it
