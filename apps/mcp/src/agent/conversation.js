@@ -157,6 +157,17 @@ export function earlierTextsResult(history) {
   return { content: [{ type: "text", text: lines.join("\n\n") }] };
 }
 
+/** `earlier_texts` for one turn: reading a tainted history taints the turn (`onTainted`). */
+export function earlierTextsTool(history, onTainted) {
+  return {
+    tool: EARLIER_TEXTS_DEFINITION,
+    call: async () => {
+      if (historyIsTainted(history)) onTainted();
+      return earlierTextsResult(history);
+    },
+  };
+}
+
 /**
  * Whether anything still in this history was written after the turn read
  * something from outside the workspace. The next turn's own ledger starts

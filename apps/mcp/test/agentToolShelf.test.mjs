@@ -221,3 +221,14 @@ test("a local tool is answered by the turn, not the MCP", async () => {
   const sent = ai.calls[1].input.messages.filter((m) => m.role === "tool").at(-1)?.content;
   assert.match(String(sent), /They: Sam\?/);
 });
+
+test("reading earlier texts that followed a read from outside marks the turn", async () => {
+  const { earlierTextsTool } = await import("../src/agent/conversation.js");
+  let marked = 0;
+  const clean = earlierTextsTool([{ role: "user", text: "hi" }, { role: "assistant", text: "hey" }], () => (marked += 1));
+  await clean.call({});
+  assert.equal(marked, 0);
+  const tainted = earlierTextsTool([{ role: "user", text: "hi" }, { role: "assistant", text: "hey", tainted: true }], () => (marked += 1));
+  assert.match((await tainted.call({})).content[0].text, /You: hey/);
+  assert.equal(marked, 1);
+});

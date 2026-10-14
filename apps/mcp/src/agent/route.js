@@ -28,11 +28,10 @@ import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { toolsForSession } from "../tools/advertised.js";
 import {
-  EARLIER_TEXTS_DEFINITION,
   SHOWN_HISTORY_TURNS,
   appendConversation,
   conversationPath,
-  earlierTextsResult,
+  earlierTextsTool,
   historyIsTainted,
   readConversation,
   shownHistory,
@@ -337,18 +336,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
   // The rest is read on request, and carries its own mark when it is read.
-  const earlier =
-    conversation === null
-      ? []
-      : [
-          {
-            tool: EARLIER_TEXTS_DEFINITION,
-            call: async () => {
-              if (historyIsTainted(history)) markUntrusted(ledger);
-              return earlierTextsResult(history);
-            },
-          },
-        ];
+  const earlier = conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
