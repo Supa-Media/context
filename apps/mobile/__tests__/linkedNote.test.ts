@@ -525,19 +525,14 @@ describe("the URL follows the note that is open", () => {
     expect(url).toBe(NOTE);
   });
 
-  test("deleting the open note clears ?note= rather than leaving a dead one", async () => {
+  test("archiving the open note clears ?note= rather than leaving a dead one", async () => {
     /**
      * The stale-state requirement, from the other end. `useFileBrowser` drops
-     * the selection when the open note is deleted, archived or moved away; if
-     * the URL kept naming it, the next reload would follow a link to a note
-     * that no longer exists and land on "That file does not exist".
+     * the selection when the open note is archived or moved away; if the URL
+     * kept naming it, the next reload would follow a link to a note that no
+     * longer exists and land on "That file does not exist".
      */
-    actions[name("trashEntry")] = async () => ({
-      kind: "moved",
-      from: NOTE,
-      to: `4-archive/stamp/${NOTE}`,
-      paths: [`4-archive/stamp/${NOTE}`],
-    });
+    actions[name("archiveEntry")] = async () => ({ path: NOTE, to: `4-archive/stamp/${NOTE}` });
     unmount = mount(NOTE);
     await settle();
     await act(async () => setContext("w1"));
@@ -545,7 +540,7 @@ describe("the URL follows the note that is open", () => {
     expect(url).toBe(NOTE);
 
     await act(async () => {
-      browser.destroy(NOTE);
+      browser.archive(NOTE);
     });
     await settle();
 

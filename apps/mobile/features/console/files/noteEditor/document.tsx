@@ -126,7 +126,8 @@ export function noteDocument(view: NoteView) {
   };
   return (
     <View
-      style={compact ? undefined : styles.document}
+      // A note in the trash is dimmed, and reads as one that is not being written.
+      style={[compact ? undefined : styles.document, view.trashed !== undefined && styles.trashedDocument]}
       /*
         The column's width, so the Properties row can start where the note's
         own first character does. Measured rather than derived from the

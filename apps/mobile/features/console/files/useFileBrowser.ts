@@ -32,6 +32,7 @@ import { useNoteReads } from "./fileBrowser/useNoteReads";
 import { useListings } from "./fileBrowser/useListings";
 import { useFollowMoves } from "./fileBrowser/useFollowMoves";
 import { useOpenNote } from "./fileBrowser/useOpenNote";
+import { useTrashedNote } from "./fileBrowser/useTrashedNote";
 import { useBesideNote } from "./fileBrowser/useBesideNote";
 import { useRunOperation } from "./fileBrowser/useRunOperation";
 import { useSaving } from "./fileBrowser/useSaving";
@@ -82,10 +83,12 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   // "Add a folder" needs the listings to refresh the root, and nothing after it.
   const withBuiltInFolders = { ...withListings, ...useBuiltInFolders(withListings) };
   const withOpenNote = { ...withBuiltInFolders, ...useOpenNote(withBuiltInFolders) };
+  // The open note in the trash, kept on screen with Restore.
+  const withTrashed = { ...withOpenNote, ...useTrashedNote(withOpenNote) };
   // A move of the open note made anywhere else: the editor follows it.
-  useFollowMoves(withOpenNote);
+  useFollowMoves(withTrashed);
   // The peek's loan of the editor; its `select` and `deselect` replace the ones above for every part after.
-  const withBeside = { ...withOpenNote, ...useBesideNote(withOpenNote) };
+  const withBeside = { ...withTrashed, ...useBesideNote(withTrashed) };
   const withRunOperation = { ...withBeside, ...useRunOperation(withBeside) };
   const withSaving = { ...withRunOperation, ...useSaving(withRunOperation) };
   const withConflictsAndDrafts = { ...withSaving, ...useConflictsAndDrafts(withSaving) };
