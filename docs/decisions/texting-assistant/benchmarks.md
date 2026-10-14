@@ -530,7 +530,11 @@ logically better, the split is by who changes a thing and when:
   failing lines and how many runs failed each (2026-10-14: the artifacts can't
   be downloaded from every place an agent works, so "failed (q8)" alone left
   nothing to fix from); the judge's reason stays out, since it can quote the
-  answer.
+  answer. The failing runs themselves (texts, tools, recorded changes and the
+  judge's reasons, no answer id) go to the score step's job log once the
+  judging is done: still not where a judge reads, and the fixtures are
+  invented people (`score.test.mjs`, "the job log shows each broken gate's
+  failing answer").
 
 **How the runner is somebody's consent.** The gateway mints no machine
 credential (`oauth.js`), and that line holds: the runner is an ordinary OAuth
