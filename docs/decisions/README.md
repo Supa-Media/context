@@ -658,6 +658,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it

@@ -107,3 +107,25 @@ nothing, and a list longer than 20 points at `scope_info`.
 
 What reversing it costs: project notes pile up in personal workspaces where the
 team can't see them. `test/agentWorkspaces.test.mjs` fails.
+
+## Tex keeps its thinking from one step to the next (2026-10-14)
+
+Claude 5.5 models think before they answer unless told not to. Tex's rounds
+did think, but each round's thinking was thrown away before the next, so after
+every tool call the model started its reasoning over. And `max_tokens` was
+2048, which caps the thinking *and* the answer together, so a hard text could
+spend the whole round thinking. The owner called thinking "very important"
+for multi-step jobs.
+
+Now a round's own blocks (thinking first, then its text and tool calls) are
+handed back to the next round unchanged (`providers.js`). The API checks each
+thinking block against the system prompt, the tools and the messages it was
+made with. When the tool shelf loads a tool, or the turn falls back to
+another model, every earlier block is dropped at once, which the API allows;
+dropping some would refuse the request (`turn.js`). A round has 8192 tokens.
+A setup may say how hard each model thinks: `models.effort` for `main` and
+`models.think_effort` for `think` (`low` to `max`, Claude's
+`output_config.effort`). Absent, each model's own default applies (medium).
+
+What reversing it costs: Tex reasons from scratch after every tool call, and
+hard texts come back empty. `test/agentThinking.test.mjs` fails.
