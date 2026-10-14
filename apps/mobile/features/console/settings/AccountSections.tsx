@@ -19,6 +19,7 @@ import { MachinesCard } from "./panels/MachinesCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { AccountSafetyCard } from "./panels/AccountSafetyCard";
 import { PhoneCard } from "./panels/PhoneCard";
+import { AppearancePicker } from "./panels/AppearancePicker";
 import { YourPicture } from "./panels/YourPicture";
 import { FeedbackSettings } from "../../feedback/FeedbackSettings";
 
@@ -156,14 +157,14 @@ export function AccountSection({
           </Row>
         ) : null}
         {/*
-          Appearance is only what the device says: nothing is stored behind it,
-          so there is no control to draw.
+          Light, Dark or the device's, saved on the account so it follows the
+          person to every device (Dev2, 2026-10-14).
         */}
         <Row divided>
           <Grow>
             <Text variant="rowTitle">Look</Text>
           </Grow>
-          <Text variant="rowSub">Follows your device</Text>
+          <AppearancePicker />
         </Row>
         {/* Feedback is a page of its own, reached from this row. */}
         <Row divided>

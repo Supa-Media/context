@@ -24,6 +24,7 @@ import { managedEncryptionTables } from "./functions/lib/schema/managedEncryptio
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
+import { appearanceTables } from "./functions/lib/schema/appearance";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
@@ -97,6 +98,7 @@ const schema = defineSchema({
   ...referralTables,
   ...devlogTables,
   ...telemetryTables,
+  ...appearanceTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,

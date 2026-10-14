@@ -18,6 +18,7 @@ import {
   type GraphColors,
   type Shadows,
 } from "./tokens";
+import { currentAppearance, subscribeAppearance, type Appearance as AppearanceChoice } from "./appearance";
 
 /**
  * Which of the two palettes a subtree draws in, and how a screen gets hold of
@@ -42,20 +43,14 @@ import {
  * exists for the one case the platform cannot answer: a test that needs to
  * mount a screen in a named scheme.
  *
- * ## The app follows the device, and has nothing to remember
+ * ## The person's choice comes first
  *
- * There was a stored choice — Light, Dark, or follow the device — with a
- * settings panel behind it, a module-level store to keep that panel and the
- * provider from disagreeing, a synchronous peek on web and an async read on
- * native, and a launch image held up in `app/_layout.tsx` until that read
- * landed. All of it existed to make one pinned value arrive before the first
- * frame.
- *
- * The pinning is gone, so the machinery is too rather than being left in
- * place with nothing able to write to it: a stored `"dark"` that no surface
- * could change would be a setting somebody is locked into, which is worse
- * than the setting not existing. What "Appearance" means now is the sentence
- * Profile prints — this app is light when the device is.
+ * Light, Dark, or follow the device, chosen in Settings › Profile or from the
+ * account menu (Dev2, 2026-10-14). The choice lives in `appearance.ts` — a
+ * module store kept on the device and on the account — and is read here
+ * through `useSyncExternalStore`, so the picker and every hook below are one
+ * value. A provider's `scheme` still outranks it: a surface pinned light (the
+ * landing page's sign-up) stays light whatever the person picked.
  */
 
 /**
@@ -147,24 +142,36 @@ function useSystemScheme() {
   return useSyncExternalStore(subscribeToAppearance, readAppearance, readAppearance);
 }
 
+/** The person's Light / Dark / follow-the-device choice (`appearance.ts`). */
+export function useAppearance(): AppearanceChoice {
+  return useSyncExternalStore(subscribeAppearance, currentAppearance, currentAppearance);
+}
+
+/** A choice of "system" pins nothing, so it falls through to the device. */
+function pinned(appearance: AppearanceChoice): Scheme | null {
+  return appearance === "system" ? null : appearance;
+}
+
 export function ThemeProvider({
   scheme,
   children,
 }: {
-  /** Pin the subtree to one appearance. Omit to follow the system. */
+  /** Pin the subtree to one appearance. Omit to follow the person's choice. */
   scheme?: Scheme;
   children: ReactNode;
 }) {
   const system = useSystemScheme();
-  const resolved = resolveScheme(scheme ?? null, system);
+  const chosen = useAppearance();
+  const resolved = resolveScheme(scheme ?? pinned(chosen), system);
   return <SchemeContext.Provider value={resolved}>{children}</SchemeContext.Provider>;
 }
 
 /** The appearance in force for this subtree. */
 export function useScheme(): Scheme {
-  const chosen = useContext(SchemeContext);
+  const provided = useContext(SchemeContext);
   const system = useSystemScheme();
-  return resolveScheme(chosen, system);
+  const chosen = useAppearance();
+  return resolveScheme(provided ?? pinned(chosen), system);
 }
 
 export function useTheme(): Theme {
