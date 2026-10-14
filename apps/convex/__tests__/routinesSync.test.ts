@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, drainScheduled, errorCode, captureError, FAKE_STORAGE, seedStorageBinding } from "./fixtures.helpers";
+import { asUser, copyTree, drainScheduled, errorCode, captureError, FAKE_STORAGE, seedStorageBinding } from "./fixtures.helpers";
 import {
   DAILY,
   DAILY_TEXT,
@@ -40,6 +40,42 @@ vi.setConfig({ testTimeout: 20_000 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("a scan reads the tree, never the bucket", () => {
+  test("each schedule comes from the tree's front matter, with no note opened", async () => {
+    const f = await routineFixture();
+    f.backend.seed(DAILY, DAILY_TEXT);
+    f.backend.requests.length = 0;
+    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.editor, at: { hour: 7, minute: 30 } });
+    // The fill reads the note once to keep its facts; nothing else opens it.
+    const opened = f.backend.requests.filter((request) => request.method === "GET" && request.key.endsWith(DAILY));
+    expect(opened.length).toBeLessThanOrEqual(1);
+    f.backend.requests.length = 0;
+    await f.t.action(internal.functions.routines.reconcileRoutines, { workspaceId: f.workspaceId });
+    expect(f.backend.requests.filter((request) => request.method === "GET")).toEqual([]);
+  });
+
+  test("a routine whose front matter the tree has not read yet waits, and keeps its writer", async () => {
+    const f = await routineFixture();
+    f.backend.seed(DAILY, DAILY_TEXT);
+    await gatewaySignalOnly(f);
+    await copyTree(f.t, f.workspaceId);
+    // Scanned before the facts are read: no schedule, and nothing deleted or handed to the owner.
+    await f.t.action(internal.functions.routines.reconcileRoutines, { workspaceId: f.workspaceId });
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toBeNull();
+    // The facts landing scan it again, as the editor who wrote it.
+    for (let pass = 0; pass < 4; pass += 1) {
+      await f.t.action(internal.functions.files.runFileOperation, {
+        workspaceId: f.workspaceId,
+        scope: "private" as const,
+        operation: { kind: "nodesFactFill" as const },
+      });
+    }
+    await runPendingScans(f.t);
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.editor, at: { hour: 7, minute: 30 } });
+  });
 });
 
 describe("a signal reads the folder", () => {
@@ -317,3 +353,17 @@ describe("which console operations touch routines/", () => {
     expect(routinePathsTouched({ kind: "trash", path: "routines" } as FileOperation, written)).toEqual(["routines"]);
   });
 });
+
+/** The gateway's signal without the scans it schedules, which a test then runs itself. */
+async function gatewaySignalOnly(f: Awaited<ReturnType<typeof routineFixture>>): Promise<void> {
+  await f.t.mutation(internal.functions.routines.recordRoutineSignal, {
+    workspaceId: f.workspaceId,
+    userId: f.editor,
+    paths: [DAILY],
+  });
+  await f.t.run(async (ctx) => {
+    for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+      if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+    }
+  });
+}

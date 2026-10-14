@@ -22,11 +22,13 @@ import {
   WRITER_GONE,
   effectiveTimeZone,
   isUnderRoutines,
+  frontMatterFromProps,
   nextRunFor,
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
 import { accountTimeZone, userForActorName, workspaceOwner, writingRole } from "./access";
+import { PROPS_AT_PATHS } from "../nodes/facts";
 
 type Writer = { path: string; userId: Id<"users"> };
 
@@ -122,11 +124,13 @@ export async function restoreRoutineWritersHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .first();
   if (pending === null) {
-    // Not rescheduled: the safety-net sweep picks up pending rows.
+    // Not rescheduled here: stamped as never scheduled, so the next signal
+    // (or the props it waits on landing) schedules a scan, and the
+    // safety-net sweep picks it up otherwise.
     await ctx.db.insert("routineReconciles", {
       workspaceId: args.workspaceId,
       writers: args.writers,
-      scheduledAt: Date.now(),
+      scheduledAt: 0,
     });
   } else {
     const known = new Set(pending.writers.map((entry) => entry.path));
@@ -140,6 +144,8 @@ export async function restoreRoutineWritersHandler(
 export interface RoutineScan {
   schedules: RoutineSchedule[];
   complete: boolean;
+  /** Routines whose props the tree has not read at their current version yet. */
+  waiting: string[];
 }
 
 const OWNER_CLEARANCE = { scope: "private" as const, grantedNames: [] as string[] };
@@ -187,30 +193,29 @@ export async function scanRoutines(
     }
   }
 
+  // Each routine's schedule from its front matter as the tree holds it, never
+  // the note itself (decided by the owner, 2026-10-14: names and front matter
+  // come from the tree; storage only for a note's content). One whose props
+  // are behind its last write waits, and the props landing scan it again.
   const schedules: RoutineSchedule[] = [];
-  let pending = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(path, "") !== null);
-  for (let attempt = 0; pending.length > 0 && attempt < 10; attempt += 1) {
-    const batch = await ctx.runAction(internal.functions.files.runFileOperation, {
+  const waiting: string[] = [];
+  const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(path, "") !== null);
+  for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
+    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
       workspaceId,
-      ...OWNER_CLEARANCE,
-      operation: { kind: "readMany", paths: pending.slice(0, 25) },
+      paths: candidates.slice(at, at + PROPS_AT_PATHS),
     });
-    if (batch.kind !== "notes") throw new Error("routine read returned an invalid result");
-    const deferred: string[] = [];
-    for (const result of batch.results) {
-      if (result.outcome === "deferred") {
-        deferred.push(result.path);
+    for (const row of rows) {
+      if (!row.current) {
+        waiting.push(row.path);
         continue;
       }
-      // Gone between listing and read: not a routine any more.
-      if (result.outcome !== "read") continue;
-      const schedule = scheduleFromNote(result.path, result.note.text);
+      const schedule = scheduleFromNote(row.path, row.sealed ? "" : frontMatterFromProps(row.props));
       if (schedule !== null) schedules.push(schedule);
     }
-    pending = [...deferred, ...pending.slice(25)];
   }
-  if (pending.length > 0) complete = false;
-  return { schedules, complete };
+  if (waiting.length > 0) complete = false;
+  return { schedules, complete, waiting };
 }
 
 /**
@@ -352,12 +357,18 @@ export async function reconcileRoutinesHandler(
     await ctx.runMutation(internal.functions.routines.restoreRoutineWriters, { ...args, writers });
     return null;
   }
+  // A routine still waiting on its props keeps its writer for the scan they start.
+  const waiting = new Set(scan.waiting);
   await ctx.runMutation(internal.functions.routines.commitRoutines, {
     workspaceId: args.workspaceId,
     schedules: scan.schedules,
     complete: scan.complete,
-    writers,
+    writers: writers.filter((writer) => !waiting.has(writer.path)),
   });
+  const held = writers.filter((writer) => waiting.has(writer.path));
+  if (held.length > 0) {
+    await ctx.runMutation(internal.functions.routines.restoreRoutineWriters, { ...args, writers: held });
+  }
   return null;
 }
 

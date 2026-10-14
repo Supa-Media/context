@@ -103,6 +103,15 @@ export async function runPendingScans(t: TestConvex): Promise<number> {
     // What the gateway wrote reaches the Convex tree (its touch, or the next
     // sweep) before the scan lists it: the scan reads the tree, never the bucket.
     await copyTree(t, args.workspaceId);
+    // ...and its front matter is read into the tree's facts, which is where
+    // the scan takes each schedule from.
+    for (let pass = 0; pass < 4; pass += 1) {
+      await t.action(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "private" as const,
+        operation: { kind: "nodesFactFill" as const },
+      });
+    }
     await t.action(internal.functions.routines.reconcileRoutines, args);
   }
   await drainScheduled(t);

@@ -185,3 +185,24 @@ export function nextRunFor(
     return null;
   }
 }
+
+/**
+ * The front matter a routine's schedule is read from, rebuilt from the props
+ * its tree row holds (`tree/props.js`), in the lines `routineSettings` reads:
+ * a list is written back as the flow list it was most likely written as.
+ * `""` for a note with none, or one whose props are sealed.
+ */
+export function frontMatterFromProps(props: string | null): string {
+  if (props === null) return "";
+  let properties: unknown;
+  try {
+    properties = (JSON.parse(props) as { properties?: unknown }).properties;
+  } catch {
+    return "";
+  }
+  if (properties === null || typeof properties !== "object" || Array.isArray(properties)) return "";
+  const lines = Object.entries(properties as Record<string, unknown>).map(
+    ([key, value]) => `${key}: ${Array.isArray(value) ? `[${value.map(String).join(", ")}]` : String(value)}`,
+  );
+  return lines.length === 0 ? "" : `---\n${lines.join("\n")}\n---\n`;
+}
