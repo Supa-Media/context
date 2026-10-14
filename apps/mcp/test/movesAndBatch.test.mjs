@@ -1,6 +1,5 @@
-import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText } from "./harness.mjs";
+import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText, WORKSPACE_ID } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
-import { recordForwarding } from "../src/forwarding.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
 import { seedLegacyFolderMove, seedLegacyReferenceJob } from "./legacyMoveJob.mjs";
@@ -525,7 +524,8 @@ export async function runMovesAndBatchChecks() {
   await contextStore.put("1-projects/secret-thing/private-link.md", "[[1-projects/portable-link-target/note]]");
   await contextStore.put("4-archive/1-projects/earlier-thread.md", "archived thread");
   await contextStore.put("1-projects/earlier-ref.md", "[[1-projects/earlier-thread]]");
-  await recordForwarding(contextStore, [{
+  // An earlier move, in the ledger the control plane holds (the queued repair reads it with its ticket).
+  controlPlane.recordForwarding(WORKSPACE_ID, [{
     from: "1-projects/earlier-thread.md",
     to: "4-archive/1-projects/earlier-thread.md",
     kind: "note",

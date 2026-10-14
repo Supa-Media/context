@@ -80,7 +80,11 @@ export async function handleGatewayJobMessage(message, env, { materialize = tool
     store.defer = (work) => {
       deferred.push(Promise.resolve(work).catch(() => {}));
     };
-    attachChangeReporters(store, job.workspaceId, controlPlane);
+    // The ledger a queued move reads (reference repair follows earlier moves)
+    // is the control plane's, proved by this job's ticket while it holds the lease.
+    attachChangeReporters(store, job.workspaceId, controlPlane, {
+      readLedger: () => controlPlane.readJobLedger(ticket, job.workspaceId),
+    });
 
     let status = "failed";
     let error;

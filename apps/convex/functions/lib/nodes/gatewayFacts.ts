@@ -25,6 +25,19 @@
  *   have not read yet is absent. This is what `orient`'s folder descriptions,
  *   `evaluate_lists`, `list_meetings`, `list_channel_days` and
  *   `list_contacts` show in place of reading note bodies.
+ * - `ask: "forwarding"`: the forwarding ledger (`smallData.ledger`), oldest
+ *   first, for this reader: an entry whose old path the reader may not see is
+ *   left out, and one whose new path they may not see comes back with
+ *   `to: null`, "moved out of sight", so a stale path they hold is never
+ *   followed somewhere they cannot go and never named to them. A folder
+ *   entry is judged by the folder rule a listing uses, a note's by `canSee`.
+ *   The ledger lives in Convex since 2026-10-14; nothing reads the bucket's
+ *   `.context/forwarding.json`, which is written from it.
+ *
+ *   A queued move asks with its job `ticket` in place of a token, as it does
+ *   `/gateway/privacy`, while its job holds the lease: it runs at `private`
+ *   clearance (`moves/queueConsumer.js`), so it gets the whole ledger, which
+ *   is what it read from the bucket's file before. A ticket asks nothing else.
  */
 
 import { internal } from "../../../_generated/api";
@@ -34,12 +47,17 @@ import { hashToken } from "../crypto";
 import { loadPrivacyState } from "../fileOps";
 import { json } from "../gatewayAuth";
 import { canSee } from "../privacy";
+import { clearanceOf } from "../clearance";
+import { folderVisibleAtScope } from "../fileOps/listing";
 import { GATEWAY_PATH_LENGTH, NO_BUCKET, STILL_LOADING } from "./gatewayManifest";
 import { readinessAndKick } from "./treeLoading";
 import { MOVE_RENAMES_CAP, PROPS_AT_PATHS, dayOf } from "./facts";
 import { servedNodesStore } from "./manifestStore";
 
 const NOT_SERVED = { served: false } as const;
+
+/** What a request may ask for. */
+const ASKS = new Set(["links", "chaos", "props", "forwarding"]);
 
 /** Notes one props request may name: one `propsAt` query's worth. */
 export const PROPS_REQUEST_PATHS = PROPS_AT_PATHS;
@@ -63,12 +81,26 @@ export async function gatewayTreeFactsHandler(ctx: ActionCtx, body: Record<strin
   return json(await factsFor(ctx, body));
 }
 
+/** A queued move's whole ledger, for its leased ticket; refused as anything else is. */
+async function ledgerForJob(ctx: ActionCtx, ticket: string, expected: string): Promise<Record<string, unknown>> {
+  const leased = await ctx.runQuery(internal.functions.nodesPrivacy.jobWorkspace, { hashedTicket: await hashToken(ticket) });
+  if (leased === null || leased !== expected) return NOT_SERVED;
+  return { served: true, forwarding: await ctx.runQuery(internal.functions.smallData.ledger, { workspaceId: leased }) };
+}
+
 async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const accessToken = typeof body.accessToken === "string" && body.accessToken !== "" ? body.accessToken : null;
+  const ticket = typeof body.ticket === "string" && body.ticket !== "" ? body.ticket : null;
   const expected = typeof body.expectedWorkspaceId === "string" ? body.expectedWorkspaceId : null;
-  if (accessToken === null || expected === null || (body.ask !== "links" && body.ask !== "chaos" && body.ask !== "props")) {
-    return NOT_SERVED;
+  if (expected === null || !ASKS.has(body.ask as string)) return NOT_SERVED;
+  if (accessToken === null && ticket !== null && body.ask === "forwarding") {
+    try {
+      return await ledgerForJob(ctx, ticket, expected);
+    } catch {
+      return NOT_SERVED;
+    }
   }
+  if (accessToken === null || ticket !== null) return NOT_SERVED;
   const sources = body.ask === "links" ? pathList(body.sources, MOVE_RENAMES_CAP) : [];
   const names = body.ask === "links" ? pathList(body.names, MOVE_RENAMES_CAP) : [];
   const paths = body.ask === "props" ? pathList(body.paths, PROPS_REQUEST_PATHS) : [];
@@ -97,6 +129,21 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
         served: true,
         candidates: { pointing: found.pointing.filter(visible), unparsed: found.unparsed.filter(visible) },
       };
+    }
+
+    if (body.ask === "forwarding") {
+      // A workspace whose ledger has not been imported yet starts that; it answers from what Convex holds.
+      await ctx.runMutation(internal.functions.smallData.request, { workspaceId: reader.workspaceId }).catch(() => {});
+      const ledger = await ctx.runQuery(internal.functions.smallData.ledger, { workspaceId: reader.workspaceId });
+      const clearance = clearanceOf(reader.scope);
+      const sees = (path: string, kind: "note" | "folder") =>
+        kind === "folder" ? folderVisibleAtScope(path, clearance, state.rules, state.overrides) : visible(path);
+      const forwarding = [];
+      for (const entry of ledger) {
+        if (!sees(entry.from, entry.kind)) continue;
+        forwarding.push({ ...entry, to: sees(entry.to, entry.kind) ? entry.to : null });
+      }
+      return { served: true, forwarding };
     }
 
     if (body.ask === "props") {

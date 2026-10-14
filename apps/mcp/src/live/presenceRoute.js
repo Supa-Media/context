@@ -20,6 +20,7 @@ import {
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { collaborationHead } from "./collaborationHttp.js";
 import { createControlPlane } from "../controlPlane.js";
+import { attachSmallData } from "../controlPlane/changeReporters.js";
 import { forbiddenResponse, unauthorizedResponse } from "../oauth.js";
 import { json } from "../http/responses.js";
 import { loadPrivacyState } from "../privacy/state.js";
@@ -292,6 +293,10 @@ export async function handleAgentActivity(request, env, { slug, pathToken, origi
     if (!(error instanceof StorageUnavailable)) throw error;
     return json({ error: "storage_unavailable" }, 503);
   }
+  // A line or a read is shown where its note is now: the ledger comes from the
+  // control plane, as far as this connection may see, never from the bucket.
+  attachSmallData(store, session.workspaceId, controlPlane, () =>
+    controlPlane.readTreeFacts(session.accessToken, session.workspaceId, { ask: "forwarding" }));
   const privacy = await loadPrivacyState(store);
   const now = Date.now();
   if (privacy.error) return json({ ...activityForCaller([], now, () => false), peopleCount: 0, people: [] });
