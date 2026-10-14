@@ -381,7 +381,7 @@ index d0719bbe..f798c2bd 100644
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
    const isPublishing =
-     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
+     scope === "private" && desiredVisibility === "team" && (!exists || existingVisibility !== "team");
    if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
 diff --git a/apps/mcp/src/tools/visibility.js b/apps/mcp/src/tools/visibility.js
 index 4d9f79d3..22ae855e 100644
