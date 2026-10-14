@@ -158,6 +158,8 @@ export type FileOperation =
   | { kind: "archive"; path: string; expectedEtag?: string }
   | { kind: "trash"; path: string; expectedEtag?: string }
   | { kind: "restoreTrash"; from: string; to: string }
+  /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */
+  | { kind: "readTrashed"; path: string; trash: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
@@ -383,6 +385,8 @@ export type OperationResult =
   | { kind: "nodesKept"; complete: boolean }
   /** `pruneIndex`: rows removed, and whether the bucket and database were both reached. */
   | { kind: "indexPruned"; deleted: number; checked: boolean }
+  /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
+  | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
