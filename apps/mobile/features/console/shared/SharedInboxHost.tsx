@@ -4,9 +4,16 @@ import { api } from "@context/convex/_generated/api";
 
 import { unseenCount, type SharedItem } from "./sharedInbox";
 
-/** What the account menu needs to draw the @shared row: whether anything is new. */
+/**
+ * What the account menu needs to draw the @shared row (whether anything is
+ * new), and what @shared's sidebar lists: the rows and when you last looked.
+ */
 export interface SharedEntry {
   unseen: number;
+  /** `undefined` while loading. */
+  items?: SharedItem[];
+  /** `null` = never opened, `undefined` = loading. */
+  seenAt?: number | null;
 }
 
 /**
@@ -17,10 +24,10 @@ export interface SharedEntry {
  */
 export function SharedInboxHost({ onEntry }: { onEntry: (entry: SharedEntry) => void }) {
   const items = useQuery(api.functions.shares.listSharedWithMe) as SharedItem[] | undefined;
-  const seenAt = useQuery(api.functions.sharedInbox.sharedSeenAt);
+  const seenAt = useQuery(api.functions.sharedInbox.sharedSeenAt) as number | null | undefined;
   const unseen = unseenCount(items, seenAt);
   useEffect(() => {
-    onEntry({ unseen });
-  }, [unseen, onEntry]);
+    onEntry({ unseen, items, seenAt });
+  }, [unseen, items, seenAt, onEntry]);
   return null;
 }

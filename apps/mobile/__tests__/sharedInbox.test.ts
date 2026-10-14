@@ -18,7 +18,8 @@ import { createRoot } from "react-dom/client";
  *  2. **The dot never shows while loading.**
  *  3. **The list groups by day, names the sharer, and names a workspace only
  *     when it is a shared one.**
- *  4. **A row opens the share's own page**, the real editor, read only.
+ *  4. **The page is board A2**: a sidebar of people in the tree's column,
+ *     real titles, short times, and a row opens the note in place (A3).
  *
  * ## Sabotage record
  *
@@ -28,7 +29,9 @@ import { createRoot } from "react-dom/client";
  *   unseenCount treats a loading seenAt as never seen               1
  *   SwitcherMenu ignores shared.unseen for the avatar dot           1
  *   placeLabel names the sharer's personal workspace                2
- *   sharedOpenHref points at /console/@slug                         1
+ *   sharedNoteHref points at /s/<token>                             1
+ *   itemTitle ignores the server's title                            2
+ *   sidebar ignores seenAt for the dots                             1
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -39,6 +42,8 @@ jest.mock("react-native-safe-area-context", () => ({
 
 const inbox = require("../features/console/shared/sharedInbox") as typeof import("../features/console/shared/sharedInbox");
 const { SharedList } = require("../features/console/shared/SharedPane") as typeof import("../features/console/shared/SharedPane");
+const { SharedSidebar } =
+  require("../features/console/shared/SharedSidebar") as typeof import("../features/console/shared/SharedSidebar");
 const { SwitcherMenu, sheetItems } =
   require("../features/console/SwitcherMenu") as typeof import("../features/console/SwitcherMenu");
 type SharedItem = import("../features/console/shared/sharedInbox").SharedItem;
@@ -58,6 +63,8 @@ function item(over: Partial<SharedItem> = {}): SharedItem {
     entryPath: "1-projects/beneath-the-chaos.md",
     sharedBy: "user-ana",
     sharedByHandle: "ana",
+    sharedByName: null,
+    title: null,
     createdAt: NOW - 2 * HOUR,
     ...over,
   };
@@ -80,16 +87,35 @@ const old = item({ token: "tok-old", entryPath: "3-resources/recipes.md", create
 describe("what a row says", () => {
   test("the note's name, who shared it, and a workspace only when it is a shared one", () => {
     expect(inbox.itemTitle(chaos)).toBe("beneath-the-chaos");
+    expect(inbox.itemTitle({ ...chaos, title: "Beneath the Chaos" })).toBe("Beneath the Chaos");
     expect(inbox.sharerLabel(chaos)).toBe("@ana");
+    expect(inbox.sharerLabel({ ...chaos, sharedByName: "Ana Ruiz" })).toBe("Ana Ruiz");
     expect(inbox.sharerLabel(item({ sharedByHandle: null }))).toBe("Someone");
     expect(inbox.placeLabel(chaos)).toBeNull();
     expect(inbox.placeLabel(plan)).toBe("Atlas");
     expect(inbox.placeLabel({ ...plan, displayName: " " })).toBe("@atlas");
   });
 
-  test("opens the share's own page, never a members-only console address", () => {
-    expect(inbox.sharedOpenHref("abc")).toBe("/s/abc");
+  test("opens inside @shared, and a link inside it follows the share's own page", () => {
+    expect(inbox.sharedNoteHref("a b")).toBe("/console/shared?note=a%20b");
+    expect(inbox.sharedLinkHref("abc")).toBe("/s/abc");
     expect(inbox.SHARED_HREF).toBe("/console/shared");
+  });
+
+  test("the time the way the board writes it", () => {
+    expect(inbox.shortWhen(NOW - 30 * 1000, NOW)).toBe("Just now");
+    expect(inbox.shortWhen(NOW - 5 * 60 * 1000, NOW)).toBe("5m ago");
+    expect(inbox.shortWhen(NOW - 2 * HOUR, NOW)).toBe("2h ago");
+    expect(inbox.shortWhen(NOW - 20 * HOUR, NOW)).toBe("Yesterday");
+    expect(inbox.shortWhen(new Date(2026, 9, 9, 12).getTime(), NOW)).toBe("Oct 9");
+    expect(inbox.shortWhen(new Date(2025, 9, 9, 12).getTime(), NOW)).toBe("Oct 9, 2025");
+  });
+
+  test("the filter matches a title, a sharer or a workspace", () => {
+    expect(inbox.matchesFilter(plan, "atl")).toBe(true);
+    expect(inbox.matchesFilter(plan, "BO")).toBe(true);
+    expect(inbox.matchesFilter(plan, "chaos")).toBe(false);
+    expect(inbox.matchesFilter(plan, "  ")).toBe(true);
   });
 });
 
@@ -205,31 +231,98 @@ describe("the account menu row", () => {
   });
 });
 
-describe("the page", () => {
-  test("rows grouped by day, each naming its sharer and opening its share", () => {
+function list(items: SharedItem[] | undefined, opened: string[] = [], seenAt: number | null | undefined = NOW - 24 * HOUR) {
+  return mount(
+    createElement(SharedList, {
+      items,
+      seenAt,
+      now: NOW,
+      phone: false,
+      me: "@seyi",
+      onOpen: (t: string) => opened.push(t),
+      onBack: () => {},
+    }),
+  );
+}
+
+describe("the page (board A2)", () => {
+  test("rows grouped by day, real titles, sharer, short time, and a dot on what is new", () => {
     const opened: string[] = [];
-    const ui = mount(
-      createElement(SharedList, { items: [old, plan, chaos], onOpen: (t: string) => opened.push(t), onClose: () => {}, now: NOW }),
-    );
-    const text = ui.find("shared-list")!.textContent ?? "";
+    const ui = list([old, plan, { ...chaos, title: "Beneath the Chaos", sharedByName: "Ana Ruiz" }], opened);
+    const text = ui.find("shared-pane")!.textContent ?? "";
+    expect(text).toContain("Shared with me");
     expect(text.indexOf("Today")).toBeLessThan(text.indexOf("This week"));
     expect(text.indexOf("This week")).toBeLessThan(text.indexOf("Earlier"));
     const chaosRow = ui.find("shared-row-tok-chaos")!.textContent ?? "";
-    expect(chaosRow).toContain("beneath-the-chaos");
-    expect(chaosRow).toContain("@ana");
+    expect(chaosRow).toContain("Beneath the Chaos");
+    expect(chaosRow).toContain("Ana Ruiz");
     expect(chaosRow).not.toContain("in Ana");
     expect(chaosRow).toContain("Can read");
+    expect(chaosRow).toContain("2h ago");
+    expect(ui.find("shared-new-tok-chaos")).not.toBeNull();
+    expect(ui.find("shared-new-tok-plan")).toBeNull();
     expect(ui.find("shared-row-tok-plan")!.textContent).toContain("in Atlas");
+    expect(ui.find("shared-close")).toBeNull();
     ui.press("shared-row-tok-plan");
     expect(opened).toEqual(["tok-plan"]);
   });
 
-  test("empty says what arrives here; loading draws no list at all", () => {
-    const empty = mount(createElement(SharedList, { items: [], onOpen: () => {}, onClose: () => {}, now: NOW }));
-    expect(empty.find("shared-empty")!.textContent).toContain("Nothing shared with you yet.");
+  test("Can edit is honestly empty: every share reads for now", () => {
+    const ui = list([chaos]);
+    ui.press("shared-filter-edit");
+    expect(ui.find("shared-row-tok-chaos")).toBeNull();
+    expect(ui.find("shared-none-editable")).not.toBeNull();
+    ui.press("shared-filter-all");
+    expect(ui.find("shared-row-tok-chaos")).not.toBeNull();
+  });
+
+  test("empty says who it is for and that membership is not needed; loading draws nothing", () => {
+    const empty = list([]);
+    const words = empty.find("shared-empty")!.textContent ?? "";
+    expect(words).toContain("Nothing shared with you yet");
+    expect(words).toContain("@seyi");
+    expect(words).toContain("not in their workspace");
     live.pop()!();
-    const loading = mount(createElement(SharedList, { items: undefined, onOpen: () => {}, onClose: () => {}, now: NOW }));
+    const loading = list(undefined);
     expect(loading.find("shared-empty")).toBeNull();
-    expect(loading.find("shared-list")).toBeNull();
+    expect(loading.find("shared-row-tok-chaos")).toBeNull();
+  });
+});
+
+describe("the sidebar (board A2's left column)", () => {
+  function sidebar(selected: string | null, events: string[] = []) {
+    return mount(
+      createElement(SharedSidebar, {
+        items: [old, plan, chaos],
+        selected,
+        seenAt: NOW - 24 * HOUR,
+        onEverything: () => events.push("everything"),
+        onOpen: (t: string) => events.push(t),
+        foot: null,
+      }),
+    );
+  }
+
+  test("Everything with its count, then people with their notes, new ones dotted", () => {
+    const events: string[] = [];
+    const ui = sidebar(null, events);
+    expect(ui.find("shared-everything")!.textContent).toContain("3");
+    expect(ui.find("shared-everything")!.querySelector('[data-testid="shared-here"]')).not.toBeNull();
+    expect(ui.find("shared-person-user-ana")!.textContent).toContain("@ana");
+    expect(ui.find("shared-side-tok-chaos")).not.toBeNull();
+    expect(ui.find("shared-side-new-tok-chaos")).not.toBeNull();
+    expect(ui.find("shared-side-new-tok-old")).toBeNull();
+    ui.press("shared-side-tok-plan");
+    ui.press("shared-everything");
+    expect(events).toEqual(["tok-plan", "everything"]);
+  });
+
+  test("a person folds away their notes; the open note is the selected row", () => {
+    const ui = sidebar("tok-chaos");
+    expect(ui.find("shared-side-tok-chaos")!.querySelector('[data-testid="shared-here"]')).not.toBeNull();
+    expect(ui.find("shared-everything")!.querySelector('[data-testid="shared-here"]')).toBeNull();
+    ui.press("shared-person-user-ana");
+    expect(ui.find("shared-side-tok-chaos")).toBeNull();
+    expect(ui.find("shared-side-tok-plan")).not.toBeNull();
   });
 });

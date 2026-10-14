@@ -15,6 +15,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import { handleForUser, identifiersForUser } from "../identities";
 import { getMembership, roleAtLeast } from "../workspaceAuth";
+import { sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 
 export const resolveShareArgs = { token: v.string() };
@@ -105,6 +106,10 @@ export const listSharedWithMeReturns = v.array(
      * on the share page, so naming them here discloses nothing new.
      */
     sharedByHandle: v.union(v.string(), v.null()),
+    /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
+    sharedByName: v.union(v.string(), v.null()),
+    /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
+    title: v.union(v.string(), v.null()),
     createdAt: v.number(),
   }),
 );
@@ -156,7 +161,7 @@ export async function listSharedWithMeHandler(
 
   const summaries = [];
   const seen = new Set<string>();
-  const handles = new Map<Id<"users">, string | null>();
+  const sharers = new Map<Id<"users">, { handle: string | null; name: string | null }>();
   for (const row of rows) {
     const key = `${row.workspaceId}\u0000${row.entryPath}`;
     if (seen.has(key)) continue;
@@ -165,9 +170,13 @@ export async function listSharedWithMeHandler(
     const workspace = await shareStillStands(ctx, row, userId, now);
     if (workspace === null) continue;
     seen.add(key);
-    if (!handles.has(row.createdBy)) {
-      handles.set(row.createdBy, await handleForUser(ctx, row.createdBy));
+    if (!sharers.has(row.createdBy)) {
+      sharers.set(row.createdBy, {
+        handle: await handleForUser(ctx, row.createdBy),
+        name: await sharerName(ctx, row.createdBy),
+      });
     }
+    const sharer = sharers.get(row.createdBy);
     summaries.push({
       token: row.token,
       workspaceId: workspace._id,
@@ -176,7 +185,9 @@ export async function listSharedWithMeHandler(
       workspaceKind: workspace.kind,
       entryPath: row.entryPath,
       sharedBy: row.createdBy,
-      sharedByHandle: handles.get(row.createdBy) ?? null,
+      sharedByHandle: sharer?.handle ?? null,
+      sharedByName: sharer?.name ?? null,
+      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath),
       createdAt: row.createdAt,
     });
   }

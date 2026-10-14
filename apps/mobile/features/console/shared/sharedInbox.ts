@@ -22,6 +22,10 @@ export interface SharedItem {
   entryPath: string;
   sharedBy: string;
   sharedByHandle: string | null;
+  /** The sharer's account name, `null` for an account with none. */
+  sharedByName: string | null;
+  /** The note's own title (front matter or first heading), `null` to use its file name. */
+  title: string | null;
   createdAt: number;
 }
 
@@ -29,23 +33,72 @@ export interface SharedItem {
 export const SHARED_HREF = "/console/shared";
 
 /**
- * Where a row opens: the share's own page, which draws the note in the real
- * editor, read only (`share/SharedConsole.tsx`, board A3). The same address
- * the sharer pasted into a chat, so a reader who arrives either way lands in
- * one place, and only the share page decides what the token reaches.
+ * Where a row opens: the note inside @shared itself (board A3), with the
+ * sidebar still beside it and a path that starts at Shared with me. The token
+ * is the whole address, so the server's share check decides what it reaches.
  */
-export function sharedOpenHref(token: string): string {
+export function sharedNoteHref(token: string): string {
+  return `${SHARED_HREF}?note=${encodeURIComponent(token)}`;
+}
+
+/** The share's public address, `/s/<token>`, the one its sharer pasted into a chat. */
+export function sharedLinkHref(token: string): string {
   return `${SHARE_PATH_PREFIX}${encodeURIComponent(token)}`;
 }
 
-/** The note's name as the tree would show it: `1-projects/beneath-the-chaos.md` → `beneath-the-chaos`. */
-export function itemTitle(item: Pick<SharedItem, "entryPath">): string {
-  return displayName(baseName(item.entryPath));
+/**
+ * What the note is called: its own title, as the server read it from the
+ * note's front matter or first heading, else its file name the way the tree
+ * shows one (`1-projects/beneath-the-chaos.md` → `beneath-the-chaos`).
+ */
+export function itemTitle(item: Pick<SharedItem, "entryPath" | "title">): string {
+  return item.title ?? displayName(baseName(item.entryPath));
 }
 
-/** Who shared it, as the product names people: `@ana`, or "Someone" for an account with no handle. */
-export function sharerLabel(item: Pick<SharedItem, "sharedByHandle">): string {
+/**
+ * Who shared it: their name ("Ana Ruiz"), else `@ana`, else "Someone" for an
+ * account with neither.
+ */
+export function sharerLabel(item: Pick<SharedItem, "sharedByHandle" | "sharedByName">): string {
+  if (item.sharedByName !== null) return item.sharedByName;
   return item.sharedByHandle === null ? "Someone" : atName(item.sharedByHandle);
+}
+
+/** The face's key: `@ana`, as every other face in the app is looked up. */
+export function sharerFace(item: Pick<SharedItem, "sharedByHandle">): string | null {
+  return item.sharedByHandle === null ? null : atName(item.sharedByHandle);
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The row's right-hand time, as board A2 writes it: "Just now", "2h ago",
+ * "Yesterday", then the date ("Oct 9"), with the year once it is not this one.
+ */
+export function shortWhen(createdAt: number, now: number): string {
+  const minutes = Math.floor((now - createdAt) / 60_000);
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const today = day.getTime();
+  if (createdAt >= today) {
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    return `${Math.floor(minutes / 60)}h ago`;
+  }
+  if (createdAt >= today - DAY) return "Yesterday";
+  const when = new Date(createdAt);
+  const date = `${MONTHS[when.getMonth()]} ${when.getDate()}`;
+  return when.getFullYear() === day.getFullYear() ? date : `${date}, ${when.getFullYear()}`;
+}
+
+/** Narrow the list to what a typed filter names: the title, the sharer, or the workspace. */
+export function matchesFilter(item: SharedItem, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return true;
+  return [itemTitle(item), sharerLabel(item), item.sharedByHandle ?? "", placeLabel(item) ?? ""].some((field) =>
+    field.toLowerCase().includes(needle),
+  );
 }
 
 /**
@@ -64,8 +117,6 @@ export function newestFirst(items: readonly SharedItem[]): SharedItem[] {
 }
 
 export type DayBucket = "Today" | "This week" | "Earlier";
-
-const DAY = 24 * 60 * 60 * 1000;
 
 /** Which heading a share sits under, by the reader's own calendar day. */
 export function dayBucket(createdAt: number, now: number): DayBucket {
@@ -94,10 +145,15 @@ export function groupByDay(
  * first. Keyed by account rather than handle, so two people who both lack a
  * handle are still two people.
  */
-export function groupByPerson(
-  items: readonly SharedItem[],
-): { sharedBy: string; label: string; handle: string | null; items: SharedItem[] }[] {
-  const groups = new Map<string, { sharedBy: string; label: string; handle: string | null; items: SharedItem[] }>();
+export interface PersonGroup {
+  sharedBy: string;
+  label: string;
+  handle: string | null;
+  items: SharedItem[];
+}
+
+export function groupByPerson(items: readonly SharedItem[]): PersonGroup[] {
+  const groups = new Map<string, PersonGroup>();
   for (const item of newestFirst(items)) {
     const group = groups.get(item.sharedBy);
     if (group === undefined) {
