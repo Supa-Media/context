@@ -3,12 +3,11 @@ import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
-import { Tex } from "./Tex";
 import { chaosWord, scoreShown, shownScore, trendAgainst } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 
 /**
- * The phone's Home, at its foot: the figure, `Chaos 34 · crowded`, and a week
+ * The phone's Home, at its foot: `Chaos 34 · crowded`, and a week
  * ago when known, on one quiet card that opens the panel as a sheet. Last on
  * the page and in muted type, so it is there for whoever scrolls to it and in
  * nobody's way otherwise. Nothing until the workspace has been scored.
@@ -30,7 +29,6 @@ export function ChaosHomeLine() {
       style={({ pressed }) => [styles.homeLine, pressed ? styles.pressed : null]}
       testID="phone-home-chaos"
     >
-      <Tex chaos={result.score} size={36} />
       <View style={styles.rowText}>
         <Text variant="treeTouch" numberOfLines={1}>
           {`Chaos ${score} · ${word}`}

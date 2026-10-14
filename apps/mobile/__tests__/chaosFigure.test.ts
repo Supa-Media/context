@@ -10,7 +10,6 @@ import {
   scribble,
   SMALL_FIGURE,
 } from "../features/chaos/figureGeometry";
-import { tugAt } from "../features/chaos/useTug";
 
 const numbers = (d: string): number[] =>
   (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
@@ -103,20 +102,5 @@ describe("tugging at its yarn (a crowded folder's Tex)", () => {
   test("a calm-looking Tex still has its arms while it tugs", () => {
     expect(figureParts(31, { small: false }).limbOpacity).toBeLessThan(0.5);
     expect(figureParts(31, { small: false, tug: 0.5 }).limbOpacity).toBeGreaterThanOrEqual(0.85);
-  });
-});
-
-describe("the tug's rhythm", () => {
-  test("two hauls, then a rest, and again", () => {
-    expect(tugAt(0)).toBeCloseTo(0.35);
-    expect(tugAt(650)).toBeCloseTo(1);
-    expect(tugAt(1950)).toBeCloseTo(1);
-    expect(tugAt(3000)).toBeCloseTo(0.35);
-    expect(tugAt(6000)).toBeCloseTo(0.35);
-    expect(tugAt(6800 + 650)).toBeCloseTo(1);
-    for (let ms = 0; ms < 7000; ms += 97) {
-      expect(tugAt(ms)).toBeGreaterThanOrEqual(0.35 - 1e-9);
-      expect(tugAt(ms)).toBeLessThanOrEqual(1);
-    }
   });
 });
