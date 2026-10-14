@@ -494,8 +494,8 @@ export async function runFileOperationHandler(
   // canonical write lands. Best effort; the periodic reconciler repairs a miss.
   await markWebsiteAfterOperation(ctx, args.workspaceId, args.operation as FileOperation, result);
 
-  // Routine rows are a derivative of `routines/` too. The person who acted is
-  // named by `actorName`, the handle `authorizeFileAccess` resolved from live
+  // Routine rows are a derivative of the routine roots (`routines/` and
+  // `tex/routines/`) too. The person who acted is named by `actorName`, the handle `authorizeFileAccess` resolved from live
   // membership; `recordRoutineSignal` keeps them as the writer only if they
   // can write here now. Best effort, like the website mark above.
   const routinePaths = routinePathsTouched(args.operation as FileOperation, result);

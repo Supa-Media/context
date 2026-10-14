@@ -31,7 +31,7 @@ this folder: it is public, like the rest of the repository.
   saving a login, a one-off reminder and a weekday routine. It is what
   `pnpm ai run texting-assistant` and the Action run when no test is named;
   `--test texting-assistant` (59 questions) and `--test tasks` are the long
-  sets, kept for rounds. Its `must write: maya/routines/once/ with at:
+  sets, kept for rounds. Its `must write: maya/tex/routines/once/ with at:
   2026-10-09 9:00 am` lines are checked from the run's record too: a note
   written at that path (under it when it ends in `/`) with that front matter.
 - `sites/`: the scripted web a test with `web: scripted` runs on, one file per

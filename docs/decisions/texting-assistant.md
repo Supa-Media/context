@@ -625,7 +625,7 @@ withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
 ([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
 The dispatcher in front of the
 client's also refuses any path into a dot folder or `privacy.md` and a
-malformed routine under `routines/` ([routines](./routines.md)). Everything
+malformed routine under `tex/routines/` or `routines/` ([routines](./routines.md)). Everything
 else, including whether the person may write in another workspace, is the
 client's dispatcher's, unchanged. The prompt tells the model to check its tool
 list before saying it can't do something, and to change notes only because

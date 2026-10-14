@@ -17,7 +17,7 @@
  *   - must set: connected chatgpt    a flag a scripted button set
  *   - must publish: website          a site publish that went through (`siteStub.mjs`)
  *   - must connect: mayaruns.com     a domain connected to the workspace's site
- *   - must write: maya/routines/once/ with at: 2026-10-09 9:00 am
+ *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
  *
@@ -147,16 +147,18 @@ function sameValue(key, want, got) {
 /**
  * Whether `path` is at `place`: the note itself, or anything under a folder
  * that ends in `/`. Two routine folders that mean one schedule
- * (`routines/daily/`, `routines/every-day/`) are one place.
+ * (`routines/daily/`, `routines/every-day/`) under the same root are one
+ * place; the two roots (`tex/routines/`, `routines/`) are not, because the
+ * check names where a new one belongs.
  */
 function atPlace(place, path) {
   if (!place.endsWith("/")) return path === place;
   if (path.startsWith(place)) return true;
-  const want = /^([^/]+)\/routines\/([^/]+)\/$/.exec(place);
-  const got = /^([^/]+)\/routines\/([^/]+)\/[^/]+\.md$/.exec(path);
-  if (!want || !got || want[1] !== got[1]) return false;
-  const a = cadenceFromFolder(want[2]);
-  const b = cadenceFromFolder(got[2]);
+  const want = /^([^/]+)\/((?:tex\/)?routines)\/([^/]+)\/$/.exec(place);
+  const got = /^([^/]+)\/((?:tex\/)?routines)\/([^/]+)\/[^/]+\.md$/.exec(path);
+  if (!want || !got || want[1] !== got[1] || want[2] !== got[2]) return false;
+  const a = cadenceFromFolder(want[3]);
+  const b = cadenceFromFolder(got[3]);
   return Boolean(a && b && a.unit === b.unit && a.every === b.every);
 }
 

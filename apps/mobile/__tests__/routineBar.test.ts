@@ -232,6 +232,32 @@ describe("the bar on screen", () => {
   });
 });
 
+/*
+ * Routines' new home (the owner, 2026-10-14): `tex/routines/<how-often>/`
+ * gets the same bar as `routines/<how-often>/`, which keeps its own.
+ * SABOTAGE: drop `tex/routines/` from `ROUTINE_ROOTS` in the shared module and
+ * "a note under tex/routines/ gets the same bar" fails.
+ */
+describe("the bar in Tex's own folder", () => {
+  test("a note under tex/routines/ gets the same bar", () => {
+    expect(view(TEXT, row(), "tex/routines/daily/morning-brief.md")).toEqual(view(TEXT, row(), PATH));
+    expect(view(TEXT, row(), "tex/routines/daily/morning-brief.md")).toMatchObject({ kind: "bar", schedule: "Every day at 7:30 am" });
+    const once = "---\nat: 2026-10-15 9:00 am\n---\nRemind me to call Sam.\n";
+    expect(routineBarView({ path: "tex/routines/once/call-sam.md", text: once, row: row(), now: NOW })).toMatchObject({
+      schedule: "Once on Oct 15, 2026 at 9 am",
+    });
+  });
+
+  test("one that will never run names its own root, and a note beside the root gets no bar", () => {
+    expect(view(TEXT, null, "tex/routines/morning.md")).toEqual({
+      kind: "unscheduled",
+      line: "Put it in a folder that says how often, like tex/routines/daily/.",
+    });
+    expect(view(TEXT, row(), "tex/about-me.md")).toEqual({ kind: "none" });
+    expect(view(TEXT, row(), "tex/daily/morning.md")).toEqual({ kind: "none" });
+  });
+});
+
 describe("recent runs", () => {
   test("each run in plain words, with what it texted", () => {
     const runs = [

@@ -37,9 +37,9 @@ export interface RoutineRun {
 export type LastRunMark = "ok" | "failed" | null;
 
 export type RoutineBarView =
-  /** Not under `routines/`: nothing is drawn. */
+  /** Not under `tex/routines/` or `routines/`: nothing is drawn. */
   | { kind: "none" }
-  /** Under `routines/` but will never run: one quiet line saying why. */
+  /** Under `tex/routines/` or `routines/` but will never run: one quiet line saying why. */
   | { kind: "unscheduled"; line: string }
   | {
       kind: "bar";

@@ -252,9 +252,9 @@ export function createReportingMethods({ post }) {
     },
 
     /**
-     * That a write touched `routines/`, the paths it touched and who wrote
-     * them. Paths and an id, never text: the control plane re-reads the folder
-     * through the bucket before it schedules anything
+     * That a write touched a routine root (`tex/routines/` or `routines/`),
+     * the paths it touched and who wrote them. Paths and an id, never text:
+     * the control plane re-reads the roots before it schedules anything
      * (`docs/decisions/routines.md`).
      *
      * @param {string} workspaceId

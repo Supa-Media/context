@@ -65,7 +65,8 @@ crons.interval(
 );
 
 /**
- * Re-read every workspace's `routines/` folder, as a safety net under the
+ * Re-read every workspace's routine folders (`routines/` and `tex/routines/`),
+ * as a safety net under the
  * signals that normally do it (`functions/routines.ts`). A repair of a
  * disposable derivative, like the search restarts: it reads the customer's
  * bucket and writes nothing there, and decides nothing — whether a routine
