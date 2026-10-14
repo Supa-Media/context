@@ -53,3 +53,21 @@ test("the wire carries the workspace, the writer and the paths, and nothing else
     { route: "/gateway/routines", body: { workspaceId: "ws_1", paths: ["routines/daily/brief.md"] } },
   ]);
 });
+
+// Routines' new home (the owner, 2026-10-14): a write under `tex/routines/`
+// is reported like one under `routines/`, and so is a move or deletion of the
+// `tex` folder, which takes that root with it. A note beside it is not.
+// Sabotage, 2026-10-14: `announceRoutineChange` matching only `routines/`
+// again fails both tests below.
+test("a write under tex/routines/ is reported, with the writer", () => {
+  const store = fakeStore();
+  announceRoutineChange(store, ["tex/routines/daily/x.md", "tex/about-me.md", "1-projects/tex/routines/daily/x.md"]);
+  assert.deepEqual(store.reports, [{ paths: ["tex/routines/daily/x.md"], who: "user_writer" }]);
+});
+
+test("a move between the two roots reports both ends, and the tex folder counts", () => {
+  const store = fakeStore();
+  announceRoutineChange(store, ["routines/daily/x.md", "tex/routines/daily/x.md"]);
+  announceRoutineChange(store, ["tex", "4-archive/tex"]);
+  assert.deepEqual(store.reports.map((r) => r.paths), [["routines/daily/x.md", "tex/routines/daily/x.md"], ["tex"]]);
+});

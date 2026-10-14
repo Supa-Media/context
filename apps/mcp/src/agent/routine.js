@@ -1,6 +1,7 @@
 /**
- * A routine's turn: a note under `routines/` read and carried out on its
- * schedule, as the person who wrote it (`docs/decisions/routines.md`).
+ * A routine's turn: a note under `tex/routines/` (or `routines/`, where
+ * routines lived first) read and carried out on its schedule, as the person
+ * who wrote it (`docs/decisions/routines.md`).
  *
  * The control plane decides *when*; this file decides nothing about time. It
  * re-reads the routine at the moment it runs, through the same `read_note` a

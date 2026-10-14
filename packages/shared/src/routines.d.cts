@@ -28,7 +28,7 @@ export interface RoutineSettings {
   until: string | null;
   paused: boolean;
   timeZone: string | null;
-  /** A one-off's day (`routines/once/`). */
+  /** A one-off's day (`tex/routines/once/`, or `routines/once/`). */
   date: CivilDate | null;
   /** When a one-off ran, as the gateway wrote it; set means it never runs again. */
   done: string | null;
@@ -41,12 +41,18 @@ export interface CivilDate {
 }
 
 export const ROUTINES_FOLDER: "routines/";
+export const TEX_ROUTINES_FOLDER: "tex/routines/";
+export type RoutineRoot = "tex/routines/" | "routines/";
+export const ROUTINE_ROOTS: readonly RoutineRoot[];
 export const ROUTINE_RUNS_PREFIX: string;
+export const ROUTINE_RUNS_PREFIXES: Readonly<Record<RoutineRoot, string>>;
 export const MIN_INTERVAL_MINUTES: number;
 export const DEFAULT_AT: Readonly<ClockTime>;
 
 export function cadenceFromFolder(folder: string): RoutineCadence | null;
 export function routineFromPath(path: string): RoutinePath | null;
+export function routineRootOf(path: string): RoutineRoot | null;
+export function isRoutinePath(path: unknown): boolean;
 export function frontMatter(text: string): Record<string, string>;
 export function parseTime(value: string): ClockTime | null;
 export function parseWeekdays(value: string): number[] | null;

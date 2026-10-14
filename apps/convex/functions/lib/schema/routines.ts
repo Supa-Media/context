@@ -4,9 +4,10 @@ import { v } from "convex/values";
 /**
  * Routines: the control plane's half (`docs/decisions/routines.md`).
  *
- * A routine is a note at `routines/<how-often>/<name>.md` in the customer's
- * bucket, and the note is the whole truth: what it says to do, how often, who
- * it texts. What is kept here is only what is needed to wake it on time — a
+ * A routine is a note at `tex/routines/<how-often>/<name>.md` (or, where
+ * routines lived first and still run, `routines/<how-often>/<name>.md`) in the
+ * customer's bucket, and the note is the whole truth: what it says to do, how
+ * often, who it texts. What is kept here is only what is needed to wake it on time — a
  * path, a schedule read off the folder and front matter, who it runs as, and
  * when it next runs — so the rows can be thrown away and rebuilt from the
  * bucket at any moment (`reconcileRoutines`).
@@ -17,12 +18,13 @@ import { v } from "convex/values";
  *  - no problem sentences: they quote the note's own lines back;
  *  - no answer, ever: a run's outcome is a short code from a closed list
  *    (`ROUTINE_OUTCOMES`), and what it said lives in the person's bucket under
- *    `.context/agent/routines/`.
+ *    `.context/agent/routines/` (or `.context/agent/tex/routines/` for the
+ *    new root, so the two never share a history).
  */
 export const routineTables = {
   routines: defineTable({
     workspaceId: v.id("workspaces"),
-    /** Bucket-relative, exactly as listed: `routines/daily/standup.md`. */
+    /** Bucket-relative, exactly as listed: `tex/routines/daily/standup.md`. */
     path: v.string(),
     /**
      * Who it runs as: the person who last wrote the file, while they can still
@@ -33,7 +35,7 @@ export const routineTables = {
      * How the writer was chosen. `signal`: someone who could write here was
      * seen writing the file. `fallback`: the file was found with no known
      * writer and runs as the owner, and then its `to:` is ignored and only the
-     * owner is texted. Otherwise anyone able to put a file in `routines/`
+     * owner is texted. Otherwise anyone able to put a file in a routine folder
      * without a signal could have the owner's private reach texted to them.
      */
     writerSource: v.union(v.literal("signal"), v.literal("fallback")),
@@ -53,7 +55,7 @@ export const routineTables = {
     days: v.optional(v.array(v.number())),
     /** Day of the month, -1 for the last. */
     monthDay: v.optional(v.number()),
-    /** A one-off's day (`routines/once/`); it runs once, at `at` on this date. */
+    /** A one-off's day (`tex/routines/once/` or `routines/once/`); it runs once, at `at` on this date. */
     date: v.optional(v.object({ year: v.number(), month: v.number(), day: v.number() })),
     /** The file's own `timezone:` line, when it has one. */
     timeZone: v.optional(v.string()),

@@ -55,6 +55,22 @@ test("a weekday routine passes in daily/ or every-day/ with the days in any form
   assert.deepEqual(grade([weekdays], [written("maya", "routines/daily/whats-due.md", note("weekdays").replace("7:30 am", "7 am"))]), [false], "7:00");
 });
 
+// Routines' new home (the owner, 2026-10-14): the core set asks for
+// `tex/routines/`, and a write in the old root is in the wrong place.
+// Sabotage, 2026-10-14: `atPlace` ignoring which root (`want[2] !== got[2]`
+// dropped) fails "the old root is not the new one".
+test("a routine check under tex/routines/ passes there, in a folder of the same schedule", () => {
+  const texOnce = "- must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am";
+  const texWeekdays = "- must write: maya/tex/routines/daily/ with at: 7:30 am, on: weekdays";
+  const reminder = "---\nat: 2026-10-09 9:00 am\n---\n\nText Maya: call Sam.\n";
+  const daily = "---\nat: 7:30 am\non: weekdays\n---\n\nText Maya what's due today.\n";
+  assert.deepEqual(grade([texOnce], [written("maya", "tex/routines/once/call-sam.md", reminder)]), [true]);
+  assert.deepEqual(grade([texWeekdays], [written("maya", "tex/routines/every-day/whats-due.md", daily)]), [true]);
+  assert.deepEqual(grade([texOnce], [written("maya", "routines/once/call-sam.md", reminder)]), [false], "the old root is not the new one");
+  assert.deepEqual(grade([texWeekdays], [written("maya", "routines/every-day/whats-due.md", daily)]), [false], "the old root is not the new one");
+  assert.deepEqual(grade([once], [written("maya", "tex/routines/once/call-sam.md", reminder)]), [false], "nor the new the old");
+});
+
 test("an exact path and a must-not write grade the written note alone", () => {
   const lines = ["- must write: maya/home/apartment-repairs.md", "- must not write: maya/todo.md"];
   assert.deepEqual(grade(lines, [written("maya", "home/apartment-repairs.md", "# Apartment repairs\n- Plumber Friday, October 9 at 10 am")]), [true, true]);
