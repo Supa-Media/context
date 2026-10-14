@@ -5,7 +5,7 @@
  * row changed in the move; the reasons below are the ones it was written with.
  */
 
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { useNoteIntent } from "./noteIntent";
 import { Icon } from "../../design/components/Icon";
@@ -21,8 +21,11 @@ import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { isGroupVisibility } from "./types";
-import { RowExtraLead, RowExtraTrail, useRowExtra } from "./folderPage/rowExtras";
+import { RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
+
+/** How far each level of a folder opened in place sits in from its folder (`NestedRows.tsx`). */
+export const NEST_INDENT = 18;
 
 /**
  * One row, drawn as the tree draws one.
@@ -43,8 +46,17 @@ export function FolderRow({
   onHold,
   phone,
   folderIcon = null,
+  depth = 0,
+  expanded = false,
+  onToggle,
 }: {
   row: FileEntry;
+  /** How many folders in from the page's own this row sits, opened in place (`NestedRows.tsx`). */
+  depth?: number;
+  /** Whether this folder is open in place, its rows drawn under it. */
+  expanded?: boolean;
+  /** The arrow's press: opens or closes the folder in place. Absent where it only marks a folder. */
+  onToggle?: () => void;
   onSelect: (path: string) => void;
   menu?: FolderMenu;
   drag?: FolderDrag;
@@ -71,7 +83,7 @@ export function FolderRow({
    * only a folder has a chevron. Only in the card.
    */
   phone?: PhoneRowMeta;
-  /** The emoji this folder or note was given (or a built-in folder's default), drawn in place of its glyph in a card and of the chevron outside one. `null` for the plain one. */
+  /** The emoji this folder or note was given (or a built-in folder's default), drawn in place of its plain icon. `null` for the plain one. */
   folderIcon?: string | null;
 }) {
   const colors = useColors();
@@ -81,7 +93,8 @@ export function FolderRow({
   // In the List view: the status dot, the count and the faces (`folderPage/rowExtras.tsx`). `undefined` in Notes.
   const extra = useRowExtra(row.path);
   const done = extra?.tone === "done";
-  const extraShown = extra != null && (extra.progress !== null || extra.faces.length > 0);
+  const task = extra?.tone != null;
+  const extraShown = useRowTrailShows(extra);
   /*
     THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
 
@@ -131,7 +144,7 @@ export function FolderRow({
     <PressRow
       onPress={() => onSelect(row.path)}
       onIntent={intent !== undefined && row.kind === "file" && picked === undefined ? () => intent(row.path) : undefined}
-      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome]}
+      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome, depth > 0 && { paddingLeft: depth * NEST_INDENT }]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
@@ -174,64 +187,57 @@ export function FolderRow({
           >
             {picked ? <Icon name="check" size={12} color={colors.surface} /> : null}
           </View>
-        ) : card && extra?.tone != null ? (
-          // A phone's List: the status dot takes the glyph's slot (board 13).
+        ) : card && task ? (
+          // A phone's List: a task's status dot takes the icon's slot (board 13).
           <RowExtraLead extra={extra} />
         ) : card ? (
-          folderIcon !== null ? (
-            // Sized to the glyph it replaces, so the name beside it does not move.
-            // A note's emoji (2026-10-13) replaces its file glyph the same way.
-            <EmojiGlyph
-              emoji={folderIcon}
-              size={home === null ? 16 : 20}
-              textStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone}
-              fallback={
-                <Icon
-                  name={row.kind === "folder" ? "folder" : "file"}
-                  size={home === null ? 16 : 20}
-                  color={home === null ? colors.muted : colors.text2}
-                />
-              }
-              testID="folder-row-emoji"
-            />
-          ) : (
-            <Icon
-              name={row.kind === "folder" ? "folder" : "file"}
-              size={home === null ? 16 : 20}
-              color={home === null ? colors.muted : colors.text2}
-            />
-          )
-        ) : row.kind === "folder" ? (
+          <RowGlyph row={row} icon={folderIcon} size={home === null ? 16 : 20} color={home === null ? colors.muted : colors.text2} emojiStyle={home === null ? styles.cardEmojiPointer : styles.cardEmojiPhone} plainFile />
+        ) : row.kind === "folder" && onToggle !== undefined ? (
           /*
-            The desktop listing's gutter holds a chevron, and a folder somebody
-            gave an icon shows the icon there instead (owner, 2026-10-08: "when
-            it's set, it should show up in the main view as well"). Same slot,
-            so its name still starts where every other name does; the emoji
-            says "folder" as plainly as the chevron did.
+            The arrow opens the folder in place, as the tree's does (the owner,
+            2026-10-14: "the arrow isn't even clickable, which is stupid"); the
+            rest of the row still opens its page. Not a role: the row is the
+            button, and a <button> cannot hold another.
           */
-          folderIcon !== null ? (
-            <EmojiGlyph
-              emoji={folderIcon}
-              size={15}
-              textStyle={styles.cardEmojiPointer}
-              fallback={<Icon name="chevronRight" size={15} color={colors.muted} />}
-              testID="folder-row-emoji"
-            />
-          ) : (
+          <Pressable
+            onPress={onToggle}
+            accessibilityLabel={expanded ? `Close ${label}` : `Open ${label} here`}
+            aria-expanded={expanded}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 2 }}
+            style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.toggle, hovered && styles.toggleHover]}
+            testID="folder-row-chevron"
+          >
+            <Icon name={expanded ? "chevronDown" : "chevronRight"} size={15} color={colors.muted} />
+          </Pressable>
+        ) : row.kind === "folder" ? (
+          <View testID="folder-row-chevron">
             <Icon name="chevronRight" size={15} color={colors.muted} />
-          )
-        ) : folderIcon !== null ? (
-          // A note somebody gave an emoji shows it in the same gutter (2026-10-13).
-          <EmojiGlyph
-            emoji={folderIcon}
-            size={15}
-            textStyle={styles.cardEmojiPointer}
-            fallback={<View />}
-            testID="folder-row-emoji"
-          />
+          </View>
         ) : null}
       </View>
-      {extra === undefined || card ? null : <RowExtraLead extra={extra} />}
+      {/*
+        THE ICON, BESIDE THE CHEVRON AND NEVER IN ITS PLACE.
+
+        A folder somebody gave an emoji used to draw it where its chevron was
+        (2026-10-08), so in a listing of folders some had an arrow and some
+        did not, and the arrow is the one thing saying "this opens" (the
+        owner, 2026-10-14: "when there's an emoji, the arrow is gone in the
+        middle section, which is just funky"). Now the desktop listing is the
+        tree's row: the chevron's gutter, then the icon (the emoji, or the
+        plain folder or note icon), then the name. In a projects List a task's
+        status dot stands in the icon's place; the emoji beside the dot "does
+        not look great at all" (the owner, 2026-10-14).
+      */}
+      {card || picked !== undefined ? null : (
+        <View style={styles.glyph}>
+          {task ? (
+            // In the List a task's status dot is its icon: the two side by side were one mark too many (the owner, 2026-10-14).
+            <RowExtraLead extra={extra} />
+          ) : row.kind === "folder" || isNote(row) ? (
+            <RowGlyph row={row} icon={folderIcon} size={15} color={colors.chromeMuted} emojiStyle={styles.cardEmojiPointer} />
+          ) : null}
+        </View>
+      )}
       {home === null ? (
         <Text variant="treeTouch" style={[styles.rowName, done && styles.rowNameDone]} numberOfLines={1}>
           {label}
@@ -328,6 +334,41 @@ export function FolderRow({
   );
 }
 
+/**
+ * A row's icon: the emoji somebody gave it, or a built-in folder's default,
+ * else the plain folder or note icon, as the tree draws one. In a phone's
+ * card every row has one (`plainFile`); in the desktop listing only a folder
+ * or a note, as in the tree.
+ */
+function RowGlyph({
+  row,
+  icon,
+  size,
+  color,
+  emojiStyle,
+  plainFile = false,
+}: {
+  row: FileEntry;
+  icon: string | null;
+  size: number;
+  color: string;
+  emojiStyle: object;
+  plainFile?: boolean;
+}) {
+  const plain = (
+    <View testID="folder-row-icon">
+      <Icon name={row.kind === "folder" ? "folder" : "file"} size={size} color={color} />
+    </View>
+  );
+  if (icon === null) return plainFile || row.kind === "folder" || isNote(row) ? plain : null;
+  // Sized to the glyph it replaces, so the name beside it does not move.
+  return <EmojiGlyph emoji={icon} size={size} textStyle={emojiStyle} fallback={plain} testID="folder-row-emoji" />;
+}
+
+function isNote(row: FileEntry): boolean {
+  return row.kind === "file" && /\.md$/i.test(row.path);
+}
+
 /** What a phone row's name alone does not say, for a screen reader. */
 function homeDetail({ meta, sub, pinned }: PhoneRowMeta): string {
   return [pinned ? "pinned" : null, sub, meta].filter(Boolean).map((part) => `, ${part}`).join("");
@@ -407,6 +448,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   picked: { backgroundColor: colors.accent, borderColor: colors.accent },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
+  /** The arrow as a button: the gutter's own box, so pressing it moves nothing. */
+  toggle: { width: 18, height: 22, alignItems: "center", justifyContent: "center", borderRadius: radii.sm, cursor: "pointer" as never },
+  toggleHover: { backgroundColor: colors.lineStrong },
+  /** The icon's room after it, the same for a row with none, so every name starts on one line. */
+  glyph: { width: 16, alignItems: "center", justifyContent: "center" },
   /** A folder's own emoji, sized to the glyph it stands in for (16pt on the desktop, 20pt on the phone). */
   cardEmojiPointer: { fontSize: pointerType.lede, lineHeight: 18 },
   cardEmojiPhone: { fontSize: touchType.h3, lineHeight: 22 },

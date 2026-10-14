@@ -76,6 +76,13 @@ export interface PropertyValueProps {
    * it and leaves the row.
    */
   quiet?: boolean;
+  /**
+   * Only `lead` is drawn, as the button: a List row's status dot or owner's
+   * face. The row is itself a button, and on the web a `role="button"` is a
+   * `<button>`, which HTML does not allow inside another, so this one has no
+   * role; its name still says what it does.
+   */
+  glyph?: boolean;
   /** The colour of a set value; unset and hovered have their own. */
   style?: StyleProp<TextStyle>;
   testID?: string;
@@ -96,6 +103,7 @@ export function PropertyValue({
   unsetLabel,
   lead,
   quiet = false,
+  glyph = false,
   style,
   testID,
 }: PropertyValueProps) {
@@ -226,8 +234,26 @@ export function PropertyValue({
     trigger.current?.measureInWindow?.((x, y, _width, height) => setMenu({ x, y: y + height + 4 }));
   };
 
+  const hidden = quiet && !hovered && !focused && menu === null && !picking;
   return (
     <View ref={trigger} collapsable={false}>
+      {glyph ? (
+        <Pressable
+          onPress={open}
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          aria-haspopup="menu"
+          aria-expanded={menu !== null || picking}
+          accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${spoken}`}
+          hitSlop={8}
+          testID={testID}
+          style={[styles.glyph, hovered && styles.glyphHover, hidden && styles.quiet]}
+        >
+          {lead}
+        </Pressable>
+      ) : (
       <Pressable
         onPress={open}
         onHoverIn={() => setHovered(true)}
@@ -257,6 +283,7 @@ export function PropertyValue({
           {current === null ? (unsetLabel ?? `Set ${property}`) : isolateForDisplay(shown)}
         </Text>
       </Pressable>
+      )}
       {owners === undefined || !picking ? null : (
         <OwnerPicker
           current={shown}
@@ -318,6 +345,8 @@ const makeStyles = (colors: Colors) =>
     unset: { color: colors.chromeMuted },
     hover: { color: colors.accentText },
     quiet: { opacity: 0 },
+    glyph: { alignItems: "center", justifyContent: "center", borderRadius: radii.pill, cursor: "pointer" as never },
+    glyphHover: { opacity: 0.7 },
     owner: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
     shrink: { flexShrink: 1 },
     field: {

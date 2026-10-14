@@ -299,7 +299,8 @@ export async function runMoveWork(
       await ctx.runMutation(internal.functions.nodeMoves.failed, { id: claimed.id, label, now: Date.now() });
       return { kind: "nodesKept", complete: false };
     }
-    await ctx.runMutation(internal.functions.nodeMoves.progress, { id: claimed.id, moved, now: Date.now() });
+    const now = Date.now();
+    await ctx.runMutation(internal.functions.nodeMoves.progress, { id: claimed.id, moved, now, ms: now - started });
     return { kind: "nodesKept", complete: false };
   } catch (error) {
     const label = stage === "finishing"

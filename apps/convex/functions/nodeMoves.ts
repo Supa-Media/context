@@ -18,6 +18,8 @@ import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
+import { blendRate } from "./lib/nodes/moveLag";
+import { scheduleStorageLagAlert } from "./storageLag";
 import { freshenMeaningAfterActivity } from "./lib/meaningFns/rows";
 import { followMovesForMembers } from "./lib/placesFollow";
 import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
@@ -290,13 +292,16 @@ export const undoTrash = internalMutation({
 
 /** A pass moved `moved` objects; the next one starts at once. */
 export const progress = internalMutation({
-  args: { id: v.id("moveQueue"), moved: v.number(), now: v.number() },
+  args: { id: v.id("moveQueue"), moved: v.number(), now: v.number(), ms: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx, { id, moved, now }): Promise<null> => {
+  handler: async (ctx, { id, moved, now, ms }): Promise<null> => {
     const row = await ctx.db.get(id);
     if (row === null) return null;
+    const count = Math.max(0, Math.floor(moved));
+    const rate = ms === undefined ? row.rate : blendRate(row.rate, count, ms);
     await ctx.db.patch(id, {
-      moved: row.moved + Math.max(0, Math.floor(moved)),
+      moved: row.moved + count,
+      ...(rate === undefined ? {} : { rate }),
       attempts: 0,
       lastError: undefined,
       leaseAt: undefined,
@@ -349,6 +354,8 @@ export const complete = internalMutation({
     const row = await ctx.db.get(id);
     if (row === null) return null;
     await ctx.db.delete(id);
+    // Staff were told it fell behind: tell them it caught up.
+    if (row.lateAt !== undefined) await scheduleStorageLagAlert(ctx, { kind: "recovered", workspaceId: row.workspaceId, tookMs: Date.now() - row.createdAt });
     // The copy is done and the old name's rules are gone: the site is rebuilt from where its pages now sit.
     await markWebsiteMoved(ctx, row.workspaceId, row);
     // Search by meaning holds the notes at their old names, which it no longer folds: catch it up.

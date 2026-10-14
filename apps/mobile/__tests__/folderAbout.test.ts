@@ -231,13 +231,23 @@ describe("a folder's about note", () => {
     expect(all("about-sheet")).toHaveLength(0);
   });
 
-  test("a member reads it and has no Edit", async () => {
+  test("a member reads it and has nothing to press but Read more", async () => {
     await mount(entry("folder", "1-projects/web"), WEB, host(null));
     await act(async () => {});
     expect(all("folder-about-edit")).toHaveLength(0);
+    expect(all("folder-about-more")).toHaveLength(1);
   });
 
-  test("a writer's Edit turns the opening paragraph into a field, marks and all, and Enter saves it", async () => {
+  test("a writer has no Edit button: the words themselves are pressed", async () => {
+    await mount(entry("folder", "1-projects/web"), WEB, host([]));
+    await act(async () => {});
+    // The owner, 2026-10-14: "I don't like that I had to click on edit in order to edit an about".
+    expect(one("folder-about-edit").contains(one("folder-about-words"))).toBe(true);
+    expect(strip(one("folder-about").textContent)).not.toMatch(/Edit$/);
+    expect(one("folder-about-edit").getAttribute("aria-label")).toBe("Edit description, Publish a folder as a site.");
+  });
+
+  test("a writer pressing the words turns the opening paragraph into a field, marks and all, and Enter saves it", async () => {
     const writes: Write[] = [];
     await mount(entry("folder", "1-projects/web"), WEB, host(writes));
     await act(async () => {});
@@ -249,7 +259,7 @@ describe("a folder's about note", () => {
     expect(writes).toEqual([["1-projects/web/overview.md", "lede", "Publish a [folder](https://example.invalid) as a website.", undefined]]);
   });
 
-  test("an about that opens with a list shows its first items on one line, and Edit opens the whole note", async () => {
+  test("an about that opens with a list shows its first items on one line, and pressing them opens the whole note", async () => {
     await mount(entry("folder", "3-resources/design"), DESIGN, host([]));
     await act(async () => {});
     expect(strip(one("folder-about-words").textContent)).toBe("Brand colours · Type scale · Icon rules · Where the files live…");
@@ -335,5 +345,60 @@ describe("the description is read ahead of the folder's notes", () => {
     expect(strip(one("folder-about-words").textContent)).toBe("Health, home and money.");
     // And the title stays the folder's name rather than the README's "2-areas".
     expect(strip(document.body.textContent)).not.toContain("2-areas");
+  });
+});
+
+/*
+  Owner, 2026-10-14: "when I click on a folder the about is slower to load and
+  it just jumps in. It's fine for the about to come in later, but we should
+  leave space for it." The note is read from the bucket after the page draws,
+  so its room is held: with the opening paragraph the device's copy already
+  has, else two unseen lines and the Read more line.
+*/
+describe("while the about note is read", () => {
+  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
+
+  function slow(notes: ListNote[] = NOTES): { page: FolderPageHost; arrive: () => Promise<void> } {
+    const page = host([], notes);
+    let release: () => void = () => {};
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    const source = {
+      ...page.source!,
+      readBody: async (path: string) => {
+        await waiting;
+        return BODIES[path] === undefined ? null : { text: BODIES[path]!, encrypted: false };
+      },
+    };
+    return {
+      page: { ...page, source },
+      arrive: async () => {
+        await act(async () => release());
+        await act(async () => {});
+      },
+    };
+  }
+
+  test("its room is held with the words the device's copy has, and the note's own replace them in place", async () => {
+    const { page, arrive } = slow();
+    await mount(entry("folder", "1-projects/web"), WEB, page);
+    expect(all("folder-about")).toHaveLength(0);
+    expect(strip(one("folder-about-waiting").textContent)).toContain("Publish a folder as a site.");
+    await arrive();
+    expect(all("folder-about-waiting")).toHaveLength(0);
+    expect(strip(one("folder-about-words").textContent)).toBe("Publish a folder as a site.");
+    // Its words were already there, so nothing fades.
+    expect(all("folder-about-fade")).toHaveLength(0);
+  });
+
+  test("with no words to hand, the room is held unseen and what arrives fades in", async () => {
+    const { page, arrive } = slow(NOTES.map((note) => (note.path === "1-projects/web/overview.md" ? { ...note, lede: null } : note)));
+    await mount(entry("folder", "1-projects/web"), WEB, page);
+    const held = one("folder-about-waiting");
+    expect(held.getAttribute("aria-hidden")).toBe("true");
+    expect(strip(held.textContent)).not.toContain("Publish");
+    await arrive();
+    expect(strip(one("folder-about-words").textContent)).toBe("Publish a folder as a site.");
+    // Drawn inside the fade, where the held case above has none.
+    expect(one("folder-about-fade").contains(one("folder-about"))).toBe(true);
   });
 });

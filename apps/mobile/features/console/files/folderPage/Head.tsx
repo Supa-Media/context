@@ -1,6 +1,6 @@
 /**
- * The top of a folder page: its title with the Notes · List · Board switch
- * beside it, and — for a folder that is a project, or can become one — the
+ * The top of a folder page: its title with the List · Board switch beside it,
+ * its chaos line on its own line under them, and — for a folder that is a project, or can become one — the
  * quiet property line and the first paragraph of its front note (spec A5).
  *
  * ## The property line
@@ -15,9 +15,19 @@
  *
  * ## The switch
  *
- * Three words, the chosen one in the text colour and weight, the others
- * muted: the same segmented text the list filter popover uses for Rows, and
- * no pill. It sits on the title's own row so it costs no line of its own.
+ * Two words, the chosen one in the text colour and weight, the other muted:
+ * the same segmented text the list filter popover uses for Rows, and no pill.
+ * It sits on the title's own row so it costs no line of its own. There were
+ * three until the owner merged Notes into List (2026-10-14: "they are very
+ * similar. It's just that for projects, we have special UI on it").
+ *
+ * ## The chaos line
+ *
+ * Under the title row, never beside it: squeezed between a long project name
+ * and the switch it wrapped the name onto two lines and ellipsised itself to
+ * "calm…" (the owner, 2026-10-14: "it just kind of squished everything").
+ * The title and the switch keep the row; the line reads as the page's first
+ * quiet fact, as it already did under a phone's big title.
  */
 
 import { useState, type ReactNode } from "react";
@@ -35,7 +45,6 @@ import { PropertyValue } from "./PropertyValue";
 import type { OwnerChoice } from "./items";
 
 const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
-  { view: "files", label: "Notes" },
   { view: "list", label: "List" },
   { view: "board", label: "Board" },
 ];
@@ -101,7 +110,7 @@ export function FolderHead({
   folder,
 }: {
   title: string;
-  /** The folder this page is, for its chaos line beside the title (`features/chaos`); absent draws none. */
+  /** The folder this page is, for its chaos line under the title (`features/chaos`); absent draws none. */
   folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
@@ -117,7 +126,6 @@ export function FolderHead({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
-  const besideTitle = folder !== undefined && !large;
   const heading = (
     <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
       {title}
@@ -126,7 +134,7 @@ export function FolderHead({
   return (
     <>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
-        <View style={[styles.titleBox, (icon !== null || besideTitle) && styles.titleRow]}>
+        <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
           {icon === null ? null : (
             <EmojiGlyph
               emoji={icon}
@@ -136,7 +144,7 @@ export function FolderHead({
             />
           )}
           {/* Beside an icon, the title shrinks and ellipsises rather than pushing the row. */}
-          <View style={icon === null && !besideTitle ? undefined : styles.titleText}>
+          <View style={icon === null ? undefined : styles.titleText}>
           {onOpenTitle === undefined ? (
             heading
           ) : (
@@ -152,13 +160,12 @@ export function FolderHead({
             </Pressable>
           )}
           </View>
-          {besideTitle ? <FolderChaosLine folder={folder} /> : null}
         </View>
         {switcher}
         {actions}
       </View>
-      {/* A phone's big title needs the row's width, so its chaos line sits under it. */}
-      {large && folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
+      {/* Under the title, on every page: beside it, it squeezed a long name onto two lines. */}
+      {folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
     </>
   );

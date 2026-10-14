@@ -54,6 +54,7 @@ export interface FixtureParams {
   at?: string | string[];
   /** `screen=domain`: which website switch state to draw above the domain card. */
   site?: string | string[];
+  /** `screen=projects`: how many milliseconds a note's words take to arrive, as the bucket's do. */
   slow?: string | string[];
   failed?: string | string[];
   available?: string | string[];
@@ -70,7 +71,10 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
-  if (first(params.screen) === "projects") return <ProjectsFixture member={first(params.role) === "member"} />;
+  if (first(params.screen) === "projects") {
+    const slow = Number(first(params.slow) ?? "0");
+    return <ProjectsFixture member={first(params.role) === "member"} slowBodies={Number.isFinite(slow) ? slow : 0} />;
+  }
   // The cast studio over a fixed scene; its stage is the real homepage.
   if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
