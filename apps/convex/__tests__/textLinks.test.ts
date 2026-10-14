@@ -198,6 +198,34 @@ describe("what a text can reach", () => {
     expect(JSON.stringify(grants)).not.toContain(answer.accessToken as string);
   });
 
+  test("the texting client is called Tex, and a row made under its old name takes it", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    await link(t, PHONE, (await startLink(t, userId)).code);
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("oauthClients").withIndex("by_clientId", (q) => q.eq("clientId", TEXTS_CLIENT_ID)).unique();
+      if (row === null) {
+        await ctx.db.insert("oauthClients", {
+          clientId: TEXTS_CLIENT_ID,
+          clientName: "Texts (iMessage)",
+          redirectUris: [],
+          hashedClientSecret: null,
+          tokenEndpointAuthMethod: "none",
+          grantTypes: [],
+          responseTypes: [],
+          createdAt: Date.now(),
+        });
+      } else {
+        await ctx.db.patch(row._id, { clientName: "Texts (iMessage)" });
+      }
+    });
+
+    const resolved = await resolves(t, (await session(t, PHONE)).accessToken as string);
+    expect(resolved?.clientName).toBe("Tex");
+    const rows = await t.run(async (ctx) => await ctx.db.query("oauthClients").collect());
+    expect(rows.filter((row) => row.clientId === TEXTS_CLIENT_ID).map((row) => row.clientName)).toEqual(["Tex"]);
+  });
+
   test("it reaches what its person can, and nothing of anyone else's", async () => {
     const t = setupTest();
     const ada = await person(t, "a@example.invalid", "ada");
