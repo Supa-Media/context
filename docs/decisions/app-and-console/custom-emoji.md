@@ -94,7 +94,12 @@ folders, also can we add emojis to plain notes like activity"), reversing the
   Archive 🗄️, and `website` 🖥️). Nothing goes into the bucket, so every
   workspace has them without a migration, an icon somebody chose always wins,
   and removing it ("Use default 📥") brings the default back. Somebody's own
-  folders keep the plain folder glyph.
+  folders keep the plain folder glyph. The folders the product itself files
+  into one level under the inbox get one too (the owner, 2026-10-14):
+  calendar 🗓️, contacts 📇, email ✉️, forms 📝, google-chat 💬, imessage 📲,
+  meetings 🎙️, memories 💭, sessions 🤖, granola 🥣, and the capture folders
+  📨 (`DEFAULT_INBOX_FOLDER_ICONS`). Exact name, exact depth: `1-projects/email`
+  and `0-inbox/email/archive` are somebody's own.
 - **A note's icon is one more key in the same file**, the note's own path
   (`todo.md`). The file keeps its name because it is a stable on-bucket format.
   A note's icon is read back only when the note itself is visible (`canSee`),
