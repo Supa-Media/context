@@ -32,11 +32,24 @@ restarting once if it expires. `unsupported` is left only for a store with
 neither, retried daily. Dropbox's prefix listing cannot find a file by its own
 path, so its touch reads that file by name (`prefixFindsFiles`).
 
+**`write_note` and the status list ask the tree too** (owner, 2026-10-14:
+"everything including file name and frontmatter should be going through the
+tree, except note content"). `write_note` asks the tree whether its note
+exists (`tools/notes/present.js`) and opens the note only after every
+permission check, so a refused write costs the same whether or not anything
+is there; an edit that passes `expected_etag` opens it directly. A note the
+tree has not heard of yet meets the create's `onlyIf: { absent: true }` and is
+refused as a lost race, never overwritten. A folder's statuses come from its
+front note's properties in the tree (`factProps`), never from opening it.
+
 What fails if reversed:
 
 - `apps/convex/__tests__/files/treeWriteNames.test.ts`,
   `fileOps/partialMove.test.ts`, `nodes/gatewayNames.test.ts` and
   `apps/mcp/test/treeWriteNames.test.mjs`: a name only the tree holds is
   refused, one only the bucket holds is refused by the write, a loading tree
-  refuses, and only a writer is told names; `nodes/sweepTouch.test.ts`: a
+  refuses, only a writer is told names, `write_note` never opens a name the
+  tree calls free, and a status list is read from a front note only the tree
+  holds; `privacyGroups.test.mjs`: a refused write costs the same whether or
+  not the note exists; `nodes/sweepTouch.test.ts`: a
   tree is filled by its store's token.

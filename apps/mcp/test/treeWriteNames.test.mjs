@@ -17,7 +17,13 @@
  *    the same case is told the wrong thing;
  *  - `set_folder_visibility` listing the bucket: it counts one note, not three;
  *  - `destinationRefusal` treating a tree that cannot answer as "free": the
- *    loading case moves the note.
+ *    loading case moves the note;
+ *  - `write_note` opening the note to learn whether it exists: the "new name"
+ *    case reads the bucket at that name;
+ *  - `write_note`'s create without `onlyIf: { absent: true }`: the "written a
+ *    moment ago" case overwrites the note;
+ *  - the status list opening front notes instead of asking the tree: the
+ *    "only the tree holds" front note is never found.
  */
 
 import assert from "node:assert/strict";
@@ -222,6 +228,83 @@ test("set_folder_visibility counts the notes it reaches from the tree", async ()
     const dry = await s.call("set_folder_visibility", { path: "2-areas", visibility: "team", dry_run: true });
     assert.equal(dry.error, false, dry.text);
     assert.match(dry.text, /notes_scanned: 3/);
+  } finally {
+    s.restore();
+  }
+});
+
+test("write_note asks the tree whether the note exists, and never opens a name the tree calls free", async () => {
+  const s = await scenario();
+  try {
+    const events = [];
+    const get = s.bucket.get.bind(s.bucket);
+    const put = s.bucket.put.bind(s.bucket);
+    const treeGet = s.tree.get;
+    // The stub tree is copied from this same bucket: its reads are the tree's, not the gateway's.
+    s.tree.get = async (key) => (s.tree.unheard.has(key) || s.tree.extra.has(key) ? await treeGet(key) : await get(key));
+    s.bucket.get = async (key) => {
+      events.push(`get ${key}`);
+      return await get(key);
+    };
+    s.bucket.put = async (key, value, options) => {
+      events.push(`put ${key}`);
+      return await put(key, value, options);
+    };
+    const created = await s.call("write_note", { path: "1-projects/new.md", content: "# New\n" });
+    assert.equal(created.error, false, created.text);
+    // Before the note lands, one read: the store's own put, which looks for a
+    // deleted-note marker at the name (`store/logicalDelete.js`). Nothing
+    // opens the note to ask whether it exists; the tree said.
+    const touching = events.filter((event) => event.endsWith(" 1-projects/new.md"));
+    assert.deepEqual(touching.slice(0, touching.indexOf("put 1-projects/new.md") + 1), ["get 1-projects/new.md", "put 1-projects/new.md"]);
+
+    // A name the tree draws is opened, and is the edit it is.
+    const edited = await s.call("write_note", { path: "1-projects/plan.md", content: "# Plan, edited\n" });
+    assert.match(edited.text, /collaboratively edited note already exists/);
+  } finally {
+    s.restore();
+  }
+});
+
+test("write_note over a note written a moment ago, before the tree heard of it, never overwrites it as new", async () => {
+  const s = await scenario();
+  try {
+    await new R2Store(s.bucket).put("1-projects/twice.md", "# Written a moment ago\n");
+    s.tree.unheard.add("1-projects/twice.md");
+    const again = await s.call("write_note", { path: "1-projects/twice.md", content: "# Written again\n" });
+    assert.equal(again.error, true);
+    assert.match(again.text, /created while this write was in progress; re-read/);
+    assert.match(new TextDecoder().decode(s.bucket.objects.get("1-projects/twice.md").bytes), /a moment ago/);
+    // Re-read and written with the etag it read: an edit opens the note without asking the tree.
+    const etag = s.bucket.objects.get("1-projects/twice.md").etag;
+    const edited = await s.call("write_note", { path: "1-projects/twice.md", content: "# Written again\n", expected_etag: etag });
+    assert.equal(edited.error, false, edited.text);
+    assert.match(new TextDecoder().decode(s.bucket.objects.get("1-projects/twice.md").bytes), /again/);
+  } finally {
+    s.restore();
+  }
+});
+
+test("write_note refuses while the tree cannot say whether the note exists", async () => {
+  const s = await scenario();
+  try {
+    s.controlPlane.stopServing(WS);
+    const refused = await s.call("write_note", { path: "1-projects/new.md", content: "# New\n" });
+    assert.equal(refused.error, true);
+    assert.ok(!s.bucket.objects.has("1-projects/new.md"));
+  } finally {
+    s.restore();
+  }
+});
+
+test("a folder's statuses come from its front note's front matter in the tree, never from opening the note", async () => {
+  const s = await scenario();
+  try {
+    s.tree.extra.set("1-projects/about.md", "---\nstatuses-in-progress: [drafting]\n---\n# Projects\n");
+    const written = await s.call("write_note", { path: "1-projects/idea.md", content: "---\nstatus: brewing\n---\n# Idea\n" });
+    assert.equal(written.error, false, written.text);
+    assert.match(written.text, /not one of the statuses for 1-projects\//);
+    assert.match(written.text, /drafting/);
   } finally {
     s.restore();
   }

@@ -54,6 +54,7 @@ export async function runEndToEndChecks(check) {
   const restoreS3 = s3.install();
   const restoreD1 = d1.install();
   const restoreControlPlane = controlPlane.install();
+  controlPlane.serveTreesFrom(null, { s3 }); // write_note asks the tree whether the note exists
 
   controlPlane.addWorkspace(WS, "projection", s3Binding("projection-bucket", DESCRIPTOR));
   await controlPlane.addGrant({

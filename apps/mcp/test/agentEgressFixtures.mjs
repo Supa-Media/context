@@ -127,6 +127,7 @@ export async function createEgressWorld() {
   const restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
+  controlPlane.serveTreesFrom(null, { s3 }); // write_note asks the tree whether the note exists
   const model = fakeModel();
   const withStubs = globalThis.fetch;
   globalThis.fetch = async (input, init) => {

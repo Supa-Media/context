@@ -33,7 +33,7 @@ import {
 } from "../../privacy/engine.js";
 import { encryptedNoteRefusal, openStoredNote, sealNoteContent } from "../../notes/sealing.js";
 import { ensureFormResponseFiles } from "../forms/responses.js";
-import { getWithLegacyFallback } from "../../storageLayout.js";
+import { noteBeingWritten, openNoteBeingWritten } from "./present.js";
 import { isDrawingPath, parseDrawing } from "../../../../../packages/drawings/src/excalidraw.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
@@ -135,9 +135,13 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // refusal it can read and act on.
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
 
-  const existing = await getWithLegacyFallback(store, path);
+  // Whether it exists, from the tree; the note itself is opened only once
+  // every check below has passed (`present.js`).
+  const found = await noteBeingWritten(store, path, { editing: expectedEtag !== undefined });
+  if (found.refusal) return toolError(found.refusal);
+  const exists = found.exists;
   const inheritedVisibility = visibilityOf(path, rules);
-  const existingVisibility = existing
+  const existingVisibility = exists
     ? effectiveVisibility(path, rules, overrides)
     : null;
   const requestedVisibility = normalizeVisibility(args.visibility);
@@ -181,8 +185,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   if (
     scope === "team" &&
     ((pathOverride !== undefined && pathOverride !== "team") ||
-      (!existing && inheritedVisibility !== "team") ||
-      (existing && existingVisibility !== "team"))
+      (!exists && inheritedVisibility !== "team") ||
+      (exists && existingVisibility !== "team"))
   ) {
     return writePermissionError("write destination");
   }
@@ -227,9 +231,10 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * write here still learns nothing, and one that may was always going to be
    * told by the write.
    */
-  if (options.mustCreate && existing) {
+  if (options.mustCreate && exists) {
+    const there = await openNoteBeingWritten(store, path, found);
     return toolError(
-      `that note already exists (etag ${existing.etag}). A form block is ordinary Markdown: ` +
+      `that note already exists (etag ${there?.etag}). A form block is ordinary Markdown: ` +
         "read the note, add the block to its content, and save it with write_note — or write " +
         "the form to a path of its own."
     );
@@ -238,7 +243,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // way: `projects/x.md` beside `Projects/` is told to write `Projects/x.md`
   // (`tree/twins.js`). After the team-scope checks, so it asks only for a
   // caller who may write here, and only about what that caller can see.
-  if (!existing) {
+  if (!exists) {
     const twin = await nameTwinRefusal(store, scope, rules, overrides, path);
     if (twin) return toolError(twin);
   }
@@ -248,7 +253,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // transition unconditionally — two tools disagreeing about one publication,
   // with the ungated one the default an agent reaches.
   const isPublishing =
-    scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
+    scope === "private" && desiredVisibility === "team" && (!exists || existingVisibility !== "team");
   if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
     return toolError(
       "confirmation required: publishing this note to team makes it readable by every team-access connection. Retry with confirm_team_publish=true only after explicit user approval."
@@ -274,6 +279,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * It is read only where there is something to read: a create has no stored
    * body and pays nothing for this.
    */
+  const existing = await openNoteBeingWritten(store, path, found);
   const storedBody = existing ? await existing.text() : null;
   /*
    * A REWRITE THAT DROPPED THE NOTE'S FIRST `---` IS GIVEN IT BACK.

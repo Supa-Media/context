@@ -377,6 +377,7 @@ export async function createFormsHarness() {
     FORMS_BUCKET: bucket,
     OTHER_BUCKET: otherBucket,
   };
+  controlPlane.serveTreesFrom(env); // write_note asks the tree whether the note exists
 
   bucket.seed("privacy.md", MANIFEST);
   bucket.seed("index.md", "# the forms workspace");

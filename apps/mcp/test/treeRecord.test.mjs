@@ -43,6 +43,7 @@ async function setUp() {
   const d1 = createD1Backend();
   const controlPlane = createControlPlaneStub();
   const restores = [s3.install(), d1.install(), controlPlane.install()];
+  controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.addWorkspace(WS, "tree", s3Binding("tree-bucket", { ...DESCRIPTOR, state: "ready" }));
   await controlPlane.addGrant({
     accessToken: TOKEN,

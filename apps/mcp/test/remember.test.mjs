@@ -108,6 +108,8 @@ before(async () => {
   restore.push(s3.install());
   controlPlane = createControlPlaneStub();
   restore.push(controlPlane.install());
+  // Each workspace's tree, copied from its bucket: write_note asks it whether the note exists.
+  controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.addWorkspace("ws_me", "me", binding("remember-me"));
   controlPlane.addWorkspace("ws_team", "team", binding("remember-team"));
   controlPlane.addWorkspace("ws_other", "other", binding("remember-other"));
