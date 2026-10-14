@@ -469,6 +469,10 @@ billing read must never cost somebody their notes. Moves inside a context run
 in a relocation window the cap admits; a move in from another context is a
 create. The count may overshoot by the number of concurrent creates; closing
 that would put a cross-request lock on every write, for a free allowance.
+Since 2026-10-14 it counts the Convex tree's rows, not the bucket
+([convex-tree](./app-and-console/convex-tree.md)); while the tree cannot
+answer (its first copy, an outage) a create is admitted and the next one asks
+again, so a missing count never costs a write.
 
 **A lapse drops a context to the free plan (decided by the owner,
 2026-09-29).** No plan makes a context read-only. The cap follows payment, not
