@@ -28,6 +28,7 @@ import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { clearanceOf } from "../clearance";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import { rewriteReferences } from "../fileOps/references";
+import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import type { OperationResult } from "../filesFns/operationTypes";
 import { PRIVACY_KEY } from "../privacy";
@@ -134,8 +135,18 @@ async function renamesOf(ctx: ActionCtx, workspaceId: Id<"workspaces">, claimed:
 }
 
 /** Nothing is left at the old name: settle the rules, rewrite links once, and let the row go. */
-async function finishMove(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: FileStore, claimed: Claimed): Promise<void> {
+async function finishMove(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  store: FileStore,
+  claimed: Claimed,
+  projection: ProjectionClient | null,
+): Promise<void> {
   await releasePrivacy(store, { from: claimed.from, undone: claimed.undone, added: claimed.added });
+  // Fast search finds the folder's notes at the new name from here on: until
+  // now its rows were folded there (`atTreeNames`), and with the move gone
+  // from the queue nothing would fold them.
+  if (projection !== null) await followInProjection(store, { written: [], gone: [], moved: [[claimed.from, claimed.to]] }, projection);
   await touchNodesNow(ctx, workspaceId, store, { paths: [claimed.from, claimed.to], files: [PRIVACY_KEY] });
   if (claimed.undone) {
     // An undone move's start recorded forwarding the other way; this one points back.
@@ -152,7 +163,12 @@ async function finishMove(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: 
 }
 
 /** One pass of the oldest queued move in this workspace. */
-export async function runMoveWork(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: FileStore): Promise<OperationResult> {
+export async function runMoveWork(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  store: FileStore,
+  projection: ProjectionClient | null = null,
+): Promise<OperationResult> {
   const started = Date.now();
   const claimed = await claimMove(ctx, workspaceId, started);
   if (claimed === null) return { kind: "nodesKept", complete: true };
@@ -163,7 +179,7 @@ export async function runMoveWork(ctx: ActionCtx, workspaceId: Id<"workspaces">,
       const page = await movePage(ctx, workspaceId, store, claimed);
       if (page === null) {
         stage = "finishing";
-        await finishMove(ctx, workspaceId, store, claimed);
+        await finishMove(ctx, workspaceId, store, claimed, projection);
         return { kind: "nodesKept", complete: true };
       }
       moved += page;

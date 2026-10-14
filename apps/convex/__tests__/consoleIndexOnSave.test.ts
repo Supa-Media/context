@@ -29,9 +29,7 @@ import {
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { createRequire } from "node:module";
-import { SCHEMA_STATEMENTS } from "../functions/lib/d1";
-import { projectNote, upsertStatements } from "../../mcp/src/search/d1/project.js";
+import { sqliteProjection } from "./sqliteProjection.helpers";
 
 async function indexed(): Promise<MemoryStore & FileStore> {
   const store = memoryStore() as MemoryStore & FileStore;
@@ -94,33 +92,6 @@ describe("indexing on save", () => {
  * Sabotage: `indexChangedNotes` ignoring its projection fails the first two;
  * `movedBy` dropping its `queued` check fails the last.
  */
-// Through `createRequire`: Vite does not resolve `node:sqlite` as an import.
-const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
-
-function sqliteProjection() {
-  const db = new DatabaseSync(":memory:");
-  for (const statement of SCHEMA_STATEMENTS) db.exec(statement);
-  const run = (sql: string, params: unknown[] = []) =>
-    db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
-  return {
-    paths: () => (run("SELECT path FROM notes ORDER BY path") as { path: string }[]).map((row) => row.path),
-    seed(path: string, content: string, visibility: "private" | "team" = "private") {
-      for (const { sql, params } of upsertStatements(path, projectNote(path, { version: "v0", uploaded: null, visibility, content }))) {
-        run(sql, params);
-      }
-    },
-    client: {
-      async query(sql: string, params: unknown[] = []) {
-        return run(sql, params);
-      },
-      async runAll(statements: readonly { sql: string; params?: unknown[] }[]) {
-        for (const { sql, params } of statements) run(sql, params ?? []);
-        return { applied: statements.length, skipped: false };
-      },
-    },
-  };
-}
-
 describe("following a change into a ready fast search database", () => {
   test("a renamed note leaves its old path and is projected at its new one", async () => {
     const store = await indexed();
