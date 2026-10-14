@@ -21,7 +21,7 @@ const appearance = v.union(v.literal("system"), v.literal("light"), v.literal("d
  * stuck in a loop writing the same row.
  */
 const WRITES_PER_HOUR = 60;
-const WINDOW_MS = 60 * 60 * 1000;
+const APPEARANCE_WINDOW_MS = 60 * 60 * 1000;
 
 /** The caller's choice, or null (signed out, or never chosen). */
 export const myAppearance = query({
@@ -48,7 +48,7 @@ export const setMyAppearance = mutation({
     await consumeRateLimit(ctx, {
       key: `appearance:${userId}`,
       limit: WRITES_PER_HOUR,
-      windowMs: WINDOW_MS,
+      windowMs: APPEARANCE_WINDOW_MS,
     });
     const updatedAt = Date.now();
     const row = await ctx.db
