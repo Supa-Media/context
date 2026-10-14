@@ -41,12 +41,12 @@ import type { SyncFacts } from "../../../offline/copy";
 import type { PendingMarks } from "../pendingMarks";
 import type { ConflictReview } from "../useConflictReview";
 import type { AppliedPluginNoteWrite } from "../../plugins/runtime";
-import type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
+import type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename, TrashedEditing } from "./supportingTypes";
 import type { TitleEdit } from "../fileBrowser/useLinkedTitle";
 
 export type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
 
-export interface FileBrowser extends BesideEditing {
+export interface FileBrowser extends BesideEditing, TrashedEditing {
   /**
    * Whether this console may change anything.
    *

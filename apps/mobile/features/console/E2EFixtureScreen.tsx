@@ -19,6 +19,7 @@ import { space } from "../design/tokens";
 import { atName } from "./format";
 import { selectedContext, type ConsoleData } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
+import { useTrashedFixture } from "../e2e/trashedFixture";
 import { entryAt } from "./files/tree";
 import { anchorFromQuery, noteFromQuery } from "./nav";
 import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
@@ -112,6 +113,7 @@ import type { VoicePage } from "../voice/VoiceButton";
 export function E2EFixtureScreen({
   returned = null,
   note = null,
+  trashed = false,
 }: {
   /** What a return from Stripe said, read by the route and handed down. */
   returned?: CheckoutOutcome | null;
@@ -121,8 +123,10 @@ export function E2EFixtureScreen({
    * message a channel-day scrolls to — `commsInbox.spec.ts`'s anchor case.
    */
   note?: string | null;
+  /** `?trashed=1`: the open note drawn as moved to the trash (`trashedFixture.ts`). */
+  trashed?: boolean;
 } = {}) {
-  const data = useE2EFixtureConsoleData();
+  const data = useTrashedFixture(useE2EFixtureConsoleData(), trashed);
   const notePath = noteFromQuery(note ?? undefined);
   const anchor = anchorFromQuery(note ?? undefined);
   const select = data.files.select;

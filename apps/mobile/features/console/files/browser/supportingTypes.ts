@@ -121,3 +121,36 @@ export interface BesideEditing {
   /** The note the editor holds only for the peek, or null: the tab strip opens no tab for it. */
   beside?: string | null;
 }
+
+/**
+ * The open note, moved to the trash while it was on screen (design A,
+ * Dev2 2026-10-14, project file `trashed-note/`). It stays in the editor,
+ * dimmed and read-only, with Restore where Share was, rather than closing.
+ */
+export interface TrashedNote {
+  /** Where the note was, and where Restore puts it back. */
+  path: string;
+  /** The trash key it went to, or `null` while this tab's own delete is on its way. */
+  trash: string | null;
+  /** When it went. */
+  at: number;
+  /** Whether the person looking at it moved it there. */
+  byYou: boolean;
+  /** "@ana", or `null` when the mover has no name to show. */
+  byName: string | null;
+}
+
+export interface TrashedEditing {
+  /** The open note when it is in the trash, or null. Absent where nothing is ever trashed in place. */
+  trashed?: TrashedNote | null;
+  /** Put the trashed note back where it was, and go on editing it there. */
+  restoreTrashed?: () => void;
+  /** True while that restore is on its way. */
+  restoringTrashed?: boolean;
+  /**
+   * The open note its folder no longer lists, kept open on purpose: in the
+   * trash, or being looked into after it left (`useFollowMoves`). The tab
+   * strip does not close its tab for being missing.
+   */
+  keptOpen?: string | null;
+}
