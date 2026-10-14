@@ -276,13 +276,15 @@ export async function runServeChecks(check) {
     // Converge both indexes while the row still says `backfilling`, which is
     // also the assertion that a filling projection is not served from.
     const duringBackfill = await search("numbat");
+    // A filling database answers from what it has copied, says so, and the
+    // bucket's own index is not asked (decided by the owner, 2026-10-13).
     check(
-      "a projection that is still filling is not read from",
-      d1.requests.every((request) => !PROJECTION_READ.test(request.sql)),
+      "a search during the backfill opens no note and no index file in the bucket",
+      duringBackfill.answerReads === 0 && duringBackfill.answerIndexReads === 0,
     );
     check(
-      "and the search is answered by the R2 index meanwhile",
-      duringBackfill.text.includes("1-projects/") && duringBackfill.answerReads > 0,
+      "and says the index is still catching up",
+      /still catching up/.test(duringBackfill.text),
     );
     for (let round = 0; round < 3; round += 1) await search("numbat");
     check(
@@ -463,6 +465,9 @@ export async function runServeChecks(check) {
     // only arrangement in which a pre-filter count is observable at all.
     seed("1-projects/roundup.md", "# Roundup\n\nAnother quoll arrangement.\n", "s8");
     ready("backfilling");
+    // Seeded straight into the bucket, as Obsidian or rclone would, so only a
+    // listing finds them: the manifest is dropped to ask for one.
+    bucket.delete(".context/search/v2/manifest.json");
     for (let round = 0; round < 3; round += 1) await search("quoll");
     ready("ready");
     check(
@@ -661,16 +666,13 @@ export async function runServeChecks(check) {
       refused.response.status === 200 && !refused.body.result?.isError,
     );
     /*
-     * `answerReads > 0` rather than a path, and that is the check doing real
-     * work: the R2 path fetches every note it quotes so it can cut a snippet
-     * from live text, and the projection path fetches none. So a search that
-     * read notes out of the bucket is a search the shard index answered, and
-     * no assertion about which paths came back could tell the two apart —
-     * both find the same notes, which is the point.
+     * The R2 path fetches every note it quotes so it can cut a snippet from
+     * live text, and the projection path fetches none, so `answerReads === 0`
+     * is what proves the bucket was not asked instead.
      */
     check(
-      "the R2 index answers instead, exactly as it does with fast search off",
-      refused.text.includes("1-projects/") && refused.answerReads > 0,
+      "the bucket's index does not answer instead; the search says it is catching up",
+      refused.answerReads === 0 && refused.answerIndexReads === 0 && /still catching up/.test(refused.text),
     );
 
     // -- 6. a ready projection's miss is the answer, never the bucket index ---

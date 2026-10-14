@@ -159,17 +159,11 @@ export interface SearchResults {
  * be wrong. What is injected is this runtime's own `canSee`, bound to the
  * caller's scope, exactly as it is into `searchIndexedNotes` below.
  *
- * `null` from it means **not answered** and never "no results": a projection
- * is a disposable derivative that can be behind, and reporting its silence as
- * an empty context is the failure this whole surface is built to avoid. So a
- * miss costs the R2 answer as well and the person waits what they waited
- * before; only a hit is fast. That is what makes it safe to consult on every
- * search rather than behind a second switch.
- *
- * `projection` is `null` unless the caller opened one, which it does only for
- * a row the control plane calls `ready` — the same gate the gateway applies,
- * because a projection that is still filling answers a query about a note it
- * has not copied with a silence this path would read as a miss.
+ * A context with a database answers from it alone, ready or still filling,
+ * and an answer it could not give says the index is catching up rather than
+ * that the context is empty. `projection` is `null` only for a context with no
+ * database, or a deployment with no Cloudflare credential; the R2 index below
+ * answers those.
  *
  * The one exception is `refreshOnMiss`, and it is the reason a member's search
  * can still cause a write under `.index/` whatever their role — worth saying
@@ -326,53 +320,47 @@ export async function searchNotes(
     return { ...(results as SearchResults), timing: timed(wordsMs) };
   };
 
+  /*
+   * A context with a search database answers from it and nothing else, ready
+   * or still filling (decided by the owner, 2026-10-13: only opening or
+   * editing a note reads storage). A database still filling, or one that
+   * cannot answer, says the index is catching up rather than "no notes"; the
+   * bucket's index below is for a deployment with no search database.
+   */
   if (projection !== null) {
+    const filling = projection.filling === true;
+    let fast: Awaited<ReturnType<typeof answerFromProjection>> = null;
     try {
-      const fast = await answerFromProjection(projection, {
+      fast = await answerFromProjection(projection, {
         query,
         prefix: underFolder,
         tier: options.clearance.scope,
         isVisible,
         limit,
-        // The projection is only handed over `ready`, and its miss is the
-        // answer, never a fall-through to the bucket index.
         missIsAnswer: true,
       });
-      if (fast) {
-        return await merged({
-          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
-            path: hit.key,
-            title: hit.title,
-            snippets: hit.snippets,
-            ...(hit.loose ? { loose: true } : {}),
-          })),
-          matchCount: fast.matchCount,
-          matchCountIsFloor: fast.matchCountIsFloor,
-          // The projection is filled from the R2 index's own docmap, so a note
-          // that index has not reached is a note the projection cannot hold
-          // either. Reading the manifest to say so would cost the object read
-          // this path exists to avoid, and the answer it would give is the one
-          // the caller gets on its next miss anyway — so this reports what it
-          // knows, which is that the answer came from a complete projection.
-          indexIncomplete: false,
-          indexMissing: false,
-          // `false`, unconditionally: the projection holds one row per message
-          // with no shard byte cap for a mailbox to cross, so a channel-day
-          // note is never reduced here the way it can be in the R2 index. See
-          // `SearchResults.reducedRecall`.
-          reducedRecall: false,
-          reducedRecallNotes: [],
-          answeredBy: "fast",
-        });
-      }
     } catch {
-      // Every D1 failure is one of `d1/client.js`'s closed-set codes, and none
-      // is a reason to fail a search somebody is watching a spinner for: the
-      // R2 index answers below exactly as it does with fast search off. A bare
-      // catch also swallows a bug in this block, which is the honest cost of
-      // that rule — the alternative is a console search that fails outright
-      // when it had a good answer one call away.
+      // Every D1 failure is one of `d1/client.js`'s closed-set codes; the
+      // answer below says it is catching up rather than failing the search.
     }
+    return await merged({
+      hits: (fast?.hits ?? []).map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
+        path: hit.key,
+        title: hit.title,
+        snippets: hit.snippets,
+        ...(hit.loose ? { loose: true } : {}),
+      })),
+      matchCount: fast?.matchCount ?? 0,
+      matchCountIsFloor: filling || !fast || Boolean(fast.matchCountIsFloor),
+      indexIncomplete: filling || !fast,
+      indexMissing: false,
+      // `false`, unconditionally: the projection holds one row per message
+      // with no shard byte cap for a mailbox to cross. See
+      // `SearchResults.reducedRecall`.
+      reducedRecall: false,
+      reducedRecallNotes: [],
+      answeredBy: fast ? "fast" : "none",
+    });
   }
 
   const found = await searchIndexedNotes(store as unknown as SearchStore, {
@@ -608,4 +596,6 @@ export interface ProjectionClient {
     statements: readonly { sql: string; params?: unknown[] }[],
     options?: { budget?: unknown; reserve?: number },
   ): Promise<{ applied: number; skipped: boolean }>;
+  /** Set on a search's client while the database is still being filled. */
+  filling?: boolean;
 }

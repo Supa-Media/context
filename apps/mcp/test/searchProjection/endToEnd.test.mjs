@@ -201,44 +201,24 @@ export async function runEndToEndChecks(check) {
     // -- a database that refuses everything, on a context that has no index --
     d1.state.fail = 403;
     controlPlane.calls.length = 0;
-    // Three at least, not one. The first search over a context with no index
-    // at all spends its budget on the literal scan and the index's first pass,
-    // and a projection pass with nothing left is a quiet no-op by design — so
-    // a single search would be asserting the budget rather than the failure.
-    //
-    // And not exactly three either. How far one pass gets is **not**
-    // deterministic: the sync spends a shared op budget across concurrent
-    // reads, so the number that land before it runs out varies with the order
-    // they resolve in. Measured on an untouched tree, a fixed three rounds
-    // left the index at `docs: 1, pending: 25` instead of `docs: 14` in about
-    // one run in seven, and the search then answered `(no matches)` —
-    // correctly, and flagged as incomplete, which is the documented behaviour
-    // for an index that is still catching up.
-    //
-    // So the check below was failing on the pacing of the fixture rather than
-    // on anything about a refused database, in a suite whose verdict is the
-    // only thing standing behind tenant isolation. A red run nobody can
-    // reproduce teaches people to press re-run, which is how a real failure
-    // gets through. Keep searching until the R2 side answers, with a ceiling
-    // so a genuine regression still fails rather than hanging: the invariant
-    // is "R2 keeps answering while D1 refuses", never "it converges in
-    // exactly three".
+    // A context with a search database answers from it alone (decided by the
+    // owner, 2026-10-13: only opening or editing a note reads storage), so a
+    // database refusing every read leaves a search that answers, says it is
+    // still catching up, and quotes nothing out of the bucket. The passes
+    // behind it still run, which is what reports the failure below.
     let degraded = null;
-    for (let round = 0; round < 12; round += 1) {
-      // A note written while the index is still being built and the projection
-      // is failing. What is asserted at the end is therefore not only a
-      // backfill of a static bucket but one that moved underneath it.
+    for (let round = 0; round < 3; round += 1) {
       if (round === 1) seed("1-projects/gamma.md", "# Gamma\n\nA later quokka note.\n", "g0");
       degraded = await search("quokka");
-      if (round >= 2 && JSON.stringify(degraded.body).includes("1-projects/")) break;
     }
     check(
       "a refused search database does not fail the search",
       degraded.response.status === 200 && !degraded.body.result?.isError,
     );
     check(
-      "the answer still comes back, from the R2 side",
-      JSON.stringify(degraded.body).includes("1-projects/"),
+      "it says the index is still catching up, and never falls back to the bucket",
+      /still catching up/.test(JSON.stringify(degraded.body)) &&
+        !JSON.stringify(degraded.body).includes("1-projects/"),
     );
     check("and nothing was copied", projectedCount() === 0);
     const failures = progressReports()

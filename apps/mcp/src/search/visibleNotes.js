@@ -42,7 +42,7 @@ export async function searchVisibleNotes(store, scope, rules, overrides, query, 
    * whole context. @seyi's projection held 9,129 notes mid-backfill while every
    * search answered nothing (2026-10-08).
    */
-  if (found.hits.length === 0 && (found.indexIncomplete || found.degraded) && seen.started && store.searchIndex?.state !== "ready") {
+  if (found.hits.length === 0 && !found.projectionOnly && (found.indexIncomplete || found.degraded) && seen.started && store.searchIndex?.state !== "ready") {
     const partial = await rescueFromProjection(store, scope, rules, overrides, query, prefix, { filling: true });
     if (partial.hits.length > 0) return { ...partial, indexIncomplete: true, matchCountIsFloor: true };
   }
@@ -133,76 +133,52 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     });
   }
   /*
-   * The projection first, where this context has a complete one.
-   *
-   * It answers or it does not, and "does not" costs at most two D1 queries
-   * that were reserved for out of the fast path's own floor — never an op the
-   * R2 search below was going to need. See `fastSearchAnswer`.
+   * A context with a search database answers from it and nothing else: no
+   * shard index read out of the bucket and no literal scan, whether the
+   * database is ready, still filling, or failed to answer (decided by the
+   * owner, 2026-10-13: only opening or editing a note reads storage). One
+   * still filling answers from what it has copied; one that cannot answer
+   * says the index is catching up, never "no notes". The bucket's own index
+   * below is for a gateway with no search database (self-hosted, or one not
+   * provisioned yet).
    */
-  const fastSpan = trace.span("fast");
-  const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, budget, trace);
-  fastSpan();
-  if (fast) {
-    /*
-     * The manifest is read BEHIND the response, not in front of it.
-     *
-     * The reconcile clock still needs it — without a manifest
-     * `indexNeedsAPass` reads "no index at all" and re-lists the whole bucket
-     * behind every fast search, which would hand back the cost this path
-     * exists to remove. But nothing the caller is waiting for needs it, so it
-     * is handed over as a function and `maintainIndexAfter` resolves it inside
-     * the deferred work. One object GET off the critical path of every fast
-     * hit, out of the three round trips the whole path costs.
-     */
-    const freshness = async () => {
-      const manifest = await loadIndexManifest(store, budget, 0);
-      return manifest
-        ? {
-            index: { listedAt: manifest.freshness.listedAt },
-            indexIncomplete: indexIsBehind(manifest.freshness),
-          }
-        : null;
-    };
-    trace.set("indexed", true);
+  if (store.searchIndex) {
+    const fastSpan = trace.span("fast");
+    const ready = store.searchIndex.state === "ready";
+    // A budget too small for the fast path's floor gets the floor, as the
+    // rescue above does: there is no other search left for it to starve.
+    const asking = budget.remaining < FAST_SEARCH_FLOOR ? createSearchBudget(FAST_SEARCH_FLOOR) : budget;
+    const fast = await fastSearchAnswer(store, scope, rules, overrides, query, prefix, asking, trace, { filling: !ready });
+    fastSpan();
+    const answered = ready && fast !== null;
+    trace.set("indexed", fast !== null);
     trace.set("fast", true);
-    trace.set("hits", fast.hits.length);
-    trace.set("matches", fast.matchCount);
-    trace.set("matchesIsFloor", Boolean(fast.matchCountIsFloor));
+    trace.set("hits", fast?.hits.length ?? 0);
+    trace.set("matches", fast?.matchCount ?? 0);
+    trace.set("matchesIsFloor", !answered || Boolean(fast.matchCountIsFloor));
     trace.set("spent", budget.spent);
     trace.set(
       "maintain",
-      await maintainIndexAfter(store, budget, isIndexable, freshness, projectVisibility)
+      await maintainIndexAfter(store, budget, isIndexable, manifestFreshness(store, budget), projectVisibility)
     );
     logSearchTrace(trace);
-    reportSearchTiming(store, trace, "fast", fast.hits.length > 0);
+    reportSearchTiming(store, trace, "fast", (fast?.hits.length ?? 0) > 0);
     return {
-      hits: fast.hits,
-      matchCount: fast.matchCount,
-      matchCountIsFloor: fast.matchCountIsFloor,
+      hits: fast?.hits ?? [],
+      matchCount: fast?.matchCount ?? 0,
+      matchCountIsFloor: !answered || Boolean(fast.matchCountIsFloor),
       /*
-       * `false`, and it is a claim this path is entitled to make.
-       *
-       * The projection is only read at `state: "ready"`, and the control plane
-       * sets that exactly when `notesPending === 0` — a number that already
-       * includes whatever the R2 index itself had not reached
-       * (`projectPass`'s `indexPending`). So a `ready` projection is a
-       * statement that the index was caught up when the last pass measured it,
-       * which is the same freshness the manifest would report and is why
-       * reading the manifest to re-derive it was work nobody needed.
-       *
-       * The residual is one reconcile interval of staleness, identical to the
-       * R2 path's own: `listedAt` is a record of the last listing there too.
-       * The console path says the same thing for the same reason.
+       * `false` only for a ready database that answered. The control plane
+       * sets `ready` exactly when `notesPending === 0`, so its answer is as
+       * fresh as the manifest would say; anything else is still catching up.
        */
-      indexIncomplete: false,
-      // `false`, and unconditionally rather than read off anything: the D1
-      // projection has no shard byte cap for a mailbox to cross — a message is
-      // one row regardless of how many its channel-day note holds — so
-      // shedding is a fact about the R2 shard index alone. See
-      // `docs/decisions/search.md`'s sizing section.
+      indexIncomplete: !answered,
+      // The D1 projection has no shard byte cap for a mailbox to cross, so
+      // shedding is a fact about the R2 shard index alone (`search.md`).
       reducedRecall: false,
       reducedRecallNotes: [],
       degraded: false,
+      projectionOnly: true,
     };
   }
 
@@ -303,5 +279,19 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     scannedCount: scan.scannedCount,
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
+  };
+}
+
+/**
+ * The manifest is read BEHIND the response, not in front of it: the reconcile
+ * clock needs it, and nothing the caller is waiting for does, so it is handed
+ * over as a function `maintainIndexAfter` resolves inside the deferred work.
+ */
+function manifestFreshness(store, budget) {
+  return async () => {
+    const manifest = await loadIndexManifest(store, budget, 0);
+    return manifest
+      ? { index: { listedAt: manifest.freshness.listedAt }, indexIncomplete: indexIsBehind(manifest.freshness) }
+      : null;
   };
 }
