@@ -36,5 +36,17 @@
       "Read(./.env.local)",
       "Read(./**/.env.local)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat \"$CLAUDE_PROJECT_DIR/.claude/skills/caveman/SKILL.md\""
+          }
+        ]
+      }
+    ]
   }
 }
