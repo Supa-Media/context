@@ -20,6 +20,7 @@ import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { namesInUse, duplicateName } from "./folders";
 import { keysUnder, isFolder } from "./walk";
+import { createAbsent, filesInTree } from "./treeChecks";
 import { assertDestinationsVisible } from "./moveRules";
 import type { MoveResult } from "./moving";
 import { copyPrivacy } from "./privacyRewrite";
@@ -72,8 +73,11 @@ export async function copyPath(
     state.overrides,
   );
 
+  // Asked of the tree at once (`treeChecks.ts`); the write below is the truth
+  // where the store can enforce a create.
+  const taken = await filesInTree(store, pairs.map((pair) => pair.destination));
   for (const pair of pairs) {
-    if ((await store.get(pair.destination)) !== null) {
+    if (taken.has(pair.destination)) {
       // This message names the path back, which is safe only because the guard
       // above has established that the caller can see both the key and the
       // folder holding it. An earlier version of this comment claimed the guard
@@ -94,6 +98,7 @@ export async function copyPath(
     }
   }
 
+  const copied: { from: string; to: string }[] = [];
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) throw notFound();
@@ -106,7 +111,15 @@ export async function copyPath(
         throw new FileOpError("STORAGE_UNSAFE", "This note cannot be copied safely for collaborative editing.");
       }
     }
-    await store.put(pair.destination, body);
+    try {
+      await createAbsent(store, pair.destination, body);
+    } catch (error) {
+      // A name the tree had not heard of yet: what was copied keeps the
+      // visibility its source had, so a private note is not left on a wider rule.
+      if (copied.length > 0) await copyPrivacy(store, copied, null);
+      throw error;
+    }
+    copied.push({ from: pair.source, to: pair.destination });
   }
 
   await copyPrivacy(

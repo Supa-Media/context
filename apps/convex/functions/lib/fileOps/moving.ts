@@ -29,6 +29,7 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
 import { keysUnder, isFolder } from "./walk";
+import { fileInTree, filesInTree } from "./treeChecks";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
 import { mutateManifest, remapPrivacy } from "./privacyRewrite";
@@ -214,7 +215,8 @@ export async function movePath(
         : "A folder already exists at that path.",
     );
   }
-  if (sourceIsFolder && (await store.get(to)) !== null) {
+  // A file at the folder's new name, asked of the tree (`treeChecks.ts`).
+  if (sourceIsFolder && (await fileInTree(store, to))) {
     if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
     throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
   }
@@ -251,7 +253,8 @@ export async function movePath(
             "This storage cannot safely move a collaboratively edited note.",
           );
         }
-        if ((await store.get(to)) !== null) {
+        // The tree's early answer; `moveDocument` refuses a taken name itself.
+        if (await fileInTree(store, to)) {
           throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
         }
         const destinationVisibility = narrowerVisibility(
@@ -322,8 +325,11 @@ export async function movePath(
     }
   }
 
+  // Every destination asked of the tree at once; the copy below is the truth
+  // where the store can enforce a create (`treeChecks.ts`).
+  const taken = await filesInTree(store, pairs.map((pair) => pair.destination));
   for (const pair of pairs) {
-    if ((await store.get(pair.destination)) !== null) {
+    if (taken.has(pair.destination)) {
       // This message names the path back, which is safe only because the guard
       // above has established that the caller can see both the key and the
       // folder holding it. An earlier version of this comment claimed the guard
@@ -418,6 +424,7 @@ export async function movePath(
     }
   }
 
+  const landed = pairs.filter((pair) => collaborativePairs.has(pair.source));
   for (const pair of pairs) {
     if (collaborativePairs.has(pair.source)) continue;
     const object = await store.get(pair.source);
@@ -431,10 +438,25 @@ export async function movePath(
       throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
     }
     const body = await object.text();
-    const created = atomic
-      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
-      : await store.put(pair.destination, body);
-    if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    // Guarded wherever the store can hold a create, not only for an atomic
+    // move: the tree answered "free" above and can be a few seconds behind,
+    // so the write is what refuses a name it missed (`treeChecks.ts`).
+    const created =
+      store.capabilities?.conditionalCreate === true
+        ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
+        : await store.put(pair.destination, body);
+    if (created === null) {
+      // A name the tree had not heard of yet. What already moved keeps the
+      // visibility it had, note by note, before this stops: without that a
+      // half-moved private note would sit on its new folder's rule.
+      if (landed.length > 0) await remapPrivacy(store, { moves: landed.map((done) => ({ from: done.source, to: done.destination })), folderMove: null, survivors: [] });
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        landed.length > 0
+          ? `Something already exists at ${pair.destination}, so the move stopped part way. What moved kept its visibility.`
+          : `Something already exists at ${pair.destination}.`,
+      );
+    }
     const removed = atomic
       ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })
       : await store.delete(pair.source);
@@ -443,6 +465,7 @@ export async function movePath(
       throw new FileOpError("CONFLICT", changedElsewhere);
     }
     if (!sourceIsFolder && created?.etag) movedEtag = created.etag;
+    landed.push(pair);
   }
 
   if (folderMove !== null) {

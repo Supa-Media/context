@@ -24,6 +24,7 @@ import { notFound } from "./errors";
 import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import type { FileStore } from "./store";
+import { fileInTree } from "./treeChecks";
 
 /** The gateway keeps this many (`MAX_RUNS_KEPT`); never hand back more. */
 export const ROUTINE_RUNS_SHOWN = 20;
@@ -61,7 +62,8 @@ export async function readRoutineRuns(
   const state = await loadPrivacyState(store);
   const { scope, names } = options.clearance;
   if (!canSee(path, scope, state.rules, state.overrides, names)) throw notFound();
-  if ((await store.get(path)) === null) throw notFound();
+  // Whether the routine exists is the tree's to say (`treeChecks.ts`); its run log is plumbing, read below.
+  if (!(await fileInTree(store, path))) throw notFound();
 
   const key = routineRunsKey(path);
   const legacy = legacyStorageKey(key);

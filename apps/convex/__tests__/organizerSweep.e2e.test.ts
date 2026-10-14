@@ -20,7 +20,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
-import { FAKE_STORAGE, type TestConvex, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
+import { FAKE_STORAGE, type TestConvex, copyTree, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
 import { NOTES, misses, organizationScore } from "./organizerEval/workspace.helpers";
 import { type AiBinding, SECRET, knowsTheAnswers } from "./organizerEval/sweep.helpers";
 
@@ -81,6 +81,8 @@ async function premiumWorkspace(ai: AiBinding): Promise<{ t: TestConvex; workspa
       updatedAt: now,
     });
   });
+  // The tree copied, as a bound workspace's is: the organizer's moves ask it which names are taken.
+  await copyTree(t, workspaceId);
   return { t, workspaceId, backend };
 }
 

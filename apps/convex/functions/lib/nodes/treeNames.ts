@@ -14,15 +14,23 @@
  *
  * Nothing about privacy changes: the walks still judge every name with
  * `canSee` over the rules the operation loaded. Reads and writes still go to
- * the store, and a tree that does not serve (not proved, failing, paused)
- * leaves the bucket's listing in place.
+ * the store.
+ *
+ * **No bucket listing in its place** (step 3 of the convex-only plan, owner
+ * 2026-10-13: "I don't want to see even fallbacks"). A workspace whose first
+ * copy has not finished is told `TREE_LOADING` and the copy is started; it
+ * used to list the bucket. The same seam answers "is this name taken?" for
+ * every write's clash check (`taken`, `lib/nodes/treeTaken.ts`,
+ * `fileOps/treeChecks.ts`), so none of them GETs a name it is not writing.
  */
 
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
+import { internal } from "../../../_generated/api";
 import type { FileStore } from "../fileOps/store";
-import { NO_BUCKET } from "./gatewayManifest";
+import type { TreeNames } from "../fileOps/treeChecks";
 import { servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, notServed, readinessAndKick } from "./treeLoading";
 
 /**
  * Give `store` a `treeListing` the walks read (`namesListing`, `walk.ts`).
@@ -30,16 +38,31 @@ import { servedNodesStore } from "./manifestStore";
  * asks nothing. Non-enumerable, as the barrier's other seams are.
  */
 export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">, store: FileStore): void {
-  let served: Promise<FileStore | null> | null = null;
+  let served: Promise<FileStore> | null = null;
   const tree = () => {
-    served ??= servedNodesStore(ctx, workspaceId, NO_BUCKET).catch(() => null);
+    served ??= servedOrLoading(ctx, workspaceId);
     return served;
   };
-  const listing: Pick<FileStore, "list"> = {
-    list: async (options) => {
-      const rows = await tree();
-      return rows === null ? await store.list(options) : await rows.list(options);
+  const listing: TreeNames = {
+    list: async (options) => await (await tree()).list(options),
+    taken: async (paths) => {
+      const answer = await ctx.runQuery(internal.functions.nodesGateway.taken, { workspaceId, paths: [...paths] });
+      if (answer !== null) return answer;
+      throw notServed(await loadingReadiness(ctx, workspaceId));
     },
   };
   Object.defineProperty(store, "treeListing", { value: listing, enumerable: false, configurable: true });
+}
+
+/** The tree's store for the walks, or `TREE_LOADING` (the copy started), never the bucket. */
+async function servedOrLoading(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<FileStore> {
+  const rows = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
+  if (rows !== null) return rows;
+  throw notServed(await loadingReadiness(ctx, workspaceId));
+}
+
+async function loadingReadiness(ctx: ActionCtx, workspaceId: Id<"workspaces">) {
+  const readiness = await readinessAndKick(ctx, workspaceId);
+  // Served between the two reads: a retry answers, so say "loading" rather than nothing.
+  return readiness === "served" ? "loading" : readiness;
 }

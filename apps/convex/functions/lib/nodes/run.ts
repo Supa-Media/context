@@ -115,6 +115,8 @@ function listingOf(workspaceId: Id<"workspaces">, store: FileStore): NodeListing
       }
     },
     get: (...args: Parameters<FileStore["get"]>) => store.get(...args),
+    // Whether a one-key prefix listing can find a file (`touch.ts`).
+    ...((store as { prefixFindsFiles?: boolean }).prefixFindsFiles === false ? { prefixFindsFiles: false } : {}),
   };
 }
 

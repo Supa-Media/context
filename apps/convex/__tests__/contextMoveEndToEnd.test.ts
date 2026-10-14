@@ -33,6 +33,7 @@ import {
   FAKE_STORAGE,
   addMember,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   drainScheduled,
@@ -136,7 +137,7 @@ interface Pair {
  * than one batch carries, so the chain has to run more than once.
  */
 async function pair(
-  options: { notes?: number; into?: "shared" | "own" } = {},
+  options: { notes?: number; into?: "shared" | "own"; theirs?: Record<string, string> } = {},
 ): Promise<Pair> {
   const t = setupTest();
   const mover = await createUser(t, "mover@example.invalid");
@@ -163,10 +164,15 @@ async function pair(
     renderPrivacyManifestForFolders(["work"], into === "own" ? "personal" : "shared"),
   );
   destination.seed("work/README.md", "# Work\n");
+  for (const [key, body] of Object.entries(options.theirs ?? {})) destination.seed(key, body);
 
   vi.stubGlobal("fetch", twoBuckets(source, destination));
   await bindBucket(t, from, mover, SOURCE_BUCKET);
   await bindBucket(t, to, into === "own" ? mover : other, DESTINATION_BUCKET);
+  // Both trees copied, as a bound workspace's are: a write's name checks ask
+  // the tree, never the bucket.
+  await copyTree(t, from);
+  await copyTree(t, to);
 
   return { t, mover, from, to, source, destination };
 }
@@ -174,6 +180,23 @@ async function pair(
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/** A tree copied afresh, after a test staged its bucket by hand. */
+async function recopyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    for (const row of rows) await ctx.db.delete(row._id);
+    const tree = await ctx.db
+      .query("nodeTrees")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (tree) await ctx.db.delete(tree._id);
+  });
+  await copyTree(t, workspaceId);
+}
 
 async function keysUnder(bucket: MemoryS3, prefix: string): Promise<string[]> {
   const store = storeForBinding({
@@ -383,8 +406,8 @@ describe("a folder moved from one context into another", { timeout: 30_000 }, ()
   });
 
   test("a move onto a folder the destination already has is refused, and nothing moves", async () => {
-    const p = await pair({ notes: 4 });
-    p.destination.seed("work/acme/theirs.md", "# theirs\n");
+    // In the destination's tree too: its owner's note is no news to it.
+    const p = await pair({ notes: 4, theirs: { "work/acme/theirs.md": "# theirs\n" } });
 
     const { moveId } = await asUser(p.t, p.mover).action(
       api.functions.contextMoves.startContextMove,
@@ -456,6 +479,9 @@ describe("a folder moved from one context into another", { timeout: 30_000 }, ()
     await p.t.run((ctx) =>
       ctx.db.patch(moveId, { status: "failed", movedObjects: 3, error: "stopped" }),
     );
+    // Both trees as that half-finished move leaves them.
+    await recopyTree(p.t, p.from);
+    await recopyTree(p.t, p.to);
 
     await asUser(p.t, p.mover).action(api.functions.contextMoves.resumeContextMove, { moveId });
     await drainScheduled(p.t);
