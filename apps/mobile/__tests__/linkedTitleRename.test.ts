@@ -384,6 +384,18 @@ describe("a note whose title is its name", () => {
     expect(browser.titleFocus?.path).toBe(ROADMAP);
     expect(browser.focusTitle!(`${FOLDER}/Taken.md`)).toBe(false);
   });
+
+  test("Rename on an untitled note with no heading opens the dialog rather than doing nothing", async () => {
+    // The note is linked by its untitled name, but there is no `# title` for
+    // the caret to go to, so claiming the request left Rename doing nothing
+    // (owner, 2026-10-14: "I click the rename and nothing happens").
+    const untitled = `${FOLDER}/untitled-2026-10-13.md`;
+    files.set(untitled, "I've been thinking, and no heading yet.\n");
+    unmount = mount();
+    await settle();
+    await open(untitled);
+    expect(browser.focusTitle!(untitled)).toBe(false);
+  });
 });
 
 describe("a note whose title differs from its name", () => {

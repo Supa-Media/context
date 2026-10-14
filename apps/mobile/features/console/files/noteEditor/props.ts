@@ -104,6 +104,13 @@ export interface NoteEditorProps {
   titleNote?: { tone: "problem" | "held"; message: string } | null;
   titleFocus?: { path: string; id: number } | null;
   /**
+   * The note's name and how to change it, for a note this person may rename.
+   * A note with no title of its own draws its name above the body as a field
+   * (`flow.tsx`, `noteName.ts`); absent, the name is drawn as text or not at
+   * all, as before.
+   */
+  nameEdit?: { name: string; onCommit: (typed: string) => void };
+  /**
    * What the pane has to say about this note, inside the note's own scroller.
    *
    * A prop rather than a sibling above this component, because on a phone that

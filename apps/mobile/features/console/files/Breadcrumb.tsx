@@ -10,10 +10,11 @@ import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, pointerType as t, radii, space } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
+import { NameField } from "./NameField";
 
 /**
  * Where the open note lives.
@@ -79,8 +80,16 @@ export function Breadcrumb({
   onSelectFolder,
   onFolderMenu,
   history,
+  rename,
 }: {
   path: string;
+  /**
+   * The open note's name, editable in place: the leaf becomes a field, and
+   * on a pointer layout the leaf is drawn at all, which it otherwise is not
+   * (see `folders` below). Absent for a folder, and for a note this person
+   * may not rename.
+   */
+  rename?: { name: string; onCommit: (typed: string) => void };
   /**
    * What to call the note, where its filename is not what it is called.
    *
@@ -160,7 +169,15 @@ export function Breadcrumb({
     fact on that line nothing else on screen carries.
 
   */
-  const folders = compact ? crumbs : crumbs.filter((crumb) => crumb.kind === "folder");
+  /*
+    Except the note's name, once it can be changed there. "We should be able
+    to rename a note from the note header itself" (owner, 2026-10-14): the H1
+    this line deferred to is only the name while the two match, and a note
+    with no heading had no name on its page at all. So with `rename` the leaf
+    is back, as the field that renames it, the way Obsidian's path line ends
+    in the note's name.
+  */
+  const folders = compact || rename !== undefined ? crumbs : crumbs.filter((crumb) => crumb.kind === "folder");
 
   return (
     <View style={[styles.bar, compact && styles.barCompact]}>
@@ -199,6 +216,8 @@ export function Breadcrumb({
             onFolderMenu={onFolderMenu}
             leafStyle={[styles.leaf, compact && styles.leafCompact]}
             titled={title !== undefined}
+            rename={rename}
+            compact={compact}
           />
         </Fragment>
       ))}
@@ -236,8 +255,13 @@ function Segment({
   onFolderMenu,
   leafStyle,
   titled,
+  rename,
+  compact,
 }: {
   crumb: Crumb;
+  /** See `Breadcrumb`'s own prop. Only the leaf takes it. */
+  rename?: { name: string; onCommit: (typed: string) => void };
+  compact: boolean;
   onSelectFolder?: (folder: string) => void;
   /** Right-click, on a folder segment. See `Breadcrumb`'s own prop. */
   onFolderMenu?: (folder: string, anchor: { x: number; y: number }) => boolean;
@@ -262,6 +286,20 @@ function Segment({
       ? undefined
       : (anchor) => onFolderMenu(crumb.path, anchor),
   );
+
+  if (crumb.kind === "leaf" && rename !== undefined) {
+    return (
+      <NameField
+        name={rename.name}
+        onCommit={rename.onCommit}
+        fontSize={compact ? t.ui : t.label}
+        fit
+        style={[leafStyle, styles.leafField]}
+        label="Note name"
+        testID="breadcrumb-leaf-name"
+      />
+    );
+  }
 
   if (crumb.kind === "leaf") {
     return (
@@ -443,6 +481,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   segmentHover: { backgroundColor: colors.surface3 },
   folder: { color: colors.muted, fontSize: t.label },
   leaf: { color: colors.text, fontSize: t.label },
+  /** The name as a field: the path's monospace, with room for the tint. */
+  leafField: { fontFamily: fonts.mono, paddingHorizontal: 3, paddingVertical: 1 },
   /**
    * The note's own name, at the size a title is read at.
    *

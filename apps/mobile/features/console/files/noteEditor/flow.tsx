@@ -2,12 +2,18 @@ import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
-import { noteHeading } from "../frontmatter";
+import { noteHeading, noteHeadingSource } from "../frontmatter";
+import { NameField } from "../NameField";
+import { noteGutterFor } from "../../../app/frame";
+import { pointerType } from "../../../design/tokens";
 import { EncryptedNotice, ManifestNotice } from "./notices";
 import { noteDocument } from "./document";
 import { layout } from "../../../design/tokens";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import type { NoteView } from "./view";
+
+/** How far the inline title's edit tint reaches past its text, each side. */
+const TITLE_INSET = 6;
 
 /**
  * Everything that scrolls, as one node — see the call site in `NoteEditor`,
@@ -31,7 +37,33 @@ export function noteFlow(view: NoteView) {
     onDiscard,
     button,
     onSave,
+    nameEdit,
+    drawing,
+    activityList,
+    docWidth,
   } = view;
+  /*
+    THE NAME, AS A FIELD, WHERE THE NOTE HAS NO TITLE OF ITS OWN.
+
+    "We should be able to rename a note from the note header itself"
+    (owner, 2026-10-14). A note whose first heading is its name renames from
+    that heading (`linkedTitle.ts`), and one whose front matter names it is
+    called that. What was left is a note named by nothing but its file — an
+    empty `untitled-<date>`, a note that opens with prose — and on a pointer
+    layout that note showed no name on its page at all. So that note draws
+    its file name over the body as Obsidian's inline title does, and the
+    title is a field: click, type, Enter renames (`noteName.ts`).
+
+    Not for a drawing (the canvas is the page) or the activity list (a file
+    the product writes), and not for a locked note.
+  */
+  const nameable =
+    nameEdit !== undefined &&
+    state.path !== null &&
+    !drawing &&
+    !activityList &&
+    !passphraseLocked &&
+    noteHeadingSource(state.draft, state.path) === "filename";
   return (
   <>
     {compact ? pathBar : null}
@@ -61,9 +93,9 @@ export function noteFlow(view: NoteView) {
       captured note's filename is a content hash, which is the case that
       argument exists for.
 
-      Compact only. A pointer layout still has the breadcrumb, which carries
-      folder navigation this cannot, and two names above one note is worse
-      than either.
+      As text, compact only: a pointer layout's header line names the note.
+      As a field (`nameable` above), every density, because there it is how
+      the note is renamed, and Obsidian draws it under its path line too.
 
       And `titled` only: when the name came from the body's own `# H1`, that
       heading is already on screen and drawing it here too shows one string
@@ -77,7 +109,30 @@ export function noteFlow(view: NoteView) {
       asserted, because a heading row with nothing in it reads as a broken
       screen and `noteHeading` refuses to invent one.
     */}
-    {compact && state.path !== null && titled ? (
+    {compact && nameable ? (
+      <NameField
+        name={nameEdit!.name}
+        onCommit={nameEdit!.onCommit}
+        fontSize={pointerType.title}
+        style={styles.inlineTitle}
+        label="Note name"
+        testID="note-inline-title"
+      />
+    ) : !compact && nameable ? (
+      <NameField
+        name={nameEdit!.name}
+        onCommit={nameEdit!.onCommit}
+        fontSize={pointerType.title}
+        style={[
+          styles.inlineTitlePointer,
+          // The text starts at the note's first character; the edit tint
+          // reaches a few points past it either side rather than to the edges.
+          { marginHorizontal: Math.max(noteGutterFor(docWidth) - TITLE_INSET, 0), paddingHorizontal: TITLE_INSET },
+        ]}
+        label="Note name"
+        testID="note-inline-title"
+      />
+    ) : compact && state.path !== null && titled ? (
       <Text
         role="heading"
         aria-level={1}

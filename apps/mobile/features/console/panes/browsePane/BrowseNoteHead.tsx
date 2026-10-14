@@ -7,6 +7,7 @@ import type { useConsoleNav } from "../../ConsoleNavContext";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import { noteNameEdit } from "./nameEdit";
 import { PresencePile } from "../../presence/PresencePile";
 import type { MeetingSummary } from "../../../meetings/useMeetingSummary";
 import { RedoSummary } from "./RedoSummary";
@@ -109,6 +110,18 @@ export function BrowseNoteHead({
           }
           onSelectFolder={files.select}
           onFolderMenu={openCrumbMenu}
+          /*
+            The note's name, renamed where it is drawn: click it, type,
+            Enter. Through `rename`, the dialog's own path, so a taken or
+            invalid name is refused with the same notice. Not for a folder,
+            whose page has its own heading, and not for anything this person
+            may not rename (`privacy.md`, a viewer's console).
+          */
+          rename={
+            selected.kind === "file"
+              ? noteNameEdit(files, selected.path, selected.readOnly === true)
+              : undefined
+          }
         />
       </View>
       {/*
