@@ -19,6 +19,7 @@ import {
   runMigrationPageHere,
 } from "./lib/managedProvisioningFns/migrationRun";
 import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
+import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -717,17 +718,11 @@ type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
 export const openMoverPage = internalAction({
   args: { hashedTicket: v.string() },
   returns: v.any(),
-  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | null> => {
-    const ticket: {
-      workspaceId: Id<"workspaces">;
-      migrationId: Id<"managedStorageMigrations">;
-      phase: "copy" | "verify_source" | "verify_target";
-      expectedCursor?: string;
-    } | null = await ctx.runMutation(internal.functions.storageMover.claimPage, {
-      hashedTicket: args.hashedTicket,
-      now: Date.now(),
-    });
+  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | null> => {
+    const ticket: (Omit<WalkTicket, "walkRunId"> & { walkRunId?: number; migrationId?: Id<"managedStorageMigrations"> }) | null =
+      await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
     if (ticket === null) return null;
+    if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
     const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
       internal.functions.managedProvisioning.migrationForCopy,
       { workspaceId: ticket.workspaceId },

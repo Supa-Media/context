@@ -23,11 +23,18 @@
  * when the ticket is spent (`/gateway/mover/open`), so nothing a caller sends
  * can point the mover at another bucket. The secret alone opens nothing.
  *
- * ## What leaves
+ * ## What it runs
  *
- * Counts, the next cursor, and the keys of files left behind over the file
- * limit, which the control plane already shows the owner. Failures answer one
- * fixed code; a provider's text never leaves, since it can name a key.
+ * Two kinds of page, named by the spent ticket (never by the caller):
+ *
+ * - a whole-bucket move's page (`migrationPage.js`): counts, the next cursor,
+ *   and the keys of files left behind over the file limit, which the control
+ *   plane already shows the owner;
+ * - a page of the managed-storage encryption walk (`walkPage.js`): the phase,
+ *   the next cursor and how many objects it sealed or opened.
+ *
+ * Failures answer a code only; a provider's text never leaves, since it can
+ * name a key.
  */
 
 import { createControlPlane } from "../controlPlane.js";
@@ -36,12 +43,16 @@ import { timingSafeEqual } from "../crypto/bytes.js";
 import { json } from "../http/responses.js";
 import { StorageUnavailable, storeForBinding } from "../store/factory.js";
 import { runMigrationPage } from "./migrationPage.js";
+import { WALK_PAGE_PHASES, runWalkPage } from "./walkPage.js";
 
 export const MOVER_PAGE_PATH = "/internal/mover/page";
 
 /** The failure codes the control plane already knows how to retry or end on. */
 const PASSED_THROUGH = new Set(["OBJECT_TOO_LARGE", "VERIFY_FAILED"]);
 const PHASES = new Set(["copy", "verify_source", "verify_target"]);
+const WALK_PHASES = new Set(WALK_PAGE_PHASES);
+/** A walk failure's own code (`ManagedEncryptionError`), when it is one. */
+const WALK_CODE = /^[A-Z_]{3,40}$/;
 
 async function carriesGatewaySecret(request, env) {
   const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
@@ -92,6 +103,39 @@ function readOpenedPage(opened) {
   };
 }
 
+/**
+ * A walk page: one managed bucket, its data key, and where to start. The
+ * bucket is the workspace's own, so it carries that workspace's id, and the
+ * key is shaped as the cipher needs it or the page is refused.
+ */
+function readOpenedWalk(opened) {
+  const { workspaceId, phase, source, dataKey, limits } = opened;
+  if (typeof workspaceId !== "string" || workspaceId === "" || !WALK_PHASES.has(phase)) return null;
+  if (!source || typeof source !== "object" || source.workspaceId !== workspaceId) return null;
+  if (!dataKey || typeof dataKey !== "object" || typeof dataKey.current !== "string" ||
+      !dataKey.keys || typeof dataKey.keys !== "object" || typeof dataKey.keys[dataKey.current] !== "string") return null;
+  if (!limits || !positive(limits.pageSize) || !positive(limits.lanes) || !positive(limits.byteBudget)) return null;
+  if (opened.cursor !== undefined && opened.cursor !== null && typeof opened.cursor !== "string") return null;
+  return { ...opened, cursor: typeof opened.cursor === "string" ? opened.cursor : undefined };
+}
+
+function walkFailureCode(error) {
+  if (error instanceof StorageUnavailable) return "SOURCE_UNAVAILABLE";
+  const code = error && typeof error === "object" ? error.code : undefined;
+  return typeof code === "string" && WALK_CODE.test(code) ? code : "WALK_FAILED";
+}
+
+async function runWalk(opened, deps) {
+  const page = readOpenedWalk(opened);
+  if (page === null) return json({ ok: false, error: "WALK_FAILED" });
+  try {
+    return json({ ok: true, ...(await runWalkPage(page, deps)) });
+  } catch (error) {
+    console.error("mover.walk_failed", { workspaceId: page.workspaceId, phase: page.phase, code: walkFailureCode(error) });
+    return json({ ok: false, error: walkFailureCode(error) });
+  }
+}
+
 function failureCode(error) {
   if (error instanceof StorageUnavailable) return "SOURCE_UNAVAILABLE";
   const message = error instanceof Error ? error.message : "";
@@ -116,6 +160,7 @@ export async function handleMoverPage(request, env, deps = {}) {
     return json({ ok: false, error: "SOURCE_UNAVAILABLE" });
   }
   if (opened === null) return json({ ok: false, error: "STALE" });
+  if (opened && typeof opened === "object" && opened.kind === "walk") return await runWalk(opened, deps);
   const page = readOpenedPage(opened);
   if (page === null) return json({ ok: false, error: "COPY_FAILED" });
   try {

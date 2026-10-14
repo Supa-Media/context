@@ -134,7 +134,7 @@ export const jobTables = {
     .index("by_expiresAt", ["expiresAt"]),
 
   /**
-   * One page of a whole-bucket move, handed to the gateway's mover
+   * One page of a whole-bucket move or of the encryption walk, handed to the gateway's mover
    * (`apps/mcp/src/moves/mover.js`, `functions/storageMover.ts`).
    *
    * The ticket is the mover's second proof beside the gateway secret, the
@@ -145,17 +145,27 @@ export const jobTables = {
    * a leaked gateway secret on its own opens nothing.
    *
    * No path: the page's position is the migration's cursor, as on that row.
+   *
+   * A ticket is for one of two jobs: a page of a whole-bucket move
+   * (`migrationId`), or a page of the managed-storage encryption walk
+   * (`walkRunId`, the walk row's run when it was handed out). Exactly one is
+   * set, and it decides which page the spent ticket opens.
    */
   moverTickets: defineTable({
     /** SHA-256 of the opaque ticket, lowercase hex. Never the plaintext. */
     hashedTicket: v.string(),
     workspaceId: v.id("workspaces"),
-    migrationId: v.id("managedStorageMigrations"),
-    /** The migration's phase and cursor when the page was handed out. */
+    migrationId: v.optional(v.id("managedStorageMigrations")),
+    walkRunId: v.optional(v.number()),
+    /** The migration's (or the walk's) phase and cursor when the page was handed out. */
     phase: v.union(
       v.literal("copy"),
       v.literal("verify_source"),
       v.literal("verify_target"),
+      v.literal("seal"),
+      v.literal("check"),
+      v.literal("unseal"),
+      v.literal("confirm"),
     ),
     expectedCursor: v.optional(v.string()),
     createdAt: v.number(),
