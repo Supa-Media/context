@@ -1,4 +1,5 @@
 import type { Id } from "@context/convex/_generated/dataModel";
+import type { LeftBehind } from "../types";
 
 /*
   The shapes the live console reads off Convex, and the two guards every read
@@ -74,6 +75,7 @@ export interface StorageBinding {
   handoffBucket?: string;
   handoffClaimed?: boolean;
   handoffFailedKeys?: string[];
+  leftBehind?: LeftBehind;
   handoffReadyToSwitch?: boolean;
   handoffExistingFiles?: "replace" | "merge";
   managedRetainedUntil?: number;

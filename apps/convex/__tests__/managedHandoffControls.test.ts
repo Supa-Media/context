@@ -1,12 +1,13 @@
 /**
  * The owner's controls on a move out of managed storage: stopping it, and
- * being told which files stopped it.
+ * being told which files over the file limit it left behind.
  *
  * ## Sabotage record
  *
  * Removing the `readyToCutover` guard from the cancel handler made the third
- * test cancel a move that was seconds from switching. Dropping `failedKeys`
- * from the run loop's failure call left the last test's row without the file.
+ * test cancel a move that was seconds from switching. Passing the whole page
+ * to the reconcile read the big file; dropping the `leftBehind` patch at the
+ * switch left the owner untold; counting every pass counted a file twice.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -28,7 +29,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function moving(options: { readyToCutover?: boolean; phase?: "count" | "copy" } = {}) {
+async function moving(
+  options: {
+    readyToCutover?: boolean;
+    phase?: "count" | "copy" | "verify_target";
+    skippedKeys?: string[];
+    skippedCount?: number;
+  } = {},
+) {
   const t = setupTest();
   const owner = await createUser(t, "moving-owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "moving");
@@ -80,6 +88,8 @@ async function moving(options: { readyToCutover?: boolean; phase?: "count" | "co
       changesInPass: 0,
       readyToCutover: options.readyToCutover ?? false,
       targetClaimed: true,
+      ...(options.skippedKeys ? { skippedKeys: options.skippedKeys } : {}),
+      ...(options.skippedCount ? { skippedCount: options.skippedCount } : {}),
       startedBy: owner,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -149,22 +159,23 @@ describe("stopping a move out of managed storage", () => {
   });
 });
 
-describe("a move stopped by particular files", () => {
-  test("names the files that were too large to move", async () => {
+describe("a file over the file limit", () => {
+  test("stays where it is, named, and the move carries on without reading it", async () => {
     const { t, owner, workspaceId } = await moving();
-    vi.stubGlobal("fetch", async (url: string) => {
+    const reads: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: { method?: string }) => {
       if (url.includes("list-type=2")) {
         return {
           ok: true,
           status: 200,
           text: async () =>
             '<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>' +
-            "<Contents><Key>1-projects/plan.md</Key><Size>40</Size></Contents>" +
-            "<Contents><Key>meetings/kickoff.m4a</Key><Size>99999999</Size></Contents>" +
+            "<Contents><Key>meetings/kickoff.m4a</Key><Size>20971521</Size></Contents>" +
             "</ListBucketResult>",
           headers: new Headers(),
         };
       }
+      reads.push(`${init?.method ?? "GET"} ${url}`);
       return { ok: true, status: 200, text: async () => "", headers: new Headers({ etag: '"abc"' }) };
     });
 
@@ -174,13 +185,90 @@ describe("a move stopped by particular files", () => {
 
     const row = await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique());
     expect(row).toMatchObject({
-      status: "failed",
-      errorCode: "OBJECT_TOO_LARGE",
-      failedKeys: ["meetings/kickoff.m4a"],
+      status: "copying",
+      phase: "verify_source",
+      skippedKeys: ["meetings/kickoff.m4a"],
+      skippedCount: 1,
     });
+    expect(row?.errorCode).toBeUndefined();
+    expect(reads.filter((line) => line.includes("kickoff"))).toEqual([]);
     const view = await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
       workspaceId,
     });
-    expect(view?.handoffFailedKeys).toEqual(["meetings/kickoff.m4a"]);
+    expect(view?.handoffStatus).toBe("copying");
+  });
+
+  test("a later pass adds a name it has not seen without counting a file twice", async () => {
+    const { t, workspaceId } = await moving({ skippedKeys: ["a.mov"], skippedCount: 1 });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("managedStorageMigrations").unique();
+      await ctx.db.patch(row!._id, { phase: "verify_source" });
+    });
+    await t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+      workspaceId,
+      nextCursor: "next",
+      copied: 0,
+      changes: 0,
+      processed: 2,
+      skipped: ["a.mov", "b.mov"],
+    });
+    const row = await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique());
+    expect(row).toMatchObject({ skippedKeys: ["a.mov", "b.mov"], skippedCount: 2 });
+  });
+
+  test("a fresh census forgets what an earlier walk left behind", async () => {
+    const { t, workspaceId } = await moving({ phase: "count", skippedKeys: ["a.mov"], skippedCount: 1 });
+    await t.mutation(internal.functions.managedProvisioning.recordMigrationPage, {
+      workspaceId,
+      copied: 0,
+      changes: 0,
+      processed: 3,
+    });
+    const row = await t.run((ctx) => ctx.db.query("managedStorageMigrations").unique());
+    expect(row?.phase).toBe("copy");
+    expect(row?.skippedKeys).toBeUndefined();
+    expect(row?.skippedCount).toBeUndefined();
+  });
+
+  test("after the switch the owner is told what stayed, and only the owner can put it away", async () => {
+    const { t, owner, workspaceId } = await moving({
+      phase: "verify_target",
+      readyToCutover: true,
+      skippedKeys: ["meetings/kickoff.m4a"],
+      skippedCount: 1,
+    });
+    const member = await createUser(t, "moving-member@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+
+    await expect(
+      t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId }),
+    ).resolves.toEqual({ cutover: true });
+
+    const ownerView = await asUser(t, owner).query(api.functions.storage.getStorageBinding, { workspaceId });
+    expect(ownerView?.leftBehind).toMatchObject({
+      bucket: managedBucketName(workspaceId),
+      keys: ["meetings/kickoff.m4a"],
+      count: 1,
+    });
+    const memberView = await asUser(t, member).query(api.functions.storage.getStorageBinding, { workspaceId });
+    expect(memberView?.leftBehind).toBeUndefined();
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, member).mutation(api.functions.managedHandoff.dismissLeftBehind, { workspaceId }),
+        ),
+      ),
+    ).toBeTruthy();
+    await asUser(t, owner).mutation(api.functions.managedHandoff.dismissLeftBehind, { workspaceId });
+    const after = await asUser(t, owner).query(api.functions.storage.getStorageBinding, { workspaceId });
+    expect(after?.leftBehind).toBeUndefined();
+  });
+
+  test("a move that left nothing behind says nothing", async () => {
+    const { t, owner, workspaceId } = await moving({ phase: "verify_target", readyToCutover: true });
+    await t.mutation(internal.functions.managedProvisioning.finishManagedStorageMigration, { workspaceId });
+    const view = await asUser(t, owner).query(api.functions.storage.getStorageBinding, { workspaceId });
+    expect(view?.leftBehind).toBeUndefined();
   });
 });

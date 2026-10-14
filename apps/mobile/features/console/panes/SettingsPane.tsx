@@ -34,6 +34,7 @@ import { StorageCard } from "../settings/panels/StorageCard";
 import { storageCompany } from "../settings/panels/StorageHealth";
 import { StorageMigrationCard } from "../storage/StorageMigration";
 import { HANDOFF_FORM_LEDE, MOVE_FORM_WORDS, OWN_MOVE, OWN_MOVE_FORM_LEDE, TAKE_IT_WITH_YOU } from "../storage/handoff/copy";
+import { LeftBehindNotice } from "../storage/handoff/LeftBehindNotice";
 import { HandoffCard } from "../storage/handoff/HandoffCard";
 import type { SetupAgent } from "../../agentSetup/guides";
 
@@ -310,6 +311,10 @@ export function SettingsPane({
             }
             onSwitchBack={() => setSwitchingBack(true)}
             onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+          />
+          <LeftBehindNotice
+            left={storage.leftBehind}
+            onDismiss={actions?.dismissLeftBehind === undefined ? undefined : () => void actions.dismissLeftBehind?.()}
           />
         </>
       )}

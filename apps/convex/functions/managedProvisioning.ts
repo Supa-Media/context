@@ -724,6 +724,7 @@ export const recordMigrationPage = internalMutation({
     copied: v.number(),
     changes: v.number(),
     processed: v.number(),
+    skipped: v.optional(v.array(v.string())),
   },
   returns: v.object({ applied: v.boolean(), cutover: v.boolean() }),
   handler: async (ctx, args) => recordMigrationPageHandler(ctx, args),
@@ -766,7 +767,6 @@ export const runManagedStorageMigration = internalAction({
     if (migration === null || migration.status !== "copying") {
       return { copied: 0, complete: false };
     }
-    let failedKeys: string[] | undefined;
     try {
       const sourceCredential = await ctx.runAction(
         internal.functions.storage.getBindingForGateway,
@@ -804,27 +804,22 @@ export const runManagedStorageMigration = internalAction({
       });
       let copied = 0;
       let changes = 0;
+      let skipped: string[] = [];
       // The census only counts what it lists; it opens no object at all.
       if (migration.phase !== "count") {
-        // Ahead of the walk rather than inside it, so a page carrying an object
-        // too large to move fails before any of that page is reconciled. Inside
-        // the waves this would depend on which wave the object landed in.
-        const oversized = page.objects
-          .filter(
-            (object) =>
-              typeof object.size === "number" &&
-              object.size > MIGRATION_OBJECT_BYTE_CAP,
-          )
-          .map((object) => object.key);
-        if (oversized.length > 0) {
-          // Named, so the owner is shown which files and can download them.
-          failedKeys = oversized.slice(0, 50);
-          throw new Error("OBJECT_TOO_LARGE");
+        // Past the file limit a file stays where it is, named, and the move
+        // carries on: one recording never stops a whole workspace moving. On
+        // the last pass, which lists the destination, a big file there is the
+        // owner's own and is left alone the same way.
+        const over = (object: { size?: number }) =>
+          typeof object.size === "number" && object.size > MIGRATION_OBJECT_BYTE_CAP;
+        if (migration.phase !== "verify_target") {
+          skipped = page.objects.filter(over).map((object) => object.key);
         }
         const result = await reconcileMigrationPage({
           source: source as unknown as MigrationStore,
           target: target as unknown as MigrationStore,
-          objects: page.objects,
+          objects: page.objects.filter((object) => !over(object)),
           listedFromTarget: migration.phase === "verify_target",
           // Into a customer's bucket, only a destination checked empty before
           // the first write may lose keys the source lacks. A row started
@@ -856,6 +851,7 @@ export const runManagedStorageMigration = internalAction({
           copied,
           changes,
           processed: page.objects.length,
+          ...(skipped.length > 0 ? { skipped } : {}),
         },
       );
       if (!progress.applied) return { copied: 0, complete: false };
@@ -922,7 +918,7 @@ export const runManagedStorageMigration = internalAction({
       }
       await ctx.runMutation(
         internal.functions.managedProvisioning.failManagedStorageMigration,
-        { workspaceId: args.workspaceId, errorCode, failedKeys },
+        { workspaceId: args.workspaceId, errorCode },
       );
       return { copied: 0, complete: false };
     }

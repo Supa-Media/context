@@ -43,3 +43,20 @@ enough to never fail").
   notes ("too large to move between workspaces yet"). It stays there until the
   mover carries files between buckets (step F). Dropping either
   size check fails `__tests__/contextMoveLarge.test.ts`.
+- **Files have a 20 MB limit, and a whole-bucket move leaves a bigger one where
+  it is, named** (decided by the owner, 2026-10-14, replacing the chunked-seal
+  question). The app's own uploads already stop at 5 MB; a bigger file only
+  arrives by being put in a customer's own bucket some other way. A move to or
+  from managed storage used to fail for good on the first file over 25 MB. Now
+  each page's files over the limit are left in the source unread, named on the
+  move (up to 50, and counted), and after the switch the owner sees "N files
+  stayed behind" in Settings › Storage until they put it away. Nothing is
+  deleted. Streaming large files through a Convex action (PR #1625) was closed
+  instead: the owner does not want file bytes going through Convex at all, and
+  the byte work moves to a mover next to the bucket. Reconciling the whole page,
+  or dropping the notice at the switch, fails
+  `__tests__/managedHandoffControls.test.ts`.
+- **A file moved or copied in one go keeps its bytes** (2026-10-14). `movePath`
+  and `copyPath` decoded every object as text, which broke any image or PDF in
+  a folder moved that way. Putting `text()` back fails
+  `__tests__/fileOps/binaryMoves.test.ts`.

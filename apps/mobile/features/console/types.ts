@@ -49,6 +49,15 @@ import type { NoteLimit } from "./noteLimit";
  */
 export type StatusTone = "ok" | "warn" | "crit" | "neutral";
 
+/** Files over the file limit a finished move left in the bucket it came from. */
+export interface LeftBehind {
+  bucket: string;
+  /** Up to 50 of them, by name. */
+  keys: string[];
+  count: number;
+  at: number;
+}
+
 /** One entry in the rail's "Contexts" group. */
 export interface ConsoleContext {
   id: string;
@@ -330,6 +339,8 @@ export interface ConsoleStorage {
   handoffClaimed?: boolean;
   /** The files that stopped a move, when particular files did. */
   handoffFailedKeys?: string[];
+  /** Files over the file limit the last move left in the bucket it came from. */
+  leftBehind?: LeftBehind;
   /** The last pass matched and the move is switching over; too late to stop. */
   handoffReadyToSwitch?: boolean;
   /** The owner's answer for files already in the destination. */
@@ -365,6 +376,8 @@ export interface StorageActions {
   move: (values: ConnectFormValues) => Promise<{ started: true }>;
   /** Stops a move into the owner's bucket that has not started switching over. */
   cancelHandoff: () => Promise<{ cancelled: boolean }>;
+  /** Puts away the notice of files the last move left behind. */
+  dismissLeftBehind?: () => Promise<null>;
   /** Answers a destination that already has files: merge, or start fresh (typed consent). */
   chooseExistingFiles: (
     answer: { choice: "merge" } | { choice: "replace"; confirmBucket: string },
