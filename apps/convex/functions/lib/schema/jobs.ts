@@ -157,7 +157,13 @@ export const jobTables = {
     workspaceId: v.id("workspaces"),
     migrationId: v.optional(v.id("managedStorageMigrations")),
     walkRunId: v.optional(v.number()),
-    /** The migration's (or the walk's) phase and cursor when the page was handed out. */
+    /**
+     * A batch of a move into another context: the move, and the files this
+     * ticket may carry, decided here and never by the mover's caller.
+     */
+    contextMoveId: v.optional(v.id("contextMoves")),
+    objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
+    /** The migration's (or the walk's) phase and cursor when the page was handed out; `carry` for a context move. */
     phase: v.union(
       v.literal("copy"),
       v.literal("verify_source"),
@@ -166,6 +172,7 @@ export const jobTables = {
       v.literal("check"),
       v.literal("unseal"),
       v.literal("confirm"),
+      v.literal("carry"),
     ),
     expectedCursor: v.optional(v.string()),
     createdAt: v.number(),
