@@ -197,6 +197,9 @@ const move = (fields: Partial<Omit<MoveRow, "id" | "workspaceId">> & { id?: stri
     canUndo: true,
     createdAt: 5_000,
     updatedAt: 6_000,
+    rate: null,
+    etaMs: null,
+    late: null,
     ...fields,
   }) as MoveRow;
 
