@@ -91,7 +91,7 @@ describe("who may set an icon, and where", () => {
     expect(await check(store, { path: "recipes/soups/leek.md", icon: "🥬", clearance: OWNER })).toBe("recipes/soups/leek.md");
   });
 
-  test.each(["recipes", "🍳🍳", "a", "‮🍳", ""])("refuses %j, which is not one emoji", async (icon) => {
+  test.each(["recipes", "🍳🍳", "a", "\u202e🍳", ""])("refuses %j, which is not one emoji", async (icon) => {
     const error = await refusal(() => check(bucket(), { path: "recipes", icon, clearance: OWNER }));
     expect(error.code).toBe("PATH_INVALID");
   });
