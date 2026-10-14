@@ -40,6 +40,7 @@ const meaning = (fields: Partial<Omit<MeaningIndexRow, "workspaceId">> & { works
     priorities: null,
     fastSearch: { status: "ready", notesIndexed: 100, notesPending: 0, priorities: null },
     updatedAt: 1_000,
+    archived: false,
     ...fields,
   }) as MeaningIndexRow;
 
@@ -49,6 +50,7 @@ const migration = (fields: Partial<Omit<MigrationRow, "workspaceId">> & { worksp
     slug: "maya",
     stage: "matches",
     files: 40,
+    archived: false,
     running: false,
     sweptAt: 3_000,
     dirty: false,
@@ -70,6 +72,25 @@ describe("one row per workspace", () => {
     expect(supa.meaning.health).toBe("none");
     expect(rows.find((row) => row.slug === "sam")!.files.health).toBe("none");
     expect(rows.find((row) => row.slug === "maya")!.changedAt).toBe(2_000);
+  });
+
+  test("an archived workspace reads Archived everywhere, last, and never needs attention", () => {
+    const rows = joinIndexes(
+      [meaning({ workspaceId: "w9", slug: "testagent1", status: "backfilling", notesIndexed: 0, notesPending: null, archived: true })],
+      [
+        migration({ workspaceId: "w9", slug: "testagent1", stage: "stuck", error: "Tree sweep failed", archived: true }),
+        migration({ workspaceId: "w2", slug: "supa", stage: "copying" }),
+      ],
+    );
+    expect(rows.map((row) => row.slug)).toEqual(["supa", "testagent1"]);
+    const archived = rows[1]!;
+    expect(archived.archived).toBe(true);
+    for (const cell of [archived.files, archived.fast, archived.meaning, archived.convex, archived.details]) {
+      expect(cell).toMatchObject({ health: "off", label: "Archived", problem: null, progress: null });
+    }
+    expect(needsAttention(archived)).toBe(false);
+    expect(needsAttention(rows[0]!)).toBe(true);
+    expect(countParts("files", healthCounts(rows, "files"))).toContainEqual({ health: "off", text: "1 paused, skipped or archived" });
   });
 
   test("rows show before the migration report lands", () => {

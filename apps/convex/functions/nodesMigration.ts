@@ -18,6 +18,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
+import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
@@ -54,6 +55,19 @@ async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]
     ids.push(binding.workspaceId);
   }
   return { ids, truncated };
+}
+
+/**
+ * The bound workspaces the rounds and the all-workspaces buttons start work
+ * on: every one but those only archived accounts hold (`lib/archivedWorkspaces.ts`).
+ * One workspace's own button still reaches an archived one.
+ */
+async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces">[]> {
+  const live: Id<"workspaces">[] = [];
+  for (const workspaceId of (await boundWorkspaces(ctx)).ids) {
+    if (!(await workspaceArchived(ctx.db, workspaceId))) live.push(workspaceId);
+  }
+  return live;
 }
 
 function treeOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Doc<"nodeTrees"> | null> {
@@ -117,6 +131,8 @@ const rowValidator = v.object({
   slug: v.union(v.string(), v.null()),
   stage: stageValidator,
   files: v.number(),
+  /** Only archived accounts hold it, so no round starts work on it. */
+  archived: v.boolean(),
   /** A pass ran in the last few minutes. */
   running: v.boolean(),
   sweptAt: v.union(v.number(), v.null()),
@@ -177,6 +193,7 @@ export const report = query({
         slug: workspace.slug ?? null,
         stage: stageOf(tree),
         files: tree?.files ?? 0,
+        archived: await workspaceArchived(ctx.db, workspace),
         running: tree?.leaseAt !== undefined && now - tree.leaseAt < NODE_SWEEP_LEASE_MS,
         sweptAt: tree?.sweptAt ?? null,
         dirty: tree?.dirty ?? false,
@@ -270,7 +287,7 @@ export const setPrivacyAuthority = mutation({
 
 /** Start a sweep for every bound workspace whose copy is due: never started, dirty, interrupted, failed or stale. */
 async function startDueSweeps(ctx: MutationCtx): Promise<number> {
-  const { ids } = await boundWorkspaces(ctx);
+  const ids = await liveBoundWorkspaces(ctx);
   const now = Date.now();
   const due: Id<"workspaces">[] = [];
   for (const workspaceId of ids) {
@@ -302,7 +319,7 @@ export const keepCurrent = internalMutation({
  * served before the facts existed.
  */
 async function startDueFactFills(ctx: MutationCtx): Promise<void> {
-  const { ids } = await boundWorkspaces(ctx);
+  const ids = await liveBoundWorkspaces(ctx);
   const now = Date.now();
   for (const workspaceId of ids) {
     if (!(await treeServesNow(ctx.db, workspaceId))) continue;
@@ -315,7 +332,7 @@ async function startDueFactFills(ctx: MutationCtx): Promise<void> {
   }
 }
 
-/** Copy one workspace's tree again now, or every workspace's when `workspaceId` is left out. */
+/** Copy one workspace's tree again now, or every live workspace's when `workspaceId` is left out. */
 export const start = mutation({
   args: { workspaceId: v.optional(v.id("workspaces")) },
   returns: v.object({ started: v.number() }),
@@ -324,18 +341,18 @@ export const start = mutation({
     if (await migrationPaused(ctx.db)) {
       throw new ConvexError({ code: "MIGRATION_PAUSED", message: "The migration is paused. Resume it first." });
     }
-    const ids = workspaceId === undefined ? (await boundWorkspaces(ctx)).ids : [workspaceId];
+    const ids = workspaceId === undefined ? await liveBoundWorkspaces(ctx) : [workspaceId];
     return { started: await startSweeps(ctx, ids) };
   },
 });
 
-/** Compare one workspace's copy with its bucket, or every copied one's when `workspaceId` is left out. */
+/** Compare one workspace's copy with its bucket, or every live copied one's when `workspaceId` is left out. */
 export const checkParity = mutation({
   args: { workspaceId: v.optional(v.id("workspaces")) },
   returns: v.object({ started: v.number() }),
   handler: async (ctx, { workspaceId }) => {
     await staffOnly(ctx);
-    const ids = workspaceId === undefined ? (await boundWorkspaces(ctx)).ids : [workspaceId];
+    const ids = workspaceId === undefined ? await liveBoundWorkspaces(ctx) : [workspaceId];
     let started = 0;
     for (const id of ids) {
       const tree = await treeOf(ctx, id);
