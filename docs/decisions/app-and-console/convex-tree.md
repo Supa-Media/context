@@ -288,6 +288,33 @@ session store and the queued move worker):
 - **The way back** is the same switch, refused while any export is owed, so
   the file it hands back to is current.
 
+**Phase 3 follow-ups (2026-10-13)**, found in an audit before the switch was
+first turned on, each with a test in `__tests__/nodes/privacyAuthority.test.ts`
+or `apps/mcp/test/privacyAuthority.test.mjs`:
+
+- **The rules' own answer is never mistaken for the file.** A mirror read
+  that comes back under a `ctx-` version is the store answering from the held
+  rules, so `savePrivacy` drops it rather than storing it as what the bucket
+  holds.
+- **A copy the file moved past is re-read at once.** When a listing finds
+  `privacy.md` past rules nobody decided here (a copy, `rulesAuthoredHere`),
+  the file decides again and is read into the mirror straight away, not at
+  the next sweep.
+- **A storage move takes the rules with it.** Moving a workspace to other
+  storage keeps the authority's row and owes an export, so the new bucket
+  gets `privacy.md` from the held rules instead of the workspace falling back
+  to whatever file the new bucket has.
+- **Only a grant that can write the workspace writes its rules.**
+  `/gateway/privacy` refuses a token whose role is `member` or whose grant
+  lacks `context:write`, even if the gateway asked.
+- **A copy is never mistaken for a decision.** Rules reported or read while
+  the file is the authority carry no export version, so an owner's edit to
+  the file made before the flip, and not yet read, is never written over as
+  if the rules had moved past it.
+- **A request whose rules were handed back reads the file.** When the swap
+  answers that the file is the authority again, the store stops rendering the
+  rules it held, so the caller's retry reads and writes the bucket's file.
+
 **Phase 6, as built (2026-10-13): the device copy follows a change log.**
 The desktop and phone apps used to walk the whole tree every five minutes.
 Now `nodeLog` (`lib/schema/nodes.ts`) holds one row per file that appeared,

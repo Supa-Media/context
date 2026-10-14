@@ -453,7 +453,7 @@ export const applyBinding = internalMutation({
     */
     if (storageMoved(existing, fields)) {
       await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, { workspaceId: args.workspaceId });
-      await forgetWorkspaceTree(ctx, args.workspaceId); // its rows name the old bucket's keys
+      await forgetWorkspaceTree(ctx, args.workspaceId, { storageMoved: true }); // its rows name the old bucket's keys
     }
 
     let bindingId: Id<"storageBindings">;

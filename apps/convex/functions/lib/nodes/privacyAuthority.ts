@@ -18,6 +18,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import { PRIVACY_KEY } from "../privacy";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 
@@ -123,10 +124,22 @@ export async function noticePrivacyListing(
   // is not an authority: the file decides again until it is read once more.
   if (!rulesAuthoredHere(row)) {
     await ctx.db.patch(row._id, { fileAhead: true });
+    // Read the file again now, from a run that opens the bucket as it is
+    // (the authority is off for this row), rather than at the next sweep.
+    await scheduleMirrorRead(ctx, workspaceId);
     return;
   }
   await ctx.db.patch(row._id, { exportOwed: true });
   await scheduleExport(ctx, workspaceId, 0);
+}
+
+/** Re-read `privacy.md` into the mirror: a touch naming it (`lib/nodes/touch.ts`). */
+async function scheduleMirrorRead(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+    workspaceId,
+    scope: "private",
+    operation: { kind: "nodesTouch", paths: [], files: [PRIVACY_KEY] },
+  });
 }
 
 /** Whether a mirror refresh read from the file may be stored: never while the rules are the authority. */

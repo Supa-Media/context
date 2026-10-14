@@ -20,6 +20,9 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
 
+/** The grant scope that may change a workspace's notes, and so its rules. */
+const SCOPE_WRITE = "context:write";
+
 /** Rules one request may carry: far above any manifest we have, and a bound on a mutation. */
 export const PRIVACY_ROUTE_RULES = 5_000;
 const MAX_NAME = 1_024;
@@ -62,7 +65,14 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
     const session = await ctx.runQuery(internal.functions.controlPlane.resolveGrantByAccessToken, {
       hashedAccessToken: await hashToken(accessToken),
     });
-    reached = session?.workspaces.find((workspace) => workspace.workspaceId === expected)?.workspaceId;
+    const entry = session?.workspaces.find((workspace) => workspace.workspaceId === expected);
+    // Only a grant that may write the workspace ever writes its `privacy.md`
+    // (a move carries its exceptions): the gateway decides which rules, and
+    // this refuses everyone else, so a gateway bug is never a member
+    // rewriting who sees what.
+    const writes = entry !== undefined && (entry.role === "owner" || entry.role === "editor") &&
+      (session?.scopes ?? []).includes(SCOPE_WRITE);
+    reached = writes ? entry.workspaceId : undefined;
   } else {
     // A queued move holds a ticket, not a person's token: it counts while its lease does.
     const leased = await ctx.runQuery(internal.functions.nodesPrivacy.jobWorkspace, {
