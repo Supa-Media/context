@@ -2,14 +2,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../../../design/components/Icon";
 import { Text } from "../../../../design/components/Text";
-import { fonts, space, pointerType } from "../../../../design/tokens";
+import { fonts, pointerType } from "../../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../../design/theme";
 
-/**
- * The map bar's pills. One shape for every control on the bar — Live, Today,
- * This week, the view and scope switches, Back to live, Following — so the
- * bar reads as one row of choices. A chosen pill is ink on paper reversed.
- */
+/** A pill over the map: Following. A chosen pill is ink on paper reversed. */
 export function Chip({
   label,
   on = false,
@@ -51,41 +47,8 @@ export function Chip({
   );
 }
 
-/** A row of pills where exactly one is chosen: Live / Today / This week, Map / Folders. */
-export function Choice<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-  testID,
-}: {
-  label: string;
-  options: ReadonlyArray<{ value: T; label: string; leading?: ReactNode }>;
-  /** `null` when the choice is something the row does not offer, so none is chosen. */
-  value: T | null;
-  onChange: (value: T) => void;
-  testID?: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.choice} accessibilityRole="radiogroup" accessibilityLabel={label} testID={testID}>
-      {options.map((option) => (
-        <Chip
-          key={option.value}
-          role="radio"
-          label={option.label}
-          on={option.value === value}
-          leading={option.leading}
-          onPress={() => onChange(option.value)}
-          testID={testID === undefined ? undefined : `${testID}-${option.value}`}
-        />
-      ))}
-    </View>
-  );
-}
-
 /**
- * The phone's version of `Choice`: one track with the options inside it,
+ * The phone's pick-one control: one track with the options inside it,
  * evenly split, the chosen one filled. Two of these fit across a phone where
  * a row of separate pills scrolled sideways, and a track reads as "pick one"
  * at a glance.
@@ -234,7 +197,6 @@ export const makeStyles = (colors: Colors) =>
     chipOn: { backgroundColor: colors.text, borderColor: colors.text },
     chipText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text2 },
     chipTextOn: { color: colors.pageSurface },
-    choice: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     track: {
       flexBasis: 0,
       minWidth: 0,

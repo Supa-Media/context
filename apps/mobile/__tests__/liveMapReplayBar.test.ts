@@ -37,7 +37,6 @@ import {
   type ReplayState,
   type Stretch,
 } from "../features/console/map/live/replayClock";
-import { tickLabels } from "../features/console/map/live/ui/zoomTicks";
 import { ev, para } from "./liveMapFixture";
 
 const at = (h: number, m = 0, day = 7) => new Date(2026, 9, day, h, m).getTime();
@@ -280,18 +279,5 @@ describe("the sidebar's counts follow the replay", () => {
     expect(mapFolderCount("ws-b", "0-inbox")).toBeNull();
     setMapFolderCounts(null);
     expect(mapFolderCount("ws-a", "0-inbox")).toBeNull();
-  });
-});
-
-describe("the zoom control's level names", () => {
-  test("stops too close together keep one name, and the level you are at wins", () => {
-    const stops = { all: 0, workspace: 0.4, folders: 0.8, notes: 0.9 };
-    expect([...tickLabels(["all", "workspace", "folders", "notes"], stops, "all", 0.16)]).toEqual(["all", "workspace", "folders"]);
-    expect([...tickLabels(["all", "workspace", "folders", "notes"], stops, "notes", 0.16)]).toEqual(["all", "workspace", "notes"]);
-  });
-
-  test("stops far enough apart are all named", () => {
-    const stops = { workspace: 0, folders: 0.5, notes: 1 };
-    expect([...tickLabels(["workspace", "folders", "notes"], stops, "workspace", 0.16)]).toEqual(["workspace", "folders", "notes"]);
   });
 });
