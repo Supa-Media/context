@@ -28,6 +28,11 @@ on:
         description: "Score to pass, 0 to 1"
         required: false
         default: "0.9"
+      models:
+        description: "Also compare decision models (Clef, Clef Flash, Jev) on the icon suggestion"
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: "17 6 * * 1"
 
@@ -72,3 +77,10 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/convex
         run: npx vitest run __tests__/iconSuggest.live.test.ts
+      - name: Compare decision models on the icon suggestion
+        if: ${{ !cancelled() && inputs.models }}
+        working-directory: apps/convex
+        env:
+          ICON_MODELS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ICON_MODELS_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+        run: npx vitest run __tests__/iconSuggest.models.live.test.ts
