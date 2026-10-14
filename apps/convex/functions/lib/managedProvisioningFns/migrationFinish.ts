@@ -102,6 +102,19 @@ export async function finishManagedStorageMigrationHandler(
       lastVerifiedAt: cutoverAt,
     });
   }
+  // What stayed behind is said where the owner looks next, the storage they
+  // now have, and only until they have seen it; the migration row goes.
+  await ctx.db.patch(applied.bindingId, {
+    leftBehind:
+      (migration.skippedCount ?? 0) > 0
+        ? {
+          bucket: current.bucket ?? "",
+          keys: migration.skippedKeys ?? [],
+          count: migration.skippedCount ?? 0,
+          at: cutoverAt,
+        }
+        : undefined,
+  });
   await ctx.db.delete(migration._id);
   // Moving out keeps the encryption row: the managed bucket is kept for a
   // week with its sealed files, and a switch back re-adopts it. Moving in

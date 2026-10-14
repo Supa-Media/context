@@ -94,7 +94,7 @@ const MAX_PASSES = 2_000;
 
 const skipValidator = v.object({
   path: v.string(),
-  reason: v.union(v.literal("encrypted")),
+  reason: v.union(v.literal("encrypted"), v.literal("too_large")),
 });
 
 const moveRowValidator = v.object({

@@ -24,6 +24,14 @@ export declare function compareListingEntries(
 ): number;
 export declare function rolesIn(names: Iterable<string>): Record<FolderRole, string | null>;
 export declare function missingMainRoles(names: Iterable<string>): MainRole[];
+export declare function isProtectedFolder(path: string, names: Iterable<string>): boolean;
+export declare function foldName(name: string): string;
+export declare function siblingTwin(
+  name: string,
+  siblings: Iterable<string>,
+  options?: { topLevelFolder?: boolean },
+): string | null;
+export declare function twinMessage(name: string, twin: string, instead: string, topLevel: boolean): string;
 
 export type IndexingPriority = 1 | 2 | 3;
 export interface IndexingPriorityCount {

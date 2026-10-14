@@ -11,6 +11,7 @@ import { noteDocument } from "./document";
 import { layout } from "../../../design/tokens";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import type { NoteView } from "./view";
+import { InTrashPill, RESTORE_BAR_ROOM, TrashedByline } from "./trashed";
 
 /** How far the inline title's edit tint reaches past its text, each side. */
 const TITLE_INSET = 6;
@@ -41,6 +42,8 @@ export function noteFlow(view: NoteView) {
     drawing,
     activityList,
     docWidth,
+    trashed,
+    commenter,
   } = view;
   /*
     THE NAME, AS A FIELD, WHERE THE NOTE HAS NO TITLE OF ITS OWN.
@@ -76,6 +79,8 @@ export function noteFlow(view: NoteView) {
       exactly false for a passphrase note).
     */}
     {passphraseLocked ? null : state.encrypted ? <EncryptedNotice /> : state.readOnly ? <ManifestNotice /> : null}
+    {/* A phone has no path line, so "In trash" sits over the title (`trashed.tsx`). */}
+    {compact && trashed !== undefined ? <InTrashPill style={styles.trashedPill} /> : null}
 
     {/*
       The note's name, inside the note — Obsidian's inline title.
@@ -142,6 +147,15 @@ export function noteFlow(view: NoteView) {
       </Text>
     ) : null}
 
+    {/* Who moved it to the trash, and when: one quiet line, no box. */}
+    {trashed === undefined ? null : (
+      <TrashedByline
+        trashed={trashed}
+        viewer={commenter}
+        style={compact ? styles.trashedBylineCompact : [styles.trashedBylinePointer, { marginHorizontal: noteGutterFor(docWidth) }]}
+      />
+    )}
+
     {/*
       **A note you cannot edit is still a note.**
 
@@ -170,6 +184,8 @@ export function noteFlow(view: NoteView) {
 
     {/* A routine's recent runs, after the note's last line on a phone (`routines/RecentRuns.tsx`). */}
     {compact ? <RecentRunsSection where="below" gutter={layout.readingMargin} /> : null}
+    {/* Room for the phone's Restore, so the last line scrolls out from under it. */}
+    {compact && trashed !== undefined ? <View style={{ height: RESTORE_BAR_ROOM }} /> : null}
 
     <Reveal open={state.status === "conflict"}>
     {state.status === "conflict" ? (
@@ -235,8 +251,9 @@ export function noteFlow(view: NoteView) {
       because the row is where that button lives.
     */}
     {/* Eased rather than popped: on a pointer layout this row arriving on its own (a failed save, a conflict) shrinks the editor from below. */}
-    <Reveal open={Boolean(explains || canDiscard || manualSave)}>
-    {explains || canDiscard || manualSave ? (
+    {/* Not under a note in the trash: "Saved in your bucket" is not what it is. */}
+    <Reveal open={trashed === undefined && Boolean(explains || canDiscard || manualSave)}>
+    {trashed === undefined && (explains || canDiscard || manualSave) ? (
       <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
         {/*
           Absent rather than empty. `statusLine` answers `""` for a state it

@@ -19,6 +19,7 @@ import { useHomePlaces } from "../../home/useHomePlaces";
 import { useHomeSource } from "../../home/useHomeSource";
 import { bulkTagTargets, folderTagTarget, listedIn } from "../../home/folderTags";
 import { useFolderLists } from "../../../offline/useFolderLists";
+import { rootFolderNames } from "../../files/menuBuiltIn";
 
 /**
  * The folder listing's right-click menu, the dialogs it leads to, and dragging
@@ -176,6 +177,7 @@ export function useFolderListing({
         canShare:
           onShare !== undefined && pageOnPhone && files.canShare && target.row.path === files.selectedPath,
         clipboard: files.clipboard,
+        topLevelFolders: rootFolderNames(files.listings),
         /*
           The `touch` arm's first real caller, and exactly what it was kept for.
 

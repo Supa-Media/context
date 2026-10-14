@@ -31,5 +31,18 @@ export function createJobMethods({ post, required }) {
     async reportGatewayJob(ticket, result) {
       await post("/gateway/jobs/report", { ticket, result });
     },
+
+    /**
+     * Spend a mover ticket (`moves/mover.js`): one page of one workspace's
+     * whole-bucket move, with both buckets' credentials. `null` when the
+     * ticket is spent, expired, or no longer matches the move.
+     */
+    async openMoverPage(ticket) {
+      const parsed = await post("/gateway/mover/open", { ticket });
+      const page = required(parsed, "page");
+      if (page === null) return null;
+      if (!page || typeof page !== "object") throw new ControlPlaneError("malformed mover page");
+      return page;
+    },
   };
 }

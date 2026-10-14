@@ -175,4 +175,13 @@ export async function runActivityGroupingChecks(check) {
   // Lines written before that rule carry the console's name in the file.
   const old = parseFile(renderFile([{ ...appEdit, via: "Context (this app)" }]));
   check("an older line from the app reads back as the person", old.length === 1 && old[0].via === null);
+
+  // The texting assistant's client was "Texts (iMessage)" until it took Tex's
+  // name (the owner, 2026-10-14); lines from before read as Tex.
+  const texted = parseFile(renderFile([{ ...appEdit, via: "Texts (iMessage)" }]));
+  check("an older line from the texting assistant reads back as Tex", texted.length === 1 && texted[0].via === "Tex");
+  check(
+    "and is drawn as the person's Tex",
+    describeEntry(texted[0]) === "@seyi's Tex added `1-projects/fixes/readme.md`",
+  );
 }

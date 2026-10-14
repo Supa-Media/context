@@ -8,6 +8,7 @@
 import { isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
+import { assertNoNameTwin } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
 import { requirePath, baseName, joinPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
@@ -79,6 +80,8 @@ export async function createFolder(
   if (!folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
     throw notFound();
   }
+
+  await assertNoNameTwin(store, folder, options.clearance, "folder");
 
   const about = joinPath(folder, "about.md");
   await writeNewAbout(store, about, renderNewFolderAbout(folder), options, "That folder already exists.");

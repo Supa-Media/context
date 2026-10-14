@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
-import { DECISION_MODEL, DECISION_MODEL_SELECTOR, MAX_DECIDE_BODY_BYTES, readDecideRequest } from "./decide";
+import { DECISION_MODEL, DECISION_MODEL_SELECTOR, MAX_CRITERION_CHARS, MAX_DECIDE_BODY_BYTES, readDecideRequest } from "./decide";
 import { CALLER, SECRET, envWith, fakeAi } from "./worker/fixtures";
 
 /**
@@ -170,6 +170,11 @@ describe("readDecideRequest", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  it("takes an option as long as the cap, so a group of emoji fits in one", () => {
+    const long = { a: { type: "choice", instructions: "?", criteria: { x: "x".repeat(MAX_CRITERION_CHARS), y: "y" } } };
+    expect(readDecideRequest({ state: "x", questions: long }).ok).toBe(true);
+  });
+
   it.each([
     ["no state", { questions: QUESTIONS }],
     ["empty state", { state: "", questions: QUESTIONS }],
@@ -181,6 +186,7 @@ describe("readDecideRequest", () => {
     ["noul without false", { state: "x", questions: { a: { type: "noul", instructions: "?", criteria: { true: "y" } } } }],
     ["score with one level", { state: "x", questions: { a: { type: "score", instructions: "?", criteria: ["one"] } } }],
     ["extra top-level key", { state: "x", questions: QUESTIONS, model: "@cf/other/model" }],
+    ["an option past the length cap", { state: "x", questions: { a: { type: "choice", instructions: "?", criteria: { x: "x".repeat(MAX_CRITERION_CHARS + 1), y: "y" } } } }],
   ])("refuses %s", (_label, body) => {
     expect(readDecideRequest(body).ok).toBe(false);
   });

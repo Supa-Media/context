@@ -195,6 +195,7 @@ export function memoryStore(
       if (!value) return null;
       return {
         etag: value.etag,
+        ...(value.contentType ? { contentType: value.contentType } : {}),
         text: async () => new TextDecoder().decode(value.bytes),
         arrayBuffer: async () =>
           value.bytes.buffer.slice(
@@ -219,7 +220,7 @@ export function memoryStore(
         return null;
       }
       const etag = `m${++counter}`;
-      objects.set(key, stored(body, etag));
+      objects.set(key, stored(body, etag, putOptions?.contentType));
       return { etag };
     },
     async list(listOptions) {

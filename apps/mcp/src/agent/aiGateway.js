@@ -44,11 +44,22 @@ import { ProviderError, anthropicMessages } from "./providers.js";
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
 
-/** How much of the model's answer one round may produce. */
-const MAX_OUTPUT_TOKENS = 2048;
+/**
+ * How much one round may produce. Claude 5.5 models think by default, and
+ * `max_tokens` caps the thinking *and* the answer together, so this is room
+ * for both: at 2048 a hard text could spend the round thinking and come back
+ * with nothing (2026-10-14).
+ */
+const MAX_OUTPUT_TOKENS = 8192;
 
 /** The most a caller may ask for with `maxTokens`. */
-const MAX_CALLER_OUTPUT_TOKENS = 8192;
+const MAX_CALLER_OUTPUT_TOKENS = 16384;
+
+/** How hard a model thinks (`output_config.effort`), when a setup says (`production.js`). */
+export const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+/** The answer blocks a later round hands back unchanged: thinking, and what it led to. */
+const REPLAYED_BLOCKS = new Set(["thinking", "redacted_thinking", "text", "tool_use"]);
 
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
@@ -147,7 +158,7 @@ function metadataHeader(metadata) {
  * rounds over a growing transcript, so each round reads the previous one's
  * prefix from cache at a tenth of the price.
  */
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice }) {
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort }) {
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -172,6 +183,7 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     ...(typeof toolChoice === "string" && toolList.some((tool) => tool.name === toolChoice)
       ? { tool_choice: { type: "tool", name: toolChoice } }
       : {}),
+    ...(EFFORTS.has(effort) ? { output_config: { effort } } : {}),
   };
 }
 
@@ -322,6 +334,12 @@ export async function requestViaGateway(call, config, options = {}) {
         name: block.name,
         args: block.input && typeof block.input === "object" && !Array.isArray(block.input) ? block.input : {},
       })),
+    // The round's own blocks, thinking first, when it thought: the next round
+    // hands them back exactly as they came (`providers.js`), so the model keeps
+    // its reasoning across tool calls instead of starting over each round.
+    content: blocks.some((block) => block?.type === "thinking" || block?.type === "redacted_thinking")
+      ? blocks.filter((block) => REPLAYED_BLOCKS.has(block?.type))
+      : null,
     stop: parsed.stop_reason ?? null,
     usage: {
       input: count(usage.input_tokens),

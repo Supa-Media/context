@@ -43,6 +43,7 @@ import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
 import { statusAdvice } from "./statusList.js";
@@ -232,6 +233,14 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         "read the note, add the block to its content, and save it with write_note — or write " +
         "the form to a path of its own."
     );
+  }
+  // A new note may not sit beside a twin of its name or of a folder on its
+  // way: `projects/x.md` beside `Projects/` is told to write `Projects/x.md`
+  // (`tree/twins.js`). After the team-scope checks, so it asks only for a
+  // caller who may write here, and only about what that caller can see.
+  if (!existing) {
+    const twin = await nameTwinRefusal(store, scope, rules, overrides, path);
+    if (twin) return toolError(twin);
   }
   // `!== "team"` on the existing side. A note held back to a group is not
   // `"private"`, so the old test called `@supa-leads` → `team` an ordinary

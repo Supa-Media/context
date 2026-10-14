@@ -65,6 +65,13 @@ export function anthropicMessages(messages) {
       continue;
     }
     if (message.role === "assistant") {
+      // A round that thought is handed back as it came, thinking blocks and
+      // all: changing a byte of one, or dropping one from the middle, makes
+      // the API refuse it or lose the reasoning (`turn.js` drops them all at once).
+      if (Array.isArray(message.content) && message.content.length > 0) {
+        out.push({ role: "assistant", content: message.content });
+        continue;
+      }
       const content = [];
       if (message.text) content.push({ type: "text", text: message.text });
       for (const call of message.toolCalls || []) {

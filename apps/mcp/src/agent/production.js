@@ -25,6 +25,10 @@
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
+ *   models.effort  optional low|medium|high|xhigh|max: how hard `main` thinks
+ *                  (Claude's `output_config.effort`; the model's own default,
+ *                  medium, when absent)
+ *   models.think_effort optional, with `think`: the same for `think`
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -67,6 +71,7 @@ import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
 import { readCoreTools } from "./toolShelf.js";
 import { readHistoryTurns } from "./conversation.js";
+import { EFFORTS } from "./aiGateway.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -119,6 +124,14 @@ async function parse(raw) {
     }
     router = { model: models.router, think: models.think, routeAt };
   } else if (models.route_at !== undefined) return null;
+  // How hard each model thinks, by model name, so the turn looks it up for
+  // whichever model the router picked. A word that isn't one refuses the file.
+  const efforts = {};
+  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think]]) {
+    if (models[key] === undefined) continue;
+    if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
+    efforts[name] = models[key];
+  }
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -163,6 +176,7 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    efforts,
     fallback,
     search,
     skills,

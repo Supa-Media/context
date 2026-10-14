@@ -3,7 +3,7 @@
  * Resources, Archive; `packages/shared/src/folderRoles.cjs`).
  *
  * They cannot be renamed, moved, archived or trashed — the server refuses
- * every one of those (`assertNotMainFolder`) — so the menu does not offer to.
+ * every one of those (`assertNotProtectedFolder`) — so the menu does not offer to.
  *
  * Rename and trash stay in the menu **drawn dimmed, with a line saying why**,
  * which is the exception `MenuItem.disabled` asks to be argued for. Absence
@@ -15,16 +15,32 @@
  * the workspace root: there is nowhere else for these folders to be.
  */
 
-import { isMainFolder } from "@context/shared/src/folderRoles.cjs";
+import { isMainFolder, isProtectedFolder } from "@context/shared/src/folderRoles.cjs";
 import type { MenuContext } from "./menu";
 import type { MenuItem } from "./menuItem";
 import { makeItem } from "./menuMake";
 
 export const BUILT_IN_DETAIL = "Built in. Every workspace has this folder, so your AI always knows where things go.";
 
-/** Is this row one of the five built-in folders itself? */
-export function isBuiltInRow(row: { kind: string; path: string }): boolean {
-  return row.kind === "folder" && isMainFolder(row.path);
+/**
+ * Is this row the folder playing one of the five built-in roles?
+ *
+ * Given the root's folder names, a second folder claiming a role (an agent's
+ * `projects` beside `Projects`) is an ordinary folder, as the server treats it
+ * (`isProtectedFolder`), so it can be renamed, moved and trashed. Without them
+ * every role-shaped name is locked, the safe side.
+ */
+export function isBuiltInRow(row: { kind: string; path: string }, topLevelFolders?: readonly string[]): boolean {
+  if (row.kind !== "folder") return false;
+  return topLevelFolders === undefined ? isMainFolder(row.path) : isProtectedFolder(row.path, topLevelFolders);
+}
+
+/** The root's folder names from the loaded listings, or undefined before the root has loaded. */
+export function rootFolderNames(
+  listings: Readonly<Record<string, { entries: readonly { kind: string; name: string }[] } | undefined>>,
+): string[] | undefined {
+  const root = listings[""];
+  return root === undefined ? undefined : root.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.name);
 }
 
 /** Rename and trash, dimmed, the second carrying the reason. */

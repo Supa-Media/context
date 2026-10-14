@@ -58,7 +58,9 @@ const ROUTINE_HELP =
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
   "to: @handle (default: the writer), until: <when to stop>, paused: yes. " +
   "The body is plain instructions for the assistant, written as the person asked. " +
-  "After saving, tell them where it is in words (tex › routines › daily › Morning brief) and that deleting it stops it.";
+  // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
+  "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +
+  "and say where the note is or how to stop it only when they ask.";
 
 /**
  * The routine help goes at the end of the description's first paragraph: a

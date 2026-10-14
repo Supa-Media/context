@@ -33,6 +33,7 @@ import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
@@ -88,6 +89,8 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   // `onlyIf: { absent: true }`, the truth for a note the tree has not heard of yet.
   const destinationTaken = await destinationRefusal(store, destination);
   if (destinationTaken) return destinationTaken;
+  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { ignore: source });
+  if (twin) return toolError(twin);
 
   const body = new TextEncoder().encode(sourceText);
   const sourceEtag = sourceObject.etag;

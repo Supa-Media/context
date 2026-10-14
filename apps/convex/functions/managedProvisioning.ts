@@ -9,13 +9,17 @@ import {
   mutation,
 } from "../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
-import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
 import { directionOf, intoOwnersBucket, outOfManagedBucket } from "./lib/managedProvisioningFns/direction";
 import {
-  reconcileMigrationPage,
-  type MigrationStore,
-} from "./lib/managedMigration";
+  ACTION_PAGE_LIMITS,
+  MOVER_PAGE_LIMITS,
+  type MigrationPageResult,
+  migrationPageFor,
+  runMigrationPageHere,
+} from "./lib/managedProvisioningFns/migrationRun";
+import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
+import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -49,7 +53,6 @@ import { recordMigrationPageHandler } from "./lib/managedProvisioningFns/migrati
 import { finishManagedStorageMigrationHandler } from "./lib/managedProvisioningFns/migrationFinish";
 import {
   finishAwaitManagedTargetReady,
-  migrationTargetCredential,
   destinationHoldsObjects,
   probeManagedTarget,
   probeCutoverCapabilities,
@@ -62,10 +65,6 @@ import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns
 import { retryManagedProvisioningHandler } from "./lib/managedProvisioningFns/retry";
 import {
   MANAGED_STORAGE_SETTLE_POLL_MS,
-  MIGRATION_OBJECT_BYTE_CAP,
-  MIGRATION_PAGE_SIZE,
-  MIGRATION_WAVE_BYTE_BUDGET,
-  MIGRATION_WAVE_WIDTH,
   R2_BUCKET_WRITE_PERMISSION_GROUP,
   TERMINAL_MIGRATION_ERRORS,
   type ManagedProvisionError,
@@ -708,6 +707,50 @@ export const failManagedStorageMigration = internalMutation({
   handler: async (ctx, args) => failManagedStorageMigrationHandler(ctx, args),
 });
 
+/**
+ * The mover's door (`lib/storageMover.ts`): spend one page's ticket and open
+ * both buckets for it. The workspace, page and rules come off the ticket and
+ * the migration row, never off the request; a ticket for a page the move has
+ * already passed opens nothing.
+ */
+type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
+
+export const openMoverPage = internalAction({
+  args: { hashedTicket: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | null> => {
+    const ticket: (Omit<WalkTicket, "walkRunId"> & { walkRunId?: number; migrationId?: Id<"managedStorageMigrations"> }) | null =
+      await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
+    if (ticket === null) return null;
+    if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
+    const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
+      internal.functions.managedProvisioning.migrationForCopy,
+      { workspaceId: ticket.workspaceId },
+    );
+    if (
+      migration === null ||
+      migration._id !== ticket.migrationId ||
+      migration.status !== "copying" ||
+      migration.readyToCutover === true ||
+      migration.phase !== ticket.phase ||
+      migration.cursor !== ticket.expectedCursor
+    ) {
+      return null;
+    }
+    const sourceCredential: GatewayCredential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+      workspaceId: ticket.workspaceId,
+    });
+    if (sourceCredential === null) throw new Error("SOURCE_UNAVAILABLE");
+    const secretAccessKey = await decryptSecret(migration.encryptedTargetSecretAccessKey, requireKeyset(), {
+      workspaceId: ticket.workspaceId,
+    });
+    const sourceEncryption = outOfManagedBucket(migration)
+      ? await managedEncryptionOption(ctx, ticket.workspaceId)
+      : null;
+    return migrationPageFor(ticket.workspaceId, migration, sourceCredential, secretAccessKey, sourceEncryption, MOVER_PAGE_LIMITS);
+  },
+});
+
 /** The encrypted destination and progress, visible only to the copy action. */
 export const migrationForCopy = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -724,6 +767,7 @@ export const recordMigrationPage = internalMutation({
     copied: v.number(),
     changes: v.number(),
     processed: v.number(),
+    skipped: v.optional(v.array(v.string())),
   },
   returns: v.object({ applied: v.boolean(), cutover: v.boolean() }),
   handler: async (ctx, args) => recordMigrationPageHandler(ctx, args),
@@ -766,101 +810,55 @@ export const runManagedStorageMigration = internalAction({
     if (migration === null || migration.status !== "copying") {
       return { copied: 0, complete: false };
     }
-    let failedKeys: string[] | undefined;
     try {
-      const sourceCredential = await ctx.runAction(
-        internal.functions.storage.getBindingForGateway,
-        { workspaceId: args.workspaceId },
-      );
-      if (sourceCredential === null) throw new Error("SOURCE_UNAVAILABLE");
-
-      const secretAccessKey = await decryptSecret(
-        migration.encryptedTargetSecretAccessKey,
-        requireKeyset(),
-        { workspaceId: args.workspaceId },
-      );
-      // Leaving managed storage: the source is read through its encryption,
-      // so the customer's bucket gets plain files and the byte comparison in
-      // `reconcileMigrationObject` compares plain with plain. Moving in, the
-      // source is the customer's own bucket and has none.
-      const sourceEncryption =
-        outOfManagedBucket(migration)
+      let opened: string | undefined;
+      const targetSecret = async () =>
+        (opened ??= await decryptSecret(
+          migration.encryptedTargetSecretAccessKey,
+          requireKeyset(),
+          { workspaceId: args.workspaceId },
+        ));
+      // The census only lists, so it stays here; every page that opens a file
+      // goes to the gateway's mover when one is configured, so no file passes
+      // through this deployment (`lib/storageMover.ts`).
+      const mover = migration.phase === "count" ? null : storageMoverOrigin();
+      let page: MigrationPageResult;
+      if (mover !== null) {
+        const moved = await runMigrationPageOnMover(ctx, args.workspaceId, migration, mover);
+        if (moved === null) return { copied: 0, complete: false };
+        page = moved;
+      } else {
+        const sourceCredential = await ctx.runAction(
+          internal.functions.storage.getBindingForGateway,
+          { workspaceId: args.workspaceId },
+        );
+        if (sourceCredential === null) throw new Error("SOURCE_UNAVAILABLE");
+        // Leaving managed storage: the source is read through its encryption,
+        // so the customer's bucket gets plain files and the byte comparison
+        // compares plain with plain. Moving in, the source has none.
+        const sourceEncryption = outOfManagedBucket(migration)
           ? await managedEncryptionOption(ctx, args.workspaceId)
           : null;
-      const source = storeForBinding(sourceCredential, undefined, {
-        rawObjects: true,
-        managedEncryption: sourceEncryption,
-      });
-      const target = storeForBinding(
-        migrationTargetCredential(migration, secretAccessKey),
-        undefined,
-        { rawObjects: true },
-      );
-      const listingStore =
-        migration.phase === "verify_target" ? target : source;
-      const page = await listingStore.list({
-        cursor: migration.cursor,
-        limit: MIGRATION_PAGE_SIZE,
-      });
-      let copied = 0;
-      let changes = 0;
-      // The census only counts what it lists; it opens no object at all.
-      if (migration.phase !== "count") {
-        // Ahead of the walk rather than inside it, so a page carrying an object
-        // too large to move fails before any of that page is reconciled. Inside
-        // the waves this would depend on which wave the object landed in.
-        const oversized = page.objects
-          .filter(
-            (object) =>
-              typeof object.size === "number" &&
-              object.size > MIGRATION_OBJECT_BYTE_CAP,
-          )
-          .map((object) => object.key);
-        if (oversized.length > 0) {
-          // Named, so the owner is shown which files and can download them.
-          failedKeys = oversized.slice(0, 50);
-          throw new Error("OBJECT_TOO_LARGE");
-        }
-        const result = await reconcileMigrationPage({
-          source: source as unknown as MigrationStore,
-          target: target as unknown as MigrationStore,
-          objects: page.objects,
-          listedFromTarget: migration.phase === "verify_target",
-          // Into a customer's bucket, only a destination checked empty before
-          // the first write may lose keys the source lacks. A row started
-          // before that check existed never had it, so it deletes nothing.
-          deleteUnmatchedTarget:
-            !intoOwnersBucket(migration) ||
-            migration.targetClaimed === true,
-          // And even then only Context's plumbing: the customer's own files
-          // were removed once, up front, if they chose to start fresh.
-          deleteOnlyUnder:
-            intoOwnersBucket(migration) ? ".context/" : undefined,
-          // Merging: a file of theirs with a name the workspace also uses is
-          // kept beside it on the first pass, before it is written over.
-          keepTargetConflicts:
-            migration.existingFiles === "merge" && migration.phase === "copy",
-          byteCap: MIGRATION_OBJECT_BYTE_CAP,
-          maxWidth: MIGRATION_WAVE_WIDTH,
-          byteBudget: MIGRATION_WAVE_BYTE_BUDGET,
-        });
-        copied = result.copied;
-        changes = result.changes;
+        page = await runMigrationPageHere(
+          migrationPageFor(args.workspaceId, migration, sourceCredential, await targetSecret(), sourceEncryption, ACTION_PAGE_LIMITS),
+        );
       }
+      const { copied, changes, skipped } = page;
       const progress = await ctx.runMutation(
         internal.functions.managedProvisioning.recordMigrationPage,
         {
           workspaceId: args.workspaceId,
           expectedCursor: migration.cursor,
-          nextCursor: page.truncated ? page.cursor : undefined,
+          nextCursor: page.nextCursor ?? undefined,
           copied,
           changes,
-          processed: page.objects.length,
+          processed: page.processed,
+          ...(skipped.length > 0 ? { skipped } : {}),
         },
       );
       if (!progress.applied) return { copied: 0, complete: false };
       if (progress.cutover) {
-        const capabilities = await probeCutoverCapabilities(migration, secretAccessKey);
+        const capabilities = await probeCutoverCapabilities(migration, await targetSecret());
         const result: { cutover: boolean } = await ctx.runMutation(
           internal.functions.managedProvisioning.finishManagedStorageMigration,
           { workspaceId: args.workspaceId, capabilities },
@@ -922,7 +920,7 @@ export const runManagedStorageMigration = internalAction({
       }
       await ctx.runMutation(
         internal.functions.managedProvisioning.failManagedStorageMigration,
-        { workspaceId: args.workspaceId, errorCode, failedKeys },
+        { workspaceId: args.workspaceId, errorCode },
       );
       return { copied: 0, complete: false };
     }

@@ -158,6 +158,11 @@ export interface MenuContext {
   canDownload: boolean;
   clipboard: Clipboard | null;
   /**
+   * The workspace root's folder names, when loaded, so a duplicate of a
+   * built-in folder is offered Rename and trash (`menuBuiltIn.ts`).
+   */
+  topLevelFolders?: readonly string[];
+  /**
    * Web prints shortcuts; touch does not, and touch has no "open in new tab".
    *
    * **Nothing in the app passes `"touch"` today, and that is recorded rather
@@ -379,7 +384,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   if (row.readOnly) return entryItems(context, [row]);
   if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
   const archived = restoreTargetFor(row.path) !== null;
-  const builtIn = isBuiltInRow(row);
+  const builtIn = isBuiltInRow(row, context.topLevelFolders);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -543,7 +548,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
   // A built-in folder stays where it is (`menuBuiltIn.ts`). In a selection it
   // poisons the moving verbs for the whole lot, like a read-only row does.
-  const builtIn = rows.some(isBuiltInRow);
+  const builtIn = rows.some((row) => isBuiltInRow(row, context.topLevelFolders));
 
   return joinGroups([
     /*

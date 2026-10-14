@@ -16,6 +16,7 @@ import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "../tree";
 import type { MenuState } from "./menuState";
 import type { ExplorerProps } from "./props";
 import { inheritedOf } from "./rowVisibility";
+import { rootFolderNames } from "../menuBuiltIn";
 import { useActivityMarks } from "./useActivityMarks";
 import { useTreePick } from "./useTreePick";
 
@@ -223,6 +224,7 @@ export function useExplorer({
         canShare: files.canShare,
         canDownload: files.canDownload,
         clipboard: files.clipboard,
+        topLevelFolders: rootFolderNames(files.listings),
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.

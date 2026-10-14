@@ -40,8 +40,9 @@ export function bridge(t: T): ActionCtx {
   } as unknown as ActionCtx;
 }
 
-export async function bucket(): Promise<Store> {
-  const store = memoryStore({ conditional: true, ignoreIfMatchOnDelete: true }) as Store;
+/** R2 as measured by default; `s3` honours `If-Match` on DELETE, as production stores do behind their marker layer. */
+export async function bucket(kind: "r2" | "s3" = "r2"): Promise<Store> {
+  const store = memoryStore({ conditional: true, ignoreIfMatchOnDelete: kind === "r2" }) as Store;
   store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   store.seed("index.md", "# Context\n");
   store.seed("1-projects/launch/brief.md", "# Brief\n");
@@ -57,7 +58,7 @@ export async function bucket(): Promise<Store> {
   return store;
 }
 
-export async function fixture() {
+export async function fixture(kind: "r2" | "s3" = "r2") {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
@@ -78,7 +79,7 @@ export async function fixture() {
     await ctx.db.insert("workspaceMembers", { workspaceId: ws, userId: memberId, role: "member", joinedAt: now });
     return { ws, ownerId, memberId, staffId };
   });
-  const store = await bucket();
+  const store = await bucket(kind);
   const ctx = bridge(t);
   await runNodesOperation(ctx, { workspaceId: ids.ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
   await t.mutation(internal.functions.nodes.saveParity, {

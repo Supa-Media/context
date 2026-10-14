@@ -41,3 +41,24 @@ own listings so the tree and the page never disagree. The rest of the row
 still opens the folder's page. Which rows are open belongs to that page alone
 and is forgotten on another. A phone has no arrow to press: its row is a card
 that goes somewhere. Reversing it fails `__tests__/folderRowNesting.test.ts`.
+
+## In a projects folder, everything is a project item
+
+Decided by the owner on 2026-10-14: "all items in project folders should have
+statuses and be treated like an project item with no status if status is not
+set unless it explicitly has status:note or something like that, and you
+should be able to set that when you click on the status circle in case you
+want to update something to just be a note."
+
+So in the List a row with no status is not a note any more: it draws an empty
+dashed circle where its dot goes, which opens the status menu for a writer,
+and the owner placeholder after its name, as any task does. Only a row whose
+front matter says `status: note` (or `notes`, any case) is a plain note and
+keeps its icon. The status menu ends with **Just a note**, which writes that
+word. Everywhere the folder page reads a status, `note` reads as none, so it
+is never a Board column, never a word asking for its group, and never counted
+in a folder's "3/9". The Backlog folder is where projects are parked, not one
+of them, so it keeps its folder icon. The Board is unchanged: an item with no
+status is still not a card. Reversing it fails `__tests__/folderPageList.test.ts`
+("only a note that says so keeps its icon") and `folderPageModel.test.ts`
+("status: note says only a note").

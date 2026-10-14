@@ -12,6 +12,10 @@
 # arrivals read by the writing models on the Worker's /extract route
 # (organizerChanges.live.test.ts), scored, with what each model cost.
 #
+# The third asks Clef for the icon picker's suggested emoji for real folder
+# and note names, out of every emoji (iconSuggest.live.test.ts), and prints
+# them for a person to read.
+#
 # No customer note is ever sent: the workspace is in the test. A run asks a
 # few dozen questions. Manual, and weekly, so a change in the model's answers
 # shows up without anybody having to look.
@@ -64,3 +68,7 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/convex
         run: npx vitest run __tests__/organizerChanges.live.test.ts
+      - name: Suggest icons for real names out of every emoji
+        if: ${{ !cancelled() }}
+        working-directory: apps/convex
+        run: npx vitest run __tests__/iconSuggest.live.test.ts

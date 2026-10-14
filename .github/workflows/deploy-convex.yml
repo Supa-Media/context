@@ -201,6 +201,11 @@ jobs:
           # Absent is a working state: the tab says the check isn't connected.
           CLOUDFLARE_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}
           CLOUDFLARE_ANALYTICS_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+          # The gateway's mover: whole-bucket moves copy bucket to bucket there,
+          # never through this deployment (`functions/lib/storageMover.ts`). A
+          # public origin rather than a secret; unset runs them here, as a
+          # self-hosted deployment does.
+          STORAGE_MOVER_ORIGIN: https://mcp.context.lc
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -228,7 +233,8 @@ jobs:
             TURNSTILE_SECRET_KEY \
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
             REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
-            META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID
+            META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
+            STORAGE_MOVER_ORIGIN
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

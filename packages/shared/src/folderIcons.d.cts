@@ -16,6 +16,8 @@ export declare const FOLDER_ICONS_KEY: string;
 export declare const FOLDER_ICONS_VERSION: number;
 export declare const DEFAULT_FOLDER_ICONS: Readonly<Record<string, string>>;
 export declare const DEFAULT_INBOX_FOLDER_ICONS: Readonly<Record<string, string>>;
+/** The default icon of `tex/`: drawn as Tex, calm, never as text. */
+export declare const TEX_FIGURE_ICON: "context:tex";
 export declare function defaultFolderIcon(path: string): string | null;
 export declare function parseFolderIcons(text: string | null | undefined): FolderIcons;
 export declare function serializeFolderIcons(icons: FolderIcons): string;

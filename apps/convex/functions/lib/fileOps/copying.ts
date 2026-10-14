@@ -18,6 +18,7 @@ import { FileOpError, notFound } from "./errors";
 import { requirePath, parentOf, baseName, joinPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
+import { objectBody } from "./objectBody";
 import { namesInUse, duplicateName } from "./folders";
 import { keysUnder, isFolder } from "./walk";
 import { createAbsent, filesInTree } from "./treeChecks";
@@ -102,6 +103,11 @@ export async function copyPath(
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) throw notFound();
+    if (!pair.source.toLowerCase().endsWith(".md")) {
+      const { body, contentType } = await objectBody(pair.source, object);
+      await store.put(pair.destination, body, contentType === undefined ? {} : { contentType });
+      continue;
+    }
     const sourceText = await object.text();
     let body = sourceText;
     if (collaborationSupported(store) && !isEncryptedNote(sourceText) && collaborationEligible(pair.source, sourceText)) {

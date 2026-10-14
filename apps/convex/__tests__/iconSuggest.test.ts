@@ -2,23 +2,28 @@
  * THE SUGGESTED ICON.
  *
  * Opening the icon picker asks Clef for an emoji from the folder's or note's
- * name (decided by the owner, 2026-10-14; nothing is given one on its own).
- * What has teeth:
+ * name, out of every emoji the picker offers (decided by the owner,
+ * 2026-10-14; nothing is given one on its own). What has teeth:
  *
+ *  - every standard emoji is in exactly one of 64 even groups, and both
+ *    questions are ones the Worker accepts;
  *  - only the name is sent, never a path's folders and never a note's text;
  *  - a name that says nothing (`untitled-…`, `New folder`) sends nothing;
- *  - the answer is always one of the emoji the list offers, so an answer
- *    outside it, or "none of these", is no suggestion rather than a guess;
+ *  - the answer is always one of the emoji a question offered, so an answer
+ *    outside it is no suggestion rather than a guess;
+ *  - a failed request is asked once more;
  *  - switched off, nothing is sent;
- *  - a member who could not set the icon cannot ask;
- *  - every emoji the list holds is one the picker itself offers.
+ *  - a member who could not set the icon cannot ask.
+ *
+ * `iconSuggest.live.test.ts` asks the real model about real names.
  *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted.
  *
  *   `nameSaysSomething` always true                                     2 failed
- *   `readEmoji` returning the raw choice                                3 failed
+ *   `readPicks` without the offered-options check                       1 failed
+ *   `suggestGroups` dropping the table's last emoji                     1 failed
  *   `suggest` authorizing at "member"                                   1 failed
  */
 
@@ -26,17 +31,18 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
-  NO_TOPIC,
+  GROUPS,
   SUGGEST_EMOJI,
-  SUGGEST_TOPICS,
   emojiRequest,
+  groupRequest,
   nameSaysSomething,
   nameWords,
   randomIcon,
-  readEmoji,
-  readTopic,
-  topicRequest,
+  readPicks,
+  suggestCandidates,
+  suggestGroups,
 } from "@context/shared/src/iconSuggest";
+import { readDecideRequest } from "../../../infra/transcribe-worker/src/decide";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
 import {
   type TestConvex,
@@ -55,16 +61,28 @@ afterEach(() => {
 });
 
 const WORKER = "https://inference.example.invalid";
+const PUSHPIN = "📌";
 
-describe("the list and the questions, as data", () => {
-  test("every topic fits in one Clef question, with option keys Clef accepts", () => {
-    for (const topic of SUGGEST_TOPICS) {
-      expect(topic.emoji.length).toBeGreaterThanOrEqual(2);
-      expect(topic.emoji.length).toBeLessThanOrEqual(64);
-      expect(new Set(topic.emoji.map((one) => one.name)).size).toBe(topic.emoji.length);
-      for (const one of topic.emoji) expect(one.name).toMatch(/^[a-z0-9][a-z0-9_-]{0,59}$/);
+describe("the questions, as data", () => {
+  test("every standard emoji is in exactly one of 64 even groups, and both questions are ones the Worker takes", () => {
+    const total = suggestCandidates().length;
+    expect(total).toBeGreaterThan(1800);
+    const groups = suggestGroups();
+    expect(groups).toHaveLength(GROUPS);
+    const sizes = groups.map((group) => group.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(64);
+    expect(groups.flat()).toEqual(Array.from({ length: total }, (_, at) => at));
+
+    const first = groupRequest("tex/routines/once", "folder");
+    expect(readDecideRequest(first).ok).toBe(true);
+    expect(Object.keys(first.questions.group!.criteria)).toHaveLength(GROUPS);
+    for (const [group] of groups.entries()) {
+      const second = emojiRequest("tex/routines/once", "folder", group)!;
+      expect(readDecideRequest(second).ok).toBe(true);
     }
-    expect(SUGGEST_TOPICS.length + 1).toBeLessThanOrEqual(64);
+    expect(emojiRequest("x", "folder", GROUPS)).toBeNull();
+    expect(emojiRequest("x", "folder", -1)).toBeNull();
   });
 
   test("a name that says nothing is not worth asking about", () => {
@@ -80,31 +98,29 @@ describe("the list and the questions, as data", () => {
     ]) {
       expect(nameSaysSomething(empty)).toBe(false);
     }
-    for (const said of ["2-areas/taxes", "1-projects/walnut-credenza.md", "Q4 budget.md", "02-recipes", "日本語"]) {
+    for (const said of ["2-areas/taxes", "1-projects/walnut-credenza.md", "Q4 budget.md", "02-recipes", "日本語", "tex/routines/once"]) {
       expect(nameSaysSomething(said)).toBe(true);
     }
     expect(nameWords("1-projects/02-walnut_credenza-2026-10-14.md")).toBe("walnut credenza");
   });
 
   test("the question carries the name and nothing else", () => {
-    const request = topicRequest("2-areas/private-client/taxes-2026.md", "note");
+    const request = groupRequest("2-areas/private-client/taxes-2026.md", "note");
     expect(request.state).toContain('"taxes"');
     expect(request.state).not.toContain("private-client");
-    const criteria = (request.questions.topic as { criteria: Record<string, string> }).criteria;
-    expect(Object.keys(criteria)).toContain(NO_TOPIC);
-    expect(emojiRequest("taxes", "folder", "money")).not.toBeNull();
-    expect(emojiRequest("taxes", "folder", "__proto__")).toBeNull();
+    expect(emojiRequest("2-areas/private-client/taxes-2026.md", "note", 3)!.state).not.toContain("private-client");
   });
 
-  test("an answer is an emoji the list offers, or nothing", () => {
-    const pick = (question: string, choice: string) => ({ [question]: { type: "choice", choice, confidence: 0.4 } });
-    expect(readTopic(pick("topic", "money"))).toBe("money");
-    expect(readTopic(pick("topic", NO_TOPIC))).toBeNull();
-    expect(readTopic(pick("topic", "constructor"))).toBeNull();
-    expect(readTopic(null)).toBeNull();
-    expect(readEmoji(pick("emoji", "moneybag"), "money")).toBe("💰");
-    expect(readEmoji(pick("emoji", "pizza"), "money")).toBeNull();
-    expect(readEmoji({ emoji: { type: "noul", noul: 1 } }, "money")).toBeNull();
+  test("an answer is an emoji the question offered, or nothing", () => {
+    const request = emojiRequest("taxes", "folder", 1)!;
+    const inside = suggestGroups()[1]![0]!;
+    const outside = suggestGroups()[2]![0]!;
+    const pick = (choice: string) => ({ emoji: { type: "choice", choice, confidence: 0.4 } });
+    expect(readPicks(request, pick(`e${inside}`))).toEqual([inside]);
+    expect(readPicks(request, pick(`e${outside}`))).toEqual([]);
+    expect(readPicks(request, pick("constructor"))).toEqual([]);
+    expect(readPicks(request, { emoji: { type: "noul", noul: 1 } })).toEqual([]);
+    expect(readPicks(request, null)).toEqual([]);
   });
 
   test("a random roll is one of the list's emoji, and never the one already shown", () => {
@@ -123,7 +139,14 @@ interface Fixture {
   sent: { state: string; questions: Record<string, { criteria: Record<string, string> }> }[];
 }
 
-async function fixture(answers: { topic?: string; emoji?: string } = {}): Promise<Fixture> {
+type Answerer = (question: string, criteria: Record<string, string>) => string;
+
+/** Picks the pushpin, or the group that lists it, and otherwise the first option. */
+const likesPushpins: Answerer = (_question, criteria) =>
+  Object.keys(criteria).find((key) => criteria[key]!.startsWith(PUSHPIN) || criteria[key]!.includes(`, ${PUSHPIN} `)) ??
+  Object.keys(criteria)[0]!;
+
+async function fixture(answer: Answerer = likesPushpins, fail: "never" | "once" | "always" = "never"): Promise<Fixture> {
   const t = setupTest();
   const owner = await createUser(t, "seyi@example.invalid");
   const editor = await createUser(t, "sayo@example.invalid");
@@ -140,9 +163,14 @@ async function fixture(answers: { topic?: string; emoji?: string } = {}): Promis
     if (!url.startsWith(WORKER)) throw new Error(`unexpected fetch ${url}`);
     const body = JSON.parse(String(init?.body));
     sent.push(body);
-    const question = Object.keys(body.questions)[0]!;
-    const choice = question === "topic" ? (answers.topic ?? "money") : (answers.emoji ?? "moneybag");
-    return new Response(JSON.stringify({ answers: { [question]: { type: "choice", choice, confidence: 0.7 } } }));
+    if (body.questions.group !== undefined && (fail === "always" || (fail === "once" && sent.filter((one) => one.questions.group).length === 1))) {
+      return new Response("no", { status: 503 });
+    }
+    const answers: Record<string, unknown> = {};
+    for (const [name, question] of Object.entries(body.questions as Fixture["sent"][number]["questions"])) {
+      answers[name] = { type: "choice", choice: answer(name, question.criteria), confidence: 0.7 };
+    }
+    return new Response(JSON.stringify({ answers }));
   });
   return { t, editor, member, workspaceId, sent };
 }
@@ -151,12 +179,13 @@ const suggest = (f: Fixture, userId: Id<"users">, path: string) =>
   asUser(f.t, userId).action(api.functions.folderIcons.suggest, { workspaceId: f.workspaceId, path });
 
 describe("folderIcons.suggest", () => {
-  test("asks for a topic, then an emoji in it, from the name alone", async () => {
+  test("asks which group, then which emoji in it, from the name alone", async () => {
     const f = await fixture();
-    expect(await suggest(f, f.editor, "2-areas/taxes")).toBe("💰");
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
     expect(f.sent).toHaveLength(2);
-    expect(Object.keys(f.sent[1]!.questions.emoji!.criteria)).toContain("moneybag");
-    expect(f.sent.every((one) => !one.state.includes("2-areas"))).toBe(true);
+    expect(Object.keys(f.sent[0]!.questions.group!.criteria)).toHaveLength(GROUPS);
+    expect(Object.values(f.sent[1]!.questions.emoji!.criteria).some((about) => about.startsWith(PUSHPIN))).toBe(true);
+    expect(f.sent.every((one) => one.state.includes('"once"') && !one.state.includes("routines"))).toBe(true);
   });
 
   test("a name that says nothing sends nothing", async () => {
@@ -165,12 +194,22 @@ describe("folderIcons.suggest", () => {
     expect(f.sent).toHaveLength(0);
   });
 
-  test("none of these is no suggestion, and so is an emoji the list did not offer", async () => {
-    const none = await fixture({ topic: NO_TOPIC });
-    expect(await suggest(none, none.editor, "2-areas/taxes")).toBeNull();
-    expect(none.sent).toHaveLength(1);
-    const odd = await fixture({ emoji: "pizza" });
-    expect(await suggest(odd, odd.editor, "2-areas/taxes")).toBeNull();
+  test("an emoji the question did not offer is no suggestion", async () => {
+    const f = await fixture(() => "e99999");
+    expect(await suggest(f, f.editor, "2-areas/taxes")).toBeNull();
+    expect(f.sent).toHaveLength(1);
+  });
+
+  test("a request that fails once is asked again", async () => {
+    const f = await fixture(likesPushpins, "once");
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBe(PUSHPIN);
+    expect(f.sent.filter((one) => one.questions.group)).toHaveLength(2);
+  });
+
+  test("a request that fails twice is no suggestion", async () => {
+    const f = await fixture(likesPushpins, "always");
+    expect(await suggest(f, f.editor, "tex/routines/once")).toBeNull();
+    expect(f.sent).toHaveLength(2);
   });
 
   test("switched off, nothing is sent", async () => {

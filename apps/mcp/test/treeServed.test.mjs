@@ -256,7 +256,7 @@ test("a failed request says so, and lists nothing", async () => {
   assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), []);
 });
 
-test("a tool outside the six, writes included, never asks the tree", async () => {
+test("a tool outside the six never lists from the tree; a new note asks it only for its name check", async () => {
   const bucket = bucketOf(NOTES);
   bucket.put = async (key, body) => {
     bucket.objects.set(key, { text: String(body), etag: "new", uploaded: Date.now() });
@@ -266,6 +266,9 @@ test("a tool outside the six, writes included, never asks the tree", async () =>
   // the tree for the score on purpose) stays out of this count of listings.
   const { facts: _facts, ...tree } = treeOf(bucket);
   await callTool("write_note", { path: "1-projects/gamma.md", content: "# Gamma\n" }, served(bucket, tree), "private");
+  // A new note asks whether its name twins a sibling (`tree/twins.js`), of the tree and not the bucket.
+  assert.ok(tree.requests.length >= 1, "the name check asked the tree");
+  tree.requests.length = 0;
   await callTool("read_note", { path: "1-projects/beta.md" }, served(bucket, tree), "private");
   // Search lists the bucket when it has no index, and is not one of the six.
   await callTool("search_notes", { query: "alpha" }, served(bucket, tree), "private");

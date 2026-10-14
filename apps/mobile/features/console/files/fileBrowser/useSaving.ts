@@ -21,6 +21,7 @@ import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
 import type { OfflineQueueValues } from "./useOfflineQueue";
+import type { TrashedNoteValues } from "./useTrashedNote";
 
 type SavingDeps =
   & Pick<FileActionsValues, "workspaceId" | "writeNote">
@@ -37,12 +38,13 @@ type SavingDeps =
     | "setNotice"
   >
   & Pick<OfflineQueueValues, "announceSaved" | "offlineRef">
-  & Pick<ListingsValues, "refresh" | "reportRefreshFailure">;
+  & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
+  & Pick<TrashedNoteValues, "trashedRef">;
 
 export function useSaving(deps: SavingDeps) {
   const {
     announceSaved, autosave, autosaveNowRef, collaborationPaths, dispatch, editorRef, offlineRef,
-    refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote,
+    refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote, trashedRef,
   } = deps;
 
   /**
@@ -286,6 +288,8 @@ export function useSaving(deps: SavingDeps) {
       if (collaborationPaths.current.has(path)) return;
       // Its file is moving; the draft follows it there (`renamingRef`).
       if (renamingRef.current?.path === path) return;
+      // In the trash: a write here would put it back behind the trash's back.
+      if (trashedRef.current?.path === path) return;
       if (!autosaves(current)) return;
       performSave(path, current.draft, current.etag);
     },

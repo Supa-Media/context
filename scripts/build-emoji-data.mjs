@@ -25,7 +25,7 @@ const VERSION = "8.1.0";
 const TARBALL = `https://registry.npmjs.org/gemoji/-/gemoji-${VERSION}.tgz`;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const out = join(resolve(here, ".."), "apps", "mobile", "features", "console", "files", "emoji", "standardEmoji.generated.ts");
+const out = join(resolve(here, ".."), "packages", "shared", "src", "standardEmoji.generated.ts");
 
 /** One file out of a tar archive, by name. */
 function untar(archive, wanted) {

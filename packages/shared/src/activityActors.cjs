@@ -11,6 +11,14 @@
 const CONSOLE_CLIENT_NAME = "Context (this app)";
 
 /**
+ * The texting assistant's client was "Texts (iMessage)" until it took Tex's
+ * name (owner, 2026-10-14; `TEXTS_CLIENT_NAME` in `textLinks.ts`). Lines from
+ * before then are read as Tex, so its work is one name in the feed.
+ */
+const TEXTS_CLIENT_NAME = "Tex";
+const LEGACY_TEXTS_CLIENT_NAME = "Texts (iMessage)";
+
+/**
  * The AI client a change came through, or null when it was a person's own hand.
  *
  * The console reads and writes through the gateway with a grant of its own, so
@@ -22,7 +30,8 @@ const CONSOLE_CLIENT_NAME = "Context (this app)";
  */
 function clientOf(via) {
   if (typeof via !== "string" || via === "") return null;
-  return via === CONSOLE_CLIENT_NAME ? null : via;
+  if (via === CONSOLE_CLIENT_NAME) return null;
+  return via === LEGACY_TEXTS_CLIENT_NAME ? TEXTS_CLIENT_NAME : via;
 }
 
 /**

@@ -171,6 +171,10 @@ export const getStorageBindingReturns = v.union(
     handoffBucket: v.optional(v.string()),
     handoffClaimed: v.optional(v.boolean()),
     handoffFailedKeys: v.optional(v.array(v.string())),
+    /** Owner only: files over the file limit the last move left where they were. */
+    leftBehind: v.optional(
+      v.object({ bucket: v.string(), keys: v.array(v.string()), count: v.number(), at: v.number() }),
+    ),
     handoffReadyToSwitch: v.optional(v.boolean()),
     handoffExistingFiles: v.optional(v.union(v.literal("replace"), v.literal("merge"))),
     /** Owner only: until when the old managed bucket is kept after a move out. */
@@ -263,6 +267,7 @@ export async function getStorageBindingHandler(
     handoffBucket: customerHandoff?.targetBucket,
     handoffClaimed: customerHandoff?.targetClaimed,
     handoffFailedKeys: customerHandoff?.failedKeys,
+    leftBehind: isOwner ? binding.leftBehind : undefined,
     handoffReadyToSwitch: customerHandoff?.readyToCutover,
     handoffExistingFiles: customerHandoff?.existingFiles,
     managedRetainedUntil: plan?.managedRetainedUntil,
