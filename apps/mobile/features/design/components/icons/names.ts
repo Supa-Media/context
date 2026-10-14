@@ -82,6 +82,8 @@ export const ICON_NAMES = [
   "trash",
   /** Archive, on a phone's select bar (board 16): a lidded box, since nothing is deleted. */
   "archive",
+  /** @shared in the account card: what people sent you. See `files.tsx`. */
+  "tray",
   /**
    * Recent, drawn as a clock because every platform draws recency as one.
    *

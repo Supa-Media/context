@@ -659,6 +659,8 @@ export interface ConsoleData {
   whatsNew?: true;
   /** Live, signed-in console only, like `whatsNew`: routine notes' run bar and runs (`routines/RoutineHost.tsx`). */
   routines?: true;
+  /** Live, signed-in console only, like `whatsNew`: @shared's row and its dot (`shared/SharedInboxHost.tsx`). */
+  sharedInbox?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**
