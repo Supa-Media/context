@@ -11,6 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import { isRetryableMeaningError } from "../vectorize";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 export type MeaningRowStatus = "provisioning" | "backfilling" | "ready" | "failed" | "releasing";
@@ -267,8 +268,10 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
 
   for (const row of [...(await due("backfilling", MEANING_STALL_MS)), ...(await due("ready", MEANING_REFRESH_MS))]) {
     if (!row.enabled) continue;
-    // Touched now, so the next sweep does not start a second chain over it.
+    // Touched now, so the next sweep does not start a second chain over it,
+    // and an archived workspace's row is not read first by every sweep.
     await ctx.db.patch(row._id, { updatedAt: now });
+    if (await workspaceArchived(ctx.db, row.workspaceId)) continue;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: row.workspaceId,
       scope: "private",
@@ -278,6 +281,10 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
   }
   for (const row of await due("failed", MEANING_RETRY_MS)) {
     if (!row.enabled) continue;
+    if (await workspaceArchived(ctx.db, row.workspaceId)) {
+      await ctx.db.patch(row._id, { updatedAt: now });
+      continue;
+    }
     if (!isRetryableMeaningError(row.errorCode) && row.updatedAt >= now - MEANING_CONFIG_RETRY_MS) continue;
     await ctx.db.patch(row._id, {
       status: "provisioning",

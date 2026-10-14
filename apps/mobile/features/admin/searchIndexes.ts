@@ -64,6 +64,8 @@ export type WorkspaceIndexes = {
   convex: IndexCell;
   /** The copy's facts behind Lists, Boards, the map and the chaos score, for the row's detail. */
   details: IndexCell;
+  /** Only archived accounts hold it: nothing runs on it, and it never needs attention. */
+  archived: boolean;
   /** Newest change we know of across them, for the Changed column. */
   changedAt: number | null;
   /** The raw rows, for the buttons that act on them. */
@@ -79,6 +81,13 @@ export function healthTone(health: IndexHealth): DotTone {
 }
 
 const NONE: IndexCell = { health: "none", label: "—", figure: null, progress: null, problem: null, tiers: null };
+
+/**
+ * A workspace only archived accounts hold (admin › People › Archive): no round
+ * or Start all touches it, so each of its indexes reads Archived, not Stuck
+ * (the owner, 2026-10-14).
+ */
+const ARCHIVED: IndexCell = { health: "off", label: "Archived", figure: null, progress: null, problem: null, tiers: null };
 
 const format = (n: number) => n.toLocaleString("en-US");
 
@@ -251,16 +260,18 @@ export function joinIndexes(
     const changed = [entry.meaning?.updatedAt ?? null, copy?.sweptAt ?? null].filter(
       (n): n is number => n !== null,
     );
-    const convex = convexCell(copy, paused);
+    const archived = entry.meaning?.archived === true || copy?.archived === true;
+    const convex = archived ? ARCHIVED : convexCell(copy, paused);
     const pending = movesOf.get(workspaceId) ?? [];
     return {
       workspaceId,
       slug: entry.slug,
-      files: filesCell(convex, pending),
-      fast: fastCell(entry.meaning?.fastSearch ?? null),
-      meaning: meaningCell(entry.meaning),
+      files: archived ? ARCHIVED : filesCell(convex, pending),
+      fast: archived ? ARCHIVED : fastCell(entry.meaning?.fastSearch ?? null),
+      meaning: archived ? ARCHIVED : meaningCell(entry.meaning),
       convex,
-      details: factsCell(copy, paused),
+      details: archived ? ARCHIVED : factsCell(copy, paused),
+      archived,
       changedAt: changed.length === 0 ? null : Math.max(...changed),
       meaningRow: entry.meaning,
       migrationRow: copy,
@@ -282,9 +293,9 @@ export function healthCounts(rows: readonly WorkspaceIndexes[], key: IndexKey): 
 /** `ready`, `indexing` and so on for a summary card, in the index's own words; only the non-zero ones. */
 export function countParts(key: IndexKey, counts: Record<IndexHealth, number>): { health: IndexHealth; text: string }[] {
   const words: Record<IndexKey, Record<"ok" | "working" | "stuck" | "off", string>> = {
-    files: { ok: "ready", working: "copying", stuck: "stuck or differ", off: "paused or skipped" },
-    fast: { ok: "ready", working: "indexing", stuck: "failed", off: "off" },
-    meaning: { ok: "ready", working: "indexing", stuck: "failed", off: "off" },
+    files: { ok: "ready", working: "copying", stuck: "stuck or differ", off: "paused, skipped or archived" },
+    fast: { ok: "ready", working: "indexing", stuck: "failed", off: "off or archived" },
+    meaning: { ok: "ready", working: "indexing", stuck: "failed", off: "off or archived" },
   };
   return (["ok", "working", "stuck", "off"] as const)
     .filter((health) => counts[health] > 0)

@@ -29,6 +29,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { indexingPrioritiesValidator } from "../indexingPriorities";
 import { meaningStatusValidator } from "../schema/meaning";
 import { MEANING_PASS_CHAIN, enableMeaningHandler, meaningRowFor } from "../meaningFns/rows";
+import { workspaceArchived } from "../archivedWorkspaces";
 
 /** Rows the report reads. Far above today's estate; the report says when it stopped short. */
 const REPORT_ROWS = 1_000;
@@ -56,6 +57,8 @@ export const meaningIndexRowValidator = v.object({
     v.null(),
   ),
   updatedAt: v.number(),
+  /** Only archived accounts hold it, so no sweep or Restart all starts work on it. */
+  archived: v.boolean(),
 });
 
 export const meaningIndexReportValidator = v.object({
@@ -106,6 +109,7 @@ export async function meaningIndexReportHandler(ctx: QueryCtx): Promise<MeaningI
                 priorities: fast.priorities ?? null,
               },
         updatedAt: row.updatedAt,
+        archived: await workspaceArchived(ctx.db, workspace),
       };
     }),
   );
@@ -173,6 +177,7 @@ export async function restartStuckMeaningIndexes(ctx: MutationCtx): Promise<{ re
   }
   let restarted = 0;
   for (const workspaceId of stuck) {
+    if (await workspaceArchived(ctx.db, workspaceId)) continue;
     if ((await restartMeaningIndex(ctx, workspaceId)) === "restarted") restarted += 1;
   }
   return { restarted };

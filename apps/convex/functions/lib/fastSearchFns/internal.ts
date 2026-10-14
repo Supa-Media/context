@@ -22,6 +22,7 @@ import {
   type SearchProjectionState,
 } from "../fastSearch";
 import { bindingFor } from "./helpers";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
@@ -233,6 +234,8 @@ export async function sweepStalledBackfillsHandler(
     if (!row.optedIn) continue;
     // The chain's own heartbeat, never `updatedAt`: see `chainedAt`.
     if (now - (row.chainedAt ?? row.createdAt) < BACKFILL_STALL_MS) continue;
+    // Only archived accounts hold it: left where it stopped (`lib/archivedWorkspaces.ts`).
+    if (await workspaceArchived(ctx.db, row.workspaceId)) continue;
     await ctx.db.patch(row._id, { chainedAt: now });
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: row.workspaceId,
@@ -265,6 +268,7 @@ export async function sweepStalledBackfillsHandler(
     const workspace = await ctx.db.get(row.workspaceId);
     if (workspace === null) continue;
     if (!fastSearchEntitled(workspace)) continue;
+    if (await workspaceArchived(ctx.db, workspace)) continue;
 
     // A database with the current schema failed while copying: resume the
     // copy where its cursor stopped, counters kept. Anything short of that
