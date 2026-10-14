@@ -313,15 +313,22 @@ export function withPendingMoves(store, moves, options = {}) {
  * here, so a note inside a folder whose queued move is still copying is found,
  * shown at its new name, and never shown to anyone the move took it from.
  *
+ * `isVisible` is the whole of the protection on that read, because
+ * `getStillAt` is the store's own `get` with the pending-move guard taken
+ * off. A caller that supplies none is therefore answered `null` rather than
+ * the bytes: the gate is shut by default, so adding a reader cannot quietly
+ * reopen the old name. A key no move is carrying needs no check and is read
+ * as it always was.
+ *
  * @param {{ get: (key: string) => Promise<any>, getStillAt?: (key: string) => Promise<any>, pendingMoves?: unknown }} store
  * @param {string} key
- * @param {(path: string) => boolean} [isVisible]
+ * @param {(path: string) => boolean} [isVisible] required for a key a move carries
  */
 export async function readAtTreeName(store, key, isVisible) {
   const pending = pendingMovesOf(store?.pendingMoves);
   const named = pending.length > 0 ? logicalPath(key, pending) : key;
   if (named === key) return await store.get(key);
-  if (typeof isVisible === "function" && !isVisible(named)) return null;
+  if (typeof isVisible !== "function" || !isVisible(named)) return null;
   return typeof store.getStillAt === "function" ? await store.getStillAt(key) : await store.get(key);
 }
 
