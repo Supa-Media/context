@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { WORKSPACE_ICON_EMOJI, isSingleEmoji } from "@context/shared";
 import { densityFor } from "../../app/frame";
@@ -14,6 +14,7 @@ import { Shell, type DialogAnchor } from "./DialogShell";
 import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
 import { baseName, displayName, folderLabel, isMarkdown } from "./paths";
 import { defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
+import { randomIcon } from "@context/shared/src/iconSuggest";
 
 /** How many of every emoji are drawn at first, and added each time the list is scrolled near its end. */
 export const EMOJI_PAGE = 240;
@@ -51,6 +52,11 @@ interface Cell {
  * default 📥", and is absent while the default is what shows.
  *
  * A note gets the same dialog (2026-10-13); only its words change.
+ *
+ * Above the grid, before anything is typed, two quick picks (decided by the
+ * owner, 2026-10-14, instead of giving things an emoji on their own): the one
+ * Clef suggests from the name (`suggest`, absent where nothing can be asked),
+ * and a random one with a Shuffle button. Both are taps like any other cell.
  */
 export function FolderIconDialog({
   path,
@@ -58,6 +64,7 @@ export function FolderIconDialog({
   onSet,
   onClose,
   anchor,
+  suggest,
 }: {
   path: string;
   /** The icon drawn now (chosen, or a built-in folder's default), or `null`. */
@@ -67,6 +74,8 @@ export function FolderIconDialog({
   onClose: () => void;
   /** Opened from the folder's icon in the tree: a popover there rather than a dialog in the middle. */
   anchor?: DialogAnchor;
+  /** The emoji suggested from the name, or `null` for none. Never rejects. */
+  suggest?: () => Promise<string | null>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -78,6 +87,22 @@ export function FolderIconDialog({
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [shown, setShown] = useState(EMOJI_PAGE);
+  // `undefined` while Clef is asked, `null` for no suggestion.
+  const [suggested, setSuggested] = useState<string | null | undefined>(suggest === undefined ? null : undefined);
+  const [random, setRandom] = useState(() => randomIcon());
+
+  useEffect(() => {
+    if (suggest === undefined) return;
+    let live = true;
+    void suggest().then((icon) => {
+      if (live) setSuggested(icon);
+    });
+    return () => {
+      live = false;
+    };
+    // Asked once per opening: the name does not change while the dialog is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const custom = host?.names ?? NO_NAMES;
   const fallback = defaultFolderIcon(path);
@@ -122,6 +147,59 @@ export function FolderIconDialog({
         onBlur={() => setFocused(false)}
         testID="folder-icon-search"
       />
+      {query.trim() !== "" ? null : (
+        <View style={styles.picks} testID="folder-icon-picks">
+          {suggested === null ? null : (
+            <View style={styles.pick}>
+              {suggested === undefined ? (
+                <View style={styles.cell} testID="folder-icon-suggested-wait">
+                  <Text variant="meta" style={styles.waiting}>…</Text>
+                </View>
+              ) : (
+                <Pressable
+                  role="button"
+                  accessibilityLabel={`Use the suggested ${suggested} as this ${note ? "note" : "folder"}’s icon`}
+                  disabled={busy}
+                  onPress={() => void choose(suggested)}
+                  style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+                    styles.cell,
+                    hovered && styles.cellHover,
+                    current === suggested && styles.cellChosen,
+                  ]}
+                  testID="folder-icon-suggested"
+                >
+                  <EmojiGlyph emoji={suggested} size={26} textStyle={styles.glyph} fallback={<Text variant="meta">?</Text>} />
+                </Pressable>
+              )}
+              <Text variant="meta" style={styles.pickLabel}>Suggested</Text>
+            </View>
+          )}
+          <View style={styles.pick}>
+            <Pressable
+              role="button"
+              accessibilityLabel={`Use ${random} as this ${note ? "note" : "folder"}’s icon`}
+              disabled={busy}
+              onPress={() => void choose(random)}
+              style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+                styles.cell,
+                hovered && styles.cellHover,
+                current === random && styles.cellChosen,
+              ]}
+              testID="folder-icon-random"
+            >
+              <EmojiGlyph emoji={random} size={26} textStyle={styles.glyph} fallback={<Text variant="meta">?</Text>} />
+            </Pressable>
+            <Text variant="meta" style={styles.pickLabel}>Random</Text>
+            <Button
+              label="Shuffle"
+              variant="dialog"
+              onPress={() => setRandom((was) => randomIcon(Math.random, was))}
+              disabled={busy}
+              testID="folder-icon-shuffle"
+            />
+          </View>
+        </View>
+      )}
       <ScrollView
         style={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -278,6 +356,10 @@ const makeStyles = (colors: Colors) =>
     cellChosen: { borderColor: colors.accent, backgroundColor: colors.accentDim },
     glyph: { fontSize: t.title, lineHeight: 32 },
     empty: { paddingVertical: space.x3 },
+    picks: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x4 },
+    pick: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    pickLabel: { color: colors.muted },
+    waiting: { color: colors.muted },
     actions: { flexDirection: "row", gap: space.x2, flexWrap: "wrap", marginTop: space.x2 },
     error: { color: colors.crit },
   });

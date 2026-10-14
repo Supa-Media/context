@@ -116,3 +116,24 @@ folders, also can we add emojis to plain notes like activity"), reversing the
 **Reversing the visibility rule** (a note's icon shown with its folder) leaks
 held-back notes' names; `folderIcons.test.ts`'s "a member never sees the icon
 of a note held back" fails.
+
+## The picker suggests an emoji, and offers a random one
+
+Decided by the owner, 2026-10-14, after first asking for every new or renamed
+folder and note to be given an emoji on its own and then taking that back
+("don't add emojis immediately, automatically"). Nothing gets an icon unless a
+person picks one. Opening the picker shows two quick picks above the grid:
+
+- **Suggested**: Clef reads the name alone (never a note's text, never its
+  folders) and answers two choice questions, a topic and then an emoji in it,
+  from the list in `packages/shared/src/iconSuggest.ts`. Every emoji in that
+  list is one the picker offers under the same shortcode
+  (`folderIconPicks.test.ts`), so a suggestion is never something a person
+  could not have picked by hand. A name that says nothing (`untitled-…`,
+  `New folder`) is not sent. Metered as the `iconSuggest` feature, every plan,
+  editors only (`folderIcons.suggest`).
+- **Random**: one from the same list, with Shuffle to roll again.
+
+**Assigning icons automatically** would fill `folder-icons.json` with picks
+nobody made, and the owner said no.
+
