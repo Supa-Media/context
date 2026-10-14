@@ -209,7 +209,8 @@ test("rules handed back to the file mid-request are no longer rendered, so the r
   // after this request's store was built: the control plane answers null.
   const bucket = new MemoryStore();
   bucket.seed(PRIVACY_KEY, manifest([["1-projects", "team"]], []));
-  const authority = fakeAuthority(held([], []));
+  // Held rules under which the write is a change: one that changes nothing asks nobody.
+  const authority = fakeAuthority(held([["1-projects", "team"]], []));
   authority.write = async (change) => {
     authority.calls.push(["write", change]);
     return null;
@@ -288,4 +289,26 @@ test("renderWithRules keeps the prose and replaces only the block", () => {
   assert.match(text, /^# Kept/);
   assert.deepEqual(rulesOfText(text).folders, [{ prefix: "y", visibility: "team" }]);
   assert.deepEqual(rulesOfText(renderWithRules(null, held([], []))), { folders: [], notes: [] });
+});
+
+test("recording what the rules already say asks nothing of the authority or the bucket", async () => {
+  // save_context and write_note record `team` after every team write. In a
+  // team folder with no rule for the note that changes nothing, and asking the
+  // control plane for it anyway is what failed every save in a workspace whose
+  // rule set had outgrown the route (2026-10-14).
+  for (const rules of [null, held([["0-inbox", "team"]], [["0-inbox/held.md", "private"]])]) {
+    const bucket = new MemoryStore();
+    bucket.seed(PRIVACY_KEY, manifest([["0-inbox", "team"]], [["0-inbox/held.md", "private"]]));
+    const authority = fakeAuthority(rules);
+    authority.write = async () => {
+      throw new Error("control plane unavailable: status 400");
+    };
+    const store = withPrivacyAuthority(bucket, authority);
+    bucket.failPuts = true;
+    const folder = [{ prefix: "0-inbox", vis: "team" }];
+    await persistExactVisibility(store, "0-inbox/sessions/claude/new.md", "team", folder);
+    await persistExactVisibility(store, "0-inbox/held.md", "private", folder);
+    // A real change still asks, and still fails loudly when it cannot be made.
+    await assert.rejects(persistExactVisibility(store, "0-inbox/held.md", "team", folder));
+  }
 });

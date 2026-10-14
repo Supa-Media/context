@@ -525,6 +525,22 @@ describe("the gateway's route", () => {
     }
   });
 
+  test("takes a rule set far past an ordinary request's size", async () => {
+    // A workspace that keeps every saved session as its own rule sends all of
+    // them on every change. @supa passed 64 KB and every privacy change there
+    // was answered 400 (2026-10-14).
+    const { t, aliceWs } = await authoritative();
+    const notes = Array.from({ length: 1_500 }, (_, i) => ({
+      path: `0-inbox/sessions/claude/2026-10-14T06-35-11-${String(i).padStart(4, "0")}Z.md`,
+      visibility: "team",
+    }));
+    const body = { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "write", expected: "e1", folders: [], notes };
+    expect(JSON.stringify(body).length).toBeGreaterThan(64_000);
+    const answer = await bodyOf(await post(t, body));
+    expect(answer).toMatchObject({ ok: true, swapped: { etag: expect.stringMatching(/^ctx-/) } });
+    expect((await rowOf(t, aliceWs))?.notes).toHaveLength(1_500);
+  });
+
   test("a queued move's ticket counts while its job holds the lease", async () => {
     const { t, alice, aliceWs, grantA } = await authoritative();
     const ticket = token("move_ticket");
