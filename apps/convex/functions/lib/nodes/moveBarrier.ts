@@ -22,7 +22,8 @@ import type { ActionCtx } from "../../../_generated/server";
 import { promotePath, withPendingMoves } from "../../../../mcp/src/moves/queued.js";
 import { clearanceOf } from "../clearance";
 import { FileOpError } from "../fileOps/errors";
-import { assertNotMainFolder, requirePath } from "../fileOps/paths";
+import { requirePath } from "../fileOps/paths";
+import { assertNoNameTwin, assertNotProtectedFolder } from "../fileOps/nameTwins";
 import { assertWritablePath } from "../fileOps/writing";
 import type { ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
@@ -76,16 +77,21 @@ export async function runMoveOperation(
     const to = requirePath(args.operation.to);
     assertWritablePath(from);
     assertWritablePath(to);
-    assertNotMainFolder(from);
+    // Asked of the tree, on a store of its own so the move's walks below are unchanged.
+    const named = Object.create(store) as FileStore;
+    attachTreeListing(ctx, args.workspaceId, named);
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    await assertNotProtectedFolder(named, from, clearance);
     if (from === to || to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {
       throw new FileOpError("PATH_INVALID", "A folder cannot be moved into, onto or over itself.");
     }
+    await assertNoNameTwin(named, to, clearance, "folder", from);
     moved = await startQueuedMove(ctx, {
       workspaceId: args.workspaceId,
       store,
       from,
       to,
-      clearance: clearanceOf(args.scope, args.grantedNames ?? []),
+      clearance,
       now: Date.now(),
     });
   } catch (error) {

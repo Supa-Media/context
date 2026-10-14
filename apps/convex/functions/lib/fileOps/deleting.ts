@@ -15,8 +15,9 @@ import {
   tombstoneDocument as tombstoneCollaborationDocument,
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
+import { assertNotProtectedFolder } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
-import { assertNotMainFolder, requirePath, timestampSlug } from "./paths";
+import { requirePath, timestampSlug } from "./paths";
 import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
@@ -58,7 +59,7 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
@@ -149,7 +150,7 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
   // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
   const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
@@ -430,7 +431,7 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
