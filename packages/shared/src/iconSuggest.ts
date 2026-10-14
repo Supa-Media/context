@@ -177,8 +177,19 @@ function stateFor(path: string, kind: "folder" | "note"): string {
   return `A ${kind} in someone's notes is named "${nameWords(path)}".`;
 }
 
+/**
+ * The first question, worded as the owner asked (2026-10-14): Clef is not
+ * choosing the best group, it is choosing the group that holds the best
+ * single emoji, and it is shown how. The examples are names the live check
+ * does not ask about, so they teach the question rather than its answers.
+ */
 const groupInstructions = (kind: "folder" | "note") =>
-  `Which of these groups of emoji most likely holds the best icon for this ${kind}, judging by its name?`;
+  `We want one emoji to be the icon of this ${kind}. Each option is a group of emoji. ` +
+  "Do not choose the group that fits the name best as a whole: choose the group that contains " +
+  "the one emoji that would make the best icon, even if the rest of that group has nothing to do with the name. " +
+  'For example, "dentist" is best shown by 🦷, which sits with body parts, not with doctors and medicine; ' +
+  '"garden" by 🌱, which sits with plants; "deadlines" by ⏰, which sits with clocks; ' +
+  '"invoices" by 🧾, which sits with money; "first steps" by 1️⃣, which sits with numbers.';
 
 const emojiInstructions = (kind: "folder" | "note") =>
   `Which emoji would make the best icon for this ${kind}, judging by its name? ` +
@@ -203,10 +214,13 @@ export function groupRequest(path: string, kind: "folder" | "note"): SuggestRequ
   return { state: stateFor(path, kind), questions: { group: { type: "choice", instructions: groupInstructions(kind), criteria } } };
 }
 
-/** The second question: which emoji in that group? `null` for a group that does not exist. */
-export function emojiRequest(path: string, kind: "folder" | "note", group: number): SuggestRequest | null {
-  const members = suggestGroups()[group];
-  if (members === undefined) return null;
+/**
+ * The second question: which emoji in those groups? `null` when none of them
+ * exists. Two groups of ~30 still fit Clef's 64 options.
+ */
+export function emojiRequest(path: string, kind: "folder" | "note", groups: readonly number[]): SuggestRequest | null {
+  const members = groups.flatMap((group) => suggestGroups()[group] ?? []);
+  if (members.length === 0) return null;
   const all = suggestCandidates();
   const criteria: Record<string, string> = {};
   for (const index of members) criteria[`e${index}`] = all[index]!.about;
@@ -229,18 +243,50 @@ export function readPicks(request: SuggestRequest, answers: Record<string, unkno
 }
 
 /**
+ * The groups Clef thought most likely, best first, at most `count`: its
+ * choice, then the next by the probabilities it gave. A wrong first group
+ * was why vague names missed (`once` went to office supplies), so the
+ * runner-up gets a look too. Only groups the question offered.
+ */
+export function topGroups(request: SuggestRequest, answers: Record<string, unknown> | null, count: number): number[] {
+  const offered = request.questions.group?.criteria ?? {};
+  const answer = answers?.group as { type?: unknown; choice?: unknown; probabilities?: unknown } | undefined;
+  if (answer?.type !== "choice") return [];
+  const ranked: string[] = [];
+  if (typeof answer.choice === "string") ranked.push(answer.choice);
+  if (answer.probabilities !== null && typeof answer.probabilities === "object") {
+    const scores = Object.entries(answer.probabilities as Record<string, unknown>)
+      .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]))
+      .sort((a, b) => b[1] - a[1]);
+    for (const [key] of scores) ranked.push(key);
+  }
+  const out: number[] = [];
+  for (const key of ranked) {
+    if (!Object.prototype.hasOwnProperty.call(offered, key)) continue;
+    const group = Number(key.slice(1));
+    if (!out.includes(group)) out.push(group);
+    if (out.length === count) break;
+  }
+  return out;
+}
+
+/** How many of Clef's likeliest groups the second question reads. */
+export const GROUPS_ASKED = 2;
+
+/**
  * The emoji to suggest for `path`, from its name alone, or `null`: a name
  * that says nothing (nothing is asked), or Clef answering nothing usable.
- * Two questions, one after the other: the group, then the emoji in it.
+ * Two questions, one after the other: the likeliest groups, then the emoji
+ * in them.
  */
-export async function suggestIconFor(path: string, decide: SuggestDecide): Promise<string | null> {
+export async function suggestIconFor(path: string, decide: SuggestDecide, groupsAsked = GROUPS_ASKED): Promise<string | null> {
   if (!nameSaysSomething(path)) return null;
   const kind = path.toLowerCase().endsWith(".md") ? "note" : "folder";
   // The engine now and then fails one request; asked once more, it answers.
   const ask = async (request: SuggestRequest) => (await decide(request)) ?? (await decide(request));
   const first = groupRequest(path, kind);
-  const [group] = readPicks(first, await ask(first));
-  const second = group === undefined ? null : emojiRequest(path, kind, group);
+  const groups = topGroups(first, await ask(first), groupsAsked);
+  const second = emojiRequest(path, kind, groups);
   if (second === null) return null;
   const [pick] = readPicks(second, await ask(second));
   return pick === undefined ? null : suggestCandidates()[pick]!.char;
