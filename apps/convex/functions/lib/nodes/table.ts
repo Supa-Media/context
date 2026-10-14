@@ -193,10 +193,15 @@ export function nodeParityDue(
 /** The bucket key of the privacy manifest. */
 export const NODE_PRIVACY_KEY = "privacy.md";
 
+/** How long a store found unlistable waits before a sweep tries it again. */
+export const NODE_UNSUPPORTED_RETRY_MS = 24 * 60 * 60 * 1000;
+
 /** Whether a walk of the tree in this state should start (or continue) a sweep. */
 export function nodeSweepDue(state: NodeTreeState | null, now: number): boolean {
   if (state === null) return true;
-  if (state.status === "unsupported") return false;
+  // Tried again a day after it was found unlistable; a tree marked so before
+  // the sweep could page by token (no `leaseAt`) is tried at once.
+  if (state.status === "unsupported") return state.leaseAt === undefined || now - state.leaseAt >= NODE_UNSUPPORTED_RETRY_MS;
   if (state.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) return false;
   if (state.cursor !== undefined) return true;
   if (state.status !== "ready" || state.dirty) return true;

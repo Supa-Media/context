@@ -288,8 +288,12 @@ describe("beginState / finishState", () => {
     expect(state).toMatchObject({ cursor: "a/b", startedAt: 4, leaseAt: 9, dirty: false });
   });
 
-  test("an unsupported store refuses to begin", () => {
-    expect(() => beginState({ status: "unsupported", dirty: false, files: 0 }, 1)).toThrow(NodeTreeUnsupportedError);
+  test("an unsupported store, tried again, begins a fresh pass from the top", () => {
+    expect(beginState({ status: "unsupported", dirty: false, files: 3 }, 7)).toEqual({
+      state: { status: "filling", cursor: "", startedAt: 7, leaseAt: 7, dirty: false, files: 3 },
+      cursor: "",
+      startedAt: 7,
+    });
   });
 
   test("finishing makes the tree ready and clears the sweep's bookkeeping, but keeps a dirty request", () => {

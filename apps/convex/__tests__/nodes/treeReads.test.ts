@@ -208,7 +208,7 @@ describe("a first copy not finished is still loading", () => {
       if (row) await ctx.db.patch(row._id, { status: "unsupported" });
     });
     await expect(operate(t, ws, "private", { kind: "list", path: "" })).rejects.toMatchObject({
-      data: { code: TREE_LOADING, message: expect.stringMatching(/cannot be listed/) },
+      data: { code: TREE_LOADING, message: expect.stringMatching(/could not be listed/) },
     });
     expect(await sweepsScheduled(t)).toBe(0);
   });
