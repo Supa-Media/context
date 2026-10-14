@@ -9,11 +9,17 @@
  * there is no picture to be had (the emoji was removed, or nothing provides
  * them here) the caller's `fallback` is drawn instead, which for a folder is
  * the plain folder glyph.
+ *
+ * One icon is neither: `TEX_FIGURE_ICON`, `tex/`'s default, which is Tex
+ * itself at a chaos of 0, the calm # with its eyes.
  */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Image, View, type StyleProp, type TextStyle } from "react-native";
 import { customEmojiShortcode } from "@context/shared";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
+
+import { Tex } from "../../chaos/Tex";
 
 import { Text } from "../../design/components/Text";
 import { useCustomEmoji } from "./context";
@@ -34,6 +40,7 @@ export function EmojiGlyph({
   fallback?: ReactNode;
   testID?: string;
 }) {
+  if (emoji === TEX_FIGURE_ICON) return <Tex chaos={0} size={size} testID={testID} />;
   const name = customEmojiShortcode(emoji);
   if (name === null) {
     return (

@@ -51,8 +51,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/emoji/emojiComplete.ts": "9b9beeea0c51c4a7eab16e7b6772ccf2d83ae4ef6176ae7e2620da2a121f4187",
   "apps/mobile/features/console/files/emoji/emojiInline.ts": "002e66d767205bbc550a9917c317ea4e450928b735c6500c696543df3444e3e9",
   "apps/mobile/features/console/files/emoji/host.ts": "df52d3b23399905ae4967d3ec3d3cef43402445dfe1d73e5ada119e184b2a914",
-  "apps/mobile/features/console/files/emoji/standardEmoji.generated.ts": "cca64139f96c4f3411400401d99a84c6991b6a8adddc52497173cce92e832230",
-  "apps/mobile/features/console/files/emoji/standardEmoji.ts": "093d78043c3d22f523a1cf85ca663126f7a24ac7a327c05a7fa3ccea44109cbc",
+  "apps/mobile/features/console/files/emoji/standardEmoji.ts": "9e94cfbbf65d5d828ab19591de62575e0641d0caa86bdd1555a6bdf3cdc4d616",
   "apps/mobile/features/console/files/formBlock.ts": "9f87396c9ef547309dace123c9999374987f1b3856e91e5db11980a1b5c1c410",
   "apps/mobile/features/console/files/formComplete.ts": "485eb9ea9d7992a9685cd8eed8553ee8661c56e2a37e00af7dc299838ff7953d",
   "apps/mobile/features/console/files/imageBlock.ts": "ee970dcd1b2207abcb55625c0f70b362bed11323638fd730dec8a89cbd4d962b",
@@ -142,6 +141,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
   "packages/shared/src/folderRoles.cjs": "2836044e0f1ea83192591c5fdf711e01955637a6d9189c381d96d9d6ec121aa8",
   "packages/shared/src/links.ts": "6ab36cf688cefea27d1606fc55efaa93174f763f18b06e29a68d48126062fe4c",
+  "packages/shared/src/standardEmoji.generated.ts": "cca64139f96c4f3411400401d99a84c6991b6a8adddc52497173cce92e832230",
   "packages/shared/src/websiteCast.ts": "8a84c0e78e67a0d4c3cba3e66944f1d2bd9ce1cc15316af30f709c7521971e8e",
   "packages/shared/src/websiteJoin.ts": "932bada3c41ead60f1f0236eaefabb2ebbefc7ec50bc1e8a27aa205929561235"
 };

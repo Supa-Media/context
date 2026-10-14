@@ -4,121 +4,112 @@
  * 2026-10-14: nothing is given an emoji on its own; the picker offers one
  * suggested from the name, and a random one).
  *
- * ## Why a short list and two questions
+ * ## Why every emoji, in a knockout
  *
  * The suggestion comes from Clef (`lib/jev/`), which never writes text: it
- * picks one of at most 64 options it is given. So it is asked twice. First
- * which of the topics below the name is about, or none of them; then which
- * emoji in that topic fits best. Every answer is therefore one of the emoji
- * written here, and every one of those is checked against the picker's own
- * table by `iconSuggest.test.ts`, so a suggestion is always something the
- * picker could have offered by hand.
+ * picks one of at most 64 options it is given, at most 16 questions a
+ * request. The owner asked for the name to be read against the whole emoji
+ * set, not a short list, so the picker's own table (`standardEmoji.generated.ts`,
+ * about 1,900 emoji) is cut into groups of 64 in Unicode's order, which keeps
+ * like with like. Clef picks the best of each group, two requests side by
+ * side, then the best of the winners in a third. Every answer is therefore an
+ * emoji the picker itself offers, and an answer outside what was asked is no
+ * suggestion rather than a guess.
+ *
+ * It replaced a list of 27 topics and ~320 emoji asked in two steps, which
+ * answered "none of these" for a name like `once` and so suggested nothing.
  *
  * A name that says nothing (`untitled-2026-10-14`, `New folder`, `asdf`) is
  * never sent at all: there is nothing in it to read, and the random roll is
  * the honest answer.
  *
- * Pure, so the control plane and the app share it and the tests need no model.
+ * Pure, so the control plane and the live check share it and the tests need
+ * no model.
  */
 
-/** One emoji: the character the picker stores, and its shortcode (the option key Clef answers with). */
+import { STANDARD_EMOJI_TABLE } from "./standardEmoji.generated";
+
+/** One emoji a suggestion can be: the character the picker stores, and what Clef reads about it. */
+export interface SuggestCandidate {
+  readonly char: string;
+  readonly about: string;
+}
+
+let candidates: SuggestCandidate[] | null = null;
+
+/** Every standard emoji, in the table's order, with its description and tags as Clef reads them. */
+export function suggestCandidates(): readonly SuggestCandidate[] {
+  if (candidates !== null) return candidates;
+  candidates = [];
+  for (const line of STANDARD_EMOJI_TABLE.split("\n")) {
+    const [char, , tags, description] = line.split("\t");
+    if (char === undefined || char === "" || description === undefined) continue;
+    const extra = tags === undefined || tags === "" ? "" : ` (${tags.split(" ").join(", ")})`;
+    candidates.push({ char, about: `${char} ${description}${extra}` });
+  }
+  return candidates;
+}
+
+/** Options in one question: Clef's own ceiling. */
+export const GROUP_SIZE = 64;
+/** Questions in one request: Clef's own ceiling. */
+const QUESTIONS_PER_REQUEST = 16;
+
+/** The emoji a random roll draws from: ones that make a nice surprise, by shortcode. */
+const RANDOM_LIST = `
+  💼 briefcase 🏢 office 👔 necktie 🤝 handshake 📈 chart_with_upwards_trend 📊 bar_chart 📋 clipboard
+  🗂️ card_index_dividers 📁 file_folder 📑 bookmark_tabs 🎯 dart 🏆 trophy 🚀 rocket 📌 pushpin 🧲 magnet
+  🗓️ spiral_calendar 📆 calendar 📅 date ⏰ alarm_clock ⌛ hourglass ⏱️ stopwatch ✅ white_check_mark
+  ☑️ ballot_box_with_check 📍 round_pushpin 📝 memo ✏️ pencil2 🚩 triangular_flag_on_post 🏁 checkered_flag
+  🧭 compass 🗺️ world_map 📚 books 📖 book 📓 notebook 📒 ledger 📕 closed_book 📗 green_book 📘 blue_book
+  📙 orange_book 📄 page_facing_up 📜 scroll 📰 newspaper ✒️ black_nib 🖋️ fountain_pen ✍️ writing_hand
+  🔖 bookmark 💭 thought_balloon ✉️ envelope 📨 incoming_envelope 📩 envelope_with_arrow 📫 mailbox
+  📞 telephone_receiver 📱 iphone 💬 speech_balloon 🗨️ left_speech_bubble 📢 loudspeaker 📣 mega 📡 satellite
+  🌐 globe_with_meridians 📇 card_index 👋 wave 👥 busts_in_silhouette 👤 bust_in_silhouette 👪 family
+  🫂 people_hugging ❤️ heart 💕 two_hearts 💑 couple_with_heart 👶 baby 🧒 child 🧓 older_adult 🙌 raised_hands
+  🤗 hugs 💍 ring 💒 wedding 🎂 birthday 💰 moneybag 💵 dollar 💳 credit_card 🏦 bank 🧾 receipt 🪙 coin
+  💸 money_with_wings 💎 gem ⚖️ balance_scale 🧮 abacus 🐷 pig 🏠 house 🏡 house_with_garden 🛋️ couch_and_lamp
+  🛏️ bed 🔑 key 🔨 hammer 🔧 wrench 🧰 toolbox 🧹 broom 🪴 potted_plant 🚪 door 🛁 bathtub 🧺 basket 💡 bulb
+  🧽 sponge 🍳 fried_egg 🍴 fork_and_knife 🍽️ plate_with_cutlery 🍔 hamburger 🍕 pizza 🍜 ramen 🍣 sushi
+  🥗 green_salad ☕ coffee 🍵 tea 🍷 wine_glass 🍺 beer 🍰 cake 🍎 apple 🥑 avocado 🍞 bread 🧁 cupcake 🍲 stew
+  🌮 taco 🛒 shopping_cart 💪 muscle 🏃 runner 💊 pill 🩺 stethoscope 🏥 hospital 💉 syringe 🦷 tooth 🧠 brain
+  😴 sleeping 🧘 lotus_position 🚴 bicyclist 🏋️ weight_lifting 🏊 swimmer ⚽ soccer 🏀 basketball 🎾 tennis
+  🥦 broccoli 🍏 green_apple ✈️ airplane 🧳 luggage 🌎 earth_americas 🏖️ beach_umbrella ⛰️ mountain 🏕️ camping
+  🚗 car 🚆 train2 🚌 bus 🚢 ship 🛂 passport_control 🏨 hotel 🗽 statue_of_liberty 🏝️ desert_island
+  🌍 earth_africa 🌱 seedling 🌲 evergreen_tree 🌳 deciduous_tree 🌿 herb 🍀 four_leaf_clover 🌻 sunflower
+  🌸 cherry_blossom 🌹 rose ☀️ sunny 🌙 crescent_moon ⭐ star 🌈 rainbow 🌊 ocean 🔥 fire ❄️ snowflake ⚡ zap
+  ☁️ cloud 🍄 mushroom 🌵 cactus 🍂 fallen_leaf 🐶 dog 🐱 cat 🦊 fox_face 🐻 bear 🐼 panda_face 🐰 rabbit 🦉 owl
+  🐦 bird 🦋 butterfly 🐝 bee 🐢 turtle 🐙 octopus 🐳 whale 🐬 dolphin 🐴 horse 🦄 unicorn 🦁 lion
+  🐵 monkey_face 🐧 penguin 🐸 frog 🎵 musical_note 🎶 notes 🎸 guitar 🎤 microphone 🎙️ studio_microphone
+  🎧 headphones 🎹 musical_keyboard 🥁 drum 🎻 violin 🎺 trumpet 🎷 saxophone 📻 radio 🔊 loud_sound
+  🎚️ level_slider 🎨 art 🖌️ paintbrush 🖍️ crayon 🖼️ framed_picture 📷 camera 📸 camera_flash 🎥 movie_camera
+  🎬 clapper 🎞️ film_strip 📐 triangular_ruler ✂️ scissors 🧵 thread 🧶 yarn ✨ sparkles 🎭 performing_arts
+  👗 dress 👕 shirt 💄 lipstick 💻 computer 🖥️ desktop_computer ⌨️ keyboard 🤖 robot ⚙️ gear 🔌 electric_plug
+  🔋 battery 💾 floppy_disk 🐛 bug 🔒 lock 🛡️ shield 🔗 link 📦 package 🧩 jigsaw 🛠️ hammer_and_wrench
+  🔬 microscope 🔭 telescope 🧪 test_tube 🧬 dna ⚛️ atom_symbol 🪐 ringed_planet 🌌 milky_way ⚗️ alembic
+  🧫 petri_dish 🔢 1234 🎓 mortar_board 🏫 school 📏 straight_ruler 🔤 abc 🎒 school_satchel 🗣️ speaking_head
+  🙏 pray ⛪ church 🛐 place_of_worship 🕊️ dove 🕯️ candle ✝️ latin_cross ✡️ star_of_david 🕌 mosque 🌅 sunrise
+  🎉 tada 🎊 confetti_ball 🎈 balloon 🎁 gift 🎇 sparkler 🎆 fireworks 🎟️ tickets 🎪 circus_tent 💃 dancer
+  🍾 champagne 🥂 clinking_glasses 🥳 partying_face 🎮 video_game 🕹️ joystick 🎲 game_die ♟️ chess_pawn
+  🏈 football ⚾ baseball ⛳ golf 🏅 medal_sports 🥇 1st_place_medal 🎳 bowling 🏓 ping_pong 🔮 crystal_ball
+  🔍 mag ❓ question 👀 eyes 💫 dizzy 🗄️ file_cabinet 🗃️ card_file_box 🗑️ wastebasket 📂 open_file_folder
+  📥 inbox_tray 📤 outbox_tray 🗝️ old_key ⏳ hourglass_flowing_sand 🏛️ classical_building 📃 page_with_curl
+  🪪 identification_card 🗳️ ballot_box 🛍️ shopping 🏷️ label 👓 eyeglasses 👜 handbag 👟 athletic_shoe ⌚ watch
+  📺 tv 📽️ film_projector 🏗️ building_construction 🚧 construction 🧱 bricks 🔩 nut_and_bolt
+`;
+
+/** One emoji of the random pool: its character and shortcode. */
 export interface SuggestEmoji {
   readonly char: string;
   readonly name: string;
 }
 
-export interface SuggestTopic {
-  /** The option key. */
-  readonly key: string;
-  /** What Clef reads to decide whether a name is about this. */
-  readonly about: string;
-  readonly emoji: readonly SuggestEmoji[];
-}
-
-/** `"🗓️ spiral_calendar 📅 date"` to its pairs. Written this way so the list stays readable. */
-function pairs(text: string): SuggestEmoji[] {
-  const parts = text.trim().split(/\s+/);
+/** Every emoji a random roll can land on, once each. */
+export const SUGGEST_EMOJI: readonly SuggestEmoji[] = (() => {
+  const parts = RANDOM_LIST.trim().split(/\s+/);
   const out: SuggestEmoji[] = [];
   for (let at = 0; at + 1 < parts.length; at += 2) out.push({ char: parts[at]!, name: parts[at + 1]! });
   return out;
-}
-
-function topic(key: string, about: string, emoji: string): SuggestTopic {
-  return { key, about, emoji: pairs(emoji) };
-}
-
-export const SUGGEST_TOPICS: readonly SuggestTopic[] = [
-  topic("work", "Work, business, a company, a job, clients, meetings, reports",
-    "💼 briefcase 🏢 office 👔 necktie 🤝 handshake 📈 chart_with_upwards_trend 📊 bar_chart 📋 clipboard 🗂️ card_index_dividers 📁 file_folder 📑 bookmark_tabs 🎯 dart 🏆 trophy 🚀 rocket 📌 pushpin 🧲 magnet"),
-  topic("planning", "Plans, schedules, calendars, deadlines, to-do lists, goals, routines",
-    "🗓️ spiral_calendar 📆 calendar 📅 date ⏰ alarm_clock ⌛ hourglass ⏱️ stopwatch ✅ white_check_mark ☑️ ballot_box_with_check 📍 round_pushpin 📝 memo ✏️ pencil2 🚩 triangular_flag_on_post 🏁 checkered_flag 🧭 compass 🗺️ world_map"),
-  topic("writing", "Writing, reading, notes, journals, books, drafts, essays, quotes",
-    "📚 books 📖 book 📓 notebook 📒 ledger 📕 closed_book 📗 green_book 📘 blue_book 📙 orange_book 📄 page_facing_up 📜 scroll 📰 newspaper ✒️ black_nib 🖋️ fountain_pen ✍️ writing_hand 🔖 bookmark 💭 thought_balloon"),
-  topic("communication", "Messages, email, chat, phone calls, contacts, announcements, social media",
-    "✉️ envelope 📨 incoming_envelope 📩 envelope_with_arrow 📫 mailbox 📞 telephone_receiver 📱 iphone 💬 speech_balloon 🗨️ left_speech_bubble 📢 loudspeaker 📣 mega 📡 satellite 🌐 globe_with_meridians 📇 card_index 👋 wave"),
-  topic("people", "People, family, friends, relationships, a team, a community, kids, love",
-    "👥 busts_in_silhouette 👤 bust_in_silhouette 👪 family 🫂 people_hugging 🤝 handshake ❤️ heart 💕 two_hearts 💑 couple_with_heart 👶 baby 🧒 child 🧓 older_adult 🙌 raised_hands 🤗 hugs 💍 ring 💒 wedding 🎂 birthday"),
-  topic("money", "Money, finance, budgets, taxes, invoices, banking, investing, expenses, pricing",
-    "💰 moneybag 💵 dollar 💳 credit_card 🏦 bank 🧾 receipt 🪙 coin 💸 money_with_wings 💎 gem ⚖️ balance_scale 🧮 abacus 📈 chart_with_upwards_trend 🐷 pig"),
-  topic("home", "Home, house, apartment, chores, repairs, furniture, garden, moving house",
-    "🏠 house 🏡 house_with_garden 🛋️ couch_and_lamp 🛏️ bed 🔑 key 🔨 hammer 🔧 wrench 🧰 toolbox 🧹 broom 🪴 potted_plant 🚪 door 🛁 bathtub 🧺 basket 💡 bulb 🧽 sponge"),
-  topic("food", "Food, cooking, recipes, restaurants, groceries, drinks, coffee, meals",
-    "🍳 fried_egg 🍴 fork_and_knife 🍽️ plate_with_cutlery 🍔 hamburger 🍕 pizza 🍜 ramen 🍣 sushi 🥗 green_salad ☕ coffee 🍵 tea 🍷 wine_glass 🍺 beer 🍰 cake 🍎 apple 🥑 avocado 🍞 bread 🧁 cupcake 🍲 stew 🌮 taco 🛒 shopping_cart"),
-  topic("health", "Health, fitness, exercise, doctors, medicine, sleep, mental health, sport",
-    "💪 muscle 🏃 runner 💊 pill 🩺 stethoscope 🏥 hospital 💉 syringe 🦷 tooth 🧠 brain 😴 sleeping 🧘 lotus_position 🚴 bicyclist 🏋️ weight_lifting 🏊 swimmer ⚽ soccer 🏀 basketball 🎾 tennis 🥦 broccoli 🍏 green_apple"),
-  topic("travel", "Travel, trips, holidays, flights, hotels, places, cities, commuting, cars",
-    "✈️ airplane 🧳 luggage 🗺️ world_map 🌎 earth_americas 🏖️ beach_umbrella ⛰️ mountain 🏕️ camping 🚗 car 🚆 train2 🚌 bus 🚢 ship 🛂 passport_control 🏨 hotel 🗽 statue_of_liberty 🏝️ desert_island 🧭 compass 🌍 earth_africa"),
-  topic("nature", "Nature, plants, weather, seasons, the outdoors, the environment, sky, the sea",
-    "🌱 seedling 🌲 evergreen_tree 🌳 deciduous_tree 🌿 herb 🍀 four_leaf_clover 🌻 sunflower 🌸 cherry_blossom 🌹 rose ☀️ sunny 🌙 crescent_moon ⭐ star 🌈 rainbow 🌊 ocean 🔥 fire ❄️ snowflake ⚡ zap ☁️ cloud 🍄 mushroom 🌵 cactus 🍂 fallen_leaf"),
-  topic("animals", "Animals, pets, dogs, cats, birds, wildlife",
-    "🐶 dog 🐱 cat 🦊 fox_face 🐻 bear 🐼 panda_face 🐰 rabbit 🦉 owl 🐦 bird 🦋 butterfly 🐝 bee 🐢 turtle 🐙 octopus 🐳 whale 🐬 dolphin 🐴 horse 🦄 unicorn 🦁 lion 🐵 monkey_face 🐧 penguin 🐸 frog"),
-  topic("music", "Music, songs, bands, gigs, audio, podcasts, recording, playlists",
-    "🎵 musical_note 🎶 notes 🎸 guitar 🎤 microphone 🎙️ studio_microphone 🎧 headphones 🎹 musical_keyboard 🥁 drum 🎻 violin 🎺 trumpet 🎷 saxophone 📻 radio 🔊 loud_sound 🎚️ level_slider"),
-  topic("art", "Art, design, drawing, photos, video, film, fashion, crafts, creativity",
-    "🎨 art 🖌️ paintbrush 🖍️ crayon 🖼️ framed_picture 📷 camera 📸 camera_flash 🎥 movie_camera 🎬 clapper 🎞️ film_strip 📐 triangular_ruler ✂️ scissors 🧵 thread 🧶 yarn ✨ sparkles 🎭 performing_arts 👗 dress 👕 shirt 💄 lipstick"),
-  topic("tech", "Technology, software, code, apps, computers, AI, data, the internet, security",
-    "💻 computer 🖥️ desktop_computer ⌨️ keyboard 📱 iphone 🤖 robot ⚙️ gear 🔌 electric_plug 🔋 battery 💾 floppy_disk 🐛 bug 🔒 lock 🔑 key 🛡️ shield 🔗 link 📦 package 🧩 jigsaw 🛠️ hammer_and_wrench 🌐 globe_with_meridians"),
-  topic("science", "Science, research, experiments, space, medicine research, engineering, maths",
-    "🔬 microscope 🔭 telescope 🧪 test_tube 🧬 dna ⚛️ atom_symbol 🧲 magnet 🪐 ringed_planet 🌌 milky_way ⚗️ alembic 🧫 petri_dish 📐 triangular_ruler 🔢 1234 🧮 abacus 🚀 rocket"),
-  topic("learning", "School, learning, studying, courses, classes, teaching, homework, languages",
-    "🎓 mortar_board 🏫 school 📚 books ✏️ pencil2 📏 straight_ruler 🔤 abc 🎒 school_satchel 🧠 brain 💡 bulb 📝 memo 🗣️ speaking_head 🌍 earth_africa"),
-  topic("faith", "Faith, church, worship, prayer, ministry, spirituality, religion, a congregation",
-    "🙏 pray ⛪ church 🛐 place_of_worship 🕊️ dove 🕯️ candle ✝️ latin_cross ✡️ star_of_david 🕌 mosque 🙌 raised_hands 🌅 sunrise 📖 book ❤️ heart 🎶 notes"),
-  topic("events", "Events, parties, celebrations, birthdays, weddings, gatherings, tickets, festivals",
-    "🎉 tada 🎊 confetti_ball 🎈 balloon 🎁 gift 🎂 birthday 🎇 sparkler 🎆 fireworks 🎟️ tickets 🎪 circus_tent 💃 dancer 🍾 champagne 🥂 clinking_glasses 🥳 partying_face 🎭 performing_arts"),
-  topic("games", "Games, sport, play, competitions, hobbies, puzzles",
-    "🎮 video_game 🕹️ joystick 🎲 game_die 🧩 jigsaw ♟️ chess_pawn ⚽ soccer 🏀 basketball 🏈 football ⚾ baseball 🎾 tennis ⛳ golf 🏆 trophy 🏅 medal_sports 🥇 1st_place_medal 🎳 bowling 🏓 ping_pong"),
-  topic("ideas", "Ideas, thinking, brainstorming, questions, inspiration, dreams, research notes",
-    "💡 bulb 💭 thought_balloon 🧠 brain ✨ sparkles 🔮 crystal_ball 🔍 mag ❓ question 👀 eyes ⭐ star 💫 dizzy 🌈 rainbow 🔭 telescope 🧩 jigsaw"),
-  topic("storage", "Archives, old things, backups, storage, files kept for later, inbox, trash",
-    "🗄️ file_cabinet 🗃️ card_file_box 📦 package 🗑️ wastebasket 🗂️ card_index_dividers 📁 file_folder 📂 open_file_folder 📥 inbox_tray 📤 outbox_tray 🗝️ old_key ⏳ hourglass_flowing_sand"),
-  topic("legal", "Legal, contracts, government, policies, rules, documents, IDs, voting",
-    "⚖️ balance_scale 🏛️ classical_building 📃 page_with_curl 📜 scroll ✒️ black_nib 🔒 lock 🛡️ shield 🪪 identification_card 🗳️ ballot_box 📋 clipboard"),
-  topic("shopping", "Shopping, products, orders, wishlists, clothes, gifts to buy",
-    "🛍️ shopping 🛒 shopping_cart 🎁 gift 🏷️ label 📦 package 💳 credit_card 🧾 receipt 👓 eyeglasses 👜 handbag 👟 athletic_shoe ⌚ watch 👗 dress"),
-  topic("media", "News, media, TV, film, video, podcasts, press, content, publishing, a website",
-    "📰 newspaper 📺 tv 📻 radio 🎥 movie_camera 🎬 clapper 📷 camera 🎙️ studio_microphone 📽️ film_projector 📢 loudspeaker 🌐 globe_with_meridians 🖥️ desktop_computer"),
-  topic("marketing", "Marketing, growth, sales, launches, ads, brand, customers, outreach",
-    "📣 mega 📈 chart_with_upwards_trend 🚀 rocket 🎯 dart 🌱 seedling ⭐ star 🔥 fire 🤝 handshake 💬 speech_balloon 🏆 trophy 🧲 magnet ✨ sparkles"),
-  topic("building", "Building, construction, projects in progress, making things, engineering, renovation",
-    "🏗️ building_construction 🚧 construction 🛠️ hammer_and_wrench 🧱 bricks 📐 triangular_ruler ⚙️ gear 🧰 toolbox 🔨 hammer 🔩 nut_and_bolt 🚀 rocket"),
-];
-
-/** The option Clef picks when the name is about none of the topics. */
-export const NO_TOPIC = "none_of_these";
-
-/** Every emoji in the list, once each, in order: what a random roll draws from. */
-export const SUGGEST_EMOJI: readonly SuggestEmoji[] = (() => {
-  const seen = new Set<string>();
-  const all: SuggestEmoji[] = [];
-  for (const { emoji } of SUGGEST_TOPICS) {
-    for (const one of emoji) {
-      if (seen.has(one.char)) continue;
-      seen.add(one.char);
-      all.push(one);
-    }
-  }
-  return all;
 })();
 
 /** Emoji that make a poor surprise: fine when the name asks for them, not as a random pick. */
@@ -167,55 +158,90 @@ function stateFor(path: string, kind: "folder" | "note"): string {
   return `A ${kind} in someone's notes is named "${nameWords(path)}".`;
 }
 
-/** The first question: which topic is this name about? */
-export function topicRequest(path: string, kind: "folder" | "note") {
+const instructionsFor = (kind: "folder" | "note") =>
+  `Which emoji would make the best icon for this ${kind}, judging by its name? ` +
+  "Pick the one whose meaning is closest to the name, even if none is perfect.";
+
+/** A Clef request: what `jev.decide` and the live check's Worker both take. */
+export interface SuggestRequest {
+  state: string;
+  questions: Record<string, { type: "choice"; instructions: string; criteria: Record<string, string> }>;
+}
+
+/** Asks Clef, and answers its answers or `null` when it did not. */
+export type SuggestDecide = (request: SuggestRequest) => Promise<Record<string, unknown> | null>;
+
+const keyOf = (index: number) => `e${index}`;
+
+function criteriaFor(indexes: readonly number[]): Record<string, string> {
+  const all = suggestCandidates();
   const criteria: Record<string, string> = {};
-  for (const one of SUGGEST_TOPICS) criteria[one.key] = one.about;
-  criteria[NO_TOPIC] = "None of these: the name is not about any of these topics, or says nothing";
+  for (const index of indexes) criteria[keyOf(index)] = all[index]!.about;
+  return criteria;
+}
+
+/**
+ * The first round: every emoji, in groups of `GROUP_SIZE`, one question a
+ * group, as few requests as Clef's question ceiling allows, split evenly.
+ */
+export function groupRequests(path: string, kind: "folder" | "note"): SuggestRequest[] {
+  const total = suggestCandidates().length;
+  const groups: number[][] = [];
+  for (let start = 0; start < total; start += GROUP_SIZE) {
+    groups.push(Array.from({ length: Math.min(GROUP_SIZE, total - start) }, (_, at) => start + at));
+  }
+  const requests = Math.ceil(groups.length / QUESTIONS_PER_REQUEST);
+  const per = Math.ceil(groups.length / requests);
+  const out: SuggestRequest[] = [];
+  for (let at = 0; at < groups.length; at += per) {
+    const questions: SuggestRequest["questions"] = {};
+    for (const [offset, group] of groups.slice(at, at + per).entries()) {
+      questions[`g${at + offset}`] = { type: "choice", instructions: instructionsFor(kind), criteria: criteriaFor(group) };
+    }
+    out.push({ state: stateFor(path, kind), questions });
+  }
+  return out;
+}
+
+/** The final: the best of each group's winner. */
+export function finalRequest(path: string, kind: "folder" | "note", winners: readonly number[]): SuggestRequest {
   return {
     state: stateFor(path, kind),
-    questions: {
-      topic: {
-        type: "choice",
-        instructions: `Which topic is this ${kind} about, judging by its name alone?`,
-        criteria,
-      },
-    },
+    questions: { emoji: { type: "choice", instructions: instructionsFor(kind), criteria: criteriaFor(winners) } },
   };
 }
 
-/** The second question: which emoji in that topic fits the name best? */
-export function emojiRequest(path: string, kind: "folder" | "note", topicKey: string) {
-  const chosen = SUGGEST_TOPICS.find((one) => one.key === topicKey);
-  if (chosen === undefined) return null;
-  const criteria: Record<string, string> = {};
-  for (const one of chosen.emoji) criteria[one.name] = one.name.replace(/_/g, " ");
-  return {
-    state: stateFor(path, kind),
-    questions: {
-      emoji: {
-        type: "choice",
-        instructions: `Which emoji would make the best icon for this ${kind}, judging by its name?`,
-        criteria,
-      },
-    },
-  };
+/**
+ * The emoji Clef picked for each question of `request`, by index, leaving
+ * out every answer that is not one of the options that question offered.
+ */
+export function readPicks(request: SuggestRequest, answers: Record<string, unknown> | null): number[] {
+  const picks: number[] = [];
+  for (const [name, question] of Object.entries(request.questions)) {
+    const answer = answers?.[name] as { type?: unknown; choice?: unknown } | undefined;
+    if (answer?.type !== "choice" || typeof answer.choice !== "string") continue;
+    if (!Object.prototype.hasOwnProperty.call(question.criteria, answer.choice)) continue;
+    picks.push(Number(answer.choice.slice(1)));
+  }
+  return picks;
 }
 
-function choiceOf(answers: Record<string, unknown> | null, question: string): string | null {
-  const answer = answers?.[question] as { type?: unknown; choice?: unknown } | undefined;
-  return answer?.type === "choice" && typeof answer.choice === "string" ? answer.choice : null;
-}
-
-/** The topic Clef picked, or `null` for none and anything unexpected. */
-export function readTopic(answers: Record<string, unknown> | null): string | null {
-  const choice = choiceOf(answers, "topic");
-  return choice !== null && SUGGEST_TOPICS.some((one) => one.key === choice) ? choice : null;
-}
-
-/** The emoji Clef picked in `topicKey`, as its character, or `null` for anything not offered. */
-export function readEmoji(answers: Record<string, unknown> | null, topicKey: string): string | null {
-  const choice = choiceOf(answers, "emoji");
-  const chosen = SUGGEST_TOPICS.find((one) => one.key === topicKey);
-  return chosen?.emoji.find((one) => one.name === choice)?.char ?? null;
+/**
+ * The emoji to suggest for `path`, from its name alone, or `null`: a name
+ * that says nothing (nothing is asked), or Clef answering nothing usable.
+ * A group request Clef fails twice is left out rather than failing the rest.
+ */
+export async function suggestIconFor(path: string, decide: SuggestDecide): Promise<string | null> {
+  if (!nameSaysSomething(path)) return null;
+  const kind = path.toLowerCase().endsWith(".md") ? "note" : "folder";
+  const rounds = groupRequests(path, kind);
+  // The engine now and then fails one request; asked once more, it answers.
+  const ask = async (request: SuggestRequest) => (await decide(request)) ?? (await decide(request));
+  const winners = (await Promise.all(rounds.map(async (request) => readPicks(request, await ask(request))))).flat();
+  if (winners.length === 0) return null;
+  const all = suggestCandidates();
+  if (winners.length === 1) return all[winners[0]!]!.char;
+  const final = finalRequest(path, kind, winners);
+  const [pick] = readPicks(final, await decide(final));
+  return pick === undefined ? null : all[pick]!.char;
 }

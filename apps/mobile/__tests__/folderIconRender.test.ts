@@ -18,6 +18,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { WORKSPACE_ICON_EMOJI } from "@context/shared";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 import { ConvexError } from "convex/values";
 import { FileTree } from "../features/console/files/FileTree";
 import { FolderRow } from "../features/console/files/FolderRow";
@@ -101,6 +102,14 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     const container = mount(tree((path) => (path === "2-areas/cooking" ? ICON : null)));
     expect(emojiOn(container, "cooking, folder")).toBe(ICON);
     expect(emojiOn(container, "2-areas, folder")).toBeNull();
+  });
+
+  test("tex/'s default draws Tex as a picture, never its marker as text", () => {
+    const container = mount(tree((path) => (path === "2-areas/cooking" ? TEX_FIGURE_ICON : null)));
+    const glyph = container.querySelector("[aria-label^='cooking, folder'] [data-testid='tree-folder-emoji']");
+    expect(glyph).not.toBeNull();
+    expect(glyph!.querySelector("svg")).not.toBeNull();
+    expect(container.textContent).not.toContain(TEX_FIGURE_ICON);
   });
 
   test("the name of a folder with an icon is still its name", () => {
