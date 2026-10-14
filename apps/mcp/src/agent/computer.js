@@ -49,6 +49,13 @@ export const SEARCH_WEB_TOOL = "search_web";
 
 /** Pages one turn may open: a bound on browser time as much as on latency. */
 export const MAX_PAGES_PER_TURN = 5;
+/**
+ * Pages one turn may open when the setup opened the web (owner, 2026-10-14:
+ * "get all the capabilities and then we'll rein it back"). The default stays
+ * 5 because there the cap also bounds the bits a choice *between* links can
+ * carry; open web already gave up that bound on purpose.
+ */
+export const MAX_PAGES_PER_TURN_OPEN_WEB = 40;
 
 /**
  * How sure Clef must be of the next link before it is opened ahead of the
@@ -138,6 +145,14 @@ const OPEN_PAGE_DEFINITION = {
     required: ["urls"],
   },
   annotations: { readOnlyHint: true },
+};
+
+/** The same tool when the setup opened the web: the model is not told it may not. */
+const OPEN_PAGE_OPEN_WEB_DEFINITION = {
+  ...OPEN_PAGE_DEFINITION,
+  description:
+    "Open web pages and read their text and links. Pass every page you need at once in urls; " +
+    "they open together, which is much faster than one at a time. You can open any public https address.",
 };
 
 const SEARCH_WEB_DEFINITION = {
@@ -244,6 +259,8 @@ export function webSession(computer, question, { decide = null, search = null, a
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;
+  // The question's page budget, larger once the setup opens the web (`trust`).
+  const pageCap = () => (allowed.webIsOpen() ? MAX_PAGES_PER_TURN_OPEN_WEB : MAX_PAGES_PER_TURN);
   // Doing things on a page (`browse.js`) shares the guard's addresses and
   // the question's page budget with reading one.
   const browser =
@@ -253,7 +270,7 @@ export function webSession(computer, question, { decide = null, search = null, a
           addresses,
           say,
           takePages(n) {
-            if (opened + n > MAX_PAGES_PER_TURN) return false;
+            if (opened + n > pageCap()) return false;
             opened += n;
             return true;
           },
@@ -288,6 +305,12 @@ export function webSession(computer, question, { decide = null, search = null, a
     trust(sites, { openWeb = false } = {}) {
       allowed.trust(sites);
       allowed.openWeb(openWeb);
+      // The turn already holds this list, so its descriptions change in place:
+      // under open web the model is not told the address and typing rules.
+      tools.forEach((tool, i) => {
+        if (tool.name === OPEN_PAGE_TOOL) tools[i] = allowed.webIsOpen() ? OPEN_PAGE_OPEN_WEB_DEFINITION : OPEN_PAGE_DEFINITION;
+        if (tool.name === BROWSE_TOOL && browser) tools[i] = browser.definition;
+      });
     },
     /** Ends this question's browser, if it opened one. */
     close: () => browser?.close() ?? Promise.resolve(),
@@ -305,9 +328,10 @@ export function webSession(computer, question, { decide = null, search = null, a
           true,
         );
       }
-      if (opened + wanted.length > MAX_PAGES_PER_TURN) {
+      const cap = pageCap();
+      if (opened + wanted.length > cap) {
         return text(
-          `That's more pages than one question can open (${MAX_PAGES_PER_TURN}, ${MAX_PAGES_PER_TURN - opened} left). Answer with what you have, or open fewer.`,
+          `That's more pages than one question can open (${cap}, ${cap - opened} left). Answer with what you have, or open fewer.`,
           true,
         );
       }
@@ -324,7 +348,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       }
       if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
       const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page)));
-      const next = decide !== null && opened < MAX_PAGES_PER_TURN ? await guessNext(decide, question, pages, seen, usage) : null;
+      const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.
       if (next !== null && allowed.has(next)) {

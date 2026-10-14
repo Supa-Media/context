@@ -44,6 +44,35 @@ answered"), `bench/test/judge.test.mjs` ("a task's checks are graded from the
 run's record and never sent"), `bench/test/tasks.test.mjs` (a scripted model
 connects ChatGPT end to end and passes every check of task 1).
 
+## A short core set is the default run; the long sets stay for rounds (2026-10-14)
+
+Decided by the owner on 2026-10-14: "we have like sixty questions, we
+probably need to reduce it to twenty golden task questions or ten for now and
+see if we could do some basic things." `bench/ai/tests/core.md` is fifteen
+basics, every one `kind: task` and so a gate: a lookup, two facts, a lookup
+across workspaces, a fact the notes don't have, a to-do list, a write to the
+note that covers it, a tick-off, a correction, a greeting, "are you a bot", a
+web lookup, connecting ChatGPT, saving a login, a one-off reminder and a
+weekday routine. Most are copied from `texting-assistant.md` and `tasks.md`
+with their wording and lines; the two reminders are new.
+
+- **It is what runs when no test is named**: `pnpm ai run texting-assistant`
+  (`testFor` in `bench/run.mjs`) and the Action with `test` left empty. The
+  long sets, `texting-assistant.md` (59 questions) and `tasks.md`, are kept
+  unchanged and run by name, for a full round before a promotion.
+- **A reminder is graded on the note it wrote**, not on the reply:
+  `must write: maya/routines/once/ with at: 2026-10-09 9:00 am` passes only
+  when the run's record has a note written under that folder whose front
+  matter says that date and time, read the way `routines.cjs` reads it, so
+  `9am` and `09:00` are the same and tomorrow's date is not today's.
+
+What a "simplification" would cost: running only the long sets makes a round
+too slow and dear to run on every prompt change, so the basics stop being
+checked; dropping the long sets loses the privacy gates and the voice
+questions a promotion needs. Tests: `bench/test/run.test.mjs` ("the texting
+assistant runs its core set unless a test is named"), `bench/test/checks.test.mjs`
+(a one-off reminder fails on the wrong day, hour, folder or workspace).
+
 ## How Tex does a job lives in a skill note, read when it applies (2026-10-11)
 
 A setup names its skills, one line each saying when it applies:

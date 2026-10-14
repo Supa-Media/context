@@ -49,6 +49,8 @@ import { systemPrompt } from "./prompt.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
+import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
+import { aboutMePrompt } from "./aboutMe.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -240,6 +242,12 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   model router (`router.js`): the decision engine that picks a tier for this
  *   text, and the model a `think` text runs on; `route.js` checks it can be called
  * @param {() => number} [options.clock] milliseconds, for `timing`
+ * @param {string[]|null} [options.coreTools] the setup's core tools: offer
+ *   those and `find_tools`, the rest by name (`toolShelf.js`); null offers all
+ * @param {Array<{tool: object, call: Function}>} [options.local] tools this
+ *   turn answers itself rather than through the MCP
+ * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
+ *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
 export async function runTurn(options) {
@@ -263,6 +271,9 @@ export async function runTurn(options) {
     roundCap = MAX_ROUNDS,
     progress = null,
     toolTimeouts = {},
+    coreTools = null,
+    local = [],
+    aboutMe = null,
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -273,7 +284,20 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  const tools = [...(options.tools ?? []), ...(web?.tools ?? []), ...(progress ? [progress.tool] : [])];
+  const tools = [
+    ...(options.tools ?? []),
+    ...(web?.tools ?? []),
+    ...local.map((entry) => entry.tool),
+    ...(progress ? [progress.tool] : []),
+  ];
+  // Tools answered here rather than by the MCP (`route.js`'s earlier texts).
+  const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
+  /*
+    THE SHELF (`toolShelf.js`): with the setup's core tools, the model is
+    offered those and `find_tools`, and the rest are named in the prompt and
+    loaded on request. Without them, everything, as before.
+  */
+  const shelf = Array.isArray(coreTools) ? toolShelf(tools, coreTools) : null;
   // A tool that is slow by nature (a browser step) may name its own limit.
   const timeoutFor = (name) =>
     Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
@@ -314,7 +338,9 @@ export async function runTurn(options) {
       used: usedTools(history),
     }) +
     webPrompt(webNames) +
-    (progress ? PROGRESS_PROMPT : "");
+    (progress ? PROGRESS_PROMPT : "") +
+    (shelf ? shelf.prompt() : "") +
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") }));
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -358,12 +384,17 @@ export async function runTurn(options) {
     exactly one place that decides what the agent may reach.
   */
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
+  if (shelf) offeredNames.add(FIND_TOOLS);
 
   for (let round = 0; round < rounds; round += 1) {
     const asked = clock();
     let answer;
     try {
-      answer = await requestBuiltin({ model, system, messages, tools }, providerOptions.ai, providerOptions);
+      answer = await requestBuiltin(
+        { model, system, messages, tools: shelf ? shelf.shown() : tools },
+        providerOptions.ai,
+        providerOptions,
+      );
     } catch (error) {
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
@@ -446,10 +477,16 @@ export async function runTurn(options) {
       }
       let result;
       const called = clock();
+      // Held but not loaded: the model knew its name from the prompt, so it is loaded and run.
+      if (shelf?.isShelved(call.name)) shelf.loadOne(call.name);
       try {
         result = await withinTime(
-          progress && call.name === PROGRESS_TOOL
+          shelf && call.name === FIND_TOOLS
+            ? Promise.resolve(shelf.call(call.args))
+            : progress && call.name === PROGRESS_TOOL
             ? progress.call(call.args)
+            : localCalls.has(call.name)
+            ? localCalls.get(call.name)(call.args)
             : webNames.has(call.name)
               ? web.call(call.name, call.args)
               : callTool(call.name, call.args),

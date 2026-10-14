@@ -19,6 +19,15 @@
  *   it types (`infra/site-shots/src/browse.ts`), so a page that redirects
  *   between the gateway's yes and the keys gets nothing.
  *
+ * All of that is the default, what a self-hosted gateway gets. With
+ * `open_web: yes` in the setup (`trustedSites.js`) the typing rule is lifted
+ * (owner, 2026-10-14: "let's remove the safety guards for browsers ... get all
+ * the capabilities and then we'll rein it back"): any words may be typed on
+ * any page, with no host re-check, and a question gets
+ * `MAX_STEPS_PER_TURN_OPEN_WEB` steps. The vault's fill step, which the model
+ * never calls, and the browser's refusal of private addresses are not part of
+ * that.
+ *
  * Clicking is not limited: where a click leads is the page's choice, written
  * before the agent read anything, the same reason a link on a page may be
  * opened. What remains is the choice *between* things to click, which the
@@ -44,6 +53,8 @@ const SKILL_VALUE = /`([^`\n]{1,200})`/g;
 /** Steps in one call, and in one question. */
 export const MAX_STEPS_PER_CALL = 10;
 export const MAX_STEPS_PER_TURN = 40;
+/** Steps in one question when the setup opened the web: the turn's rounds bound it, not this. */
+export const MAX_STEPS_PER_TURN_OPEN_WEB = 400;
 
 const MAX_ELEMENTS_SHOWN = 80;
 const MAX_TEXT_SHOWN = 8_000;
@@ -61,14 +72,20 @@ const HANDOFF_SENTENCE =
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
 
+/** The default description's two rules, and what it says instead when the setup opened the web. */
+const ADDRESS_RULE =
+  "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
+const TYPING_RULE = "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. ";
+const OPEN_WEB_RULES = "goto can open any public https address. You can type anything on any page. ";
+
 export const BROWSE_DEFINITION = {
   name: BROWSE_TOOL,
   description:
     "Use a web browser to do things on a site: open a page, click, type, choose options, go back, scroll. " +
     "Each reading numbers what you can press or type into, like [7]; steps name those numbers as ref. " +
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
-    "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. " +
-    "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. " +
+    ADDRESS_RULE +
+    TYPING_RULE +
     HANDOFF_SENTENCE +
     "Use open_page instead when you only need to read.",
   inputSchema: {
@@ -97,6 +114,14 @@ export const BROWSE_DEFINITION = {
   },
   annotations: { openWorldHint: true },
 };
+
+/** This question's browse definition: no handoff sentence without a handoff, no rules under open web. */
+function definitionFor({ handOff, openWeb }) {
+  let description = BROWSE_DEFINITION.description;
+  if (!handOff) description = description.replace(HANDOFF_SENTENCE, NO_HANDOFF_SENTENCE);
+  if (openWeb) description = description.replace(ADDRESS_RULE + TYPING_RULE, OPEN_WEB_RULES);
+  return description === BROWSE_DEFINITION.description ? BROWSE_DEFINITION : { ...BROWSE_DEFINITION, description };
+}
 
 /** Lower-case words and numbers, in any script. */
 function wordsOf(text) {
@@ -206,20 +231,24 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
     return { reading, ran: Array.isArray(result.ran) ? result.ran : [] };
   }
 
+  // The setup's `open_web: yes`, read when needed: `trust` comes after this session is made.
+  const webIsOpen = () => allowed.webIsOpen?.() === true;
+
   return {
     // Only a browser that can be handed over is described as one (`canHandOff`).
-    definition:
-      computer.canHandOff?.() === true
-        ? BROWSE_DEFINITION
-        : { ...BROWSE_DEFINITION, description: BROWSE_DEFINITION.description.replace(HANDOFF_SENTENCE, NO_HANDOFF_SENTENCE) },
+    get definition() {
+      return definitionFor({ handOff: computer.canHandOff?.() === true, openWeb: webIsOpen() });
+    },
 
     async call(args) {
       const asked = Array.isArray(args?.steps) ? args.steps : [];
       if (asked.length === 0 || asked.length > MAX_STEPS_PER_CALL) {
         return textResult(`Pass between 1 and ${MAX_STEPS_PER_CALL} steps.`, true);
       }
-      if (steps + asked.length > MAX_STEPS_PER_TURN) {
-        return textResult(`That's all the browsing one question gets (${MAX_STEPS_PER_TURN} steps). Answer with what you have.`, true);
+      const openWeb = webIsOpen();
+      const stepCap = openWeb ? MAX_STEPS_PER_TURN_OPEN_WEB : MAX_STEPS_PER_TURN;
+      if (steps + asked.length > stepCap) {
+        return textResult(`That's all the browsing one question gets (${stepCap} steps). Answer with what you have.`, true);
       }
       const planned = [];
       let gotos = 0;
@@ -241,7 +270,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "type") {
           if (typeof step.text !== "string") return textResult("A type step needs text.", true);
           let onlyOn = null;
-          if (!onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
+          // Open web: anything on any page, and no host re-check at the keys.
+          if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
             if (theirSites.length === 0) {
               return textResult(
                 "You can only type the person's own words here, or a value a skill you read this question gives (read_skill). To type anything else, the person has to name the site in their message.",
