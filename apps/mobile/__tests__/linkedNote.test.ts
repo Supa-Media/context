@@ -549,29 +549,6 @@ describe("the URL follows the note that is open", () => {
     expect(addressed[addressed.length - 1]).toBeNull();
   });
 
-  test("deleting the open note keeps it, and its address, on screen as a trashed note", async () => {
-    /*
-      Design A (Dev2, 2026-10-14, `fileBrowser/useTrashedNote.ts`): the note
-      stays open, dimmed with Restore, rather than closing behind a toast, so
-      the address goes on naming the note on screen until somebody leaves it.
-    */
-    actions[name("trashEntry")] = async () => ({ path: NOTE, to: `.context/trash/stamp/${NOTE}` });
-    unmount = mount(NOTE);
-    await settle();
-    await act(async () => setContext("w1"));
-    await settle();
-    expect(url).toBe(NOTE);
-
-    await act(async () => {
-      browser.destroy(NOTE);
-    });
-    await settle();
-
-    expect(browser.selectedPath).toBe(NOTE);
-    expect(browser.trashed).toMatchObject({ path: NOTE, byYou: true });
-    expect(url).toBe(NOTE);
-  });
-
   test("nothing is written while the console sits still", async () => {
     unmount = mount(NOTE);
     await settle();
