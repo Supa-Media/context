@@ -90,3 +90,20 @@ IANA zone is ignored and the default is named instead, never guessed at.
 What reversing it costs: Tex asks people what time it is, and works out
 "tomorrow" from nothing. `test/agentLocalNow.test.mjs` and the route checks in
 `test/agent.test.mjs` fail.
+
+## Every turn knows which workspaces there are, and writes where the project is (2026-10-14)
+
+A tester found Tex writing a shared project's notes into their personal
+workspace. A tool call with no `context:` lands in the connection's default,
+the personal workspace for a text. Search already reached every workspace, but
+nothing told a turn that writes a *new* note that the project's workspace
+existed. Now every turn's system prompt lists the workspaces the person can
+reach (`contextsFor`, the same list `orient` and `scope_info` give: names,
+kind, read-only, default), and says to write a note beside its project's notes
+with `context: "@name"`. The default is only for notes about the person alone
+or when nothing points elsewhere, and Tex says which workspace it wrote in
+(`apps/mcp/src/agent/workspaces.js`). A person in one workspace is told
+nothing, and a list longer than 20 points at `scope_info`.
+
+What reversing it costs: project notes pile up in personal workspaces where the
+team can't see them. `test/agentWorkspaces.test.mjs` fails.

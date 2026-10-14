@@ -47,6 +47,7 @@ import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
+import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
@@ -277,6 +278,8 @@ export async function runTurn(options) {
     aboutMe = null,
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
+    // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
+    workspaces = null,
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -344,7 +347,8 @@ export async function runTurn(options) {
     (progress ? PROGRESS_PROMPT : "") +
     (shelf ? shelf.prompt() : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone));
+    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
+    workspacesPrompt(workspaces);
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
