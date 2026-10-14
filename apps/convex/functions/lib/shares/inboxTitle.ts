@@ -4,15 +4,36 @@
  *
  * The title comes from the control plane's copy of the note's facts — its
  * front matter `title:` or first heading (`nodes.props`, `lib/nodes/facts.ts`)
- * — so the list costs no bucket read. A person share already lets its reader
- * open the whole note, so its heading discloses nothing the row's link does
- * not. A sealed note keeps no props and falls back to its file name, which the
- * client draws from `entryPath`.
+ * — so the list costs no bucket read. A sealed note keeps no props and falls
+ * back to its file name, which the client draws from `entryPath`.
+ *
+ * ## AND IT IS RE-DERIVED, BECAUSE A SHARE ROW IS NOT A READ
+ *
+ * This first reasoned that "a person share already lets its reader open the
+ * whole note, so its heading discloses nothing the row's link does not". That
+ * is true when the share is made and false the moment the owner narrows the
+ * note, which is the case the rest of the feature is built around:
+ * `shareStillStands` says in as many words that it "does NOT decide what the
+ * reader may see … the only place that answer can be current is the read
+ * itself", and `readThroughShare` duly refuses the body. The row went on
+ * carrying the heading — the note's own first line of prose, which says more
+ * than the file name beside it.
+ *
+ * So the title is asked the same question the read is, off the same rules
+ * mirror the share-link mint uses (`nodes.teamShareable`): `team` scope with
+ * no granted names, which is how `readThroughShare` opens it. No rules, an
+ * unparsable manifest or a narrowed note each give no title rather than a
+ * stale one. The row itself still stands — only its title is withheld — so
+ * nothing here tells the recipient whether the note is gone or merely closed.
  */
 
 import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
+import { canSee } from "../privacy";
 import { liveNode } from "../nodes/facts";
+import { mirrorRules } from "../nodes/log";
+import { readMirror } from "../nodes/listing";
+import type { Rules } from "../nodes/log";
 
 /** Long enough for any real title, short enough that a row cannot carry a paragraph. */
 const MAX_TITLE = 200;
@@ -39,12 +60,32 @@ export function titleFromProps(props: string | undefined): string | null {
   return oneLine(parsed.properties?.title) ?? oneLine(parsed.heading);
 }
 
-/** The shared note's title, or `null` when the tree has none to give. */
+/**
+ * What a link's readers would be allowed to see in one context, read once.
+ *
+ * Hoisted out of the row loop deliberately: the rules are per workspace and a
+ * list is mostly rows from a handful of them, so parsing the manifest per row
+ * would be the bucket read this list exists to avoid, paid in CPU instead.
+ * `null` where there is nothing readable to judge against, which withholds
+ * every title in that context rather than guessing one.
+ */
+export async function shareableRules(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<Rules | null> {
+  const mirror = await readMirror(ctx.db, workspaceId);
+  if (mirror?.invalid === true) return null;
+  return await mirrorRules(mirror);
+}
+
+/** The shared note's title, or `null` when it is not the recipient's to be told. */
 export async function sharedNoteTitle(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   entryPath: string,
+  rules: Rules | null,
 ): Promise<string | null> {
+  if (rules === null || !canSee(entryPath, "team", rules.rules, rules.overrides)) return null;
   const row = await liveNode(ctx.db, workspaceId, entryPath);
   return row === null ? null : titleFromProps(row.props);
 }

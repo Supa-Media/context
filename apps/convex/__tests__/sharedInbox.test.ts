@@ -107,6 +107,19 @@ describe("what @shared lists", () => {
       });
       // Sealed: no props, so no title.
       await ctx.db.insert("nodes", { ...row, workspaceId: atlas, path: "1-projects/sealed.md", name: "sealed.md" });
+      // The rules these notes are shared under. A title is re-derived against
+      // them (`lib/shares/inboxTitle.ts`), so a fixture without them is a
+      // fixture where nothing is readable and every title is withheld.
+      for (const workspaceId of [anaOwn, atlas]) {
+        await ctx.db.insert("nodePrivacy", {
+          workspaceId,
+          etag: "privacy-1",
+          invalid: false,
+          folders: [{ prefix: "1-projects", visibility: "team" }],
+          notes: [],
+          observedAt: 1,
+        });
+      }
     });
 
     const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
@@ -114,6 +127,58 @@ describe("what @shared lists", () => {
     expect(byPath.get("1-projects/beneath-the-chaos.md")).toMatchObject({ title: "Beneath the Chaos", sharedByName: "Ana Ruiz" });
     expect(byPath.get("1-projects/plan.md")?.title).toBe("Launch week plan");
     expect(byPath.get("1-projects/sealed.md")?.title).toBeNull();
+  });
+
+  test("a note the recipient may no longer read keeps its title out of the row", async () => {
+    /*
+      THE ROW'S TITLE IS NOT ENTITLED TO OUTLIVE THE READ.
+
+      `sharedNoteTitle` justified itself on "a person share already lets its
+      reader open the whole note, so its heading discloses nothing the row's
+      link does not". True when the share is made, and false the moment the
+      owner narrows the note — which is the case the product is built around:
+      `shareStillStands` says in as many words that it "does NOT decide what
+      the reader may see … the only place that answer can be current is the
+      read itself", and `readThroughShare` duly refuses the body. The row went
+      on carrying the heading, which is the note's own first line of prose and
+      says more than the file name beside it.
+
+      Same shape as the website menu that kept the titles of newly-private
+      notes, and the same answer: the title is re-derived, or it is not sent.
+    */
+    const t = setupTest();
+    const { ana, lk, anaOwn } = await scenario(t);
+    await share(t, ana, anaOwn, "2-areas/comp/review.md");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodes", {
+        kind: "file" as const,
+        observedAt: 1,
+        workspaceId: anaOwn,
+        path: "2-areas/comp/review.md",
+        name: "review.md",
+        props: JSON.stringify({ properties: {}, heading: "Pay review: LK, below band" }),
+      });
+      // What the owner changed their mind to: the folder is private, so a
+      // reader at `team` with no names sees nothing here.
+      await ctx.db.insert("nodePrivacy", {
+        workspaceId: anaOwn,
+        etag: "privacy-1",
+        invalid: false,
+        // A readable manifest that simply does not reach this note, so the
+        // title is withheld by the rules and not by an absent mirror.
+        folders: [
+          { prefix: "1-projects", visibility: "team" },
+          { prefix: "2-areas", visibility: "private" },
+        ],
+        notes: [],
+        observedAt: 1,
+      });
+    });
+
+    const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
+    const row = rows.find((entry) => entry.entryPath === "2-areas/comp/review.md");
+    expect(row, "the share row itself still stands; only its title is in question").toBeDefined();
+    expect(row?.title).toBeNull();
   });
 
   test("nobody else sees the row", async () => {
