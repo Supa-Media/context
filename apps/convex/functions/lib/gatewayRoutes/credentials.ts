@@ -90,6 +90,9 @@ export async function gatewayBindingHandler(
   const privacy = await ctx
     .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
     .catch(() => null);
+  // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
+  // Unlike the two above this is not caught: a switch the gateway cannot read must not be guessed at.
+  const idLayout = await ctx.runQuery(internal.functions.noteIds.idLayout, {});
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -123,5 +126,7 @@ export async function gatewayBindingHandler(
     // Eighth: the rules `privacy.md` is written from, while they are the
     // authority. Absent otherwise, and then the gateway reads the file.
     ...(privacy === null ? {} : { privacy }),
+    // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
+    ...(idLayout === null ? {} : { idLayout }),
   });
 }

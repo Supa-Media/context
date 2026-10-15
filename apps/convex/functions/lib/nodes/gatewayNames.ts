@@ -68,7 +68,7 @@ export async function namesFor(ctx: ActionCtx, body: Record<string, unknown>): P
 }
 
 /** The workspace this token may write, chosen from its grant's own set, or null. */
-async function writableWorkspace(ctx: ActionCtx, accessToken: string, expected: string): Promise<Id<"workspaces"> | null> {
+export async function writableWorkspace(ctx: ActionCtx, accessToken: string, expected: string): Promise<Id<"workspaces"> | null> {
   const session = await ctx.runQuery(internal.functions.controlPlane.resolveGrantByAccessToken, {
     hashedAccessToken: await hashToken(accessToken),
   });

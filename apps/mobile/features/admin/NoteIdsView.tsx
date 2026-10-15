@@ -8,8 +8,9 @@
  * `api.functions.noteIds.report`, and every button is one of its mutations.
  * Counts, handles and fixed labels only: a note's name never reaches this view.
  *
- * Reserved: the footer keeps an empty slot at its end for a future
- * "Switch to notes/" button. Nothing is drawn there yet.
+ * The footer's switch says which keys reads use and moves them: "Switch to
+ * notes/" reads note bodies from their id copies, "Switch back to paths" reads
+ * them from their paths again. Either one asks first, in plain words.
  */
 
 import { useMemo, useState } from "react";
@@ -28,9 +29,13 @@ import {
   formatPercent,
   handleLabel,
   isFailing,
+  modeLabel,
+  nextMode,
   pauseLabel,
   sortWorkspaces,
   statusLabel,
+  switchLabel,
+  switchNote,
   type NoteIdsWorkspace,
 } from "./noteIds";
 
@@ -44,8 +49,10 @@ export function NoteIdsView() {
   const setPaused = useMutation(api.functions.noteIds.setPaused);
   const diagnose = useMutation(api.functions.noteIds.diagnose);
   const diagnoseAll = useMutation(api.functions.noteIds.diagnoseAll);
+  const setMode = useMutation(api.functions.noteIds.setMode);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
+  const [confirmingSwitch, setConfirmingSwitch] = useState(false);
 
   const rows = useMemo(() => (report === undefined ? null : sortWorkspaces(report.workspaces)), [report]);
 
@@ -91,6 +98,14 @@ export function NoteIdsView() {
       return "Copying every workspace. Its row updates as it goes.";
     });
 
+  const switchMode = () =>
+    act("switch", async () => {
+      const target = nextMode(report.mode);
+      await setMode({ mode: target });
+      setConfirmingSwitch(false);
+      return target === "ids" ? "Reading from notes/ now." : "Reading from paths again.";
+    });
+
   const diagnoseEverything = () =>
     act("diagnose-all", async () => {
       await diagnoseAll({});
@@ -115,8 +130,9 @@ export function NoteIdsView() {
         <Text variant="rowTitle" role="heading" aria-level={2}>
           Notes by id
         </Text>
-        <Text variant="meta">
-          {paused ? "Paused · " : ""}Mode: {report.mode}
+        <Text variant="meta" testID="admin-noteids-mode">
+          {paused ? "Paused · " : ""}
+          {modeLabel(report.mode)}
         </Text>
         <View style={styles.overall}>
           <Text style={styles.big}>{percent}</Text>
@@ -144,9 +160,31 @@ export function NoteIdsView() {
             onPress={() => void diagnoseEverything()}
             testID="admin-noteids-diagnose-all"
           />
-          {/* Reserved for the future "Switch to notes/" button: its space stays put. */}
-          <View style={styles.reserved} aria-hidden />
+          {confirmingSwitch ? null : (
+            <View style={styles.switchCell}>
+              <Button
+                label={switchLabel(report.mode)}
+                disabled={busy !== null}
+                onPress={() => setConfirmingSwitch(true)}
+                testID="admin-noteids-switch"
+              />
+            </View>
+          )}
         </View>
+        {confirmingSwitch ? (
+          <View style={styles.inline} role="alert" testID="admin-noteids-switch-confirm">
+            <Text variant="check">{switchNote(report.mode)}</Text>
+            <View style={styles.actions}>
+              <Button label="Cancel" disabled={busy !== null} onPress={() => setConfirmingSwitch(false)} />
+              <Button
+                label={busy === "switch" ? "Switching…" : switchLabel(report.mode)}
+                disabled={busy !== null}
+                onPress={() => void switchMode()}
+                testID="admin-noteids-switch-go"
+              />
+            </View>
+          </View>
+        ) : null}
         {said ? (
           <NoticeLine mark={said.tone === "ok" ? "✓" : "!"} tone={said.tone}>
             {said.text}
@@ -268,7 +306,8 @@ const makeStyles = (colors: Colors) =>
     big: { fontSize: pointerType.title, fontWeight: "600", letterSpacing: -0.9, color: colors.text, fontVariant: ["tabular-nums"] },
     overallBar: { flexGrow: 1, flexBasis: 220, gap: space.x2 },
     actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2, paddingTop: space.x2 },
-    reserved: { marginLeft: "auto", minWidth: 150, height: 1 },
+    switchCell: { marginLeft: "auto" },
+    inline: { gap: space.x2, paddingTop: space.x2 },
     row: {
       flexDirection: "row",
       flexWrap: "wrap",

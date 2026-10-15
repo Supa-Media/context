@@ -12,8 +12,9 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, mutation, query, type MutationCtx } from "../_generated/server";
-import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld } from "./lib/noteIds/state";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
+import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
 const statusValidator = v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed"));
@@ -151,6 +152,73 @@ export const setPaused = mutation({
       if (row?.status === "copying" && (await beginCopyPass(ctx, workspaceId, { force: false }))) started += 1;
     }
     return { started };
+  },
+});
+
+/**
+ * The switch between path keys and id keys: which keys reads use. Staff only,
+ * and allowed while the copy is paused, since choosing the keys is not new
+ * copy work. The gateway learns it from `/gateway/binding`'s `idLayout`.
+ */
+export const setMode = mutation({
+  args: { mode: v.union(v.literal("paths"), v.literal("ids")) },
+  returns: v.object({ mode: v.union(v.literal("paths"), v.literal("ids")) }),
+  handler: async (ctx, { mode }) => {
+    const userId = await staffOnly(ctx);
+    const existing = await ctx.db.query("noteIdLayout").first();
+    const fields = { mode, updatedAt: Date.now(), updatedBy: String(userId) };
+    if (existing === null) await ctx.db.insert("noteIdLayout", { paused: false, ...fields });
+    else await ctx.db.patch(existing._id, fields);
+    return { mode };
+  },
+});
+
+/** The switch as `/gateway/binding` carries it: `"ids"` only in ids mode, else null. INTERNAL. */
+export const idLayout = internalQuery({
+  args: {},
+  returns: v.union(v.literal("ids"), v.null()),
+  handler: async (ctx) => {
+    const layout = await ctx.db.query("noteIdLayout").first();
+    return layout?.mode === "ids" ? "ids" : null;
+  },
+});
+
+/**
+ * For each path, the live file's id key and copy, as the gateway's lookup
+ * answers them. A path with no row, a trashed row or a row with no id is left
+ * out. INTERNAL.
+ */
+export const copiesFor = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.array(
+    v.object({ path: v.string(), key: v.string(), etag: v.union(v.string(), v.null()), fresh: v.boolean() }),
+  ),
+  handler: async (ctx, { workspaceId, paths }) => {
+    const found = [];
+    for (const path of paths) {
+      const row = await nodeAt(ctx.db, workspaceId, path);
+      if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) continue;
+      found.push({ path, key: idKeyFor(row.noteId, path), etag: row.idCopy?.etag ?? null, fresh: copyIsFresh(row) });
+    }
+    return found;
+  },
+});
+
+/**
+ * Record that the gateway wrote this path's bytes to its id key, at `etag`.
+ * Recorded only when the row is a live file with an id and `key` is that id's
+ * key for the path; anything else records nothing. The row's own etag may
+ * catch up later, and `copyIsFresh` judges it then. INTERNAL.
+ */
+export const recordCopy = internalMutation({
+  args: { workspaceId: v.id("workspaces"), path: v.string(), key: v.string(), etag: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, path, key, etag }) => {
+    const row = await nodeAt(ctx.db, workspaceId, path);
+    if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) return false;
+    if (idKeyFor(row.noteId, path) !== key) return false;
+    await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now() } });
+    return true;
   },
 });
 
