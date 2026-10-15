@@ -15,7 +15,7 @@
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
-import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
+import type { MutationCtx } from "../../../_generated/server";
 import { isPlumbing } from "../privacy";
 import { COPY_SCAN, copyMatches, idKeyFor } from "../nodes/noteIds";
 
@@ -106,19 +106,4 @@ async function keyRow(ctx: MutationCtx, row: Doc<"nodes">, target: FlipTarget): 
     keyedFrom: { pathEtag: target.pathEtag, keyEtag: target.keyEtag },
     ...(row.parsed === target.pathEtag ? { parsed: target.keyEtag } : {}),
   });
-}
-
-/**
- * The workspace's notes, for the admin report: how many live, non-plumbing file
- * rows there are, and how many of them are keyed. One read of the tree.
- */
-export async function countKeyed(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<{ liveFiles: number; keyed: number }> {
-  const counts = { liveFiles: 0, keyed: 0 };
-  const rows = db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId));
-  for await (const row of rows) {
-    if (row.kind !== "file" || row.goneAt !== undefined || isPlumbing(row.path)) continue;
-    counts.liveFiles += 1;
-    if (row.storageKey !== undefined) counts.keyed += 1;
-  }
-  return counts;
 }

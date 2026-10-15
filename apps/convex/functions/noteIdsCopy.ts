@@ -262,6 +262,7 @@ export const flip = internalMutation({
     const now = Date.now();
     if (copies.keyedAt === undefined) await ctx.db.patch(copies._id, { keyedAt: now, updatedAt: now });
     const page = await flipPage(ctx, workspaceId, after, left === true);
+    if (page.flipped > 0) await ctx.db.patch(copies._id, { flipped: (copies.flipped ?? 0) + page.flipped });
     if (!page.done) {
       await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId, after: page.next, left: page.left });
       return null;

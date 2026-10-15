@@ -14,7 +14,6 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
-import { countKeyed } from "./lib/noteIds/flip";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
@@ -37,7 +36,7 @@ const rowValidator = v.object({
   /** A fixed, path-free label. */
   error: v.union(v.string(), v.null()),
   diagnosis: v.union(v.null(), diagnosisValidator),
-  /** Keys mode only (0 otherwise): live, non-plumbing files, and how many of them are keyed (`notes/` only). */
+  /** Keys mode only (0 otherwise): files the last copy pass counted, and how many rows the flip has keyed (`notes/` only). */
   liveFiles: v.number(),
   keyed: v.number(),
   /** When the workspace's flip to keyed rows started, and when it found none left; null until then. */
@@ -79,8 +78,8 @@ export const report = query({
       if (workspace === null) continue;
       const row = await copyRowOf(ctx.db, workspaceId);
       const counts = { files: row?.files ?? 0, copied: row?.copied ?? 0, failed: row?.failed ?? 0 };
-      // Counted only in keys mode: the count reads every row of the workspace, and nothing is keyed before it.
-      const keys = layout?.mode === "keys" ? await countKeyed(ctx.db, workspaceId) : { liveFiles: 0, keyed: 0 };
+      // Keys mode only: the copy pass's file count, and the flip's own counter (never a read of the tree).
+      const keys = layout?.mode === "keys" ? { liveFiles: counts.files, keyed: row?.flipped ?? 0 } : { liveFiles: 0, keyed: 0 };
       totals.files += counts.files;
       totals.copied += counts.copied;
       totals.failed += counts.failed;

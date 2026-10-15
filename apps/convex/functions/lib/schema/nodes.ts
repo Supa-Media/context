@@ -359,6 +359,8 @@ export const nodeTables = {
     keyedAt: v.optional(v.number()),
     /** The flip found no live file row left unkeyed: every row a copy covers is keyed. */
     keyedDoneAt: v.optional(v.number()),
+    /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
+    flipped: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 
