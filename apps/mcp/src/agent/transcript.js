@@ -28,7 +28,8 @@
  * privacy engine and the note's history see it like any other write, and it
  * is attributed to Tex. A day's note is read once per turn; this turn's part
  * is written between markers after what was there, and rewritten in place as
- * the turn goes on. A write that lost a race re-reads and goes again. A note
+ * the turn goes on, each write read back so another turn's merged part is
+ * kept. A write that lost a race re-reads and goes again. A note
  * that could not be read (anything but "not found") is left alone: a
  * transcript is never worth overwriting a day with one turn.
  *
@@ -263,6 +264,17 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
     });
     if (result?.isError !== true) {
       state.etag = writtenEtag(result) ?? state.etag;
+      /*
+        A collaboratively edited note merges a write made against an older
+        etag rather than refusing it, so what was stored can hold another
+        turn's part this one never saw. Read back what is there, so the next
+        write starts from it and never replaces that part.
+      */
+      const day = await readDay(callTool, state.path);
+      if (day !== null && !day.missing) {
+        state.before = withoutTurn(day.body, id);
+        state.etag = day.etag;
+      }
       return;
     }
     if (!retry) return;

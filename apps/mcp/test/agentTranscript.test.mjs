@@ -19,6 +19,8 @@
  *     → "an argument that looks like a secret is hidden, a note's text is only its length…" fails.
  *  4. `runTurn` without the thinking `tell`.
  *     → "runTurn tells the observer its thinking, its words between tools and each call" fails.
+ *  6. `writeOnce` not reading back after a successful write.
+ *     → "a write merged with another turn's part is read back…" fails.
  *  5. `gatewayBody` sending `thinking` to every model.
  *     → "the thinking is asked for in words only from a model that thinks by default" fails.
  */
@@ -35,8 +37,14 @@ import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 // 2026-10-15 03:30 UTC: still the 14th in New York.
 const NOW = Date.UTC(2026, 9, 15, 3, 30);
 
-/** A note store behind a fake `read_note` / `write_note`, with etags. */
-function fakeNotes(initial = {}) {
+/**
+ * A note store behind a fake `read_note` / `write_note`, with etags. With
+ * `merges`, a write against an older etag is merged like a collaboratively
+ * edited note's: the writer's change to that older version, applied on top
+ * of what is there now.
+ */
+function fakeNotes(initial = {}, { merges = false } = {}) {
+  const versions = new Map();
   const notes = new Map(Object.entries(initial).map(([path, body], i) => [path, { body, etag: `e${i}` }]));
   let n = 100;
   const calls = [];
@@ -50,9 +58,17 @@ function fakeNotes(initial = {}) {
     }
     if (name === "write_note") {
       const note = notes.get(args.path);
-      if (note && args.expected_etag !== note.etag) return { ...text(`conflict: note changed since you read it (current etag ${note.etag}).`), isError: true };
+      let body = args.content;
+      if (note && args.expected_etag !== note.etag) {
+        const base = versions.get(args.expected_etag);
+        if (!merges || base === undefined || !note.body.startsWith(base)) {
+          return { ...text(`conflict: note changed since you read it (current etag ${note.etag}).`), isError: true };
+        }
+        body = args.content + note.body.slice(base.length);
+      }
       const etag = `e${(n += 1)}`;
-      notes.set(args.path, { body: args.content, etag });
+      versions.set(etag, body);
+      notes.set(args.path, { body, etag });
       return text(`written: ${args.path} (etag ${etag})\nvisibility: private`);
     }
     throw new Error(`unexpected tool ${name}`);
@@ -112,6 +128,23 @@ test("a write that lost a race re-reads, appends after the other turn, and keeps
   assert.match(body, /\*\*Them:\*\* second/);
   assert.equal(body.match(/\*\*Them:\*\* first/g)?.length, 1);
   assert.match(body, /\*\*Tex:\*\* Done\./);
+});
+
+test("a write merged with another turn's part is read back, so the next write keeps that part", async () => {
+  const store = fakeNotes({}, { merges: true });
+  const path = "tex/transcripts/2026-10-15.md";
+  const a = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "first" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const b = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "second" });
+  await b.finish({ answer: "B done." });
+  // A's next write is against its older etag: merged, B's part kept.
+  a.record({ kind: "say", text: "still going" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await a.finish({ answer: "A done." });
+  const body = store.notes.get(path).body;
+  assert.match(body, /\*\*Them:\*\* second[\s\S]*B done\./);
+  assert.match(body, /\*\*Them:\*\* first[\s\S]*A done\./);
+  assert.equal(body.match(/\*\*Them:\*\* first/g)?.length, 1);
 });
 
 test("a day that could not be read is never overwritten", async () => {
