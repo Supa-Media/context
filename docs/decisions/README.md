@@ -131,6 +131,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
+- [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 
 ## [Per-note encryption](./encryption.md)
 
