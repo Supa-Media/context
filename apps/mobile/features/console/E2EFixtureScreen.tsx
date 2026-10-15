@@ -11,6 +11,7 @@ import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
+  opensOnSettingsList,
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionKey,
 } from "./settings/sections";
@@ -348,6 +349,7 @@ export function E2EFixtureScreen({
             browser-reachable screen otherwise. `settings.spec.ts` drives it.
           */
           returned={returned}
+          startOnList={opensOnSettingsList(settings)}
           onSelect={setSettings}
           onSwitchContext={openContext}
           onDismiss={() => setSettings(null)}

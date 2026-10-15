@@ -137,7 +137,7 @@ export function AccountSection({
       <YourPicture />
 
       <Card style={styles.spaced}>
-        <Row>
+        <Row style={styles.firstRow}>
           <Grow>
             <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
           </Grow>
@@ -328,5 +328,7 @@ const makeStyles = (_colors: Colors) =>
     address: { marginTop: space.x2 },
     rowSub: { marginTop: 2, maxWidth: 520 },
     foot: { marginTop: space.x3 },
+    // Off the divider under it, as far as the divided rows below sit from theirs.
+    firstRow: { paddingBottom: 10 },
   });
 

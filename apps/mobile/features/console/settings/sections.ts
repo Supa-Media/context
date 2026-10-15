@@ -489,6 +489,17 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "workspace";
 export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "profile";
 
 /**
+ * Whether Settings was opened plainly rather than sent to one page.
+ *
+ * The gear and the account menu open at one of the two defaults; every other
+ * way in (the storage chip, an upsell, the beta notice) names its page. A
+ * phone opens the plain way on the list, like every phone's Settings.
+ */
+export function opensOnSettingsList(section: SettingsSectionKey): boolean {
+  return section === DEFAULT_SETTINGS_SECTION || section === DEFAULT_ACCOUNT_SETTINGS_SECTION;
+}
+
+/**
  * The sections this context actually has, for this person, right now.
  *
  * `kind` decides nothing today and is kept because it will. Only a personal

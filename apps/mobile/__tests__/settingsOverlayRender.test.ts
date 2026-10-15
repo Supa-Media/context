@@ -430,9 +430,9 @@ describe("the workspace is one switcher, under This workspace", () => {
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
+    // None on a phone: its list is a menu (settingsPhoneList.test.ts).
     const selected = host.querySelectorAll('[data-testid^="settings-section-"][aria-current="true"]');
-    expect(selected).toHaveLength(1);
-    expect(selected[0]!.getAttribute("data-testid")).toBe("settings-section-storage");
+    expect(selected).toHaveLength(0);
 
     /*
       `aria-current` rather than `aria-selected`, and that is the assertion
