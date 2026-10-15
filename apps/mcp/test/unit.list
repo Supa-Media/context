@@ -59,6 +59,7 @@ test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningServe.test.mjs
 test/meaningWrite.test.mjs
+test/meetingClaimTree.test.mjs
 test/meetingResolveTree.test.mjs
 test/moveFinished.test.mjs
 test/moveQueueRecovery.test.mjs
