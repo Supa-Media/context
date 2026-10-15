@@ -13,7 +13,9 @@
  * what it says, which would cost the person their whole answer. A photo the
  * model cannot read (HEIC from an iPhone camera, TIFF) or one over its 5 MB
  * ceiling is converted to a JPEG by the Images binding when the deployment has
- * one; without it, the model is told it was a photo it couldn't open.
+ * one; so is a picture over 8000 pixels on a side (a long scrolling
+ * screenshot), which the API refuses too. Without the binding, the model is
+ * told it was a photo it couldn't open.
  */
 
 import type { Fetch } from "./clients";
@@ -67,6 +69,56 @@ export function sniff(bytes: Uint8Array): string | null {
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
   if (at(0, 0x25, 0x50, 0x44, 0x46, 0x2d)) return "application/pdf";
   return null;
+}
+
+/** The model API's longest side for a picture; past it the whole request is refused. */
+export const MAX_IMAGE_EDGE = 8000;
+
+/**
+ * A picture's width and height from its header, or null when it can't be told.
+ * A long scrolling screenshot is small in bytes and huge in pixels.
+ */
+export function dimensions(bytes: Uint8Array, type: string): { width: number; height: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    if (type === "image/png") return { width: view.getUint32(16), height: view.getUint32(20) };
+    if (type === "image/gif") return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+    if (type === "image/webp") {
+      const chunk = String.fromCharCode(...bytes.subarray(12, 16));
+      if (chunk === "VP8X") {
+        const read24 = (at: number) => bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16);
+        return { width: read24(24) + 1, height: read24(27) + 1 };
+      }
+      if (chunk === "VP8L") {
+        const bits = view.getUint32(21, true);
+        return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+      }
+      if (chunk === "VP8 ") return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+      return null;
+    }
+    if (type === "image/jpeg") {
+      let at = 2;
+      while (at + 9 < bytes.length) {
+        if (bytes[at] !== 0xff) return null;
+        const marker = bytes[at + 1];
+        // Start of frame (baseline, progressive, ...), not DHT, JPG or DAC.
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { width: view.getUint16(at + 7), height: view.getUint16(at + 5) };
+        }
+        at += 2 + view.getUint16(at + 2);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** A picture the model takes as it is: its size and, where the header says, its sides. */
+function fitsModel(bytes: Uint8Array, type: string): boolean {
+  if (bytes.length > MAX_IMAGE_BYTES) return false;
+  const size = dimensions(bytes, type);
+  return size === null || (size.width <= MAX_IMAGE_EDGE && size.height <= MAX_IMAGE_EDGE);
 }
 
 export function toBase64(bytes: Uint8Array): string {
@@ -125,7 +177,7 @@ async function toJpeg(images: ImagesLike | undefined, bytes: Uint8Array): Promis
       .transform({ width: CONVERTED_EDGE, height: CONVERTED_EDGE, fit: "scale-down" })
       .output({ format: "image/jpeg", quality: 85 });
     const out = new Uint8Array(await result.response().arrayBuffer());
-    return sniff(out) === "image/jpeg" && out.length <= MAX_IMAGE_BYTES ? out : null;
+    return sniff(out) === "image/jpeg" && fitsModel(out, "image/jpeg") ? out : null;
   } catch {
     return null;
   }
@@ -160,7 +212,7 @@ async function prepareOne(item: InboundAttachment, index: number, deps: Attachme
     if (bytes.length > MAX_PDF_BYTES) return unread(`It is a ${megabytes(bytes.length)} PDF, over the ${megabytes(MAX_PDF_BYTES)} Tex can read.`);
     return { name, mediaType: sniffed, data: toBase64(bytes) };
   }
-  if (sniffed !== null && bytes.length <= MAX_IMAGE_BYTES) return { name, mediaType: sniffed, data: toBase64(bytes) };
+  if (sniffed !== null && fitsModel(bytes, sniffed)) return { name, mediaType: sniffed, data: toBase64(bytes) };
   if (sniffed !== null || type.startsWith("image/") || ["heic", "heif", "tif", "tiff", "bmp", "avif"].includes(ext)) {
     const jpeg = await toJpeg(deps.images, bytes);
     if (jpeg !== null) return { name: renamed(name, "jpg"), mediaType: "image/jpeg", data: toBase64(jpeg) };

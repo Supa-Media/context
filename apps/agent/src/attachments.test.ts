@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accept, drain, MEDIA_WAIT_MS, type InboxDeps } from "./inbox";
-import { prepareAttachments, sniff, MAX_DOWNLOAD_BYTES, type ImagesLike } from "./attachments";
+import { dimensions, prepareAttachments, sniff, MAX_DOWNLOAD_BYTES, type ImagesLike } from "./attachments";
 import { officeText } from "./officeText";
 import type { Fetch } from "./clients";
 import type { InboundAttachment } from "./inbound";
@@ -165,6 +165,35 @@ describe("prepareAttachments", () => {
     // Only the one it could have read was downloaded.
     expect(downloads).toBe(1);
     expect(await officeText(new TextEncoder().encode("not a zip"), "docx")).toBeNull();
+  });
+
+  it("sends a picture over 8000 pixels on a side through the converter, however small its file", async () => {
+    const tall = PNG.slice();
+    new DataView(tall.buffer).setUint32(20, 12_000); // a long scrolling screenshot
+    expect(dimensions(tall, "image/png")).toEqual({ width: 1, height: 12_000 });
+    let converted = 0;
+    const images: ImagesLike = {
+      input: () => {
+        converted += 1;
+        return {
+          transform: () => ({ output: async () => ({ response: () => new Response(JPEG) }) }),
+        } as unknown as ReturnType<ImagesLike["input"]>;
+      },
+    };
+    const [out] = await prepareAttachments([att("https://cdn/t", "image/png", "scroll.png")], {
+      fetch: serving({ "https://cdn/t": tall }),
+      images,
+    });
+    expect(converted).toBe(1);
+    expect(out).toEqual({ name: "scroll.jpg", mediaType: "image/jpeg", data: b64(JPEG) });
+    const [plain] = await prepareAttachments([att("https://cdn/p", "image/png", "p.png")], { fetch: serving({ "https://cdn/p": PNG }), images });
+    expect(converted).toBe(1);
+    expect(plain).toMatchObject({ mediaType: "image/png" });
+  });
+
+  it("reads a JPEG's sides from its frame header", () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0x27, 0x10, 0x01, 0x00, 3, 0, 0, 0]);
+    expect(dimensions(jpeg, "image/jpeg")).toEqual({ width: 256, height: 10_000 });
   });
 
   it("knows a picture or PDF by its first bytes", () => {
