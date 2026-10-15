@@ -109,13 +109,13 @@ const NOWRITE = async () => {
 /** A bucket where note `1-projects/a.md` has a path copy "PATH BODY" and an id copy "ID BODY". */
 async function withBothCopies() {
   const store = bucket();
-  await store.put("notes/id1.md", "ID BODY", { contentType: "text/markdown; charset=utf-8" });
+  await store.put("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", "ID BODY", { contentType: "text/markdown; charset=utf-8" });
   await store.put("1-projects/a.md", "PATH BODY", { contentType: "text/markdown; charset=utf-8" });
   store.log.length = 0;
   return store;
 }
 
-const FRESH = { key: "notes/id1.md", etag: "e2", keyEtag: "e1", fresh: true };
+const FRESH = { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: "e2", keyEtag: "e1", fresh: true };
 
 /* -------------------------------- reads -------------------------------- */
 
@@ -131,7 +131,7 @@ test("a fresh copy is read from the id key, under the path's etag", async () => 
 test("a stale copy or a path with no row is read from the path", async () => {
   const store = await withBothCopies();
   const stale = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: "e2", fresh: false } }),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: "e2", fresh: false } }),
     wrote: NOWRITE,
   });
   assert.equal(await (await stale.get("1-projects/a.md")).text(), "PATH BODY");
@@ -163,7 +163,7 @@ test("a lookup that throws reads the path and never rejects", async () => {
 
 test("an id copy that throws on read falls back to the path", async () => {
   const store = await withBothCopies();
-  store.failGet.add("notes/id1.md");
+  store.failGet.add("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md");
   const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": FRESH }), wrote: NOWRITE });
   assert.equal(await (await wrapped.get("1-projects/a.md")).text(), "PATH BODY");
 });
@@ -181,6 +181,16 @@ test("a read with a conditional or range option passes through without a lookup"
     assert.equal(await (await wrapped.get("1-projects/a.md", options)).text(), "PATH BODY");
   }
   assert.deepEqual(asked, []);
+});
+
+test("a copy key that is not a real id key is never read or written", async () => {
+  const store = await withBothCopies();
+  await store.put("1-projects/other.md", "OTHER BODY");
+  const notAnId = { key: "1-projects/other.md", etag: "e2", keyEtag: "e3", fresh: true };
+  const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": notAnId }), wrote: NOWRITE });
+  assert.equal(await (await wrapped.get("1-projects/a.md")).text(), "PATH BODY");
+  await wrapped.put("1-projects/a.md", "NEW");
+  assert.equal(store.objects.get("1-projects/other.md").body, "OTHER BODY");
 });
 
 test("plumbing is never looked up", async () => {
@@ -218,7 +228,7 @@ test("a copy the tree calls fresh is not read once the path has moved on", async
 test("a copy whose key no longer holds the recorded write is not read", async () => {
   // Two saves raced: the later save's record won, the earlier save's bytes landed on the key last.
   const store = await withBothCopies();
-  const recorded = { key: "notes/id1.md", etag: "e2", keyEtag: "e-not-this-one", fresh: true };
+  const recorded = { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: "e2", keyEtag: "e-not-this-one", fresh: true };
   const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": recorded }), wrote: NOWRITE });
   assert.equal(await (await wrapped.get("1-projects/a.md")).text(), "PATH BODY");
   const matching = withIdLayout(store, {
@@ -237,7 +247,7 @@ test("a put writes the path, then the id key, then records the path's new etag",
   const events = [];
   const asked = [];
   const wrapped = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: false } }, asked),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: false } }, asked),
     wrote: async (copy) => {
       events.push(["wrote", copy]);
       return { recorded: true };
@@ -250,10 +260,10 @@ test("a put writes the path, then the id key, then records the path's new etag",
   });
   assert.deepEqual(result, { etag: "e2" });
   const puts = store.log.filter((entry) => entry[0] === "put").map((entry) => entry[1]);
-  assert.deepEqual(puts, ["1-projects/a.md", "notes/id1.md"]);
-  assert.deepEqual(events, [["wrote", { path: "1-projects/a.md", key: "notes/id1.md", etag: "e2", keyEtag: "e3" }]]);
+  assert.deepEqual(puts, ["1-projects/a.md", "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md"]);
+  assert.deepEqual(events, [["wrote", { path: "1-projects/a.md", key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: "e2", keyEtag: "e3" }]]);
   assert.deepEqual(asked, [["1-projects/a.md"]]);
-  assert.equal(store.objects.get("notes/id1.md").body, "NEW");
+  assert.equal(store.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").body, "NEW");
 });
 
 test("the id key is written unconditionally, with the same content type and metadata", async () => {
@@ -261,7 +271,7 @@ test("the id key is written unconditionally, with the same content type and meta
   await store.put("1-projects/a.md", "OLD");
   store.log.length = 0;
   const wrapped = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: true } }),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: true } }),
     wrote: async () => ({ recorded: true }),
   });
   await wrapped.put("1-projects/a.md", "NEW", {
@@ -269,11 +279,11 @@ test("the id key is written unconditionally, with the same content type and meta
     httpMetadata: { contentType: "text/markdown; charset=utf-8", cacheControl: "no-store" },
     onlyIf: { etagMatches: "e1" },
   });
-  const keyPut = store.log.find((entry) => entry[0] === "put" && entry[1] === "notes/id1.md");
+  const keyPut = store.log.find((entry) => entry[0] === "put" && entry[1] === "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md");
   assert.equal(keyPut[2].onlyIf, undefined);
   assert.equal(keyPut[2].contentType, "text/markdown; charset=utf-8");
   assert.deepEqual(keyPut[2].httpMetadata, { contentType: "text/markdown; charset=utf-8", cacheControl: "no-store" });
-  assert.equal(store.objects.get("notes/id1.md").contentType, "text/markdown; charset=utf-8");
+  assert.equal(store.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").contentType, "text/markdown; charset=utf-8");
 });
 
 test("a failed path put returns null and never touches the id key", async () => {
@@ -282,13 +292,13 @@ test("a failed path put returns null and never touches the id key", async () => 
   store.log.length = 0;
   let wroteCalled = false;
   const wrapped = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: true } }),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: true } }),
     wrote: async () => {
       wroteCalled = true;
     },
   });
   assert.equal(await wrapped.put("1-projects/a.md", "NEW", { onlyIf: { etagMatches: "stale" } }), null);
-  assert.equal(store.objects.has("notes/id1.md"), false);
+  assert.equal(store.objects.has("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md"), false);
   assert.equal(wroteCalled, false);
 });
 
@@ -297,14 +307,14 @@ test("a path put that throws rejects and never touches the id key", async () => 
   store.failPut.add("1-projects/a.md");
   const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": FRESH }), wrote: NOWRITE });
   await assert.rejects(wrapped.put("1-projects/a.md", "NEW"), /put failed/);
-  assert.equal(store.objects.has("notes/id1.md"), false);
+  assert.equal(store.objects.has("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md"), false);
 });
 
 test("a failing id-key put still returns the path's result", async () => {
   const store = bucket();
-  store.failPut.add("notes/id1.md");
+  store.failPut.add("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md");
   const wrapped = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: true } }),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: true } }),
     wrote: NOWRITE,
   });
   assert.deepEqual(await wrapped.put("1-projects/a.md", "NEW"), { etag: "e1" });
@@ -314,13 +324,13 @@ test("a failing id-key put still returns the path's result", async () => {
 test("a failing wrote, or a failing lookup, still returns the path's result", async () => {
   const store = bucket();
   const failingWrote = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: true } }),
+    lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: true } }),
     wrote: async () => {
       throw new ControlPlaneError("status 500", 500);
     },
   });
   assert.deepEqual(await failingWrote.put("1-projects/a.md", "A"), { etag: "e1" });
-  assert.equal(store.objects.get("notes/id1.md").body, "A");
+  assert.equal(store.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").body, "A");
 
   const failingLookup = withIdLayout(store, {
     lookup: async () => {
@@ -331,7 +341,7 @@ test("a failing wrote, or a failing lookup, still returns the path's result", as
   // e1 the first path write, e2 the id copy of it, e3 this path write.
   assert.deepEqual(await failingLookup.put("1-projects/a.md", "B"), { etag: "e3" });
   assert.equal(store.objects.get("1-projects/a.md").body, "B");
-  assert.equal(store.objects.get("notes/id1.md").body, "A");
+  assert.equal(store.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").body, "A");
 });
 
 test("a stream body is written to the path only, with no lookup", async () => {
@@ -346,7 +356,7 @@ test("a stream body is written to the path only, with no lookup", async () => {
   });
   assert.deepEqual(await wrapped.put("1-projects/a.md", stream), { etag: "e1" });
   assert.deepEqual(asked, []);
-  assert.equal(store.objects.has("notes/id1.md"), false);
+  assert.equal(store.objects.has("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md"), false);
 });
 
 test("string, ArrayBuffer, typed array and Blob bodies are all mirrored", async () => {
@@ -359,11 +369,11 @@ test("string, ArrayBuffer, typed array and Blob bodies are all mirrored", async 
   for (const [kind, body] of Object.entries(bodies)) {
     const store = bucket();
     const wrapped = withIdLayout(store, {
-      lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: null, fresh: true } }),
+      lookup: lookupTo({ "1-projects/a.md": { key: "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", etag: null, fresh: true } }),
       wrote: async () => ({ recorded: true }),
     });
     await wrapped.put("1-projects/a.md", body);
-    assert.ok(store.objects.has("notes/id1.md"), `${kind} mirrored`);
+    assert.ok(store.objects.has("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md"), `${kind} mirrored`);
   }
 });
 
@@ -442,11 +452,11 @@ test("a session in the ids layout reads the id copy and mirrors its writes", asy
   assert.equal(await (await built.get("1-projects/a.md")).text(), "ID BODY");
   assert.deepEqual(asked, [["tok", "w1", ["1-projects/a.md"]]]);
   await built.put("1-projects/a.md", "EDITED", { contentType: "text/markdown; charset=utf-8" });
-  assert.equal(bucketFake.objects.get("notes/id1.md").body, "EDITED");
+  assert.equal(bucketFake.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").body, "EDITED");
   assert.equal(wrote.length, 1);
   assert.equal(wrote[0][0], "tok");
   assert.equal(wrote[0][2].path, "1-projects/a.md");
-  assert.equal(wrote[0][2].key, "notes/id1.md");
+  assert.equal(wrote[0][2].key, "notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md");
   // The wrapper carries the session's non-enumerable key across, as it carries the other properties.
   assert.deepEqual(built.encryptionKey, { current: "k", keys: { k: "secret" } });
   assert.ok(!Object.keys(built).includes("encryptionKey"));
@@ -469,7 +479,7 @@ test("a session with no idLayout has no id wrapper: reads and writes stay on pat
   const built = await storeForSession(session, { NATIVE_BINDINGS: "TEST_BUCKET", TEST_BUCKET: bucketFake }, controlPlane);
   assert.equal(await (await built.get("1-projects/a.md")).text(), "PATH BODY");
   await built.put("1-projects/a.md", "EDITED", { contentType: "text/markdown; charset=utf-8" });
-  assert.equal(bucketFake.objects.get("notes/id1.md").body, "ID BODY");
+  assert.equal(bucketFake.objects.get("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md").body, "ID BODY");
   assert.deepEqual(asked, []);
 });
 

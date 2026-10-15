@@ -25,7 +25,7 @@
  * Built only from the Web APIs, no Node modules, as the rest of the gateway is.
  */
 
-import { isPlumbing } from "../privacy/engine.js";
+import { isIdKey, isPlumbing } from "../privacy/engine.js";
 
 /** Options that make a read or write about one particular version or byte range. */
 const CONDITIONAL_OPTIONS = ["onlyIf", "range", "ifMatch", "ifNoneMatch", "ifModifiedSince", "ifUnmodifiedSince"];
@@ -65,7 +65,8 @@ function copyFor(answer, path) {
   if (!copies || typeof copies !== "object") return null;
   if (!Object.prototype.hasOwnProperty.call(copies, path)) return null;
   const copy = copies[path];
-  if (!copy || typeof copy.key !== "string" || copy.key === "" || isPlumbing(copy.key)) return null;
+  // Only a real id key (`notes/<UUIDv7>.md`, `files/<UUIDv7><ext>`) is ever read or written as a copy.
+  if (!copy || !isIdKey(copy.key)) return null;
   return copy;
 }
 
