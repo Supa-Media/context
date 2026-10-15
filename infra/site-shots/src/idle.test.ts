@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { browseOnBrowserbase } from "./browserbaseRoute";
-import { IDLE_MS, IdleTimer, touchIdle, type IdleNamespace, type IdleStorage } from "./idle";
+import { IDLE_MS, IdleTimer, RETRY_MS, touchIdle, type IdleNamespace, type IdleStorage } from "./idle";
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
@@ -92,7 +92,7 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     expect(store.data.get("owner")).toBe(OWNER);
   });
 
-  it("keeps its state and throws when Browserbase cannot be asked, so the runtime retries the alarm", async () => {
+  it("keeps its state and asks again in a minute when Browserbase cannot be asked", async () => {
     const store = fakeStorage();
     let now = 0;
     const down = (async () => new Response("", { status: 500 })) as typeof fetch;
@@ -100,8 +100,9 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     await timer.touch(OWNER);
     now += IDLE_MS;
     store.clearAlarm();
-    await expect(timer.alarm()).rejects.toThrow();
+    await timer.alarm();
     expect(store.data.get("owner")).toBe(OWNER);
+    expect(store.alarm()).toBe(now + RETRY_MS);
   });
 
   it("looks up and releases with no touch let in between", async () => {

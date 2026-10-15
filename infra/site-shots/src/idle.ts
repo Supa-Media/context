@@ -17,6 +17,8 @@ import { findSession, releaseSession, type BrowserbaseEnv } from "./browserbase"
 
 /** How long a browser outlives its last use. */
 export const IDLE_MS = 5 * 60 * 1000;
+/** How soon a release that Browserbase could not answer is tried again. */
+export const RETRY_MS = 60 * 1000;
 
 export interface IdleStorage {
   get<T>(key: string): Promise<T | undefined>;
@@ -48,17 +50,25 @@ export class IdleTimer {
    * No touch is let in while the browser is looked up and released, so a step
    * at the five-minute mark waits, then finds no browser and starts a new one,
    * rather than running on one being released under it. A failed lookup or
-   * release throws, which has the runtime retry the alarm: only a browser
-   * known to be gone, or released, ends the timer.
+   * release asks again in a minute, for as long as Browserbase is down
+   * (the runtime's own retries stop after six): only a browser known to be
+   * gone, or released, ends the timer.
    */
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       const owner = await this.storage.get<string>("owner");
-      const session = owner ? await findSession(this.env, owner, this.fetcher) : null;
-      // Touched again since this alarm was due: the browser is in use, so it stays.
-      const next = await this.storage.getAlarm();
-      if (next !== null && next > this.now()) return;
-      if (session) await releaseSession(this.env, session.id, this.fetcher);
+      let session;
+      try {
+        session = owner ? await findSession(this.env, owner, this.fetcher) : null;
+        // Touched again since this alarm was due: the browser is in use, so it stays.
+        const next = await this.storage.getAlarm();
+        if (next !== null && next > this.now()) return;
+        if (session) await releaseSession(this.env, session.id, this.fetcher);
+      } catch {
+        console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));
+        await this.storage.setAlarm(this.now() + RETRY_MS);
+        return;
+      }
       console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: session !== null }));
       await this.storage.deleteAll();
     });
