@@ -64,6 +64,7 @@ import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
 import { PeopleSection } from "./PeopleSection";
+import { ReportsSection } from "./ReportsSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
@@ -194,6 +195,7 @@ function Console(props: AdminPaneProps) {
           />
         ) : null}
         {tab === "people" ? <PeopleSection /> : null}
+        {tab === "reports" ? <ReportsSection /> : null}
       </View>
     </>
   );
