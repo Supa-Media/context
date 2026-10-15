@@ -170,8 +170,8 @@ export async function runToolArgumentCensusChecks(check, harness) {
   /* ------------ and the validator is on the one path to a tool ---------- */
 
   /*
-    The dispatch lives in `routeToolCall`, which `callToolForSession` wraps to
-    measure usage around it. The wrapper is checked to be its only caller, so
+    The dispatch lives in `routeToolCall`, which `callToolForSession` runs
+    inside `measuredCall` to measure usage around it. The wrapper is checked to be its only caller, so
     the one path is still one path.
   */
   const sessionBody = functionBody(
@@ -185,7 +185,7 @@ export async function runToolArgumentCensusChecks(check, harness) {
   check(
     "callToolForSession is the only way into routeToolCall",
     (SESSION.text.match(/routeToolCall\(/g) || []).length === 2 &&
-      /await routeToolCall\(params, store, session, routed\)/.test(wrapperBody)
+      /measuredCall\(store, session, params, \(routed\) => routeToolCall\(params, store, session, routed\)\)/.test(wrapperBody)
   );
   /*
     Counted over every module that can reach the dispatcher — the one that

@@ -110,6 +110,25 @@ export function reportBoundaryUsage(store, session, workspaceId, params, result)
   }
 }
 
+/**
+ * Run one tool call and report what crossed the boundary, whatever happened:
+ * a refusal and a throw still cost the agent the tokens it reads. `run` gets a
+ * `routed` object and sets `routed.workspaceId` to the context the call reached,
+ * so a call is attributed once, there, even a move that touches two.
+ */
+export async function measuredCall(store, session, params, run) {
+  const routed = { workspaceId: session?.workspaceId };
+  let result;
+  try {
+    result = await run(routed);
+  } catch (error) {
+    reportBoundaryUsage(store, session, routed.workspaceId, params, null);
+    throw error;
+  }
+  reportBoundaryUsage(store, session, routed.workspaceId, params, result);
+  return result;
+}
+
 export function deferredWork(work) {
   if (typeof work !== "function") return work;
   return {
