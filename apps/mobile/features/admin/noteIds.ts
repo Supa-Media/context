@@ -129,3 +129,35 @@ export function handleLabel(handle: string | null): string {
 export function pauseLabel(paused: boolean): string {
   return paused ? "Resume" : "Pause";
 }
+
+export type NoteIdsMode = NoteIdsReport["mode"];
+
+/** Which keys reads use right now, in plain words. */
+export function modeLabel(mode: NoteIdsMode): string {
+  return mode === "ids" ? "Reading from notes/" : "Reading from paths";
+}
+
+/** The mode the switch button moves to. */
+export function nextMode(mode: NoteIdsMode): NoteIdsMode {
+  return mode === "ids" ? "paths" : "ids";
+}
+
+/** The button's words: what pressing it does. */
+export function switchLabel(mode: NoteIdsMode): string {
+  return mode === "ids" ? "Switch back to paths" : "Switch to notes/";
+}
+
+/**
+ * The confirm's words, before the switch and in plain language. Switching to
+ * `notes/` says a note that is still being copied is read from its path until
+ * its copy catches up, and that saves keep going to both places, so a switch
+ * back loses nothing.
+ */
+export function switchNote(mode: NoteIdsMode): string {
+  if (mode === "ids") {
+    return "Notes will be read from their paths again. Nothing is deleted, and the copies in notes/ stay where they are.";
+  }
+  return "Notes will be read from their copies in notes/, which are named by each note's id rather than its name. " +
+    "A note whose copy is out of date is read from its path until its copy catches up. " +
+    "Saves go to both places from now on, so you can switch back at any time without losing anything.";
+}

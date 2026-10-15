@@ -22,6 +22,7 @@ import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
 import { attachSmallData } from "../smallData/attach";
+import { withConsoleIdLayout } from "../noteIds/consoleLayer";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -414,6 +415,8 @@ export async function runFileOperationHandler(
   // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
   // below goes through this, the console's and the gateway's alike.
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
+  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
+  store = await withConsoleIdLayout(ctx, args.workspaceId, store);
   // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
   attachSmallData(ctx, args.workspaceId, store);
 

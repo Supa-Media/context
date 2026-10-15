@@ -14,6 +14,7 @@ export const copyResultValidator = v.object({
   path: v.string(),
   ok: v.boolean(),
   etag: v.optional(v.string()),
+  keyEtag: v.optional(v.string()),
   reason: v.optional(v.string()),
 });
 

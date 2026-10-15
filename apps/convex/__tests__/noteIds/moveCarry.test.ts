@@ -16,7 +16,7 @@ describe("a queued move carries ids and copies", () => {
   test("a moved note keeps its id, and a copy that was fresh is kept, keyed by the same id", async () => {
     const f = await fixture();
     const source = await rowAt(f.t, f.ws, "1-projects/launch/brief.md");
-    const copy = { key: idKeyFor(source!.noteId!, "1-projects/launch/brief.md"), etag: source!.etag!, copiedAt: 7 };
+    const copy = { key: idKeyFor(source!.noteId!, "1-projects/launch/brief.md"), etag: source!.etag!, copiedAt: 7, keyEtag: "key-v1" };
     await f.t.run((ctx) => ctx.db.patch(source!._id, { idCopy: copy }));
 
     await start(f, "1-projects/launch", "3-resources/launch");
@@ -27,7 +27,8 @@ describe("a queued move carries ids and copies", () => {
     // The copy is the same bytes under the same key, now judged by the target's own etag
     // (the source's etag is gone with the source row). A later re-check may move the target's
     // etag again; that costs one more copy and never a wrong one.
-    expect(moved?.idCopy).toMatchObject({ key: copy.key, copiedAt: 7 });
+    // The key's own etag travels with it, so a racing write at the key is still caught after the move.
+    expect(moved?.idCopy).toMatchObject({ key: copy.key, copiedAt: 7, keyEtag: "key-v1" });
     expect(moved?.idCopy?.etag).not.toBe(copy.etag);
     expect(await rowAt(f.t, f.ws, "1-projects/launch/brief.md")).toMatchObject({ goneAt: expect.any(Number) });
   });

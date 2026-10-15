@@ -6,10 +6,14 @@ import {
   formatPercent,
   handleLabel,
   isFailing,
+  modeLabel,
+  nextMode,
   pauseLabel,
   percentOf,
   sortWorkspaces,
   statusLabel,
+  switchLabel,
+  switchNote,
   type NoteIdsWorkspace,
 } from "../features/admin/noteIds";
 
@@ -157,5 +161,29 @@ describe("labels", () => {
   test("the toggle says what pressing it does", () => {
     expect(pauseLabel(false)).toBe("Pause");
     expect(pauseLabel(true)).toBe("Resume");
+  });
+});
+
+describe("the read switch", () => {
+  test("says in plain words which keys reads use now", () => {
+    expect(modeLabel("paths")).toBe("Reading from paths");
+    expect(modeLabel("ids")).toBe("Reading from notes/");
+  });
+
+  test("the button names the mode it switches to", () => {
+    expect(switchLabel("paths")).toBe("Switch to notes/");
+    expect(switchLabel("ids")).toBe("Switch back to paths");
+    expect(nextMode("paths")).toBe("ids");
+    expect(nextMode("ids")).toBe("paths");
+  });
+
+  test("the confirm says what reads will use, that saves go to both, and that a switch back loses nothing", () => {
+    const toIds = switchNote("paths");
+    expect(toIds).toMatch(/notes\//);
+    expect(toIds).toMatch(/both/);
+    expect(toIds).toMatch(/switch back/i);
+    expect(toIds).toMatch(/until its copy catches up/);
+    expect(switchNote("ids")).toMatch(/paths again/);
+    expect(switchNote("ids")).toMatch(/Nothing is deleted/);
   });
 });

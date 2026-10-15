@@ -14,7 +14,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { COPY_FAILED_LABEL, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
 import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow } from "./state";
 
-export type CopyResult = { path: string; ok: boolean; etag?: string; reason?: string };
+export type CopyResult = { path: string; ok: boolean; etag?: string; keyEtag?: string; reason?: string };
 export type CopyRefusal = { noteId: string; reason: string };
 
 /** A lease for this run's next page, or `null` when the run is not current, paused, or already leased. */
@@ -115,7 +115,14 @@ export async function recordCopyPage(
       editedAny = true;
       continue;
     }
-    await ctx.db.patch(node._id, { idCopy: { key: idKeyFor(node.noteId, node.path), etag: result.etag, copiedAt: now } });
+    await ctx.db.patch(node._id, {
+      idCopy: {
+        key: idKeyFor(node.noteId, node.path),
+        etag: result.etag,
+        copiedAt: now,
+        ...(result.keyEtag === undefined ? {} : { keyEtag: result.keyEtag }),
+      },
+    });
     copied += 1;
     copiedAny = true;
   }

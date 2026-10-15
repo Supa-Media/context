@@ -108,6 +108,10 @@ export function createSessionMethods({ post, required }) {
         // Phase 3, an eighth sibling: the privacy rules while they are the
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
+        // The layout the bytes are read from: `"ids"` while staff have switched
+        // to the id copies (`store/idLayout.js`), `null` for paths. Only that
+        // one value counts; anything else is paths.
+        idLayout: parsed.idLayout === "ids" ? "ids" : null,
       };
     },
 

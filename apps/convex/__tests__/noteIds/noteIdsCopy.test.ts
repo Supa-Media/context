@@ -67,11 +67,13 @@ describe("ids and keys", () => {
   });
 
   test("a copy is fresh only while its etag is the row's etag, and only for a live file", () => {
-    const row = { kind: "file" as const, goneAt: undefined, etag: "e2", idCopy: { key: "k", etag: "e1", copiedAt: 1 } };
+    const row = { kind: "file" as const, goneAt: undefined, etag: "e2", idCopy: { key: "k", etag: "e1", copiedAt: 1, keyEtag: "k1" } };
     expect(copyIsFresh(row)).toBe(false);
     expect(copyIsFresh({ ...row, idCopy: { ...row.idCopy, etag: "e2" } })).toBe(true);
     expect(copyIsFresh({ ...row, idCopy: { ...row.idCopy, etag: "e2" }, goneAt: 5 })).toBe(false);
     expect(copyIsFresh({ ...row, kind: "folder", idCopy: { ...row.idCopy, etag: "e2" } })).toBe(false);
+    // A record that does not name the key's version is never trusted.
+    expect(copyIsFresh({ ...row, idCopy: { key: "k", etag: "e2", copiedAt: 1 } })).toBe(false);
     expect(ID_COPY_MAX_BYTES).toBe(20 * 1024 * 1024);
   });
 });
@@ -154,6 +156,8 @@ describe("the copy pass", () => {
     expect(new TextDecoder().decode(store.bytesOf(`notes/${a?.noteId}.md`)!)).toBe("# A\n");
     expect(new TextDecoder().decode(store.bytesOf(`files/${pic?.noteId}.png`)!)).toBe("png-bytes");
     for (const row of [a, pic, b]) expect(copyIsFresh(row!)).toBe(true);
+    // The key's own etag is kept, so a save that lands on the key out of order is told apart.
+    expect(a?.idCopy?.keyEtag).toBe((await store.get(`notes/${a?.noteId}.md`))?.etag);
 
     const state = await pass(c);
     expect(state).toMatchObject({ status: "done", files: 3, copied: 3, failed: 0, failures: [] });
@@ -282,7 +286,9 @@ describe("the copy pass", () => {
     const c = chain(t, ws, store, {
       copyHere: async (page) => ({
         results: page.items.map((item) =>
-          item.path === "1-projects/a.md" ? { path: item.path, ok: false, reason: "copy_failed" } : { path: item.path, ok: true, etag: item.etag },
+          item.path === "1-projects/a.md"
+            ? { path: item.path, ok: false, reason: "copy_failed" }
+            : { path: item.path, ok: true, etag: item.etag, copiedEtag: "key-etag" },
         ),
       }),
     });
