@@ -44,8 +44,11 @@ export interface FeedbackReportInput {
 export interface FeedbackReport {
   clientReportId: string;
   message: string;
-  /** `agent` only ever comes from `parseAgentReport`: the app's intake refuses it. */
-  source: FeedbackSource | "agent";
+  /**
+   * `agent` only ever comes from `parseAgentReport`, and `report` only from
+   * `functions/reports.ts`: the app's intake refuses both.
+   */
+  source: FeedbackSource | "agent" | "report";
   screen: string;
   activity?: string;
   errorEventId?: string;
@@ -54,6 +57,17 @@ export interface FeedbackReport {
   system?: { family: SystemFamily; version?: string };
   /** For an agent's report: which AI app filed it, as its grant names it. */
   agentClient?: string;
+  /**
+   * For a report about content (`functions/reports.ts`): what was reported and
+   * the ids the server resolved it to. Ids only — never a note's text, title
+   * or path, and never a share or invitation token.
+   */
+  contentReport?: {
+    kind: string;
+    reason: string;
+    resolved: boolean;
+    ids: Record<string, string>;
+  };
 }
 
 function refuse(field: string): never {

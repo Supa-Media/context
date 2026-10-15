@@ -132,6 +132,8 @@ import type * as functions_smallData from "../functions/smallData.js";
 import type * as functions_storageLag from "../functions/storageLag.js";
 import type * as functions_storageMover from "../functions/storageMover.js";
 import type * as functions_feedback from "../functions/feedback.js";
+import type * as functions_blocks from "../functions/blocks.js";
+import type * as functions_reports from "../functions/reports.js";
 import type * as functions_messages from "../functions/messages.js";
 import type * as functions_places from "../functions/places.js";
 import type * as functions_phoneCheck from "../functions/phoneCheck.js";
@@ -293,6 +295,8 @@ declare const fullApi: ApiFromModules<{
   "functions/storageLag": typeof functions_storageLag;
   "functions/storageMover": typeof functions_storageMover;
   "functions/feedback": typeof functions_feedback;
+  "functions/blocks": typeof functions_blocks;
+  "functions/reports": typeof functions_reports;
   "functions/messages": typeof functions_messages;
   "functions/places": typeof functions_places;
   "functions/phoneCheck": typeof functions_phoneCheck;

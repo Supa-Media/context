@@ -101,6 +101,7 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { handleForUser, resolveAddressedUser } from "./lib/identities";
+import { hasBlocked } from "./lib/blocks";
 import { APP_ORIGIN_ENV_VAR, randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail } from "./lib/signInEmails";
@@ -492,6 +493,15 @@ export const claimInvitationEmail = internalMutation({
 
     const recipient = await recipientFor(ctx, invitation);
     if (recipient === null) return null;
+
+    // The invitee blocked the inviter (`lib/blocks.ts`): not mailed, and the
+    // same `null` as every refusal above, which nothing reaches the inviter
+    // through. Before the per-recipient budget, so it costs the address none.
+    const invitee = await resolveAddressedUser(ctx, {
+      kind: invitation.inviteeKind,
+      value: invitation.invitee,
+    });
+    if (invitee !== null && (await hasBlocked(ctx, invitee, invitation.invitedBy))) return null;
 
     const inviterHandle = await handleForUser(ctx, inviter._id);
     const mintSignInCode =
