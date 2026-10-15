@@ -43,6 +43,7 @@ import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { smallDataTables } from "./functions/lib/schema/smallData";
+import { blockTables } from "./functions/lib/schema/blocks";
 
 /**
  * Control-plane schema for Context.
@@ -122,6 +123,7 @@ const schema = defineSchema({
   ...nodeTables,
   ...smallDataTables,
   ...noteMailTables,
+  ...blockTables,
 });
 
 export default schema;

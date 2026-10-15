@@ -169,3 +169,7 @@ Moved to [An AI client never widens who can see something without a person sayin
 ### A note shared with a named person opens for them wherever it lives
 
 Moved to [A note shared with a named person opens for them wherever it lives](./privacy-and-sharing/name-rules-and-grants.md#a-note-shared-with-a-named-person-opens-for-them-wherever-it-lives-decided-by-the-owner-2026-10-14).
+
+### Blocking is per recipient, and a report is never an oracle
+
+Moved to [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md#blocking-is-per-recipient-and-a-report-is-never-an-oracle-2026-10-15).

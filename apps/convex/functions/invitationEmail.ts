@@ -101,15 +101,11 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { handleForUser, resolveAddressedUser } from "./lib/identities";
+import { inviteeBlockedInviter } from "./lib/blocks";
 import { APP_ORIGIN_ENV_VAR, randomOpaqueToken } from "./lib/gatewayAuth";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail } from "./lib/signInEmails";
-import {
-  invitationUrlFor,
-  renderInvitationEmail,
-  signInCodeExpiry,
-  validAppOrigin,
-} from "./lib/invitationEmail";
+import { invitationUrlFor, renderInvitationEmail, signInCodeExpiry, validAppOrigin } from "./lib/invitationEmail";
 
 /** Resend's send endpoint. Reached by plain `fetch`; there is no SDK here. */
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
@@ -492,6 +488,9 @@ export const claimInvitationEmail = internalMutation({
 
     const recipient = await recipientFor(ctx, invitation);
     if (recipient === null) return null;
+
+    // Blocked by the invitee (`lib/blocks.ts`): the same `null`, so the inviter learns nothing.
+    if (await inviteeBlockedInviter(ctx, invitation)) return null;
 
     const inviterHandle = await handleForUser(ctx, inviter._id);
     const mintSignInCode =

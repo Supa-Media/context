@@ -17,6 +17,7 @@ import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
+import { BlockedPeopleCard } from "./panels/BlockedPeopleCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { AccountSafetyCard } from "./panels/AccountSafetyCard";
 import { PhoneCard } from "./panels/PhoneCard";
@@ -211,6 +212,10 @@ export function AccountSection({
       */}
       <View style={styles.spaced}>
         <MachinesCard />
+      </View>
+      {/* Who this person blocked, with Unblock. Drawn only when there is somebody. */}
+      <View style={styles.spaced}>
+        <BlockedPeopleCard />
       </View>
 
       {/*
