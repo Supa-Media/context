@@ -37,12 +37,16 @@ moves many notes, so the cost was paid constantly.
   migration.
 - There is no gateway mode without a control plane, and no Dropbox store.
 
-**The migration** (owner, 2026-10-15). The mover copies every object to its
-id key and records `copiedKey` on the row; from then on every write goes to
-both keys. Staff watch the share copied, restart and diagnose it in the admin
-console, and one global switch moves every reader to the copies, with a
-switch back. Both keys get every write, so switching either way loses
-nothing. Old keys are deleted seven days after the owner confirms the switch.
+**The migration** (owner, 2026-10-15). Every row gets its `noteId`. The
+mover copies each object to its id key, and the row records the version of the
+source it copied; a copy counts only while the note's current version still
+equals that one, so an edit landing during or after a copy makes it stale and
+the next pass copies it again. Staff watch the share copied, restart and
+diagnose it in the admin console. One global switch moves readers to the id
+keys, and from the switch on every write goes to both keys, so a switch back
+loses nothing. A read at the id key falls back to the path while that row's
+copy is stale. Old keys are deleted seven days after the owner confirms the
+switch.
 
 **What this supersedes.** The bucket as canonical for names
 ([convex-tree](../app-and-console/convex-tree.md): sweeps, parity, the phase 3
