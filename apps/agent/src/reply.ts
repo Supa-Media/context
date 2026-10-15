@@ -24,6 +24,7 @@ import {
   unlinkPhone,
   type Fetch,
 } from "./clients";
+import { prepareAttachments, type ImagesLike } from "./attachments";
 import { textsFromAnswer } from "./format";
 import type { Inbound } from "./inbound";
 
@@ -44,6 +45,8 @@ export type ReplyDeps = {
    * Absent, the turn is asked for whole, as before.
    */
   onProgress?: (text: string) => Promise<void>;
+  /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
+  images?: ImagesLike;
 };
 
 /**
@@ -125,7 +128,20 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return invite.status === "issued" ? COPY.unlinked(invite.url) : COPY.unlinkedNoLink;
     }
 
-    const answer = await askAgent(deps.fetch, deps.gatewayOrigin, session.accessToken, message.text, deps.onProgress, session.timeZone);
+    // Files are fetched only for a linked phone, and only now: an unlinked
+    // stranger's photo is never downloaded.
+    const attachments = message.attachments?.length
+      ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
+      : [];
+    const answer = await askAgent(
+      deps.fetch,
+      deps.gatewayOrigin,
+      session.accessToken,
+      message.text,
+      deps.onProgress,
+      session.timeZone,
+      attachments,
+    );
     if (answer.kind === "answer") return textsFromAnswer(answer.text);
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;

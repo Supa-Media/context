@@ -42,6 +42,7 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
@@ -285,6 +286,8 @@ export async function runTurn(options) {
     workspaces = null,
     // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
     efforts = null,
+    // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
+    attachments = [],
   } = options;
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
@@ -330,7 +333,7 @@ export async function runTurn(options) {
   */
   if (router !== null) {
     const asked = clock();
-    const routed = await pickTier({ decide: router.decide, text: question, history, routeAt: router.routeAt });
+    const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     // How sure the router was that this text needs thinking, kept whether or
@@ -358,7 +361,7 @@ export async function runTurn(options) {
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
-    { role: "user", text: question },
+    { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) },
   ];
   /*
     What the turn did, by name only. The arguments a tool was called with can

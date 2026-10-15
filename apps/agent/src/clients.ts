@@ -16,6 +16,8 @@
  * quote the request, and the request is somebody's message.
  */
 
+import type { GatewayAttachment } from "./attachments";
+
 export type Fetch = typeof fetch;
 
 const TIMEOUT_MS = 30_000;
@@ -235,9 +237,16 @@ export async function askAgent(
   question: string,
   onProgress?: (text: string) => Promise<void>,
   timeZone?: string,
+  attachments: GatewayAttachment[] = [],
 ): Promise<AgentAnswer> {
-  // The person's zone, so the turn knows the time where they are.
-  const ask = { question, conversation: "texts", ...(timeZone ? { timeZone } : {}) };
+  // The person's zone, so the turn knows the time where they are, and what
+  // they sent with the text (`attachments.ts`).
+  const ask = {
+    question,
+    conversation: "texts",
+    ...(timeZone ? { timeZone } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
   try {
@@ -280,7 +289,7 @@ async function askAgentStreaming(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
-  ask: { question: string; conversation: string; timeZone?: string },
+  ask: { question: string; conversation: string; timeZone?: string; attachments?: GatewayAttachment[] },
   onProgress: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
