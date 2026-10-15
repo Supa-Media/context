@@ -103,12 +103,16 @@ export async function storeForSession(session, env, controlPlane) {
     typeof controlPlane.readTreeFacts === "function"
       ? () => treeNoteCount((request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request))
       : null;
+  const hooks = idLayoutHooks(opened.idLayout, session, controlPlane);
+  // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
+  // without the id layer would serve them as the note. Refused, never served paths.
+  if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
   const store = withPrivacyAuthority(
     storeForBinding(binding, env, {
       noteCap,
       noteCount,
       managedEncryption: managedEncryptionForStore(opened, binding),
-      idLayout: idLayoutHooks(opened.idLayout, session, controlPlane),
+      idLayout: hooks,
     }),
     authority,
   );
@@ -227,8 +231,30 @@ export async function storeForSession(session, env, controlPlane) {
    * request's own session, as `rotateEncryptionKeys` is.
    */
   Object.defineProperty(store, "startQueuedMove", {
-    value: async (from, to) =>
-      await controlPlane.startQueuedMove(session.accessToken, session.workspaceId, from, to),
+    value: async (from, to, expectedEtag) =>
+      await controlPlane.startQueuedMove(session.accessToken, session.workspaceId, from, to, expectedEtag),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  /**
+   * Ask the control plane to make several note moves in a keyed workspace,
+   * whole or not at all (`tools/moves/queuedFolder.js`). Bound to this
+   * request's own session, as `startQueuedMove` is.
+   */
+  Object.defineProperty(store, "startMoveBatch", {
+    value: async (moves) => await controlPlane.startMoveBatch(session.accessToken, session.workspaceId, moves),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  /**
+   * Whether the workspace's notes live at their own keys (`idLayout` "keys"):
+   * then a note moves as a row change through `startQueuedMove`, and never as
+   * bytes (`tools/moves/queuedFolder.js`). Non-enumerable, as the seam is.
+   */
+  Object.defineProperty(store, "keyedLayout", {
+    value: opened.idLayout === "keys",
     enumerable: false,
     writable: false,
     configurable: true,

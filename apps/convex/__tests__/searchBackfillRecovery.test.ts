@@ -19,7 +19,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../_generated/api";
-import { FAKE_D1 } from "./fixtures.helpers";
+import { FAKE_D1, copyTree, drainScheduled } from "./fixtures.helpers";
 import { cancelPendingJobs, opted, project, queued, row } from "./searchBackfill.trigger.helpers";
 
 afterEach(async () => {
@@ -52,6 +52,10 @@ describe("a projection that fails on a blip", () => {
     */
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
     d1.fail = "UNAVAILABLE";
+    // The census is the tree's names (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
+    // Same race as the test below: the copy's own pending jobs would be counted as retries.
+    await drainScheduled(t);
 
     await project(t, workspaceId, 4);
 
@@ -64,11 +68,18 @@ describe("a projection that fails on a blip", () => {
     expect(retries[0]!.scheduledTime).toBeGreaterThan(Date.now() + 10_000);
     // And it spends a link, which is what keeps an outage from looping forever.
     expect(retries[0]!.args[0].operation).toEqual({ kind: "projectIndex", passes: 3 });
-  });
+  }, 30_000); // the tree's first copy runs before the pass, and takes longer than the default five seconds under load
 
   test("a chain that runs out of links on a blip records it, for the sweep", async () => {
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
     d1.fail = "RATE_LIMITED";
+    // The census is the tree's names (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
+    // The copy leaves its own follow-up jobs (`nodesParity`, `nodesFactFill`) pending
+    // behind a zero-delay timer, and they are `runFileOperation` too. Asserting on the
+    // queue before the event loop has run them counts them, so the assertion passed or
+    // failed by how fast the machine was. Run them to completion first.
+    await drainScheduled(t);
 
     await project(t, workspaceId, 0);
 
@@ -77,7 +88,7 @@ describe("a projection that fails on a blip", () => {
     expect(after?.errorCode).toBe("RATE_LIMITED");
     expect(after?.error).toContain("tries again on its own");
     expect(await queued(t, "runFileOperation")).toHaveLength(0);
-  });
+  }, 30_000); // the tree's first copy runs before the pass, as in the test above
 
   test("the sweep restarts a row that failed on a blip, counters kept", async () => {
     const { t, workspaceId } = await opted({ notes: 3 });
@@ -164,6 +175,8 @@ describe("what a failed pass leaves for a developer", () => {
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
     d1.fail = "UNAVAILABLE";
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The census is the tree's names (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
 
     await project(t, workspaceId, 4);
 

@@ -87,5 +87,7 @@ export const openGatewayJobReturns = v.union(
     rotation: v.optional(keyRotationValidator),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
     privacy: v.optional(heldPrivacyValidator),
+    /** Whether the workspace is keyed (`lib/noteIds/keyedStore.ts`): a path-based job is refused. */
+    keyed: v.optional(v.boolean()),
   }),
 );

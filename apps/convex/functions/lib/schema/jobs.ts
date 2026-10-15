@@ -257,6 +257,12 @@ export const jobTables = {
     bindingIssuedAt: v.optional(v.number()),
     /** Set the first time this ticket is used for accounting. */
     recordedAt: v.optional(v.number()),
+    /**
+     * The inbox folder (`0-inbox/` by default) the workspace's mail lands in,
+     * fixed at mint time. The id-layer routes (`lib/noteIds/ingestHttp.ts`)
+     * accept only paths under it, so a ticket can write its own mail and nothing else.
+     */
+    targetFolder: v.optional(v.string()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_expiresAt", ["expiresAt"]),

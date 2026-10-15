@@ -107,6 +107,7 @@ export {
   restoreTrashedPath,
   DELETE_CONFIRMATION,
   deletePath,
+  trashKeyedRows,
 } from "./fileOps/deleting";
 export type { DeleteResult } from "./fileOps/deleting";
 export { resetPrivacyManifest } from "./fileOps/privacyReset";

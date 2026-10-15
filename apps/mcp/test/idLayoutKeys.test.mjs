@@ -14,7 +14,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NoteNameTaken, withIdLayout } from "../src/store/idLayout.js";
+import { NoteNameTaken, isKeyedWorkspace, withIdLayout } from "../src/store/idLayout.js";
 import { idKeyFor, isNoteId } from "../src/store/noteIdKeys.js";
 import { storeForSession } from "../src/sessionStore.js";
 import { createControlPlane } from "../src/controlPlane/index.js";
@@ -342,10 +342,19 @@ test("deleting a keyed note retires its row before its key, and leaves the froze
     { ...store, delete: async (key) => (order.push(["delete", key]), store.delete(key)) },
     { ...cp.hooks, removed: async (note) => (order.push(["removed", note.path]), cp.hooks.removed(note)) },
   );
-  await tracing.delete("1-projects/a.md");
+  await tracing.delete("1-projects/a.md", { retire: true });
   assert.deepEqual(order, [["removed", "1-projects/a.md"], ["delete", KEY]]);
   assert.equal(store.objects.has("1-projects/a.md"), true);
   assert.equal(await layered.get("1-projects/a.md"), null);
+});
+
+test("an ordinary delete of a keyed note is refused: no row is retired and no key is discarded", async () => {
+  const { store, cp, layered } = await keyedNote();
+  await assert.rejects(layered.delete("1-projects/a.md"), (error) => error.name === "KeyedRetireRefused");
+  assert.equal(await layered.delete("1-projects/a.md", { onlyIf: { etagMatches: "stale" } }), null);
+  assert.ok(store.objects.has(KEY));
+  assert.ok(!cp.calls.some(([name]) => name === "removed"));
+  assert.notEqual(await layered.get("1-projects/a.md"), null);
 });
 
 test("a delete against a stale version is refused and retires nothing", async () => {
@@ -486,4 +495,79 @@ test("noteIdAdopt and noteIdRemoved post the note with the session's proofs", as
     accessToken: "tok",
     expectedWorkspaceId: "w1",
   });
+});
+
+/*
+ * A keyed workspace (`notes-by-id.md`) is served through the id layer or not at
+ * all. Its path objects are frozen copies, so a store without the layer would
+ * read them as the note.
+ *
+ * Sabotage: drop the refusal in `sessionStore.js` -> the second case is served
+ * a store with no layer; drop `keyedWorkspace` -> the first case fails.
+ */
+test("a keyed session is served the id layer, and its store says it is keyed", async () => {
+  const controlPlane = {
+    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], idLayout: "keys", keyed: true }),
+    noteIdLookup: async () => ({ copies: {}, keyed: true, notes: {} }),
+    noteIdWrote: async () => ({ recorded: true }),
+    noteIdAdopt: async () => ({ adopted: true, taken: null }),
+    noteIdRemoved: async () => ({ removed: true }),
+  };
+  const built = await storeForSession({ workspaceId: "w1", accessToken: "tok" }, { NATIVE_BINDINGS: "TEST_BUCKET", TEST_BUCKET: bucket() }, controlPlane);
+  assert.equal(await isKeyedWorkspace(built), true);
+});
+
+test("a keyed session without the id layer is refused, never served its frozen paths", async () => {
+  const controlPlane = {
+    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], keyed: true }),
+    noteIdLookup: async () => ({ copies: {} }),
+    noteIdWrote: async () => ({ recorded: true }),
+  };
+  await assert.rejects(
+    storeForSession({ workspaceId: "w1", accessToken: "tok" }, { NATIVE_BINDINGS: "TEST_BUCKET", TEST_BUCKET: bucket() }, controlPlane),
+    /id layer/,
+  );
+});
+
+/* ----------------------------- keyed workspace ----------------------------- */
+
+test("a keyed workspace answers keyed, and a keys layout that is not keyed yet does not", async () => {
+  const { store } = await keyedNote();
+  assert.equal(await isKeyedWorkspace(withIdLayout(store, controlPlaneOver({}, { keyed: true }).hooks)), true);
+  assert.equal(await isKeyedWorkspace(withIdLayout(store, controlPlaneOver({}, { keyed: false }).hooks)), false);
+});
+
+test("the ids layout is never keyed, and does not ask the control plane", async () => {
+  const cp = controlPlaneOver({}, { keyed: true });
+  const layered = withIdLayout(bucket(), { ...cp.hooks, mode: "ids" });
+  assert.equal(await isKeyedWorkspace(layered), false);
+  assert.deepEqual(cp.calls, []);
+});
+
+test("a store with no id layer is not keyed, and a failed lookup refuses rather than answering no", async () => {
+  assert.equal(await isKeyedWorkspace(bucket()), false);
+  const { store, cp } = await keyedNote();
+  const layered = withIdLayout(store, {
+    ...cp.hooks,
+    lookup: async () => {
+      throw new Error("control plane down");
+    },
+  });
+  await assert.rejects(isKeyedWorkspace(layered), /control plane down/);
+});
+
+test("the lookup passes the control plane's keyed answer through, and an unkeyed answer keeps its shape", async () => {
+  const answers = [
+    { copies: { "a.md": { key: "notes/x.md", etag: "e1", fresh: true } }, keyed: true },
+    { copies: { "a.md": { key: "notes/x.md", etag: "e1", fresh: true } } },
+  ];
+  let asked = 0;
+  const fetchImpl = async () => new Response(JSON.stringify(answers[asked++]), {
+    headers: { "content-type": "application/json" },
+  });
+  const cp = createControlPlane(ENV, { fetchImpl });
+  const keyed = await cp.noteIdLookup("tok", "w1", ["a.md"]);
+  assert.equal(keyed.keyed, true);
+  const unkeyed = await cp.noteIdLookup("tok", "w1", ["a.md"]);
+  assert.equal("keyed" in unkeyed, false);
 });

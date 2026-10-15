@@ -100,3 +100,5 @@ test/treeWriteNames.test.mjs
 test/vault.test.mjs
 test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
+test/calendarKeyedDelete.test.mjs
+test/keyedNoteIdAt.test.mjs

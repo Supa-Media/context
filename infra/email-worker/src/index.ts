@@ -255,8 +255,10 @@ function storeFor(
     noteCount?: number | null;
     managedEncryption: unknown;
     encryptionKey: unknown;
+    keyed?: boolean;
   },
   env: Env,
+  idLayout: IdLayoutHooks | null,
 ): ContextStore | null {
   const { binding, noteCap } = opened;
   // The cap counts the Convex tree, never the bucket (`store/noteCap.js`); the
@@ -273,10 +275,39 @@ function storeFor(
       String(binding.workspaceId ?? ""),
       (why: string) => new Error(why),
     );
-    return storeForBinding(binding, env, { noteCap, noteCount, managedEncryption }) as unknown as ContextStore;
+    // The id layer is handed to the factory, not wrapped around its result: the
+    // factory places it inside the note cap, which must count a note once, at
+    // its path, and never the id key the layer writes underneath it.
+    return storeForBinding(binding, env, { noteCap, noteCount, managedEncryption, idLayout }) as unknown as ContextStore;
   } catch {
     return null;
   }
+}
+
+/**
+ * The id layer's hooks for one capture (`apps/mcp/src/store/idLayout.js`, mode
+ * "keys"), bound to its ticket. Mail creates and rewrites its own notes; it
+ * never retires one, so `removed` refuses. The ticket is the only credential,
+ * and it names the workspace and the inbox the control plane will accept.
+ */
+interface IdLayoutHooks {
+  mode: "keys";
+  lookup: (paths: string[]) => Promise<unknown>;
+  wrote: (record: { path: string; key: string; etag: string; keyed?: boolean; size?: number; at?: number }) => Promise<unknown>;
+  adopt: (note: { path: string; noteId: string; key: string; etag: string; size?: number; at: number }) => Promise<unknown>;
+  removed: () => Promise<never>;
+}
+
+function mailIdLayout(controlPlane: IngestControlPlane, ticket: string): IdLayoutHooks {
+  return {
+    mode: "keys",
+    lookup: (paths) => controlPlane.noteIdLookup(ticket, paths),
+    wrote: (record) => controlPlane.noteIdWrote(ticket, record),
+    adopt: (note) => controlPlane.noteIdAdopt(ticket, note),
+    removed: async () => {
+      throw new Error("removing a note is not supported for mail");
+    },
+  };
 }
 
 /* --------------------------------- stream --------------------------------- */
@@ -524,8 +555,10 @@ export async function handleEmail(
     return refuse("control_plane_unavailable", username);
   }
   if (opened === null) return refuse("storage_unavailable", username);
-
-  const store = storeFor(opened, env);
+  // A keyed workspace's notes live at `notes/<noteId>.md`: the id layer writes a
+  // new note at its id key and asks the control plane for its row, under this
+  // capture's ticket (`mailIdLayout`).
+  const store = storeFor(opened, env, opened.keyed ? mailIdLayout(controlPlane, resolution.ticket) : null);
   if (!store) return refuse("storage_unavailable", username);
 
   try {

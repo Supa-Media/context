@@ -228,6 +228,15 @@
  * when this is called, so a failure here is logged and swallowed rather than
  * turned into a refusal the sender would see. It carries no subject, no body,
  * and no sender.
+ *
+ * ----------------------------------------------------------------------------
+ * 4. POST /gateway/ingest/note-ids/{lookup,wrote,adopt}   (keyed workspaces only)
+ * ----------------------------------------------------------------------------
+ * The id layer for a capture in a keyed workspace (`apps/mcp/src/store/idLayout.js`,
+ * mode "keys"), each call under the ticket `resolve` minted and `binding` spent.
+ * Bodies carry `ticket` and the gateway's fields, and the answers have the
+ * gateway's shapes. The control plane accepts only paths under the inbox folder
+ * the ticket recorded, and there is no `removed` route: mail never retires a note.
  */
 
 /** How long a control-plane call may take. Same budget as the gateway's. */
@@ -243,6 +252,19 @@ const CONTROL_PLANE_RESPONSE_BYTE_CAP = 256_000;
  * never a response body, never the secret, never a ticket, never a credential.
  */
 import { DEFAULT_MIME_LIMITS, MAX_ATTACHMENT_BYTES_HARD_CAP } from "./mime";
+// The gateway's own narrowing of a `notes` entry, imported rather than restated:
+// one definition of what the id layer may act on (`apps/mcp/src/controlPlane/noteIds.js`).
+import { narrowNote } from "../../../apps/mcp/src/controlPlane/noteIds.js";
+
+/** One row's entry as the id layer reads it (`narrowNote`'s output). */
+export type NoteIdEntry = { state: string; key?: string; etag?: string | null; [field: string]: unknown };
+
+/** The id layer's lookup answer for a capture: the gateway's `{copies, keyed, notes}` shape. */
+export interface IngestNoteIdLookup {
+  copies: Record<string, { key: string; etag: string | null; keyEtag: string | null; fresh: boolean }>;
+  keyed: boolean;
+  notes: Record<string, NoteIdEntry>;
+}
 
 export class ControlPlaneError extends Error {
   readonly reason: string;
@@ -528,6 +550,7 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
       noteCount: number | null;
       managedEncryption: unknown;
       encryptionKey: unknown;
+      keyed: boolean;
     } | null> {
       const parsed = await post("/gateway/ingest/binding", { ticket });
       const value = required(parsed, "binding");
@@ -546,12 +569,86 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
         // the binding. Narrowed by the gateway's own reader in `storeFor`.
         managedEncryption: parsed.managedEncryption ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
+        // Absent unless the workspace is keyed (`lib/noteIds/keyedState.ts`).
+        keyed: parsed.keyed === true,
       };
     },
 
     /** Quota accounting. Callers swallow failures; the note is already written. */
     async record(ticket: string, outcome: "captured" | "duplicate", bytes: number): Promise<void> {
       await post("/gateway/ingest/record", { ticket, outcome, bytes });
+    },
+
+    /**
+     * The id layer's lookup for a keyed workspace (`/gateway/ingest/note-ids/lookup`),
+     * answering the gateway's `{copies, keyed, notes}` shape, under this capture's ticket.
+     */
+    async noteIdLookup(ticket: string, paths: string[]): Promise<IngestNoteIdLookup> {
+      const parsed = await post("/gateway/ingest/note-ids/lookup", { ticket, paths });
+      const copies = required(parsed, "copies");
+      if (!copies || typeof copies !== "object" || Array.isArray(copies)) {
+        throw new ControlPlaneError("malformed note id copies");
+      }
+      const narrowed: IngestNoteIdLookup["copies"] = {};
+      for (const path of Object.keys(copies)) {
+        const copy = (copies as Record<string, Record<string, unknown>>)[path];
+        if (!copy || typeof copy !== "object" || typeof copy.key !== "string" || copy.key === "") continue;
+        narrowed[path] = {
+          key: copy.key,
+          etag: typeof copy.etag === "string" && copy.etag !== "" ? copy.etag : null,
+          keyEtag: typeof copy.keyEtag === "string" && copy.keyEtag !== "" ? copy.keyEtag : null,
+          fresh: copy.fresh === true,
+        };
+      }
+      if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
+        throw new ControlPlaneError("malformed note id entries");
+      }
+      const notes: Record<string, NoteIdEntry> = {};
+      for (const path of Object.keys(parsed.notes)) {
+        const entry = narrowNote((parsed.notes as Record<string, unknown>)[path]);
+        if (entry !== null) notes[path] = entry as NoteIdEntry;
+      }
+      return { copies: narrowed, keyed: parsed.keyed === true, notes };
+    },
+
+    /**
+     * Record the key's new version of a keyed capture (`/gateway/ingest/note-ids/wrote`).
+     * Only keyed writes are answered; `recorded` is false when the row has moved on.
+     */
+    async noteIdWrote(ticket: string, copy: { path: string; key: string; etag: string; keyed?: boolean; size?: number; at?: number }) {
+      const parsed = await post("/gateway/ingest/note-ids/wrote", {
+        ticket,
+        path: copy.path,
+        key: copy.key,
+        etag: copy.etag,
+        ...(copy.keyed === true ? { keyed: true } : {}),
+        ...(Number.isFinite(copy.size) ? { size: copy.size } : {}),
+        ...(Number.isFinite(copy.at) ? { at: copy.at } : {}),
+      });
+      if (parsed.ok !== true) throw new ControlPlaneError("malformed note id record");
+      return { recorded: parsed.recorded === true };
+    },
+
+    /**
+     * Give a note the gateway's store created at its own id key its row
+     * (`/gateway/ingest/note-ids/adopt`). `taken` names the holder of the name.
+     */
+    async noteIdAdopt(
+      ticket: string,
+      note: { path: string; noteId: string; key: string; etag: string; size?: number; at: number },
+    ): Promise<{ adopted: boolean; taken: NoteIdEntry | null }> {
+      const parsed = await post("/gateway/ingest/note-ids/adopt", {
+        ticket,
+        path: note.path,
+        noteId: note.noteId,
+        key: note.key,
+        etag: note.etag,
+        ...(Number.isFinite(note.size) ? { size: note.size } : {}),
+        at: note.at,
+      });
+      if (parsed.ok !== true) throw new ControlPlaneError("malformed note adoption");
+      if (parsed.adopted === true) return { adopted: true, taken: null };
+      return { adopted: false, taken: narrowNote(parsed.taken) as NoteIdEntry | null };
     },
   };
 }

@@ -16,7 +16,9 @@ import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
 import { runSearchShardsChecks } from "./searchShards.test.mjs";
 import { runSearchDocmapPathsChecks } from "./searchDocmapPaths.test.mjs";
 import { runSearchPacingChecks } from "./searchPacing.test.mjs";
+import { runSearchPacingControlPlaneChecks } from "./searchPacingControlPlane.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
+import { runSearchV2IntegrationShardChecks } from "./searchV2IntegrationShards.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
@@ -224,10 +226,12 @@ await suite("runSearchDocmapPathsChecks", () => runSearchDocmapPathsChecks(check
 await suite("runSearchShardQueryChecks", () => runSearchShardQueryChecks(check));
 await suite("runSearchFilterChecks", () => runSearchFilterChecks(check));
 await suite("runSearchV2IntegrationChecks", () => runSearchV2IntegrationChecks(check));
+await suite("runSearchV2IntegrationShardChecks", () => runSearchV2IntegrationShardChecks(check));
 // What a search *costs*: the ops it reserves for its own answer, the share of
 // the backfill it does while somebody waits, and the round trips it no longer
 // serializes.
 await suite("runSearchPacingChecks", () => runSearchPacingChecks(check));
+await suite("runSearchPacingControlPlaneChecks", () => runSearchPacingControlPlaneChecks(check));
 
 // The Obsidian plugin compatibility check: the scan as pure functions, the
 // inventory against its own bucket stubs, and the phrasing of the report. No

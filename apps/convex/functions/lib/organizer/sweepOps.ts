@@ -26,6 +26,7 @@ import { movePath } from "../fileOps/moving";
 import { readFiles, readFile } from "../fileOps/reading";
 import { syncManifest } from "../fileOps/syncManifest";
 import { writeFile } from "../fileOps/writing";
+import { isKeyedStore, treeOnlyView } from "../noteIds/keyedStore";
 import { planSweep } from "../../../../mcp/src/organizer/plan.js";
 import {
   inboxRequest,
@@ -140,10 +141,13 @@ export interface SweepWork {
 }
 
 export async function listEverything(store: FileStore, clearance: Clearance) {
+  // A keyed workspace is listed from the tree alone: the bucket's keys there
+  // are frozen copies and id keys, not the notes (`lib/noteIds/keyedStore.ts`).
+  const listing = (await isKeyedStore(store)) ? treeOnlyView(store) : store;
   const entries: { path: string; updatedAt?: number; etag?: string }[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_MANIFEST_PAGES; page += 1) {
-    const manifest = await syncManifest(store, { clearance, ...(cursor === undefined ? {} : { cursor }) });
+    const manifest = await syncManifest(listing, { clearance, ...(cursor === undefined ? {} : { cursor }) });
     for (const entry of manifest.entries) {
       entries.push({ path: entry.path, updatedAt: entry.updatedAt, etag: entry.etag });
     }

@@ -32,6 +32,8 @@ export type NoteIdsWorkspace = {
   /** When the flip to keyed rows started, and when it found none left; null until then. */
   keyedAt: number | null;
   keyedDoneAt: number | null;
+  /** Held by an archived account: the switch to keys does not count it (the gate checks live workspaces only). */
+  archived: boolean;
 };
 
 export type NoteIdsTotals = { files: number; copied: number; failed: number; liveFiles: number; keyed: number };
@@ -178,4 +180,38 @@ export function switchNote(mode: NoteIdsMode): string {
   return "Notes will be read from their copies in notes/, which are named by each note's id rather than its name. " +
     "A note whose copy is out of date is read from its path until its copy catches up. " +
     "Saves go to both places from now on, so you can switch back at any time without losing anything.";
+}
+
+/** Whether a row's copy is complete: the pass done, every file copied, none failed (the gate's own rule). */
+export function rowFullyCopied(row: NoteIdsWorkspace): boolean {
+  return row.status === "done" && row.failed === 0 && row.copied === row.files;
+}
+
+/** How many live workspaces are not fully copied: the number the switch to keys waits on. */
+export function workspacesNotReady(rows: readonly NoteIdsWorkspace[]): number {
+  return rows.filter((row) => !row.archived && !rowFullyCopied(row)).length;
+}
+
+/** The keys button: shown in ids mode only, enabled once every live workspace is copied, else the plain reason. */
+export type KeysSwitch = { shown: boolean; enabled: boolean; reason: string | null };
+
+export function keysSwitch(mode: NoteIdsMode, rows: readonly NoteIdsWorkspace[]): KeysSwitch {
+  if (mode !== "ids") return { shown: false, enabled: false, reason: null };
+  const waiting = workspacesNotReady(rows);
+  if (waiting === 0) return { shown: true, enabled: true, reason: null };
+  const noun = waiting === 1 ? "workspace is" : "workspaces are";
+  return { shown: true, enabled: false, reason: `${count(waiting)} ${noun} not fully copied yet.` };
+}
+
+/** The button's words. */
+export function keysLabel(): string {
+  return "Make notes/ the only copy";
+}
+
+/** The confirm, in plain language: what is true after it, and that it cannot be switched back. */
+export function keysNote(): string {
+  return (
+    "After this, every note lives only under notes/, and names live only in Context. " +
+    "This cannot be switched back."
+  );
 }

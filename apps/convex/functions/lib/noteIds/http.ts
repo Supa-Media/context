@@ -35,6 +35,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { NO_NAMES } from "../clearance";
 import { loadPrivacyState } from "../fileOps";
@@ -50,8 +51,19 @@ const NOT_SERVED = { served: false } as const;
 /** Paths one lookup may name. */
 export const NOTE_IDS_LOOKUP_PATHS = 200;
 
+/**
+ * The `keyed` sibling a binding answer carries (`/gateway/binding`, `/gateway/ingest/binding`):
+ * `keyed: true` only while the workspace is keyed (`keyedWorkspace`), so the wire
+ * carries it only where it is true. The email worker refuses mail it cannot write
+ * to an id key; the gateway refuses a keyed store without the id layer.
+ */
+export async function keyedSibling(ctx: Pick<ActionCtx, "runQuery">, workspaceId: Id<"workspaces">): Promise<{ keyed?: true }> {
+  const keyed = await ctx.runQuery(internal.functions.noteIds.keyedFor, { workspaceId });
+  return keyed ? { keyed: true } : {};
+}
+
 /** A non-empty list of at most `NOTE_IDS_LOOKUP_PATHS` paths, each one path; `null` for anything else. */
-function pathList(value: unknown): string[] | null {
+export function pathList(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > NOTE_IDS_LOOKUP_PATHS) return null;
   if (!value.every((entry) => typeof entry === "string" && entry !== "" && entry.length <= GATEWAY_PATH_LENGTH)) return null;
   return value as string[];
@@ -61,14 +73,14 @@ function pathList(value: unknown): string[] | null {
  * A number field: its value, `undefined` when absent, and `null` when present
  * but not a finite number (a malformed body).
  */
-function numberField(body: Record<string, unknown>, key: string): number | undefined | null {
+export function numberField(body: Record<string, unknown>, key: string): number | undefined | null {
   const value = body[key];
   if (value === undefined) return undefined;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 /** The time a keyed write carries: required, and a finite number. */
-function timeField(body: Record<string, unknown>): number | null {
+export function timeField(body: Record<string, unknown>): number | null {
   const at = numberField(body, "at");
   return typeof at === "number" ? at : null;
 }

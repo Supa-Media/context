@@ -16,6 +16,8 @@ export interface ContextStore {
     options?: { onlyIf?: { etagMatches?: string; absent?: boolean } },
   ): Promise<{ etag: string } | null>;
   delete?(path: string, options?: { onlyIf?: { etagMatches?: string } }): Promise<void | null>;
+  /** The note id of the live row at `path`, in a keyed workspace (`notes-by-id.md`); absent elsewhere. */
+  noteIdAt?(path: string): Promise<string | null>;
   list?(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
     objects: Array<{ key: string; etag?: string }>;
     truncated?: boolean;
@@ -93,3 +95,23 @@ export function sealDocument(store: ContextStore, path: string, input: SealDocum
 export function moveDocument(store: ContextStore, from: string, to: string, options?: LifecycleOptions): Promise<MoveResult>;
 export function tombstoneDocument(store: ContextStore, path: string, options?: LifecycleOptions): Promise<TombstoneResult>;
 export function restoreDocument(store: ContextStore, path: string, options?: LifecycleOptions): Promise<DocumentResult>;
+
+/** What a keyed rename did: the document it carried, or why it did nothing. */
+export interface RenameResult {
+  renamed: boolean;
+  reason?: "no_document" | "already" | "not_active";
+  documentId?: string;
+  generation?: string;
+}
+
+/**
+ * Carry a note's collaboration heads and state from `from` to `to` after its
+ * row moved in a keyed workspace. Reads and writes no Markdown. With
+ * `internalTrash`, either end may be a trash location, for a row trash or restore.
+ */
+export function renameDocument(
+  store: ContextStore,
+  from: string,
+  to: string,
+  options?: { internalTrash?: boolean },
+): Promise<RenameResult>;

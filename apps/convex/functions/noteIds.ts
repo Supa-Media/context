@@ -16,6 +16,8 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx } fr
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
 import { applyObservation } from "./lib/nodes/observe";
+import { workspaceArchived } from "./lib/archivedWorkspaces";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
@@ -44,6 +46,8 @@ const rowValidator = v.object({
   /** When the workspace's flip to keyed rows started, and when it found none left; null until then. */
   keyedAt: v.union(v.null(), v.number()),
   keyedDoneAt: v.union(v.null(), v.number()),
+  /** Held by an archived account: not counted by the switch to keys (`setMode`), which checks live workspaces only. */
+  archived: v.boolean(),
 });
 
 /** Where the id copy is, for every workspace with storage. Counts and labels only. */
@@ -74,6 +78,7 @@ export const report = query({
       keyed: number;
       keyedAt: number | null;
       keyedDoneAt: number | null;
+      archived: boolean;
     }> = [];
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
@@ -97,6 +102,7 @@ export const report = query({
         ...keys,
         keyedAt: row?.keyedAt ?? null,
         keyedDoneAt: row?.keyedDoneAt ?? null,
+        archived: await workspaceArchived(ctx.db, workspaceId),
       });
     }
     return { paused: layout?.paused === true, mode: layout?.mode ?? "paths", totals, workspaces, truncated };
@@ -174,29 +180,85 @@ export const setPaused = mutation({
   },
 });
 
+/** Whether a copy row says its workspace is fully copied: the pass done, every file copied, none failed. */
+function copyComplete(row: { status: string; files: number; copied: number; failed: number } | null): boolean {
+  return row !== null && row.status === "done" && row.failed === 0 && row.copied === row.files;
+}
+
 /**
- * The switch between path keys and id keys: which keys reads use. Staff only,
- * and allowed while the copy is paused, since choosing the keys is not new
- * copy work. The gateway learns it from `/gateway/binding`'s `idLayout`.
+ * The gate to keys: every live bound workspace must be fully copied. Archived
+ * ones are left out, as the rest of the id copy leaves them out. `truncated`
+ * means the bindings were more than one read covers, so the gate cannot see them all.
+ */
+async function copyGate(ctx: MutationCtx): Promise<{ notReady: number; truncated: boolean; live: Id<"workspaces">[] }> {
+  const { ids, truncated } = await boundWorkspaces(ctx);
+  const live: Id<"workspaces">[] = [];
+  let notReady = 0;
+  for (const workspaceId of ids) {
+    if (await workspaceArchived(ctx.db, workspaceId)) continue;
+    live.push(workspaceId);
+    if (!copyComplete(await copyRowOf(ctx.db, workspaceId))) notReady += 1;
+  }
+  return { notReady, truncated, live };
+}
+
+/**
+ * The switch between path keys, id keys and keyed rows: which keys reads use.
+ * Staff only, and allowed while the copy is paused, since choosing the keys is
+ * not new copy work. The gateway learns it from `/gateway/binding`'s `idLayout`.
  *
- * `keys` is not offered here: staff cannot set it from the UI yet. Once the
- * switch is at `keys` it is one-way: any other mode is refused, and the row
- * stays as it was.
+ * `keys` is the final switch: it is reached only from `ids`, and only once every
+ * live bound workspace is fully copied (`copyGate`). It schedules the flip for
+ * each live workspace at once. Once the switch is at `keys` it is one-way: any
+ * other mode is refused, and the row stays as it was.
  */
 export const setMode = mutation({
-  args: { mode: v.union(v.literal("paths"), v.literal("ids")) },
-  returns: v.object({ mode: v.union(v.literal("paths"), v.literal("ids")) }),
+  args: { mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")) },
+  returns: v.object({ mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")) }),
   handler: async (ctx, { mode }) => {
     const userId = await staffOnly(ctx);
     const existing = await ctx.db.query("noteIdLayout").first();
     if (existing?.mode === "keys") {
       throw new ConvexError({ code: "NOTE_IDS_KEYED", message: "The id keys are final once notes are keyed." });
     }
+    let flipAt: Id<"workspaces">[] = [];
+    if (mode === "keys") {
+      if (existing?.mode !== "ids") {
+        throw new ConvexError({
+          code: "NOTE_IDS_NOT_IDS",
+          message: "Switch to notes/ first. The copy has to be read from its ids before notes/ becomes the only copy.",
+        });
+      }
+      const gate = await copyGate(ctx);
+      if (gate.truncated) {
+        throw new ConvexError({ code: "NOTE_IDS_TOO_MANY", message: "There are too many workspaces to check at once." });
+      }
+      if (gate.notReady > 0) {
+        const count = gate.notReady;
+        throw new ConvexError({
+          code: "NOTE_IDS_NOT_READY",
+          message: `${count} ${count === 1 ? "workspace is" : "workspaces are"} not fully copied to notes/ yet. Every copy must finish with no failures first.`,
+        });
+      }
+      flipAt = gate.live;
+    }
     const fields = { mode, updatedAt: Date.now(), updatedBy: String(userId) };
     if (existing === null) await ctx.db.insert("noteIdLayout", { paused: false, ...fields });
     else await ctx.db.patch(existing._id, fields);
+    for (const workspaceId of flipAt) await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
     return { mode };
   },
+});
+
+/**
+ * Whether a workspace is keyed (`keyedWorkspace`): its notes' bytes live at their
+ * id keys. The ingest binding route sends it so the email worker can refuse mail
+ * it cannot write. INTERNAL.
+ */
+export const keyedFor = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }) => await keyedWorkspace(ctx.db, workspaceId),
 });
 
 /**

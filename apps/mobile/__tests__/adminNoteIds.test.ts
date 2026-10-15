@@ -6,6 +6,9 @@ import {
   formatPercent,
   handleLabel,
   isFailing,
+  keysLabel,
+  keysNote,
+  keysSwitch,
   keyedLine,
   modeLabel,
   nextMode,
@@ -39,6 +42,7 @@ const row = (fields: Partial<NoteIdsWorkspace> & { workspaceId: string }): NoteI
   keyed: 0,
   keyedAt: null,
   keyedDoneAt: null,
+  archived: false,
   ...fields,
 });
 
@@ -206,5 +210,52 @@ describe("the read switch", () => {
     expect(toIds).toMatch(/until its copy catches up/);
     expect(switchNote("ids")).toMatch(/paths again/);
     expect(switchNote("ids")).toMatch(/Nothing is deleted/);
+  });
+});
+
+describe("make notes/ the only copy", () => {
+  const copied = (id: string, fields: Partial<NoteIdsWorkspace> = {}) =>
+    row({ workspaceId: id, files: 10, copied: 10, status: "done", ...fields });
+
+  test("is offered in ids mode only", () => {
+    expect(keysSwitch("paths", [copied("a")]).shown).toBe(false);
+    expect(keysSwitch("keys", [copied("a")]).shown).toBe(false);
+    expect(keysSwitch("ids", [copied("a")]).shown).toBe(true);
+  });
+
+  test("is enabled once every live workspace is fully copied", () => {
+    expect(keysSwitch("ids", [copied("a"), copied("b")])).toEqual({ shown: true, enabled: true, reason: null });
+  });
+
+  test("is disabled, with a plain reason, while a workspace is not fully copied", () => {
+    const pending = keysSwitch("ids", [copied("a"), row({ workspaceId: "b", files: 10, copied: 4, status: "copying" })]);
+    expect(pending).toEqual({ shown: true, enabled: false, reason: "1 workspace is not fully copied yet." });
+    const several = keysSwitch("ids", [
+      row({ workspaceId: "a", files: 3 }),
+      row({ workspaceId: "b", files: 3, status: "failed", error: "x" }),
+    ]);
+    expect(several.enabled).toBe(false);
+    expect(several.reason).toBe("2 workspaces are not fully copied yet.");
+  });
+
+  test("a failed file keeps it disabled even when every file is copied", () => {
+    expect(keysSwitch("ids", [copied("a", { failed: 1 })]).enabled).toBe(false);
+  });
+
+  test("a copy that is done but short is not ready", () => {
+    expect(keysSwitch("ids", [copied("a", { copied: 9 })]).enabled).toBe(false);
+  });
+
+  test("an archived workspace does not hold the switch back", () => {
+    const archived = row({ workspaceId: "old", files: 10, copied: 0, archived: true });
+    expect(keysSwitch("ids", [copied("a"), archived]).enabled).toBe(true);
+  });
+
+  test("the button and the confirm say what they do, in plain words", () => {
+    expect(keysLabel()).toBe("Make notes/ the only copy");
+    const note = keysNote();
+    expect(note).toMatch(/only under notes\//);
+    expect(note).toMatch(/names live only in Context/);
+    expect(note).toMatch(/cannot be switched back/);
   });
 });

@@ -32,6 +32,7 @@ import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { startKeyedNoteMove } from "./queuedFolder.js";
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
@@ -111,6 +112,10 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // Asked of the Convex tree (`tree/names.js`); the write is conditional.
   const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
   if (destinationTaken) return destinationTaken;
+
+  // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
+  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
+  if (keyedArchive !== null) return keyedArchive;
 
   if (collaborationBase) {
     if (store.capabilities?.conditionalDelete !== true) {

@@ -35,6 +35,7 @@ import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { startKeyedNoteMove } from "./queuedFolder.js";
 
 export async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
   const source = normalizePath(sourceArg);
@@ -59,6 +60,9 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     return writePermissionError("move destination");
   }
 
+  // A keyed workspace moves the note's row and never its bytes (`queuedFolder.js`): asked of the control plane first.
+  const keyedMove = await startKeyedNoteMove(store, scope, source, destination, expectedSourceEtag, { rules, overrides });
+  if (keyedMove !== null) return keyedMove;
   const sourceObject = await getWithLegacyFallback(store, source);
   if (!sourceObject) return toolError("not found");
   const sourceText = await sourceObject.text();
