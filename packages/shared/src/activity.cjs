@@ -125,11 +125,16 @@ const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.
  * segment is Context's own storage and is not a note in any tool.
  *
  * `activity.md` itself is the one that would otherwise be a loop — a file
- * whose every write records that it was written.
+ * whose every write records that it was written. Tex's daily transcripts
+ * (`apps/mcp/src/agent/transcript.js`) are the same kind of log, rewritten
+ * as every text is answered: a line each would bury the feed in them.
  */
+const QUIET_PREFIXES = ["tex/transcripts/"];
+
 function isQuietPath(path) {
   if (typeof path !== "string" || path === "") return true;
   if (path === ACTIVITY_PATH) return true;
+  if (QUIET_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
   return path.split("/").some((segment) => segment.startsWith("."));
 }
 

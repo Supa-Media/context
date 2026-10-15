@@ -239,6 +239,10 @@ exception to two rules, bounded as follows:
 Built 2026-10-10, with personal and shared vaults and sharing as a person's
 own action: [the vault](./texting-assistant/vault.md).
 
+Tex's daily transcript of each person's texts, thinking and tool calls in
+their own `tex/transcripts/` folder, written as each text is answered:
+[transcripts](./texting-assistant/transcripts.md).
+
 Golden tasks (jobs Tex must always get right, gating a setup), the task
 skills it reads before doing one, and why a read skill may vouch for an
 address: [golden tasks](./texting-assistant/golden-tasks.md).

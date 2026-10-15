@@ -55,6 +55,7 @@ import { usedTools } from "./conversation.js";
 import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
 import { aboutMePrompt } from "./aboutMe.js";
 import { jobsPrompt } from "./jobs.js";
+import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -288,7 +289,18 @@ export async function runTurn(options) {
     efforts = null,
     // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
     attachments = [],
+    // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
+    // Never throws back into the turn, and asks the model for its thinking in words.
+    observe = null,
   } = options;
+  const tell = (event) => {
+    if (typeof observe !== "function") return;
+    try {
+      observe(event);
+    } catch {
+      // A transcript that broke costs a transcript, never the turn.
+    }
+  };
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
   // dispatched to their own session, which carries the address guard.
@@ -341,6 +353,7 @@ export async function runTurn(options) {
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
+    tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const systemFor = (answering) =>
     systemPrompt(place, {
@@ -356,6 +369,7 @@ export async function runTurn(options) {
     (shelf ? shelf.prompt() : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (observe ? TRANSCRIPTS_PROMPT : "") +
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces);
   let system = systemFor(model);
@@ -421,7 +435,7 @@ export async function runTurn(options) {
     let answer;
     try {
       answer = await requestBuiltin(
-        { model, system, messages, tools: offered, effort: efforts?.[model] },
+        { model, system, messages, tools: offered, effort: efforts?.[model], ...(observe ? { display: "summarized" } : {}) },
         providerOptions.ai,
         providerOptions,
       );
@@ -438,6 +452,7 @@ export async function runTurn(options) {
         const ms = clock() - asked;
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
+        tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
         model = fallback;
         system = systemFor(model);
         // Another model reads none of this one's thinking, and the prompt changed with it.
@@ -479,10 +494,17 @@ export async function runTurn(options) {
       usage.cacheWrite += answer.usage.cacheWrite ?? 0;
     }
 
+    for (const block of Array.isArray(answer.content) ? answer.content : []) {
+      if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
+        tell({ kind: "thinking", text: block.thinking });
+      }
+    }
+
     if (answer.toolCalls.length === 0) {
       return { answer: answer.text, provider, model, steps, usage, timing: { ...timing, trace } };
     }
 
+    if (answer.text?.trim()) tell({ kind: "say", text: answer.text });
     messages.push({
       role: "assistant",
       text: answer.text,
@@ -506,6 +528,7 @@ export async function runTurn(options) {
           text: "There is no such tool. Use only the tools you were given.",
           isError: true,
         });
+        tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {
@@ -513,6 +536,7 @@ export async function runTurn(options) {
         // the answer, written from what the calls so far returned.
         trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
         messages.push({ role: "tool", id: call.id, name: call.name, text: OUT_OF_TIME, isError: true });
+        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
         continue;
       }
       let result;
@@ -553,6 +577,7 @@ export async function runTurn(options) {
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true });
+      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
       messages.push({
         role: "tool",
         id: call.id,

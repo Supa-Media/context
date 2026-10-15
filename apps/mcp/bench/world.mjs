@@ -19,6 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -288,9 +289,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
-  /** Files the gateway writes for itself on a save: never the model's change. */
+  /** Files the gateway writes for itself on a save, and Tex's own transcript of the turn: never the model's change. */
   const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
-  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
+  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);
 
   const routerSaid = (entry) =>
     typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
@@ -328,7 +329,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
-        // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
+        // keeps the status (`turnLog.js` `wireTraceEntry`), and a result says it.
         error:
           response.status === 200
             ? null

@@ -663,6 +663,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
