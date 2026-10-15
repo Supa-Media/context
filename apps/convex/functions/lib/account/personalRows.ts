@@ -125,6 +125,13 @@ export async function deletePersonalRows(
     .collect();
   for (const row of feedbackReceipts) await ctx.db.delete(row._id);
 
+  // Reports they sent: their own words and ids.
+  const reports = await ctx.db
+    .query("contentReports")
+    .withIndex("by_reporter", (q) => q.eq("reporterId", userId))
+    .collect();
+  for (const row of reports) await ctx.db.delete(row._id);
+
   // Who they blocked, and every block naming them: two ids and a time each.
   await deleteBlocksOf(ctx, userId);
 

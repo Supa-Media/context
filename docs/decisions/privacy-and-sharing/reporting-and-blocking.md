@@ -33,7 +33,12 @@ owner-published pages with no feed and no comments.
   words (at most 1,000 characters), resolves the target for the caller through
   the existing checks, and sends it through the feedback pipeline under the
   source `report` — same Sentry project, same ten-a-day budget, same receipts.
-  Report and block is one call (`alsoBlock`).
+  Report and block is one call (`alsoBlock`). Once sent, each report is also
+  kept as a `contentReports` row for the staff console's **Reports** tab
+  (`/admin/reports`, mark handled or reopen) and mailed to `REPORTS_EMAIL`
+  (the support address, set by the deploy), one row and one mail per event id
+  however often it is retried (Dev2, 2026-10-15). The queue is what the
+  24-hour promise is kept against; Sentry alone was not watched.
 - **Signed-out readers of a public page** get a `mailto:` to support with the
   page's address in the subject. There is no anonymous report endpoint.
 - **Terms and Support** say there is no tolerance for objectionable content or
@@ -57,8 +62,9 @@ know:
 (`noteId`, never its path) and the reported person's account — the kind, the
 reason and the reporter's own words. Never a note's body, title or path, and
 never a share or invitation token: the token is what opens the thing, and a
-report is not a way to hand it on. The control plane keeps the receipt (ids
-and times) and nothing else, as for feedback.
+report is not a way to hand it on. The control plane keeps the receipt and
+the report row (the same ids, the reason and the reporter's words), deleted
+with the reporter's account.
 
 **Why per recipient and not global.** A global block (the social-network
 shape) would hide a person from everybody's view of shared spaces, which

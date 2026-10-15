@@ -414,7 +414,8 @@ describe("the tabs", () => {
     // The waitlist joined as a fifth when sign-up became invite-only, and the
     // agent as a sixth when the texting assistant's turns started being timed,
     // and search beside it when searches were; people last, for typing in
-    // phones before sign-in moved to them.
+    // phones before sign-in moved to them; reports last, for the content
+    // people send from the app and the staff review of it.
     expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
       "growth",
       "estate",
@@ -425,6 +426,7 @@ describe("the tabs", () => {
       "credentials",
       "waitlist",
       "people",
+      "reports",
     ]);
     expect(isAdminTab("growth")).toBe(true);
     expect(isAdminTab("secrets")).toBe(false);

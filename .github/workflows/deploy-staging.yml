@@ -136,6 +136,9 @@ jobs:
       # The gateway's mover: whole-bucket moves copy there, never through
       # Convex (`functions/lib/storageMover.ts`). A public origin, not a secret.
       STORAGE_MOVER_ORIGIN: https://mcp-staging.context.lc
+      # Content reports are mailed here too, subject marked [staging], so the
+      # path can be checked before production (`functions/contentReports.ts`).
+      REPORTS_EMAIL: context@supa.media
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
