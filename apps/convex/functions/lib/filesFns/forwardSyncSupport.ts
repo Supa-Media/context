@@ -109,6 +109,40 @@ const GMAIL_RATE_LIMIT_REASONS = new Set([
   "quotaExceeded",
 ]);
 
+export type ForwardSyncProduct = "gmail" | "calendar" | "chat";
+
+/**
+ * The bucket cannot give Calendar or Chat the conditional writes their shared
+ * day notes need. Its own class, so the owner reads "storage" rather than the
+ * catch-all "did not sync", which said nothing a person could act on.
+ */
+export class ForwardSyncStorageError extends Error {
+  constructor(readonly product: "calendar" | "chat") {
+    super(
+      product === "calendar"
+        ? "Shared Calendar sync requires storage with conditional writes"
+        : "Google Chat sync requires declared storage capabilities",
+    );
+    this.name = "ForwardSyncStorageError";
+  }
+}
+
+/** Google Calendar finished a listing without the token the next pass resumes from. */
+export class CalendarCursorMissingError extends Error {
+  constructor() {
+    super("Google Calendar did not return a resumable cursor");
+    this.name = "CalendarCursorMissingError";
+  }
+}
+
+/** Calendar met a note in its folder it did not write and will not replace. */
+export class CalendarDayNoteConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CalendarDayNoteConflictError";
+  }
+}
+
 export class CalendarTimezoneMismatchError extends Error {
   constructor() {
     super("Calendar accounts sharing a destination use different timezones");
@@ -126,6 +160,28 @@ export class CalendarTimezoneMismatchError extends Error {
  * was briefly unavailable" are still different sentences to show somebody.
  */
 export function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof ForwardSyncStorageError) {
+    return {
+      code: "STORAGE_CONDITIONAL_WRITES_REQUIRED",
+      message:
+        error.product === "calendar"
+          ? "Calendar needs storage that supports safe shared writes. This bucket does not, so Calendar is paused."
+          : "Chat needs storage that supports safe shared writes. This bucket does not, so Chat is paused.",
+    };
+  }
+  if (error instanceof CalendarCursorMissingError) {
+    return {
+      code: "CALENDAR_CURSOR_MISSING",
+      message: "Google Calendar did not return a place to resume from. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof CalendarDayNoteConflictError) {
+    return {
+      code: "CALENDAR_DAY_NOTE_CONFLICT",
+      message:
+        "A note in the Calendar folder was not written by Calendar, so Calendar left it alone. Move or rename it to let Calendar fill that day.",
+    };
+  }
   if (error instanceof CalendarTimezoneMismatchError) {
     return {
       code: "CALENDAR_TIMEZONE_MISMATCH",
@@ -231,10 +287,47 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
       message: "Gmail or storage took too long. The next scheduled pass resumes from the same place.",
     };
   }
+  const dropbox = error instanceof Error ? DROPBOX_FAILURE.exec(error.message) : null;
+  if (dropbox !== null) {
+    const [, action, status, tag] = dropbox;
+    return {
+      code: "STORAGE_PROVIDER_FAILED",
+      message: `Dropbox did not complete a ${action} (${status}${tag ? ` ${tag}` : ""}). The next scheduled pass will try again.`,
+    };
+  }
+  const detail = safeErrorDetail(error);
   return {
     code: "GOOGLE_SYNC_FAILED",
-    message: "This mailbox did not sync. The next scheduled pass resumes from the same place.",
+    message: `This service did not sync${detail === undefined ? "" : ` (${detail})`}. The next scheduled pass resumes from the same place.`,
   };
+}
+
+/**
+ * `DropboxStore._fail`'s shape: an action, a status, and Dropbox's own tag,
+ * never the path (`apps/mcp/src/store/dropbox.js`), so all three can be shown.
+ */
+const DROPBOX_FAILURE = /^dropbox ([a-z_/]+) failed: (\d{3})(?: \(([a-z_/]+)\))?$/;
+
+/**
+ * Something to tell the catch-all's failures apart by, without a note's name.
+ *
+ * The catch-all used to say only "did not sync", which is how a Calendar that
+ * failed on every pass on production could not be diagnosed from the row or
+ * the logs. An error thrown here is Context's own or a storage adapter's, but
+ * a message can still quote a key, and keys are the customer's note paths: so
+ * anything path-shaped or quoted is cut out, and the rest is bounded.
+ */
+export function safeErrorDetail(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const message = error.message
+    .replace(/(["'`]).*?\1/g, "…")
+    .replace(/\S*[\\/]\S*/g, "…")
+    .replace(/\S+\.(md|json|txt|pdf|png|jpe?g)\b/gi, "…")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  const name = error.name && error.name !== "Error" ? `${error.name}: ` : "";
+  return message === "" ? (name === "" ? undefined : name.slice(0, -2)) : `${name}${message}`;
 }
 
 export async function writeSharedCalendarDay(
@@ -256,13 +349,13 @@ export async function writeSharedCalendarDay(
 
     if (existingText !== null && !isCalendarDayNote(existingText)) {
       if (text === null) return { wrote: false, bytes: 0 };
-      throw new Error("Calendar cannot replace a note the owner wrote in its destination folder");
+      throw new CalendarDayNoteConflictError("Calendar cannot replace a note the owner wrote in its destination folder");
     }
     if (text === null) {
       if (existing === null) return { wrote: false, bytes: 0 };
       if (collaborationSupported(store) && collaborationEligible(path, existingText ?? undefined)) {
         if (store.capabilities?.conditionalDelete !== true) {
-          throw new Error("Calendar cannot delete a collaboration note without conditional deletion");
+          throw new CalendarDayNoteConflictError("Calendar cannot delete a collaboration note without conditional deletion");
         }
         try {
           const current = await readCollaborationDocument(store, path);

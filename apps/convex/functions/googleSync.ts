@@ -85,6 +85,7 @@ import {
   SYNC_STALL_MS,
   failureBackoffMs,
   isDue,
+  lastTurnAtFor,
   nextProductToSync,
   syncIntervalMinutesOf,
   syncableProductsOf,
@@ -549,6 +550,30 @@ export const googleForwardSyncJob = internalQuery({
   },
 });
 
+/** A product's turn fields, cleared by a pass that synced it. */
+const SUCCEEDED = {
+  lastAttemptAt: undefined,
+  lastFailureCode: undefined,
+  lastFailure: undefined,
+} as const;
+
+/**
+ * The patch that records a turn on one product's subobject, or nothing when
+ * the pass named no product or the row has no such subobject.
+ */
+function productTurnPatch(
+  connection: Doc<"googleConnections">,
+  product: "gmail" | "calendar" | "chat" | undefined,
+  turn: { lastAttemptAt: number; lastFailureCode?: string; lastFailure?: string },
+): Partial<Pick<Doc<"googleConnections">, "gmail" | "calendar" | "chat">> {
+  if (product === undefined) return {};
+  if (product === "gmail") return connection.gmail ? { gmail: { ...connection.gmail, ...turn } } : {};
+  if (product === "calendar") {
+    return connection.calendar ? { calendar: { ...connection.calendar, ...turn } } : {};
+  }
+  return connection.chat ? { chat: { ...connection.chat, ...turn } } : {};
+}
+
 /**
  * What one pass learned, written where a person can see it.
  *
@@ -610,7 +635,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
     if (args.status === "skipped") {
       // Nothing was read, so `lastSyncAt` does not move — a skipped pass must
       // not be able to make a connection that has never synced look synced.
+      // The product's turn is still spent, so a product that is skipped every
+      // pass does not keep its siblings waiting (`nextProductToSync`).
       await ctx.db.patch(args.connectionId, {
+        ...productTurnPatch(connection, args.product, { lastAttemptAt: now }),
         push: connection.push && { ...connection.push, pending: undefined },
         syncStartedAt: undefined,
         nextSyncAt: now + intervalMs,
@@ -626,6 +654,18 @@ export const recordGoogleForwardSyncPass = internalMutation({
     if (args.status === "failed") {
       const failures = (connection.syncFailures ?? 0) + 1;
       await ctx.db.patch(args.connectionId, {
+        /*
+          THE FAILED PRODUCT'S TURN IS SPENT, AND IT SAYS WHY.
+
+          Without this a product that failed every pass never had a turn on
+          record, stayed the oldest, and was picked again on every pass, so a
+          broken Calendar stopped Gmail and Chat on the same account too.
+        */
+        ...productTurnPatch(connection, args.product, {
+          lastAttemptAt: now,
+          lastFailureCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+          lastFailure: error ?? "This Google account did not sync.",
+        }),
         syncStartedAt: undefined,
         lastSyncAt: now,
         nextSyncAt: now + failureBackoffMs(intervalMs, failures, args.connectionId),
@@ -677,6 +717,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
           // A baseline or a re-baseline read no mail, so it does not claim to
           // have. `cursorReady` is what those passes make true.
           lastSyncedAt: args.baseline === true ? connection.gmail.lastSyncedAt : now,
+          // A baseline is still a successful turn: the failure is over.
+          lastAttemptAt: args.baseline === true ? now : undefined,
+          lastFailureCode: undefined,
+          lastFailure: undefined,
         }
       : connection.gmail;
     const chat = product === "chat" && connection.chat
@@ -684,6 +728,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           ...connection.chat,
           cursors: args.chatCursors ?? connection.chat.cursors,
           lastSyncedAt: now,
+          ...SUCCEEDED,
         }
       : connection.chat;
     const calendar = product === "calendar" && connection.calendar
@@ -693,6 +738,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastFullSyncDate:
             args.calendarLastFullSyncDate ?? connection.calendar.lastFullSyncDate,
           lastSyncedAt: now,
+          ...SUCCEEDED,
         }
       : connection.calendar;
     /*
@@ -711,7 +757,9 @@ export const recordGoogleForwardSyncPass = internalMutation({
     const pushed = await settlePushAfterPass(ctx, connection, product, now, catchUp);
     const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
       if (candidate === product) return now;
-      return connection[candidate]?.lastSyncedAt;
+      // A sibling that failed a moment ago waits its interval like one that
+      // succeeded, rather than being due again at once.
+      return lastTurnAtFor(connection, candidate);
     });
     const nextProductDueAt = productCompletedAt.some((at) => at === undefined)
       ? now

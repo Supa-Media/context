@@ -59,9 +59,13 @@ import {
 } from "../../../../mcp/src/communications/googleChat/sync.js";
 import type { FileStore } from "../fileOps";
 import {
+  CalendarCursorMissingError,
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
+  ForwardSyncStorageError,
+  safeErrorDetail,
   type ForwardSyncJob,
+  type ForwardSyncProduct,
   type ForwardSyncResult,
   timeoutFetch,
   writeSharedCalendarDay,
@@ -85,11 +89,14 @@ export async function releaseForwardSync(
   ctx: ActionCtx,
   connectionId: Id<"googleConnections">,
   reason: string | undefined,
+  /** The product whose turn this was, when one was chosen. */
+  product?: ForwardSyncProduct,
 ): Promise<ForwardSyncResult> {
   await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
     connectionId,
     status: "skipped",
     errorCode: reason,
+    ...(product === undefined ? {} : { product }),
   });
   return {
     kind: "googleForwardSync",
@@ -110,12 +117,15 @@ export async function failForwardSync(
   connectionId: Id<"googleConnections">,
   errorCode: string,
   error: string,
+  /** The product whose turn failed, so its siblings get the next one. */
+  product?: ForwardSyncProduct,
 ): Promise<ForwardSyncResult> {
   await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
     connectionId,
     status: "failed",
     errorCode,
     error,
+    ...(product === undefined ? {} : { product }),
   });
   return {
     kind: "googleForwardSync",
@@ -137,7 +147,7 @@ async function runGoogleCalendarForwardSync(
   accessToken: string,
 ): Promise<ForwardSyncResult> {
   if (store.capabilities?.conditionalWrite !== true) {
-    throw new Error("Shared Calendar sync requires storage with conditional writes");
+    throw new ForwardSyncStorageError("calendar");
   }
   const calendarStore = store as unknown as Parameters<typeof persistCalendarContribution>[0]["store"];
   const previous = await loadCalendarContribution({
@@ -163,7 +173,7 @@ async function runGoogleCalendarForwardSync(
     materialize: false,
   });
   if (provider.skipped || !provider.syncToken || !provider.lastFullSyncDate) {
-    throw new Error("Google Calendar did not return a resumable cursor");
+    throw new CalendarCursorMissingError();
   }
 
   await persistCalendarContribution({
@@ -243,7 +253,7 @@ async function runGoogleChatForwardSync(
   accessToken: string,
 ): Promise<ForwardSyncResult> {
   if (store.capabilities === undefined) {
-    throw new Error("Google Chat sync requires declared storage capabilities");
+    throw new ForwardSyncStorageError("chat");
   }
   // `FileStore` is the deliberately narrow view used by file operations and
   // omits `StoredObject.arrayBuffer`; every adapter returned by
@@ -418,6 +428,7 @@ export async function runGoogleForwardSync(
         job.connectionId,
         "GOOGLE_RECONNECT_REQUIRED",
         "Google needs to be reconnected before this mailbox can sync.",
+        job.product,
       );
     }
 
@@ -636,6 +647,7 @@ async function forwardSyncFailed(
       job.product === "calendar"
         ? "CALENDAR_WAITING_FOR_ACCOUNT"
         : "CHAT_WAITING_FOR_ACCOUNT",
+      job.product,
     );
   }
   const { code, message } = classifyForwardSyncError(error);
@@ -648,10 +660,13 @@ async function forwardSyncFailed(
       product: job.product,
       errorCode: code,
       errorName: error instanceof Error ? error.name : typeof error,
+      // Only for the catch-all, and with anything path-shaped cut out
+      // (`safeErrorDetail`): the classified codes already say what happened.
+      errorDetail: code === "GOOGLE_SYNC_FAILED" ? safeErrorDetail(error) : undefined,
       gmailStatus: error instanceof GmailApiError ? error.status : undefined,
     }),
   );
-  return await failForwardSync(ctx, job.connectionId, code, message);
+  return await failForwardSync(ctx, job.connectionId, code, message, job.product);
 }
 
 export async function runGoogleGmailBackfill(
