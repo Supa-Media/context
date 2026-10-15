@@ -15,6 +15,8 @@
  *   - A tool's result. It can quote a note from a shared workspace the person
  *     may later lose, and this note stays in their personal one; the same rule
  *     as the conversation history (`conversation.js`). Outcome and time only.
+ *   - A note's text passed to a tool (`content`, `body`…): its length only,
+ *     for the same reason.
  *   - A secret. Saved logins never reach the model (`fillLogin.js`), so they
  *     never reach this either; an argument whose name looks like one
  *     (`password`, `token`, `code`…) is written as `[hidden]` all the same.
@@ -56,6 +58,11 @@ const MAX_ARGS_CHARS = 800;
 
 /** Argument names that may carry something secret; their values are never written. */
 const SECRET_KEY = /pass|secret|token|otp|pin\b|cvv|card|api[-_]?key|credential|^code$/i;
+/**
+ * Argument names that carry a note's text, which can be another workspace's
+ * words the model read: written as their length, like a tool's result.
+ */
+const CONTENT_KEY = /^(content|body|old_text|new_text|replacement|images)$/;
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -97,6 +104,9 @@ function cut(text, max) {
 export function argsLine(args) {
   const hide = (value, key) => {
     if (typeof key === "string" && SECRET_KEY.test(key) && value !== null && value !== undefined && value !== "") return "[hidden]";
+    if (typeof key === "string" && CONTENT_KEY.test(key) && value !== null && value !== undefined) {
+      return `[${typeof value === "string" ? value.length : JSON.stringify(value)?.length ?? 0} characters]`;
+    }
     if (typeof value === "string") return value.length > MAX_ARG_CHARS ? `${value.slice(0, MAX_ARG_CHARS)}…` : value;
     if (Array.isArray(value)) return value.slice(0, 20).map((item) => hide(item, null));
     if (value && typeof value === "object") {

@@ -15,8 +15,8 @@
  *     → "a day that could not be read is never overwritten" fails.
  *  2. `withoutTurn` returning the text unchanged.
  *     → "a write that lost a race re-reads, appends after the other turn, and keeps its own part once" fails.
- *  3. `argsLine` without the `SECRET_KEY` test.
- *     → "an argument that looks like a secret is hidden" fails.
+ *  3. `argsLine` without the `SECRET_KEY` test, or without `CONTENT_KEY`.
+ *     → "an argument that looks like a secret is hidden, a note's text is only its length…" fails.
  *  4. `runTurn` without the thinking `tell`.
  *     → "runTurn tells the observer its thinking, its words between tools and each call" fails.
  *  5. `gatewayBody` sending `thinking` to every model.
@@ -133,11 +133,13 @@ test("a full day carries on in the next part", async () => {
   assert.match(store.notes.get("tex/transcripts/2026-10-15-2.md").body, /late one/);
 });
 
-test("an argument that looks like a secret is hidden, and long ones are cut", () => {
-  const line = argsLine({ path: "a.md", password: "hunter2", nested: { api_key: "k", token: "t" }, content: "y".repeat(1000) });
+test("an argument that looks like a secret is hidden, a note's text is only its length, and long ones are cut", () => {
+  const line = argsLine({ path: "a.md", password: "hunter2", nested: { api_key: "k", token: "t" }, content: "SHARED-WORDS ".repeat(80), query: "q".repeat(1000) });
   assert.doesNotMatch(line, /hunter2/);
   assert.match(line, /"password":"\[hidden\]"/);
   assert.match(line, /"api_key":"\[hidden\]"/);
+  assert.doesNotMatch(line, /SHARED-WORDS/);
+  assert.match(line, /"content":"\[1040 characters\]"/);
   assert.ok(line.length <= 801);
 });
 

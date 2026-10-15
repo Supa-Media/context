@@ -18,8 +18,14 @@ time zone, by `apps/mcp/src/agent/transcript.js`:
 - **Never a tool's result**, only its name, arguments, outcome and time: a
   result can quote a shared workspace's note the person may later lose, and
   this note stays in their personal one (the same rule as the conversation
-  history). An argument named like a secret is written `[hidden]`; saved
-  logins never reach the model at all (`vault.md`).
+  history). A note's text passed as an argument (`content`, `body`…) is
+  written as its length for the same reason. An argument named like a secret
+  is written `[hidden]`; saved logins never reach the model at all
+  (`vault.md`). The thinking and the answers are kept although they can
+  restate what was read, because they are what was asked for; the answers
+  are already kept in the conversation history.
+- **Not the model's read.** The transcript reads its day under a ledger of
+  its own, so appending to it never makes a widening in the same text ask.
 - **Through the dispatcher.** Each write is a `write_note` under the turn's own
   session, with the etag it read. A note that could not be read is never
   overwritten; a write that lost a race re-reads and appends after the other

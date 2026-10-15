@@ -15,6 +15,8 @@
  *     → "a texted turn is written into today's transcript" fails.
  *  2. `route.js` opening it for every client.
  *     → "a turn from another client writes no transcript" fails.
+ *  3. The transcript dispatching under the turn's own egress ledger.
+ *     → "reading today's transcript to append to it never makes a widening ask" fails.
  */
 
 import worker from "../src/index.js";
@@ -50,6 +52,7 @@ function fakeModel() {
       requests.push(JSON.parse(init.body));
       const next = script.shift();
       if (!next) throw new Error("fake model: the script ran out");
+      if (next.waitMs) await new Promise((resolve) => setTimeout(resolve, next.waitMs));
       const content = [];
       if (next.thinking) content.push({ type: "thinking", thinking: next.thinking, signature: "sig" });
       if (next.text) content.push({ type: "text", text: next.text });
@@ -165,6 +168,19 @@ export async function runAgentTranscriptChecks(check) {
       both.indexOf("what's on my list?") !== -1 &&
         both.indexOf("**Them:** thanks") > both.indexOf("**Tex:** Pay rent.") &&
         both.includes("**Tex:** Anytime."),
+    );
+
+    /* ---------------- the transcript is not something the model read ---------------- */
+
+    model.install([
+      // A slow first round, so the transcript's own read of today has landed before the widening.
+      { waitMs: 300, toolCalls: [{ name: "set_visibility", args: { path: "todo.md", visibility: "team" } }] },
+      { text: "Shared." },
+    ]);
+    const share = await ask(env, TOKEN_TEXTS, { question: "share my to-do list with the team", conversation: "texts", timeZone: "UTC" });
+    check(
+      "reading today's transcript to append to it never makes a widening ask",
+      share.status === 200 && share.body?.answer === "Shared." && share.body?.asked === 0,
     );
 
     /* ---------------- another client ---------------- */

@@ -438,13 +438,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
   const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
-  /*
-    TODAY'S TRANSCRIPT (`transcript.js`, the owner, 2026-10-15): a texted
-    turn or a routine's run is written into the person's tex/transcripts/
-    note as it happens, thinking and tool calls included, results never.
-  */
+  // Today's transcript (`transcript.js`), under a ledger of its own: what it reads, the model never does.
+  const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
+  Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
   const transcript = texting
-    ? openTranscript(dispatch, {
+    ? openTranscript((name, args) => callToolForSession({ name, arguments: args }, store, unseen), {
         now: received,
         timeZone,
         question,
