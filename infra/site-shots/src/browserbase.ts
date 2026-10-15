@@ -79,6 +79,17 @@ export async function findSession(env: BrowserbaseEnv, owner: string, fetcher: t
   return null;
 }
 
+/**
+ * Every running browser of this person's, by id. Two first questions at once
+ * can each start one; the idle release (./idle.ts) ends them all.
+ */
+export async function ownerSessionIds(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<string[]> {
+  const running = await api<RawSession[]>(env, "/sessions?status=RUNNING", { method: "GET" }, fetcher);
+  return (Array.isArray(running) ? running : [])
+    .filter((raw) => raw?.userMetadata?.owner === owner && typeof raw.id === "string")
+    .map((raw) => String(raw.id));
+}
+
 export async function createSession(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<BrowserbaseSession> {
   const raw = await api<RawSession>(
     env,

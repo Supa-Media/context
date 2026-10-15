@@ -74,6 +74,22 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     expect(store.data.size).toBe(0);
   });
 
+  it("releases every browser this person has, when two were started at once", async () => {
+    const store = fakeStorage();
+    const api = fakeApi([
+      { id: "one", connectUrl: "wss://c/one", userMetadata: { owner: OWNER } },
+      { id: "theirs", connectUrl: "wss://c/theirs", userMetadata: { owner: OTHER } },
+      { id: "two", connectUrl: "wss://c/two", userMetadata: { owner: OWNER } },
+    ]);
+    let now = 0;
+    const timer = new IdleTimer(store.storage, ENV, api.fetcher, () => now);
+    await timer.touch(OWNER);
+    now += IDLE_MS;
+    store.clearAlarm();
+    await timer.alarm();
+    expect(released(api.calls)).toEqual(["https://api.browserbase.com/v1/sessions/one", "https://api.browserbase.com/v1/sessions/two"]);
+  });
+
   it("keeps a browser that was used again while the alarm was looking it up", async () => {
     const store = fakeStorage();
     let now = 0;
@@ -168,14 +184,19 @@ describe("the person's own view counts as use", () => {
     expect(touched).toEqual([OWNER]);
   });
 
-  it("does not start a timer for someone with no browser", async () => {
+  it("touches the timer before looking the browser up, so a release under way finishes first", async () => {
     const { viewOnBrowserbase } = await import("./view");
-    const touched: string[] = [];
+    const order: string[] = [];
     const namespace: IdleNamespace = {
       idFromName: (name) => ({ name }) as unknown as DurableObjectId,
-      get: () => ({ touch: async (owner) => void touched.push(owner) }),
+      get: () => ({ touch: async () => void order.push("touch") }),
     };
-    await viewOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/view/frame", { owner: OWNER }, fakeApi([]).fetcher);
-    expect(touched).toEqual([]);
+    const api = fakeApi([]);
+    const logged = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      order.push("lookup");
+      return await api.fetcher(input, init);
+    }) as typeof fetch;
+    await viewOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/view/frame", { owner: OWNER }, logged);
+    expect(order).toEqual(["touch", "lookup"]);
   });
 });

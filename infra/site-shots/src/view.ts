@@ -208,10 +208,11 @@ export async function viewOnBrowserbase(env: BrowserbaseEnv, path: string, body:
   // Without Browserbase there is no browser that outlives a question to look at.
   if (!browserbaseConfigured(env)) return json({ running: false });
   const started = Date.now();
+  // The person looking at or driving it is using it. Before the lookup, so a
+  // release already under way finishes first and this finds no browser (./idle.ts).
+  await touchIdle(env.BROWSER_IDLE, owner);
   const session = await findSession(env, owner, fetcher).catch(() => null);
   if (session === null) return json({ running: false });
-  // The person looking at or driving it is using it.
-  await touchIdle(env.BROWSER_IDLE, owner);
   let cdp;
   try {
     cdp = await connectCdp(session.connectUrl, fetcher);

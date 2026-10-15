@@ -13,7 +13,7 @@
  * Without the binding (a self-hoster, or a test) the ceiling alone applies.
  */
 
-import { findSession, releaseSession, type BrowserbaseEnv } from "./browserbase";
+import { ownerSessionIds, releaseSession, type BrowserbaseEnv } from "./browserbase";
 
 /** How long a browser outlives its last use. */
 export const IDLE_MS = 5 * 60 * 1000;
@@ -57,19 +57,19 @@ export class IdleTimer {
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       const owner = await this.storage.get<string>("owner");
-      let session;
+      let ids: string[];
       try {
-        session = owner ? await findSession(this.env, owner, this.fetcher) : null;
+        ids = owner ? await ownerSessionIds(this.env, owner, this.fetcher) : [];
         // Touched again since this alarm was due: the browser is in use, so it stays.
         const next = await this.storage.getAlarm();
         if (next !== null && next > this.now()) return;
-        if (session) await releaseSession(this.env, session.id, this.fetcher);
+        for (const id of ids) await releaseSession(this.env, id, this.fetcher);
       } catch {
         console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));
         await this.storage.setAlarm(this.now() + RETRY_MS);
         return;
       }
-      console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: session !== null }));
+      console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: ids.length }));
       await this.storage.deleteAll();
     });
   }
