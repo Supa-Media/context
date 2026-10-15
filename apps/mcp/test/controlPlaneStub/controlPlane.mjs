@@ -620,6 +620,27 @@ export function createControlPlaneStub(options = {}) {
       }
 
       case "/gateway/jobs/create": {
+        if (body.job?.kind === "image_upload") {
+          // The real route's writer clearance and bounds (`createImageUpload`).
+          const cleared = await clearedEditor(body);
+          const { sha256, bytes } = body.job;
+          if (!cleared || !/^[a-f0-9]{64}$/.test(sha256 ?? "") || !Number.isInteger(bytes) || bytes < 1 || bytes > 5_000_000) {
+            return ok({ ticket: null });
+          }
+          const grant = await grantForAccessToken(body.accessToken);
+          const ticket = (await sha256Hex(`upload-${gatewayJobs.size + 1}`)).slice(0, 64);
+          gatewayJobs.set(ticket, {
+            workspaceId: cleared.workspaceId,
+            actorUserId: grant.userId,
+            actorClientId: grant.clientId,
+            grantId: grant.grantId,
+            kind: "image_upload",
+            imageSha256: sha256,
+            imageBytes: bytes,
+            status: "queued",
+          });
+          return ok({ ticket });
+        }
         const grant = await grantForAccessToken(body.accessToken);
         if (!grant) return ok({ ticket: null });
         const covered = coveredContexts(grant);
@@ -647,6 +668,11 @@ export function createControlPlaneStub(options = {}) {
       case "/gateway/jobs/open": {
         const job = gatewayJobs.get(body.ticket);
         if (!job || job.status !== "queued") return ok({ job: null });
+        if (job.kind === "image_upload") {
+          // Only the declared bytes, only while the grant is live; a mismatch leaves it unspent.
+          if (body.contentSha256 !== job.imageSha256) return ok({ job: null });
+          if (grants.get(job.grantId)?.status !== "active") return ok({ job: null });
+        }
         job.status = "running";
         const binding = bindings.get(job.workspaceId);
         if (!binding) return ok({ job: null });
@@ -660,6 +686,7 @@ export function createControlPlaneStub(options = {}) {
               grantId: job.grantId,
               kind: job.kind,
               moveId: job.moveId,
+              ...(job.kind === "image_upload" ? { imageSha256: job.imageSha256, imageBytes: job.imageBytes } : {}),
             },
             binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
             ...(searchIndex ? { searchIndex } : {}),

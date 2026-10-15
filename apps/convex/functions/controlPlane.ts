@@ -44,6 +44,7 @@
  * `scripts/check-exit-is-ungated.mjs` scans alongside this file.
  */
 
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
   internalAction,
@@ -500,6 +501,7 @@ export const openGatewayJob = internalAction({
       internal.functions.controlPlane.claimGatewayJob,
       {
         hashedTicket: args.hashedTicket,
+        contentSha256: args.contentSha256,
       },
     );
     if (claimed === null) return null;
@@ -654,4 +656,11 @@ export const reportGatewayJob = internalMutation({
   args: gatewayJobs.reportGatewayJobArgs,
   returns: gatewayJobs.reportGatewayJobReturns,
   handler: gatewayJobs.reportGatewayJobHandler,
+});
+
+/** Image-upload tickets past their ten minutes (`gatewayJobs.sweepImageUploadsHandler`). */
+export const sweepImageUploads = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: gatewayJobs.sweepImageUploadsHandler,
 });

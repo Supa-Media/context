@@ -93,6 +93,7 @@ import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
+import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
 
 /**
  * This file used to hold the ~4,100 lines of sequential checks below inline.
@@ -118,6 +119,7 @@ await runWebhooksAndCalendarChecks();
 await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
+await runImageUploadLinkChecks();
 
 await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.

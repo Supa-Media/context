@@ -63,6 +63,7 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
+import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -71,6 +72,9 @@ export async function route(request, env, ctx) {
     // workspace selector is ever read off it. It takes no person's token: the
     // gateway secret and a ticket the control plane minted (`moves/mover.js`).
     if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
+    // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
+    // workspace selector; the ticket in its header is the whole authority.
+    if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
 
     const origin = publicOrigin(request, env);
 
@@ -303,6 +307,7 @@ export async function route(request, env, ctx) {
       store.searchSettings = searchSettingsFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
+      attachImageUploads(store, session, controlPlane, origin);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -533,6 +538,7 @@ export async function route(request, env, ctx) {
         targetStore.searchSettings = store.searchSettings;
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
+        attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;
         // The same binding, keyed later by the *target's* workspace id: a
         // write routed into another context is announced in that context's

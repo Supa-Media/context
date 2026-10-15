@@ -44,6 +44,7 @@ import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
 import { toolWriteNote } from "./notes/write.js";
+import { toolImageUploadLinks } from "../notes/imageUploads.js";
 import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolSiteAction } from "./notes/site.js";
@@ -135,6 +136,7 @@ async function runTool(name, args, store, scope) {
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
       if (args.site !== undefined) return toolSiteAction(store, args);
+      if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       return toolWriteNote(store, scope, rules, overrides, args);
     case "remember":
