@@ -71,11 +71,6 @@ export const MANIFEST_TIMEOUT_MS = 60_000;
 /** The least time between two walks of one context's tree in a browser tab. */
 export const SERVER_TREE_FLOOR_MS = 15_000;
 /**
- * The same, when the last walk was answered by the tree table rather than the
- * bucket: a query or two, so the tree can follow every change.
- */
-export const TABLE_TREE_FLOOR_MS = 1_000;
-/**
  * The same, when the Convex tree answered (`nodes`): the folders on screen are
  * live already, so the walk only keeps Home and the switcher current, and a
  * walk per hint of a busy workspace would read its whole tree every second.
@@ -180,8 +175,9 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
-        // The tree table where it can answer, as a tab's walk asks: the same
-        // `canSee` over the same keys, without walking the bucket.
+        // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
+        // the same keys. The bucket is never walked; a tree still copying
+        // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({
@@ -361,8 +357,8 @@ export function useMirrorSync(options: {
         epoch,
         mine: () => epoch === currentEpoch(),
         now: () => Date.now(),
-        // The tree table where the context has one (`treeTableOps.ts`); the
-        // answer says which it was, and that sets how soon to walk again.
+        // The Convex tree's rows (`lib/nodes/treeReads.ts`), never the bucket;
+        // the answer says where it came from, and that sets how soon to walk again.
         manifest: async (workspaceId, cursor) => {
           const page = await withTimeout(
             actionsRef.current.syncManifest({
@@ -400,7 +396,7 @@ export function useMirrorSync(options: {
             // A busy workspace signals every few seconds; one walk of its
             // bucket per `SERVER_TREE_FLOOR_MS` is live enough and spares it.
             const from = walkedFrom.current.get(workspaceId);
-            const floor = from === "tree" ? TABLE_TREE_FLOOR_MS : from === "nodes" ? NODES_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
+            const floor = from === "nodes" ? NODES_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
             const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + floor - Date.now();
             if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
             walkedAt.current.set(workspaceId, Date.now());

@@ -69,12 +69,26 @@ export async function deletePersonalRows(
     .collect();
   for (const row of devlogReads) await ctx.db.delete(row._id);
 
+  // When they last opened @shared: a time about them, nothing more.
+  const sharedInboxReads = await ctx.db
+    .query("sharedInboxReads")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of sharedInboxReads) await ctx.db.delete(row._id);
+
   // Their Privacy & feedback switches: three booleans and a time.
   const telemetryPreferences = await ctx.db
     .query("telemetryPreferences")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
   for (const row of telemetryPreferences) await ctx.db.delete(row._id);
+
+  // Light, Dark or follow the device: one word and a time.
+  const appearancePreferences = await ctx.db
+    .query("appearancePreferences")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const row of appearancePreferences) await ctx.db.delete(row._id);
 
   // When they dismissed the early-beta notice: a time.
   const betaNoticeReads = await ctx.db

@@ -273,3 +273,68 @@ describe("a copy is not a move", () => {
     expect(read(store, "1-projects/beta/notes.md")).toBe(before);
   });
 });
+
+describe("the tree hears of a rename before the links are repaired", () => {
+  /*
+    The rewrite reads every note the mover can see. The barrier's
+    `onMoveLanded` seam re-checks the tree (`lib/nodes/landedTouch.ts`), so
+    every other screen draws the new name while that runs. Sabotage: call
+    `tellLanded` after `rewriteReferences` and the first test fails.
+  */
+  test("the seam is awaited once the bytes are at the new name, before any other note is read", async () => {
+    const store = bucket();
+    const events: string[] = [];
+    const get = store.get.bind(store);
+    store.get = async (key: string) => {
+      events.push(`get ${key}`);
+      return await get(key);
+    };
+    Object.defineProperty(store, "onMoveLanded", {
+      value: async (move: { from: string; to: string }) => {
+        expect(read(store, move.to)).toBeDefined();
+        expect(read(store, move.from)).toBeUndefined();
+        events.push(`landed ${move.from} ${move.to}`);
+      },
+      enumerable: false,
+    });
+    const result = await movePath(store, {
+      from: "1-projects/alpha/overview.md",
+      to: "1-projects/alpha/summary.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    expect(result.references).toEqual({ notes: 3, links: 4, capped: false });
+    const landed = events.indexOf("landed 1-projects/alpha/overview.md 1-projects/alpha/summary.md");
+    expect(landed).toBeGreaterThan(-1);
+    expect(events.slice(0, landed)).not.toContain("get 2-areas/health.md");
+    expect(events.slice(landed)).toContain("get 2-areas/health.md");
+  });
+
+  test("a note edited while it was read ahead keeps the edit and gets the repair", async () => {
+    /*
+      Notes are read a few ahead of the one being written. A repair built on
+      the read-ahead text would put back whatever was there before an edit
+      made in between. Sabotage: write `linksOf(ahead)` instead of re-reading,
+      and this fails.
+    */
+    const store = bucket();
+    const get = store.get.bind(store);
+    let reads = 0;
+    store.get = async (key: string) => {
+      const object = await get(key);
+      if (key === "2-areas/health.md" && (reads += 1) === 1) {
+        store.seed(key, "# Health\n\nedited meanwhile\n\nrooted [[1-projects/alpha/overview]]\n");
+      }
+      return object;
+    };
+    await movePath(store, {
+      from: "1-projects/alpha/overview.md",
+      to: "1-projects/alpha/summary.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    expect(read(store, "2-areas/health.md")).toBe(
+      "# Health\n\nedited meanwhile\n\nrooted [[1-projects/alpha/summary]]\n",
+    );
+  });
+});

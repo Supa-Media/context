@@ -1,55 +1,26 @@
 /**
  * The chaos score counted at read time from the Convex tree's keys
- * (`docs/decisions/app-and-console/convex-tree.md`), for the app's chip and
- * `orient`, wherever the tree serves the workspace.
+ * (`docs/decisions/app-and-console/convex-tree.md`), for `orient` and for
+ * what a write tells the agent that made it (`change.js`).
  *
- * The table in `table.js` keeps a score per folder, counted from the tree
- * database's own copy of the keys. That copy learns of a queued folder move
- * only when the copy behind it finishes, so the score said the old shape for
- * as long as the bucket took. Here the shape is the tree's own keys, folded
- * through pending moves by whoever listed them, and only what the keys cannot
- * say comes from the database: which notes are long, which are meetings or
+ * The shape is the tree's own keys, folded through pending moves by whoever
+ * listed them; only what the keys cannot say comes from the control plane's
+ * facts (`tree/facts.js`): which notes are long, which are meetings or
  * generated, and which contact pages wait on review. Those are few, so they
- * are one small query, never a row per note.
+ * are one small answer, never a row per note.
  *
- * The rubric and the two audiences are the table's exactly (`scoreFolder`,
- * `treeShape`): the team numbers count only what `visibleToTeam` passes, and
- * a team reader is named a folder only where a team note sits beneath it. The
- * daily history (a week ago) is still the table's.
+ * Two audiences (`scoreFolder`, `treeShape`): the team numbers count only
+ * what `visibleToTeam` passes, and a team reader is named a folder only where
+ * a team note sits beneath it. A member counting notes held back from them
+ * could learn those notes exist, which `privacy.md` exists to prevent.
+ *
+ * The search database's per-folder `tree_chaos` table and its daily history
+ * that counted this first were retired in phase 7 (`tree/retired.js`); the
+ * history is the control plane's now.
  */
 
-import { CONTACTS_FOLDER } from "../../../../packages/communications/src/protocol.js";
 import { LONG_NOTE_LINES, isArchived, scoreFolder, treeShape } from "./rubric.js";
-import { hasReview, isExempt } from "./table.js";
-
-/**
- * What the keys cannot say, for the few notes it matters to: long notes and
- * contact pages carrying a `review:`. Keyed by path.
- *
- * @param {{ query: Function }} client
- * @returns {Promise<Map<string, { lines: number | null, exempt: boolean, review: boolean }>>}
- */
-export async function chaosExtras(client) {
-  const rows = await client.query(
-    `SELECT path, json_extract(props, '$.lines') AS lines,
-            json_extract(props, '$.properties.type') AS type,
-            json_extract(props, '$.properties.generated') AS generated,
-            json_extract(props, '$.properties.review') AS review
-     FROM tree_props
-     WHERE json_extract(props, '$.lines') > ?1
-        OR (substr(path, 1, ?2) = ?3 AND json_extract(props, '$.properties.review') IS NOT NULL)`,
-    [LONG_NOTE_LINES, CONTACTS_FOLDER.length + 1, `${CONTACTS_FOLDER}/`],
-  );
-  const extras = new Map();
-  for (const row of rows) {
-    extras.set(row.path, {
-      lines: Number.isFinite(row.lines) ? row.lines : null,
-      exempt: isExempt(row.path, row.type, row.generated),
-      review: hasReview(row.review),
-    });
-  }
-  return extras;
-}
+import { logicalPath, pendingMovesOf } from "../moves/queued.js";
 
 /**
  * Every folder's numbers for both audiences, from the keys.
@@ -58,6 +29,22 @@ export async function chaosExtras(client) {
  * @param {Map<string, { lines: number | null, exempt: boolean, review: boolean }>} extras
  * @param {(path: string) => boolean} visibleToTeam
  */
+/**
+ * Long notes and contact reviews keyed where the tree draws them: the facts
+ * and the table name notes by bucket key, and the keys they are scored
+ * against are drawn through pending folder moves. Without this a moving
+ * folder's long notes drop out of the score until the copy lands, and orient
+ * disagrees with the app's chip (which folds the same way, `chaosOps.ts`).
+ *
+ * @param {Map<string, object>} extras
+ * @param {unknown} moves a store's `pendingMoves`
+ */
+export function extrasAtTreeNames(extras, moves) {
+  const pending = pendingMovesOf(moves);
+  if (pending.length === 0) return extras;
+  return new Map([...extras].map(([path, extra]) => [logicalPath(path, pending), extra]));
+}
+
 export function scoreKeys(keys, extras, visibleToTeam) {
   const rows = keys.map((path) => ({ path, ...(extras.get(path) ?? {}) }));
   const all = treeShape(rows);
@@ -77,6 +64,26 @@ export function scoreKeys(keys, extras, visibleToTeam) {
 
 const ratio = (sum, weight) => (weight > 0 ? sum / weight : 0);
 
+/**
+ * Both audiences' whole-workspace score from `scoreKeys`, as `liveSummary`
+ * counts the one it is asked for: what the daily history keeps.
+ *
+ * @param {ReturnType<typeof scoreKeys>} folders
+ */
+export function liveTotals(folders) {
+  let allSum = 0;
+  let allWeight = 0;
+  let teamSum = 0;
+  let teamWeight = 0;
+  for (const entry of folders.values()) {
+    allSum += entry.all.sum;
+    allWeight += entry.all.weight;
+    teamSum += entry.team.sum;
+    teamWeight += entry.team.weight;
+  }
+  return { all: ratio(allSum, allWeight), team: ratio(teamSum, teamWeight) };
+}
+
 /** One folder's numbers for this audience, or null when it is not to be named to them. */
 export function folderNumbers(folders, path, team) {
   const entry = folders.get(path);
@@ -86,7 +93,8 @@ export function folderNumbers(folders, path, team) {
 }
 
 /**
- * The summary `chaosSummary` gives, counted from the keys.
+ * What `orient` reports: the score, the folders that would calm it most, and
+ * the longest notes, counted from the keys.
  *
  * @param {ReturnType<typeof scoreKeys>} folders
  * @param {Map<string, { lines: number | null, exempt: boolean }>} extras

@@ -65,7 +65,8 @@ crons.interval(
 );
 
 /**
- * Re-read every workspace's `routines/` folder, as a safety net under the
+ * Re-read every workspace's routine folders (`routines/` and `tex/routines/`),
+ * as a safety net under the
  * signals that normally do it (`functions/routines.ts`). A repair of a
  * disposable derivative, like the search restarts: it reads the customer's
  * bucket and writes nothing there, and decides nothing — whether a routine
@@ -82,7 +83,9 @@ crons.interval(
  * Keep every workspace's Convex copy of its file tree current
  * (`functions/nodesMigration.ts`): a copy that is due (never started, dirty,
  * interrupted, failed or an hour old) is swept again, so a workspace nobody
- * opens and a new one are covered too. Staff can pause it from admin.
+ * opens and a new one are covered too. Staff can pause it from admin. The
+ * same pass imports each workspace's icons, emoji and forwarding files once,
+ * and writes them from Convex where a write is owed (`lib/smallData/`).
  */
 crons.interval(
   "keep the Convex copy of each file tree current",
@@ -259,6 +262,13 @@ crons.interval(
   internal.functions.managedEncryption.restartStalledWalks,
   {},
 );
+
+/**
+ * Storage falling behind the file tree: a folder move four hours old, whose
+ * pace will miss five, or stuck, is marked once and mailed to the staff who
+ * asked (`storageLag.ts`).
+ */
+crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
 
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(

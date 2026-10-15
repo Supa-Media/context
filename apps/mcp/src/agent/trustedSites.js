@@ -119,6 +119,11 @@ export class OpenableAddresses extends Set {
     this.#openWeb = on === true;
   }
 
+  /** Whether the setup opened the web: `browse.js` and `computer.js` lift their limits on it. */
+  webIsOpen() {
+    return this.#openWeb;
+  }
+
   has(url) {
     if (super.has(url) || onTrustedSite(url, this.#sites)) return true;
     return this.#openWeb && onOpenWeb(url);
@@ -131,8 +136,13 @@ export class OpenableAddresses extends Set {
  * address it chooses, the way Instinct and OpenAI's agents browse. The cost,
  * accepted on purpose: a page can now ask the assistant to carry the person's
  * notes out in an address. What still holds: saved passwords are filled by the
- * gateway and never seen (`fillLogin.js`), typing stays limited (`browse.js`),
- * and the address is https on a real hostname with no credentials or port.
+ * gateway and never seen (`fillLogin.js`), and the address is https on a real
+ * hostname with no credentials or port.
+ *
+ * Since 2026-10-14 (owner: "let's remove the safety guards for browsers ...
+ * get all the capabilities and then we'll rein it back") it also lifts the
+ * typing rule — any words on any page (`browse.js`) — and raises a question's
+ * page and browser-step budgets (`computer.js`, `browse.js`).
  */
 export function onOpenWeb(url) {
   if (typeof url !== "string") return false;

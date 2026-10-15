@@ -5,6 +5,7 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
@@ -17,6 +18,7 @@ import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
 import { NoteLoading } from "./NoteLoading";
+import { noteNameEdit } from "./nameEdit";
 import { isMarkdown } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
@@ -120,6 +122,13 @@ export function BrowseDocument({
   const tasks = useTaskHost(files, local === undefined ? current?.id : undefined, folderLists, setFolderDialog);
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
   const editing = usePeekEditing(files, presence);
+  // A folder row's arrow opens it in place from the tree's own listings (`files/NestedRows.tsx`).
+  const listings = files.listings;
+  const ensureListing = files.ensureListing;
+  const folderNesting = useMemo(
+    () => ({ listingOf: (path: string) => listings[path], loadListing: (path: string) => ensureListing(path) }),
+    [listings, ensureListing],
+  );
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -413,6 +422,7 @@ export function BrowseDocument({
         }
         phoneRows={phoneRowsFor}
         iconOf={files.iconOf}
+        nesting={folderNesting}
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />
@@ -517,6 +527,9 @@ export function BrowseDocument({
         onTitleCaret={files.setTitleCaret}
         titleNote={files.titleEdit?.path === files.editor.path ? files.titleEdit.note : null}
         titleFocus={files.titleFocus}
+        // In the trash: read-only and dimmed, Restore the way back (`trashed.tsx`).
+        trashed={trashedViewOf(files)}
+        nameEdit={trashedViewOf(files) === undefined ? noteNameEdit(files, files.editor.path, files.editor.readOnly) : undefined}
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}

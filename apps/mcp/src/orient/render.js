@@ -12,14 +12,6 @@ import { INSTRUCTIONS_NAME_CHAR_CAP } from "../mcp/instructions.js";
 import { loadIndexManifest, shedNotePathsOf } from "../search/shards.js";
 import { ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
 
-/**
- * `orient` is called at the top of a session, before the agent knows whether
- * this context is even relevant, so it is budgeted rather than exhaustive.
- * Five pages is 5000 notes in one folder; past that the survey reports a floor
- * ("48+ notes") instead of guessing, for the same reason the console's note
- * census does. A number that looks precise and is not is worse than a floor.
- */
-export const ORIENT_FOLDER_PAGE_CAP = 5;
 export const ORIENT_RECENT_LIMIT = 8;
 export const ORIENT_CHILDREN_LIMIT = 12;
 const ORIENT_ROOT_NOTE_LIMIT = 20;
@@ -247,29 +239,17 @@ export function renderStructure(survey) {
   // Drawn in the app's order: built-in folders first and Archive last.
   const folders = [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)));
   for (const folder of folders) {
-    // The floor travels down as well as up: a child count drawn from a walk
-    // that stopped early is no more a total than its parent's is.
-    const floor = folder.truncated ? "+" : "";
-    const noun = folder.count === 1 && !folder.truncated ? "note" : "notes";
-    const count = folder.count === 0 ? "" : ` (${folder.count}${floor} ${noun})`;
+    const count = folder.count === 0 ? "" : ` (${folder.count} ${folder.count === 1 ? "note" : "notes"})`;
     lines.push(`- ${folder.prefix}${count}${folderDescription(folder)}`);
     for (const child of folder.children.slice(0, ORIENT_CHILDREN_LIMIT)) {
-      // No count means the walk stopped before reaching this subfolder. It is
-      // named without a number rather than given a zero: "0 notes" about a
-      // folder nothing counted is the one reading that is certainly wrong.
-      const childCount = child.count === null ? "" : ` (${child.count}${floor} ${child.count === 1 && !floor ? "note" : "notes"})`;
+      // A subfolder holding nothing this connection can read is named without
+      // a number rather than given a zero (see `surveyContext`).
+      const childCount = child.count === null ? "" : ` (${child.count} ${child.count === 1 ? "note" : "notes"})`;
       lines.push(`  - ${child.prefix}${childCount}${folderDescription(child)}`);
     }
     if (folder.children.length > ORIENT_CHILDREN_LIMIT) {
       lines.push(`  - (+${folder.children.length - ORIENT_CHILDREN_LIMIT} more folders)`);
     }
-  }
-  // A folder the storage adapter refuses to list — a backslash or a "." segment
-  // in a name somebody chose in Obsidian — is named rather than dropped. It is
-  // the caller's own data, and silently omitting it would make this map claim
-  // completeness it does not have.
-  for (const prefix of survey.unwalkable) {
-    lines.push(`- ${prefix} — could not be listed (unsupported characters in the folder name)`);
   }
   return lines.length ? lines.join("\n") : "- (nothing visible to this connection yet)";
 }

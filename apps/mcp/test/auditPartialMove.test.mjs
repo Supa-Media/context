@@ -155,6 +155,8 @@ export async function runAuditPartialMoveChecks(check) {
     }
     return beneath(input, init);
   };
+  // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+  controlPlane.serveTreesFrom(env, { s3 });
 
   /*
     A known etag per seeded note, because `move_notes` requires

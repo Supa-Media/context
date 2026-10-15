@@ -9,14 +9,32 @@
  * whether the destination exists, what the moved notes may be seen as), so
  * this file only asks and words the answer.
  *
- * `null` means "move it here, the old way": the tree does not serve this
- * workspace yet, staff paused it, or the folder holds something this caller
- * cannot see, which the old way leaves behind as it always has.
+ * `null` means the queue did not take it: the tree does not serve this
+ * workspace yet, the storage cannot move an object safely, or the folder
+ * holds something this caller cannot see. `move_folder` then moves a folder
+ * of up to `LOGICAL_FOLDER_MOVE_THRESHOLD` objects in one go, which leaves
+ * what the caller cannot see behind as it always has, and refuses a larger one.
  */
 
 import { withActivityHint } from "../../live/activityHint.js";
 import { recordChange } from "../../activity/record.js";
 import { toolError, toolText } from "../results.js";
+
+/** Whether a folder named `a` and one named `b` are the same or one holds the other. */
+function nested(a, b) {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/** Whether a pending move's old or new name overlaps the move being asked for. */
+function crossesPendingMove(moves, source, destination) {
+  if (!Array.isArray(moves)) return false;
+  return moves.some(
+    (move) =>
+      typeof move?.from === "string" &&
+      typeof move?.to === "string" &&
+      [source, destination].some((path) => nested(path, move.from) || nested(path, move.to)),
+  );
+}
 
 export async function startQueuedFolderMove(store, scope, source, destination) {
   if (typeof store?.startQueuedMove !== "function") return null;
@@ -32,7 +50,15 @@ export async function startQueuedFolderMove(store, scope, source, destination) {
     return null;
   }
   if (!answer || answer.queued !== true) {
-    if (typeof answer?.error !== "string") return null;
+    if (typeof answer?.error !== "string") {
+      // The old way lists the bucket, which still holds a moving folder at its
+      // old name: moving the copied half now and letting the worker bring the
+      // rest to the old destination would split the folder.
+      if (crossesPendingMove(store.pendingMoves, source, destination)) {
+        return toolError("could not move that folder while part of it is still moving; try again once that move finishes");
+      }
+      return null;
+    }
     if (answer.error === "FILE_NOT_FOUND") return toolError("not found");
     const message = typeof answer.message === "string" ? answer.message : "the move was refused";
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);

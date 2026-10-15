@@ -96,6 +96,11 @@ describe("one question, step by step", () => {
     expect(stepStrip(turn).map((step) => step.kind)).toEqual(["model", "tool", "tool", "model"]);
   });
 
+  test("a thinking round cut off at the output cap says so", () => {
+    const steps = waterfall({ ms: 1_000, trace: [{ kind: "model", ok: true, ms: 500, cut: true }, { kind: "model", ok: true, ms: 500 }] });
+    expect(steps.map((step) => step.label)).toEqual(["Thinking (cut off)", "Thinking"]);
+  });
+
   test("a trace longer than the recorded time still fits the axis", () => {
     const steps = waterfall({ ms: 1_000, trace: [{ kind: "model", ok: true, ms: 1_500 }, { kind: "tool", tool: "x", ok: true, ms: 500 }] });
     expect(steps[1].left + steps[1].width).toBe(100);

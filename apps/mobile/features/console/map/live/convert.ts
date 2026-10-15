@@ -1,5 +1,5 @@
 import type { ActivityEvent, AgentActivityView } from "../../agents/agentActivity";
-import { consoleHandOf, CONSOLE_CLIENT_NAME } from "./agentKind";
+import { consoleHandOf, CONSOLE_CLIENT_NAME, displayToolName } from "./agentKind";
 import { fileTitle } from "./engine/paths";
 import type { MapActor } from "./engine/timeline";
 import type { ActorRef, MapEvent, MapNode, WorkspaceGraph } from "./types";
@@ -175,7 +175,8 @@ export type HistoryEntry = {
  */
 export function historyActor(entry: Pick<HistoryEntry, "by" | "via">): ActorRef {
   const by = entry.by ?? null;
-  const via = entry.via ?? null;
+  // A line from before Tex took its name still names the old client.
+  const via = entry.via === undefined || entry.via === null ? null : displayToolName(entry.via);
   if (via !== null && via !== CONSOLE_CLIENT_NAME) {
     const name = by === null ? via : `${by}'s ${via}`;
     return { id: `h:${by ?? ""}:${via}`, kind: "agent", name };

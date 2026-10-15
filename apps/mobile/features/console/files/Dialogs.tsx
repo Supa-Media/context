@@ -499,6 +499,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     // Its own petrol border when focused, not the browser's orange outline (board 05).
     outlineWidth: 0,
+    // Safari draws its focus ring whatever the width; only `none` stops it.
+    outlineStyle: "none" as never,
   },
   inputFocused: { borderColor: colors.accent },
   /**

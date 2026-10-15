@@ -247,7 +247,7 @@ export async function runPrivacyGroupChecks(check) {
       NATIVE_BINDINGS: "GROUPS_BUCKET",
       GROUPS_BUCKET: bucket,
     };
-
+    controlPlane.serveTreesFrom(env); // writes ask the tree which names are taken (`src/tree/names.js`)
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");

@@ -1,7 +1,11 @@
 # App and console — the tree table
 
-> **Being replaced (owner, 2026-10-12).** The tree moves into Convex in seven
-> phases; this table is retired in the last one. See [convex-tree](./convex-tree.md).
+> **Retired (2026-10-13, phase 7 of [convex-tree](./convex-tree.md)).** The
+> tree, its links, front matter and chaos score now live in Convex
+> ([convex-facts](./convex-facts.md)); the gateway drops these tables from
+> each search database (`apps/mcp/src/tree/retired.js`). The files and tests
+> named below are gone. This page stays as the record of why the table was
+> built and what it taught the Convex tree.
 
 ### A workspace's tree is a table in its own database, and the bucket stays the truth
 

@@ -91,7 +91,7 @@ export const setPhoneResultValidator = v.object({
 
 type SetPhoneResult = typeof setPhoneResultValidator.type;
 
-async function usernameOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | null> {
+export async function usernameOf(ctx: QueryCtx, userId: Id<"users">): Promise<string | null> {
   const row = await ctx.db
     .query("names")
     .withIndex("by_user", (q) => q.eq("userId", userId))

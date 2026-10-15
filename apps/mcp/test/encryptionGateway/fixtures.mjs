@@ -271,6 +271,7 @@ export async function createEncryptionGatewayHarness() {
       BUCKET_A: a.bucket,
       BUCKET_B: b.bucket,
     };
+    controlPlane.serveTreesFrom(env);
 
     let id = 0;
     async function call(token, name, args = {}) {

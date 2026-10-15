@@ -5,21 +5,20 @@
 
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { classifyCaptureKind } from "../communications/paths.js";
-import { listBoundedKeys, listImmediateLayout, mapInBatches } from "../notes/storage.js";
+import { TreeUnavailable } from "../tree/served.js";
 import { frontNotesAmong } from "./folderAbout.js";
-import {
-  mostRecent,
-  ORIENT_FOLDER_PAGE_CAP,
-  ORIENT_RECENT_LIMIT,
-  summarizeCaptured,
-} from "./render.js";
+import { mostRecent, ORIENT_RECENT_LIMIT, summarizeCaptured } from "./render.js";
 
 /**
  * Survey the visible context: what folders exist, how much is in each, and what
  * was touched most recently. This is what `orient` is *for* — an agent that
  * only learns a list of folder names has no reason to look inside one.
  *
- * Two properties are load-bearing:
+ * Every key comes from the Convex tree (`store.treeEntries`, `tree/served.js`),
+ * one answer for the whole workspace, so every count is exact: the page
+ * budget and the "312+" floors a bucket walk needed are gone with the walk.
+ * Where the tree cannot answer, the survey is `loading` and draws no map
+ * rather than listing the bucket.
  *
  * **Every count is a count of notes this connection can see.** Counting hidden
  * notes and printing the total would let a team member subtract and derive
@@ -28,60 +27,33 @@ import {
  * on the map by holding a visible note or a subfolder this connection may know
  * about; a count of zero is rendered as no count at all, because "0 notes" is a
  * claim about the folder and all we know is that nothing in it reached us.
- *
- * **The walk is delimited at the root and flat inside each real folder.** A
- * flat walk from the root spends its whole budget inside `.history/`, because
- * "." sorts before every digit and letter, and then reports zero notes for the
- * largest contexts there are.
  */
 export async function surveyContext(store, scope, rules, overrides) {
-  const root = await listImmediateLayout(store);
-  const rootNotes = root.objects
-    .filter(({ key }) => isVisibleNote(key, scope, rules, overrides))
-    .map(({ key, uploaded }) => ({ key, uploaded }));
+  let objects;
+  try {
+    if (typeof store?.treeEntries !== "function") throw new TreeUnavailable("unreachable");
+    objects = await store.treeEntries();
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return loadingSurvey(error.message);
+    throw error;
+  }
+  const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
+  const root = layoutOf(objects, "");
+  const rootNotes = root.objects.filter(({ key }) => isVisible(key)).map(({ key, uploaded }) => ({ key, uploaded }));
 
-  // Two listings per folder, and they answer different questions.
-  //
-  // The delimited one names every immediate subfolder for one page's worth of
-  // keys, which is what makes the *map* complete. The flat one counts notes and
-  // dates them, and it is the one with a budget — so in a context with one
-  // enormous folder the walk can stop inside it having never reached its
-  // siblings. Deriving the map from the walk alone looked simpler and quietly
-  // dropped whole projects from the orientation of exactly the people with the
-  // most in here.
-  //
-  // Each folder gets its own try. The prefixes are names the customer chose,
-  // and the adapter refuses some of them outright (a backslash, a "." segment);
-  // under one outer catch a single oddly named folder would suppress the whole
-  // survey — the bug the note census shipped first.
-  const folders = await mapInBatches(root.prefixes, 6, async (prefix) => {
-    try {
-      const [layout, walk] = await Promise.all([
-        listImmediateLayout(store, prefix),
-        listBoundedKeys(store, prefix, ORIENT_FOLDER_PAGE_CAP),
-      ]);
-      const notes = walk.keys.filter(({ key }) => isVisibleNote(key, scope, rules, overrides));
-      return { prefix, layout, notes, truncated: walk.truncated, walked: true };
-    } catch {
-      return { prefix, layout: null, notes: [], truncated: true, walked: false };
-    }
+  const folders = root.prefixes.map((prefix) => {
+    const under = objects.filter(({ key }) => key.startsWith(prefix));
+    const notes = under.filter(({ key }) => isVisible(key)).map(({ key, uploaded }) => ({ key, uploaded }));
+    return { prefix, layout: layoutOf(under, prefix), notes };
   });
 
-  // The front notes a folder's description may come from. Read from the
-  // complete one-level listing where there is one, because the bounded walk can
-  // stop before it reaches a folder's own `about.md`; the walk still counts as
-  // proof of a key it did see. `describeFolders` reads only these names.
-  const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
+  // The front notes a folder's description may come from, among the keys
+  // directly inside it. `describeFolders` reads only these names.
   const visibleFolders = folders
     .map((folder) => ({
       prefix: folder.prefix,
       count: folder.notes.length,
-      truncated: folder.truncated,
-      front: frontNotesAmong(
-        folder.prefix,
-        new Set([...(folder.layout?.objects || []), ...folder.notes].map(({ key }) => key)),
-        isVisible
-      ),
+      front: frontNotesAmong(folder.prefix, new Set(folder.layout.objects.map(({ key }) => key)), isVisible),
       children: mergeChildren(folder, scope, rules, overrides),
     }))
     .filter((folder) => folder.count > 0 || folder.children.length > 0);
@@ -99,15 +71,6 @@ export async function surveyContext(store, scope, rules, overrides) {
     rootNotes: rootNotes.sort((a, b) => a.key.localeCompare(b.key)),
     folders: visibleFolders.sort((a, b) => a.prefix.localeCompare(b.prefix)),
     total: everything.length,
-    // A count is a floor when any folder ran out of budget, or when one refused
-    // to be walked at all. Both render as "312+".
-    truncated: folders.some((folder) => folder.truncated),
-    // Named only to a connection that could have seen inside it anyway. We
-    // could not read the folder, so its own path is all `canSee` has to go on.
-    unwalkable: folders
-      .filter((folder) => !folder.walked)
-      .map((folder) => folder.prefix)
-      .filter((prefix) => canSee(prefix.replace(/\/$/, ""), scope, rules, overrides)),
     // Unchanged constant, unchanged function, now applied to the authored
     // subset only — never enlarged to make room for what `captured` adds.
     recent: mostRecent(authored, ORIENT_RECENT_LIMIT),
@@ -115,13 +78,34 @@ export async function surveyContext(store, scope, rules, overrides) {
   };
 }
 
+/** The survey of a workspace the tree cannot answer for: no map, and why. */
+function loadingSurvey(message) {
+  return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], loading: message };
+}
+
+/**
+ * One level of `objects` under `prefix`: the keys directly inside it, and its
+ * immediate subfolders (a dot folder is Context's own, never a place).
+ */
+function layoutOf(objects, prefix) {
+  const direct = [];
+  const prefixes = new Set();
+  for (const object of objects) {
+    if (!object.key.startsWith(prefix)) continue;
+    const rest = object.key.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) direct.push(object);
+    else if (!rest.startsWith(".")) prefixes.add(`${prefix}${rest.slice(0, slash + 1)}`);
+  }
+  return { objects: direct, prefixes: [...prefixes].sort() };
+}
+
 export function isVisibleNote(key, scope, rules, overrides) {
   return key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides);
 }
 
 /**
- * The immediate subfolders of one top-level folder, with a count where the
- * bounded walk got far enough to have one.
+ * The immediate subfolders of one top-level folder, each with its count.
  *
  * A child is listed on either of two independent grounds, and both are needed:
  * the folder default says this connection may know it exists, or it holds a
@@ -141,8 +125,7 @@ function mergeChildren(folder, scope, rules, overrides) {
   const named = (folder.layout?.prefixes || []).filter((childPrefix) =>
     canSee(childPrefix.replace(/\/$/, ""), scope, rules, overrides)
   );
-  // A child's own front note can only be one the walk reached, so the walk's
-  // keys are the whole evidence there is. Visible keys only, as everywhere here.
+  // A child's front note is one of the folder's visible keys.
   const keys = new Set(folder.notes.map(({ key }) => key));
   const isVisible = (key) => isVisibleNote(key, scope, rules, overrides);
   return [...new Set([...named, ...counts.keys()])]

@@ -4,7 +4,6 @@ import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useThemedStyles } from "../design/theme";
 import { baseName, displayName, parentPath } from "../console/files/paths";
-import { Tex } from "./Tex";
 import {
   biggestWins,
   chaosWord,
@@ -19,7 +18,7 @@ import {
 import { makeChaosStyles } from "./styles";
 
 /**
- * What the score is and where it comes from: the figure, the number against
+ * What the score is and where it comes from: the number against
  * a week ago, the folders that would calm it most, the notes that run long,
  * and how it is scored.
  *
@@ -27,16 +26,13 @@ import { makeChaosStyles } from "./styles";
  * asking anybody to: the owner's rule is that people, or their agents, do the
  * tidying when they choose to, and a press on a folder or note only opens it.
  *
- * The body of both the foot's popover and the sheet (`ChaosPopover`).
+ * The body of the sheet (`ChaosPopover`).
  */
 export function ChaosPanel({
   result,
-  figure,
   onOpen,
 }: {
   result: ChaosScore & { score: number };
-  /** The figure's size: smaller in the tree's popover than in a sheet. */
-  figure: number;
   onOpen: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeChaosStyles);
@@ -47,7 +43,6 @@ export function ChaosPanel({
   return (
     <View style={styles.body} testID="chaos-panel-body">
       <View style={styles.head}>
-        <Tex chaos={result.score} size={figure} testID="chaos-panel-figure" />
         <View style={styles.headText}>
           <Text variant="rowTitle" style={styles.score} testID="chaos-panel-score">
             {`Chaos ${score} of 100`}

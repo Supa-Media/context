@@ -9,7 +9,7 @@ import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import { openStore } from "./store";
 import { useReachability } from "./reachability";
-import { MANIFEST_TIMEOUT_MS, READ_TIMEOUT_MS, withTimeout } from "./useMirrorSync";
+import { READ_TIMEOUT_MS, withTimeout } from "./useMirrorSync";
 import type { FolderListSource } from "../console/files/listBlock/model";
 import { visibilityTierForRole } from "../console/visibility";
 import { DEFAULT_AGENTS } from "../console/files/folderPage/agents";
@@ -17,7 +17,7 @@ import { matchingAgents } from "../console/files/folderPage/useAgents";
 
 /**
  * Where the console's folder lists read their notes: the server while there is
- * a connection (`syncManifest` for one folder, then `readNotes`), and this
+ * a connection (`folderNotes`, the tree's parsed front matter), and this
  * device's copy of the workspace only offline, at the clearance its role gives
  * — `useDeviceSearch`'s rule. A browser has no copy, so it always asks the
  * server. `undefined` for a role with no clearance, and the lists stay as
@@ -45,7 +45,6 @@ export function useFolderLists(
   const tier = visibilityTierForRole(role);
   const readNote = useAction(api.functions.files.readNote);
   const readNotes = useAction(api.functions.files.readNotes);
-  const syncManifest = useAction(api.functions.files.syncManifest);
   const folderNotes = useAction(api.functions.folderNotes.folderNotes);
   // Read at load time, not render time, so going offline does not rebuild the source.
   const reachability = useReachability();
@@ -68,12 +67,6 @@ export function useFolderLists(
       online: () => !offline.current,
       io: {
         readNote: (path) => readNote({ workspaceId: id, path }),
-        manifest: (folder, cursor) =>
-          withTimeout(
-            // The tree table where it can answer, as the sidebar's walk does.
-            syncManifest({ workspaceId: id, folder, source: "tree", ...(cursor === undefined ? {} : { cursor }) }),
-            MANIFEST_TIMEOUT_MS,
-          ),
         folderNotes: (folder, subfolders, cursor) =>
           withTimeout(
             folderNotes({ workspaceId: id, folder, subfolders, ...(cursor === undefined ? {} : { cursor }) }),
@@ -118,5 +111,5 @@ export function useFolderLists(
           })
         )?.value ?? null,
     };
-  }, [workspaceId, tier, canEdit, readNote, readNotes, syncManifest, folderNotes, writeNote, convex]);
+  }, [workspaceId, tier, canEdit, readNote, readNotes, folderNotes, writeNote, convex]);
 }

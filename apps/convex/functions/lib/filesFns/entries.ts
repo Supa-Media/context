@@ -50,6 +50,7 @@ export async function moveEntryHandler(
     from: string;
     to: string;
     expectedEtag?: string;
+    followHeading?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "moved" }>> {
   const actorUserId = await callerId(ctx);
@@ -68,6 +69,7 @@ export async function moveEntryHandler(
       from: args.from,
       to: args.to,
       ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      ...(args.followHeading === true ? { followHeading: true } : {}),
     },
   })) as Extract<OperationResult, { kind: "moved" }>;
 

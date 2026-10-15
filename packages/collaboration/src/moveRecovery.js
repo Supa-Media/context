@@ -8,6 +8,7 @@ import {
   readState,
   readStructural,
   updateStructural,
+  vacatedHead,
   validateState,
 } from "./records.js";
 import { scrubStructural } from "./purge.js";
@@ -59,7 +60,10 @@ export async function recoverMove(store, operationId, attempt = 0) {
   }
 
   const returning = destinationHead?.status === "moved" && destinationHead.documentId === op.documentId && destinationHead.destination === op.from;
-  if (!destinationHead || returning) {
+  // Another document's fence, with nothing at the name: taken over against its etag, as `returning` is.
+  const vacated = !returning && destinationHead?.documentId !== op.documentId &&
+    vacatedHead(destinationHead, await readObject(store, op.to));
+  if (!destinationHead || returning || vacated) {
     const prepared = {
       schemaVersion: SCHEMA_VERSION,
       path: op.to,
@@ -70,7 +74,7 @@ export async function recoverMove(store, operationId, attempt = 0) {
       operationId,
       source: op.from,
     };
-    const created = await put(store, await headKey(op.to), JSON.stringify(prepared), returning ? { etagMatches: destinationHead.etag } : { absent: true });
+    const created = await put(store, await headKey(op.to), JSON.stringify(prepared), returning || vacated ? { etagMatches: destinationHead.etag } : { absent: true });
     if (!created) return retry();
   } else if (destinationHead.documentId !== op.documentId || destinationHead.status !== "prepared" && destinationHead.status !== "active") {
     return abortMove(store, opRecord, "destination path is already owned by another document");

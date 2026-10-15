@@ -122,6 +122,21 @@ export const MANIFESTS: Record<string, string> = {
     ]),
   ),
 
+  // A bucket key may hold colons; the visibility is what follows the last one.
+  "colons inside a folder and a note path": manifest(
+    block([
+      "default_visibility: private",
+      "",
+      "folder_defaults:",
+      "  2-areas/meetings: team",
+      "  2-areas/meetings/1:1s: private",
+      "",
+      "note_overrides:",
+      "  2-areas/meetings/1:1s/ana:ben/2026-10-14-ana-ben.md: private",
+      "  2-areas/meetings/1:1s/ana:ben/agenda.md: @supa-leads",
+    ]),
+  ),
+
   // Invalid, and each for a different reason a name can be wrong. A manifest
   // either engine accepts here is a rule nothing can resolve being carried as
   // though it were a tier.

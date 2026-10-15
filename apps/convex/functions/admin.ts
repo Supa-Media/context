@@ -109,6 +109,20 @@ import {
   setInvitesOffHandler,
   traceReferralHandler,
 } from "./lib/adminFns/referrals";
+import { recordAdminAudit } from "./lib/adminFns/audit";
+import {
+  SHARED_LINE_CAP,
+  addToLinqLine,
+  peopleForPhones,
+  readLinqLine,
+  removeFromLinqLine,
+  texAllowlistValidator,
+  texChangeValidator,
+  texPersonValidator,
+  type LinqChange,
+  type TexAllowlist,
+  type TexPerson,
+} from "./lib/adminFns/texAllowlist";
 import {
   setSignInTextsSenderHandler,
   signInTextsHandler,
@@ -684,6 +698,8 @@ export const censusReport = query({
         aiSpendPartial: v.boolean(),
         /** When staff let this address in from the waitlist (`lib/adminFns/censusWaitlist.ts`). */
         letInAt: v.union(v.number(), v.null()),
+        /** Texting-linked phone, else the confirmed sign-in phone. */
+        phone: v.union(v.string(), v.null()),
       }),
     ),
     waitlist: censusWaitlistValidator,
@@ -782,6 +798,55 @@ export const deleteSecret = mutation({
   },
 });
 
+// -- who may text Tex -------------------------------------------------------
+
+/**
+ * The Linq line's contact list: the only numbers whose texts reach Tex, twenty
+ * on the free shared line. Linq keeps the list; this reads it and says whose
+ * each number is. See `lib/adminFns/texAllowlist.ts`.
+ */
+export const texAllowlist = action({
+  args: {},
+  returns: texAllowlistValidator,
+  handler: async (ctx): Promise<TexAllowlist> => {
+    try {
+      await ctx.runQuery(internal.functions.admin.requireAdminActor, {});
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    const line = await readLinqLine({ LINQ_API_KEY: process.env.LINQ_API_KEY });
+    if (line.state !== "shared") return line;
+    const people: TexPerson[] = await ctx.runQuery(internal.functions.admin.texPeople, {
+      phones: line.contacts.map((contact) => contact.phone),
+    });
+    const contacts = line.contacts.map((contact, i) => ({ ...contact, person: people[i] ?? null }));
+    return { state: "shared" as const, line: line.line, cap: SHARED_LINE_CAP, contacts };
+  },
+});
+
+/** Add a number to Tex's list, or free its slot. Refuses a twenty-first. */
+export const changeTexAllowlist = action({
+  args: { phone: v.string(), change: v.union(v.literal("add"), v.literal("remove")) },
+  returns: texChangeValidator,
+  handler: async (ctx, args): Promise<LinqChange> => {
+    try {
+      await ctx.runQuery(internal.functions.admin.requireAdminActor, {});
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    const env = { LINQ_API_KEY: process.env.LINQ_API_KEY };
+    const result =
+      args.change === "add" ? await addToLinqLine(env, args.phone) : await removeFromLinqLine(env, args.phone);
+    if (result.status === "added" || result.status === "removed") {
+      await ctx.runMutation(internal.functions.admin.recordTexAllowlist, {
+        phone: result.phone,
+        added: result.status === "added",
+      });
+    }
+    return result;
+  },
+});
+
 // -- internals ------------------------------------------------------------
 
 /**
@@ -874,5 +939,32 @@ export const readIntegrationSecret = internalAction({
     return await decryptSecret(row.encryptedValue, requireKeyset(), {
       platform: "integration",
     });
+  },
+});
+
+/** Whose each of Tex's listed numbers is, for `texAllowlist`. */
+export const texPeople = internalQuery({
+  args: { phones: v.array(v.string()) },
+  returns: v.array(texPersonValidator),
+  handler: async (ctx, args): Promise<TexPerson[]> => {
+    await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    return await peopleForPhones(ctx, args.phones);
+  },
+});
+
+/** The admin trail for a change to Tex's list: the last four digits only. */
+export const recordTexAllowlist = internalMutation({
+  args: { phone: v.string(), added: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const actor = await requireAdmin(ctx).catch((error: unknown) => {
+      throw toConvexError(error);
+    });
+    await recordAdminAudit(ctx, actor, args.added ? "tex.allowlist_added" : "tex.allowlist_removed", "tex", {
+      phone: args.phone.slice(-4),
+    });
+    return null;
   },
 });

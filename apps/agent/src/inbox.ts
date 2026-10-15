@@ -20,10 +20,16 @@
  *   the line's contact card, so it is offered at most once a day.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
+ *
+ * A photo and its words often arrive as two texts, the photo first. So a text
+ * that is only files waits `MEDIA_WAIT_MS` for words to follow, and `drain`
+ * folds it into the next text, so the person gets one answer about the photo
+ * rather than "what photo?" and then a reply to the photo alone.
  */
 
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
+import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
@@ -57,6 +63,11 @@ export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
+/** How long a text that is only a photo or file waits for its words. */
+export const MEDIA_WAIT_MS = 4_000;
+
+const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
+
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
 
@@ -78,13 +89,14 @@ export async function accept(
     ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
     at: now,
   });
-  await storage.setAlarm(now);
+  // Nothing else is waiting, so a lone photo can wait for its words.
+  await storage.setAlarm(mediaOnly(message) && pending.size === 0 ? now + MEDIA_WAIT_MS : now);
   return "queued";
 }
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
-  const pending = await storage.list<Pending>({ prefix: "pending:" });
+  const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
   for (const [key, item] of pending) {
     const stored = item.reply;
     const reply = stored === undefined ? await answering(item.message, deps, storage) : [stored].flat();
@@ -215,6 +227,30 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     await renewal;
     await chain;
   }
+}
+
+/**
+ * A text that is only files, followed by another not yet answered, becomes
+ * part of that one: its files go first, in the order sent. The last text is
+ * never folded, so files with no words after them are still answered.
+ */
+async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promise<Map<string, Pending>> {
+  const entries = [...pending];
+  const kept = new Map<string, Pending>();
+  for (const [index, [key, item]] of entries.entries()) {
+    const next = entries[index + 1]?.[1];
+    if (next && item.reply === undefined && next.reply === undefined && mediaOnly(item.message)) {
+      next.message = {
+        ...next.message,
+        attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
+      };
+      await storage.put<Pending>(entries[index + 1][0], next);
+      await storage.delete(key);
+      continue;
+    }
+    kept.set(key, item);
+  }
+  return kept;
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {

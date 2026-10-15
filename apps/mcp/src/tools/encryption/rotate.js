@@ -73,6 +73,30 @@ import { toolError, toolText } from "../results.js";
  * empty — never on a partial pass, and never while a single note it could not
  * open still exists.
  */
+/**
+ * Tell the Convex tree which notes this call re-wrapped.
+ *
+ * A re-wrap rewrites a note's frontmatter, so its version changes, and the
+ * tree's rows (and the device change log that follows them) hear of a new
+ * version only by a re-check. The change is recorded with no paths, because
+ * the activity feed is about the rotation and not a list of every note it
+ * touched, so the notes go to the tree as `edited` here: past 50 the control
+ * plane is told to sweep instead (`controlPlane/reporting.js`). Deferred
+ * behind the answer and never able to fail it, like `recordChange`'s own.
+ */
+function reportRewrapped(store, paths) {
+  if (paths.length === 0 || typeof store.reportTreeTouch !== "function") return;
+  const work = Promise.resolve()
+    .then(() => store.reportTreeTouch({ paths: [], files: [], edited: [...paths] }))
+    .catch(() => {});
+  if (typeof store.defer !== "function") return;
+  try {
+    store.defer(work);
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not report.
+  }
+}
+
 export async function toolRotateEncryptionKeys(store, scope) {
   if (!store.encryptionKey) {
     return toolText(
@@ -266,6 +290,7 @@ export async function toolRotateEncryptionKeys(store, scope) {
       notes_rewrapped: rewrapped,
       status: "complete",
     });
+    reportRewrapped(store, wroteThisCall);
     const stillRotating = completed.rotation !== null;
     return toolText(
       `rotation complete: ${fromGeneration} → ${toGeneration}\n` +
@@ -319,6 +344,7 @@ export async function toolRotateEncryptionKeys(store, scope) {
     notes_rewrapped: rewrapped,
     status: "in_progress",
   });
+  reportRewrapped(store, wroteThisCall);
   return toolText(
     `rotation in progress: ${fromGeneration} → ${toGeneration}\n` +
       `${rewrapped} note(s) re-wrapped this call, at least ${stillPending} left on ${fromGeneration}` +

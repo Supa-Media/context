@@ -23,6 +23,7 @@ import {
   NODE_TOUCH_FOLDER_PAGES,
   NODE_TOUCH_PATHS,
   nodePath,
+  type LeftAudiences,
   type NodeRow,
   type NodeSink,
 } from "./table";
@@ -34,6 +35,8 @@ export interface TouchOptions {
   paths?: string[];
   /** Single keys known to be one object: only the key itself is checked. */
   files?: string[];
+  /** Who could see each key the change took away, before it: the log's gone rows narrow to it. */
+  left?: LeftAudiences[];
   now?: () => number;
 }
 
@@ -72,10 +75,11 @@ export async function touchNodes(
 
   try {
     let overflow = false;
+    const left = options.left ?? [];
     for (const path of folders) {
-      if (await checkPath(store, sink, path, true, now)) overflow = true;
+      if (await checkPath(store, sink, path, true, now, left)) overflow = true;
     }
-    for (const path of files) await checkPath(store, sink, path, false, now);
+    for (const path of files) await checkPath(store, sink, path, false, now, left);
     if (folders.has(NODE_PRIVACY_KEY) || files.has(NODE_PRIVACY_KEY)) {
       await refreshPrivacyMirror(store, sink, now);
     }
@@ -101,29 +105,36 @@ async function checkPath(
   path: string,
   folder: boolean,
   now: () => number,
+  left: readonly LeftAudiences[],
 ): Promise<boolean> {
   const at = now();
   const exact = await store.list({ prefix: path, limit: 1 });
   const first = exact.objects?.[0];
-  const exactRow = first !== undefined && (first as { key?: unknown }).key === path ? rowFromObject(first) : null;
+  let exactRow = first !== undefined && (first as { key?: unknown }).key === path ? rowFromObject(first) : null;
+  // A store whose prefix listing cannot find a file (Dropbox, whose tree is
+  // filled by token since it ignores key order) is asked for the key by name.
+  if (exactRow === null && (store as { prefixFindsFiles?: boolean }).prefixFindsFiles === false) {
+    const object = await store.get(path);
+    if (object !== null) exactRow = rowFromObject({ key: path, etag: object.etag, uploaded: (object as { uploaded?: unknown }).uploaded });
+  }
   const rows: NodeRow[] = exactRow === null ? [] : [exactRow];
   const gone = exactRow === null ? [path] : [];
   if (!folder) {
-    await observeAll(sink, at, rows, gone);
+    await observeAll(sink, at, rows, gone, [], left);
     return false;
   }
 
   const prefix = `${path}/`;
   const listed = await folderObjects(store, prefix);
   if (listed === null) {
-    await observeAll(sink, at, rows, gone);
+    await observeAll(sink, at, rows, gone, [], left);
     return true;
   }
   for (const object of listed) {
     const row = rowFromObject(object);
     if (row !== null) rows.push(row);
   }
-  await observeAll(sink, at, rows, gone, [prefix]);
+  await observeAll(sink, at, rows, gone, [prefix], left);
   return false;
 }
 

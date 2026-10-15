@@ -19,6 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -26,7 +27,7 @@ import { createWeb } from "./sites.mjs";
 import { createBenchSite } from "./siteStub.mjs";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
@@ -46,6 +47,22 @@ const PINNED = "context-lc";
  * folders and root notes with members, and a held-back note is a private
  * override on top.
  */
+/**
+ * A var as the deployed gateway has it: the top-level `[vars]` of
+ * wrangler.toml, never a per-environment table. `undefined` when unset.
+ */
+export function deployedVar(toml, name) {
+  const top = toml.match(/^\[vars\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1] ?? "";
+  return top.match(new RegExp(`^${name} = "([^"]*)"\\s*$`, "m"))?.[1];
+}
+
+/**
+ * The egress gate as production runs it. The owner switched it off on the
+ * deployment (2026-10-10); a world that held writes anyway graded a YES round
+ * trip production never has, and "tick off the to-do" failed on it.
+ */
+export const DEPLOYED_EGRESS_APPROVALS = deployedVar(readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8"), "EGRESS_APPROVALS");
+
 export function manifest({ shared, files = [], heldBack = [] }) {
   const folders = shared ? [...new Set(files.filter((path) => path.includes("/")).map((path) => path.split("/")[0]))].sort() : [];
   const rootNotes = shared ? files.filter((path) => !path.includes("/")).sort() : [];
@@ -175,6 +192,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The listing tools list from the Convex tree, copied here from each S3 bucket.
+  controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
   const copies = [];
   const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;
@@ -254,6 +273,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // of 40 is spent by one bucket scan, and every read, listing and orient in the
     // same turn then fails: the 2026-10-08 results measured exactly that.
     SEARCH_SUBREQUEST_BUDGET: "600",
+    ...(DEPLOYED_EGRESS_APPROVALS === undefined ? {} : { EGRESS_APPROVALS: DEPLOYED_EGRESS_APPROVALS }),
     ...(models.ai ? { AI: models.ai } : {}),
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
@@ -269,9 +289,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
-  /** Files the gateway writes for itself on a save: never the model's change. */
+  /** Files the gateway writes for itself on a save, and Tex's own transcript of the turn: never the model's change. */
   const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
-  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
+  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);
 
   const routerSaid = (entry) =>
     typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
@@ -309,7 +329,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
-        // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
+        // keeps the status (`turnLog.js` `wireTraceEntry`), and a result says it.
         error:
           response.status === 200
             ? null
@@ -323,7 +343,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // A fallback and a retried round are recorded the same way, because
         // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
             entry.kind === "router"
               ? // `router: think (0.8)`; a think pick under the setup's cutoff is
@@ -331,7 +351,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                 { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
               : entry.kind === "fallback"
                 ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
-                : entry.kind === "model"
+                : entry.kind === "model" && entry.cut && !entry.retried
+                  ? { tool: "cut off at the output cap", ok: true }
+                  : entry.kind === "model"
                   ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
                   : entry.held
                     ? // Held by the egress gate for the person's yes, and run when they

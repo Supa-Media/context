@@ -11,6 +11,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import { isRetryableMeaningError } from "../vectorize";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 export type MeaningRowStatus = "provisioning" | "backfilling" | "ready" | "failed" | "releasing";
@@ -231,6 +232,13 @@ export const MEANING_PASS_CHAIN = 200;
 export const MEANING_STALL_MS = 15 * 60 * 1000;
 /** A `ready` row is caught up at least this often, for edits nothing else embedded. */
 export const MEANING_REFRESH_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long after a change in a `ready` workspace its catch-up runs. Edits
+ * nothing embedded at the time (typing in the app, Obsidian, a console move)
+ * used to wait for the daily refresh; now they wait this long, and a burst of
+ * edits inside it is one pass.
+ */
+export const MEANING_FRESHEN_MS = 5 * 60 * 1000;
 /** A failure worth waiting out is retried after this long. */
 export const MEANING_RETRY_MS = 15 * 60 * 1000;
 /**
@@ -260,8 +268,10 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
 
   for (const row of [...(await due("backfilling", MEANING_STALL_MS)), ...(await due("ready", MEANING_REFRESH_MS))]) {
     if (!row.enabled) continue;
-    // Touched now, so the next sweep does not start a second chain over it.
+    // Touched now, so the next sweep does not start a second chain over it,
+    // and an archived workspace's row is not read first by every sweep.
     await ctx.db.patch(row._id, { updatedAt: now });
+    if (await workspaceArchived(ctx.db, row.workspaceId)) continue;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: row.workspaceId,
       scope: "private",
@@ -271,6 +281,10 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
   }
   for (const row of await due("failed", MEANING_RETRY_MS)) {
     if (!row.enabled) continue;
+    if (await workspaceArchived(ctx.db, row.workspaceId)) {
+      await ctx.db.patch(row._id, { updatedAt: now });
+      continue;
+    }
     if (!isRetryableMeaningError(row.errorCode) && row.updatedAt >= now - MEANING_CONFIG_RETRY_MS) continue;
     await ctx.db.patch(row._id, {
       status: "provisioning",
@@ -285,4 +299,29 @@ export async function sweepMeaningHandler(ctx: MutationCtx): Promise<{ started: 
     started += 1;
   }
   return { started };
+}
+
+/**
+ * Something changed in this workspace (`markWorkspaceActivity`): catch its
+ * `ready` meaning index up `MEANING_FRESHEN_MS` from now, unless a catch-up is
+ * already due by then. The pass lists the bucket and embeds only what changed
+ * since the last one, so this is a listing per busy five minutes, and nothing
+ * for a quiet workspace. Never throws: a derivative never fails the change.
+ */
+export async function freshenMeaningAfterActivity(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  try {
+    const row = await meaningRowFor(ctx, workspaceId);
+    if (row === null || !row.enabled || row.status !== "ready") return false;
+    const now = Date.now();
+    if ((row.freshenAt ?? 0) > now) return false;
+    await ctx.db.patch(row._id, { freshenAt: now + MEANING_FRESHEN_MS });
+    await ctx.scheduler.runAfter(MEANING_FRESHEN_MS, internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "projectMeaning", passes: MEANING_PASS_CHAIN },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

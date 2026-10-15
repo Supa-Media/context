@@ -170,9 +170,11 @@ describe("photographing a page", () => {
 });
 
 describe("the entry module", () => {
-  it("exports only its handler, which is all workerd accepts", () => {
-    expect(Object.keys(entry)).toEqual(["default"]);
+  it("exports only its handler and its Durable Object, which is all workerd accepts", () => {
+    expect(Object.keys(entry).sort()).toEqual(["BrowserIdle", "default"]);
     expect(typeof entry.default.fetch).toBe("function");
+    // wrangler.jsonc binds BROWSER_IDLE to this class by name.
+    expect(typeof entry.BrowserIdle.prototype.alarm).toBe("function");
   });
 
   it("answers nothing but POST /shoot, and refuses a bad address before any browser opens", async () => {

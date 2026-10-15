@@ -24,7 +24,7 @@
  *    attempt: **0**, and the reason is the useful part. With `normalizePath`
  *    rejecting control characters, nothing the tool surface can send reaches
  *    the second layer by the newline route, so a file testing only that route
- *    proved nothing about it. The colon case below is the one that still
+ *    proved nothing about it. The `#` case below is the one that still
  *    arrives — and it is what a real bucket produces constantly, since Obsidian
  *    and rclone write keys this validator never saw.
  * 3. **Both removed together** — 6 checks failed.
@@ -39,6 +39,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { parsePrivacyManifest } from "../src/privacy/engine.js";
 
 const OWNER_TOKEN = `cat_inject_owner_${"0".repeat(15)}`;
 const TEAM_TOKEN = `cat_inject_team_${"0".repeat(16)}`;
@@ -156,6 +157,7 @@ export async function runPathInjectionChecks(check) {
       NATIVE_BINDINGS: "INJECT_BUCKET",
       INJECT_BUCKET: bucket,
     };
+    controlPlane.serveTreesFrom(env);
 
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# front page");
@@ -213,25 +215,41 @@ export async function runPathInjectionChecks(check) {
 
     /* -- the second layer, which the first one's success hides -------------- */
 
-    // `normalizePath` allows a colon, and the rule grammar does not: the value
-    // is everything after the FIRST colon, so `1-projects/2026: notes.md`
-    // renders a line the parser rejects. That is the case `writesOneRule`
-    // exists for, and the only one the tool surface can still reach now that
-    // control characters are refused earlier — a real bucket reaches it far
-    // more often, since Obsidian's sync plugin and rclone write keys that never
-    // passed through `normalizePath` at all.
-    const colon = await callTool(env, OWNER_TOKEN, "write_note", {
-      path: "1-projects/2026: notes.md",
+    // `normalizePath` allows a `#`, and the rule grammar reads it as the start
+    // of a comment, so `1-projects/#2026 notes.md` renders a line the parser
+    // drops. That is the case `writesOneRule` exists for — a real bucket
+    // reaches it far more often, since Obsidian's sync plugin and rclone write
+    // keys that never passed through `normalizePath` at all.
+    const hash = await callTool(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/#2026 notes.md",
       content: "# notes",
       visibility: "private",
     });
     check(
       "a path the rule grammar cannot express is refused rather than half-written",
-      /cannot be recorded in privacy.md/i.test(colon)
+      /cannot be recorded in privacy.md/i.test(hash)
     );
     check(
       "...and the manifest is untouched by it",
       !bucket.text("privacy.md").includes("2026")
+    );
+
+    // A colon used to be that case too (the value was read from the FIRST
+    // colon), and one meeting filed under `1:1s/ana:ben/` made a whole
+    // workspace's manifest unreadable. The value is now what follows the last
+    // colon, so such a path is an ordinary rule.
+    const colon = await callTool(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/1:1s/ana:ben.md",
+      content: "# notes",
+      visibility: "private",
+    });
+    check("a path with colons in it is written", /written/i.test(colon));
+    check(
+      "...its rule reads back as itself, and the manifest still parses",
+      (() => {
+        const parsed = parsePrivacyManifest(bucket.text("privacy.md"));
+        return parsed.overrides.get("1-projects/1:1s/ana:ben.md") === "private";
+      })()
     );
 
     /* -- and the ordinary paths still work ---------------------------------- */

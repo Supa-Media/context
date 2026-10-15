@@ -20,13 +20,14 @@
 import { countProjected } from "./d1/backfill.js";
 import { createD1Client } from "./d1/client.js";
 import { projectNote, upsertStatements } from "./d1/project.js";
-import { TREE_STATEMENTS } from "../tree/table.js";
-import { writtenStatements } from "../tree/touch.js";
-import { LINK_STATEMENTS, linkWriteStatements } from "../tree/links.js";
+import { RETIRED_TREE_STATEMENTS } from "../tree/retired.js";
 import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
 import { meaningWritable, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
+import { FOLLOW_NOTE_CAP, followChange, followsNote } from "./d1/follow.js";
+import { effectiveVisibility } from "../privacy/engine.js";
+import { loadPrivacyState } from "../privacy/state.js";
 
 /**
  * Store ops one write's R2 pass may spend: the manifest and its docmap, the
@@ -129,17 +130,12 @@ export async function projectWrittenNoteAfterResponse(
           visibility,
           content,
         });
-        // The tree table's row for the note, and its links, ride the same
-        // request, with the tables' own `CREATE ... IF NOT EXISTS` in front
-        // so a database no sweep has reached yet cannot fail the projection.
-        // The links are recorded at the version the tree row is, so the note
-        // is parsed as of this save and no fill pass reads it again.
-        await client.runAll([
-          ...upsertStatements(path, projected),
-          ...[...TREE_STATEMENTS, ...LINK_STATEMENTS].map((sql) => ({ sql, params: [] })),
-          ...writtenStatements([{ path, etag: version }], Date.now()),
-          ...linkWriteStatements(path, version, indexableText(content)),
-        ]);
+        // The retired tree tables are dropped in the same call
+        // (`tree/retired.js`), on the first attempt only: should retiring
+        // them ever fail, the retry writes the note without them, so a
+        // derivative nobody reads can never cost the search write.
+        const retire = attempt === 0 ? RETIRED_TREE_STATEMENTS.map((sql) => ({ sql, params: [] })) : [];
+        await client.runAll([...upsertStatements(path, projected), ...retire]);
         if (typeof store.reportSearchIndexProgress === "function") {
           const notesIndexed = await countProjected(client);
           await store.reportSearchIndexProgress({
@@ -169,5 +165,74 @@ export async function projectWrittenNoteAfterResponse(
   return afterResponse(store, async () => {
     await project();
     if (meaning) await writeMeaningNote(store, { path, content, visibility });
+  });
+}
+
+/**
+ * A change whose writer did not project it — a move, an archive, email into
+ * the inbox, `save_context`, a meeting note, links rewritten after a move —
+ * followed into both searches behind the response (`d1/follow.js`).
+ *
+ * Fast search reads what it projects once, and search by meaning embeds that
+ * same text, so a moved or written note is findable by its words and by its
+ * meaning as soon as this lands rather than at the next sweep (fast search) or
+ * the next daily catch-up (meaning). A moved folder is renamed in fast search
+ * without reads; its passages reach meaning through the catch-up, since their
+ * ids come from the path. Neither may fail the change.
+ *
+ * @param {{ written?: string[], gone?: string[], moved?: [string, string][] }} change
+ */
+export async function followChangeAfterResponse(store, change) {
+  const fast = Boolean(store.searchIndex && store.searchIndex.state === "ready");
+  const meaning = meaningWritable(store);
+  if (!fast && !meaning) return "off";
+
+  return afterResponse(store, async () => {
+    let state;
+    try {
+      state = await loadPrivacyState(store);
+    } catch {
+      return;
+    }
+    if (!state || state.error) return;
+    const visibilityOf = (path) => effectiveVisibility(path, state.rules, state.overrides);
+    const read = new Map();
+
+    if (fast) {
+      try {
+        await followChange(store, createD1Client(store.searchIndex), {
+          ...change,
+          visibilityOf,
+          onRead: (path, content, visibility) => read.set(path, { content, visibility }),
+        });
+      } catch {
+        try {
+          console.error(
+            JSON.stringify({ event: "search-projection-follow-failed", workspace: store.actor?.workspaceId }),
+          );
+        } catch {
+          // Reporting a derivative failure cannot fail the change either.
+        }
+      }
+    }
+
+    if (!meaning) return;
+    const notes = [
+      ...(change.written ?? []),
+      ...(change.moved ?? []).filter((pair) => Array.isArray(pair) && followsNote(pair[1])).map((pair) => pair[1]),
+    ].filter(followsNote);
+    for (const path of [...new Set(notes)].slice(0, FOLLOW_NOTE_CAP)) {
+      let note = read.get(path);
+      if (!note) {
+        try {
+          const object = await store.get(path);
+          if (!object) continue;
+          note = { content: indexableText(await object.text()), visibility: visibilityOf(path) };
+        } catch {
+          continue;
+        }
+      }
+      await writeMeaningNote(store, { path, ...note });
+    }
   });
 }

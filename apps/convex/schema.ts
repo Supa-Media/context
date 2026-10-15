@@ -23,7 +23,9 @@ import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
+import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
 import { telemetryTables } from "./functions/lib/schema/telemetry";
+import { appearanceTables } from "./functions/lib/schema/appearance";
 import { messageTables } from "./functions/lib/schema/messages";
 import { placeTables } from "./functions/lib/schema/places";
 import { feedbackTables } from "./functions/lib/schema/feedback";
@@ -38,13 +40,17 @@ import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
 import { routineTables } from "./functions/lib/schema/routines";
 import { nodeTables } from "./functions/lib/schema/nodes";
+import { smallDataTables } from "./functions/lib/schema/smallData";
 
 /**
  * Control-plane schema for Context.
  *
  * METADATA ONLY — which, since the owner's decision of 2026-10-12, includes
  * each workspace's file tree (names, versions) and privacy rules
- * (`lib/schema/nodes.ts`). Note content lives exclusively in the customer's own bucket
+ * (`lib/schema/nodes.ts`), and since 2026-10-13 each note's links and the
+ * front matter, heading and first paragraph a List shows, as derivatives
+ * rebuilt from the bucket (`lib/nodes/facts.ts`), and since 2026-10-14 its folder
+ * icons, emoji names and forwarding ledger (`lib/schema/smallData.ts`). Note bodies live exclusively in the customer's own bucket
  * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,
@@ -94,7 +100,9 @@ const schema = defineSchema({
   ...managedEncryptionTables,
   ...referralTables,
   ...devlogTables,
+  ...sharedInboxTables,
   ...telemetryTables,
+  ...appearanceTables,
   ...messageTables,
   ...placeTables,
   ...feedbackTables,
@@ -109,6 +117,7 @@ const schema = defineSchema({
   ...meaningTables,
   ...routineTables,
   ...nodeTables,
+  ...smallDataTables,
 });
 
 export default schema;

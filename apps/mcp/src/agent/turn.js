@@ -42,13 +42,20 @@
  * engine decides, rather than being handed something the clamp never saw.
  */
 
+import { attachmentsLine } from "./attachments.js";
 import { BUILTIN_PROVIDER, builtinModel, hasBuiltinModel, requestBuiltin } from "./builtin.js";
 import { ProviderError } from "./providers.js";
 import { webPrompt } from "./computer.js";
 import { systemPrompt } from "./prompt.js";
+import { localNowPrompt } from "./localNow.js";
+import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
+import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
+import { aboutMePrompt } from "./aboutMe.js";
+import { jobsPrompt } from "./jobs.js";
+import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -240,6 +247,12 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   model router (`router.js`): the decision engine that picks a tier for this
  *   text, and the model a `think` text runs on; `route.js` checks it can be called
  * @param {() => number} [options.clock] milliseconds, for `timing`
+ * @param {string[]|null} [options.coreTools] the setup's core tools: offer
+ *   those and `find_tools`, the rest by name (`toolShelf.js`); null offers all
+ * @param {Array<{tool: object, call: Function}>} [options.local] tools this
+ *   turn answers itself rather than through the MCP
+ * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
+ *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
  * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
  */
 export async function runTurn(options) {
@@ -263,7 +276,31 @@ export async function runTurn(options) {
     roundCap = MAX_ROUNDS,
     progress = null,
     toolTimeouts = {},
+    coreTools = null,
+    local = [],
+    aboutMe = null,
+    // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    jobs = null,
+    // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
+    localNow = null,
+    // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
+    workspaces = null,
+    // How hard each model thinks, by model name (`production.js`); absent: the model's own default.
+    efforts = null,
+    // What the person sent with the question, checked (`attachments.js`): shown to the model with it.
+    attachments = [],
+    // Told each step as it happens (`transcript.js`): thinking, words between tools, each call.
+    // Never throws back into the turn, and asks the model for its thinking in words.
+    observe = null,
   } = options;
+  const tell = (event) => {
+    if (typeof observe !== "function") return;
+    try {
+      observe(event);
+    } catch {
+      // A transcript that broke costs a transcript, never the turn.
+    }
+  };
   const began = clock();
   // The computer's tools (`computer.js`), offered beside the MCP ones and
   // dispatched to their own session, which carries the address guard.
@@ -273,7 +310,20 @@ export async function runTurn(options) {
     it works. Dispatched here, like the web tools, never to the MCP: it reaches
     only the person who asked, on the channel their answer goes to anyway.
   */
-  const tools = [...(options.tools ?? []), ...(web?.tools ?? []), ...(progress ? [progress.tool] : [])];
+  const tools = [
+    ...(options.tools ?? []),
+    ...(web?.tools ?? []),
+    ...local.map((entry) => entry.tool),
+    ...(progress ? [progress.tool] : []),
+  ];
+  // Tools answered here rather than by the MCP (`route.js`'s earlier texts).
+  const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
+  /*
+    THE SHELF (`toolShelf.js`): with the setup's core tools, the model is
+    offered those and `find_tools`, and the rest are named in the prompt and
+    loaded on request. Without them, everything, as before.
+  */
+  const shelf = Array.isArray(coreTools) ? toolShelf(tools, coreTools) : null;
   // A tool that is slow by nature (a browser step) may name its own limit.
   const timeoutFor = (name) =>
     Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
@@ -295,7 +345,7 @@ export async function runTurn(options) {
   */
   if (router !== null) {
     const asked = clock();
-    const routed = await pickTier({ decide: router.decide, text: question, history, routeAt: router.routeAt });
+    const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     // How sure the router was that this text needs thinking, kept whether or
@@ -303,6 +353,7 @@ export async function runTurn(options) {
     // near misses. Absent when it picked another tier or did not answer.
     const confidence = routed.pick === "think" && typeof routed.confidence === "number" ? { confidence: routed.confidence } : {};
     trace.push({ kind: "router", tier: routed.tier, pick: routed.pick, model, ms: clock() - asked, ...confidence });
+    tell({ kind: "model", model, reason: routed.tier === "think" ? "the router judged it needs thinking" : "picked by the router" });
   }
   const systemFor = (answering) =>
     systemPrompt(place, {
@@ -314,11 +365,17 @@ export async function runTurn(options) {
       used: usedTools(history),
     }) +
     webPrompt(webNames) +
-    (progress ? PROGRESS_PROMPT : "");
+    (progress ? PROGRESS_PROMPT : "") +
+    (shelf ? shelf.prompt() : "") +
+    (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
+    (observe ? TRANSCRIPTS_PROMPT : "") +
+    (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
+    workspacesPrompt(workspaces);
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
-    { role: "user", text: question },
+    { role: "user", text: question, ...(attachments.length > 0 ? { attachments } : {}) },
   ];
   /*
     What the turn did, by name only. The arguments a tool was called with can
@@ -358,12 +415,30 @@ export async function runTurn(options) {
     exactly one place that decides what the agent may reach.
   */
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
+  if (shelf) offeredNames.add(FIND_TOOLS);
 
+  let offeredBefore = null;
   for (let round = 0; round < rounds; round += 1) {
     const asked = clock();
+    const offered = shelf ? shelf.shown() : tools;
+    /*
+      A round's thinking is handed back to the next (`providers.js`), and the
+      API checks each block against the tools it was made with. When the shelf
+      has just loaded a tool, every earlier block is dropped at once, which the
+      API allows; dropping some would refuse the request.
+    */
+    const offeredNow = offered.map((tool) => tool.name).join(",");
+    if (offeredBefore !== null && offeredNow !== offeredBefore) {
+      for (const message of messages) if (message.content) delete message.content;
+    }
+    offeredBefore = offeredNow;
     let answer;
     try {
-      answer = await requestBuiltin({ model, system, messages, tools }, providerOptions.ai, providerOptions);
+      answer = await requestBuiltin(
+        { model, system, messages, tools: offered, effort: efforts?.[model], ...(observe ? { display: "summarized" } : {}) },
+        providerOptions.ai,
+        providerOptions,
+      );
     } catch (error) {
       /*
         THE FALLBACK MODEL (decided by the owner, 2026-10-09). A provider that
@@ -377,8 +452,11 @@ export async function runTurn(options) {
         const ms = clock() - asked;
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
+        tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
         model = fallback;
         system = systemFor(model);
+        // Another model reads none of this one's thinking, and the prompt changed with it.
+        for (const message of messages) if (message.content) delete message.content;
         round -= 1;
         continue;
       }
@@ -405,6 +483,9 @@ export async function runTurn(options) {
       ms: roundMs,
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
       ...(answer.retried ? { retried: true, ...(answer.retried.status === null ? {} : { status: answer.retried.status }) } : {}),
+      // Stopped at the output cap (`aiGateway.js`): the round's thinking and
+      // answer ran out of room, which the turn log and a benchmark count.
+      ...(answer.stop === "max_tokens" ? { cut: true } : {}),
     });
     if (answer.usage) {
       usage.input += answer.usage.input;
@@ -413,11 +494,23 @@ export async function runTurn(options) {
       usage.cacheWrite += answer.usage.cacheWrite ?? 0;
     }
 
+    for (const block of Array.isArray(answer.content) ? answer.content : []) {
+      if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim()) {
+        tell({ kind: "thinking", text: block.thinking });
+      }
+    }
+
     if (answer.toolCalls.length === 0) {
       return { answer: answer.text, provider, model, steps, usage, timing: { ...timing, trace } };
     }
 
-    messages.push({ role: "assistant", text: answer.text, toolCalls: answer.toolCalls });
+    if (answer.text?.trim()) tell({ kind: "say", text: answer.text });
+    messages.push({
+      role: "assistant",
+      text: answer.text,
+      toolCalls: answer.toolCalls,
+      ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
+    });
 
     for (const call of answer.toolCalls) {
       if (!offeredNames.has(call.name)) {
@@ -435,6 +528,7 @@ export async function runTurn(options) {
           text: "There is no such tool. Use only the tools you were given.",
           isError: true,
         });
+        tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
         continue;
       }
       if (clock() - began >= toolBudgetMs) {
@@ -442,14 +536,21 @@ export async function runTurn(options) {
         // the answer, written from what the calls so far returned.
         trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
         messages.push({ role: "tool", id: call.id, name: call.name, text: OUT_OF_TIME, isError: true });
+        tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
         continue;
       }
       let result;
       const called = clock();
+      // Held but not loaded: the model knew its name from the prompt, so it is loaded and run.
+      if (shelf?.isShelved(call.name)) shelf.loadOne(call.name);
       try {
         result = await withinTime(
-          progress && call.name === PROGRESS_TOOL
+          shelf && call.name === FIND_TOOLS
+            ? Promise.resolve(shelf.call(call.args))
+            : progress && call.name === PROGRESS_TOOL
             ? progress.call(call.args)
+            : localCalls.has(call.name)
+            ? localCalls.get(call.name)(call.args)
             : webNames.has(call.name)
               ? web.call(call.name, call.args)
               : callTool(call.name, call.args),
@@ -476,6 +577,7 @@ export async function runTurn(options) {
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true });
+      tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
       messages.push({
         role: "tool",
         id: call.id,

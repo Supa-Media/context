@@ -10,6 +10,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { requireWorkspaceAccess } from "../workspaceAuth";
 import { callerId } from "./access";
+import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 
 /**
  * Stamp a context as having changed, for the dot on its mark elsewhere.
@@ -39,6 +40,8 @@ export async function markWorkspaceActivityHandler(
   }
   if (patch.activityAt === undefined && patch.activityTeamAt === undefined) return null;
   await ctx.db.patch(args.workspaceId, patch);
+  // What changed reaches search by meaning within minutes, not the next day.
+  await freshenMeaningAfterActivity(ctx, args.workspaceId);
   return null;
 }
 

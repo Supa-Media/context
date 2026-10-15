@@ -10,7 +10,7 @@ import { mirroredListNotes } from "./mirrorLists";
 import type { MirrorStore } from "./mirrorStoreCore";
 import { onBucketWrite } from "../console/files/bucketWrites";
 import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
-import { serverFrontNotes, serverListNotes, tableListNotes, type ServerListIO, type ServerListMemo } from "./serverLists";
+import { serverFrontNotes, tableListNotes, type ServerListIO } from "./serverLists";
 
 /**
  * Where the console's folder lists read their notes, and the one road a list
@@ -19,7 +19,8 @@ import { serverFrontNotes, serverListNotes, tableListNotes, type ServerListIO, t
  *
  * **Reads** come from the server whenever it can be reached (decided by the
  * owner, 2026-10-08: "when connected to the internet we should always be
- * using server"), through `serverListNotes`. This device's copy at one
+ * using server"), through `tableListNotes`: the Convex tree's parsed front
+ * matter, with no note read for it (decided by the owner, 2026-10-13). This device's copy at one
  * clearance (`mirroredListNotes`) answers only offline, and only where there
  * is one: the desktop and phone apps. A browser keeps no copy at all. A list
  * re-reads after its own writes, after any write announced on the bucket bus,
@@ -73,8 +74,6 @@ export interface ListWriteBack {
 }
 
 export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, needed, online }: FolderListInputs): FolderListSource & ListWriteBack {
-  // Parsed frontmatter by version, in memory only, so a redraw reads only what changed.
-  const memo: ServerListMemo = new Map();
   const listeners = new Set<() => void>();
   const changed = () => {
     for (const listener of [...listeners]) listener();
@@ -83,11 +82,9 @@ export function folderListSource({ workspaceId, scope, canEdit, io, openMirror, 
     load: async (folder, subfolders) => {
       if (online()) {
         try {
-          // The tree's properties table first: one query. Where it cannot
-          // answer yet, every note is read from the bucket.
-          const fromTable = await tableListNotes(io, folder, subfolders).catch(() => null);
-          if (fromTable !== null) return fromTable;
-          return await serverListNotes(io, memo, folder, subfolders);
+          // One query a page; where the server cannot answer yet the List is
+          // drawn incomplete rather than read note by note from the bucket.
+          return await tableListNotes(io, folder, subfolders);
         } catch (error) {
           // The server did not answer: the device's copy, where there is one, rather than nothing.
           const store = await openMirror().catch(() => null);

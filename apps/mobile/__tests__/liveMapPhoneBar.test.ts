@@ -6,7 +6,7 @@
  * The phone map's bar fills the width. `PhoneMap` lays it over the canvas in a
  * box with `alignItems: "flex-start"`, and its segmented tracks share a row by
  * `flexBasis: 0`, so a bar that did not stretch itself drew every track at
- * no width: a dot and two slivers where Live / Today / Week and Map / Folders
+ * no width: a dot and two slivers where Live / Today / Week and Map / Columns
  * should be (Dev2's phone, 2026-10-09).
  */
 
@@ -36,7 +36,7 @@ describe("the phone map bar", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    await act(async () => root.render(createElement(MapBar, { page, compact: true })));
+    await act(async () => root.render(createElement(MapBar, { page })));
     const bar = host.querySelector('[data-testid="map-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
     expect(getComputedStyle(bar).alignSelf).toBe("stretch");

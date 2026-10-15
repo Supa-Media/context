@@ -38,6 +38,10 @@ Moved to [A name already taken in our own account is this context's database](./
 
 Moved to [The gateway writes the projection, so the credential rides on the binding](./search/gateway-search-and-projection.md#the-gateway-writes-the-projection-so-the-credential-rides-on-the-binding).
 
+### A context with a search database is answered by it alone, never by the bucket
+
+Moved to [A context with a search database is answered by it alone, never by the bucket](./search/gateway-search-and-projection.md#a-context-with-a-search-database-is-answered-by-it-alone-never-by-the-bucket).
+
 ### Progress is reported to the control plane, which owns the row
 
 Moved to [Progress is reported to the control plane, which owns the row](./search/backfill-and-switch.md#progress-is-reported-to-the-control-plane-which-owns-the-row).

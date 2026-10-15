@@ -21,6 +21,7 @@ import {
   seedStorageBinding,
   setupTest,
   type TestConvex,
+  copyTree,
 } from "./fixtures.helpers";
 
 export const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -98,7 +99,21 @@ export async function runPendingScans(t: TestConvex): Promise<number> {
     for (const job of pending) await ctx.scheduler.cancel(job._id);
     return pending.map((job) => job.args[0] as { workspaceId: Id<"workspaces"> });
   });
-  for (const args of jobs) await t.action(internal.functions.routines.reconcileRoutines, args);
+  for (const args of jobs) {
+    // What the gateway wrote reaches the Convex tree (its touch, or the next
+    // sweep) before the scan lists it: the scan reads the tree, never the bucket.
+    await copyTree(t, args.workspaceId);
+    // ...and its front matter is read into the tree's facts, which is where
+    // the scan takes each schedule from.
+    for (let pass = 0; pass < 4; pass += 1) {
+      await t.action(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "private" as const,
+        operation: { kind: "nodesFactFill" as const },
+      });
+    }
+    await t.action(internal.functions.routines.reconcileRoutines, args);
+  }
   await drainScheduled(t);
   return jobs.length;
 }

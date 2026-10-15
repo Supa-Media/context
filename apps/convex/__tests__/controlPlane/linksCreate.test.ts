@@ -26,6 +26,7 @@ import {
   FAKE_STORAGE,
   asUser,
   bindFakeStorage,
+  copyTree,
   createUser,
   createWorkspace,
   gatewayPost,
@@ -85,6 +86,8 @@ async function fixture() {
     accessToken: EDITOR_ACCESS,
     scopes: ["context:read", "context:write"],
   });
+  // The mint asks the tree whether a link's readers would see the note.
+  await copyTree(t, workspaceId);
   return { t, workspaceId };
 }
 

@@ -141,6 +141,8 @@ export async function runNoteCapGatewayChecks(check) {
       CAPPED_BUCKET: capped,
       OPEN_BUCKET: open,
     };
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(env);
 
     const created = await callTool(env, FREE_TOKEN, "write_note", { path: "1-projects/c.md", content: "third" });
     check("a context with no cap takes a new note", !created.isError && open.objects.has("1-projects/c.md"));

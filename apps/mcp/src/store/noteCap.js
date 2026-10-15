@@ -57,24 +57,34 @@
  * this context from another one is a create here and is capped like any other:
  * it never runs inside the window.
  *
+ * ## Counted from the Convex tree, never the bucket
+ *
+ * How many notes a context holds is a question about which notes exist, and
+ * since 2026-10-13 nothing but opening and editing a note reads the bucket
+ * (decided by the owner: "everything should be on convex"). The count comes
+ * from whoever built the store (`countNotes`): the console's credential
+ * barrier counts the tree's rows (`lib/nodes/servedCount.ts`), the gateway
+ * asks the control plane (`/gateway/tree/facts`, `ask: "names"`). Only the key being written
+ * is still asked of the bucket, to tell a create from an edit: that is the
+ * note being written.
+ *
  * ## What it does not promise
  *
  * The count is taken once per store (one request), then kept locally. Two
  * requests racing past the last free slot can both land, so the cap can be
  * overshot by the number of concurrent creates. That is a bounded, harmless
  * overshoot of a free allowance, and closing it would need a lock across
- * requests on a hot path for every write to every capped context. The walk is
- * also page-budgeted: a bucket with an extraordinary number of non-note
- * objects yields a floor, which errs towards allowing the write.
+ * requests on a hot path for every write to every capped context. Where the
+ * tree cannot answer (its first copy still running, the control plane not
+ * reached), the write is admitted and the next create asks again: a billing
+ * count must never cost somebody a note, and the tree's first copy takes
+ * minutes. The tree also lags the bucket by a second or two, which can only
+ * under-count by the notes written in that window.
  */
 
 import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
 
 export const NOTE_CAP_REACHED = "NOTE_CAP_REACHED";
-
-/** Listing requests one count may make. Matches the console's own counter. */
-const COUNT_PAGE_CAP = 40;
-const COUNT_PAGE_SIZE = 1000;
 
 /**
  * The context's own structure and bookkeeping: counted, never refused. A full
@@ -111,47 +121,15 @@ export class NoteCapReached extends Error {
   }
 }
 
-/**
- * How many notes the store holds, stopping as soon as it reaches `limit`.
- *
- * Delimited at the root, then flat inside each folder that is not plumbing —
- * the same shape as the console's counter, for its reason: `.context/` sorts
- * first and holds far more objects than there are notes.
- */
-export async function countNotesUpTo(store, limit) {
-  let notes = 0;
-  let pages = 0;
-  const folders = [];
-  let cursor;
-  for (;;) {
-    if (pages >= COUNT_PAGE_CAP) return notes;
-    const listing = await store.list({ prefix: "", delimiter: "/", cursor, limit: COUNT_PAGE_SIZE });
-    pages += 1;
-    for (const object of listing.objects || []) {
-      if (isCountedNoteKey(object.key)) notes += 1;
-    }
-    if (notes >= limit) return notes;
-    for (const prefix of listing.delimitedPrefixes || []) {
-      if (!prefix.startsWith(".")) folders.push(prefix);
-    }
-    if (!listing.truncated || !listing.cursor) break;
-    cursor = listing.cursor;
+/** The tree's count, or null where it cannot answer. Never throws: a count never fails a write. */
+async function treeCount(countNotes) {
+  if (typeof countNotes !== "function") return null;
+  try {
+    const count = await countNotes();
+    return Number.isInteger(count) && count >= 0 ? count : null;
+  } catch {
+    return null;
   }
-  for (const folder of folders) {
-    let folderCursor;
-    for (;;) {
-      if (pages >= COUNT_PAGE_CAP) return notes;
-      const listing = await store.list({ prefix: folder, cursor: folderCursor, limit: COUNT_PAGE_SIZE });
-      pages += 1;
-      for (const object of listing.objects || []) {
-        if (isCountedNoteKey(object.key)) notes += 1;
-      }
-      if (notes >= limit) return notes;
-      if (!listing.truncated || !listing.cursor) break;
-      folderCursor = listing.cursor;
-    }
-  }
-  return notes;
 }
 
 async function holdsNote(store, key) {
@@ -163,9 +141,15 @@ async function holdsNote(store, key) {
  * The store, refusing new notes once it holds `cap` of them.
  *
  * A cap that is not a positive integer means no cap: the control plane sends
- * one only for a free context on a bucket we run.
+ * one only for a free context on a bucket we run. `countNotes` answers how
+ * many notes the context holds from the Convex tree, or `null` where the tree
+ * cannot say; with none, nothing can be counted and the cap admits.
+ *
+ * @param {object} store
+ * @param {number|null|undefined} cap
+ * @param {(() => Promise<number|null>)|null} [countNotes]
  */
-export function withNoteCap(store, cap) {
+export function withNoteCap(store, cap, countNotes = null) {
   if (!store || !Number.isInteger(cap) || cap <= 0) return store;
   let counted = null;
   let relocating = 0;
@@ -181,7 +165,9 @@ export function withNoteCap(store, cap) {
   async function admit(key, options) {
     if (relocating > 0) return false;
     if (!(await wouldCreate(key, options))) return false;
-    if (counted === null) counted = await countNotesUpTo(store, cap);
+    if (counted === null) counted = await treeCount(countNotes);
+    // Not counted (see the header): admitted, and the next create asks again.
+    if (counted === null) return false;
     if (counted >= cap) throw new NoteCapReached(cap);
     return true;
   }

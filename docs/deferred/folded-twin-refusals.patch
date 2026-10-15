@@ -203,8 +203,8 @@ index a79d6586..a37acff7 100644
 +      throw new Error(FOLDED_TWIN_REFUSAL);
 +    }
      const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
-     if (put) return;
+     // Nothing to record: a team note in a team folder, written again. Every
+     // team write lands here, and a write of an unchanged manifest is a round
 diff --git a/apps/mcp/src/tools/moves/archive.js b/apps/mcp/src/tools/moves/archive.js
 index 9d9b3748..7460b8e5 100644
 --- a/apps/mcp/src/tools/moves/archive.js
@@ -223,10 +223,10 @@ index 9d9b3748..7460b8e5 100644
  import {
    clearExactVisibilityIfAbsent,
    deleteCreatedDestination,
-@@ -106,6 +111,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
-     return writePermissionError("archive destination");
-   }
-   if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
+@@ -109,6 +114,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
+   // Asked of the Convex tree (`tree/names.js`); the write is conditional.
+   const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
+   if (destinationTaken) return destinationTaken;
 +  // Before any write, because this path has no rollback at all: a throw from
 +  // the backstop leaves the destination written, the source undeleted, and a
 +  // protocol error in the caller's hands.
@@ -249,25 +249,24 @@ index 9d9b3748..7460b8e5 100644
    if (collaborationBase) {
      if (store.capabilities?.conditionalDelete !== true) {
 diff --git a/apps/mcp/src/tools/moves/folder.js b/apps/mcp/src/tools/moves/folder.js
-index 45227163..27b714db 100644
+index 374b182..29e46fb 100644
 --- a/apps/mcp/src/tools/moves/folder.js
 +++ b/apps/mcp/src/tools/moves/folder.js
-@@ -14,7 +14,13 @@ import {
-   replacePrivacyRulesBlock,
+@@ -15,7 +15,12 @@ import {
+   narrowerVisibility,
    visibilityOf,
  } from "../../privacy/engine.js";
--import { clearExactVisibility, loadPrivacyState, persistExactVisibility } from "../../privacy/state.js";
+-import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
 +import {
 +  clearExactVisibility,
 +  FOLDED_TWIN_REFUSAL,
 +  foldedTwinBlocks,
-+  loadPrivacyState,
 +  persistExactVisibility,
 +} from "../../privacy/state.js";
  import {
    clearExactVisibilityIfAbsent,
    deleteCreatedDestination,
-@@ -272,6 +278,19 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg,
+@@ -155,6 +160,19 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg,
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
@@ -382,15 +381,15 @@ index d0719bbe..f798c2bd 100644
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
    const isPublishing =
-     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
+     scope === "private" && desiredVisibility === "team" && (!exists || existingVisibility !== "team");
    if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
 diff --git a/apps/mcp/src/tools/visibility.js b/apps/mcp/src/tools/visibility.js
 index 4d9f79d3..22ae855e 100644
 --- a/apps/mcp/src/tools/visibility.js
 +++ b/apps/mcp/src/tools/visibility.js
-@@ -12,6 +12,8 @@ import { getWithLegacyFallback } from "../storageLayout.js";
- import { isEncryptedNote } from "../encryption.js";
+@@ -13,6 +13,8 @@ import { getWithLegacyFallback } from "../storageLayout.js";
  import { listAllKeys } from "../notes/storage.js";
+ import { servedListingStore, TreeUnavailable } from "../tree/served.js";
  import {
 +  FOLDED_TWIN_REFUSAL,
 +  foldedTwinBlocks,

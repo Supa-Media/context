@@ -634,6 +634,11 @@ export const moveEntry = action({
      * a name chosen for something else. See `movePath`.
      */
     expectedEtag: v.optional(v.string()),
+    /**
+     * A single note's first heading becomes its new name as part of the move,
+     * against the version the move produced (`lib/fileOps/followHeading.ts`).
+     */
+    followHeading: v.optional(v.boolean()),
   },
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await moveEntryHandler(ctx, args),

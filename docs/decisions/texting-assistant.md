@@ -239,6 +239,10 @@ exception to two rules, bounded as follows:
 Built 2026-10-10, with personal and shared vaults and sharing as a person's
 own action: [the vault](./texting-assistant/vault.md).
 
+Tex's daily transcript of each person's texts, thinking and tool calls in
+their own `tex/transcripts/` folder, written as each text is answered:
+[transcripts](./texting-assistant/transcripts.md).
+
 Golden tasks (jobs Tex must always get right, gating a setup), the task
 skills it reads before doing one, and why a read skill may vouch for an
 address: [golden tasks](./texting-assistant/golden-tasks.md).
@@ -433,10 +437,11 @@ So the model never chooses an address:
   https address it chooses, query included. **This knowingly reopens the
   exfiltration this section was written to close**: a page can ask the
   assistant to put the person's notes in an address. What still holds:
-  saved passwords are filled by the gateway and never seen, typing stays
-  limited to the person's words and skill values, IP addresses, internal
-  names, ports and credentials are refused, and removing the line from the
-  setup note closes it again with no deploy.
+  saved passwords are filled by the gateway and never seen, IP addresses,
+  internal names, ports and credentials are refused, and removing the line
+  from the setup note closes it again with no deploy. Since 2026-10-14 it
+  also lifts the typing rule and raises the page budget; see the next
+  section.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
@@ -470,20 +475,30 @@ box" is the exfiltration the address guard closes, by another door. So:
   browser is closed when the question is answered (it closes itself when idle
   regardless). At most 10 steps a call and 40 a question.
 
+All of this is the default. Under `open_web: yes` (owner, 2026-10-14) the
+typing rule is lifted and the step and page budgets raised:
+[open web lifts the browser's limits](./texting-assistant/open-web-browser.md).
+
 **Browserbase, and handing the browser to the person.** Decided by the owner
 the same day: Browserbase is the browser, stateless (no Contexts,
 `recordSession: false`). It sits in `infra/site-shots`
 (`src/browserbase.ts`), which holds its key, and switches on by itself once
 `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
 Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
-outlives the question, capped at 15 minutes of life, and is found again by a
-tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
+outlives the question until five idle minutes pass (`src/idle.ts`), and is found
+again by a tag, an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
 ours stores a session id and no one can name another person's browser. When
 the person must act themselves (sign in, a code, a captcha), the model asks
 for a `handoff`; the gateway adds the link to the text itself, so the model
 never holds it, and it is kept out of the saved conversation. Since
 2026-10-11 that link is the person's own page, not Browserbase's live view:
 [Tex's computer](./texting-assistant/computer.md).
+
+A Browserbase billing refusal (402, every texted browser job from
+2026-10-13) is answered 402 by the screenshot Worker, which logs only the
+status; the gateway does that question on Cloudflare's browser, which cannot be
+handed over, and skips Browserbase for ten minutes
+(`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
 
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
@@ -600,6 +615,8 @@ Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](.
 
 ### A text has every MCP tool
 
+_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
+
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
 phone. Then, after the assistant said it could not move notes between
@@ -618,7 +635,7 @@ withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
 ([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
 The dispatcher in front of the
 client's also refuses any path into a dot folder or `privacy.md` and a
-malformed routine under `routines/` ([routines](./routines.md)). Everything
+malformed routine under `tex/routines/` or `routines/` ([routines](./routines.md)). Everything
 else, including whether the person may write in another workspace, is the
 client's dispatcher's, unchanged. The prompt tells the model to check its tool
 list before saying it can't do something, and to change notes only because
@@ -661,26 +678,8 @@ Moved to [A busy provider is retried, a failed one is replaced, and both are cou
 
 ### A long task texts its progress, and may take longer than a question (2026-10-10)
 
-The owner wants to text Tex and have it do real work: browse, fill in forms,
-work through many notes. A question is answered in seconds; a task is many
-steps, and five silent minutes read as broken. So the texting Worker asks the
-gateway for every texted turn as a stream (`Accept: application/x-ndjson`,
-`apps/mcp/src/agent/progress.js`), and a streamed texting turn:
+Moved to [texting-assistant/progress.md](./texting-assistant/progress.md).
 
-- is offered `text_progress`, which texts the person one short line now
-  ("Opening ChatGPT now.") and is dispatched in the turn, never to the MCP. It
-  reaches only the person who asked, on the channel the answer goes to, so it
-  widens nothing. At most 8 a turn, 280 characters each, no repeats;
-- may take 30 model rounds and 9 minutes of tool time, against a quick turn's
-  8 and 70 seconds; a setup's `max_steps` (now 1 to 40) still only tightens;
-- ends with the route's ordinary JSON as the last line, with its status, so
-  authority, meter, turn log and history are the route's own. Heartbeats every
-  15 seconds keep each hop from idling the stream out.
+### What a person texts with their words reaches the model (2026-10-15)
 
-The Worker texts each line as it arrives with its own idempotency key and does
-not retry it with the answer, sends "On it…" once if 40 seconds pass with no
-word, and gives up at 12 minutes, inside a Durable Object alarm's 15. A
-routine's run never streams: it is unattended and texts once. A tool slow by
-nature (a browser step) may name its own time limit (`toolTimeouts`). Tests:
-`agentProgress.test.mjs`, `clients.test.ts` "askAgent, streamed",
-`inbox.test.ts` "texts a long task's progress as it happens".
+Moved to [texting-assistant/attachments.md](./texting-assistant/attachments.md).

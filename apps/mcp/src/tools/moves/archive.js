@@ -29,7 +29,8 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
-import { rewriteReferencesOrQueue } from "./references.js";
+import { rewriteReferencesAfterMove } from "./references.js";
+import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
@@ -107,7 +108,9 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   if (scope !== "private" && visibilityOf(dest, rules) !== "team") {
     return writePermissionError("archive destination");
   }
-  if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
+  // Asked of the Convex tree (`tree/names.js`); the write is conditional.
+  const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
+  if (destinationTaken) return destinationTaken;
 
   if (collaborationBase) {
     if (store.capabilities?.conditionalDelete !== true) {
@@ -123,7 +126,9 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
+      // A destination the tree had not heard of yet, refused by the conditional write.
+      if (code === "DESTINATION_EXISTS") return toolError("conflict: destination already exists");
+      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH"].includes(code)) {
         return toolError("conflict: note changed since it was read; re-read and retry");
       }
       return toolError("this note's archive transition could not finish safely; re-read it and retry");
@@ -138,11 +143,11 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
     await clearExactVisibility(store, path);
     await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
     await remapIcons(store, [{ from: path, to: dest }]);
-    const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[path, dest]]));
+    const references = await rewriteReferencesAfterMove(store, scope, rules, overrides, new Map([[path, dest]]));
     await recordChange(store, "archive_note", scope, [path, dest], {
       visibility: destinationVisibility,
       team_visible: destinationVisibility === "team",
-      references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+      references: references.capped ? "not-rewritten" : references.links,
     });
     return withActivityHint(toolText(
       `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
@@ -187,7 +192,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   */
   await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
   await remapIcons(store, [{ from: path, to: dest }]);
-  const references = await rewriteReferencesOrQueue(
+  const references = await rewriteReferencesAfterMove(
     store,
     scope,
     rules,
@@ -197,7 +202,7 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   await recordChange(store, "archive_note", scope, [path, dest], {
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
-    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+    references: references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)

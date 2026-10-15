@@ -2,23 +2,25 @@
  * A folder page's head and body, around the file listing `FolderView` draws.
  *
  * A projects folder's page, and every page beneath it (`isProjectsFolder`),
- * can be seen three ways — **Notes**, the listing as it has always been;
- * **List**, the very same rows with a status dot, a grey "2/3" and owners'
- * faces (`rowExtras.tsx`; the owner, 2026-10-10: "exactly like the notes
- * view, just with some thin extras"); **Board**, the tasks as columns —
- * switched by three words on the title's row and remembered per viewer, per
- * folder (`viewMemory.ts`). A folder opens in List once anything in it has a
- * status, and in Notes otherwise. Any other folder is its listing with no
- * switch, no nudge and no `Set status`.
+ * can be seen two ways — **List**, the listing with a status dot, a grey
+ * "2/3" and owners' faces on each task (`rowExtras.tsx`), and **Board**, the
+ * tasks as columns — switched by two words on the title's row and remembered
+ * per viewer, per folder (`viewMemory.ts`). It opens in List. Any other folder
+ * is its listing with no switch and no `Set status`.
+ *
+ * There were three views until the owner, 2026-10-14, merged Notes into List:
+ * "they are very similar. It's just that for projects, we have special UI on
+ * it." List had been the Notes rows with thin extras since 2026-10-10, so the
+ * two drew the same rows and differed only in the extras.
  *
  * Anything with a status is a task. A note's status goes in its own
  * frontmatter, a folder's in its front note, and a folder with none gets an
  * `about.md` holding just that. The page itself is one too — a project folder
  * is titled by its front note and says its status, owner and first paragraph
- * under the title (`Head.tsx`). The List writes nothing and a row opens what
- * it names, as in Notes. Somebody who may write adds, moves and changes tasks
- * on the Board — "+ Add", a right-click, a selection, a drag — each write
- * undoable from its toast (`tasks/useFolderTasks.tsx`), and on a desktop page
+ * under the title (`Head.tsx`). A row opens what it names; somebody who may
+ * write changes a task's status from its dot and its owner from its face
+ * (`rowExtras.tsx`), and adds, moves and changes tasks on the Board — "+ Add",
+ * a right-click, a selection, a drag — each write undoable from its toast (`tasks/useFolderTasks.tsx`), and on a desktop page
  * a card opens beside the Board in the side panel (`panel/`).
  *
  * Nothing new is stored and nothing is read that a list block could not read:
@@ -30,6 +32,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
+import { Reveal } from "../../../design/components/Reveal";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -38,7 +41,7 @@ import type { ListNote } from "../listBlock/model";
 import { FolderBoard } from "./Board";
 import { boardWidth } from "./pageMeasures";
 import { makeItTaskStatus, tasksWithSubtasks } from "./taskBasics";
-import { rowExtras, RowExtrasProvider } from "./rowExtras";
+import { rowExtras, RowExtrasProvider, type RowEdit } from "./rowExtras";
 import { faceFor } from "./taskFace";
 import { useTaskOwners } from "./useTaskOwners";
 import { estimateOf } from "./taskProps";
@@ -53,10 +56,10 @@ import { useOwnerLabels } from "./useOwnerLabels";
 import { useAgents } from "./useAgents";
 import { agentShown } from "./agents";
 import {
-  defaultFolderView,
   folderItems,
   groupFolderItems,
   isProjectsFolder,
+  NOTE_STATUS,
   propertyChoices,
   rowsAreProjects,
   summarizeFolder,
@@ -75,8 +78,7 @@ import {
 } from "./statuses";
 import { StatusesDialog } from "./StatusesDialog";
 import { useStatusEdits } from "./useStatusEdits";
-import { TrackNudge, TrackNudgeTurn } from "./Nudge";
-import { dismissNudge, nudgeDismissed, rememberView, rememberedView } from "./viewMemory";
+import { rememberView, rememberedView } from "./viewMemory";
 import { PublishWebsite, isWebsiteFolder } from "../../website/PublishWebsite";
 import { PanelBeside } from "./panel/PanelBeside";
 import { TaskPanel } from "./panel/TaskPanel";
@@ -139,7 +141,6 @@ export function FolderPage({
     host === undefined ? null : rememberedView(host.workspaceId, folder),
   );
   const [pickedFor, setPickedFor] = useState(folder);
-  const [, setDismissals] = useState(0);
   // The page is reconciled across folders without a key; a choice is per folder.
   if (pickedFor !== folder) {
     setPickedFor(folder);
@@ -255,8 +256,9 @@ export function FolderPage({
   // The List: the Notes rows, each with its status dot, its "3/9" and its owners' faces (`rowExtras.tsx`).
   const faceOf = taskOwners.faceOf;
   const extras = useMemo(
-    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner)),
-    [items, toneOf, faceOf, owners],
+    // The Backlog folder is where projects are parked, not one of them: it has no status circle.
+    () => rowExtras(items, toneOf, (owner) => faceFor({ faceOf, owners }, owner), (item) => item.path === parkedIn?.path),
+    [items, toneOf, faceOf, owners, parkedIn],
   );
 
   if (host === undefined) {
@@ -272,10 +274,10 @@ export function FolderPage({
 
   // Only a projects folder and what is under it tracks progress; anywhere else a view once picked is ignored.
   const tracks = isProjectsFolder(folder);
-  // Until the notes can say which view fits, and which group each item is in, a List or Board waits.
-  const view: FolderPageView = !tracks ? "files" : picked ?? (!loaded.settled ? "files" : defaultFolderView(items));
-  // A List or Board somebody picked holds its place, empty, rather than drawing everything as a note first.
-  const waiting = view !== "files" && !loaded.settled;
+  const view: FolderPageView = tracks ? (picked ?? "list") : "list";
+  // Until the notes can say which group each item is in, a Board holds its place, empty, rather
+  // than drawing every card under No status first. The List is the listing, drawn at once.
+  const waiting = view === "board" && !loaded.settled;
   const choose = (view: FolderPageView) => {
     setPicked(view);
     rememberView(host.workspaceId, folder, view);
@@ -284,20 +286,8 @@ export function FolderPage({
   const isProject = tracks && status !== "";
   // A folder is offered a status on its own page when it is not a top-level
   // area and is not being shown as the list of what is in it.
-  const offersStatus = tracks && summary !== null && loaded.canEdit && folder.includes("/") && view === "files";
+  const offersStatus = tracks && summary !== null && loaded.canEdit && folder.includes("/") && view === "list";
   const edit = loaded.canEdit ? loaded.choose : null;
-  // Spec A7: subfolders that could be tracked, none tracked yet, and nobody has picked a view here.
-  // Only to somebody who could then set a status: a member would be offered
-  // a list of notes with nothing on them to press.
-  const nudge =
-    tracks &&
-    loaded.canEdit &&
-    view === "files" &&
-    picked === null &&
-    notes !== null &&
-    items.filter((item) => item.kind === "folder").length >= 2 &&
-    !items.some((item) => item.status !== "") &&
-    !nudgeDismissed(host.workspaceId, folder);
   // Every status in the folder's list is a column, empty or not: somewhere to drop a card.
   const bands = statusBands(groups, list);
   const columnCount = bands.reduce((sum, band) => sum + band.columns.length, 0);
@@ -330,6 +320,11 @@ export function FolderPage({
     tasks: tasks.controls,
     sized: allTasks.some((task) => estimateOf(task.properties) !== null),
   };
+  // A List row's dot and face, for somebody who may write: the same menus a card's are.
+  const rowEdit: RowEdit | null =
+    actions.onChoose === null
+      ? null
+      : { onChoose: actions.onChoose, statusMenu: menuSections, onEditStatuses, owners, noteWord: NOTE_STATUS };
   // The Board's rail, where Backlog is a folder: what is in it, and the moves in and out of it.
   const parked = parkedOnBoard(parkedIn, notes ?? [], tasks.controls, writer);
   // The about note drawn atop the page: the listing's, else the device copy's front note. A
@@ -416,9 +411,13 @@ export function FolderPage({
           create={createAbout}
           setLede={setLede === undefined || !loaded.canEdit ? null : (path, text) => setLede(path, text)}
           onReadMore={(path) => (panel.fits ? panel.show(path) : setSheet(path))}
+          // The device's copy holds the front note's opening paragraph before the bucket answers.
+          hint={summary !== null && summary.target === about ? summary.lede : null}
         />
         {isProject ? null : rule}
       </FolderHead>
+      {/* Lines that come and go above the list ease in and out rather than shoving it. */}
+      <Reveal open={problem !== null || loaded.saving}>
       {problem !== null ? (
         <Text variant="treeMeta" style={styles.problem} role="alert" testID="folder-problem">
           {problem}
@@ -429,21 +428,7 @@ export function FolderPage({
           Saving…
         </Text>
       ) : null}
-      {nudge ? (
-        <TrackNudgeTurn workspaceId={host.workspaceId} style={styles.nudge}>
-          {(answer) => (
-            <TrackNudge
-              compact={compact}
-              onShow={() => choose("list")}
-              onDismiss={() => {
-                dismissNudge(host.workspaceId, folder);
-                answer();
-                setDismissals((count) => count + 1);
-              }}
-            />
-          )}
-        </TrackNudgeTurn>
-      ) : null}
+      </Reveal>
       {editing && edits.savesTo !== null ? (
         <StatusesDialog
           list={list}
@@ -457,8 +442,14 @@ export function FolderPage({
         <AboutSheet path={sheet} title={summary?.heading ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
       <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
-        {view === "files" ? (
-          files
+        {view === "list" ? (
+          tracks ? (
+            <RowExtrasProvider extras={extras} edit={rowEdit}>
+              {files}
+            </RowExtrasProvider>
+          ) : (
+            files
+          )
         ) : waiting ? (
           <View style={styles.waiting} accessibilityLabel="Loading" testID="folder-waiting" />
         ) : view === "board" && items.length === 0 ? (
@@ -475,17 +466,15 @@ export function FolderPage({
               <FolderBoard bands={bands} compact={compact} now={now} actions={actions} parked={parked} />
             </View>
           )
-        ) : (
-          <RowExtrasProvider extras={extras}>{files}</RowExtrasProvider>
-        )}
-        {view !== "files" && !waiting && !loaded.complete && notes !== null ? (
+        ) : null}
+        <Reveal open={tracks && !waiting && !loaded.complete && notes !== null}>
           <Text variant="treeMeta" style={styles.aside}>
             This device is still fetching some notes, so a status may be missing.
           </Text>
-        ) : null}
+        </Reveal>
         {view === "board" && skipped > 0 ? (
-          <Text variant="treeMeta" style={styles.aside} onPress={() => choose("files")} role="link" testID="folder-skipped">
-            {skipped === 1 ? "1 other file is in Notes" : `${skipped} other files are in Notes`}
+          <Text variant="treeMeta" style={styles.aside} onPress={() => choose("list")} role="link" testID="folder-skipped">
+            {skipped === 1 ? "1 other file is in the List" : `${skipped} other files are in the List`}
           </Text>
         ) : null}
       </PanelBeside>
@@ -496,7 +485,6 @@ export function FolderPage({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     contents: { marginTop: space.x3 },
-    nudge: { marginTop: space.x3 },
     addBar: { flexDirection: "row", justifyContent: "flex-end", marginBottom: space.x2 },
     // Wider than the column it sits in, and centred on it, so it overflows both sides alike.
     wide: { alignSelf: "center" },

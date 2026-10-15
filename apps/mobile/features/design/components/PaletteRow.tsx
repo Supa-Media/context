@@ -22,22 +22,20 @@ export const POINTER_ROW_HEIGHT = 38;
  */
 export const TOUCH_ROW_HEIGHT = 56;
 
-/** `kind` as one character. Cheaper than an icon set and legible at 10px. */
-const GLYPHS: Readonly<Record<PaletteItem["kind"], string>> = {
-  note: "▢",
-  folder: "▸",
-  command: "⌘",
-};
-
 /**
  * `kind` on a phone: the icons Home's rows draw, at Home's size (board 04).
- * The glyphs above read as tiny empty boxes at a thumb's distance (owner's
- * retest, 2026-10-01).
+ *
+ * A pointer row draws no mark for a note, folder or command: the one-character
+ * glyphs it had read as empty grey checkboxes beside every note (owner,
+ * 2026-10-01 on a phone and 2026-10-14 on a desk), and the folder after the
+ * name already says where a note is. A filter row keeps its icon on both,
+ * because it is a different kind of row in the same list (Discord's "Filters").
  */
 const ICONS: Readonly<Record<PaletteItem["kind"], IconName>> = {
   note: "file",
   folder: "folder",
   command: "sparkle",
+  filter: "grid",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -137,11 +135,9 @@ export function PaletteRow({
     >
       {touch ? (
         <Icon name={ICONS[match.item.kind]} size={20} color={colors.text2} />
-      ) : (
-        <Text variant="treeMeta" style={styles.glyph} aria-hidden>
-          {GLYPHS[match.item.kind]}
-        </Text>
-      )}
+      ) : match.item.kind === "filter" ? (
+        <Icon name={ICONS.filter} size={16} color={colors.text2} />
+      ) : null}
 
       <View style={styles.rowText}>
         <Text variant={labelVariant} numberOfLines={1} style={styles.label}>
@@ -205,7 +201,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   rowHover: { backgroundColor: colors.surface2 },
   rowSelected: { backgroundColor: colors.accentDim },
   rowText: { flex: 1, minWidth: 0 },
-  glyph: { width: 14, textAlign: "center" },
   label: { color: colors.text2 },
   /** The whole reason `Match.ranges` is carried out of the ranker. */
   mark: { color: colors.text, fontWeight: "600" },

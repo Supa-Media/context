@@ -37,16 +37,8 @@ import { isLinkStamp, linkStamp } from "../functions/lib/formOps";
 import { validateName } from "../functions/lib/names";
 import { collectCapFrom } from "../functions/lib/collectLimits";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
-import {
-  FAKE_STORAGE,
-  asUser,
-  captureError,
-  createUser,
-  createWorkspace,
-  errorCode,
-  setupTest,
-  type TestConvex,
-} from "./fixtures.helpers";
+import { FAKE_STORAGE, asUser, captureError, copyTree, createUser, createWorkspace } from "./fixtures.helpers";
+import { errorCode, setupTest, type TestConvex } from "./fixtures.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -227,6 +219,7 @@ async function fixture(options: { managed?: boolean } = {}): Promise<Fixture> {
   });
 
   process.env[TURNSTILE_SECRET_ENV_VAR] = "test-secret-not-a-real-key";
+  await copyTree(t, workspaceId);
   return { t, owner, member, workspaceId, backend, challenge };
 }
 

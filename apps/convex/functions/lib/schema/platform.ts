@@ -194,6 +194,13 @@ export const platformTables = {
      * outlives Convex's action limit, then expires if an action is lost. */
     projectionLease: v.optional(v.object({ token: v.string(), until: v.number() })),
     /**
+     * When the daily check last asked the bucket for every note this `ready`
+     * database still lists (`fastSearchFns/prune.ts`). A note deleted outside
+     * the product, in Obsidian or the bucket's own console, leaves rows no
+     * write ever tells search about; absent until the first check.
+     */
+    prunedAt: v.optional(v.number()),
+    /**
      * Where provisioning the managed bucket has got to, for the one context
      * this plan is for.
      *
@@ -222,7 +229,9 @@ export const platformTables = {
   })
     .index("by_workspace", ["workspaceId"])
     /** For the sweep that finishes releases and retries failures. */
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    /** For the daily check of `ready` databases, the longest unchecked first. */
+    .index("by_status_pruned", ["status", "prunedAt"]),
 
   /**
    * Where "on for everyone" has walked to in `storageBindings`: one row, the
@@ -332,4 +341,29 @@ export const platformTables = {
     updatedAt: v.number(),
     createdAt: v.number(),
   }).index("by_name", ["name"]),
+
+  /**
+   * Each standard emoji's meaning fingerprint, for the icon picker's
+   * suggestion (`functions/emojiMeaning.ts`). Ours, not a customer's: made
+   * from the descriptions in `packages/shared/src/emojiAbout.generated.ts`,
+   * the same rows for every workspace. `set` names the build
+   * (`emojiMeaningSet()`), so a search reads one build only and a changed
+   * description is filled beside the old rows before they are dropped.
+   */
+  emojiMeanings: defineTable({
+    set: v.string(),
+    char: v.string(),
+    vector: v.array(v.float64()),
+  })
+    .index("by_set_char", ["set", "char"])
+    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 1024, filterFields: ["set"] }),
+
+  /** Whether a build of `emojiMeanings` is being filled or ready: one row per set. */
+  emojiMeaningSets: defineTable({
+    set: v.string(),
+    state: v.union(v.literal("filling"), v.literal("ready")),
+    startedAt: v.number(),
+    /** Rows written so far, counted here so nothing reads 1,870 fingerprints to know. */
+    filled: v.number(),
+  }).index("by_set", ["set"]),
 };

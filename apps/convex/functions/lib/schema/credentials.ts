@@ -105,6 +105,12 @@ export const credentialTables = {
     existingFiles: v.optional(v.union(v.literal("replace"), v.literal("merge"))),
     /** Up to 50 keys that stopped the move, when it stopped on particular files. */
     failedKeys: v.optional(v.array(v.string())),
+    /**
+     * Files over the file limit this walk left in the source, named (up to
+     * 50) and counted. Reset when a fresh walk finishes its census.
+     */
+    skippedKeys: v.optional(v.array(v.string())),
+    skippedCount: v.optional(v.number()),
     errorCode: v.optional(v.string()),
     startedBy: v.id("users"),
     createdAt: v.number(),

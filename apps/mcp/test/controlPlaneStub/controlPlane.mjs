@@ -26,6 +26,8 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createTreeRoutes } from "./tree.mjs";
+
 const encoder = new TextEncoder();
 
 export async function sha256Hex(value) {
@@ -87,6 +89,7 @@ export function createControlPlaneStub(options = {}) {
   /** Problem reports `/gateway/feedback` accepted, token and message as sent. */
   const feedback = [];
   const siteCalls = [];
+  const vaultCalls = [];
   const flags = {
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
@@ -285,6 +288,10 @@ export function createControlPlaneStub(options = {}) {
     }
     return rows;
   }
+
+  // `/gateway/tree/manifest`, `/facts` and `/touch`, from the store a test names (`tree.mjs`); a
+  // queued move's ticket proves its workspace while its job in `gatewayJobs` runs.
+  const tree = createTreeRoutes(grantForAccessToken, bindings, gatewayJobs);
 
   function ok(body) {
     return new Response(JSON.stringify(body), {
@@ -698,6 +705,16 @@ export function createControlPlaneStub(options = {}) {
         return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
       }
 
+      case "/gateway/vault/request": {
+        // The real route (`gatewayRoutes/vault.ts`): the editor clearance, then
+        // a link to the app's vault page for that person. Every issued one is kept.
+        const kind = ["add", "share", "view"].includes(body.kind) ? body.kind : null;
+        const cleared = kind ? await clearedEditor(body) : null;
+        if (!cleared) return ok({ url: null });
+        vaultCalls.push({ kind, workspaceId: cleared.workspaceId, userId: cleared.actorUserId });
+        return ok({ url: `https://app.context.test/vault/stub-${vaultCalls.length}` });
+      }
+
       case "/gateway/links/create": {
         const cleared = await clearedOwner(body);
         if (!cleared) return ok({ link: null, shortRefused: null });
@@ -848,8 +865,11 @@ export function createControlPlaneStub(options = {}) {
         return ok({ applied: events.length });
       }
 
-      default:
+      default: {
+        const answered = await tree.handle(path, body);
+        if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+      }
     }
   }
 
@@ -887,6 +907,11 @@ export function createControlPlaneStub(options = {}) {
 
   return {
     gatewayCalls,
+    // serveTree, serveTreesFrom, stopServing, resumeServing, and the ledger and icon moves held.
+    ...tree.controls,
+    treeRequests: tree.requests,
+    /** Whether the stub's tree routes are reading the bucket right now (so a test counting the gateway's reads can leave them out). */
+    treeReading: () => tree.reading > 0,
     origin,
     secret,
     handle,
@@ -907,6 +932,7 @@ export function createControlPlaneStub(options = {}) {
     flags,
     feedback,
     siteCalls,
+    vaultCalls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

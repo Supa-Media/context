@@ -137,6 +137,8 @@ async function setUp({ budget } = {}) {
     PRESENCE_ROOM: createLiveNamespace(),
     ...(budget ? { SEARCH_SUBREQUEST_BUDGET: String(budget) } : {}),
   };
+  // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+  controlPlane.serveTreesFrom(env, { s3 });
   return {
     s3,
     d1,

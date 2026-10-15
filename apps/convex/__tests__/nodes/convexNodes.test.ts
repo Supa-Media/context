@@ -195,7 +195,7 @@ describe("nodes: tenant isolation", () => {
 });
 
 describe("nodes: dirty, unsupported and failure bookkeeping", () => {
-  test("dirty creates the row when absent and an unsupported store refuses to sweep", async () => {
+  test("dirty creates the row when absent, and an unsupported store is tried again from the top", async () => {
     const t = convexTest(schema, modules);
     const ws = await workspace(t, "flags");
     await t.mutation(internal.functions.nodes.dirty, { workspaceId: ws });
@@ -205,11 +205,12 @@ describe("nodes: dirty, unsupported and failure bookkeeping", () => {
       files: 0,
     });
     await t.mutation(internal.functions.nodes.unsupported, { workspaceId: ws });
-    const error = await t
-      .mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 5 })
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ConvexError);
-    expect((error as ConvexError<{ code: string }>).data).toMatchObject({ code: "UNSUPPORTED" });
+    const unsupported = await t.query(internal.functions.nodes.state, { workspaceId: ws });
+    expect(unsupported).toMatchObject({ status: "unsupported" });
+    // Marked with when it was found unlistable, so the retry waits its day.
+    expect(typeof unsupported?.leaseAt).toBe("number");
+    expect(await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 5 })).toMatchObject({ cursor: "" });
+    expect(await t.query(internal.functions.nodes.state, { workspaceId: ws })).toMatchObject({ status: "filling" });
   });
 
   test("saveParity keeps its result on the row across a later sweep", async () => {
@@ -228,5 +229,77 @@ describe("nodes: dirty, unsupported and failure bookkeeping", () => {
     );
     expect(row?.parity).toEqual({ checkedAt: 5, clearances: 2, mismatches: 0, privacyMatches: true });
     expect(row?.status).toBe("filling");
+  });
+});
+
+describe("nodes: parity keeps being earned", () => {
+  async function treeRow(t: ReturnType<typeof convexTest>, ws: Id<"workspaces">) {
+    return await t.run(async (ctx: MutationCtx) =>
+      await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique(),
+    );
+  }
+  async function parityJobs(t: ReturnType<typeof convexTest>) {
+    return await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => (job.args[0] as { operation?: { kind?: string } })?.operation?.kind === "nodesParity",
+      ),
+    );
+  }
+  async function sweepAt(t: ReturnType<typeof convexTest>, ws: Id<"workspaces">, at: number) {
+    await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at });
+    await t.mutation(internal.functions.nodes.finish, { workspaceId: ws, at: at + 1, files: 0 });
+  }
+
+  test("a finished sweep checks a tree whose proof is fresh only when it is a day old", async () => {
+    const t = convexTest(schema, modules);
+    const ws = await workspace(t, "fresh");
+    const day = 24 * 60 * 60_000;
+    await t.mutation(internal.functions.nodes.saveParity, {
+      workspaceId: ws,
+      parity: { checkedAt: 1_000, clearances: 2, mismatches: 0, privacyMatches: true },
+    });
+    await sweepAt(t, ws, 2_000);
+    expect(await parityJobs(t)).toHaveLength(0);
+    await sweepAt(t, ws, 1_000 + day);
+    expect(await parityJobs(t)).toHaveLength(1);
+  });
+
+  test("a finished sweep checks again a tree whose last check differed", async () => {
+    const t = convexTest(schema, modules);
+    const ws = await workspace(t, "differed");
+    await t.mutation(internal.functions.nodes.dirty, { workspaceId: ws });
+    await t.mutation(internal.functions.nodes.saveParity, {
+      workspaceId: ws,
+      parity: { checkedAt: 1_000, clearances: 2, mismatches: 3, privacyMatches: true },
+    });
+    await sweepAt(t, ws, 2_000);
+    expect(await parityJobs(t)).toHaveLength(1);
+  });
+
+  test("a newly differing check marks the tree dirty; one that already differed does not", async () => {
+    const t = convexTest(schema, modules);
+    const ws = await workspace(t, "flip");
+    await sweepAt(t, ws, 1_000);
+    await t.mutation(internal.functions.nodes.saveParity, {
+      workspaceId: ws,
+      parity: { checkedAt: 1_100, clearances: 2, mismatches: 0, privacyMatches: true },
+    });
+    expect((await treeRow(t, ws))?.dirty).toBe(false);
+    await t.mutation(internal.functions.nodes.saveParity, {
+      workspaceId: ws,
+      parity: { checkedAt: 1_200, clearances: 2, mismatches: 1, privacyMatches: true },
+    });
+    const flipped = await treeRow(t, ws);
+    expect(flipped?.dirty).toBe(true);
+    expect(flipped?.parity?.mismatches).toBe(1);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(flipped!._id, { dirty: false });
+    });
+    await t.mutation(internal.functions.nodes.saveParity, {
+      workspaceId: ws,
+      parity: { checkedAt: 1_300, clearances: 2, mismatches: 1, privacyMatches: true },
+    });
+    expect((await treeRow(t, ws))?.dirty).toBe(false);
   });
 });

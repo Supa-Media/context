@@ -77,20 +77,25 @@ export type { MoveResult } from "./fileOps/moving";
 export {
   CONTEXT_MOVE_BATCH_OBJECTS,
   CONTEXT_MOVE_BATCH_BYTES,
+  CONTEXT_MOVE_OBJECT_MAX_BYTES,
   CONTEXT_MOVE_SKIP_CAP,
   landingVisibility,
   FOLDER_PATH_CAP,
   listFolderPaths,
   exportContextMoveBatch,
+  planContextMoveBatch,
 } from "./fileOps/contextMoveExport";
 export type {
   ContextMoveObject,
+  PlannedContextMoveObject,
   ContextMoveSkip,
   ContextMoveExport,
 } from "./fileOps/contextMoveExport";
 export {
   importContextMoveBatch,
   deleteMovedSources,
+  forgetMovedSources,
+  prepareContextMoveLanding,
   clearMovedSourceRules,
 } from "./fileOps/contextMoveImport";
 export type { ContextMoveImport } from "./fileOps/contextMoveImport";

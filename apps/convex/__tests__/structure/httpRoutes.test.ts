@@ -187,24 +187,24 @@ function unauthenticatedRouteResponses(
  */
 describe("the gateway's HTTP routes", () => {
   /**
-   * The fourteen routes the contracts document, by the path each is served at.
-   *
-   * Eleven from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three from
-   * `infra/email-worker/src/controlPlane.ts` (the Email Worker). A worker that
-   * POSTs to a path this deployment does not serve gets a 404 and fails closed,
-   * which is exactly what happened before the ingest three existed — so pinning
-   * the paths here is what keeps "the contract" and "the routes" the same list.
-   *
+   * The routes the contracts document, by the path each is served at: the MCP
+   * gateway's (`apps/mcp/src/controlPlane/`) and the Email Worker's three
+   * (`infra/email-worker/src/controlPlane.ts`). A worker that POSTs to a path
+   * this deployment does not serve gets a 404 and fails closed, as happened
+   * before the ingest three existed — so pinning the paths here keeps "the
+   * contract" and "the routes" the same list.
    * `/gateway/usage` was served and called unpinned for a while, the failure
    * this list exists to prevent; it is listed now, as is every later route. */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
+    "/gateway/privacy": "gatewayPrivacy",
     "/gateway/search-index/progress": "gatewaySearchIndexProgress",
     "/gateway/jobs/create": "gatewayJobsCreate",
     "/gateway/jobs/open": "gatewayJobsOpen",
     "/gateway/jobs/report": "gatewayJobsReport",
+    "/gateway/mover/open": "gatewayMoverOpen",
     "/gateway/usage": "gatewayUsage",
     "/gateway/search-timing": "gatewaySearchTiming",
     "/gateway/feedback": "gatewayFeedback",

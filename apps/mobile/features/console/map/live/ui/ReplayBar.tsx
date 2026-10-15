@@ -19,19 +19,19 @@ const MOMENT_GAP = 0.3;
  * drag. The track is a slider to a keyboard and a screen reader: arrows step,
  * Shift steps further, Home and End go to the ends.
  */
-export function ReplayBar({ page, compact = false }: { page: MapPageState; compact?: boolean }) {
+export function ReplayBar({ page, compact = false, docked = false }: { page: MapPageState; compact?: boolean; docked?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const replay = page.replay;
   if (replay === null) {
     return (
-      <View style={[styles.bar, compact && styles.barCompact]} testID="map-replay-bar">
+      <View style={[styles.bar, compact && styles.barCompact, docked && styles.barDocked]} testID="map-replay-bar">
         <Text variant="meta">{page.historyLoading ? "Gathering what happened…" : ""}</Text>
       </View>
     );
   }
   // A phone stacks it: the controls and the clock in one row, the track the full width under them.
   return (
-    <View style={[styles.bar, compact && styles.barCompact]} testID="map-replay-bar">
+    <View style={[styles.bar, compact && styles.barCompact, docked && styles.barDocked]} testID="map-replay-bar">
       <View style={compact ? styles.headRow : styles.headColumn}>
       <View style={[styles.controls, compact && styles.controlsRow]}>
         <RoundButton
@@ -201,6 +201,8 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 20,
       backgroundColor: colors.pageSurface,
     },
+    // Inside the desktop map's dock (`MapDock`), which draws the edge and the ground.
+    barDocked: { height: 96, borderTopWidth: 0, paddingHorizontal: space.x3, backgroundColor: "transparent" },
     barCompact: {
       height: undefined,
       flexDirection: "column",

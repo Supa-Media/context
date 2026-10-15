@@ -312,6 +312,64 @@ describe("moving one note into another context", () => {
     expect(visibilityIn(closed, "work/notes.md")).toBe("private");
   });
 
+  test("a stale exception at the landing path does not publish what lands on it", async () => {
+    /*
+      `clearExactVisibilityIfAbsent` IS A DELIBERATE NO-OP, SO THIS PATH EXISTS.
+
+      Deleting a note leaves its exact rule behind on purpose: there is no
+      compare-and-delete for an ACL entry keyed to an absent object, and the
+      race the check would open — exposing a writer who recreates the path — was
+      judged worse than a stale rule. That reasoning holds for a note recreated
+      in the same context, where the rule is the owner's own earlier intent at
+      that path. It does not hold for a note arriving from another context,
+      whose tier was computed somewhere else.
+
+      So a path inside a private folder can carry a `team` exception with
+      nothing at it, and `landingVisibility` cannot see it: it is asked what the
+      destination FOLDER publishes, a private folder answers `private`, the
+      narrowing write is skipped as redundant, and the stale exception decides
+      what landed. A note its owner moved in as private was readable by the
+      people they had named in the destination — the one thing this operation
+      promises never to do, and the reason it asks for no confirmation.
+    */
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    source.seed("1-projects/notes.md", "# Notes\n\nprivate on both sides\n");
+    expect(visibilityIn(source, "1-projects/notes.md")).toBe("private");
+    // What a share of one note, since deleted, leaves in a private folder.
+    withRules(destination, (state) => state.overrides.set("work/notes.md", "team"));
+    expect(destination.objects.has("work/notes.md")).toBe(false);
+    expect(visibilityIn(destination, "work/notes.md")).toBe("team");
+
+    await runMove(source, destination, { from: "1-projects/notes.md", to: "work/notes.md" });
+
+    expect(destination.objects.has("work/notes.md")).toBe(true);
+    expect(visibilityIn(destination, "work/notes.md")).toBe("private");
+  });
+
+  test("a folder move narrows every stale exception it lands on", async () => {
+    /*
+      The shape this actually arrives in: a folder deleted from the destination
+      leaves one stale exception per note that had been shared, and a folder
+      moved in from elsewhere lands on all of them at once. The root collision
+      check does not catch it — the folder is gone, only its rules remain.
+    */
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    source.seed("1-projects/q1/plan.md", "# Plan\n");
+    source.seed("1-projects/q1/pay.md", "# Pay\n");
+    withRules(destination, (state) => {
+      state.overrides.set("work/q1/plan.md", "team");
+      state.overrides.set("work/q1/pay.md", "team");
+    });
+
+    const result = await runMove(source, destination, { from: "1-projects/q1", to: "work/q1" });
+
+    expect(result.failure).toBeNull();
+    expect(visibilityIn(destination, "work/q1/plan.md")).toBe("private");
+    expect(visibilityIn(destination, "work/q1/pay.md")).toBe("private");
+  });
+
   test("a note pointed at a group lands private, because the name means nothing there", async () => {
     const source = bucket(["1-projects"], "shared");
     const destination = bucket(["work"], "shared");

@@ -29,7 +29,6 @@ import {
   parentPath,
 } from "../paths";
 import { namesIn } from "../tree";
-import { retitled } from "../linkedTitle";
 import { applyNoteCreate } from "../optimistic";
 import { collision, folderLabel } from "./copy";
 import type { BrowserStateValues } from "./useBrowserState";
@@ -39,6 +38,7 @@ import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { OpenNoteValues } from "./useOpenNote";
 import type { QueuedOpsValues } from "./useQueuedOps";
 import type { RunOperationValues } from "./useRunOperation";
+import type { TrashedNoteValues } from "./useTrashedNote";
 
 type RowCommandsDeps =
   & Pick<
@@ -79,6 +79,7 @@ type RowCommandsDeps =
   & Pick<OpenNoteValues, "followRename" | "select">
   & Pick<RunOperationValues, "run">
   & Pick<QueuedOpsValues, "viaQueue">
+  & Pick<TrashedNoteValues, "clearTrashed" | "markTrashed" | "settleTrashed">
   & Pick<
     CreateAndMoveValues,
     | "drawListingMove"
@@ -95,6 +96,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
+    clearTrashed, markTrashed, settleTrashed,
   } = deps;
 
   /**
@@ -118,40 +120,6 @@ export function useRowCommands(deps: RowCommandsDeps) {
       };
     },
     [noteRenamed],
-  );
-
-  /**
-   * A note's title following a rename that did not start in it — the tree,
-   * the dialog, an undo — so a title that was its name stays its name. See
-   * `retitled`. After the move, and against the version just read, so it is an
-   * ordinary conditional write; it is best-effort because the rename has
-   * already happened, and a note whose heading could not follow is a note
-   * whose two names differ, which is how every note was before.
-   *
-   * Not under a draft: a write beneath unsaved typing would be a conflict
-   * with the person typing it. The open note is otherwise fair game, and the
-   * undo of a title rename is the case that needs it — the editor re-reads
-   * the note at its old name straight after, and finds its old title there.
-   */
-  const followTitle = useCallback(
-    async (from: string, to: string) => {
-      if (!isMarkdown(to)) return;
-      const epoch = workspaceGenerationRef.current.epoch;
-      const shown = editorRef.current;
-      if ((shown.path === from || shown.path === to) && shown.status !== "clean" && shown.status !== "saved") return;
-      try {
-        const note = await readNote({ workspaceId: workspaceId!, path: to });
-        if (workspaceGenerationRef.current.epoch !== epoch || note.readOnly || note.encrypted === true) return;
-        const current = editorRef.current;
-        if ((current.path === from || current.path === to) && current.status !== "clean" && current.status !== "saved") return;
-        const text = retitled(from, to, note.text);
-        if (text === null) return;
-        await writeNote({ workspaceId: workspaceId!, path: to, text, expectedEtag: note.etag });
-      } catch {
-        // See above: the rename stands either way.
-      }
-    },
-    [editorRef, readNote, workspaceId, workspaceGenerationRef, writeNote],
   );
 
   /**
@@ -216,16 +184,19 @@ export function useRowCommands(deps: RowCommandsDeps) {
           if (renamingRef.current === hold) renamingRef.current = null;
           const stillOpen = editorRef.current.path === from;
           if (committed && stillOpen) {
-            followRename(from, destination, () => followTitle(from, destination), writeHeld);
+            followRename(from, destination, undefined, writeHeld);
           } else if (stillOpen && editorRef.current.status === "dirty") {
             autosave.edited(from);
           } else if (!stillOpen && held !== null) {
             void writeHeld(committed ? destination : from, held);
           }
-          if (committed && !stillOpen && held === null) void followTitle(from, destination);
         };
         void run(async () => {
-          await moveEntry({ workspaceId: workspaceId!, from, to: destination });
+          // The heading follows the new name inside the move, on the server,
+          // unless typing the move has to carry would be written under it
+          // (`lib/fileOps/followHeading.ts`; a second write from here raced the
+          // editor for the same line, 2026-10-14).
+          await moveEntry({ workspaceId: workspaceId!, from, to: destination, followHeading: hold?.held == null });
           return {
             ...result, message,
             ...(undoMessage === undefined ? {} : {
@@ -255,7 +226,6 @@ export function useRowCommands(deps: RowCommandsDeps) {
       drawListingMove,
       drawMove,
       followRename,
-      followTitle,
       followed,
       writeHeld,
       listings,
@@ -421,8 +391,20 @@ export function useRowCommands(deps: RowCommandsDeps) {
   const destroy = useCallback(
     (path: string) => {
       if (viaQueue(path)) return queueRemovalOf(path, "trash");
+      /*
+        The note on screen stays there, as a trashed note with Restore in
+        Share's place (`useTrashedNote`), and that replaces the toast: the way
+        back is on the page. Marked before the call, so the tab strip and the
+        follow timer already know when the listing drops it.
+      */
+      const open = selectedPath === path && editorRef.current.path === path && isMarkdown(path);
+      if (open) markTrashed({ path, trash: null, at: Date.now(), byYou: true, byName: null });
       void run(async () => {
         const result = await trashEntry({ workspaceId: workspaceId!, path });
+        if (open) {
+          settleTrashed(path, result.to);
+          return { touched: [path, result.to] };
+        }
         return {
           touched: [path, result.to],
           message: `Moved ${folderLabel(baseName(path))} to trash.`,
@@ -440,13 +422,13 @@ export function useRowCommands(deps: RowCommandsDeps) {
             });
           },
         };
-      });
-      if (selectedPath === path) {
+      }, open ? () => clearTrashed(path) : undefined);
+      if (!open && selectedPath === path) {
         setSelectedPath(null);
         dispatch({ type: "closed" });
       }
     },
-    [queueRemovalOf, restoreTrashEntry, run, selectedPath, trashEntry, viaQueue, workspaceId],
+    [clearTrashed, markTrashed, queueRemovalOf, restoreTrashEntry, run, selectedPath, settleTrashed, trashEntry, viaQueue, workspaceId],
   );
 
   const paste = useCallback(

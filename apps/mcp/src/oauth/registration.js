@@ -127,7 +127,9 @@ function normalizeClientName(value) {
 }
 
 /** Context's own client names (`agentGrant.ts`, `textLinks.ts`), which only Context registers. */
-const FIRST_PARTY_NAMES = new Set(["context (this app)", "texts (imessage)"]);
+// "texts (imessage)" is what Tex's client was called before 2026-10-14; history
+// still names it, so it stays taken.
+const FIRST_PARTY_NAMES = new Set(["context (this app)", "tex", "texts (imessage)"]);
 
 /**
  * What the map reads as the tool: the part after the **last** `"'s "`

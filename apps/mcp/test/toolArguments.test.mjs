@@ -127,6 +127,7 @@ export async function runToolArgumentChecks(check) {
   const restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
+  controlPlane.serveTreesFrom(null, { s3 }); // write_note asks the tree whether the note exists
 
   try {
     Object.assign(harness, { env, s3, controlPlane });

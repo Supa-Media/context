@@ -73,13 +73,6 @@ const openProjects = async ({ density, settle, press }: FrameCtx) => {
   await settle();
 };
 
-/** Projects' page, once its Tex's words have rolled in. */
-const openProjectsRolled = async (ctx: FrameCtx) => {
-  await openProjects(ctx);
-  await new Promise((done) => setTimeout(done, 900));
-  await ctx.settle();
-};
-
 /** A phone opens on that note; back, and back again, is Home. */
 const openHome = async ({ settle, press }: FrameCtx) => {
   for (let step = 0; step < 4 && byId("phone-home") === null; step += 1) {
@@ -90,40 +83,37 @@ const openHome = async ({ settle, press }: FrameCtx) => {
 
 export const FRAMES: readonly ChaosFrame[] = [
   {
-    id: "01-foot-line",
-    title: "The tree's foot: Tex alone",
-    sizes: ["desktop"],
-    schemes: ["light", "dark"],
-  },
-  {
-    id: "02-panel-from-foot",
-    title: "The panel, over the tree",
-    sizes: ["desktop"],
-    prepare: async ({ settle, press }) => {
-      press(byId("explorer-chaos"));
-      await settle();
-    },
-    assert: ["Chaos 34 of 100", "Biggest wins", "Long notes", "How it’s scored"],
-  },
-  {
-    id: "03-folder-tex",
-    title: "A crowded folder's page: Tex beside the title",
+    id: "01-folder-line",
+    title: "A crowded folder's page: one quiet line beside the title",
     sizes: ["desktop", "phone"],
     schemes: ["light", "dark"],
-    prepare: openProjectsRolled,
-    assert: ["12 things in here"],
+    prepare: openProjects,
+    assert: ["12 things in here · calm is 4 or 5"],
   },
   {
-    id: "04-tex-talks",
-    title: "Tex, pressed, on calming the folder",
+    id: "02-folder-advice",
+    title: "The line, pressed: how to calm the folder",
     sizes: ["desktop", "phone"],
     schemes: ["light", "dark"],
     prepare: async (ctx) => {
       await openProjects(ctx);
-      ctx.press(byId("folder-tex-figure"));
+      ctx.press(byId("folder-chaos-line"));
       await ctx.settle();
     },
-    assert: ["I'm holding 12 things"],
+    assert: ["12 things in here. Folders feel calm with 4 or 5."],
+  },
+  {
+    id: "03-panel",
+    title: "The whole workspace's score",
+    sizes: ["desktop"],
+    prepare: async (ctx) => {
+      await openProjects(ctx);
+      ctx.press(byId("folder-chaos-line"));
+      await ctx.settle();
+      ctx.press(byId("folder-chaos-whole"));
+      await ctx.settle();
+    },
+    assert: ["Chaos 34 of 100", "Biggest wins", "Long notes", "How it’s scored"],
   },
   {
     id: "05-phone-home",

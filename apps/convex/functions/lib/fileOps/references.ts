@@ -95,16 +95,22 @@ export async function rewriteReferences(
 
   let notes = 0;
   let links = 0;
+  // Read a few notes ahead while the one before is judged and written: the
+  // reads were one round trip each, in a row, and on a few hundred notes that
+  // was most of a rename's time. Writes stay one at a time, in order.
+  const texts = readAhead(store, keys, REFERENCE_READ_AHEAD);
   for (const key of keys) {
+    const ahead = await texts.next(key);
+    if (ahead === null) continue;
+    const linksOf = (text: string) =>
+      rewriteLinks(text, { fromPath: wasAt.get(key) ?? key, toPath: key, renames: options.renames, byName });
+    if (linksOf(ahead) === null) continue;
+    // A note read ahead may have been edited since. Read it again before
+    // writing, so a repair is never built on a version older than it was.
     const object = await store.get(key);
     if (object === null) continue;
     const text = await object.text();
-    const rewritten = rewriteLinks(text, {
-      fromPath: wasAt.get(key) ?? key,
-      toPath: key,
-      renames: options.renames,
-      byName,
-    });
+    const rewritten = linksOf(text);
     if (rewritten === null) continue;
     notes += 1;
     links += rewritten.changed;
@@ -137,6 +143,42 @@ export async function rewriteReferences(
     if (etag) options.onRewritten?.(key, etag);
   }
   return { notes, links, capped: false };
+}
+
+/** Notes read ahead of the one being rewritten. */
+const REFERENCE_READ_AHEAD = 8;
+
+/**
+ * Hands back each key's text in the order asked, keeping up to `depth` reads
+ * in flight ahead of the caller. A key that is gone reads as `null`; a read
+ * that fails throws when its key is asked for, as the plain read did.
+ */
+function readAhead(store: FileStore, keys: readonly string[], depth: number) {
+  const pending = new Map<string, Promise<string | null>>();
+  let started = 0;
+  const read = async (key: string) => {
+    const object = await store.get(key);
+    return object === null ? null : await object.text();
+  };
+  const fill = () => {
+    while (started < keys.length && pending.size < depth) {
+      const key = keys[started];
+      started += 1;
+      const promise = read(key);
+      // Asked for later; a failure is surfaced then, not as an unhandled rejection now.
+      promise.catch(() => {});
+      pending.set(key, promise);
+    }
+  };
+  return {
+    async next(key: string): Promise<string | null> {
+      fill();
+      const promise = pending.get(key) ?? read(key);
+      pending.delete(key);
+      fill();
+      return await promise;
+    },
+  };
 }
 
 /**

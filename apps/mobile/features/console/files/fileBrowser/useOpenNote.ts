@@ -68,6 +68,13 @@ export function useOpenNote(deps: OpenNoteDeps) {
     the path the bucket knows the note by.
   */
   const readAhead = useRef<NotePrefetch<NoteRead> | null>(null);
+  /*
+    A note opened by an address that outlived it (a reload on `?note=`) and
+    found in the trash: shown there, read-only, with Restore, rather than as
+    "That file does not exist". Set by `useTrashedNote`, which is declared after
+    this part; it answers whether it showed the note.
+  */
+  const openMissing = useRef<((path: string, current: () => boolean) => Promise<boolean>) | null>(null);
   if (readAhead.current === null) readAhead.current = createNotePrefetch<NoteRead>();
   const earlyKey = (path: string) => `${workspaceId ?? ""}\n${path}`;
 
@@ -81,6 +88,9 @@ export function useOpenNote(deps: OpenNoteDeps) {
     if (isUnreadable(error)) setUnreadable(path);
     else setNotice(toFileError(error).message);
   };
+  /** Not found, and shown in the trash instead (`openMissing`): nothing left to refuse. */
+  const shownTrashed = async (error: unknown, path: string, current: () => boolean): Promise<boolean> =>
+    toFileError(error).code === "FILE_NOT_FOUND" && openMissing.current !== null && (await openMissing.current(path, current));
 
   /*
     The text the editor was holding at `from`, when it is still on `from` and
@@ -264,7 +274,8 @@ export function useOpenNote(deps: OpenNoteDeps) {
           } catch (error) {
             if (early !== null) {
               if (openRun.current !== mine) return;
-              if (isServerRefusal(error)) refuse(error, path);
+              if (!isServerRefusal(error) || (await shownTrashed(error, path, () => openRun.current === mine))) return;
+              if (openRun.current === mine) refuse(error, path);
               return;
             }
             const cached = isServerRefusal(error) ? null : await offline.cachedNote(source);
@@ -274,6 +285,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
               // behalf — that state belongs to the open (or close) that came
               // after this one.
               if (openRun.current !== mine) return;
+              if ((await shownTrashed(error, path, () => openRun.current === mine)) || openRun.current !== mine) return;
               refuse(error, path);
               return;
             }
@@ -606,7 +618,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
     [openNote, workspaceId, workspaceGenerationRef, autosave],
   );
 
-  return { openNote, prefetch, select, deselect, followRename };
+  return { openNote, prefetch, select, deselect, followRename, openMissing };
 }
 
 export type OpenNoteValues = ReturnType<typeof useOpenNote>;

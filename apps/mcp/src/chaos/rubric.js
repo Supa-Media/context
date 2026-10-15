@@ -37,12 +37,14 @@
  *   holds: 20% of the notes in a calm folder and 80% in a chaotic one is
  *   80% chaos.
  *
- * Pure: no storage, no clock. `table.js` feeds it from the tree database.
+ * Pure: no storage, no clock. `live.js` feeds it the Convex tree's keys, and
+ * the control plane keeps the facts it needs beyond them.
  */
 
 import { FRONT_NOTES } from "../lists/grammar.js";
 import { contactChaos, isContactsFolder } from "./contacts.js";
 import { folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { isMeetingNotePath } from "../../../../packages/meetings/src/paths.js";
 
 /** Lines a note may run to before it starts to cost. */
 export const LONG_NOTE_LINES = 1000;
@@ -91,6 +93,19 @@ export function countLines(text) {
   let lines = 0;
   for (const line of text.split("\n")) lines += Math.max(1, Math.ceil(line.length / LINE_WIDTH));
   return lines;
+}
+
+/** Whether a note is exempt from the long-note rule: meetings and generated notes. */
+export function isExempt(path, type, generated) {
+  if (type === "meeting" || isMeetingNotePath(path)) return true;
+  return generated === 1 || generated === true || generated === "true";
+}
+
+/** Whether a `review:` property holds a question: any non-empty value. */
+export function hasReview(value) {
+  if (value === null || value === undefined || value === false || value === 0) return false;
+  if (typeof value === "string") return value.trim() !== "" && value.trim() !== "[]";
+  return true;
 }
 
 /** The workspace's word for a chaos number. */

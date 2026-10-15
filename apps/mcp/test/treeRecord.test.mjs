@@ -1,11 +1,17 @@
 /**
- * THE GATEWAY'S WRITES REACH THE TREE TABLE.
+ * THE GATEWAY'S WRITES REACH THE CONVEX TREE, AND NO LONGER THE SEARCH DATABASE'S.
  *
- * Wired end to end: a real MCP tool call, the worker's own deferred work, a
- * bucket that answers as S3 does and a database that runs real SQL. What is
- * asked is the thing a sidebar drawn from the table depends on: after an AI
- * client creates, edits or moves a note, does the table say what the bucket
- * says — and does a save that only changes words cost the bucket nothing?
+ * Phase 7 of `docs/decisions/app-and-console/convex-tree.md`: the search
+ * database keeps the search projection and nothing of the tree. Wired end to
+ * end — a real MCP tool call, the worker's own deferred work, a bucket that
+ * answers as S3 does and a database that runs real SQL — a write is asked to
+ * project its note, write and read no tree row, and drop what an older build
+ * left (`tree/retired.js`) without that ever costing the search write. Then
+ * which changes the control plane is told to re-check (`treeTouchOf`).
+ *
+ * Sabotage-checked: putting the retirement back into every retry fails "can
+ * never cost the search write"; leaving `tree_chaos` off the list fails the
+ * end-to-end check.
  */
 
 import { test } from "node:test";
@@ -23,8 +29,9 @@ import {
   s3Binding,
   worker,
 } from "./searchProjection/fixtures.mjs";
-import { sweepTreePass } from "../src/tree/sweep.js";
-import { createD1Client } from "../src/search/d1/client.js";
+import { RETIRED_STATE_KEYS, RETIRED_TREE_STATEMENTS } from "../src/tree/retired.js";
+import { projectWrittenNoteAfterResponse } from "../src/search/writeProjection.js";
+import { CURSOR_KEY } from "../src/search/d1/backfill.js";
 import { treeTouchOf } from "../src/tree/record.js";
 import { approving } from "./egressApproval.mjs";
 
@@ -36,6 +43,7 @@ async function setUp() {
   const d1 = createD1Backend();
   const controlPlane = createControlPlaneStub();
   const restores = [s3.install(), d1.install(), controlPlane.install()];
+  controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.addWorkspace(WS, "tree", s3Binding("tree-bucket", { ...DESCRIPTOR, state: "ready" }));
   await controlPlane.addGrant({
     accessToken: TOKEN,
@@ -97,45 +105,92 @@ async function callOnce(name, args) {
   return body;
 }
 
-function rows(d1) {
-  return d1.rows("SELECT path, etag FROM tree ORDER BY path");
+/** The tables and keys an older build's tree left in the search database. */
+const OLD_TABLES = ["tree", "tree_gone", "tree_links", "tree_link_sources", "tree_props", "tree_chaos"];
+const OLD_KEYS = ["tree_ready", "tree_swept_at", "tree_links_ready", "tree_props_ready", "chaos_ready", "chaos_daily"];
+
+function seedOldTree(d1) {
+  for (const table of OLD_TABLES) d1.db.exec(`CREATE TABLE ${table} (path TEXT PRIMARY KEY)`);
+  d1.db.exec("INSERT INTO tree (path) VALUES ('2-areas/old.md')");
+  const put = d1.db.prepare("INSERT INTO index_state (key, value) VALUES (?, ?)");
+  for (const key of OLD_KEYS) put.run(key, "1");
+  // The search backfill's and the history's own keys, which must stay.
+  put.run(CURSOR_KEY, "");
+  put.run("history_reads_from", "5");
 }
 
-test("an AI client's create, edit and move reach the tree table", async () => {
+const tablesIn = (d1) => d1.rows("SELECT name FROM sqlite_master WHERE type = 'table'").map((row) => row.name);
+
+test("a write projects the note into search, writes no tree row, and retires the old tree tables", async () => {
   const world = await setUp();
   try {
-    const client = createD1Client({ ...DESCRIPTOR, state: "ready" });
-    // The first sweep, as the control plane runs it.
-    const sweep = await sweepTreePass(
-      { list: (options) => listVia(world.bucket, options) },
-      client,
-    );
-    assert.equal(sweep.complete, true);
-    assert.deepEqual(rows(world.d1).map((row) => row.path), ["1-projects/plan.md", "2-areas/old.md", "privacy.md"]);
+    seedOldTree(world.d1);
+    await call("write_note", { path: "0-inbox/new.md", content: "# New\n\nSee [[old]].\n" });
 
-    await call("write_note", { path: "0-inbox/new.md", content: "# New\n\nHello.\n" });
-    assert.ok(rows(world.d1).some((row) => row.path === "0-inbox/new.md"), "created note missing");
+    assert.ok(world.d1.rows("SELECT path FROM notes").some((row) => row.path === "0-inbox/new.md"), "the note is searchable");
+    const sent = world.d1.requests.map((request) => request.sql ?? "").join("\n");
+    assert.doesNotMatch(sent, /INSERT (OR IGNORE )?INTO tree(_links|_link_sources|_props|_chaos)?\b/, "a tree row was written");
+    assert.doesNotMatch(sent, /FROM tree(_links|_props|_chaos)?\b/, "a tree table was read");
+    for (const table of OLD_TABLES) {
+      assert.ok(!tablesIn(world.d1).includes(table), `${table} is still there`);
+    }
+    const keys = world.d1.rows("SELECT key FROM index_state").map((row) => row.key);
+    for (const key of OLD_KEYS) assert.ok(!keys.includes(key), `${key} is still there`);
+    assert.ok(keys.includes(CURSOR_KEY) && keys.includes("history_reads_from"), "a key the tree never owned was removed");
 
-    const before = rows(world.d1).find((row) => row.path === "0-inbox/new.md").etag;
-    await call("write_note", { path: "0-inbox/new.md", content: "# New\n\nHello again.\n", expected_etag: before });
-    const after = rows(world.d1).find((row) => row.path === "0-inbox/new.md").etag;
-    assert.notEqual(after, before, "an edit left the old version in the table");
-
-    await call("move_note", { source: "2-areas/old.md", destination: "1-projects/old.md" });
-    const listed = rows(world.d1).map((row) => row.path);
-    assert.ok(!listed.includes("2-areas/old.md"), "the moved note's old path stayed");
-    assert.ok(listed.includes("1-projects/old.md"), "the moved note's new path is missing");
-    const left = world.d1.rows("SELECT path, gone, audiences FROM tree_log WHERE path = '2-areas/old.md'");
-    assert.deepEqual(left.map((row) => [row.gone, JSON.parse(row.audiences)]), [[1, ["private"]]], "the old path left without saying who saw it");
+    // Again, on a database already retired: idempotent, and the edit lands.
+    const etag = world.bucket.get("0-inbox/new.md").etag;
+    await call("write_note", { path: "0-inbox/new.md", content: "# New\n\nAgain.\n", expected_etag: etag });
+    assert.ok(world.d1.rows("SELECT path FROM notes").some((row) => row.path === "0-inbox/new.md"));
   } finally {
     world.restore();
   }
 });
 
+test("retiring the tree tables can never cost the search write", async () => {
+  const d1 = createD1Backend();
+  const restoreD1 = d1.install();
+  const inner = globalThis.fetch;
+  // A database that fails any request that drops a table: the batch carrying
+  // it is one transaction, so the note's own rows go down with it.
+  globalThis.fetch = async (input, init) => {
+    if (typeof init?.body === "string" && init.body.includes("DROP TABLE")) {
+      return new Response(JSON.stringify({ success: false, errors: [{ message: "unavailable" }] }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return inner(input, init);
+  };
+  try {
+    const store = { searchIndex: { ...DESCRIPTOR, state: "ready" } };
+    await projectWrittenNoteAfterResponse(store, {
+      path: "1-projects/kept.md",
+      content: "# Kept\n\nStill searchable.\n",
+      version: "v1",
+      visibility: "private",
+      meaning: false,
+    });
+    assert.ok(d1.rows("SELECT path FROM notes").some((row) => row.path === "1-projects/kept.md"));
+  } finally {
+    globalThis.fetch = inner;
+    restoreD1();
+    d1.close();
+  }
+});
+
+test("the retirement names exactly the tree's tables and keys", () => {
+  const sql = RETIRED_TREE_STATEMENTS.join("\n");
+  for (const table of [...OLD_TABLES, "tree_log"]) assert.match(sql, new RegExp(`DROP TABLE IF EXISTS ${table}\\b`));
+  assert.doesNotMatch(sql, /DROP TABLE IF EXISTS (notes|index_state|history)/);
+  for (const key of RETIRED_STATE_KEYS) assert.ok(key.startsWith("tree_") || key.startsWith("chaos_"), key);
+  assert.ok(!RETIRED_STATE_KEYS.includes(CURSOR_KEY));
+});
+
 test("a body save is recorded without listing the bucket", () => {
   assert.equal(treeTouchOf("update_note", ["a.md"], {}), null);
   assert.deepEqual(treeTouchOf("update_note", ["a.md"], { front_matter_changed: true }), { paths: ["a.md"] });
-  // A move also pairs old and new, so the chaos score carries what it knew of the note (`chaos/table.js`).
+  // A move also pairs old and new, so the chaos score carries what it knew of the note (`chaos/change.js`).
   assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], {}), { paths: ["a.md", "b/a.md"], moves: [["a.md", "b/a.md"]] });
   assert.deepEqual(treeTouchOf("move_note", ["a.md", "b/a.md"], { source_visibility: "private" }), {
     paths: ["a.md", "b/a.md"],
@@ -149,16 +204,3 @@ test("a body save is recorded without listing the bucket", () => {
   assert.deepEqual(treeTouchOf("remember_fact", ["0-inbox/memories/x.md"], {}), { files: ["0-inbox/memories/x.md"] });
   assert.equal(treeTouchOf("create_note", [], {}), null);
 });
-
-/** S3 semantics over the stub's map, when the stub has no store of its own. */
-async function listVia(bucket, { prefix = "", startAfter, cursor, limit = 1000 } = {}) {
-  const keys = [...bucket.keys()].filter((key) => key.startsWith(prefix)).sort();
-  const after = cursor ?? startAfter;
-  const from = after === undefined ? 0 : keys.findIndex((key) => key > after);
-  const start = from < 0 ? keys.length : from;
-  const page = keys.slice(start, start + limit);
-  return {
-    objects: page.map((key) => ({ key, etag: bucket.get(key).etag, size: 1 })),
-    truncated: start + limit < keys.length,
-  };
-}

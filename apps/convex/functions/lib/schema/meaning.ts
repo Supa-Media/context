@@ -62,6 +62,12 @@ export const meaningTables = {
     notesPending: v.optional(v.number()),
     /** The same, per indexing priority (`lib/indexingPriorities.ts`). */
     priorities: v.optional(indexingPrioritiesValidator),
+    /**
+     * When the catch-up scheduled by recent activity runs
+     * (`freshenMeaningAfterActivity`); while it is in the future, more
+     * activity waits for that one rather than scheduling another.
+     */
+    freshenAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

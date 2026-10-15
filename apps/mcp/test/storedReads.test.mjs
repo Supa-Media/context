@@ -188,6 +188,8 @@ export async function runStoredReadsChecks(check) {
       READS_OTHER: otherBucket,
       PRESENCE_ROOM: createLiveNamespace(),
     };
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(env);
     const started = Date.now() - 1000;
     const ask = async (token, params = {}) =>
       (await activityRequest(env, token, {

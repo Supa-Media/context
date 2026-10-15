@@ -19,6 +19,8 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
+import { isAuthority, privacyAuthorityOn, scheduleExport } from "./lib/nodes/privacyAuthority";
+import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
 
 /** Rows one batch deletes. */
 const PURGE_BATCH = 1_000;
@@ -36,7 +38,13 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
     .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId))
     .take(PURGE_BATCH);
   for (const row of logged) await ctx.db.delete(row._id);
-  if (rows.length === PURGE_BATCH || logged.length === PURGE_BATCH) {
+  // So do the links between them.
+  const links = await ctx.db
+    .query("nodeLinks")
+    .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId))
+    .take(PURGE_BATCH);
+  for (const row of links) await ctx.db.delete(row._id);
+  if ([rows, logged, links].some((batch) => batch.length === PURGE_BATCH)) {
     await ctx.scheduler.runAfter(0, internal.functions.nodesPurge.purge, { workspaceId });
   }
 }
@@ -44,8 +52,18 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
 /**
  * Forget the workspace's tree: its bookkeeping, parsed rules and queued moves
  * at once, its rows a batch now and the rest in the background.
+ *
+ * A storage move (`storageMoved: true`) keeps rules that are the authority:
+ * they are the workspace's decisions, not a description of the old bucket,
+ * and the bucket's `privacy.md` may be an export behind them (one owed and
+ * not yet written). Forgotten, the copy of that older file in the new bucket
+ * would decide who sees what. They are written to the new bucket instead.
  */
-export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+export async function forgetWorkspaceTree(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  options: { storageMoved?: boolean } = {},
+): Promise<void> {
   const trees = await ctx.db
     .query("nodeTrees")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -55,13 +73,35 @@ export async function forgetWorkspaceTree(ctx: MutationCtx, workspaceId: Id<"wor
     .query("nodePrivacy")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  for (const row of privacy) await ctx.db.delete(row._id);
+  const on = options.storageMoved === true && (await privacyAuthorityOn(ctx.db));
+  for (const row of privacy) {
+    if (on && isAuthority(row, true)) {
+      // Nothing was written to the new bucket from them yet.
+      await ctx.db.patch(row._id, { exportOwed: true, exportedEtag: undefined });
+      await scheduleExport(ctx, workspaceId, 0);
+    } else {
+      await ctx.db.delete(row._id);
+    }
+  }
   // Queued moves describe objects in the bucket the workspace left, or in none.
   const moves = await ctx.db
     .query("moveQueue")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of moves) await ctx.db.delete(row._id);
+  const factState = await ctx.db
+    .query("nodeFactState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of factState) await ctx.db.delete(row._id);
+  const days = await ctx.db
+    .query("nodeChaosDays")
+    .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of days) await ctx.db.delete(row._id);
+  // The icons, emoji names and forwarding ledger (`lib/smallData/purge.ts`).
+  if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
+  else await purgeSmallDataBatch(ctx, workspaceId);
   await purgeBatch(ctx, workspaceId);
 }
 
@@ -75,12 +115,22 @@ export const purge = internalMutation({
   },
 });
 
+/** The next batch of a deleted workspace's icons, emoji names and forwarding ledger. */
+export const purgeSmallData = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    await purgeSmallDataBatch(ctx, workspaceId);
+    return null;
+  },
+});
+
 /** The workspace's storage now names a different bucket: its tree describes the old one. */
 export const resetForStorage = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
-    await forgetWorkspaceTree(ctx, workspaceId);
+    await forgetWorkspaceTree(ctx, workspaceId, { storageMoved: true });
     return null;
   },
 });

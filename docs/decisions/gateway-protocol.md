@@ -117,12 +117,12 @@ Three properties of the survey are load-bearing:
   notes would let a colleague subtract and derive an exact private-note total
   for the person who withheld them — what the console's census is owner-only to
   prevent.
-- **Two listings per folder, answering different questions.** Delimited names
-  every subfolder; a bounded flat walk counts and dates them. Deriving the map
-  from the walk alone is simpler and drops the siblings of one huge folder off
-  the map entirely — for precisely the people with the most in here. Anything
-  the walk could not reach is a floor (`5000+`), never a total, and a recency
-  list built from a partial walk says that it is.
+- **One listing, from the Convex tree, so every count is exact** (2026-10-13;
+  [convex-tree](./app-and-console/convex-tree.md), phase 5): one answer for the
+  whole workspace, never a bucket walk, replacing two bounded listings per
+  folder whose unreached part printed as a floor (`5000+`). Where the tree
+  cannot answer yet, `orient` says the workspace is still loading and draws no
+  map; a folder's description is its front note's first paragraph, from props.
 - **The connect-time sketch fails soft, always.** A slow bucket, a revoked key,
   a `privacy.md` somebody broke in Obsidian: none of them may take down a
   handshake. A client that gets the static instructions is fully working and

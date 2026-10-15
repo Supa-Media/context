@@ -71,7 +71,9 @@ import { renderFormDigest, renderFormNotification } from "../functions/lib/formN
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
   asUser,
+  copyTree,
   createUser,
+  drainDueScheduled,
   createWorkspace,
   drainScheduled,
   seedStorageBinding,
@@ -184,6 +186,12 @@ async function fixture(notify: string | null = "owner"): Promise<Fixture> {
   process.env.RESEND_API_KEY = "test-resend-key-not-a-real-one";
 
   await seedStorageBinding(t, { workspaceId, boundBy: owner, bucket: "fake-bucket" });
+  // A write asks the Convex tree whether its name is taken, so the workspace
+  // has one, as every connected workspace does once its first copy finishes.
+  await copyTree(t, workspaceId);
+  // Its parity check runs now, before the form's writes: left pending, it
+  // races them and queues a re-check half a minute out that no drain ends.
+  await drainDueScheduled(t);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
@@ -197,31 +205,6 @@ async function fixture(notify: string | null = "owner"): Promise<Fixture> {
   });
 
   return { t, owner, member, outsider, workspaceId, backend, sent };
-}
-
-/**
- * Run the scheduled jobs that are actually due, and leave the future alone.
- *
- * `drainScheduled` waits for the queue to empty, which never happens once a
- * digest is queued: it is scheduled at the end of the rate limiter's window, an
- * hour out, and stays `pending` until then. A test about a burst has to be able
- * to say "every notification has run" without also saying "and an hour passed".
- */
-async function drainDue(t: TestConvex): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const jobs = await t.run((ctx) =>
-      ctx.db.system.query("_scheduled_functions").collect(),
-    );
-    const due = jobs.filter(
-      (job) =>
-        (job.state.kind === "pending" && job.scheduledTime <= Date.now()) ||
-        job.state.kind === "inProgress",
-    );
-    if (due.length === 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-    await t.finishInProgressScheduledFunctions();
-  }
-  throw new Error("due scheduled functions never drained");
 }
 
 /** One answer, from the context's ordinary member. */
@@ -288,7 +271,7 @@ describe("a form names a person, never a destination", () => {
         values: [{ field: "who", value: "Ada" }],
       }),
     ).rejects.toThrow();
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
     expect(f.sent).toHaveLength(0);
   });
 
@@ -488,7 +471,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
         values: [{ field: "who", value: `Person ${i}` }],
       });
     }
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
 
     // Twenty mailed, three held back — and exactly one digest row, with one
     // job outstanding for it however many answers landed in the window.
@@ -500,7 +483,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
     await f.t.action(internal.functions.formNotify.sendDigest, {
       digestId: digests[0]._id,
     });
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
     expect(f.sent).toHaveLength(21);
     expect(f.sent[20].subject).toContain("3 more");
     // A digest carries no answers. It is sent precisely when a lot of them
@@ -560,7 +543,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
         values: [{ field: "who", value: `Person ${i}` }],
       });
     }
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
     expect(f.sent).toHaveLength(20);
 
     // One answer in the other context, to the same person. It must be mailed,
@@ -570,7 +553,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
       path: SECOND_NOTE,
       values: [{ field: "who", value: "From the other context" }],
     });
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
 
     expect(f.sent).toHaveLength(21);
     // And it is the notification itself rather than a digest of the first
@@ -591,7 +574,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
         values: [{ field: "who", value: `Person ${i}` }],
       });
     }
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
     const digests = await f.t.run((ctx) => ctx.db.query("formNotifyDigests").collect());
     expect(digests).toHaveLength(1);
 
@@ -604,7 +587,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
     await f.t.action(internal.functions.formNotify.sendDigest, {
       digestId: digests[0]._id,
     });
-    await drainDue(f.t);
+    await drainDueScheduled(f.t);
     // The window closed on a file this member may no longer read. "Answers
     // arrived on a note you cannot open" is still a statement about that note.
     expect(f.sent).toHaveLength(before);

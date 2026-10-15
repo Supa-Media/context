@@ -36,14 +36,31 @@ export function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 }
 
 /**
- * The listing a walk of the tree's names reads: the Convex tree's rows where
- * the credential barrier attached them (`lib/nodes/treeNames.ts`), else the
- * bucket. Only `keysUnder` and the link rewrite's note inventory ask it; every
- * read and write still goes to the store itself.
+ * The listing a walk of the tree's names reads: the Convex tree's rows, which
+ * the credential barrier attaches to every operation's store
+ * (`lib/nodes/treeNames.ts`), and which answer `TREE_LOADING` rather than
+ * list the bucket while the first copy runs. `keysUnder`, `isFolder`,
+ * `namesExtending`, the link rewrite's note inventory and the name checks
+ * (`treeChecks.ts`) ask it; every read and write still goes to the store
+ * itself. A store with nothing attached is the unit tests' in-memory one,
+ * which is its own tree.
  */
 export function namesListing(store: FileStore): Pick<FileStore, "list"> {
   const tree = (store as { treeListing?: Pick<FileStore, "list"> }).treeListing;
   return tree ?? store;
+}
+
+/**
+ * `store` with its listings answered by the tree (`namesListing`), for a
+ * reader that takes a whole store (`listFolder`); every other read is the
+ * store's own.
+ */
+export function treeView(store: FileStore): FileStore {
+  const names = namesListing(store);
+  if (names === store) return store;
+  const view = Object.create(store) as FileStore;
+  view.list = (options) => names.list(options);
+  return view;
 }
 
 /**
@@ -156,8 +173,10 @@ export async function namesExtending(store: FileStore, path: string): Promise<st
   let complete = false;
   let stop: WalkStop = "budget";
   const seen = new Set<string>();
+  // The tree's names, as `keysUnder` reads them: which notes exist is never a bucket listing.
+  const names = namesListing(store);
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
+    const listing = await names.list({ prefix: `${path}.`, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (object.key === path || isPlumbing(object.key)) continue;
       keys.push(object.key);

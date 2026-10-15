@@ -47,6 +47,7 @@ import type { OfflineQueueValues } from "./useOfflineQueue";
 import type { OpenNoteValues } from "./useOpenNote";
 import type { QueuedOpsValues } from "./useQueuedOps";
 import type { RunOperationValues } from "./useRunOperation";
+import type { TrashedNoteValues } from "./useTrashedNote";
 
 type CreateAndMoveDeps =
   & { options: FileBrowserOptions }
@@ -56,6 +57,7 @@ type CreateAndMoveDeps =
     | "autosave"
     | "dispatch"
     | "drawLocally"
+    | "editorRef"
     | "nextToastId"
     | "noteRenamed"
     | "selectedPathRef"
@@ -67,12 +69,13 @@ type CreateAndMoveDeps =
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<OpenNoteValues, "select">
   & Pick<RunOperationValues, "run">
-  & Pick<QueuedOpsValues, "deviceEtag" | "isFolderPath" | "queuedToast" | "viaQueue">;
+  & Pick<QueuedOpsValues, "deviceEtag" | "isFolderPath" | "queuedToast" | "viaQueue">
+  & Pick<TrashedNoteValues, "markTrashed">;
 
 export function useCreateAndMove(deps: CreateAndMoveDeps) {
   const {
-    options, autosave, createDirectory, deviceEtag, dispatch, drawLocally, isFolderPath, listings,
-    listingsRef, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast,
+    options, autosave, createDirectory, deviceEtag, dispatch, drawLocally, editorRef, isFolderPath, listings,
+    listingsRef, markTrashed, moveEntry, nextToastId, noteRenamed, offlineRef, queuedToast,
     run, select, selectedPathRef, setExpanded, setNotice, setSelectedPath, setToasts, undoNewFolder, viaQueue,
     workspaceId,
   } = deps;
@@ -205,12 +208,23 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
           setNotice(etag === null ? NOT_ON_DEVICE : claimedMessage(displayName(baseName(path))));
           return;
         }
+        const name = displayName(baseName(path));
+        const dropped = queued.dropped;
+        /*
+          The note on screen stays there as a trashed note, as an online
+          delete leaves it (`useTrashedNote`), and that replaces the toast:
+          Restore takes it back out of the queue until it is sent, and from
+          the trash once it has landed.
+        */
+        const open = selectedPathRef.current === path && editorRef.current.path === path && isMarkdown(path);
+        if (open && kind === "trash" && dropped === undefined && queued.undo !== undefined) {
+          markTrashed({ path, trash: null, at: Date.now(), byYou: true, byName: null, undoQueued: queued.undo });
+          return;
+        }
         if (selectedPathRef.current === path) {
           setSelectedPath(null);
           dispatch({ type: "closed" });
         }
-        const name = displayName(baseName(path));
-        const dropped = queued.dropped;
         if (dropped !== undefined) {
           /*
             A note created here and deleted before it was sent: nothing reaches
@@ -234,7 +248,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         );
       })();
     },
-    [autosave, deviceEtag, isFolderPath, options.canEdit, queuedToast],
+    [autosave, deviceEtag, isFolderPath, markTrashed, options.canEdit, queuedToast],
   );
 
   const createFolder = useCallback(

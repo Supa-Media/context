@@ -271,8 +271,8 @@ export function runMenuAction(
       context.setDialog({ kind: "newFolder", folder });
       return;
     case "rename":
-      // The open note whose title is its name is renamed in its title — that
-      // is where its name is. Anything else gets the dialog. See
+      // The open note with a `# title` is renamed in its title — that is
+      // where its name is. Anything else gets the dialog. See
       // `linkedTitle.ts`.
       if (files.focusTitle?.(path) === true) return;
       context.setDialog({ kind: "rename", path });

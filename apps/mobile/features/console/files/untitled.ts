@@ -1,4 +1,3 @@
-import { MARKER_RE } from "@context/shared/src/comments.cjs";
 import { baseName } from "./paths";
 import { namesIn } from "./tree";
 import type { FolderListing } from "./types";
@@ -110,35 +109,9 @@ export function isUntitled(path: string): boolean {
 }
 
 /**
- * The document's own title — its first ATX heading — or `null`.
- *
- * Only `#`, and only before anything else has been written: a note whose first
- * line is a paragraph has not been titled, and promoting an `##` from halfway
- * down would name the file after a subsection. Frontmatter is skipped, because
- * the console writes it and the person did not.
- *
- * Fenced code is not parsed here and does not need to be: the scan stops at the
- * first non-blank line that is not frontmatter, so a `#` inside a fence can
- * only be reached by a document whose first line opens the fence — and that
- * line is not blank, so the scan has already stopped.
+ * The document's own title — its first ATX heading — or `null`. The rule is
+ * shared with the control plane's rename (`linkedHeading.ts`), which rewrites
+ * the heading as part of the move.
  */
-export function titleFor(text: string): string | null {
-  const lines = text.split("\n");
-  let index = 0;
-  if (lines[0]?.trim() === "---") {
-    index = 1;
-    while (index < lines.length && lines[index]?.trim() !== "---") index += 1;
-    index += 1;
-  }
-  while (index < lines.length && lines[index]!.trim() === "") index += 1;
-  const line = lines[index];
-  if (line === undefined) return null;
-  const heading = /^#\s+(.*)$/.exec(line.trim());
-  if (heading === null) return null;
-  // A comment on words in the title wraps them in anchors (`comments.cjs`).
-  // They are not part of the name: without this, commenting on a linked
-  // title would read as retitling it and rename the file after the markers.
-  const title = heading[1]!.replace(MARKER_RE, "").trim();
-  return title === "" ? null : title;
-}
+export { titleFor } from "@context/shared/src/linkedHeading";
 

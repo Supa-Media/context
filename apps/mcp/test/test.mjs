@@ -66,6 +66,8 @@ import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
+import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
+import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
@@ -153,6 +155,9 @@ await suite("runAgentGatewayChecks", () => runAgentGatewayChecks(check));
 await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
 await suite("runAgentBrowseChecks", () => runAgentBrowseChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
+await suite("runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check));
+// Tex's daily transcript in tex/transcripts/, written as a text is answered.
+await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 // The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).

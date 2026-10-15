@@ -16,7 +16,7 @@ import type { PropertyValue } from "../../listBlock/model";
 import { groupLabel } from "../../listBlock/words";
 import type { PropertyWriteValue } from "../../listBlock/writeProperty";
 import { baseName, parentPath } from "../../paths";
-import type { FolderItem } from "../model";
+import { isNoteStatus, type FolderItem } from "../model";
 import { namesUnder, uniqueEntryName } from "./taskNames";
 import { runTaskPlan, type Planned, type TaskPlan, type TaskRef, type TaskRun, type TaskSnapshot, type TaskWriteIO } from "./taskWrites";
 
@@ -84,6 +84,7 @@ export function planSet(
 
 /** `item` moved to `status`, said in the owner's words. */
 export function statusPlan(item: Pick<FolderItem, "path" | "target" | "creates" | "properties" | "label">, status: string): Planned {
+  if (isNoteStatus(status)) return planSet(item, [["status", status]], `Made ${quote(item.label)} just a note.`, `${quote(item.label)} is already just a note.`);
   const word = groupLabel("status", status);
   return planSet(item, [["status", status]], `Moved ${quote(item.label)} to ${word}.`, `${quote(item.label)} is already in ${word}.`);
 }

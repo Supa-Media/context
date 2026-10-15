@@ -242,6 +242,7 @@ export async function runLinkToolChecks(check) {
       LINKS_BUCKET: bucket,
       OTHER_BUCKET: otherBucket,
     };
+    controlPlane.serveTreesFrom(env); // write_note asks the tree whether the note exists
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# Context\n");
     bucket.seed(NOTE, "# Plan\n");

@@ -125,6 +125,8 @@ export async function runDropboxFolderChecks(check) {
     files.set("/privacy.md", { body: PRIVACY_MANIFEST, rev: "r0" });
 
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(env, { dropbox });
 
     // Seed legacy Dropbox files directly. A note written through write_note has
     // active collaboration history and must not fall back to Dropbox's

@@ -61,6 +61,7 @@ export async function runOrientationShedSignalChecks(check, harness) {
     NATIVE_BINDINGS: "SHED_BUCKET",
     SHED_BUCKET: shedBucket,
   };
+  controlPlane.serveTree("ws_shed", shedBucket);
 
   // A real pass, through the real tool, so what gets mutated below is a
   // manifest the gateway actually wrote rather than one this file invented.

@@ -5,7 +5,8 @@ import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
-import { useColors, useThemedStyles, type Colors } from "../design/theme";
+import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
+import { setAppearance } from "../design/appearance";
 import { layout, radii, space } from "../design/tokens";
 import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
@@ -84,7 +85,8 @@ export type SwitcherMenuId =
   | "signin"
   | "signup"
   | "app"
-  | "whatsnew";
+  | "whatsnew"
+  | "shared";
 
 export function SwitcherMenu({
   data,
@@ -103,6 +105,7 @@ export function SwitcherMenu({
   onCreateAccount,
   onOpenApp,
   whatsNew,
+  shared,
   trigger = "row",
 }: {
   data: ConsoleData;
@@ -143,6 +146,14 @@ export function SwitcherMenu({
    */
   whatsNew?: { week: number; unread: boolean; onOpen: () => void };
   /**
+   * @shared: everything people shared with you by name, across workspaces you
+   * may not be in (Dev2, 2026-10-14, board A). A row under your workspaces,
+   * labelled `@shared` and nothing else, with a dot while something new has
+   * arrived since you last opened it. Omitted for the homepage's visitor and
+   * the demo, which have nobody to have shared anything with them.
+   */
+  shared?: { unseen: number; onOpen: () => void; /** You are on @shared: its row is ticked, no workspace's is. */ here?: boolean };
+  /**
    * `"phone"`: the top-left account slot, opening a bottom sheet — see the
    * header. A visitor who is not signed in sees a "Sign in" pill there.
    */
@@ -150,6 +161,7 @@ export function SwitcherMenu({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const scheme = useScheme();
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -181,8 +193,10 @@ export function SwitcherMenu({
   const elsewhere = group.contexts.some(
     (context) => context.hasNewActivity === true && context.slug !== current?.slug,
   );
-  // The avatar's dot also means an unread week of What's new.
-  const dotted = elsewhere || whatsNew?.unread === true;
+  // The avatar's dot also means an unread week of What's new, or something
+  // newly shared with you.
+  const sharedNew = (shared?.unseen ?? 0) > 0;
+  const dotted = elsewhere || whatsNew?.unread === true || sharedNew;
 
   const workspaces: AccountCardRow[] = [
     /*
@@ -217,9 +231,31 @@ export function SwitcherMenu({
           ) : null}
         </View>
       ),
-      checked: context.slug === current?.slug,
+      checked: context.slug === current?.slug && shared?.here !== true,
       testID: `switcher-context-${context.slug}`,
     })),
+    /*
+      After your workspaces and before New workspace: it sits beside them the
+      way Drive's Shared with me sits beside My Drive, and it is a place you
+      open, not one you make. Just `@shared` — no "Shared with me" beside it
+      (Dev2, 2026-10-14).
+    */
+    ...(shared
+      ? [{
+          id: "shared",
+          label: "@shared",
+          // What's new's dot, and on a phone its "new": only while something is.
+          accessibilityLabel: sharedNew ? `@shared, ${shared.unseen} new` : undefined,
+          badge: sharedNew,
+          checked: shared.here === true,
+          leading: (
+            <View style={styles.sharedMark}>
+              <Icon name="tray" size={14} />
+            </View>
+          ),
+          testID: "switcher-shared",
+        }]
+      : []),
     ...(group.create && onNewWorkspace
       ? [{ id: "new", label: "New workspace", leading: <Icon name="plus" size={14} />, testID: "switcher-new" }]
       : []),
@@ -232,6 +268,17 @@ export function SwitcherMenu({
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
       : []),
+    /*
+      The quick way between light and dark (Dev2, 2026-10-14), for everyone
+      including the homepage's visitor: it names the one you would switch to.
+      Settings › Profile has the third choice, following the device.
+    */
+    {
+      id: "appearance",
+      label: scheme === "dark" ? "Light mode" : "Dark mode",
+      leading: <Icon name="sun" size={14} />,
+      testID: "switcher-appearance",
+    },
     /*
       Signed in only — `onSignOut` is the card's own word for that — and only
       where this build can send a report at all. The phone's way in, since its
@@ -318,6 +365,8 @@ export function SwitcherMenu({
     else if (id === "signup") onCreateAccount?.();
     else if (id === "app") onOpenApp?.();
     else if (id === "whatsnew") whatsNew?.onOpen();
+    else if (id === "shared") shared?.onOpen();
+    else if (id === "appearance") void setAppearance(scheme === "dark" ? "light" : "dark");
   };
 
   if (trigger === "phone") {
@@ -336,7 +385,7 @@ export function SwitcherMenu({
               ? "Sign in or join the waitlist"
               : `${current !== undefined ? `${atName(current.slug)} — workspaces and account` : `${data.viewer.name} — account menu`}${elsewhere ? ", another workspace has changed" : ""}${
                   whatsNew?.unread ? ", what's new is unread" : ""
-                }`
+                }${sharedNew ? ", something new in @shared" : ""}`
           }
           onPress={() => setSheetOpen(true)}
           radius={radii.pill}
@@ -403,7 +452,7 @@ export function SwitcherMenu({
         <PressRow
           accessibilityLabel={`${data.viewer.name}, in ${label}: workspaces and account${
             elsewhere ? ", another workspace has changed" : ""
-          }${whatsNew?.unread ? ", what's new is unread" : ""}`}
+          }${whatsNew?.unread ? ", what's new is unread" : ""}${sharedNew ? ", something new in @shared" : ""}`}
           onPress={open}
           radius={radii.md}
           style={trigger === "row" ? styles.identity : styles.avatarOnly}
@@ -522,6 +571,8 @@ const makeStyles = (colors: Colors) =>
     },
     signInText: { fontWeight: "600" },
     markSlot: { position: "relative" },
+    /** A workspace mark's square, so @shared's label lines up with theirs. */
+    sharedMark: { width: 18, height: 18, alignItems: "center", justifyContent: "center" },
     /**
      * The activity dot, straddling the mark's leading top corner, ringed in
      * the surface behind it so it reads as a mark *on* the square.

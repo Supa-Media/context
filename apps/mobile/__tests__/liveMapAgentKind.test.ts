@@ -20,11 +20,13 @@ import { join } from "node:path";
 import { darkColors, darkMapColors, lightColors, lightMapColors, type MapColors } from "../features/design/tokens/colors";
 import {
   CONSOLE_CLIENT_NAME,
+  LEGACY_TEXTS_CLIENT_NAME,
   TEXTS_CLIENT_NAME,
   agentKindOf,
   agentPaintOf,
   agentTint,
   consoleHandOf,
+  displayToolName,
   ownerNameOf,
   spareIndexOf,
   toolNameOf,
@@ -46,6 +48,8 @@ describe("which AI an agent is, by its tool's name", () => {
     ["ChatGPT", "chatgpt"],
     ["@ruth's ChatGPT", "chatgpt"],
     ["OpenAI", "chatgpt"],
+    ["Tex", "context"],
+    ["@seyi's Tex", "context"],
     ["Texts (iMessage)", "context"],
     ["@seyi's Texts (iMessage)", "context"],
     ["Inbox sorter", "other"],
@@ -63,9 +67,16 @@ describe("which AI an agent is, by its tool's name", () => {
   });
 
   test("the texting assistant is its client name exactly, not a loose match", () => {
-    expect(TEXTS_CLIENT_NAME).toBe("Texts (iMessage)");
+    expect(TEXTS_CLIENT_NAME).toBe("Tex");
+    expect(agentKindOf(agent("@seyi's Texter"))).toBe("other");
     expect(agentKindOf(agent("@seyi's Texts"))).toBe("other");
     expect(agentKindOf(agent("Texts"))).toBe("other");
+  });
+
+  test("the texting client's old name is drawn as Tex (owner, 2026-10-14)", () => {
+    expect(displayToolName(LEGACY_TEXTS_CLIENT_NAME)).toBe("Tex");
+    expect(displayToolName("Claude")).toBe("Claude");
+    expect(displayToolName("Texts")).toBe("Texts");
   });
 
   test("the name helpers split an owner from a tool", () => {
@@ -109,7 +120,7 @@ describe("a person is never an agent, and the app's own console is not one eithe
       "utf8",
     );
     expect(source).toContain(
-      `const FIRST_PARTY_NAMES = new Set(["${CONSOLE_CLIENT_NAME.toLowerCase()}", "${TEXTS_CLIENT_NAME.toLowerCase()}"]);`,
+      `const FIRST_PARTY_NAMES = new Set(["${CONSOLE_CLIENT_NAME.toLowerCase()}", "${TEXTS_CLIENT_NAME.toLowerCase()}", "${LEGACY_TEXTS_CLIENT_NAME.toLowerCase()}"]);`,
     );
     expect(source).toContain(`const POSSESSIVE = "'s ";`);
     expect(source).toContain("name.lastIndexOf(POSSESSIVE)");

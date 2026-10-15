@@ -24,6 +24,7 @@ import {
   type BrowserbaseEnv,
 } from "./browserbase";
 import { cdpPage, connectCdp } from "./cdp";
+import { touchIdle } from "./idle";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -40,10 +41,20 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   const parsed = parseBrowseRequest({ steps: (body as { steps?: unknown })?.steps });
   if (parsed === null) return json({ error: "those steps could not be read" }, 400);
   const started = Date.now();
+  // In use: it lives five more minutes from now. Before the lookup, so a
+  // release already under way finishes first and this finds no browser,
+  // rather than one being released under it (./idle.ts).
+  await touchIdle(env.BROWSER_IDLE, owner);
   let session;
   try {
     session = (await findSession(env, owner, fetcher)) ?? (await createSession(env, owner, fetcher));
-  } catch {
+  } catch (error) {
+    const status = /^browserbase (\d{3})$/.exec(error instanceof Error ? error.message : "")?.[1] ?? null;
+    // The status only: never the vendor's body, which can name the account.
+    console.log(JSON.stringify({ event: "site_shots_browserbase_refused", status }));
+    // 402: Browserbase will not start a browser until its bill is paid. The
+    // gateway takes Cloudflare's browser for this question rather than failing.
+    if (status === "402") return json({ error: "browserbase refused: payment required" }, 402);
     return json({ error: "no browser is free right now; try again in a minute" }, 503);
   }
   let cdp;

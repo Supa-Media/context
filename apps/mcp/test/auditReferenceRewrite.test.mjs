@@ -114,6 +114,7 @@ export async function runReferenceRewriteAuditChecks(check) {
 
   const bucket = s3.bucketFor("ref-rewrite");
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+  controlPlane.serveTreesFrom(env, { s3 });
 
   // Count the announcements the way the resolver's freshness depends on them:
   // one POST per report, over the stub's own fetch.

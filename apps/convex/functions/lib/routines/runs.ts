@@ -15,6 +15,8 @@ import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope 
 import { accountTimeZone, routineRecipients, writingRole } from "./access";
 import {
   MAX_DUE_RUNS,
+  ONE_OFF_RETRY_EVERY_MS,
+  ONE_OFF_RETRY_MS,
   RECONCILE_OUTCOMES,
   ROUTINES_CLIENT_ID,
   ROUTINES_CLIENT_NAME,
@@ -229,6 +231,19 @@ export async function recordRoutineResultHandler(
     for (const grant of grants) {
       if (grant.clientId !== ROUTINES_CLIENT_ID || grant.status !== "active") continue;
       if ((grant.accessTokenExpiresAt ?? 0) > now) await ctx.db.patch(grant._id, { accessTokenExpiresAt: now });
+    }
+  }
+
+  /*
+    A one-off that failed is tried again, every few minutes, until
+    ONE_OFF_RETRY_MS after the time it was set for. A repeating routine has its
+    next slot; a reminder has no other, so one failed turn must not lose it.
+  */
+  if (row.cadence.unit === "once" && args.outcome === "failed" && !row.paused) {
+    const zone = effectiveTimeZone(row.timeZone, await accountTimeZone(ctx, row.writerUserId));
+    const setFor = nextRunFor(row, zone, 0);
+    if (setFor !== null && now - setFor < ONE_OFF_RETRY_MS) {
+      await ctx.db.patch(row._id, { nextRunAt: now + ONE_OFF_RETRY_EVERY_MS });
     }
   }
 

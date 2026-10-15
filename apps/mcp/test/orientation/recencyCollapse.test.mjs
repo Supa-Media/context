@@ -116,6 +116,7 @@ export async function runOrientationRecencyCollapseChecks(check, harness) {
     NATIVE_BINDINGS: "RECENCY_BUCKET",
     RECENCY_BUCKET: recencyBucket,
   };
+  controlPlane.serveTree("ws_recency", recencyBucket);
 
   const recencyOwnerText = await orientText(recencyEnv, RECENCY_OWNER);
   const ownerRecent = recencyOwnerText.split("## Recently updated")[1]?.split("---")[0] || "";

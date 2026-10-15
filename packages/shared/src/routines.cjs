@@ -1,7 +1,9 @@
 /**
  * Routines: notes that run on a schedule.
  *
- * A routine is one Markdown note at `routines/<how-often>/<name>.md`. The
+ * A routine is one Markdown note at `tex/routines/<how-often>/<name>.md`, or
+ * at `routines/<how-often>/<name>.md`, where routines lived before Tex had a
+ * folder of its own (the owner, 2026-10-14: both run, nothing is moved). The
  * folder says how often it runs, the body says what to do in plain words, and a
  * few optional front matter lines fine-tune it. Adding the file starts it,
  * deleting it stops it, and moving it to another folder changes how often it
@@ -15,7 +17,17 @@
  * Nothing here reads a clock or a bucket. Every function takes what it needs.
  */
 
+/** Where routines lived first. Still read, and its notes run exactly as before. */
 const ROUTINES_FOLDER = "routines/";
+
+/** Where new routines and reminders go: Tex's own folder (the owner, 2026-10-14). */
+const TEX_ROUTINES_FOLDER = "tex/routines/";
+
+/**
+ * Every routine root, the new one first. Neither is a prefix of the other, so
+ * a path is under at most one of them.
+ */
+const ROUTINE_ROOTS = Object.freeze([TEX_ROUTINES_FOLDER, ROUTINES_FOLDER]);
 
 /** The fastest a routine may run. Anything faster is refused, not rounded. */
 const MIN_INTERVAL_MINUTES = 5;
@@ -23,10 +35,44 @@ const MIN_INTERVAL_MINUTES = 5;
 /** Where a run's history is kept: Context's own space in the person's bucket. */
 const ROUTINE_RUNS_PREFIX = ".context/agent/routines/";
 
+/**
+ * Each root's run-history prefix. The old root's is the key it always had,
+ * byte for byte (a stable on-bucket format); the new root's is its own, so
+ * `routines/daily/x.md` and `tex/routines/daily/x.md` never share a history.
+ */
+const ROUTINE_RUNS_PREFIXES = Object.freeze({
+  [ROUTINES_FOLDER]: ROUTINE_RUNS_PREFIX,
+  [TEX_ROUTINES_FOLDER]: ".context/agent/tex/routines/",
+});
+
+/** The routine root `path` starts with (`"tex/routines/"` or `"routines/"`), or null. */
+function routineRootOf(path) {
+  if (typeof path !== "string") return null;
+  const lower = path.toLowerCase();
+  for (const root of ROUTINE_ROOTS) {
+    if (lower.slice(0, root.length) === root) return root;
+  }
+  return null;
+}
+
+/**
+ * Whether a change at `path` can change which routines exist: a routine root,
+ * anything under one (scheduled or not), or a folder a root sits in (`tex`,
+ * whose move or deletion takes `tex/routines/` with it). What a write is
+ * reported for, and what makes the control plane re-read the roots. A note
+ * beside the root, like `tex/about-me.md`, is not one.
+ */
+function isRoutinePath(path) {
+  if (typeof path !== "string") return false;
+  const normalized = path.replace(/^\/+|\/+$/g, "").toLowerCase();
+  if (normalized === "") return false;
+  return ROUTINE_ROOTS.some((root) => normalized.startsWith(root) || root.startsWith(`${normalized}/`));
+}
+
 /** When a daily-or-slower routine runs if its file names no time. */
 const DEFAULT_AT = Object.freeze({ hour: 8, minute: 0 });
 
-const UNITS = Object.freeze(["minute", "hour", "day", "week", "month"]);
+const UNITS = Object.freeze(["minute", "hour", "day", "week", "month", "once"]);
 
 const NAMED_FOLDERS = Object.freeze({
   hourly: { unit: "hour", every: 1 },
@@ -38,6 +84,9 @@ const NAMED_FOLDERS = Object.freeze({
   monthly: { unit: "month", every: 1 },
   quarterly: { unit: "month", every: 3 },
   yearly: { unit: "month", every: 12 },
+  // A reminder: runs once, at the date and time its file names, then marks
+  // itself `done:` (the owner, 2026-10-14).
+  once: { unit: "once", every: 1 },
 });
 
 const WEEKDAYS = Object.freeze(["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]);
@@ -61,27 +110,28 @@ function cadenceFromFolder(folder) {
 /**
  * Whether `path` is a routine, and how often it runs.
  *
- * - `{ kind: "routine", cadence, folder, name }` for `routines/<folder>/<name>.md`
- *   whose folder means a schedule.
- * - `{ kind: "unscheduled", reason }` for a note under `routines/` that will
+ * - `{ kind: "routine", cadence, folder, name }` for
+ *   `tex/routines/<folder>/<name>.md` or `routines/<folder>/<name>.md` whose
+ *   folder means a schedule.
+ * - `{ kind: "unscheduled", reason }` for a note under either root that will
  *   never run, with the reason in words a person can act on.
- * - `null` for anything outside `routines/`.
+ * - `null` for anything outside both.
  */
 function routineFromPath(path) {
-  if (typeof path !== "string") return null;
-  if (path.slice(0, ROUTINES_FOLDER.length).toLowerCase() !== ROUTINES_FOLDER) return null;
+  const root = routineRootOf(path);
+  if (root === null) return null;
   if (!/\.md$/i.test(path)) return null;
-  const rest = path.slice(ROUTINES_FOLDER.length).split("/");
+  const rest = path.slice(root.length).split("/");
   if (rest.length === 1) {
     return {
       kind: "unscheduled",
-      reason: "Put it in a folder that says how often, like routines/daily/.",
+      reason: `Put it in a folder that says how often, like ${root}daily/.`,
     };
   }
   if (rest.length > 2) {
     return {
       kind: "unscheduled",
-      reason: `Only notes directly inside routines/${rest[0]}/ run.`,
+      reason: `Only notes directly inside ${root}${rest[0]}/ run.`,
     };
   }
   const cadence = cadenceFromFolder(rest[0]);
@@ -159,6 +209,32 @@ function parseWeekdays(value) {
   return days.size === 0 ? null : [...days].sort((a, b) => a - b);
 }
 
+/** `2026-10-15` → `{ year, month, day }`, or null for anything else or a date that does not exist. */
+function parseDate(value) {
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(value).trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
+  return { year, month, day };
+}
+
+/**
+ * A one-off's `at:`: a date with an optional time, `2026-10-15 9:00 am` or
+ * `2026-10-15`. `{ date, time }`, with `time` null when none was written, or
+ * null when it isn't a date.
+ */
+function parseDateTime(value) {
+  const match = /^(\S+)(?:\s+(.+))?$/.exec(String(value).trim());
+  if (!match) return null;
+  const date = parseDate(match[1]);
+  if (!date) return null;
+  if (match[2] === undefined) return { date, time: null };
+  const time = parseTime(match[2]);
+  return time ? { date, time } : null;
+}
+
 /** `1`, `1st`, `15th`, `last` → a day of the month (`-1` for the last), or null. */
 function parseMonthDay(value) {
   const text = String(value).trim().toLowerCase().replace(/^the\s+/, "");
@@ -201,14 +277,37 @@ function routineSettings(text, cadence) {
     until: null,
     paused: false,
     timeZone: null,
+    date: null,
+    done: null,
   };
+  const once = cadence && cadence.unit === "once";
 
-  if (fields.at !== undefined && fields.at !== "") {
+  if (once) {
+    // A one-off says when in one line, `at: 2026-10-15 9:00 am`, or as a
+    // day and a time, `on: 2026-10-15` with `at: 9:00 am`.
+    const atDate = fields.at === undefined ? null : parseDateTime(fields.at);
+    if (atDate) {
+      settings.date = atDate.date;
+      settings.at = atDate.time;
+    } else if (fields.at !== undefined && fields.at !== "") {
+      const at = parseTime(fields.at);
+      if (at) settings.at = at;
+      else problems.push(`"at: ${fields.at}" isn't a date and time. Write it like 2026-10-15 9:00 am.`);
+    }
+    if (fields.on !== undefined && fields.on !== "") {
+      const date = parseDate(fields.on);
+      if (date && settings.date === null) settings.date = date;
+      else if (!date) problems.push(`"on: ${fields.on}" isn't a date. Write it like 2026-10-15.`);
+    }
+    if (settings.date === null && !problems.length) {
+      problems.push("A one-off needs a date. Write it like at: 2026-10-15 9:00 am.");
+    }
+  } else if (fields.at !== undefined && fields.at !== "") {
     const at = parseTime(fields.at);
     if (at) settings.at = at;
     else problems.push(`"at: ${fields.at}" isn't a time. Write it like 7:30 am or 19:00.`);
   }
-  if (fields.on !== undefined && fields.on !== "") {
+  if (!once && fields.on !== undefined && fields.on !== "") {
     if (cadence && cadence.unit === "month") {
       const day = parseMonthDay(fields.on);
       if (day !== null) settings.monthDay = day;
@@ -240,6 +339,11 @@ function routineSettings(text, cadence) {
     const paused = fields.paused.toLowerCase();
     if (YES.has(paused)) settings.paused = true;
     else if (!NO.has(paused)) problems.push(`"paused: ${fields.paused}" should be yes or no.`);
+  }
+  // `done:` is the time a one-off ran, written by the gateway: it never runs again.
+  if (fields.done !== undefined && fields.done !== "") {
+    settings.done = fields.done;
+    settings.paused = true;
   }
   const zone = fields.timezone ?? fields["time-zone"] ?? fields.tz;
   if (zone !== undefined && zone !== "") {
@@ -339,6 +443,13 @@ function nextRunAt(cadence, settings, timeZone, afterMs) {
   const at = (settings && settings.at) || DEFAULT_AT;
   const days = settings && settings.days;
 
+  if (cadence.unit === "once") {
+    const date = settings && settings.date;
+    if (!date) return null;
+    const instant = instantOf(date.year, date.month, date.day, at.hour, at.minute, zone);
+    return instant > afterMs ? instant : null;
+  }
+
   if (cadence.unit === "minute") {
     const step = every * 60000;
     return Math.floor(afterMs / step) * step + step;
@@ -421,6 +532,13 @@ function describeSchedule(cadence, settings) {
   const days = settings && settings.days;
   const every = cadence.every || 1;
   switch (cadence.unit) {
+    case "once": {
+      const date = settings && settings.date;
+      if (!date) return "Once, when it has a date";
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const day = `${months[date.month - 1]} ${date.day}, ${date.year}`;
+      return `${settings.done ? "Ran once" : "Once"} on ${day} at ${clock(at)}`;
+    }
     case "minute":
       return `Every ${every} minutes`;
     case "hour": {
@@ -453,22 +571,33 @@ function describeSchedule(cadence, settings) {
   }
 }
 
-/** The run history file for a routine at `path`. */
+/**
+ * The run history file for a routine at `path`, under its own root's prefix so
+ * the two roots never share one.
+ */
 function routineRunsKey(path) {
-  return `${ROUTINE_RUNS_PREFIX}${path.slice(ROUTINES_FOLDER.length).replace(/\.md$/i, "")}.json`;
+  const root = routineRootOf(path) || ROUTINES_FOLDER;
+  return `${ROUTINE_RUNS_PREFIXES[root]}${path.slice(root.length).replace(/\.md$/i, "")}.json`;
 }
 
 module.exports = {
   ROUTINES_FOLDER,
+  TEX_ROUTINES_FOLDER,
+  ROUTINE_ROOTS,
   ROUTINE_RUNS_PREFIX,
+  ROUTINE_RUNS_PREFIXES,
   MIN_INTERVAL_MINUTES,
   DEFAULT_AT,
   cadenceFromFolder,
   routineFromPath,
+  routineRootOf,
+  isRoutinePath,
   frontMatter,
   parseTime,
   parseWeekdays,
   parseMonthDay,
+  parseDate,
+  parseDateTime,
   routineSettings,
   nextRunAt,
   describeSchedule,

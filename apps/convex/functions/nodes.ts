@@ -8,8 +8,10 @@
  * the tests runs), and writes the result back. Keeping the rules out of here
  * is what lets them be tested without a deployment.
  *
- * Phase 1 is a shadow (`docs/decisions/app-and-console/convex-tree.md`):
- * nothing answers a person from these rows yet.
+ * Every reader of which notes exist answers from these rows once the
+ * workspace's first copy has finished (`treeReadiness`,
+ * `docs/decisions/app-and-console/convex-tree.md`); the bucket stays the
+ * files' truth, and the sweeps keep these rows to it.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -30,9 +32,19 @@ import {
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { liveNode } from "./lib/nodes/facts";
+import { mirrorRules } from "./lib/nodes/log";
+import { canSee } from "./lib/privacy";
+import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
+  NODE_PRIVACY_KEY,
+  NODE_EDIT_LOST_MS,
+  NODE_EDIT_SETTLE_MS,
+  NODE_TOUCH_PATHS,
   OBSERVE_BATCH,
+  nodeParityDue,
+  nodePath,
   nodeSweepDue,
   type NodeTreeState,
 } from "./lib/nodes/table";
@@ -175,13 +187,18 @@ export const observe = internalMutation({
     gone: v.array(v.string()),
     vanishedUnder: v.array(v.string()),
     vanishCursor: v.optional(vanishCursorValidator),
+    /** Who could see each key a change took away, before it: gone rows narrow to it (`convexTable.ts`). */
+    left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   },
   returns: v.object({ more: v.boolean(), vanishCursor: v.optional(vanishCursorValidator) }),
   handler: async (ctx, args): Promise<{ more: boolean; vanishCursor?: { index: number; after?: string } }> => {
     if (args.rows.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_ROWS" });
     if (args.gone.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_GONE" });
     if (args.vanishedUnder.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_PREFIXES" });
-    const table = convexNodeTable(ctx, args.workspaceId);
+    if ((args.left?.length ?? 0) > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_LEFT" });
+    const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
+    const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
+    if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
     const result = await applyObservation(
       table,
       { at: args.at, rows: args.rows, gone: args.gone, vanishedUnder: args.vanishedUnder },
@@ -232,10 +249,26 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
-    // A tree's first finished copy is checked against its bucket at once, so a
-    // new workspace starts being served (`nodesListing.ts`) without staff
-    // pressing Check. Later checks are staff's to ask for.
-    if (row?.parity === undefined) {
+    // `begin` cleared `dirty`, so a mark now is a sweep asked for while this
+    // one held the lease (an email capture names no path, so a sweep is its
+    // only re-check). Started here, or it waits for the hourly cron.
+    if (next.dirty && nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        operation: { kind: "nodesSweep" },
+      });
+    }
+    // A finished copy is checked against its bucket when it has never been,
+    // when its last check differed, or when its last proof is a day old
+    // (`nodeParityDue`). The first is how a new workspace starts being served
+    // (`nodesListing.ts`) without staff pressing Check; the other two are how
+    // a tree keeps earning it, and how one that drifted earns it back. Until
+    // 2026-10-13 only the first ran: a tree proved once served for ever, and
+    // one a single in-flight write made differ fell back to the bucket for
+    // ever, both until staff pressed Check. Since 2026-10-13 the check is an
+    // alarm for staff and serves nobody differently.
+    if (nodeParityDue(row?.parity, at)) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -329,12 +362,12 @@ export const requestSweep = internalMutation({
   },
 });
 
-/** The store cannot be listed in key order: never served, never swept again. */
+/** The store can be listed neither in key order nor by token: not served, tried again a day later. */
 export const unsupported = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
-    await updateTree(ctx, workspaceId, unsupportedState);
+    await updateTree(ctx, workspaceId, (state) => unsupportedState(state, Date.now()));
     return null;
   },
 });
@@ -357,9 +390,29 @@ export const privacy = internalQuery({
 });
 
 /**
- * Whether the tree answers this workspace's walks (`treeServes`), and with
- * which rules: read in one transaction, so a walk never pairs a served tree
- * with rules from before the check.
+ * Whether a link's readers, at `team` with no names, would see this note, and
+ * whether its facts say it is sealed: the share-link mint's courtesy check,
+ * from the rows and the rules mirror rather than by opening the note. `null`
+ * while the tree does not serve. An unreadable `privacy.md` sees nothing.
+ */
+export const teamShareable = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.null(), v.object({ visible: v.boolean(), sealed: v.boolean() })),
+  handler: async (ctx, { workspaceId, path }) => {
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const row = await liveNode(ctx.db, workspaceId, path);
+    const mirror = await readMirror(ctx.db, workspaceId);
+    if (row === null || mirror?.invalid === true) return { visible: false, sealed: false };
+    const rules = await mirrorRules(mirror);
+    return { visible: canSee(path, "team", rules.rules, rules.overrides), sealed: row.sealed === true };
+  },
+});
+
+/**
+ * Whether the tree answers this workspace's walks (its first copy finished,
+ * `treeReadiness`), and with which rules: read in one transaction, so a walk
+ * never pairs a served tree with rules from before the check. `null` is
+ * "still loading", never "ask the bucket".
  */
 export const served = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -367,6 +420,24 @@ export const served = internalQuery({
   handler: async (ctx, { workspaceId }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     return { mirror: await readMirror(ctx.db, workspaceId) };
+  },
+});
+
+/**
+ * Where a reader stands while the tree does not serve: the tree's state, and
+ * whether the workspace has a bucket bound at all (a row, nothing decrypted),
+ * so a workspace with no bucket says so rather than "still loading" for ever.
+ */
+export const readiness = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ state: v.union(v.null(), stateValidator), bound: v.boolean() }),
+  handler: async (ctx, { workspaceId }) => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .first();
+    return { state: row === null ? null : toState(row), bound: binding !== null };
   },
 });
 
@@ -383,19 +454,44 @@ export const savePrivacy = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
     if (doc !== null && !privacyIsNewer(doc.observedAt, at)) return null;
-    const fields = { ...mirror, observedAt: at };
+    // Once the rules are the authority, the file is their export and is never read back.
+    if (!(await mirrorFollowsFile(ctx, workspaceId))) return null;
+    // A version minted here is the rules rendered, never a read of the file:
+    // a run that began while they were the authority reads `privacy.md`
+    // through a store still holding them. Stored, it would clear `fileAhead`
+    // with the very rules the owner's file moved past, and the next listing
+    // would write them back over it.
+    if (mirror.etag?.startsWith(RULES_VERSION_PREFIX) === true) return null;
+    // This read is of the file the rules now follow, so they are no longer
+    // behind it, and they are a copy of it: no version written from here is
+    // what the bucket holds any more (`rulesAuthoredHere`).
+    const fields = { ...mirror, observedAt: at, fileAhead: undefined, exportedEtag: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
     return null;
   },
 });
 
-/** The last parity check's result, kept on the tree's row. */
+/**
+ * The last parity check's result, kept on the tree's row.
+ *
+ * A check that newly finds differences (the last one matched, or there was
+ * none) also marks the tree dirty, so the cron sweeps it within its interval
+ * and the finished sweep checks again (`finish`): a difference a sweep can
+ * repair shows staff an alarm only until then. One that persists waits for
+ * the hourly sweep, so a real bug is never a sweep loop.
+ */
 export const saveParity = internalMutation({
   args: { workspaceId: v.id("workspaces"), parity: parityValidator },
   returns: v.null(),
   handler: async (ctx, { workspaceId, parity }): Promise<null> => {
     const row = await treeRowQuery(ctx, workspaceId);
+    const differs = parity.mismatches > 0 || !parity.privacyMatches;
+    const differed = row?.parity !== undefined && (row.parity.mismatches > 0 || !row.parity.privacyMatches);
+    if (differs && !differed && row !== null && row.status !== "unsupported") {
+      await ctx.db.patch(row._id, { parity, dirty: true });
+      return null;
+    }
     if (row === null) {
       await ctx.db.insert("nodeTrees", {
         workspaceId,
@@ -407,6 +503,73 @@ export const saveParity = internalMutation({
     } else {
       await ctx.db.patch(row._id, { parity });
     }
+    return null;
+  },
+});
+
+/**
+ * Gathers notes whose text alone changed (`edited` on `/gateway/tree/touch`)
+ * and schedules one re-check of them a few seconds on (`flushEdits`), so a
+ * burst of saves is one bucket listing per note, not one per typing pause.
+ *
+ * Why it exists: a save of a note's text changes its version and size and
+ * nothing else, and until 2026-10-13 nothing told the Convex tree. Its rows
+ * kept the version from the last sweep (up to an hour), so the desktop and
+ * phone apps, which follow the tree's change log (`nodesFeed.ts`), never heard
+ * of an edit made on the web; Lists re-read every such note on every load;
+ * and a parity check in that window found the tree "different".
+ *
+ * A tree that was never swept is left alone: its first sweep lists these. Past
+ * `NODE_TOUCH_PATHS` gathered notes the tree is marked dirty instead, as a
+ * re-check that names too much is. Staff's Pause does not hold edits back:
+ * every reader reads this tree, so it stops copying work only.
+ */
+export const queueEdits = internalMutation({
+  args: { workspaceId: v.id("workspaces"), files: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, files }): Promise<null> => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    if (row === null || row.status === "unsupported") return null;
+    const held = new Set(row.edits ?? []);
+    for (const file of files) {
+      const path = nodePath(file);
+      if (path !== null) held.add(path);
+    }
+    if (held.size > NODE_TOUCH_PATHS) {
+      // Too many to re-check by name: the cron's next sweep lists them all.
+      await ctx.db.patch(row._id, { dirty: true, edits: undefined, editsDueAt: undefined });
+      return null;
+    }
+    const now = Date.now();
+    const scheduled = row.editsDueAt !== undefined && now - row.editsDueAt < NODE_EDIT_LOST_MS;
+    // Already held and already due: nothing to write.
+    if (scheduled && held.size === (row.edits ?? []).length) return null;
+    if (!scheduled) {
+      await ctx.scheduler.runAfter(NODE_EDIT_SETTLE_MS, internal.functions.nodes.flushEdits, { workspaceId });
+    }
+    await ctx.db.patch(row._id, {
+      edits: [...held],
+      ...(scheduled ? {} : { editsDueAt: now + NODE_EDIT_SETTLE_MS }),
+    });
+    return null;
+  },
+});
+
+/** The gathered edits' re-check (`queueEdits`): takes them off the row and schedules one `nodesTouch`. */
+export const flushEdits = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }): Promise<null> => {
+    const row = await treeRowQuery(ctx, workspaceId);
+    if (row === null) return null;
+    const files = row.edits ?? [];
+    await ctx.db.patch(row._id, { edits: undefined, editsDueAt: undefined });
+    if (files.length === 0) return null;
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesTouch", paths: [], files },
+    });
     return null;
   },
 });

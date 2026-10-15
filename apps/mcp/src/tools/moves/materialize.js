@@ -26,7 +26,7 @@ import {
   replacePrivacyRulesBlock,
 } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
-import { MOVE_AUTOMATIC_BATCH, MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
+import { MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 import {
   moveJobActive,
   moveJobKey,
@@ -38,10 +38,9 @@ import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
 import { referenceCandidates, rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
-import { servedListingStore } from "../../tree/served.js";
+import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
-import { readForwarding } from "../../forwarding.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { toolError, toolText } from "../results.js";
 import { isContactNote } from "../../../../../packages/communications/src/contacts.js";
@@ -106,12 +105,19 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
       return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
     }
     if (!Array.isArray(job.reference_inventory_prefixes)) {
-      // The tree's link table answers the whole inventory in one pass, and
-      // names the few notes worth reading (`tree/links.js`).
-      const fromTable = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
-      if (fromTable !== null) {
-        job.reference_inventory_keys = fromTable.inventoryKeys;
-        job.reference_candidates = [...fromTable.candidates];
+      // From a person's connection the Convex tree answers the whole inventory
+      // at once (`references.js`); the background worker, with no grant to ask
+      // with (`null`), pages the bucket below.
+      let fromTree;
+      try {
+        fromTree = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
+      } catch (error) {
+        if (error instanceof TreeUnavailable) return toolError(`move ${job.id} reference inventory paused: ${error.message}`);
+        throw error;
+      }
+      if (fromTree !== null) {
+        job.reference_inventory_keys = fromTree.inventoryKeys;
+        if (fromTree.candidates) job.reference_candidates = [...fromTree.candidates];
         job.reference_inventory_complete = true;
         await persistMoveJob(store, job);
         return toolText(`move ${job.id}: reference inventory complete`);
@@ -201,14 +207,6 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
     preserved_conflicts: Object.keys(job.conflicts || {}).length,
   }).catch(() => {});
   return toolText(`move ${job.id}: complete\nphysical storage sync: complete\nreferences rewritten: ${job.reference_links || 0}\nconflicts preserved: ${Object.keys(job.conflicts || {}).length}`);
-}
-
-export async function materializeMoveInBackground(store, scope, id) {
-  for (let pass = 0; pass < 20; pass += 1) {
-    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH, { automatic: true });
-    const text = result?.content?.[0]?.text || "";
-    if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
-  }
 }
 
 async function destinationMatchesOriginalOrRetargetedLinks(store, pair) {
@@ -682,7 +680,6 @@ export async function toolProfileMoveReferences(store, idArg) {
   if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
   if (!jobs) return toolText(rows.join("\n"));
-  await measure("forwarding ledger", () => readForwarding(store));
   const unavailable = new Set();
   for (const active of jobs) for (const item of active.objects) {
     unavailable.add(item.source);

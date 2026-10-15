@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import { Text, leading, space, useThemedStyles, type Colors } from "../design";
 import { pointerType } from "../design/tokens";
 import { useCompact } from "./AdminKit";
@@ -21,27 +21,64 @@ export interface Column {
   align?: "left" | "right";
   /** What the header means, as a tooltip on web and to a screen reader. */
   hint?: string;
+  /** Present on a column the table can be sorted by; handed back to `onSort`. */
+  sortKey?: string;
 }
 
-/** The header row of a pointer-layout table, in the eyebrow voice. */
-export function TableHead({ columns }: { columns: readonly Column[] }) {
+export type SortDirection = "asc" | "desc";
+
+/**
+ * The header row of a pointer-layout table, in the eyebrow voice. Given
+ * `onSort`, a column with a `sortKey` is a button, and the one the table is
+ * sorted by carries an arrow.
+ */
+export function TableHead({
+  columns,
+  sorted,
+  onSort,
+}: {
+  columns: readonly Column[];
+  sorted?: { key: string; dir: SortDirection };
+  onSort?: (key: string) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.tr, styles.th]}>
-      {columns.map((column) => (
-        <View key={column.label} style={cellBox(column)}>
+      {columns.map((column) => {
+        const active = sorted !== undefined && column.sortKey === sorted.key;
+        const arrow = active ? (sorted.dir === "desc" ? " ↓" : " ↑") : "";
+        const label = (
           <Text
             variant="eyebrow"
             numberOfLines={1}
-            style={alignText(column)}
+            style={[alignText(column), active && styles.sortedLabel]}
             accessibilityLabel={column.hint ? `${column.label}. ${column.hint}` : undefined}
             // RN-Web forwards `title` to the DOM node: the cheapest honest tooltip.
             {...(Platform.OS === "web" && column.hint ? ({ title: column.hint } as object) : null)}
           >
             {column.label}
+            {arrow}
           </Text>
-        </View>
-      ))}
+        );
+        const sortKey = column.sortKey;
+        return (
+          <View key={column.label} style={cellBox(column)}>
+            {onSort && sortKey ? (
+              <Pressable
+                role="button"
+                accessibilityLabel={`Sort by ${column.label}`}
+                aria-sort={active ? (sorted.dir === "desc" ? "descending" : "ascending") : undefined}
+                onPress={() => onSort(sortKey)}
+                testID={`admin-sort-${sortKey}`}
+              >
+                {label}
+              </Pressable>
+            ) : (
+              label
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -155,6 +192,7 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: space.x5,
     },
     th: { paddingVertical: space.x2, borderBottomWidth: 1, borderBottomColor: colors.line },
+    sortedLabel: { color: colors.text },
     td: { paddingVertical: 11, justifyContent: "center" },
     ruled: { borderBottomWidth: 1, borderBottomColor: colors.line },
 

@@ -245,14 +245,15 @@ describe("the account's own settings have a home", () => {
     expect(tokens).toEqual(["invite-token"]);
   });
 
-  test("profile says in one row that look follows the device", () => {
-    // The three-button picker and the stored choice behind it are gone. What
-    // is left is one quiet row saying so, on the screen the search box lands on.
-    const text = overlay("profile").textContent ?? "";
+  test("profile offers Light, Dark and Device as one Look row", () => {
+    // The person's own choice, not only the device's (Dev2, 2026-10-14).
+    const host = overlay("profile");
+    const text = host.textContent ?? "";
     expect(text).toContain("Look");
-    expect(text).toContain("Follows your device");
-    expect(text).not.toContain("Follow device");
-    expect(text).not.toContain("Appearance");
+    expect(text).not.toContain("Follows your device");
+    for (const key of ["light", "dark", "system"]) {
+      expect(host.querySelector(`[data-testid="appearance-${key}"]`)).not.toBeNull();
+    }
   });
 
   test("profile draws no Macs box while there are none to show", () => {

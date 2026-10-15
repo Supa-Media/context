@@ -1,37 +1,41 @@
 /**
- * The agent tools that list read the Convex tree where it serves the
- * workspace (`src/tree/served.js`, phase 5 of
- * `docs/decisions/app-and-console/convex-tree.md`).
+ * The agent tools that list read the Convex tree, and only the Convex tree
+ * (`src/tree/served.js`, phase 5 of
+ * `docs/decisions/app-and-console/convex-tree.md`; owner, 2026-10-13: "I
+ * don't want to see even fallbacks").
  *
- * The bucket below counts every listing it answers, so "the tool stopped
- * walking the bucket" is a number, not a reading of the code. Every tool's
- * answer is compared with the answer the bucket alone gives, at owner and
- * team clearance, so serving from the tree changes where the keys come from
- * and nothing a person sees.
+ * The bucket below counts every listing it answers, so "the tool never walks
+ * the bucket" is a number, not a reading of the code. Every tool's answer is
+ * compared with the answer the bucket alone gives (a store with no control
+ * plane, the one store that still lists its bucket), at owner and team
+ * clearance, so serving from the tree changes where the keys and front
+ * matter come from and nothing a person sees.
  *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted:
  *
- * 1. `canSee` dropped from `listVisibleNoteKeysWithMoves` while the tree sends
- *    a private key at team clearance: "a key the tree wrongly sends is still
+ * 1. `canSee` dropped from `listVisibleNoteKeys` while the tree sends a
+ *    private key at team clearance: "a key the tree wrongly sends is still
  *    held back by the gateway's own rules" fails. The gateway's filter is the
  *    second gate, not a formality.
  * 2. `servedListingStore` applied to every tool, writes included: "a tool
  *    outside the six, writes included, never asks the tree" fails.
- * 3. The fall-back to the bucket removed (an unserved answer read as empty):
- *    4 tests fail, among them "a workspace the tree does not serve answers
- *    from the bucket" and "a failed request answers from the bucket".
- * 4. Plumbing prefixes sent to the tree: "plumbing is listed from the bucket"
- *    and "one call reads the tree once" fail, and the move-job overlay goes
- *    blind.
+ * 3. An unserved answer read as an empty tree (`return []` in place of the
+ *    `TreeUnavailable` throw): "a workspace the tree does not serve is told
+ *    it is still loading" fails.
+ * 4. A failed request falling back to `store.list`: "a failed request says
+ *    so, and lists nothing" fails on the bucket's listing count.
+ * 5. Plumbing prefixes sent to the tree: "plumbing is listed from the bucket"
+ *    and "one call reads the tree once" fail.
  *
  * Sabotage 1 also fails the team-clearance comparison.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { callTool, TREE_LISTING_TOOLS } from "../src/tools/dispatch.js";
-import { compareKeys, servedListingStore } from "../src/tree/served.js";
+import { compareKeys, servedListingStore, TREE_LOADING, TREE_UNREACHABLE, TreeUnavailable } from "../src/tree/served.js";
+import { propsOf } from "../src/tree/props.js";
 
 const PRIVACY =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -42,7 +46,7 @@ const PRIVACY =
 const NOTES = {
   "index.md": "# Home\n",
   "privacy.md": PRIVACY,
-  "1-projects/about.md": "# Projects\n",
+  "1-projects/about.md": "# Projects\n\n```list\nfrom: 1-projects/alpha\nshow: status\n```\n",
   "1-projects/alpha/overview.md": "---\nstatus: in progress\n---\n# Alpha\n",
   "1-projects/alpha/notes.md": "# Alpha notes\n",
   "1-projects/beta.md": "# Beta\n",
@@ -56,8 +60,10 @@ const NOTES = {
 function bucketOf(notes) {
   const objects = new Map(Object.entries(notes).map(([key, text], index) => [key, { text, etag: `e${index}`, uploaded: Date.UTC(2026, 9, 1 + index) }]));
   const listings = [];
+  const gets = [];
   return {
     listings,
+    gets,
     objects,
     async list({ prefix = "", delimiter, cursor, startAfter, limit = 1000 } = {}) {
       listings.push(prefix);
@@ -82,6 +88,7 @@ function bucketOf(notes) {
       };
     },
     async get(key) {
+      gets.push(key);
       const object = objects.get(key);
       if (!object) return null;
       return { key, etag: object.etag, size: object.text.length, uploaded: new Date(object.uploaded), text: async () => object.text };
@@ -121,12 +128,27 @@ function treeOf(bucket, { see = () => true, pageSize = 3, served = true } = {}) 
       cursor: more ? page[page.length - 1] : null,
     };
   };
-  return { requests, manifest };
+  /** Each note's props as the tree's fill parses them; only for keys the clearance sees. */
+  const facts = async ({ ask, paths } = {}) => {
+    requests.push({ ask, paths });
+    if (ask !== "props" || !Array.isArray(paths)) return { served: false };
+    return {
+      served: true,
+      props: paths
+        .filter((path) => bucket.objects.has(path) && see(path))
+        .map((path) => {
+          const parsed = propsOf(bucket.objects.get(path).text);
+          return { path, version: bucket.objects.get(path).etag, sealed: parsed === null, props: parsed && JSON.stringify(parsed) };
+        }),
+    };
+  };
+  return { requests, manifest, facts };
 }
 
 function served(bucket, tree) {
   const store = Object.create(bucket);
   Object.defineProperty(store, "treeManifest", { value: tree.manifest, enumerable: false });
+  if (tree.facts) Object.defineProperty(store, "treeFacts", { value: tree.facts, enumerable: false });
   return store;
 }
 
@@ -139,6 +161,7 @@ const CALLS = [
   ["list_meetings", {}],
   ["list_contacts", {}],
   ["list_channel_days", {}],
+  ["evaluate_lists", { path: "1-projects/about.md" }],
 ];
 
 for (const scope of ["private", "team"]) {
@@ -153,6 +176,12 @@ for (const scope of ["private", "team"]) {
       assert.ok(tree.requests.length > 0, `${name} asked the tree`);
       const noteListings = bucket.listings.filter((prefix) => !prefix.startsWith("."));
       assert.deepEqual(noteListings, [], `${name} listed the bucket at ${noteListings.join(", ")}`);
+      // Front matter comes from the tree's props: the only notes a listing
+      // tool opens are the one evaluate_lists was asked to evaluate, and the
+      // front page orient shows whole.
+      const read = new Set(["privacy.md", "index.md", "index-private.md", args.path]);
+      const opened = bucket.gets.filter((key) => !key.startsWith(".") && !read.has(key));
+      assert.deepEqual(opened, [], `${name} opened ${opened.join(", ")}`);
     }
   });
 }
@@ -161,7 +190,7 @@ test("one call reads the tree once: later listings in it reuse what came back", 
   const bucket = bucketOf(NOTES);
   const tree = treeOf(bucket, { pageSize: 100 });
   await callTool("orient", {}, served(bucket, tree), "private");
-  assert.equal(tree.requests.length, 1);
+  assert.equal(tree.requests.filter((request) => request.ask === undefined).length, 1, "one manifest request");
 });
 
 test("a folder listing asks for that folder's subtree, a page at a time", async () => {
@@ -197,33 +226,49 @@ test("the tree only narrows: a key it holds back is absent even where the bucket
   assert.doesNotMatch(answer.content[0].text, /1-projects\/beta\.md/);
 });
 
-test("a workspace the tree does not serve answers from the bucket", async () => {
-  const bucket = bucketOf(NOTES);
-  const tree = treeOf(bucket, { served: false });
-  const expected = await callTool("list_notes", {}, bucketOf(NOTES), "private");
-  const actual = await callTool("list_notes", {}, served(bucket, tree), "private");
-  assert.deepEqual(actual, expected);
-  assert.equal(tree.requests.length, 1, "asked once, then the bucket for the rest of the call");
-  assert.ok(bucket.listings.some((prefix) => !prefix.startsWith(".")));
+test("a workspace the tree does not serve is told it is still loading, and its bucket is not listed", async () => {
+  for (const [name, args] of CALLS) {
+    const bucket = bucketOf(NOTES);
+    const tree = treeOf(bucket, { served: false });
+    const answer = await callTool(name, args, served(bucket, tree), "private");
+    if (name === "orient") {
+      assert.ok(!answer.isError, "orient still answers");
+      assert.match(answer.content[0].text, /still loading/);
+    } else {
+      assert.equal(answer.isError, true, `${name} says it cannot list`);
+      assert.equal(answer.content[0].text, TREE_LOADING);
+    }
+    // Once per subtree asked side by side (list_channel_days asks for each
+    // channel's folder at once), and never again after the refusal.
+    const asked = tree.requests.filter((request) => request.ask === undefined).length;
+    assert.ok(asked >= 1 && asked <= 3, `${name} asked ${asked} times`);
+    assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), [], `${name} listed the bucket`);
+  }
 });
 
-test("a failed request answers from the bucket", async () => {
+test("a failed request says so, and lists nothing", async () => {
   const bucket = bucketOf(NOTES);
   const tree = treeOf(bucket, { served: new Error("control plane timed out") });
-  const expected = await callTool("orient", {}, bucketOf(NOTES), "team");
-  const actual = await callTool("orient", {}, served(bucket, tree), "team");
-  assert.deepEqual(actual, expected);
+  const answer = await callTool("list_notes", {}, served(bucket, tree), "team");
+  assert.equal(answer.isError, true);
+  assert.equal(answer.content[0].text, TREE_UNREACHABLE);
   assert.equal(tree.requests.length, 1);
+  assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), []);
 });
 
-test("a tool outside the six, writes included, never asks the tree", async () => {
+test("a tool outside the six never lists from the tree; a new note asks it only for its name check", async () => {
   const bucket = bucketOf(NOTES);
   bucket.put = async (key, body) => {
     bucket.objects.set(key, { text: String(body), etag: "new", uploaded: Date.now() });
     return { key, etag: "new" };
   };
-  const tree = treeOf(bucket);
+  // No facts route, so a write's chaos report (`chaos/change.js`, which asks
+  // the tree for the score on purpose) stays out of this count of listings.
+  const { facts: _facts, ...tree } = treeOf(bucket);
   await callTool("write_note", { path: "1-projects/gamma.md", content: "# Gamma\n" }, served(bucket, tree), "private");
+  // A new note asks whether its name twins a sibling (`tree/twins.js`), of the tree and not the bucket.
+  assert.ok(tree.requests.length >= 1, "the name check asked the tree");
+  tree.requests.length = 0;
   await callTool("read_note", { path: "1-projects/beta.md" }, served(bucket, tree), "private");
   // Search lists the bucket when it has no index, and is not one of the six.
   await callTool("search_notes", { query: "alpha" }, served(bucket, tree), "private");
@@ -243,9 +288,12 @@ test("plumbing is listed from the bucket", async () => {
   assert.equal(tree.requests.length, 0);
 });
 
-test("a store with no control plane is handed back unchanged", () => {
+test("a store with no control plane lists its own bucket: there is no tree to ask", async () => {
   const bucket = bucketOf(NOTES);
-  assert.equal(servedListingStore(bucket), bucket);
+  const store = servedListingStore(bucket);
+  const keys = await store.treeKeys();
+  assert.ok(keys.includes("1-projects/beta.md") && !keys.some((key) => key.startsWith(".")));
+  assert.ok(bucket.listings.length > 0);
 });
 
 test("listings page by key, and one level answers folders as delimited prefixes", async () => {
@@ -275,9 +323,9 @@ test("a manifest that repeats its cursor is not followed forever", async () => {
       },
     })
   );
-  const listed = await store.list({ prefix: "" });
-  assert.ok(listed.objects.length > 1, "the bucket answered");
+  await assert.rejects(store.list({ prefix: "" }), (error) => error instanceof TreeUnavailable && error.reason === "unreachable");
   assert.equal(asked, 2);
+  assert.deepEqual(bucket.listings, [], "the bucket was not listed instead");
 });
 
 test("the control-plane call spends the person's token and names no scope", async () => {
@@ -299,4 +347,22 @@ test("the control-plane call spends the person's token and names no scope", asyn
   assert.deepEqual(await methods.readTreeManifest("tok", "ws_1"), { served: false });
   answer = { served: true, entries: "nope", cursor: null };
   await assert.rejects(methods.readTreeManifest("tok", "ws_1"), /malformed tree manifest/);
+});
+
+test("a tree answer may be larger than the 256 KB every other control-plane answer is held to", async () => {
+  const { createControlPlane } = await import("../src/controlPlane/index.js");
+  const { CONTROL_PLANE_RESPONSE_BYTE_CAP } = await import("../src/controlPlane/client.js");
+  // Five thousand names: past 256 KB, which refused every workspace of more
+  // than about three thousand notes and sent it to the bucket (2026-10-13).
+  const entries = Array.from({ length: 5000 }, (_, n) => ({ path: `1-projects/some-project/a-note-of-a-usual-length-${n}.md`, etag: `"${"0".repeat(32)}"`, size: 1000, updatedAt: 1 }));
+  const big = JSON.stringify({ served: true, entries, cursor: null });
+  assert.ok(big.length > CONTROL_PLANE_RESPONSE_BYTE_CAP);
+  const controlPlane = createControlPlane(
+    { CONTROL_PLANE_URL: "https://control.example", GATEWAY_SECRET: "test-secret" },
+    { fetchImpl: async () => new Response(big, { status: 200, headers: { "Content-Type": "application/json" } }) },
+  );
+  const page = await controlPlane.readTreeManifest("tok", "ws_1", {});
+  assert.equal(page.entries.length, 5000);
+  // Every other route keeps the small cap.
+  await assert.rejects(controlPlane.resolveSession("tok"), /response too large/);
 });

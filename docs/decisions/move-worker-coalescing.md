@@ -1,5 +1,10 @@
 # One active worker per logical move
 
+*Since 2026-10-13 the gateway starts no new logical move: a large folder
+moves through the Convex move queue ([convex-tree](./app-and-console/convex-tree.md),
+phase 4). This still governs the workers that drain jobs already in a
+bucket.*
+
 Decided 2026-10-08. Large folder moves keep their state in the bucket move
 marker. The control plane holds only a ticket, workspace identity, move ID,
 status, and counts. Creating a second ticket while one is queued or leased

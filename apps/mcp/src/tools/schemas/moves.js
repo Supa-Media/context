@@ -121,7 +121,7 @@ export function searchAndMoveToolDefinitions() {
       name: "move_folder",
       title: "Move folder",
       description:
-        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Folders above 100 visible objects are moved logically immediately and physically synced by a resumable materialization job. Private overrides are preserved and privacy is never implicitly reduced.",
+        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. A folder is moved in one step whatever its size: every app shows it at its new name at once and storage copies behind it; a folder above 100 objects is refused, with a reason, when that queue cannot take it yet. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
         type: "object",
         properties: {
@@ -138,11 +138,11 @@ export function searchAndMoveToolDefinitions() {
       name: "materialize_move",
       title: "Finish folder move",
       description:
-        "Owner-only maintenance command for a logical folder move created by move_folder. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0, or append :inspect to the id in clients with an older batch_size schema, to inspect progress without changing anything. Set resume_background to restart a stalled queued worker.",
+        "Owner-only maintenance command for a logical folder move an earlier version of move_folder left in storage. Copies and verifies a bounded batch of objects, then deletes sources only after every destination is present. Safe to retry until it reports complete. Set batch_size to 0, or append :inspect to the id in clients with an older batch_size schema, to inspect progress without changing anything. Set resume_background to restart a stalled queued worker.",
       inputSchema: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Logical move id returned by move_folder" },
+          id: { type: "string", description: "Logical move id an earlier move_folder returned" },
           batch_size: {
             type: "integer",
             minimum: 0,

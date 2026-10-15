@@ -10,10 +10,13 @@
  *
  * Four properties, each of which fails in a different direction:
  *
- *  1. **A share reads at `team` scope, from the LIVE manifest.** A note that
- *     was team when the share was created and is private now must read as
- *     absent. This is why nothing about visibility is stored on the share row,
- *     and it is the single most important test in this file.
+ *  1. **A share names one note, and the manifest decides everything past
+ *     it.** A note shared with a named person opens for that person wherever
+ *     it lives, private included — Google Drive's rule, decided by the owner
+ *     on 2026-10-14 — but every note it links to is still read at `team`
+ *     scope from the LIVE manifest, so a private note it points at stays
+ *     absent. (Links that name an audience rather than a person keep reading
+ *     the entry note at `team` too: `shareAnyone.test.ts`.)
  *  2. **A share reaches the entry note and its links — nothing else.** Not a
  *     sibling, not a parent, not a note merely mentioned in prose, and not a
  *     note linked from a note that was linked (depth is one, on purpose).
@@ -33,6 +36,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   asUser,
   captureError,
@@ -138,6 +142,8 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
     visibility: "team",
   });
 
+  // The tree copied, as a bound workspace's is: writes ask it which names are taken.
+  await copyTree(t, workspaceId);
   return { t, owner, lk, stranger, workspaceId, backend };
 }
 
@@ -256,13 +262,14 @@ describe("comments stay with the note's own readers", () => {
   });
 });
 
-describe("visibility is read live, on every request", () => {
+describe("a note shared with a named person opens wherever it lives", () => {
   /**
-   * THE test. A share carries no stored visibility, so the answer has to come
-   * from the manifest as it is right now — otherwise "I made that private" does
-   * not take effect until somebody remembers to revoke.
+   * Google Drive's rule (decided by the owner, 2026-10-14): naming somebody in
+   * the share dialog is the yes. Before it, a note in a personal context —
+   * private by default — could be "shared" with somebody who could never open
+   * it, which is the bug that started this.
    */
-  test("making the entry note private kills the share without revoking it", async () => {
+  test("making the entry note private does not take it from the person it was shared with", async () => {
     const f = await fixture();
     const token = await shareEntry(f);
     expect((await read(f, f.lk, token)).path).toBe(ENTRY);
@@ -273,24 +280,63 @@ describe("visibility is read live, on every request", () => {
       visibility: "private",
     });
 
-    const error = await captureError(() => read(f, f.lk, token));
-    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+    const result = await read(f, f.lk, token);
+    expect(result.path).toBe(ENTRY);
+    expect(result.text).toContain("# Chapter transition");
   });
 
-  test("making the whole folder private kills it too", async () => {
+  test("a note in a private folder can be shared with one person", async () => {
     const f = await fixture();
-    const token = await shareEntry(f);
+    const token = await shareEntry(f, PRIVATE_NOTE);
 
-    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
-      workspaceId: f.workspaceId,
-      path: "1-projects",
-      visibility: "private",
+    const result = await read(f, f.lk, token);
+    expect(result.text).toContain(PRIVATE_MARKER);
+  });
+
+  test("and only with that person: anybody else holding the link gets nothing", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f, PRIVATE_NOTE);
+
+    const error = await captureError(() => read(f, f.stranger, token));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+    expect(JSON.stringify((error as { data?: unknown }).data)).not.toContain(PRIVATE_MARKER);
+  });
+
+  /**
+   * Exactly one read widens: the note the owner named. A private note it
+   * links to is not named, so it stays behind the manifest — otherwise
+   * sharing one note would hand over everything it points at.
+   */
+  test("the private notes a shared private note links to stay private", async () => {
+    const f = await fixture();
+    const PLAN = "2-areas/plan.md";
+    f.backend.seed(PLAN, "# Plan\n\nThe numbers are in [salaries](salaries.md).\n");
+    const token = await shareEntry(f, PLAN);
+
+    expect((await read(f, f.lk, token)).links).toContain(PRIVATE_NOTE);
+    const error = await captureError(() => read(f, f.lk, token, PRIVATE_NOTE));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+    expect(JSON.stringify((error as { data?: unknown }).data)).not.toContain(PRIVATE_MARKER);
+  });
+
+  test("revoking the share is how the owner takes it back", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f, PRIVATE_NOTE);
+    expect((await read(f, f.lk, token)).text).toContain(PRIVATE_MARKER);
+
+    const share = await f.t.run((ctx) =>
+      ctx.db.query("noteShares").withIndex("by_token", (q) => q.eq("token", token)).unique(),
+    );
+    await asUser(f.t, f.owner).mutation(api.functions.shares.revokeShare, {
+      shareId: share!._id,
     });
 
     const error = await captureError(() => read(f, f.lk, token));
     expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
   });
+});
 
+describe("what a share reaches past its entry note is read live, on every request", () => {
   /**
    * A link is a fact about the text; visibility is a fact about the manifest.
    * The entry note links to a private note, and linking it must not publish it.

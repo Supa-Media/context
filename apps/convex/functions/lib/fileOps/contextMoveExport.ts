@@ -43,7 +43,9 @@ import { isFolder } from "./walk";
  * have required a second credential barrier to exist, holding two customers'
  * plaintext secrets in one scope. The enumeration in
  * `__tests__/structure.test.ts` says what that costs; this is the shape that
- * does not pay it.
+ * does not pay it. (The gateway's mover, where it is set, is the one place
+ * that holds both, for one batch, by the owner's choice: see
+ * `lib/contextMoveMover.ts` and `planContextMoveBatch` below.)
  *
  * The order is copy, verify, delete, per batch, which is the discipline the
  * gateway's `materialize_move` already uses: nothing is removed from the
@@ -76,10 +78,11 @@ export const CONTEXT_MOVE_BATCH_OBJECTS = 40;
  * Convex caps a function's arguments and return value at 16 MiB, and one batch
  * crosses that boundary twice — out of the export barrier and into the import
  * one — so the real ceiling is well under half of it. Eight megabytes leaves
- * room for the paths and etags travelling beside the bodies, and a single
- * object larger than this is still carried: the check is made *before* each
- * read rather than after, so a batch always carries at least one object and a
- * move can never wedge on a note it refuses to pick up.
+ * room for the paths and etags travelling beside the bodies. The check is made
+ * *before* each read rather than after, so a batch always carries at least one
+ * object; one object larger than this on its own is never picked up at all but
+ * left in place and named (`CONTEXT_MOVE_OBJECT_MAX_BYTES`), so a move can
+ * never wedge on it either.
  */
 export const CONTEXT_MOVE_BATCH_BYTES = 8 * 1024 * 1024;
 
@@ -116,10 +119,19 @@ export interface ContextMoveObject {
   sourceVisibility: "private" | "team";
 }
 
+/**
+ * One object larger than this is left where it is, named, rather than read:
+ * a batch crosses the 16 MiB argument limit twice, and reading it whole could
+ * overflow the action. Carrying such a file across in parts needs a seal that
+ * works in parts for a managed destination, which is a decision still open
+ * (project file `move-engine/plan.md`, step D).
+ */
+export const CONTEXT_MOVE_OBJECT_MAX_BYTES = CONTEXT_MOVE_BATCH_BYTES;
+
 /** A key this move will not carry, and the reason it can be shown. */
 export interface ContextMoveSkip {
   path: string;
-  reason: "encrypted";
+  reason: "encrypted" | "too_large";
 }
 
 export interface ContextMoveExport {
@@ -162,11 +174,11 @@ export function landingVisibility(
  * For the destination picker: "move this into @work" needs @work's folders,
  * and the console's tree only ever holds the folders of the context it is
  * standing in. Asking for them one `listFiles` at a time would be one Convex
- * action — and one bucket credential — per folder, so the walk happens here,
- * inside the single call that already has the store open.
+ * action per folder, so the walk happens here, in one call. The store is the
+ * Convex tree's (`lib/nodes/treeReads.ts`): its listings are the rows, and no
+ * bucket is opened for it (decided by the owner, 2026-10-13).
  *
- * Bounded twice over, because the bucket is a customer's and somebody is
- * waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
+ * Bounded twice over, because somebody is waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
  * listings. Past either it reports `truncated` and returns what it has, which
  * is the honest shape for a picker — a short list somebody can still use beats
  * a refusal, and the destination they wanted can always be typed into a
@@ -237,6 +249,88 @@ export async function listFolderPaths(
 }
 
 /**
+ * What the next batch of a move out of this context would carry, by name: the
+ * listing half of `exportContextMoveBatch`, with every check it makes before
+ * the first read. `planContextMoveBatch` stops here, so the files themselves
+ * can be carried by the gateway's mover without passing through this
+ * deployment; the export goes on to read them.
+ */
+async function listMoveCandidates(
+  store: FileStore,
+  options: { from: string; to: string; clearance: Clearance; skip?: readonly string[]; limit?: number },
+) {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(from);
+  assertWritablePath(to);
+  // Before the first read, not after the first copy: a move that discovered
+  // this on the way to retiring a source would already have written the
+  // destination, and the only way out of that is a duplicate.
+  assertSourceCanRetire(store);
+
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read in the context this is moving out of. Nothing was moved.",
+    );
+  }
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+    throw notFound();
+  }
+
+  const limit = options.limit ?? CONTEXT_MOVE_BATCH_OBJECTS;
+  const skip = new Set(options.skip ?? []);
+
+  const sourceIsFolder = await isFolder(store, from);
+  const candidates: { key: string; size?: number }[] = [];
+  let remaining = false;
+
+  if (!sourceIsFolder) {
+    if (!skip.has(from)) candidates.push({ key: from });
+  } else {
+    const prefix = `${from}/`;
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    pages: for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      const listing = await store.list({ prefix, cursor, limit: 1_000 });
+      for (const object of listing.objects ?? []) {
+        const key = object.key;
+        if (isPlumbing(key)) continue;
+        if (skip.has(key)) continue;
+        if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+          // Only reachable if this ever runs at `team`, which it does not:
+          // starting a move out of a context requires owning it, and an owner
+          // reads at `private`. Kept because "the caller sees everything" is an
+          // argument about a caller, and this function takes a clearance.
+          continue;
+        }
+        if (candidates.length >= limit) {
+          remaining = true;
+          break pages;
+        }
+        // Every adapter lists a size; the store's type here only promises the key.
+        const size = (object as { size?: unknown }).size;
+        candidates.push(typeof size === "number" ? { key, size } : { key });
+      }
+      if (!listing.truncated) break;
+      if (!listing.cursor || seen.has(listing.cursor)) {
+        // A store that will not page is not a store this can finish against,
+        // and saying so beats moving an arbitrary prefix of a folder.
+        throw new FileOpError(
+          "LISTING_INCOMPLETE",
+          "That folder could not be listed to the end, so nothing more was moved. Try again.",
+        );
+      }
+      seen.add(listing.cursor);
+      cursor = listing.cursor;
+    }
+  }
+
+  return { from, to, state, sourceIsFolder, candidates, remaining };
+}
+
+/**
  * Read the next bounded piece of what is moving out of this context.
  *
  * **It lists from the beginning of the subtree every time, and that is the
@@ -269,85 +363,33 @@ export async function exportContextMoveBatch(
     maxBytes?: number;
   },
 ): Promise<ContextMoveExport> {
-  const from = requirePath(options.from);
-  const to = requirePath(options.to);
-  assertWritablePath(from);
-  assertWritablePath(to);
-  // Before the first read, not after the first copy: a move that discovered
-  // this on the way to retiring a source would already have written the
-  // destination, and the only way out of that is a duplicate.
-  assertSourceCanRetire(store);
-
-  const state = await loadPrivacyState(store);
-  if (state.invalid) {
-    throw new FileOpError(
-      "PRIVACY_MANIFEST_INVALID",
-      "privacy.md could not be read in the context this is moving out of. Nothing was moved.",
-    );
-  }
-  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
-    throw notFound();
-  }
-
-  const limit = options.limit ?? CONTEXT_MOVE_BATCH_OBJECTS;
+  const { from, to, state, sourceIsFolder, candidates, remaining } = await listMoveCandidates(store, options);
   const maxBytes = options.maxBytes ?? CONTEXT_MOVE_BATCH_BYTES;
-  const skip = new Set(options.skip ?? []);
-
-  const sourceIsFolder = await isFolder(store, from);
-  const candidates: string[] = [];
-  let remaining = false;
-
-  if (!sourceIsFolder) {
-    if (!skip.has(from)) candidates.push(from);
-  } else {
-    const prefix = `${from}/`;
-    const seen = new Set<string>();
-    let cursor: string | undefined;
-    pages: for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-      const listing = await store.list({ prefix, cursor, limit: 1_000 });
-      for (const object of listing.objects ?? []) {
-        const key = object.key;
-        if (isPlumbing(key)) continue;
-        if (skip.has(key)) continue;
-        if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
-          // Only reachable if this ever runs at `team`, which it does not:
-          // starting a move out of a context requires owning it, and an owner
-          // reads at `private`. Kept because "the caller sees everything" is an
-          // argument about a caller, and this function takes a clearance.
-          continue;
-        }
-        if (candidates.length >= limit) {
-          remaining = true;
-          break pages;
-        }
-        candidates.push(key);
-      }
-      if (!listing.truncated) break;
-      if (!listing.cursor || seen.has(listing.cursor)) {
-        // A store that will not page is not a store this can finish against,
-        // and saying so beats moving an arbitrary prefix of a folder.
-        throw new FileOpError(
-          "LISTING_INCOMPLETE",
-          "That folder could not be listed to the end, so nothing more was moved. Try again.",
-        );
-      }
-      seen.add(listing.cursor);
-      cursor = listing.cursor;
-    }
-  }
 
   const objects: ContextMoveObject[] = [];
   const skipped: ContextMoveSkip[] = [];
   let carried = 0;
   let looked = 0;
-  for (const key of candidates) {
+  for (const { key } of candidates) {
     // Checked before the read, so one object over the ceiling is still carried
     // rather than refused forever. The pass after this one starts behind it.
     if (carried > 0 && carried >= maxBytes) break;
     looked += 1;
+    // Sized before it is read, where the store can say: a recording or a video
+    // in the folder stays, named, instead of wedging every batch after it.
+    const meta = typeof store.head === "function" ? await store.head(key) : undefined;
+    if (meta === null) continue; // deleted underneath us; nothing to carry
+    if (typeof meta?.size === "number" && meta.size > CONTEXT_MOVE_OBJECT_MAX_BYTES) {
+      skipped.push({ path: key, reason: "too_large" });
+      continue;
+    }
     const object = await store.get(key);
     if (object === null) continue; // deleted underneath us; nothing to carry
     let bytes = await object.arrayBuffer();
+    if (bytes.byteLength > CONTEXT_MOVE_OBJECT_MAX_BYTES) {
+      skipped.push({ path: key, reason: "too_large" });
+      continue;
+    }
     const sourceText = key.endsWith(".md") ? new TextDecoder().decode(bytes) : null;
     if (sourceText !== null && isEncryptedNote(sourceText)) {
       /*
@@ -399,6 +441,61 @@ export async function exportContextMoveBatch(
   // here rather than set at each `break` above, because the two ceilings and
   // the skip both leave work behind and only one of them is a loop exit.
   return { objects, skipped, remaining: remaining || looked < candidates.length };
+}
+
+/** One file of a batch the gateway's mover will carry: names and a size, never a byte. */
+export interface PlannedContextMoveObject {
+  source: string;
+  destination: string;
+  /** From the listing, so the mover can bound what it holds at once. */
+  size: number;
+  sourceVisibility: "private" | "team";
+}
+
+/**
+ * The next batch of a move out of this context, by name only, for the
+ * gateway's mover to carry (`apps/mcp/src/moves/contextMovePage.js`).
+ *
+ * The same listing and the same checks as `exportContextMoveBatch`; what that
+ * function then learns by reading each file (a note encrypted to this
+ * context, a file too large) the mover learns where it reads it, and reports
+ * by name. A file the listing already shows to be over `maxObjectBytes` is
+ * left behind here, unread.
+ */
+export async function planContextMoveBatch(
+  store: FileStore,
+  options: {
+    from: string;
+    to: string;
+    clearance: Clearance;
+    skip?: readonly string[];
+    limit?: number;
+    maxObjectBytes: number;
+  },
+): Promise<{ objects: PlannedContextMoveObject[]; skipped: ContextMoveSkip[]; remaining: boolean }> {
+  const { from, to, state, sourceIsFolder, candidates, remaining } = await listMoveCandidates(store, options);
+  if (!sourceIsFolder && candidates.length > 0 && typeof store.head === "function") {
+    // One file is named, not listed: ask the bucket whether it is there (and
+    // how large) without reading it, as the export learns by reading it.
+    const meta = await store.head(from);
+    if (meta === null) return { objects: [], skipped: [], remaining: false };
+    if (typeof meta.size === "number") candidates[0] = { key: from, size: meta.size };
+  }
+  const objects: PlannedContextMoveObject[] = [];
+  const skipped: ContextMoveSkip[] = [];
+  for (const { key, size } of candidates) {
+    if (typeof size === "number" && size > options.maxObjectBytes) {
+      skipped.push({ path: key, reason: "too_large" });
+      continue;
+    }
+    objects.push({
+      source: key,
+      destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
+      size: typeof size === "number" ? size : 0,
+      sourceVisibility: effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
+    });
+  }
+  return { objects, skipped, remaining };
 }
 
 /**

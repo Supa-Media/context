@@ -81,4 +81,14 @@ export const waitlistTables = {
     userId: v.id("users"),
     createdAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  /**
+   * Staff who asked to be mailed when a folder move's copy in the bucket falls
+   * behind the file tree (`storageLag.ts`). Same shape and same send-time
+   * staff check as signup alerts.
+   */
+  storageLagSubscribers: defineTable({
+    userId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
 };

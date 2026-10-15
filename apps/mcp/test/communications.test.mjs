@@ -235,6 +235,7 @@ export async function runCommunicationsChecks(check) {
       COMMS_BUCKET: bucket,
       SHARED_COMMS_BUCKET: sharedBucket,
     };
+    controlPlane.serveTreesFrom(env);
 
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
     bucket.seed("index.md", "# The front page");

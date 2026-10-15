@@ -122,6 +122,13 @@ export function classifyWriteFailure(error: FileError): WriteOutcome {
   if (error.code === "CONFLICT") {
     return { kind: "conflict", currentEtag: error.currentEtag, message: error.message };
   }
+  // The note moved away from this name while the edit waited (a queued folder
+  // move): parked as a conflict with no current version, like a note deleted
+  // meanwhile, so the edit is kept for the person to place, never retried
+  // against a name that can no longer take it.
+  if (error.code === "MOVED") {
+    return { kind: "conflict", message: error.message };
+  }
   if (TRANSIENT_CODES.has(error.code)) {
     return { kind: "failed", message: error.message };
   }
@@ -179,6 +186,8 @@ export interface OpSent {
   path: string;
   /** For a move: where the note is now. */
   to?: string;
+  /** For a delete: the trash key it went to, when the server said — what Restore takes it back from. */
+  trash?: string;
   /** The note's version where the op left it, when the server said. */
   etag?: string;
   /** The op's `updatedAt` when it went — see `Sent.sentUpdatedAt`. */
@@ -335,6 +344,7 @@ export async function drainOutbox(
         kind: op.kind,
         path: op.path,
         ...(op.to === undefined ? {} : { to: op.to }),
+        ...(op.kind === "trash" && outcome.to !== undefined ? { trash: outcome.to } : {}),
         ...(outcome.etag === undefined ? {} : { etag: outcome.etag }),
         sentUpdatedAt: op.updatedAt,
       };
