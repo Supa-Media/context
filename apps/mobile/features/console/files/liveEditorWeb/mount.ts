@@ -27,6 +27,7 @@ import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
 import { propertySlot } from "./propertySlot";
 import { comments } from "../comments/extension";
+import { noteMail } from "../mail/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
@@ -220,6 +221,8 @@ export function mountEditor({
       }),
       commentRail,
       commentSheet({ placement: "viewport" }),
+      // Mail at the note's end, folded to one line; signed like comments (files/mail/).
+      noteMail(),
       // Folder lists. The iOS guest asks its host for the same notes over the
       // bridge (`webview/guestExtras.ts`).
       listHost.of(lists),
