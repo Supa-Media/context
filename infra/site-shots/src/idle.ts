@@ -7,8 +7,8 @@
  * vendor's own `timeout` (`SESSION_LIFETIME_S`) is only the ceiling and this
  * is what ends a browser early.
  *
- * One Durable Object per person, named by the owner tag, holding that tag and
- * an alarm and nothing else: never the session id, which is found again by the
+ * One Durable Object per person, named by the owner tag, holding that tag,
+ * its deadline and an alarm, and nothing else: never the session id, which is found again by the
  * tag when the alarm fires, as every question finds it (./browserbase.ts).
  * Without the binding (a self-hoster, or a test) the ceiling alone applies.
  */
@@ -42,8 +42,12 @@ export class IdleTimer {
   ) {}
 
   async touch(owner: string): Promise<void> {
+    const until = this.now() + IDLE_MS;
     await this.storage.put("owner", owner);
-    await this.storage.setAlarm(this.now() + IDLE_MS);
+    // The deadline is kept, not read back from the alarm: an alarm can run
+    // more than once, and inside its handler getAlarm says nothing of a touch.
+    await this.storage.put("until", until);
+    await this.storage.setAlarm(until);
   }
 
   /**
@@ -60,9 +64,12 @@ export class IdleTimer {
       let ids: string[];
       try {
         ids = owner ? await ownerSessionIds(this.env, owner, this.fetcher) : [];
-        // Touched again since this alarm was due: the browser is in use, so it stays.
-        const next = await this.storage.getAlarm();
-        if (next !== null && next > this.now()) return;
+        // Used since this alarm was set: the browser stays until its own deadline.
+        const until = await this.storage.get<number>("until");
+        if (typeof until === "number" && until > this.now()) {
+          await this.storage.setAlarm(until);
+          return;
+        }
         for (const id of ids) await releaseSession(this.env, id, this.fetcher);
       } catch {
         console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));

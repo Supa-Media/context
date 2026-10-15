@@ -54,7 +54,7 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     now += 4 * 60 * 1000;
     await timer.touch(OWNER);
     expect(store.alarm()).toBe(now + IDLE_MS);
-    expect([...store.data.keys()]).toEqual(["owner"]);
+    expect([...store.data.keys()].sort()).toEqual(["owner", "until"]);
     expect(IDLE_MS).toBe(5 * 60 * 1000);
   });
 
@@ -90,21 +90,20 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     expect(released(api.calls)).toEqual(["https://api.browserbase.com/v1/sessions/one", "https://api.browserbase.com/v1/sessions/two"]);
   });
 
-  it("keeps a browser that was used again while the alarm was looking it up", async () => {
+  it("keeps a browser used since the alarm was set, even when an old alarm runs again", async () => {
     const store = fakeStorage();
     let now = 0;
     const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);
-    const racing = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      // A step arrives during the lookup and pushes the end out again.
-      if (String(input).endsWith("?status=RUNNING")) await store.storage.setAlarm(now + IDLE_MS);
-      return await api.fetcher(input, init);
-    }) as typeof fetch;
-    const timer = new IdleTimer(store.storage, ENV, racing, () => now);
+    const timer = new IdleTimer(store.storage, ENV, api.fetcher, () => now);
     await timer.touch(OWNER);
-    now += IDLE_MS;
-    store.clearAlarm();
+    now += IDLE_MS - 1000;
+    await timer.touch(OWNER); // used just before the first deadline
+    const deadline = now + IDLE_MS;
+    now += 1000;
+    store.clearAlarm(); // the first alarm, delivered (again) with getAlarm saying nothing
     await timer.alarm();
     expect(released(api.calls)).toEqual([]);
+    expect(store.alarm()).toBe(deadline);
     expect(store.data.get("owner")).toBe(OWNER);
   });
 
