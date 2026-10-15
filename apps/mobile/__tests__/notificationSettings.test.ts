@@ -9,7 +9,7 @@ const mockEnable = jest.fn<() => Promise<"registered" | "denied" | "failed">>();
 jest.mock("../features/notifications/device", () => ({ enableNotifications: () => mockEnable() }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalOS = Platform.OS;
-beforeEach(() => Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" }));
+beforeEach(() => { Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" }); });
 afterEach(() => {
   mockEnable.mockReset();
   Object.defineProperty(Platform, "OS", { configurable: true, value: originalOS });

@@ -57,7 +57,7 @@ test("native Premium retains its organizer controls and storage recovery", async
     const view = { ...base, retryManagedStorage: retry, status: {
       ...base.status!, status: "active" as const, freeManaged: true,
       selected: { managedStorage: true, fastSearch: false },
-      managedProvisioning: "failed" as const, managedMigrationPhase: "copy",
+      managedProvisioning: "failed" as const, managedMigrationPhase: "copy" as const,
     } };
     act(() => root.render(createElement(PremiumBody, { view, autoOrganize: {
       top: createElement("span", null, "Sorting progress"),
