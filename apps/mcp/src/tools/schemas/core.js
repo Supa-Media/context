@@ -113,7 +113,9 @@ export function coreToolDefinitions() {
           path: { type: "string", description: "e.g. '1-projects/togather/status.md'" },
           mail: {
             type: ["boolean", "string"],
-            enum: [true, "new", "all"],
+            // "true" too: an app whose copy of this tool predates mail sends
+            // the footer's `mail: true` as text.
+            enum: [true, "true", "new", "all"],
             description:
               "Read the note's mail instead of its text. true: what is new for your mailbox (all of it without one); \"all\": every message.",
           },

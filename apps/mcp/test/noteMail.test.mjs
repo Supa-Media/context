@@ -209,6 +209,14 @@ test("any call with the mailbox says mail is new, until it is read", async () =>
   assert.ok(!/mail: \d+ new/.test(after.text), after.text);
 });
 
+test('an app whose copy of read_note predates mail sends mail: "true" as a string, and is understood', async () => {
+  // Such an app has no schema for the argument, so it passes the footer's
+  // `mail: true` through as text. Refusing it would break the line we print.
+  const read = await call(TOKEN_BUILDER, "read_note", { path: PLAN, mail: "true", mailbox: builder });
+  assert.ok(!read.isError, read.text);
+  assert.match(read.text, /mail: \d+ messages/);
+});
+
 test("mail to one name reaches only that name; the sender is never told of its own", async () => {
   await call(TOKEN_BUILDER, "write_note", { path: PLAN, mailbox: builder, mail: { text: "Pricing done.", to: "lead" } });
   const builderSees = await call(TOKEN_BUILDER, "orient", { mailbox: builder });
