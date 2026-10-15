@@ -144,6 +144,27 @@ function meetingIdOf(entry) {
   return entry.props.properties["meeting-id"];
 }
 
+/**
+ * The path a meeting's note will occupy, avoiding one that is already taken.
+ *
+ * `meetingNotePath` already ends in a short form of the session id, so a
+ * collision means either a retry of this same session (which reuses the path
+ * out of the record and never reaches here) or a note somebody else's tooling
+ * put there. Suffixing rather than overwriting mirrors `uniqueSessionPath` in
+ * `index.js`: a gateway that overwrites an unrelated note to file a meeting has
+ * destroyed something no version history of ours can give back.
+ *
+ * "Taken" is the tree's answer (`takenInTree`, the same question
+ * `resolveMeetingNotePath` asks), never a GET of the candidate. A tree that
+ * cannot answer throws `TreeUnavailable` before the session record is written,
+ * so nothing is claimed and the finalize is retried (the `503` in
+ * `handleMeetings`).
+ */
+export async function unclaimedNotePath(store, candidate) {
+  if (!(await takenInTree(store, [candidate])).files.has(candidate)) return candidate;
+  return candidate.replace(/\.md$/, `-${crypto.randomUUID().slice(0, 8)}.md`);
+}
+
 export async function publishMeetingNote(store, scope, { path, markdown, segmentCount }) {
   const notePath = normalizePath(path);
   if (!notePath || !notePath.endsWith(".md")) {
