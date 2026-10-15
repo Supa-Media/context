@@ -455,21 +455,35 @@ function applyChanges(text, changes) {
 }
 
 /**
- * The note without its comments: markers gone and the block removed. For
- * every surface that publishes a note beyond its readers (share links,
- * websites), where comments are never shown.
+ * `text` without every closed fenced block carrying `info`.
+ *
+ * All of them, not the last one: `findBlock` answers the last because that is
+ * the one a new comment is appended to, and stripping borrowed it. They are
+ * not the same question. A note gets a second block from a paste, a
+ * hand-edit, or two writers each starting one where there was none, and a
+ * block left behind here is published word for word to everybody holding the
+ * link. Stripping is the side that must assume nothing.
  */
-function stripComments(text) {
-  const source = typeof text === "string" ? text : "";
-  const block = findBlock(source);
-  let out = source;
-  if (block) {
+function stripBlocks(text, info) {
+  let out = typeof text === "string" ? text : "";
+  for (;;) {
+    const blocks = fencedBlocks(out).filter((block) => block.info === info && block.closed);
+    const block = blocks.length ? blocks[blocks.length - 1] : null;
+    if (block === null) return out;
     let start = block.start;
     while (start > 0 && out[start - 1] === "\n") start -= 1;
     const tail = out.slice(block.end);
     out = out.slice(0, start) + (start > 0 ? "\n" : "") + tail.replace(/^\n+/, "");
   }
-  return out.replace(MARKER_RE, "");
+}
+
+/**
+ * The note without its comments: markers gone and every comments block
+ * removed. For every surface that publishes a note beyond its readers (share
+ * links, websites), where comments are never shown.
+ */
+function stripComments(text) {
+  return stripBlocks(text, "comments").replace(MARKER_RE, "");
 }
 
 /** One line for an agent: how many threads are open and on what. */
@@ -492,6 +506,7 @@ module.exports = {
   closeMarker,
   findBlock,
   findAnchors,
+  stripBlocks,
   parseComments,
   sanitizeAuthor,
   newThreadId,
