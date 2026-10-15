@@ -246,13 +246,20 @@ async function writeLog(dispatch, path, entry, { now, timeZone }) {
 }
 
 /**
- * `/agent` for the dreams client. Only that client dreams, and it does
- * nothing else; both decided by the grant, never by the body.
+ * `/agent` for the dreams client (`http/route.js` sends it here by the
+ * grant's client, never by the body): it dreams, and does nothing else. A
+ * `dream` body from any other client goes to the ordinary turn, which has
+ * no use for it.
  */
-export async function handleDream(body, env, store, session, controlPlane) {
-  const dreamer = session.actorClientId === DREAMS_CLIENT_ID;
-  const asked = body.dream !== undefined && body.dream !== null && typeof body.dream === "object" && !Array.isArray(body.dream);
-  if (!dreamer) return json({ error: "invalid_request", error_description: "Only Tex's dreams dream." }, 403);
+export async function handleDream(request, env, store, session, controlPlane) {
+  if (session.actorClientId !== DREAMS_CLIENT_ID) return json({ error: "invalid_request", error_description: "Only Tex's dreams dream." }, 403);
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    body = null;
+  }
+  const asked = body?.dream !== undefined && body.dream !== null && typeof body.dream === "object" && !Array.isArray(body.dream);
   if (!asked) return json({ error: "invalid_request", error_description: "This connection only dreams." }, 400);
 
   store.actor = actorFor(session);

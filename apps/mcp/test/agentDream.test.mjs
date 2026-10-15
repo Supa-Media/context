@@ -14,8 +14,7 @@
  *     → "a dream's dispatcher refuses every write but the note's own text…" fails.
  *  2. `handleDream` running the model on a night with no transcripts.
  *     → "a quiet night is nothing_new and costs no model turn" fails.
- *  3. `route.js` sending a dream body from any client to `handleDream` unchecked
- *     (the `dreamer` test in `handleDream` removed).
+ *  3. `http/route.js` sending the dreams client to the ordinary turn.
  *     → "only the dreams client dreams" fails.
  *  4. `dreamEntry` leaving out the removed lines.
  *     → "the log says exactly what changed…" fails.
@@ -212,7 +211,7 @@ export async function runAgentDreamChecks(check) {
     const asked = await ask(env, TOKEN_DREAMS, { question: "what's on my list?" });
     check(
       "only the dreams client dreams, and it does nothing else",
-      texted.status === 403 && asked.status === 400 && model.requests.length === 0,
+      texted.status === 400 && asked.status === 400 && model.requests.length === 0,
     );
 
     /* ---------------- a dream that learns ---------------- */
