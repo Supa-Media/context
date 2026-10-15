@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser } from "./fixtures.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -27,8 +27,13 @@ const ENCRYPTED = "---\ncontext_encryption: v1\n---\n\n```context-encrypted\nAAA
 const resolve = (f: Fixture, routePath: string) =>
   f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath });
 
-/** The scan every save queues: it applies restrictions and publishes nothing. */
+/**
+ * The scan every save queues: it applies restrictions and publishes nothing.
+ * Notes the test seeded into the bucket reach the tree first, as the sweep
+ * (or a product write's touch) would have them there before a scan lists them.
+ */
 async function rebuild(f: Fixture): Promise<void> {
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
   });
@@ -36,6 +41,7 @@ async function rebuild(f: Fixture): Promise<void> {
 
 /** Someone pressing Publish again. */
 async function publishAgain(f: Fixture): Promise<void> {
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
     publish: true,

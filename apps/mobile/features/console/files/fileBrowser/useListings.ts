@@ -545,7 +545,7 @@ export function useListings(deps: ListingsDeps) {
     void (async () => {
       try {
         const found = await notePathsAction({ workspaceId });
-        if (!cancelled && isCurrent()) setIndexedPaths(found.paths);
+        if (!cancelled && isCurrent()) setIndexedPaths(found.pathChunks?.flat() ?? found.paths);
       } catch {
         // Best-effort: a failed or refused fetch leaves link resolution at
         // whatever the file tree already knows, which is exactly what this

@@ -19,6 +19,7 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
@@ -129,10 +130,13 @@ describe("website route index", () => {
       2,
       internal.functions.files.runFileOperation,
       expect.objectContaining({
+        // Every scan lists the Convex tree, never the bucket, and each page
+        // carries the cursor the previous one returned.
         operation: {
           kind: "manifest",
           folder: "website",
           cursor: "website/about.md",
+          source: "tree",
         },
       }),
     );
@@ -261,6 +265,7 @@ describe("website route index", () => {
       "website/team.md",
       "---\ntitle: Team\naudience: members\n---\n\nMembers\n",
     );
+    await copyTree(f.t, f.workspaceId);
 
     const statuses = await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
@@ -299,6 +304,7 @@ describe("website route index", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -306,6 +312,7 @@ describe("website route index", () => {
       },
     );
     f.backend.objects.delete("website/about.md");
+    await copyTree(f.t, f.workspaceId);
 
     const statuses = await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
@@ -333,6 +340,7 @@ describe("website route index", () => {
       "website/about/index.md",
       "---\ntitle: Other\n---\n\nOther\n",
     );
+    await copyTree(f.t, f.workspaceId);
 
     const statuses = await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
@@ -376,6 +384,7 @@ describe("website route index", () => {
   test("a member's scan never replaces the index", async () => {
     const f = await fixture("atlas-clearance");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -386,6 +395,7 @@ describe("website route index", () => {
     // The member's own view includes the new page, but only an owner's
     // refresh commits, so the index still holds the one page it was built on.
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
+    await copyTree(f.t, f.workspaceId);
     await expect(
       asUser(f.t, f.member).action(
         api.functions.websites.refreshRouteStatuses,
@@ -407,6 +417,7 @@ describe("website route index", () => {
   test("a failed bucket scan leaves the last complete derivative intact", async () => {
     const f = await fixture("atlas-failure");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       {
@@ -439,6 +450,7 @@ describe("website route index", () => {
         refuseRelease && key.startsWith(".context/website/releases/"),
     });
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld page\n");
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(
       api.functions.websites.refreshRouteStatuses,
       { workspaceId: f.workspaceId },
@@ -472,9 +484,30 @@ describe("website route index", () => {
     });
   });
 
+  test("a page written straight into the bucket is listed only once the tree has copied it", async () => {
+    const f = await fixture("atlas-outside");
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
+    await copyTree(f.t, f.workspaceId);
+
+    // An app outside Context writes a page. Names are the tree's rows, so the
+    // scan does not see it until the tree learns of it (a sweep, or a write's touch).
+    f.backend.seed("website/late.md", "---\ntitle: Late\n---\n\nLate\n");
+    const before = await asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+      workspaceId: f.workspaceId,
+    });
+    expect(before.map((status) => status.objectKey)).toEqual(["website/index.md"]);
+
+    await copyTree(f.t, f.workspaceId);
+    const after = await asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+      workspaceId: f.workspaceId,
+    });
+    expect(after.map((status) => status.objectKey)).toEqual(["website/index.md", "website/late.md"]);
+  }, 15_000);
+
   test("identical route paths remain isolated by workspace", async () => {
     const first = await fixture("atlas-first");
     first.backend.seed("website/index.md", "---\ntitle: First\n---\n\nFirst\n");
+    await copyTree(first.t, first.workspaceId);
     await asUser(first.t, first.owner).action(
       api.functions.websites.refreshRouteStatuses,
       { workspaceId: first.workspaceId },
@@ -522,6 +555,7 @@ describe("website route index", () => {
   test("the unattended reconciler rebuilds enabled websites", async () => {
     const f = await fixture("atlas-scheduled");
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nHome\n");
+    await copyTree(f.t, f.workspaceId);
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {
         workspaceId: f.workspaceId,
