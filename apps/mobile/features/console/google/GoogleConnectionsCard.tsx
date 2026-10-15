@@ -270,6 +270,13 @@ export function GoogleConnectionsCard({
         ))
       )}
 
+      {connections.length > 0 ? (
+        <Text variant="foot" style={styles.note}>
+          Your connected AI assistants can read these notes and answer questions about them.
+          New email and chat messages arrive after you connect; earlier messages are not imported.
+        </Text>
+      ) : null}
+
       {actions ? null : (
         <Text variant="foot" style={styles.note}>
           Only an owner can connect or remove Google accounts.
@@ -351,6 +358,23 @@ function GoogleAccountRow({
           />
         )}
       </Row>
+      <View style={styles.destinations}>
+        {services.map((service) => {
+          const source = connection[service];
+          return (
+            <View key={service}>
+              <Text variant="foot">
+                {SERVICE_TITLES[service]} → {source?.destinationFolder ?? "Waiting for setup"}
+              </Text>
+              <Text variant="foot">
+                {source?.lastSyncedAt === undefined
+                  ? "Waiting for the first sync."
+                  : `Last synced: ${new Date(source.lastSyncedAt).toLocaleString()}`}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
       {/*
         The consequence at the moment of the press rather than beside the
         button always — `useArming`, the same shape as storage's Disconnect and
@@ -444,4 +468,5 @@ const makeStyles = (colors: Colors) =>
     },
     critText: { color: colors.critText },
     armedHint: { marginTop: 10 },
+    destinations: { gap: 8, paddingBottom: 10 },
   });
