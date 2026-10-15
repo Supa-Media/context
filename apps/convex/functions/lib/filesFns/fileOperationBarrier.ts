@@ -358,8 +358,7 @@ export async function runFileOperationHandler(
     return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
   }
 
-  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
-  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
+  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId); // the app reads and saves by id, as an AI client does
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
