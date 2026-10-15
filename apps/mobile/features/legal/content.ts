@@ -54,7 +54,7 @@ export const privacyContent: LegalPageContent = {
     {
       title: "AI built into Context.lc",
       body: [
-        "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can ask in the app or by text message. They read only the notes and recordings the feature needs, from the workspaces you can see.",
+        "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.",
         "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it.",
       ],
     },
