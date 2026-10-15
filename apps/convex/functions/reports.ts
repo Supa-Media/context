@@ -142,7 +142,20 @@ export const submitReport = action({
       resolved: resolved.resolved,
       ids: resolved.ids,
     });
-    return await deliverFeedback(ctx, { sentry, userId, report });
+    const sent = await deliverFeedback(ctx, { sentry, userId, report });
+    // Kept for the console's Reports tab and mailed to support
+    // (`contentReports.ts`). Same receipt either way.
+    await ctx.runMutation(internal.functions.contentReports.recordContentReport, {
+      reporterId: userId,
+      eventId: sent.eventId,
+      kind: args.target.kind,
+      reason: args.reason,
+      ...(details === undefined || details === "" ? {} : { details }),
+      resolved: resolved.resolved,
+      ids: resolved.ids,
+      platform,
+    });
+    return sent;
   },
 });
 

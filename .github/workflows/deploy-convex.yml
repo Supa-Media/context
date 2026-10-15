@@ -213,6 +213,10 @@ jobs:
           # public origin rather than a secret; unset runs them here, as a
           # self-hosted deployment does.
           STORAGE_MOVER_ORIGIN: https://mcp.context.lc
+          # Where content reports are mailed (`functions/contentReports.ts`):
+          # the support address the Terms and /support name. Public, not a
+          # secret. Unset sends no mail; reports still list in /admin.
+          REPORTS_EMAIL: context@supa.media
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -243,7 +247,7 @@ jobs:
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
             REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
-            STORAGE_MOVER_ORIGIN
+            STORAGE_MOVER_ORIGIN REPORTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

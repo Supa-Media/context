@@ -45,6 +45,7 @@ import { dreamTables } from "./functions/lib/schema/dreams";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { smallDataTables } from "./functions/lib/schema/smallData";
 import { blockTables } from "./functions/lib/schema/blocks";
+import { contentReportTables } from "./functions/lib/schema/contentReports";
 
 /**
  * Control-plane schema for Context.
@@ -126,6 +127,7 @@ const schema = defineSchema({
   ...smallDataTables,
   ...noteMailTables,
   ...blockTables,
+  ...contentReportTables,
 });
 
 export default schema;
