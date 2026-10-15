@@ -190,7 +190,13 @@ export async function carryIdentity(ctx: MutationCtx, workspaceId: Id<"workspace
   const copy = source.idCopy;
   const idCopy =
     copy !== undefined && copy.key === key && target.etag !== undefined
-      ? { key, etag: copy.etag === source.etag ? target.etag : copy.etag, copiedAt: copy.copiedAt }
+      ? {
+          key,
+          etag: copy.etag === source.etag ? target.etag : copy.etag,
+          copiedAt: copy.copiedAt,
+          // The key's own version travels too: without it a racing write at the key would read as a match.
+          ...(copy.keyEtag === undefined ? {} : { keyEtag: copy.keyEtag }),
+        }
       : undefined;
   await ctx.db.patch(target._id, { noteId, idCopy });
 }
