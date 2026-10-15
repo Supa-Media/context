@@ -29,17 +29,13 @@ export interface PhoneBackTarget {
 export const HOME_LABEL = "Home";
 
 /**
- * Every place ‹ can take you, Home first and the page's own folder last.
+ * Every level above the page, Home first and the page's own folder last;
+ * ‹ goes to the last one (owner, 2026-10-15: one press, one level).
  *
- * The owner's pick for the note's top bar (2026-10-13): pressing ‹ opens a
- * short menu of the levels above the page — *"I like the idea of clicking back
- * and then the menu opening"* — instead of a capsule that spelled out one
- * folder's name. Home is always the first row, which is how the bar gets its
- * Home button without a second one.
+ * From 2026-10-13 to 2026-10-15 ‹ opened these as a menu; the owner then
+ * asked for a back button that just goes back, pressed once per level.
  *
- * `[]` on Home. A page at the top of the workspace has one level, Home, and the
- * button goes straight there: a menu with one row is a press that asks you to
- * press again.
+ * `[]` on Home, which has no ‹.
  */
 export function phoneBackLevels(selectedPath: string | null, mapOpen = false): PhoneBackTarget[] {
   const home: PhoneBackTarget = { folder: null, label: HOME_LABEL };

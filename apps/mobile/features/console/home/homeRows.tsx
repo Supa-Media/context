@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -13,6 +13,18 @@ import { countLabel, type HomeFolder, type HomeNoteTile } from "./homeModel";
  * the row that opens the live map. Each draws what it is handed and decides
  * nothing about what goes on Home.
  */
+
+
+/** Where a row was held, so its menu opens under the finger. */
+export interface HoldPoint {
+  x: number;
+  y: number;
+}
+
+const held = (onLongPress: ((at: HoldPoint) => void) | undefined) =>
+  onLongPress === undefined
+    ? undefined
+    : (event: GestureResponderEvent) => onLongPress({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY });
 
 export function Section({ label, children }: { label: string; children: ReactNode }) {
   const styles = useThemedStyles(makeStyles);
@@ -54,7 +66,7 @@ export function Tile({
   shared: boolean;
   lines: string[];
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
   style: object;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -62,10 +74,10 @@ export function Tile({
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={[title, ...lines].join(", ")}
-      accessibilityHint={onLongPress === undefined ? undefined : "Hold to pin or unpin"}
+      accessibilityHint={onLongPress === undefined ? undefined : "Hold for more actions"}
       style={({ pressed }) => [styles.tile, style, pressed ? styles.pressed : null]}
     >
       <Icon name={icon} size={20} color={colors.text2} />
@@ -93,7 +105,7 @@ export function NoteRow({
   note: HomeNoteTile;
   when: string;
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -101,7 +113,7 @@ export function NoteRow({
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={[note.title, detail, when].filter(Boolean).join(", ")}
       style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
@@ -124,37 +136,6 @@ export function NoteRow({
   );
 }
 
-/** The live map's row on Home: a place, like a folder, that opens the map. */
-export function MapPlace({ onPress }: { onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  return (
-    <Card>
-      {[
-        <Pressable
-          key="map"
-          onPress={onPress}
-          accessibilityRole="button"
-          accessibilityLabel="Map, who is working in this workspace, live"
-          style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-          testID="phone-home-map"
-        >
-          <Icon name="liveMap" size={20} color={colors.text2} />
-          <View style={styles.folderName}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              Map
-            </Text>
-          </View>
-          <Text variant="meta" numberOfLines={1} style={styles.counts}>
-            Who is working, live
-          </Text>
-          <Icon name="chevronRight" size={16} color={colors.muted} />
-        </Pressable>,
-      ]}
-    </Card>
-  );
-}
-
 export function FolderLine({
   folder,
   icon = null,
@@ -165,7 +146,7 @@ export function FolderLine({
   /** The emoji this folder was given, drawn in place of the folder icon. `null` for the plain one. */
   icon?: string | null;
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -173,7 +154,7 @@ export function FolderLine({
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${folder.title}${folder.shared ? ", shared" : ""}, ${counts}`}
       style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}

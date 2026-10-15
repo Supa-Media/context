@@ -35,19 +35,21 @@ export async function settledBox(target: Locator): Promise<{ x: number; y: numbe
 }
 
 /**
- * Back to Home the way a person on a phone gets there: the top-left ‹, then
- * Home, the first row of the levels it opens (2026-10-13). A page at the top of
- * the workspace has no menu, and ‹ goes Home at once.
+ * Back to Home the way a person on a phone gets there: the top-left ‹, once
+ * per level, until Home is on screen.
  */
 export async function goHome(page: Page): Promise<void> {
+  // ‹ goes up one level per press (owner, 2026-10-15): press until Home.
   const back = page.getByTestId("phone-back");
-  if ((await back.count()) > 0) {
+  for (let level = 0; level < 12 && (await back.count()) > 0; level += 1) {
+    const label = await back.getAttribute("aria-label");
     const box = await back.boundingBox();
     if (box !== null) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    // Either Home is already on screen, or the menu is, with Home first.
-    const home = page.getByTestId("phone-back-level-home");
-    await home.or(page.getByTestId("phone-home")).first().waitFor();
-    if (await home.isVisible()) await home.tap();
+    await page
+      .getByTestId("phone-home")
+      .or(page.locator(`[data-testid="phone-back"]:not([aria-label="${label}"])`))
+      .first()
+      .waitFor();
   }
   await page.getByTestId("phone-home").waitFor();
 }

@@ -8,7 +8,7 @@ import { NoteEditor } from "../../files/NoteEditor";
 import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
-import { entryAt } from "../../files/tree";
+import { entryAt, findEntry } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
@@ -19,7 +19,7 @@ import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
 import { NoteLoading } from "./NoteLoading";
 import { noteNameEdit } from "./nameEdit";
-import { isMarkdown } from "../../files/paths";
+import { isMarkdown, parentPath } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -235,11 +235,19 @@ export function BrowseDocument({
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
       onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
-      onTogglePin={places.togglePin}
+      onHold={
+        data.visitor === undefined
+          ? (path, at) => {
+              // The row's own menu, as a hold on a folder page's row opens it. A row whose
+              // folder this device has not listed yet has no entry to build one from.
+              const entry = findEntry(files.listings, path);
+              if (entry != null) folderMenuFor(parentPath(path)).onRow(entry, at);
+            }
+          : undefined
+      }
       iconOf={files.iconOf}
       onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
       foot={contextFoot}
-      onOpenMap={mapRoute?.openMap}
     />
   );
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
