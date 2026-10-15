@@ -76,7 +76,7 @@ export const privacyContent: LegalPageContent = {
       title: "Retention and deletion",
       body: [
         "We retain synced files and account records while your account, context, or connected integration remains active, unless you delete them sooner.",
-        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. To have notes in Context-managed storage erased as well, email us at the address below.",
+        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
       ],
     },
     {

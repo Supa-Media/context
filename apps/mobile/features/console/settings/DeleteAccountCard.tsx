@@ -24,16 +24,43 @@ import { useArming } from "../useArming";
  *  - **Your name is released**, and because ingestion is on the apex that
  *    includes your capture address: `you@context.lc` becomes claimable.
  *
+ *  - **Notes in storage we run are erased** (decided by the owner,
+ *    2026-10-15): nobody could reach them once the account is gone. The
+ *    workspaces this applies to are named, each with its download (or a way
+ *    to open it and download), before the second press.
+ *
  * The arming window is `useArming`'s, which expires, so an armed Delete does
  * not stay armed until something presses it.
  *
  * It lives under `settings/` because the account scope of the settings overlay
  * is its only caller.
  */
-export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Promise<void> }) {
+/** A workspace this deletion erases: on storage we run, owned by nobody else. */
+export interface ErasedWorkspace {
+  id: string;
+  slug: string;
+  /** The one open now, whose download is a button here. */
+  current: boolean;
+}
+
+export function DeleteAccountCard({
+  deleteAccount,
+  erased = [],
+  onDownload,
+  onOpen,
+}: {
+  deleteAccount: () => Promise<void>;
+  /** Workspaces whose notes this erases; empty while loading or when none. */
+  erased?: readonly ErasedWorkspace[];
+  /** Download everything in the workspace open now. Absent where there is none. */
+  onDownload?: () => void;
+  /** Open another workspace, so its download is one press away. */
+  onOpen?: (id: string) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const arming = useArming(deleteAccount);
   const [explained, setExplained] = useState(false);
+  const erasing = erased.length > 0;
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
@@ -42,7 +69,9 @@ export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Prom
             arming.stage === "working"
               ? "Deleting…"
               : arming.stage === "armed"
-                ? "Press again to delete"
+                ? erasing
+                  ? "Press again to delete and erase"
+                  : "Press again to delete"
                 : "Delete account"
           }
           variant="danger"
@@ -60,11 +89,42 @@ export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Prom
       {explained || arming.stage === "armed" ? (
         <Text variant="rowSub" style={styles.explain} testID="delete-account-explanation">
           Notes in your own bucket or Dropbox stay exactly where they are — they are not
-          ours to delete. What goes is everything Context knows: your workspaces, storage
-          connections, memberships and sign-in. Any workspace you are the only owner of is
-          deleted with it, so people you invited lose access. Your name is released,
-          including your capture address, which somebody else can then claim.
+          ours to delete. Notes and attachments in storage Context runs for you are
+          permanently erased, so download a copy first. What else goes is everything
+          Context knows: your workspaces, storage connections, memberships and sign-in.
+          Any workspace you are the only owner of is deleted with it, so people you
+          invited lose access. Your name is released, including your capture address,
+          which somebody else can then claim.
         </Text>
+      ) : null}
+      {erasing && (explained || arming.stage === "armed") ? (
+        <View style={styles.erased} testID="delete-account-erased">
+          <Text variant="rowSub" style={styles.erasedHead}>
+            Erased permanently with your account:
+          </Text>
+          {erased.map((workspace) => (
+            <View key={workspace.id} style={styles.row}>
+              <Text variant="rowSub">@{workspace.slug}</Text>
+              {workspace.current && onDownload !== undefined ? (
+                <Button
+                  variant="mini"
+                  label="Download everything"
+                  accessibilityLabel={`Download every note in @${workspace.slug}, as a .zip`}
+                  onPress={onDownload}
+                  testID={`delete-account-download-${workspace.slug}`}
+                />
+              ) : onOpen !== undefined ? (
+                <Button
+                  variant="mini"
+                  label="Open to download"
+                  accessibilityLabel={`Open @${workspace.slug} to download its notes`}
+                  onPress={() => onOpen(workspace.id)}
+                  testID={`delete-account-open-${workspace.slug}`}
+                />
+              ) : null}
+            </View>
+          ))}
+        </View>
       ) : null}
     </View>
   );
@@ -75,4 +135,6 @@ const makeStyles = (_colors: Colors) =>
     wrap: { flexShrink: 1, gap: space.x2 },
     row: { flexDirection: "row", alignItems: "center", gap: space.x3, flexWrap: "wrap" },
     explain: { maxWidth: 420 },
+    erased: { gap: space.x1, maxWidth: 420 },
+    erasedHead: { fontWeight: "600" },
   });

@@ -63,6 +63,11 @@ describe("the privacy policy matches what the phone app collects", () => {
     expect(text).toContain("Anthropic and Cloudflare Workers AI");
   });
 
+  test("says deletion erases Context-managed notes, with no request by email", () => {
+    expect(text).toContain("Notes and attachments in Context-managed storage for those workspaces are permanently erased");
+    expect(text).not.toContain("To have notes in Context-managed storage erased as well, email us");
+  });
+
   test("points to in-app account deletion rather than a request by email", () => {
     expect(text).toContain("You can delete your account yourself in Settings, under Profile");
     expect(text).not.toContain("contact us to request account deletion");

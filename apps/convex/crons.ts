@@ -94,6 +94,21 @@ crons.interval(
   {},
 );
 
+/**
+ * Finish erasing managed buckets of deleted workspaces
+ * (`functions/managedErasure.ts`). The safety net under each job's own
+ * retries: a run that died holding its row, or a dropped scheduled function,
+ * is picked up here. It decides nothing: which bucket to erase was decided by
+ * the account deletion that queued it, and each run re-checks the bucket name
+ * and the token's name before it deletes anything.
+ */
+crons.interval(
+  "finish erasing deleted workspaces' managed storage",
+  { minutes: 15 },
+  internal.functions.managedErasure.sweepManagedErasures,
+  {},
+);
+
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },
