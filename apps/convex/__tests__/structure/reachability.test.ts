@@ -175,13 +175,13 @@ describe("no public function can reach a storage secret", () => {
         // not have and does not want a Cloudflare account still has to be able
         // to own their notes, and somebody has to create the bucket.
         "functions.managedProvisioning.provisionManagedStorage",
-        // THE TEST ACCOUNT'S RESOURCE FUNERAL. Opens our managed-account token
-        // only after `deleteAccount` has proved the exact verified CUJ email,
-        // and refuses any bucket except the deterministic name for that
-        // workspace. It empties/deletes that one managed bucket and revokes
-        // its scoped token; ordinary customer-account deletion never reaches
-        // this edge and continues to leave customer storage untouched.
-        "functions.managedProvisioning.deleteManagedTestResources",
+        // A DELETED ACCOUNT'S MANAGED STORAGE, ERASED. Opens our managed-account
+        // token for one bounded run of a queued erasure (`managedErasures`),
+        // written by the workspace cascade only for the deterministic bucket of
+        // a workspace being deleted. Re-derives and compares that bucket name,
+        // and checks the token's name, before deleting anything; a customer's
+        // own bucket is never queued and never reached.
+        "functions.managedErasure.runManagedErasure",
         // THE CUSTOMER HANDOFF'S RESOURCE FUNERAL. Opens the same operator
         // token only after the verified raw-object copy has atomically moved
         // the live binding to the customer's bucket. The scheduled arguments

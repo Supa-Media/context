@@ -141,3 +141,7 @@ Moved to [Dropbox workspaces are told support is ending, without a date](./stora
 ## Names, folders and privacy live on tree rows; the bucket holds bodies by id
 
 Moved to [Names, folders and privacy live on tree rows; the bucket holds bodies by id](./storage-and-credentials/notes-by-id.md#names-folders-and-privacy-live-on-tree-rows-the-bucket-holds-bodies-by-id).
+
+## Deleting an account erases the storage we ran for it
+
+Moved to [Deleting an account erases the storage we ran for it](./storage-and-credentials/managed-erasure.md#deleting-an-account-erases-the-storage-we-ran-for-it).
