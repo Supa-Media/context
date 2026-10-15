@@ -14,6 +14,8 @@ import {
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
+import { openTranscript } from "./transcript.js";
+import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { searchSettingsOf } from "../search/settings.js";
@@ -181,7 +183,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const verdict = attachments.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
     if (verdict !== null) {
       const settled = await settleByText(store, session, verdict);
-      if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
+      if (settled !== null) {
+        // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
+        const noted = openTranscript(dispatch, { now: received, timeZone: readTimeZone(body.timeZone), question }).finish({ answer: settled });
+        await deferred(store, noted);
+        return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
+      }
     }
     /*
       A text that goes to the model is not the answer to an ask made before it:
@@ -386,18 +393,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     }
   };
 
-  /*
-    Work that is ours rather than the person's runs after the answer has gone,
-    where the host lets it, rather than before.
-  */
-  const afterAnswer = async (work) => {
-    try {
-      if (typeof store.defer !== "function") throw new Error("no defer");
-      store.defer(work);
-    } catch {
-      await work;
-    }
-  };
+  // Ours, not the person's: after the answer has gone (`deferred`).
+  const afterAnswer = (work) => deferred(store, work);
 
   /*
     Every turn goes to the turn log (`apps/convex/functions/agentTurns.ts`) and
@@ -439,6 +436,21 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     })();
   };
 
+  // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
+  const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
+  // Today's transcript (`transcript.js`), under a ledger of its own: what it reads, the model never does.
+  const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
+  Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
+  const transcript = texting
+    ? openTranscript((name, args) => callToolForSession({ name, arguments: args }, store, unseen), {
+        now: received,
+        timeZone,
+        question,
+        attachments: attachmentsLine(attachments),
+        routine: runner ? routine.path : null,
+      })
+    : null;
+
   try {
     const turn = await runTurn({
       question,
@@ -478,8 +490,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       coreTools: production?.coreTools ?? null,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
-      // Their clock: a routine's own zone, else the one the texting Worker sent (`localNow.js`).
-      localNow: { now: Date.now(), timeZone: runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE },
+      localNow: { now: Date.now(), timeZone },
+      observe: transcript?.record ?? null,
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
@@ -500,6 +512,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -542,6 +555,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
+    if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
 
     if (conversation !== null && !turn.exhausted) {
       try {
@@ -568,6 +582,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
   } catch (error) {
     if (opened !== null) await afterAnswer(opened.close());
+    if (transcript !== null) await afterAnswer(transcript.finish({ answer: "", outcome: "the turn failed" }));
     await meter(null, true);
     /*
       An ask the person was never told about (the turn failed before its ask
@@ -598,30 +613,16 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 }
 
 /**
- * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
- * kinds, names, numbers and flags, never a word the router or a provider
- * wrote. The router's own word (`pick`) and a fallback's `from` stay in this
- * worker's log line; the status a provider answered is a number and goes, as
- * does the router's confidence in a think pick (a number from 0 to 1).
+ * Work that is ours rather than the person's runs after the answer has gone,
+ * where the host lets it, rather than before.
  */
-/** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
-function confidenceOf(entry) {
-  const value = entry.confidence;
-  if (typeof value !== "number" || !Number.isFinite(value)) return {};
-  return { confidence: Math.min(1, Math.max(0, value)) };
-}
-
-function wireTraceEntry(entry) {
-  const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(entry.held ? { held: true } : {}) };
-  if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
-  if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
-  return {
-    ...base,
-    ...(entry.retried ? { retried: true } : {}),
-    ...(entry.cut ? { cut: true } : {}),
-    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
-  };
+async function deferred(store, work) {
+  try {
+    if (typeof store.defer !== "function") throw new Error("no defer");
+    store.defer(work);
+  } catch {
+    await work;
+  }
 }
 
 /**

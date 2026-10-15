@@ -161,7 +161,17 @@ function metadataHeader(metadata) {
  * rounds over a growing transcript, so each round reads the previous one's
  * prefix from cache at a tenth of the price.
  */
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort }) {
+/**
+ * The models that think by default (every Claude 5 model), where asking for
+ * the thinking in words changes only what comes back, never whether or how
+ * hard it thinks. An older model that thinks only when asked is never sent it.
+ */
+const THINKS_BY_DEFAULT = /^anthropic\/claude-(?:haiku|sonnet|opus|fable|mythos)-5(?:-\d+)?$/;
+
+/** `thinking.display`: "summarized" returns the thinking in words (`transcript.js`); the default leaves it empty. */
+const DISPLAYS = new Set(["summarized"]);
+
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display }) {
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -187,6 +197,7 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
       ? { tool_choice: { type: "tool", name: toolChoice } }
       : {}),
     ...(EFFORTS.has(effort) ? { output_config: { effort } } : {}),
+    ...(DISPLAYS.has(display) && THINKS_BY_DEFAULT.test(model) ? { thinking: { type: "adaptive", display } } : {}),
   };
 }
 
