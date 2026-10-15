@@ -16,8 +16,9 @@ that pictures and files reach the model. Now:
   picture would make the model API refuse the whole turn); a HEIC photo or one
   over 5 MB converted to a JPEG by the Worker's Images binding; a text file,
   contact card or calendar invite as its text; a Word, Excel or PowerPoint
-  file as its words (`officeText.ts`, a bounded zip reader); anything else,
-  audio and video included, as a sentence saying why it couldn't be opened.
+  file as its words (`officeText.ts`, a bounded zip reader); a voice message
+  or other recording (8 MB at most) as audio; anything else, video included,
+  as a sentence saying why it couldn't be opened.
 - The gateway (`apps/mcp/src/agent/attachments.js`) checks types and sizes
   against the model API's (8 files, 5 MB a picture, 10 MB a PDF, 20 MB in all)
   and sends them as image and document blocks before the person's words. A
@@ -29,5 +30,18 @@ that pictures and files reach the model. Now:
   their own approval record until it is settled, so the yes can still save it), and a turn with attachments counts as having read something
   from outside the workspace, so a widening in it asks first, as after a web
   page. A bare "yes" sent with a photo goes to the model, never to a waiting ask.
+
+## Voice messages (owner, 2026-10-15: "make it support voice memos, that's important")
+
+The gateway turns audio into words before the model runs, with the same
+transcription service meetings use (`ingestion/transcription.js` →
+`infra/transcribe-worker`, Whisper with its silence filtering). Only the audio
+and its type cross; the workspace travels as the forwarder's HMAC, as for
+meetings. The model gets the transcript as a text document titled as a voice
+message and is told to answer it as if typed. Unlike other attachments, the
+transcript (2,000 characters at most) is kept in the saved conversation: it is
+the person's own message, said instead of typed. No service configured, a
+failed transcription or a recording with no speech each become a sentence, so
+Tex asks them to type it rather than guessing. Video is still not read.
 
 Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
