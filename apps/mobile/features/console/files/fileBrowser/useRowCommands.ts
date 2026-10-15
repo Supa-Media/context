@@ -312,7 +312,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
             return;
           }
 
-          const listed = await notePathsAction({ workspaceId });
+          const answer = await notePathsAction({ workspaceId });
+          const listed = { paths: answer.pathChunks?.flat() ?? answer.paths };
           if (listed.paths === null) {
             // The walk did not reach the end, so an archive built from it
             // would be short with nothing saying so. Refused rather than

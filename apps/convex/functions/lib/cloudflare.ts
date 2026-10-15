@@ -133,6 +133,13 @@ export {
 
 export { cloudflareRequest, stripCredentialFields } from "./cloudflare/request";
 
+export {
+  deleteEmptyR2Bucket,
+  ERASE_PAGE_SIZE,
+  eraseR2ObjectsPage,
+  revokeBucketToken,
+} from "./cloudflare/erase";
+
 export type { MintedToken, R2BucketDetails } from "./cloudflare/provisioning";
 export {
   bucketCreatedDuringAttempt,

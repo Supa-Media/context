@@ -12,6 +12,7 @@ import { pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { PersonFace } from "../faces/PersonFace";
 import { atName } from "../format";
+import { ReportLink } from "../../report/ReportLink";
 import { SharedNoteView } from "./SharedNoteView";
 import {
   groupByDay,
@@ -202,14 +203,19 @@ export function SharedList({
                     </Text>
                   )}
                   {group.items.map((item) => (
-                    <SharedRow
-                      key={item.token}
-                      item={item}
-                      now={now}
-                      fresh={isNew(item)}
-                      phone={phone}
-                      onOpen={onOpen}
-                    />
+                    // The report sits beside the row rather than inside it, so
+                    // it is its own control and never a press on the row.
+                    <View key={item.token} style={styles.rowLine}>
+                      <View style={styles.grow}>
+                        <SharedRow item={item} now={now} fresh={isNew(item)} phone={phone} onOpen={onOpen} />
+                      </View>
+                      <ReportLink
+                        target={{ kind: "share", token: item.token }}
+                        person={{ handle: item.sharedByHandle, name: item.sharedByName }}
+                        label={phone ? "Report" : "Report or block"}
+                        testID={`shared-report-${item.token}`}
+                      />
+                    </View>
                   ))}
                 </View>
               ))
@@ -335,6 +341,7 @@ const makeStyles = (colors: Colors) =>
     rowTitle: { flexShrink: 1, color: colors.text },
     byline: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
     grow: { flex: 1, minWidth: 0 },
+    rowLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     when: { minWidth: 64, textAlign: "right" },
     empty: { alignItems: "center", gap: space.x2, paddingVertical: space.x8 * 2 },
     emptyTitle: { fontSize: t.h3, fontWeight: "600", marginTop: space.x2 },

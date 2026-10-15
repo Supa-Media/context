@@ -76,7 +76,7 @@ export const privacyContent: LegalPageContent = {
       title: "Retention and deletion",
       body: [
         "We retain synced files and account records while your account, context, or connected integration remains active, unless you delete them sooner.",
-        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. To have notes in Context-managed storage erased as well, email us at the address below.",
+        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
       ],
     },
     {
@@ -98,7 +98,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "September 13, 2026",
+  updated: "October 15, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -135,6 +135,14 @@ export const termsContent: LegalPageContent = {
       body: [
         "Do not use Context.lc to violate law, infringe rights, compromise systems, send spam, distribute malware, or access data you are not authorized to access.",
         "We may suspend or limit access when necessary to protect users, the service, connected providers, or the public.",
+      ],
+    },
+    {
+      title: "Objectionable content and abuse",
+      body: [
+        "There is no tolerance for objectionable or abusive content or behaviour on Context.lc. Do not share, invite, publish, or send anything that harasses, threatens, sexually exploits, or demeans another person, promotes violence or hate, or is otherwise illegal.",
+        "You can report a note, an invitation, or a public page from inside the app, and you can block a person so that nothing they share with you or invite you to reaches you.",
+        "We review reported content within 24 hours. We remove content that breaks these terms and remove the accounts of people who post it or behave abusively.",
       ],
     },
     {
@@ -175,6 +183,14 @@ export const supportContent: LegalPageContent = {
       body: [
         "Email context@supa.media. Tell us what you were doing, what you expected, and what happened instead. Say which device you use and whether it was the app or the website.",
         "You can also send a report from inside the app, in Settings under Feedback. It can attach the app version and a log of recent screens and errors, so we can find the problem faster.",
+      ],
+    },
+    {
+      title: "Reporting and blocking",
+      body: [
+        "To report a note someone shared with you, or an invitation, choose Report or block beside it. You can say what is wrong, and block the person in the same step. Public pages have a Report link at the bottom; if you are not signed in, it opens an email to context@supa.media.",
+        "Blocking someone means nothing they share with you or invite you to reaches you. They are not told. You can unblock people in Settings, under Profile.",
+        "We review every report within 24 hours.",
       ],
     },
     {

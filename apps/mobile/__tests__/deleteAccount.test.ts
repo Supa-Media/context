@@ -22,12 +22,15 @@ import { DeleteAccountCard } from "../features/console/settings/DeleteAccountCar
  *     It sits behind "How this works" so the button is what the page shows.
  */
 
-function mount(deleteAccount: () => Promise<void>): { host: HTMLElement; root: Root } {
+function mount(
+  deleteAccount: () => Promise<void>,
+  extra: Record<string, unknown> = {},
+): { host: HTMLElement; root: Root } {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
-    root.render(createElement(DeleteAccountCard as never, { deleteAccount } as never));
+    root.render(createElement(DeleteAccountCard as never, { deleteAccount, ...extra } as never));
   });
   return { host, root };
 }
@@ -73,6 +76,42 @@ describe("deleting an account", () => {
       expect(host.textContent).not.toContain("stay exactly where they are");
       click(host.querySelector('[data-testid="delete-account-explain"]')!);
       expect(host.textContent).toContain("stay exactly where they are");
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  test("names the workspaces it erases and offers each one's download before the final press", () => {
+    let calls = 0;
+    const downloads: string[] = [];
+    const opened: string[] = [];
+    const { host, root } = mount(
+      async () => {
+        calls += 1;
+      },
+      {
+        erased: [
+          { id: "ws-here", slug: "mine", current: true },
+          { id: "ws-other", slug: "side-project", current: false },
+        ],
+        onDownload: () => downloads.push("here"),
+        onOpen: (id: string) => opened.push(id),
+      },
+    );
+    try {
+      const button = host.querySelector('[data-testid="delete-account"]')!;
+      click(button);
+      expect(calls).toBe(0);
+      expect(button.textContent).toContain("Press again to delete and erase");
+      expect(host.textContent).toContain("permanently erased");
+      expect(host.textContent).toContain("@mine");
+      expect(host.textContent).toContain("@side-project");
+      click(host.querySelector('[data-testid="delete-account-download-mine"]')!);
+      click(host.querySelector('[data-testid="delete-account-open-side-project"]')!);
+      expect(downloads).toEqual(["here"]);
+      expect(opened).toEqual(["ws-other"]);
+      expect(calls).toBe(0);
     } finally {
       act(() => root.unmount());
       host.remove();

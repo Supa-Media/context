@@ -50,6 +50,8 @@ export const searchResultsValidator = v.object({
 export const notePathsValidator = v.object({
   kind: v.literal("notePaths"),
   paths: v.union(v.array(v.string()), v.null()),
+  /** Every path, in chunks, when there are too many for `paths`. See `notePathsAnswer`. */
+  pathChunks: v.optional(v.array(v.array(v.string()))),
 });
 
 /**

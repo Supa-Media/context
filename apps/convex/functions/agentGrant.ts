@@ -112,12 +112,12 @@ const CONSOLE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
  * it is a browser agent working for them, opening one note per page load. At
  * 40 an hour such an agent was refused after a few dozen notes (2026-10-15),
  * and the refusal reached it as a server error on every note it opened after.
- * 600 is one load every six seconds for a full hour, which no person or agent
- * reading notes reaches; what it still bounds is a loop. As `lib/rateLimit.ts`
- * says, a refusal rolls back with the transaction, so this counts
- * **successful** mints.
+ * 100 (the owner's number, 2026-10-15) is a hundred notes opened that way in
+ * an hour; what it still bounds is a loop. As `lib/rateLimit.ts` says, a
+ * refusal rolls back with the transaction, so this counts **successful**
+ * mints.
  */
-export const CONSOLE_MINT_LIMIT = 600;
+export const CONSOLE_MINT_LIMIT = 100;
 const CONSOLE_MINT_WINDOW_MS = 60 * 60 * 1000;
 
 /**

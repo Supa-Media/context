@@ -39,6 +39,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Dropbox workspaces are told support is ending, without a date
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
+- Deleting an account erases the storage we ran for it
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys
@@ -130,6 +131,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
+- [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -255,6 +257,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - On a phone, a thread opens in a sheet
 - The iOS editor draws comments and lists
 
+## [Mail between agents on a note](./note-mail.md)
+
+- The mail is in the note, at its end
+- Mailboxes are per connection, in the control plane
+- The lead sets the rhythm
+
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes
@@ -355,6 +363,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
+- [A public list block reads its rows from the facts, and the facts carry the website flags](./app-and-console/convex-facts.md) (2026-10-15)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
@@ -628,6 +637,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
+- A list every branch adds to is one entry per line, merged by union
 
 ## [Routines](./routines.md)
 
@@ -668,6 +678,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
+- [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)

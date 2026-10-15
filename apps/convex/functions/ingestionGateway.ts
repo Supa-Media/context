@@ -8,6 +8,36 @@
  * anything here; if it and this disagree, one of them is a bug.
  *
  * ============================================================================
+ * THE INGEST ROUTES
+ * ============================================================================
+ *
+ * Three things about the routes themselves, which `http.ts` declares:
+ *
+ * 1. **A different secret.** They are built by `emailWorkerRoute`, not
+ *    `gatewayRoute`, and the two secrets do not substitute for one another. A
+ *    stolen email-worker secret must not become a working MCP gateway.
+ *
+ * 2. **They relax the two-proof rule, and that is a decision, not an
+ *    oversight.** An inbound email carries no user access token — nobody is
+ *    present and nothing was authorized just now — so proof #2 cannot exist in
+ *    the form `/gateway/binding` uses. What is kept is its important half:
+ *    `/gateway/ingest/resolve` takes a *name a sender typed* and mints a ticket
+ *    for whatever that name resolved to; `/gateway/ingest/binding` takes only
+ *    that ticket. No field in either request can name a context, so a holder of
+ *    the worker secret has no vocabulary for "give me the shared context
+ *    `acme-board`" — and no such context could answer anyway, because mail
+ *    lands in a personal context and nowhere else.
+ *
+ * 3. **`/gateway/ingest/binding` is the second internet-facing path to a
+ *    decrypted credential**, and it is enumerated as such in
+ *    `__tests__/structure.test.ts`. That file's `CREDENTIAL_HTTP_ROUTES`
+ *    comment says a second entry "means a second internet-facing path to other
+ *    people's bucket keys". It does. The residual risk is written out in full
+ *    in the worker's contract and is bounded by: personal contexts only,
+ *    ingestion-enabled owners only, a per-name rate limit on resolve, and a
+ *    ticket that expires in five minutes and buys exactly one credential.
+ *
+ * ============================================================================
  * MAIL LANDS IN A PERSONAL CONTEXT AND NOWHERE ELSE
  * ============================================================================
  *

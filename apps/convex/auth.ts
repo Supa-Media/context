@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneEnabled, reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
@@ -58,7 +58,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
     mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
     // Context texts its own codes (`functions/phoneCodes.ts`), so it checks them too.
-    check: (phone, code, ctx) => checkCode(ctx as never, phone, code),
+    check: (phone, code, ctx) => phone === APP_REVIEW_PHONE
+      ? Promise.resolve(appReviewPhoneEnabled() && code === "000000" ? "approved" as const : "wrong" as const)
+      : checkCode(ctx as never, phone, code),
   },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",

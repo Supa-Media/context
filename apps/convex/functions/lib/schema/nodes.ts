@@ -311,6 +311,10 @@ export const nodeTables = {
     retryKind: v.optional(v.string()),
     /** Passes in a row that read and still failed some, so a hiccup is told from a note that never reads. */
     retryPasses: v.optional(v.number()),
+    /** The props version (`PROPS_VERSION`) every row has been read at: an older one re-reads the rows predating it. */
+    propsVersion: v.optional(v.number()),
+    /** How far that re-read has walked, by path (`""` before the first). */
+    upgradeAfter: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**

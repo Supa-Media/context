@@ -24,6 +24,7 @@ import { parseInbound } from "./inbound";
 import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
+import { runDueDreams } from "./dreams";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -126,6 +127,16 @@ export default {
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
         textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        log: (entry) => console.log(JSON.stringify(entry)),
+      }),
+    );
+    // Tex's nightly dream (`dreams.ts`): texts nobody, writes only in the person's own `tex/`.
+    ctx.waitUntil(
+      runDueDreams({
+        fetch: (input, init) => fetch(input, init),
+        controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+        workerSecret: env.AGENT_WORKER_SECRET,
+        gatewayOrigin: env.GATEWAY_ORIGIN,
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );

@@ -131,10 +131,9 @@ test("a list marker does not reveal under the caret", async ({ page }) => {
   await expect(page.getByText("- Keep this list", { exact: false })).toHaveCount(0);
 });
 
-test("back opens the levels, the folder is one, then Home closes the note", async ({ page }) => {
-  // ‹ opens Home and the note's folder (owner, 2026-10-13); the folder is its last row.
-  await tap(page, "Back to areas, or further up");
-  await page.getByTestId("phone-back-menu").getByText("areas", { exact: true }).tap();
+test("back goes to the note's folder, then Home closes it", async ({ page }) => {
+  // One press, one level (owner, 2026-10-15).
+  await tap(page, "Back to areas");
   // One level up: the note's own folder, with the note in it and nothing open.
   await expect(page.getByTestId("note-scroll")).toHaveCount(0);
   await expect(page.getByLabel("weekly-review", { exact: true })).toBeVisible();

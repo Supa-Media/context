@@ -72,6 +72,13 @@ crons.interval(
  * bucket and writes nothing there, and decides nothing — whether a routine
  * runs, and as whom, is asked again when it is handed out.
  */
+/**
+ * Give everyone with a linked phone a first nightly dream if they have never
+ * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
+ * dream runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },
@@ -91,6 +98,21 @@ crons.interval(
   "keep the Convex copy of each file tree current",
   { minutes: 15 },
   internal.functions.nodesMigration.keepCurrent,
+  {},
+);
+
+/**
+ * Finish erasing managed buckets of deleted workspaces
+ * (`functions/managedErasure.ts`). The safety net under each job's own
+ * retries: a run that died holding its row, or a dropped scheduled function,
+ * is picked up here. It decides nothing: which bucket to erase was decided by
+ * the account deletion that queued it, and each run re-checks the bucket name
+ * and the token's name before it deletes anything.
+ */
+crons.interval(
+  "finish erasing deleted workspaces' managed storage",
+  { minutes: 15 },
+  internal.functions.managedErasure.sweepManagedErasures,
   {},
 );
 

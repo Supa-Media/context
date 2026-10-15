@@ -21,6 +21,7 @@ import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
+import { managedErasureTables } from "./functions/lib/schema/managedErasure";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
@@ -38,9 +39,12 @@ import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
+import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
+import { dreamTables } from "./functions/lib/schema/dreams";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { smallDataTables } from "./functions/lib/schema/smallData";
+import { blockTables } from "./functions/lib/schema/blocks";
 
 /**
  * Control-plane schema for Context.
@@ -98,6 +102,7 @@ const schema = defineSchema({
   ...faceTables,
   ...waitlistTables,
   ...managedEncryptionTables,
+  ...managedErasureTables,
   ...referralTables,
   ...devlogTables,
   ...sharedInboxTables,
@@ -116,8 +121,11 @@ const schema = defineSchema({
   ...searchTimingTables,
   ...meaningTables,
   ...routineTables,
+  ...dreamTables,
   ...nodeTables,
   ...smallDataTables,
+  ...noteMailTables,
+  ...blockTables,
 });
 
 export default schema;

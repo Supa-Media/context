@@ -97,7 +97,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
         path: "1-projects/probe.md",
         workspaceId: WORKSPACE_OTHER,
       })
-    ) === 'unknown argument "workspaceId"; permitted here: path, context'
+    ) === 'unknown argument "workspaceId"; permitted here: path, mail, context, mailbox'
   );
   check(
     "...and still serves the same call without it, so the era is really reached",
@@ -135,7 +135,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
   );
   check(
     "__proto__ arriving over the wire is an unknown argument, not a prototype",
-    textOf(overTheWire) === 'unknown argument "__proto__"; permitted here: path, context'
+    textOf(overTheWire) === 'unknown argument "__proto__"; permitted here: path, mail, context, mailbox'
   );
   check(
     "...and nothing in this isolate was polluted by asking",
@@ -156,7 +156,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
   check(
     "a lone surrogate in a property name is escaped rather than passed through",
     textOf(await callToolRaw(env, TOKEN_OWNER, "read_note", '{"path\\ud800":"a.md"}')) ===
-      'unknown argument "path\\ud800"; permitted here: path, context'
+      'unknown argument "path\\ud800"; permitted here: path, mail, context, mailbox'
   );
   check(
     "a repeated property is validated as the value that actually reaches the handler",

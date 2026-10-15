@@ -14,6 +14,7 @@ import {
   FAKE_STORAGE,
   addMember,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   seedStorageBinding,
@@ -76,6 +77,9 @@ export async function publish(f: Fixture): Promise<void> {
       updatedAt: Date.now(),
     });
   });
+  // What was seeded straight into the bucket reaches the tree, as a product
+  // write's touch would have: a scan lists the tree, never the bucket.
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(
     api.functions.websites.refreshRouteStatuses,
     { workspaceId: f.workspaceId },
@@ -84,6 +88,7 @@ export async function publish(f: Fixture): Promise<void> {
 
 /** Someone pressing Publish: what the folder holds now becomes the site. */
 export async function pressPublish(f: Fixture, as: Id<"users"> = f.owner) {
+  await copyTree(f.t, f.workspaceId);
   return await asUser(f.t, as).action(api.functions.websites.publish, {
     workspaceId: f.workspaceId,
   });

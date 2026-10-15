@@ -9,6 +9,10 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
 import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
+import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { mirrorRules } from "./lib/nodes/log";
+import { canSee } from "./lib/privacy";
+import { PUBLICATION_SCOPE } from "./lib/websites/publication";
 import {
   FACT_FILL_NOTES,
   FACT_LEASE_MS,
@@ -19,6 +23,7 @@ import {
   MOVE_RENAMES_CAP,
   MOVE_UNPARSED_CAP,
   PROPS_AT_PATHS,
+  PROPS_VERSION,
   type FactState,
   dropLinks,
   factsCurrent,
@@ -29,6 +34,7 @@ import {
   liveNode,
   logHead,
   logReaches,
+  propsPredate,
   writeFacts,
 } from "./lib/nodes/facts";
 
@@ -41,6 +47,8 @@ const stateValidator = v.object({
   after: v.optional(v.string()),
   startSeq: v.optional(v.number()),
   retry: v.optional(v.array(v.string())),
+  upgrade: v.optional(v.string()),
+  upgraded: v.optional(v.boolean()),
 });
 
 const dueValidator = v.object({
@@ -49,13 +57,23 @@ const dueValidator = v.object({
   gone: v.optional(v.boolean()),
 });
 
-function stateOf(row: { ready: boolean; seq: number; after?: string; startSeq?: number; retry?: string[] }): FactState {
+function stateOf(row: {
+  ready: boolean;
+  seq: number;
+  after?: string;
+  startSeq?: number;
+  retry?: string[];
+  propsVersion?: number;
+  upgradeAfter?: string;
+}): FactState {
   return {
     ready: row.ready,
     seq: row.seq,
     ...(row.after === undefined ? {} : { after: row.after }),
     ...(row.startSeq === undefined ? {} : { startSeq: row.startSeq }),
     ...(row.retry === undefined || row.retry.length === 0 ? {} : { retry: row.retry }),
+    // A ready fill whose rows predate the props version re-reads them, a page at a time.
+    ...(row.ready && row.propsVersion !== PROPS_VERSION ? { upgrade: row.upgradeAfter ?? "" } : {}),
   };
 }
 
@@ -70,13 +88,23 @@ export const claim = internalMutation({
     const row = await factStateRow(ctx.db, workspaceId);
     if (row === null) {
       const fresh = freshWalk(await logHead(ctx.db, workspaceId, now));
-      await ctx.db.insert("nodeFactState", { workspaceId, ...fresh, leaseAt: now });
+      await ctx.db.insert("nodeFactState", { workspaceId, ...fresh, leaseAt: now, propsVersion: PROPS_VERSION });
       return fresh;
     }
     if (row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS) return null;
     if (row.ready && !logReaches(stateOf(row), now)) {
       const fresh = freshWalk(await logHead(ctx.db, workspaceId, now));
-      await ctx.db.patch(row._id, { ...fresh, after: undefined, retry: undefined, retryKind: undefined, retryPasses: undefined, leaseAt: now });
+      await ctx.db.patch(row._id, {
+        ...fresh,
+        after: undefined,
+        retry: undefined,
+        retryKind: undefined,
+        retryPasses: undefined,
+        leaseAt: now,
+        // A walk reads every note whose props predate the version too.
+        propsVersion: PROPS_VERSION,
+        upgradeAfter: undefined,
+      });
       return fresh;
     }
     await ctx.db.patch(row._id, { leaseAt: now });
@@ -88,7 +116,7 @@ export const claim = internalMutation({
 async function dueNote(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string) {
   const node = await liveNode(db, workspaceId, path);
   if (node === null) return (await hasLinks(db, workspaceId, path)) ? { path, gone: true } : null;
-  if (factsCurrent(node)) return null;
+  if (factsCurrent(node) && !propsPredate(node)) return null;
   return { path, ...(node.etag === undefined ? {} : { etag: node.etag }) };
 }
 
@@ -155,7 +183,32 @@ export const due = internalQuery({
       await consider(row.path);
       seq = Math.max(seq, row.seq);
     }
-    return { notes, next: { ready: true, seq }, more: stopped || rows.length === FACT_LOG_PAGE };
+    const next: FactState = { ready: true, seq };
+    let upgrading = false;
+    if (state.upgrade !== undefined && !stopped) {
+      const from = state.upgrade;
+      const page = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) =>
+          from === "" ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", from),
+        )
+        .take(WALK_ROWS);
+      let last: string | undefined;
+      for (const row of page) {
+        if (notes.length >= FACT_FILL_NOTES) break;
+        last = row.path;
+        if (row.kind === "file" && row.goneAt === undefined && propsPredate(row)) await consider(row.path);
+      }
+      if (page.length < WALK_ROWS && last === page[page.length - 1]?.path) next.upgraded = true;
+      else {
+        next.upgrade = last ?? from;
+        upgrading = true;
+      }
+    } else if (state.upgrade !== undefined) {
+      next.upgrade = state.upgrade;
+      upgrading = true;
+    }
+    return { notes, next, more: stopped || rows.length === FACT_LOG_PAGE || upgrading };
   },
 });
 
@@ -223,6 +276,11 @@ export const finish = internalMutation({
       startSeq: next.startSeq,
       retry: retry.length === 0 ? undefined : retry,
       leaseAt: undefined,
+      ...(next.upgraded === true
+        ? { propsVersion: PROPS_VERSION, upgradeAfter: undefined }
+        : next.upgrade === undefined
+          ? {}
+          : { upgradeAfter: next.upgrade }),
     });
     return null;
   },
@@ -312,7 +370,7 @@ export const behind = internalQuery({
   returns: v.boolean(),
   handler: async (ctx, { workspaceId }) => {
     const row = await factStateRow(ctx.db, workspaceId);
-    if (row === null || !row.ready) return true;
+    if (row === null || !row.ready || row.propsVersion !== PROPS_VERSION) return true;
     const next = await ctx.db
       .query("nodeLog")
       .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId).gt("seq", row.seq))
@@ -376,4 +434,84 @@ export const ready = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId }) => (await factStateRow(ctx.db, workspaceId))?.ready === true,
+});
+
+/**
+ * What a public website list shows of these notes, from the tree alone (Dev2,
+ * 2026-10-14: names and front matter go through the tree; only a note's
+ * content comes from storage). Each note the publication clearance may see —
+ * `team` scope, no granted names, the rules mirror's `canSee` — answers with
+ * its version, when it last changed, and its props if they were read at that
+ * version and carry the website flags (`current`). A note the clearance cannot
+ * see is absent, exactly as a read at that clearance would have been. `null`
+ * while the tree does not serve.
+ */
+export const publishedRows = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.union(
+    v.null(),
+    v.array(
+      v.object({
+        path: v.string(),
+        etag: v.union(v.string(), v.null()),
+        uploaded: v.union(v.number(), v.null()),
+        current: v.boolean(),
+        sealed: v.boolean(),
+        props: v.union(v.string(), v.null()),
+      }),
+    ),
+  ),
+  handler: async (ctx, { workspaceId, paths }) => {
+    if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const mirror = await readMirror(ctx.db, workspaceId);
+    // Rules that cannot be read publish nothing.
+    if (mirror?.invalid === true) return [];
+    const { rules, overrides } = await mirrorRules(mirror);
+    const found = [];
+    for (const path of new Set(paths)) {
+      if (!canSee(path, PUBLICATION_SCOPE, rules, overrides)) continue;
+      const row = await liveNode(ctx.db, workspaceId, path);
+      if (row === null) continue;
+      found.push({
+        path,
+        etag: row.etag ?? null,
+        uploaded: row.uploaded ?? null,
+        current: factsCurrent(row) && !propsPredate(row),
+        sealed: row.sealed === true,
+        props: row.props ?? null,
+      });
+    }
+    return found;
+  },
+});
+
+/**
+ * Which of `paths` the tree holds as a live note `clearance` may see: existence
+ * as the bucket read answered it, from the tree alone and never a note's bytes.
+ * Null when the tree is not served or its rules cannot be read, so a caller
+ * says "can't tell" rather than guess.
+ */
+export const visibleNotes = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paths: v.array(v.string()),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    names: v.array(v.string()),
+  },
+  returns: v.union(v.null(), v.array(v.string())),
+  handler: async (ctx, { workspaceId, paths, scope, names }) => {
+    if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const mirror = await readMirror(ctx.db, workspaceId);
+    if (mirror?.invalid === true) return null;
+    const { rules, overrides } = await mirrorRules(mirror);
+    const granted = new Set(names);
+    const found = [];
+    for (const path of new Set(paths)) {
+      if (!canSee(path, scope, rules, overrides, granted)) continue;
+      if ((await liveNode(ctx.db, workspaceId, path)) !== null) found.push(path);
+    }
+    return found;
+  },
 });

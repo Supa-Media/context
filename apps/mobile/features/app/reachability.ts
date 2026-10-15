@@ -441,21 +441,6 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: POINTER,
       },
       {
-        surface: "the live map, from its place on the phone's Home",
-        control: {
-          file: "features/console/home/homeRows.tsx",
-          contains: ['testID="phone-home-map"', "onPress={onPress}"],
-        },
-        navigation: [
-          {
-            file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
-          },
-        ],
-        region: "screen",
-        densities: PHONE,
-      },
-      {
         /*
           It was a pill on the phone's workspace strip. The strip went into
           the account sheet (owner, 2026-09-27, the phone artboards, screen

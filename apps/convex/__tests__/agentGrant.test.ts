@@ -327,7 +327,7 @@ describe("how often the console may mint", () => {
     const ownerId = await createUser(t, "owner@example.invalid");
     const workspaceId = await createWorkspace(t, ownerId, "seyi");
     const client = asUser(t, ownerId);
-    const loads = 120;
+    const loads = CONSOLE_MINT_LIMIT;
     for (let load = 0; load < loads; load++) {
       await client.action(api.functions.agentGrant.mintConsoleGrant, {
         workspaceId,

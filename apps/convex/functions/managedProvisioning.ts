@@ -73,21 +73,6 @@ import {
 } from "./lib/managedProvisioningFns/constants";
 
 /**
- * Tear down resources belonging to the dedicated CUJ account only.
- * The mutation that schedules this proves the owner identity; this action
- * re-proves the deterministic bucket name so malformed args cannot widen it.
- */
-export const deleteManagedTestResources = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    bucket: v.string(),
-    tokenId: v.string(),
-  },
-  returns: v.null(),
-  handler: deleteManagedResources,
-});
-
-/**
  * The production cleanup, scheduled a week after a verified customer cutover.
  * Deletes nothing if the workspace has switched back to the bucket meanwhile,
  * or left it again since, which put a later deletion of its own on the clock.

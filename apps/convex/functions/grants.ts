@@ -55,10 +55,10 @@ export const MAX_GRANTS_RETURNED = 200;
  * How many of those 200 the console may take.
  *
  * The console is not a third-party client, but it mints like one and far more
- * often: every page load is a new instance, and a person may mint 600 an hour
+ * often: every page load is a new instance, and a person may mint 100 an hour
  * (`CONSOLE_MINT_LIMIT`), which is what a browser agent opening one note per
  * page load does. Nothing expires inside that hour, so each load inserts its
- * own row, and newest-first put hundreds of them above every AI client the
+ * own row, and newest-first put a hundred of them above every AI client the
  * person had ever connected — pushing the client somebody came here to revoke
  * off the bottom of the only screen that revokes it. A cap that hides what
  * you came to switch off is worse than no cap.

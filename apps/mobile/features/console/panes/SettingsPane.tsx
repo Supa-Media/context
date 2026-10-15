@@ -5,7 +5,7 @@ import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { leading } from "../../design/tokens";
+import { leading, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
 import { PanelHead } from "../settings/panels/PanelHead";
@@ -528,7 +528,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
 
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  danger: { marginTop: 36, marginBottom: 10, color: colors.critText },
+  danger: { marginTop: space.x6, marginBottom: 10, color: colors.critText },
   under: { marginTop: 12, gap: 9, flexWrap: "wrap" },
   searchHead: { marginTop: 32, marginBottom: 10 },
   rowSub: { marginTop: 2 },

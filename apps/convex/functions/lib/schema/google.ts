@@ -3,6 +3,24 @@ import { googlePushValidator } from "./googlePush";
 import { v } from "convex/values";
 
 /**
+ * Each product's own turn record, beside its `lastSyncedAt`.
+ *
+ * One pass syncs one product, and the loop picks the product whose turn is
+ * oldest (`nextProductToSync`). Measured by success alone, a product that
+ * fails on every pass never gets a success, stays "oldest" forever, and
+ * takes every turn from its siblings: a broken Calendar stopped Gmail and
+ * Chat on the same account. `lastAttemptAt` is when the product last had a
+ * turn that did not succeed, and `lastFailure` says why in words a person
+ * can act on, so the console names the product that is broken rather than
+ * the account.
+ */
+const productAttemptFields = {
+  lastAttemptAt: v.optional(v.number()),
+  lastFailureCode: v.optional(v.string()),
+  lastFailure: v.optional(v.string()),
+};
+
+/**
  * A connected Google account, its sync runs, and its consent round trips.
  *
  * One slice of the control-plane schema, spread into `defineSchema` by
@@ -157,6 +175,7 @@ export const googleTables = {
          */
         historyId: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
+        ...productAttemptFields,
       }),
     ),
     /**
@@ -173,6 +192,7 @@ export const googleTables = {
         /** Owner-local date of the last full horizon refresh. */
         lastFullSyncDate: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
+        ...productAttemptFields,
       }),
     ),
     /**
@@ -211,6 +231,7 @@ export const googleTables = {
         destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
         lastSyncedAt: v.optional(v.number()),
+        ...productAttemptFields,
       }),
     ),
     health: v.union(
