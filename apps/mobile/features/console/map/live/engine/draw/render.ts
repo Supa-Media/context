@@ -7,9 +7,11 @@ import { minimapAlpha } from "../lod";
 import type { Point } from "../math";
 import type { Model, SceneAt } from "../scene";
 import { drawGround, drawLinks, drawNotes } from "./base";
+import { paintBoard } from "./board";
 import { drawContainerLabels, placeContainerLabels } from "./containers";
 import { countPresent, type DrawEnv } from "./env";
 import { drawFlights } from "./flights";
+import { drawHubFaces, drawHubLines } from "./hub";
 import { drawActors, drawReading, placeFacesAndLabels } from "./overlay";
 import { circle, fillText, fontOf, roundRect, type Ctx, type Style } from "./primitives";
 
@@ -26,8 +28,7 @@ export type RenderOptions = {
 export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: Viewport, opts: RenderOptions): HitFrame {
   const C = opts.style.palette;
   ctx.save();
-  ctx.fillStyle = C.ground;
-  ctx.fillRect(0, 0, vp.w, vp.h);
+  paintBoard(ctx, C, cam, vp);
   const v = visibleRect(vp);
   const screen = (p: Point) => toScreen(cam, vp, p);
   const hot = new Set<string>([...scene.editing.keys(), ...scene.reading.keys()]);
@@ -37,7 +38,8 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   const lo = toWorld(cam, vp, { x: -120, y: -120 });
   const hi = toWorld(cam, vp, { x: vp.w + 120, y: vp.h + 120 });
   const near: NotePlace[] = [];
-  for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key)) near.push(n);
+  // A folder drawn as an icon (Archive) keeps its notes out of sight.
+  for (const n of notesNear(model.layout, lo.x, lo.y, hi.x, hi.y)) if (scene.present.has(n.key) && !n.sub.folder.collapsed) near.push(n);
   const env: DrawEnv = {
     ctx,
     style: opts.style,
@@ -62,6 +64,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
     flyingAt: new Map(scene.flights.filter((f) => !f.cross && f.landedFor < 0).map((f) => [f.to.key, f.pos])),
   };
   drawGround(env);
+  const hub = drawHubLines(env);
   drawLinks(env);
   drawNotes(env);
   // Names of containers claim their space first and are drawn over the dots.
@@ -73,6 +76,7 @@ export function renderMap(ctx: Ctx, model: Model, scene: SceneAt, cam: Cam, vp: 
   drawReading(env, groups);
   drawContainerLabels(env, labels, env.pills);
   drawFlights(env, captions);
+  drawHubFaces(env, hub);
   drawActors(env, groups, flags);
   if (mini) drawMinimap(env, mini);
   ctx.restore();

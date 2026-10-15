@@ -215,7 +215,8 @@ describe("note names", () => {
     }
     const names = texts(calls).filter((t) => t.text.startsWith("note "));
     expect(dots.length).toBeGreaterThan(20);
-    expect(names.length).toBeGreaterThan(3);
+    // Archive is one icon now, so its notes' names are not among them.
+    expect(names.length).toBeGreaterThanOrEqual(3);
     for (const n of names) {
       for (const d of dots) expect([n.text, overlaps(n, { x: d.x - d.r, y: d.y - d.r, w: d.r * 2, h: d.r * 2 })]).toEqual([n.text, false]);
     }

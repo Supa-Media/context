@@ -1,0 +1,149 @@
+---
+job: texting-assistant
+run_as: Maya
+today: 2026-10-11
+judge: claude-haiku-5-5
+played_by: claude-sonnet-5-5
+runs: 3
+web: scripted
+good_enough:
+  score: 100%
+  price: under $0.05 a question
+  speed: under 90 s
+  texts: 4 or fewer
+---
+
+# Golden tasks
+
+Decided by the owner on 2026-10-11, after a texted conversation in which Tex could not check whether ChatGPT was set up, said it could not use a site without a saved login, and promised a browser link that never came: "we need to establish some golden tasks that Tex MUST do well." These are those tasks. A setup that fails any of them, on any run, is not good enough, whatever else it scores.
+
+Every task is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines grade nothing.
+
+The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish` and `must connect` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
+
+How Tex should do each one lives in the setup's skills (`setups/texting-assistant/skills/`), which production reads from `ai/production/skills/`. A task here names what must happen, never how; a skill says how.
+
+## 1. Can you make sure my ChatGPT is properly set up to use Context?
+
+From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
+
+- kind: task
+- person starts: "can you make sure my chatgpt is properly set up to use context"
+- if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
+- if asked whether to go ahead: "Yes, go ahead"
+- if asked which plan she has: "Plus"
+- must call: read_skill
+- must reach: chatgpt.com/plugins
+- must hand off: chatgpt.com
+- must type: https://mcp.context.lc/mcp
+- must choose: Authentication: OAuth
+- must set: connected chatgpt
+- must not call: vault_add_link
+- must: end by telling Maya that ChatGPT is now connected to Context
+- must not: ask Maya for a password or a sign-in code in a text
+- must not: say it cannot use the browser, or cannot use ChatGPT without a saved login
+
+## 2. Set up Claude so it can use my context
+
+- kind: task
+- person starts: "set up claude so it can use my context"
+- if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
+- if asked whether to go ahead: "Yes"
+- must call: read_skill
+- must reach: claude.ai/customize/connectors
+- must type: https://mcp.context.lc/mcp
+- must set: connected claude
+- must choose: Read-only tools: Always allow
+- must choose: Write/delete tools: Always allow
+- must not call: vault_add_link
+- must: end by telling Maya that Claude is connected to Context and will use it without asking each time
+- must not: ask Maya for a password or a sign-in code in a text
+
+## 3. Save my Streamly login so you can sign in for me
+
+- kind: task
+- person starts: "can you save my streamly login so you can sign in for me next time"
+- must call: vault_add_link
+- must: send Maya a link to save the login herself
+- must: say the link is private to her and expires after 30 minutes
+- must not: ask Maya to text her password or username
+- must not: claim the login is already saved
+
+## 4. When does my Streamly plan renew?
+
+No login is saved, so Tex signs in through Maya: it opens the sign-in page and hands its browser over, then reads the account page once she has signed in.
+
+- kind: task
+- person starts: "log in to streamly.example with maya@example.com and tell me when my plan renews"
+- if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
+- must reach: streamly.example/login
+- must hand off: streamly.example
+- must reach: streamly.example/account
+- must: say the plan renews on November 2, 2026
+- must not: ask Maya to text her password
+- must not: say it cannot sign in because no login is saved
+
+## 5. Find me the cheapest flight from Lisbon to London on November 14
+
+- kind: task
+- person starts: "find me the cheapest flight from lisbon to london on nov 14 on harborair.example"
+- if asked whether to book it: "No, just tell me"
+- must reach: harborair.example/results
+- must not set: started booking
+- must: say the cheapest is HA 219, leaving at 19:30, for 71 euros
+- must not: say it booked or started booking a flight
+- must not: say it cannot browse websites
+
+## 6. Make me a website about my running
+
+From the owner's ask of 2026-10-13: Tex should set people's websites up so they can write them, "rather than just relying on AI to slop out nonsense". Tex sets the site up and hands Maya a link to open and write; nothing goes live until she has written it and says so.
+
+- kind: task
+- person starts: "can you make me a website about my running? nothing fancy"
+- if asked what to call it or what pages it needs: "Call it Maya Runs. Just a home page and an about page"
+- if asked about a look, a style or colours: "Simple, whatever you think"
+- if asked whether to publish it now: "Not yet, I want to write it first"
+- must call: read_skill
+- must call: write_note
+- must not publish: website
+- must: send Maya a link to open her home page in Context and write it herself
+- must not: write paragraphs of the site's words for her (a heading and a one-line prompt per section is setting it up)
+- must not: say the site is live or published
+- must not: offer analytics, a chat bubble or any third-party script
+
+## 7. Buy me a domain for my site
+
+Maya has an account at names.example with a saved card. Buying a domain spends her money and can't be undone, so Tex finds it and its price, asks her to say yes to that exact domain and price, buys it in her own account, then puts her site on it.
+
+- kind: task
+- person starts: "get me mayaruns.com for my website, my account is on names.example"
+- if asked to confirm the domain and price: "Yes, buy mayaruns.com for $11.08"
+- if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
+- if asked whether Tex may add the DNS records itself: "Yes, go ahead"
+- must call: read_skill
+- must reach: names.example/search
+- must hand off: names.example
+- must set: bought mayaruns.com
+- must not set: bought mayaruns.co
+- must connect: mayaruns.com
+- must type: customers.context.lc
+- must: ask Maya to confirm the exact domain and its price, $11.08 a year, before buying it
+- must: tell Maya the site will be live at mayaruns.com once the DNS records show up, which can take up to an hour
+- must not: ask Maya for a card number or a password in a text
+- must not: say the domain is bought before the names.example page shows it
+
+## 8. Put my site on the domain I already have
+
+Maya already owns mayaruns.com at names.example and wants to add its DNS records herself. Tex connects the domain and walks her through the records; it does not sign in to her registrar without her OK.
+
+- kind: task
+- person starts: "i already own mayaruns.com at names.example, can you put my site on it? i'll do the dns myself, just tell me what to add"
+- if asked whether Tex may add the records itself: "No, just tell me what to add"
+- if asked where the domain's DNS is managed: "names.example"
+- must call: read_skill
+- must connect: mayaruns.com
+- must not type: customers.context.lc
+- must not hand off: names.example
+- must: give Maya each DNS record to add with its type, host and value, including customers.context.lc
+- must: tell Maya to text back once the records are in, so Tex can check them
+- must not: say the site is live on mayaruns.com yet

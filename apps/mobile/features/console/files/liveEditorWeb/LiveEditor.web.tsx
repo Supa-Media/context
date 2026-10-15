@@ -65,10 +65,12 @@ import type { LiveEditorProps, MenuOpen } from "./contract";
 import { ensureStyles } from "./stylesheet";
 import { mountEditor } from "./mount";
 import { showTitleNote } from "./titleLine";
+import { showPropertySlot } from "./propertySlot";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 import { canComment, commentUi, setActiveThread } from "../comments/extension";
 import { hasMargin } from "../comments/model";
+import { redrawDiagrams } from "../livePreview/diagram";
 
 export function LiveEditor({
   value,
@@ -84,8 +86,10 @@ export function LiveEditor({
   commentModerator,
   onSignInToComment,
   titleNote,
+  propertyHost,
   accessibilityLabel,
   onOpenNote,
+  onOpenTag,
   notePath,
   notePaths,
   onSubmitForm,
@@ -101,7 +105,6 @@ export function LiveEditor({
   onPickSuggestion,
   onPreviewLinks,
   onDictate,
-  onAsk,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -164,8 +167,9 @@ export function LiveEditor({
   links.current = {
     path: notePath ?? null,
     paths: notePaths,
-    onOpen: (path, mode) => onOpenNote?.(path, mode),
+    onOpen: (path, mode, anchor) => onOpenNote?.(path, mode, anchor),
     onOpenUrl: openWebUrl,
+    onOpenTag,
   };
 
   /*
@@ -268,6 +272,8 @@ export function LiveEditor({
    */
   useEffect(() => {
     ensureStyles(colors);
+    // Diagrams are drawn in a frame the stylesheet cannot reach; tell them.
+    redrawDiagrams();
   }, [colors]);
 
   /**
@@ -291,8 +297,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk, commenter, commentModerator, onSignInToComment };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, commenter, commentModerator, onSignInToComment };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -355,6 +361,12 @@ export function LiveEditor({
     );
   }, [titleTone, titleMessage]);
 
+  // The property chips' box under the title — see `propertySlot.ts`.
+  useEffect(() => {
+    if (view.current === null) return;
+    showPropertySlot(view.current, propertyHost ?? null);
+  }, [propertyHost]);
+
   // The workspace's emoji changed — one added, renamed or removed, or the list
   // arrived — so names drawn as text are asked about again.
   const emojiGeneration = customEmoji?.generation ?? 0;
@@ -366,7 +378,7 @@ export function LiveEditor({
   // left — see `followNote`.
   const shownPath = useRef(notePath ?? null);
   useEffect(() => {
-    followNote({ view, shownPath, collab, bound, latestValue, notePath, value });
+    followNote({ view, shownPath, collab, bound, latestValue, notePath, value, shared: presence?.shared ?? null });
     // `value` is read, not depended on: a keystroke changes it under the same
     // path and is the effect below's business, not this one's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,7 +605,6 @@ export function LiveEditor({
             hasSelection: !view.current.state.selection.main.empty,
             apple: isApplePlatform(),
             canDictate: onDictate !== undefined,
-            canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
             canComment: canComment(view.current.state),
             spelling: menuAt.spelling ?? null,

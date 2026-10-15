@@ -435,3 +435,39 @@ on touch removes the only way to change a heading's level on a phone.
 `apps/mobile/__tests__/livePreviewTouch.test.ts` fails if a finger reveals the
 marks, if a mouse or arrow key stops revealing them, or if typing `#` at the
 line start does not.
+
+### A note on its way is drawn as loading, and its read starts on the hover (2026-10-11)
+
+The owner: opening a note "displayed the 'write in markdown' empty file text
+and then later populates with the actual text after 2-3 seconds … speed is
+essential, especially for a notetaking app."
+
+**An empty note and a note that has not arrived never look alike.** Until the
+editor holds the selected note, the region draws `NoteLoading` (blank for
+150ms, then quiet bars) instead of the editor, so the placeholder can only ever
+mean the note is empty. `useShownEntry` still keeps the page already on screen
+when there is one; this covers the opens with nothing before them. Reverting it
+fails `noteLoadingState.test.ts`.
+
+**The read starts when the pointer rests on a note's row** (65ms, or at once on
+press-in), and the open that follows uses that answer (`notePrefetch.ts`). It is
+the read early, never a cache, which is why it keeps the online-means-server
+rule: used once, dropped after 8s, a failure forgotten, never for the note the
+editor holds (its answer would predate the typing on screen). A pointer passing
+over a list on its way somewhere asks for nothing.
+
+**On the server, nothing an open waits on is asked for one after another
+without a reason.** `runFileOperation` asks for the binding, the note cap and
+the encryption key together, and `readFile` asks for the note while
+`privacy.md` is on its way; `canSee` still decides against the manifest before
+a byte is returned. A hidden note is therefore fetched into the action's memory
+and dropped, which no caller can observe; a "simplification" back to sequential
+reads costs a round trip per open and fails `readFileOverlap.test.ts`.
+
+**A folder page draws its name and description once.** A front-note heading
+that is only the folder's name on disk with a sort number ("1-areas" over
+`2-areas`, the README older folders were made with) is not a title, so the page
+keeps its label instead of swapping to the number when the notes land
+(`repeatsFolderName`); a heading in somebody's own words is kept. The folder's
+own front note is read by name ahead of the rest (`loadFront`), so the
+description no longer waits for every note the List and Board need.

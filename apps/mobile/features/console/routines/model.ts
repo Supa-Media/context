@@ -37,15 +37,15 @@ export interface RoutineRun {
 export type LastRunMark = "ok" | "failed" | null;
 
 export type RoutineBarView =
-  /** Not under `routines/`: nothing is drawn. */
+  /** Not under `tex/routines/` or `routines/`: nothing is drawn. */
   | { kind: "none" }
-  /** Under `routines/` but will never run: one quiet line saying why. */
+  /** Under `tex/routines/` or `routines/` but will never run: one quiet line saying why. */
   | { kind: "unscheduled"; line: string }
   | {
       kind: "bar";
       /** "Every day at 7:30 am". */
       schedule: string;
-      /** "Last ran 2 hours ago", "Not run yet", "Paused", or why it stopped. */
+      /** "Last ran 2 hours ago", "Not run yet", "Paused", "Done", or why it stopped. */
       last: string;
       mark: LastRunMark;
       /** The file says `paused: yes`. */
@@ -84,6 +84,9 @@ export function routineBarView(options: {
   if (stopped) {
     last = WRITER_GONE_WORDS;
     mark = "failed";
+  } else if (settings.done) {
+    // A one-off that has run: the schedule line already says when.
+    last = "Done";
   } else if (settings.paused) {
     last = "Paused";
   } else if (row === undefined) {
@@ -126,7 +129,7 @@ export function runWords(run: RoutineRun, send: RoutineRow["send"] = "text"): { 
     case "daily_limit":
       return { label: "Didn't run", detail: "Today's limit was reached." };
     case "no_provider":
-      return { label: "Didn't run", detail: "No AI is set up for this workspace." };
+      return { label: "Didn't run", detail: "The assistant isn't available on this workspace's plan." };
     case "no_chat":
       return { label: "Not texted", detail: "Nobody to text yet. Text the assistant first." };
     case "writer_gone":

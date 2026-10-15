@@ -53,6 +53,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
   // An owner picker searches through the client; nothing here opens one.
   useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
@@ -174,7 +175,7 @@ function render(data: ConsoleData): string {
   return text;
 }
 
-const NO_BUCKET = "No bucket is connected to this context yet";
+const NO_BUCKET = "This context has no bucket connected yet";
 
 describe("Browse does not offer to connect a bucket it has not asked about", () => {
   test("a binding still in flight says nothing", () => {

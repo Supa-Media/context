@@ -3,9 +3,9 @@
  *
  * Two ways in, one way through: a signal (the gateway's `/gateway/routines`,
  * or a console write through the barrier) records who wrote which paths and
- * schedules one debounced scan of the workspace's `routines/` folder; the scan
- * reads the files through `runFileOperation`, keeps their schedules, and drops
- * the text. The rows are a derivative: deleting every one of them and running
+ * schedules one debounced scan of the workspace's routine folders
+ * (`routines/` and `tex/routines/`); the scan reads the files through
+ * `runFileOperation`, keeps their schedules, and drops the text. The rows are a derivative: deleting every one of them and running
  * a scan gives back the same schedule, because the folder is the truth.
  */
 
@@ -18,19 +18,21 @@ import {
   MAX_SIGNAL_PATHS,
   RECONCILE_AFTER_SIGNAL_MS,
   RECONCILE_STALE_MS,
-  ROUTINES_ROOT,
+  ROUTINE_SCAN_ROOTS,
   WRITER_GONE,
   effectiveTimeZone,
   isUnderRoutines,
+  frontMatterFromProps,
   nextRunFor,
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
 import { accountTimeZone, userForActorName, workspaceOwner, writingRole } from "./access";
+import { PROPS_AT_PATHS } from "../nodes/facts";
 
 type Writer = { path: string; userId: Id<"users"> };
 
-/** The paths a signal may name: strings under `routines/`, bounded. */
+/** The paths a signal may name: strings under a routine root (or `tex` itself), bounded. */
 export function routinePathsOf(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const paths: string[] = [];
@@ -122,11 +124,13 @@ export async function restoreRoutineWritersHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .first();
   if (pending === null) {
-    // Not rescheduled: the safety-net sweep picks up pending rows.
+    // Not rescheduled here: stamped as never scheduled, so the next signal
+    // (or the props it waits on landing) schedules a scan, and the
+    // safety-net sweep picks it up otherwise.
     await ctx.db.insert("routineReconciles", {
       workspaceId: args.workspaceId,
       writers: args.writers,
-      scheduledAt: Date.now(),
+      scheduledAt: 0,
     });
   } else {
     const known = new Set(pending.writers.map((entry) => entry.path));
@@ -140,13 +144,19 @@ export async function restoreRoutineWritersHandler(
 export interface RoutineScan {
   schedules: RoutineSchedule[];
   complete: boolean;
+  /** Routines whose props the tree has not read at their current version yet. */
+  waiting: string[];
 }
 
 const OWNER_CLEARANCE = { scope: "private" as const, grantedNames: [] as string[] };
 
 /**
- * List `routines/<folder>/` and read each `.md` directly inside, at the
- * owner's clearance: the scan only learns *when*. Whether the writer may see
+ * List `<root>/<folder>/` for both roots (`routines/` and `tex/routines/`) and
+ * read each `.md` directly inside. Both roots count toward one
+ * `MAX_ROUTINES_PER_WORKSPACE`, and a root that is not there lists as empty,
+ * so a workspace with only one of them scans as it always did.
+ *
+ * At the owner's clearance: the scan only learns *when*. Whether the writer may see
  * the note is asked by the gateway when it runs (`read_note` on the writer's
  * own grant), so a scan reading more than the writer could never lets them
  * run more.
@@ -164,46 +174,48 @@ export async function scanRoutines(
     if (listing.kind !== "listing") throw new Error("routine listing returned an invalid result");
     return listing;
   };
-  const root = await list(ROUTINES_ROOT);
-  let complete = !root.truncated;
+  let complete = true;
   const files: string[] = [];
-  for (const folder of root.entries) {
-    if (folder.kind !== "folder") continue;
-    const inner = await list(folder.path);
-    if (inner.truncated) complete = false;
-    for (const entry of inner.entries) {
-      if (entry.kind === "file" && /\.md$/i.test(entry.path)) files.push(entry.path);
-    }
-    if (files.length > MAX_ROUTINES_PER_WORKSPACE) {
-      complete = false;
-      break;
+  scan: for (const rootPath of ROUTINE_SCAN_ROOTS) {
+    const root = await list(rootPath);
+    if (root.truncated) complete = false;
+    for (const folder of root.entries) {
+      if (folder.kind !== "folder") continue;
+      const inner = await list(folder.path);
+      if (inner.truncated) complete = false;
+      for (const entry of inner.entries) {
+        if (entry.kind === "file" && /\.md$/i.test(entry.path)) files.push(entry.path);
+      }
+      if (files.length > MAX_ROUTINES_PER_WORKSPACE) {
+        complete = false;
+        break scan;
+      }
     }
   }
 
+  // Each routine's schedule from its front matter as the tree holds it, never
+  // the note itself (decided by the owner, 2026-10-14: names and front matter
+  // come from the tree; storage only for a note's content). One whose props
+  // are behind its last write waits, and the props landing scan it again.
   const schedules: RoutineSchedule[] = [];
-  let pending = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(path, "") !== null);
-  for (let attempt = 0; pending.length > 0 && attempt < 10; attempt += 1) {
-    const batch = await ctx.runAction(internal.functions.files.runFileOperation, {
+  const waiting: string[] = [];
+  const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(path, "") !== null);
+  for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
+    const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
       workspaceId,
-      ...OWNER_CLEARANCE,
-      operation: { kind: "readMany", paths: pending.slice(0, 25) },
+      paths: candidates.slice(at, at + PROPS_AT_PATHS),
     });
-    if (batch.kind !== "notes") throw new Error("routine read returned an invalid result");
-    const deferred: string[] = [];
-    for (const result of batch.results) {
-      if (result.outcome === "deferred") {
-        deferred.push(result.path);
+    for (const row of rows) {
+      if (!row.current) {
+        waiting.push(row.path);
         continue;
       }
-      // Gone between listing and read: not a routine any more.
-      if (result.outcome !== "read") continue;
-      const schedule = scheduleFromNote(result.path, result.note.text);
+      const schedule = scheduleFromNote(row.path, row.sealed ? "" : frontMatterFromProps(row.props));
       if (schedule !== null) schedules.push(schedule);
     }
-    pending = [...deferred, ...pending.slice(25)];
   }
-  if (pending.length > 0) complete = false;
-  return { schedules, complete };
+  if (waiting.length > 0) complete = false;
+  return { schedules, complete, waiting };
 }
 
 /**
@@ -323,6 +335,7 @@ function scheduleFields(schedule: RoutineSchedule): Omit<
     at: schedule.at,
     days: schedule.days,
     monthDay: schedule.monthDay,
+    date: schedule.date,
     timeZone: schedule.timeZone,
     paused: schedule.paused,
     send: schedule.send,
@@ -344,12 +357,18 @@ export async function reconcileRoutinesHandler(
     await ctx.runMutation(internal.functions.routines.restoreRoutineWriters, { ...args, writers });
     return null;
   }
+  // A routine still waiting on its props keeps its writer for the scan they start.
+  const waiting = new Set(scan.waiting);
   await ctx.runMutation(internal.functions.routines.commitRoutines, {
     workspaceId: args.workspaceId,
     schedules: scan.schedules,
     complete: scan.complete,
-    writers,
+    writers: writers.filter((writer) => !waiting.has(writer.path)),
   });
+  const held = writers.filter((writer) => waiting.has(writer.path));
+  if (held.length > 0) {
+    await ctx.runMutation(internal.functions.routines.restoreRoutineWriters, { ...args, writers: held });
+  }
   return null;
 }
 

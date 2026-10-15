@@ -15,7 +15,10 @@ import { confirmError, startError } from "../console/settings/panels/signInEmail
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 
 export const EMAIL_CHECK_TITLE = "What's your email?";
-export const EMAIL_CHECK_WHY = "Mail goes here, like invites and updates. You'll keep signing in with your phone.";
+export const EMAIL_CHECK_WHY =
+  "This email protects your account. Big changes and getting back in go through it, so a stolen phone number can't take your account. You'll keep signing in with your phone.";
+/** The backup email is optional and lives in Settings › Account (Dev2, 2026-10-12). */
+export const EMAIL_CHECK_BACKUP = "You can add a backup email any time in Settings › Account.";
 
 /**
  * Asked once of an account a phone made (a number staff let in from the
@@ -117,6 +120,9 @@ export function EmailCheckScreen() {
               </Text>
               <Text variant="rowSub" style={styles.body}>
                 {EMAIL_CHECK_WHY}
+              </Text>
+              <Text variant="foot" style={styles.backup}>
+                {EMAIL_CHECK_BACKUP}
               </Text>
               <View style={styles.field}>
                 <TextField
@@ -234,6 +240,7 @@ const makeStyles = (colors: Colors) =>
       fontWeight: "600",
       color: colors.text,
     },
+    backup: { marginTop: space.x2, color: colors.muted },
     body: { marginTop: space.x3, color: colors.text2, lineHeight: leading(12.5, 1.5) },
     strong: { fontWeight: "600", color: colors.text },
     field: { marginTop: space.x6 },

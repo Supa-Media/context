@@ -1,8 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { phoneSignInPaused, requireProofForPhone } from "./lib/emailProof";
 import { ConvexError, v } from "convex/values";
 import {
   action,
   internalMutation,
+  internalQuery,
   mutation,
   query,
   type MutationCtx,
@@ -21,6 +23,8 @@ import {
 import { hashToken } from "./lib/crypto";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { getMembership } from "./lib/workspaceAuth";
+import { accountTimeZone } from "./lib/routines/access";
+import { effectiveTimeZone } from "./lib/routines/model";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -54,7 +58,9 @@ export const MAX_WRONG_TRIES = 5;
 
 /** The client id texting grants are filed under, and what the person sees. */
 export const TEXTS_CLIENT_ID = "context_texts";
-const TEXTS_CLIENT_NAME = "Texts (iMessage)";
+export const TEXTS_CLIENT_NAME = "Tex";
+/** What the client was called before it took Tex's name (owner, 2026-10-14). */
+export const LEGACY_TEXTS_CLIENT_NAME = "Texts (iMessage)";
 
 /**
  * A grant per text, short-lived. The Worker mints one for each message it
@@ -215,6 +221,8 @@ async function storeCode(
   ctx: MutationCtx,
   args: { userId: Id<"users">; phone: string; hashedCode: string; expiresAt: number },
 ): Promise<void> {
+  // A linked phone signs in too, so a different one is a big change.
+  await requireProofForPhone(ctx, args.userId, args.phone);
   await consumeRateLimit(ctx, {
     key: `texts.startLink:${args.userId}`,
     limit: START_LIMIT,
@@ -474,6 +482,8 @@ export const applyTextsGrant = internalMutation({
       .withIndex("by_phone", (q) => q.eq("phone", args.phone))
       .first();
     if (link === null) return "unlinked";
+    // "This wasn't me" stops the assistant answering until it is turned back on.
+    if (await phoneSignInPaused(ctx, link.userId)) return "unlinked";
     const workspaceId = await personalWorkspaceOf(ctx, link.userId);
     if (workspaceId === null) return "unlinked";
 
@@ -527,7 +537,12 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
     .query("oauthClients")
     .withIndex("by_clientId", (q) => q.eq("clientId", TEXTS_CLIENT_ID))
     .unique();
-  if (existing !== null) return;
+  if (existing !== null) {
+    // A row made under the old name takes Tex's on the next text, so every
+    // place that draws the client (caret flags, activity, Connected apps) says Tex.
+    if (existing.clientName !== TEXTS_CLIENT_NAME) await ctx.db.patch(existing._id, { clientName: TEXTS_CLIENT_NAME });
+    return;
+  }
   await ctx.db.insert("oauthClients", {
     clientId: TEXTS_CLIENT_ID,
     clientName: TEXTS_CLIENT_NAME,
@@ -550,3 +565,20 @@ export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): 
     for (const row of rows) await ctx.db.delete(row._id);
   }
 }
+
+/**
+ * The zone a linked phone's texts are answered in: the account's own (the app
+ * keeps it in step with their device), else the routines' default. The same
+ * zone their reminders run in, so "in 2 minutes" lands two minutes from now.
+ */
+export const textsTimeZone = internalQuery({
+  args: { phone: v.string() },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("phoneLinks")
+      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
+      .first();
+    return effectiveTimeZone(undefined, link === null ? null : await accountTimeZone(ctx, link.userId));
+  },
+});

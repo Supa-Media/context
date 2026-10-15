@@ -1,31 +1,28 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
+import { Card, Grow, Row } from "../../../design/components/Card";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
-import { radii, space } from "../../../design/tokens";
-import { useThemedStyles, type Colors } from "../../../design/theme";
+import { TextLink } from "../../../design/components/TextLink";
+import { space } from "../../../design/tokens";
+import { useThemedStyles } from "../../../design/theme";
 import { atName } from "../../format";
 import { WorkspaceNameField } from "./WorkspaceNameField";
 import { selectedContext, type ConsoleData } from "../../types";
 import type { SettingsSectionKey } from "../sections";
 import { useWorkspaceIcons } from "../../useWorkspaceIcons";
 import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
-import { YourPicture } from "./YourPicture";
 
 /**
- * Settings › General: this workspace's name and picture.
+ * Settings › General: this workspace's name and picture, and the few facts
+ * about it that are not a control.
  *
- * The approved settings artboard (2026-09-29) draws one card: the picture,
- * the name in large type, a line saying the address, the kind and your role,
- * a "Change picture" button, and under a hairline the Name field. The health
- * strip that used to follow ("Connected — R2 · bucket") is gone from here: the
- * settings list says "Healthy" beside Storage & search, and that section
- * leads with the same word, so a third copy was the page repeating itself.
- *
- * What an owner can change and what everybody else sees are the same card:
- * a member sees the name in a field that does not take typing and no button,
- * absent rather than disabled, the catalogue's own rule.
+ * The name is shown once, in the field beside the picture. The address, the
+ * kind and your role are quiet rows under it; custom emoji is a row whose
+ * "Manage" link opens the emoji page. What an owner can change and what
+ * everybody else sees are the same card: a member sees the name in a field
+ * that does not take typing and no button, absent rather than disabled.
  */
 export function OverviewPanel({
   data,
@@ -67,10 +64,17 @@ export function OverviewPanel({
         ? null
         : `you're ${current.role === "editor" ? "an editor" : "a member"}`;
   const name = current?.displayName?.trim() || atName(current?.slug ?? "—");
+  const people = data.members.loading ? null : data.members.members.length;
+  const kind = [
+    shared ? "Shared workspace" : "Personal workspace",
+    people === null ? null : `${people} ${people === 1 ? "person" : "people"}`,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 
   return (
     <View>
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <View style={styles.identity} testID="overview-identity">
           {/*
             A chosen picture, falling back to the first letter — reversed from
@@ -78,15 +82,18 @@ export function OverviewPanel({
             same S in the switcher whose job is telling them apart.
           */}
           <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} style={styles.picture} />
-          <View style={styles.who}>
-            <Text variant="noteTitle" numberOfLines={1}>
-              {name}
-            </Text>
-            <Text variant="rowSub" style={styles.whoSub}>
-              {[atName(current?.slug ?? "—"), shared ? "shared workspace" : "personal workspace", role]
-                .filter((part) => part !== null)
-                .join(" · ")}
-            </Text>
+          <View style={styles.nameCell}>
+            {canRename ? (
+              <WorkspaceNameField key={name} workspaceId={current.id} name={name} />
+            ) : (
+              <TextField
+                label="Name"
+                value={name}
+                editable={false}
+                containerStyle={styles.field}
+                testID="overview-name"
+              />
+            )}
           </View>
           {canChooseIcon ? (
             <Button
@@ -110,41 +117,53 @@ export function OverviewPanel({
             />
           </View>
         ) : null}
+      </Card>
 
-        <View style={styles.nameRow}>
-          {canRename ? (
-            <WorkspaceNameField key={name} workspaceId={current.id} name={name} />
-          ) : (
-            <TextField
-              label="Name"
-              value={name}
-              editable={false}
-              containerStyle={styles.field}
-              testID="overview-name"
+      <Card style={styles.facts} testID="overview-facts">
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Address</Text>
+            <Text variant="rowSub" style={styles.sub}>
+              How people and AI apps find it
+            </Text>
+          </Grow>
+          <Text variant="mono">{atName(current?.slug ?? "—")}</Text>
+        </Row>
+        <Row divided>
+          <Grow>
+            <Text variant="rowTitle">Kind</Text>
+          </Grow>
+          <Text variant="rowSub">{kind}</Text>
+        </Row>
+        {role === null ? null : (
+          <Row divided>
+            <Grow>
+              <Text variant="rowTitle">Your role</Text>
+            </Grow>
+            <Text variant="rowSub">{role.charAt(0).toUpperCase() + role.slice(1)}</Text>
+          </Row>
+        )}
+        <Row divided>
+          <Grow>
+            <Text variant="rowTitle">Custom emoji</Text>
+          </Grow>
+          {onSelect === undefined ? null : (
+            <TextLink
+              label="Manage"
+              accessibilityLabel="Manage this workspace’s custom emoji"
+              onPress={() => onSelect("emoji")}
+              testID="overview-emoji-manage"
             />
           )}
-        </View>
-      </View>
-
-      {/*
-        Your face, on your own workspace: it defaults to this workspace's icon,
-        so the two are chosen side by side. Only where a backend is mounted,
-        the rule the picture button above follows.
-      */}
-      {!shared && current?.role === "owner" && onSelect !== undefined ? <YourPicture /> : null}
+        </Row>
+      </Card>
     </View>
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = () =>
   StyleSheet.create({
-    card: {
-      borderWidth: 1,
-      borderColor: colors.line,
-      borderRadius: radii.card,
-      backgroundColor: colors.surface2,
-      marginBottom: space.x4,
-    },
+    card: { padding: 0, marginBottom: space.x4 },
     identity: {
       flexDirection: "row",
       alignItems: "center",
@@ -152,13 +171,9 @@ const makeStyles = (colors: Colors) =>
       padding: space.x4,
     },
     picture: { width: 56, height: 56, borderRadius: 12 },
-    who: { flex: 1, minWidth: 0 },
-    whoSub: { marginTop: 1 },
+    nameCell: { flex: 1, minWidth: 0 },
     picker: { paddingHorizontal: space.x4, paddingBottom: space.x4 },
-    nameRow: {
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-      padding: space.x4,
-    },
-    field: { maxWidth: 386 },
+    facts: { marginBottom: space.x4 },
+    sub: { marginTop: 2 },
+    field: { width: "100%" },
   });

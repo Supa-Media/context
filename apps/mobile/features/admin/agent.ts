@@ -180,7 +180,8 @@ export function waterfall(turn: Pick<AgentTurnRow, "ms" | "trace">): WaterfallSt
     const ms = Math.max(0, step.ms);
     const entry: WaterfallStep = {
       ...step,
-      label: step.kind === "model" ? "Thinking" : toolLabel(step.tool ?? "tool"),
+      // A round cut off at the output cap ran out of room to think and answer.
+      label: step.kind === "model" ? (step.cut ? "Thinking (cut off)" : "Thinking") : toolLabel(step.tool ?? "tool"),
       left: (start / axis) * 100,
       width: (ms / axis) * 100,
     };

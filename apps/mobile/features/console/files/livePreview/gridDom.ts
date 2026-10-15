@@ -265,9 +265,26 @@ export function focusCell(
 ): boolean {
   const cell = cellElement(wrap, row, column);
   if (cell === null || cell.getAttribute("contenteditable") === null) return false;
-  cell.focus();
+  /*
+    Never let the browser pick the scroll. A cell is often focused straight
+    after its table was redrawn (a row or column deleted, a row added), and a
+    browser scrolling to an element it has not laid out yet takes the note to
+    its top. The cell is brought into view by hand, and only once it has a box.
+  */
+  cell.focus({ preventScroll: true });
   placeCaret(cell, caret);
+  revealCell(cell);
   return true;
+}
+
+function revealCell(cell: HTMLElement): void {
+  if (typeof cell.getBoundingClientRect !== "function" || typeof cell.scrollIntoView !== "function") return;
+  const box = cell.getBoundingClientRect();
+  if (box.width === 0 && box.height === 0) return;
+  const view = cell.ownerDocument.defaultView;
+  const height = view?.innerHeight ?? 0;
+  if (box.top >= 0 && box.bottom <= height) return;
+  cell.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /**

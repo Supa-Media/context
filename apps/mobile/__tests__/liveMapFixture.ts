@@ -91,7 +91,7 @@ export function fakeContext(): CanvasRenderingContext2D & { calls: Call[] } {
     },
     setLineDash: () => {},
   };
-  for (const op of ["beginPath", "closePath", "moveTo", "lineTo", "arc", "arcTo", "ellipse", "rect", "clip", "translate", "scale", "setTransform", "clearRect", "drawImage", "strokeRect"]) {
+  for (const op of ["beginPath", "closePath", "moveTo", "lineTo", "quadraticCurveTo", "arc", "arcTo", "ellipse", "rect", "clip", "translate", "scale", "setTransform", "clearRect", "drawImage", "strokeRect"]) {
     ctx[op] = record(op);
   }
   for (const op of ["fill", "stroke", "fillText", "strokeText", "fillRect"]) ctx[op] = record(op);

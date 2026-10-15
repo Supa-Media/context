@@ -1,5 +1,5 @@
 /**
- * context-agent: the Worker behind the texting assistant (it calls itself "your Context").
+ * context-agent: the Worker behind Tex, the texting assistant.
  *
  *     Linq ──POST /linq──▶ this Worker ──▶ SenderInbox (one per phone number)
  *                                             │  alarm
@@ -42,6 +42,8 @@ export interface Env {
   GATEWAY_ORIGIN: string;
   /** "on" serves the texts simulator (simulator.ts). Only staging sets it. */
   SIMULATOR?: string;
+  /** Turns a texted photo the model cannot read (HEIC) into a JPEG (`attachments.ts`). */
+  IMAGES?: ImagesBinding;
 }
 
 /** Linq's payloads are small; anything this big is not one of them. */
@@ -204,6 +206,7 @@ export class SenderInbox implements DurableObject {
       workerSecret: this.env.AGENT_WORKER_SECRET,
       gatewayOrigin: this.env.GATEWAY_ORIGIN,
       linqApiKey: this.env.LINQ_API_KEY,
+      images: this.env.IMAGES,
       now: () => Date.now(),
     };
   }

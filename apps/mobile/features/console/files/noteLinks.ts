@@ -1,5 +1,4 @@
-import { RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
+import type { Extension } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -9,11 +8,29 @@ import {
   type Tooltip,
   type ViewUpdate,
 } from "@codemirror/view";
-import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links";
+import { indexByName, linkAnchor, parseLinks, resolveLink, styleOf } from "@context/shared/src/links";
 
 import { webUrl } from "./webUrl";
+import { tagUnder } from "./tagUnder";
 
 export { webUrl } from "./webUrl";
+export {
+  TAP_MAX_MS,
+  TAP_SLOP,
+  followChord,
+  isAppleKeyboard,
+  opensBehind,
+  webLinkAt,
+  type WebLinkSpan,
+} from "./noteLinkGestures";
+import {
+  MIDDLE_BUTTON,
+  TAP_MAX_MS,
+  TAP_SLOP,
+  followChord,
+  opensBehind,
+  webLinkAt,
+} from "./noteLinkGestures";
 
 /**
  * A link to another note is a link you can follow.
@@ -120,14 +137,23 @@ export interface NoteLinkContext {
    * module comment.
    */
   paths?: readonly string[];
-  /** A click, a ⌘-click, a middle-click, or a tap. */
-  onOpen: (path: string, mode: NoteLinkOpen) => void;
+  /**
+   * A click, a ⌘-click, a middle-click, or a tap. `anchor` is the place inside
+   * the note the link names (`[[day#msg-…]]`), for the note to scroll to.
+   */
+  onOpen: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
   /**
    * A link out of the bucket was clicked — a web page or an email address,
    * already checked by `webUrl`. Absent means this surface cannot open one,
    * and such a link then takes the caret like any other text.
    */
   onOpenUrl?: (url: string) => void;
+  /**
+   * A `#tag` written in the note was clicked or tapped (`tagGrammar.ts`), to
+   * show the notes carrying it. Absent means this surface has nowhere to show
+   * them, and the tag takes the caret like any other text.
+   */
+  onOpenTag?: (tag: string) => void;
 }
 
 /**
@@ -146,6 +172,8 @@ export interface NoteLinkSpan {
   to: number;
   /** Where it points, already resolved to a path this context holds. */
   path: string;
+  /** The place inside that note it names — `msg-…` of `[[day#msg-…]]` — when it names one. */
+  anchor?: string;
 }
 
 /**
@@ -184,9 +212,40 @@ export function noteLinksIn(
     if (link.kind === "inline" && webUrl(link.target) !== null) continue;
     const path = resolveLink(link, context.path, byName);
     if (path === null) continue;
-    spans.push({ ...widen(text, link), path });
+    const anchor = linkAnchor(link.target);
+    spans.push(anchor === "" ? { ...widen(text, link), path } : { ...widen(text, link), path, anchor });
   }
   return spans;
+}
+
+/**
+ * Every bare `[[name]]` that no note this surface knows answers to — drawn as
+ * an unresolved link rather than as one that works.
+ *
+ * Live preview paints every `[[…]]` in link colour (it cannot know what
+ * resolves), so a bare name nothing matched looked exactly like a link and
+ * opened nothing when clicked: the owner's `[[Eve]]`, 2026-10-11. This is the
+ * list `noteLinks` dims, with the tooltip saying why, so what looks followable
+ * and what is followable are one set again. An embed is not words and is left
+ * to `imageBlock`.
+ */
+export function unresolvedNoteLinksIn(
+  text: string,
+  context: { path: string | null; paths?: readonly string[] },
+): { from: number; to: number; name: string }[] {
+  if (context.path === null) return [];
+  const byName = indexByName(context.paths ?? []);
+  const out: { from: number; to: number; name: string }[] = [];
+  for (const link of parseLinks(text)) {
+    if (link.kind !== "wiki") continue;
+    const name = link.target.trim().split("#")[0]!;
+    if (name === "" || styleOf(name) !== "bare") continue;
+    if (resolveLink(link, context.path, byName) !== null) continue;
+    const span = widen(text, link);
+    if (text[span.from] === "!") continue;
+    out.push({ ...span, name: name.replace(/\.md$/, "") });
+  }
+  return out;
 }
 
 /**
@@ -217,111 +276,9 @@ export function noteLinkAt(spans: readonly NoteLinkSpan[], pos: number): NoteLin
   return spans.find((span) => pos >= span.from && pos <= span.to) ?? null;
 }
 
-/** A link out of the bucket, and what opening it opens. */
-export interface WebLinkSpan {
-  from: number;
-  to: number;
-  url: string;
-}
-
-/**
- * The web link at `pos`, as the grammar reads the document, or `null`.
- *
- * Three shapes: `[label](https://…)`, `<https://…>`, and a bare `https://…`
- * or `www.…` that GFM makes a link on its own. The span is the whole construct,
- * as with a note link, because the words are what a person aims at.
- *
- * From the syntax tree rather than from `parseLinks`, because the question is
- * what live preview has *drawn* as a link, and it draws what the tree says.
- */
-export function webLinkAt(state: EditorState, pos: number): WebLinkSpan | null {
-  let found: WebLinkSpan | null = null;
-  syntaxTree(state).iterate({
-    from: pos,
-    to: pos,
-    enter(node) {
-      if (found !== null || node.name === "Image") return false;
-      if (node.name === "Link" || node.name === "Autolink") {
-        const target = node.node.getChild("URL");
-        const url = target === null ? null : webUrl(state.sliceDoc(target.from, target.to));
-        if (url !== null) found = { from: node.from, to: node.to, url };
-        return false;
-      }
-      if (node.name === "URL") {
-        const url = webUrl(state.sliceDoc(node.from, node.to));
-        if (url !== null) found = { from: node.from, to: node.to, url };
-        return false;
-      }
-      return undefined;
-    },
-  });
-  return found;
-}
-
-/**
- * Whether this keyboard is an Apple one.
- *
- * Read from the user agent because what it decides goes in front of a person
- * and reaches their hands: which modifier opens a link behind, and which word
- * the tooltip uses for it. It is deliberately not read from `Platform.OS` —
- * the editor is a web surface on both hosts, so what matters is the keyboard
- * attached to the browser and not what compiled the app around it. A native
- * iPad with a Magic Keyboard is a Mac for this purpose, and a Windows browser
- * is not, however the app was built.
- */
-export function isAppleKeyboard(agent: string | undefined): boolean {
-  return /mac|iphone|ipad|ipod/i.test(agent ?? "");
-}
-
-/** `⌘` on an Apple keyboard, `Ctrl` everywhere else. The tooltip's word. */
-export function followChord(agent: string | undefined): string {
-  return isAppleKeyboard(agent) ? "⌘" : "Ctrl";
-}
-
-/**
- * Whether this click asks for the note to open **behind** the one on screen.
- *
- * ⌘ on an Apple keyboard, Ctrl everywhere else, and the middle button
- * anywhere — the browser's own vocabulary for "open in a background tab".
- *
- * **Ctrl is not honoured on an Apple keyboard, and that asymmetry is the
- * point.** Ctrl-click there *is* a right-click: the OS raises a context menu
- * from it, and an extension that claimed it would take the note's own
- * right-click menu away over every link while looking, on every other
- * platform, like it worked.
- */
-export function opensBehind(
-  event: { button: number; metaKey: boolean; ctrlKey: boolean },
-  agent: string | undefined,
-): boolean {
-  if (event.button === MIDDLE_BUTTON) return true;
-  return isAppleKeyboard(agent) ? event.metaKey : event.ctrlKey;
-}
-
-/** The auxiliary button. `button` is 0 primary, 1 auxiliary, 2 secondary. */
-const MIDDLE_BUTTON = 1;
-
-/**
- * How far a finger may drift and still be a tap. Beyond this it is a scroll.
- *
- * A note is a scroller and most notes have links in them, so a tap that
- * survived a drag would navigate on an ordinary flick down the page — the
- * gesture people make most.
- */
-export const TAP_SLOP = 10;
-
-/**
- * How long a finger may stay down and still be a tap.
- *
- * Above this it is a long press, which is **not** this extension's gesture any
- * more: it is a selection, and the platform's own recogniser is welcome to it.
- * The ceiling is what keeps the two apart without the page having to guess at
- * WebKit's intentions, which is what the `touchcancel` and `contextmenu`
- * handling that used to live here was doing.
- */
-export const TAP_MAX_MS = 500;
 
 const linkMark = Decoration.mark({ class: "cm-note-link" });
+const unresolvedMark = Decoration.mark({ class: "cm-note-link-unresolved" });
 
 /**
  * The extension.
@@ -349,14 +306,19 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   );
 
   function build(view: EditorView): DecorationSet {
-    const builder = new RangeSetBuilder<Decoration>();
-    for (const span of spansOf(view)) builder.add(span.from, span.to, linkMark);
-    return builder.finish();
+    const text = view.state.doc.toString();
+    const marks = [
+      ...noteLinksIn(text, ref.current).map((span) => linkMark.range(span.from, span.to)),
+      ...unresolvedNoteLinksIn(text, ref.current).map((span) =>
+        unresolvedMark.range(span.from, span.to),
+      ),
+    ];
+    return Decoration.set(marks, true);
   }
 
   const tooltip = hoverTooltip((view, pos): Tooltip | null => {
     const span = noteLinkAt(spansOf(view), pos);
-    if (span === null) return webTooltip(view, pos);
+    if (span === null) return unresolvedTooltip(view, pos) ?? webTooltip(view, pos);
     return {
       pos: span.from,
       end: span.to,
@@ -380,6 +342,31 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       },
     };
   });
+
+  /** Over a bare name nothing answers to: say so, rather than look followable. */
+  const unresolvedTooltip = (view: EditorView, pos: number): Tooltip | null => {
+    const missing = unresolvedNoteLinksIn(view.state.doc.toString(), ref.current).find(
+      (span) => pos >= span.from && pos <= span.to,
+    );
+    if (missing === undefined) return null;
+    return {
+      pos: missing.from,
+      end: missing.to,
+      above: true,
+      create: () => {
+        const dom = document.createElement("div");
+        dom.className = "cm-note-link-tooltip";
+        const name = document.createElement("span");
+        name.className = "cm-note-link-name";
+        name.textContent = missing.name;
+        const hint = document.createElement("span");
+        hint.className = "cm-note-link-hint";
+        hint.textContent = "No note has this name, or more than one does";
+        dom.append(name, hint);
+        return { dom };
+      },
+    };
+  };
 
   /** The same card over a web link: where it goes, and how to edit it instead. */
   const webTooltip = (view: EditorView, pos: number): Tooltip | null => {
@@ -443,11 +430,11 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   const targetUnder = (
     view: EditorView,
     under: EventTarget | null,
-  ): { from: number; to: number; path?: string; url?: string } | null => {
+  ): { from: number; to: number; path?: string; anchor?: string; url?: string; tag?: string } | null => {
     // Only the link's words are the link (`onLinkText`), and the words say
     // which link they are; see `linkTextPos` for why not the coordinates.
     const pos = linkTextPos(view, under);
-    if (pos === null) return null;
+    if (pos === null) return ref.current.onOpenTag === undefined ? null : tagUnder(view, under);
     const note = noteLinkAt(spansOf(view), pos);
     if (note !== null) return note;
     if (ref.current.onOpenUrl === undefined) return null;
@@ -455,9 +442,10 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   };
 
   /** Follow what `targetUnder` found. */
-  const follow = (target: { path?: string; url?: string }, mode: NoteLinkOpen): void => {
-    if (target.path !== undefined) ref.current.onOpen(target.path, mode);
+  const follow = (target: { path?: string; anchor?: string; url?: string; tag?: string }, mode: NoteLinkOpen): void => {
+    if (target.path !== undefined) ref.current.onOpen(target.path, mode, target.anchor);
     else if (target.url !== undefined) ref.current.onOpenUrl?.(target.url);
+    else if (target.tag !== undefined) ref.current.onOpenTag?.(target.tag);
   };
 
   /*
@@ -475,7 +463,8 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     recognisers has an opinion, and it is not ambiguous, so there is nothing to
     ask about.
   */
-  let tap: { x: number; y: number; path?: string; url?: string; startedAt: number } | null = null;
+  let tap: { x: number; y: number; path?: string; anchor?: string; url?: string; tag?: string; startedAt: number } | null =
+    null;
   const forget = () => {
     tap = null;
   };
@@ -534,7 +523,9 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         x: touch.clientX,
         y: touch.clientY,
         path: span.path,
+        anchor: span.anchor,
         url: span.url,
+        tag: span.tag,
         startedAt: Date.now(),
       };
       // Deliberately `false`: the touch keeps behaving like a touch — the note
@@ -665,6 +656,18 @@ const linkTheme = EditorView.theme({
       one piece of text in the note with no reason left to behave differently
       from the rest of it.
     */
+  },
+  /*
+    A bare name nothing answers to (`unresolvedNoteLinksIn`): the muted colour
+    and a dotted line, Obsidian's way of drawing a link with no note behind it,
+    over live preview's own link colour — the nested selector is for when live
+    preview's span ends up inside this one.
+  */
+  ".cm-note-link-unresolved, .cm-note-link-unresolved .cm-lp-link": {
+    color: "var(--lp-muted)",
+    textDecorationLine: "underline",
+    textDecorationStyle: "dotted",
+    cursor: "text",
   },
   ".cm-note-link-tooltip": {
     display: "flex",

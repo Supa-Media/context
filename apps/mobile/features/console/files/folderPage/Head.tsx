@@ -1,6 +1,6 @@
 /**
- * The top of a folder page: its title with the Notes · List · Board switch
- * beside it, and — for a folder that is a project, or can become one — the
+ * The top of a folder page: its title with the List · Board switch beside it,
+ * its chaos line on its own line under them, and — for a folder that is a project, or can become one — the
  * quiet property line and the first paragraph of its front note (spec A5).
  *
  * ## The property line
@@ -15,16 +15,28 @@
  *
  * ## The switch
  *
- * Three words, the chosen one in the text colour and weight, the others
- * muted: the same segmented text the list filter popover uses for Rows, and
- * no pill. It sits on the title's own row so it costs no line of its own.
+ * Two words, the chosen one in the text colour and weight, the other muted:
+ * the same segmented text the list filter popover uses for Rows, and no pill.
+ * It sits on the title's own row so it costs no line of its own. There were
+ * three until the owner merged Notes into List (2026-10-14: "they are very
+ * similar. It's just that for projects, we have special UI on it").
+ *
+ * ## The chaos line
+ *
+ * Under the title row, never beside it: squeezed between a long project name
+ * and the switch it wrapped the name onto two lines and ellipsised itself to
+ * "calm…" (the owner, 2026-10-14: "it just kind of squished everything").
+ * The title and the switch keep the row; the line reads as the page's first
+ * quiet fact, as it already did under a phone's big title.
  */
 
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { Settle } from "../../../design/components/Settle";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
+import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
@@ -34,7 +46,6 @@ import { PropertyValue } from "./PropertyValue";
 import type { OwnerChoice } from "./items";
 
 const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
-  { view: "files", label: "Notes" },
   { view: "list", label: "List" },
   { view: "board", label: "Board" },
 ];
@@ -97,8 +108,11 @@ export function FolderHead({
   actions,
   children,
   large = false,
+  folder,
 }: {
   title: string;
+  /** The folder this page is, for its chaos line under the title (`features/chaos`); absent draws none. */
+  folder?: string;
   /** The emoji somebody gave this folder, drawn before its title as it is beside its name in every listing. */
   icon?: string | null;
   /** A phone's page: Home's big title, so a folder reads as a place (board 07). */
@@ -119,7 +133,15 @@ export function FolderHead({
     </Text>
   );
   return (
-    <>
+    /*
+      What is under the title answers late — the chaos line, the status line,
+      the about's words — so the head eases to its height rather than pushing
+      the list down a frame at a time (the owner, 2026-10-14: "When the about
+      content loads in a folder, everything is jumpy"). The title row is in
+      the box too, so the page column's gap between the head's parts is the
+      box's own and an empty head adds none.
+    */
+    <Settle testID="folder-head-settle" contentStyle={styles.stack}>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
         <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
           {icon === null ? null : (
@@ -151,8 +173,10 @@ export function FolderHead({
         {switcher}
         {actions}
       </View>
+      {/* Under the title, on every page: beside it, it squeezed a long name onto two lines. */}
+      {folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
-    </>
+    </Settle>
   );
 }
 
@@ -245,6 +269,8 @@ const ICON_LARGE = touchType.title;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    // The page column's gap (`FolderView` `column`), between the head's own parts.
+    stack: { gap: space.x2 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     /* `PhoneHome`'s head clearance, so the title lands where Home's does. */
     headLarge: { paddingTop: space.x2 },

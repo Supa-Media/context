@@ -36,8 +36,8 @@ export async function toolReadActivity(store, scope, rules, overrides, args) {
     An entry written on Tuesday names where the note was on Tuesday, and
     tidying a context on Thursday makes every one of those lines point at
     nothing. So each path is forwarded through the ledger `#735` added —
-    `.context/forwarding.json`, the same trail a share link follows — before
-    the line is drawn or filtered.
+    held by the control plane since 2026-10-14, the same trail a share link
+    follows — before the line is drawn or filtered.
 
     Two consequences, both wanted. Following a row lands on the note rather
     than on a gone path; and `canSee` is asked about where the note *is*,
@@ -52,7 +52,8 @@ export async function toolReadActivity(store, scope, rules, overrides, args) {
   }));
   const entries = visibleActivityEntries(forwarded, {
     owner: scope === "private",
-    canSee: (path) => canSee(path, scope, rules, overrides),
+    // `null`: forwarded somewhere this caller may not see, so the line is not theirs.
+    canSee: (path) => path !== null && canSee(path, scope, rules, overrides),
   }).slice(0, limit);
   if (!entries.length) return toolText("(no visible activity)");
   return toolText(

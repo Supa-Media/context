@@ -24,9 +24,11 @@ import { showUpdateCheckMessage } from "./dialogs.ts";
  * Every item is a `role`, which is deliberate: a role is macOS's own behaviour
  * with macOS's own accelerator and macOS's own localisation, and each one this
  * file spelled out by hand would be a keystroke somebody has to keep working.
- * The *View* menu carries reload and nothing else — a window pinned to one
- * origin has one page to reload, and `toggleDevTools` in a shipped build is a
- * console on somebody's private notes.
+ * The *View* menu carries reload, the three zoom commands and full screen — a
+ * window pinned to one origin has one page to reload, Cmd-minus and Cmd-0 are
+ * how a person on any Mac app makes text the size they want (Dev2, 2026-10-12:
+ * the app read "way too scaled up" and there was no key to shrink it), and
+ * `toggleDevTools` in a shipped build is a console on somebody's private notes.
  *
  * `close` and not `quit` on Cmd-W is the whole of "closing the window must not
  * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
@@ -72,7 +74,18 @@ export function installApplicationMenu(): void {
           { role: "selectAll" },
         ],
       },
-      { label: "View", submenu: [{ role: "reload" }, { type: "separator" }, { role: "togglefullscreen" }] },
+      {
+        label: "View",
+        submenu: [
+          { role: "reload" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
+      },
       {
         label: "Window",
         submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "close" }],

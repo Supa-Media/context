@@ -19,8 +19,9 @@ import {
  * is owner-only, while "how is this context's search served" is a fact its
  * members may know.
  *
- * The mutations are owner-only, so they are attached **only** when the server
- * said `canChange` — absent, never disabled, the rule `StorageActions` states.
+ * The one mutation the console offers, `enable`, is owner-only, so it is attached
+ * **only** when the server said `canChange` — absent, never disabled, the rule
+ * `StorageActions` states. There is no `disable`: fast search is always on.
  *
  * `useQueries` rather than `useQuery`, for the reason `useLiveConsoleData`
  * gives at length: a failed `useQuery` re-throws during render, and a settings
@@ -54,11 +55,6 @@ export function useFastSearch(options: {
     await convex.mutation(api.functions.fastSearch.enable, { workspaceId });
   }, [convex, workspaceId]);
 
-  const disable = useCallback(async () => {
-    if (workspaceId === null) return;
-    await convex.mutation(api.functions.fastSearch.disable, { workspaceId });
-  }, [convex, workspaceId]);
-
   const raw = results.status;
   const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
   const status: FastSearchStatus | null = answered
@@ -79,6 +75,5 @@ export function useFastSearch(options: {
     // than spinning at somebody forever.
     loading: asking && raw === undefined,
     enable: canChange ? enable : undefined,
-    disable: canChange ? disable : undefined,
   };
 }

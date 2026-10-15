@@ -5,18 +5,21 @@ import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
+import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
 import { entryAt } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { ContactPageView } from "../../communications/ContactPageView";
 import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { NoteLoading } from "./NoteLoading";
+import { noteNameEdit } from "./nameEdit";
+import { isMarkdown } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -57,7 +60,6 @@ export function BrowseDocument({
   reading,
   nav,
   commsRoute,
-  handleOpenComms,
   folderMenuFor,
   folderDrag,
   places,
@@ -86,7 +88,6 @@ export function BrowseDocument({
   reading: boolean;
   nav: ReturnType<typeof useConsoleNav>;
   commsRoute: ReturnType<typeof classifyCommsPath> | null;
-  handleOpenComms: (path: string, anchor?: string) => void;
   folderMenuFor: FolderListingState["folderMenuFor"];
   folderDrag: FolderListingState["folderDrag"];
   /** This person's pins and opens, for the phone's Home. */
@@ -121,6 +122,13 @@ export function BrowseDocument({
   const tasks = useTaskHost(files, local === undefined ? current?.id : undefined, folderLists, setFolderDialog);
   // The one editor, lent to a folder page's side peek: the note typed in there is the editor's note, in its room.
   const editing = usePeekEditing(files, presence);
+  // A folder row's arrow opens it in place from the tree's own listings (`files/NestedRows.tsx`).
+  const listings = files.listings;
+  const ensureListing = files.ensureListing;
+  const folderNesting = useMemo(
+    () => ({ listingOf: (path: string) => listings[path], loadListing: (path: string) => ensureListing(path) }),
+    [listings, ensureListing],
+  );
   const folderPage = useMemo(
     () =>
       folderLists === undefined || current?.id == null
@@ -367,6 +375,9 @@ export function BrowseDocument({
         ) : landing === null ? null : (
           phoneHome
         )
+      ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
+        // A note on its way with nothing yet to draw it from: say so.
+        <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
       ) : null
     ) : commsRoute?.kind === "channel-day" ? (
       /*
@@ -384,10 +395,6 @@ export function BrowseDocument({
         files={files}
         anchor={anchor}
       />
-    ) : commsRoute?.kind === "contact" ? (
-      <DocumentPage>
-        <ContactPageView slug={commsRoute.slug} files={files} onOpenActivity={handleOpenComms} />
-      </DocumentPage>
     ) : selected.kind === "folder" && atContextRoot ? (
       phoneHome
     ) : selected.kind === "folder" ? (
@@ -415,9 +422,20 @@ export function BrowseDocument({
         }
         phoneRows={phoneRowsFor}
         iconOf={files.iconOf}
+        nesting={folderNesting}
         askSelect={selectAsked === selected.path}
         onAskTaken={takeSelect}
       />
+    ) : files.opening === selected.path && files.editor.path !== selected.path ? (
+      /*
+        A note the listing names, whose body is still on its way. The editor
+        here would be empty, with its "Write in markdown…" placeholder, over a
+        note that is not — see `NoteLoading`. `useShownEntry` keeps the page
+        that was already on screen instead whenever there is one; this is the
+        open with nothing before it (the phone's Home, an empty region, a
+        closed note).
+      */
+      <NoteLoading pathBar={pathBar} notices={compact ? notices : null} />
     ) : files.conflict?.path === selected.path ? (
       /*
         A conflict takes the region.
@@ -509,6 +527,9 @@ export function BrowseDocument({
         onTitleCaret={files.setTitleCaret}
         titleNote={files.titleEdit?.path === files.editor.path ? files.titleEdit.note : null}
         titleFocus={files.titleFocus}
+        // In the trash: read-only and dimmed, Restore the way back (`trashed.tsx`).
+        trashed={trashedViewOf(files)}
+        nameEdit={trashedViewOf(files) === undefined ? noteNameEdit(files, files.editor.path, files.editor.readOnly) : undefined}
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}
@@ -533,6 +554,8 @@ export function BrowseDocument({
           rather than as a control that does nothing.
         */
         onOpenLink={nav?.follow}
+        // A drawn `#tag` shows the notes carrying it; see `ConsoleNav.openTag`.
+        onOpenTag={nav?.openTag}
         // The file tree's own listings, unioned with the search index's
         // docmap — see `linkPaths` on `FileBrowser` and "L1" in
         // `docs/decisions/app-and-console.md`. `knownNotePaths(files.listings)`

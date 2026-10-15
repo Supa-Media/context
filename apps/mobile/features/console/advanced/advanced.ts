@@ -442,7 +442,7 @@ export function deletionBlockedReason(input: {
   if (input.kind !== "shared") {
     // A personal workspace's name is the person's own username and its capture address is
     // live on the apex. Releasing that is account deletion's business.
-    return "A personal workspace is deleted with the account it belongs to. Delete the account to release its name.";
+    return "A personal workspace is deleted with your account.";
   }
   if (input.storageIsManaged) {
     return "This workspace's notes are in storage we run, and moving them out to a bucket you own is not built yet. Deleting it here would leave them somewhere you cannot reach, so it is refused until that lands.";

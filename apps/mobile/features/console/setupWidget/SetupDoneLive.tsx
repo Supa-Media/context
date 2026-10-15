@@ -22,6 +22,7 @@ export function SetupDoneLive(props: Omit<ComponentProps<typeof SetupDone>, "onJ
     <>
       <SetupDone
         {...props}
+        closeOnEscape={!inviting}
         onJoinCommunity={discord === null ? undefined : () => void Linking.openURL(discord.url).catch(() => {})}
         invitesLeft={canInvite ? mine.left : undefined}
         onInviteFriends={canInvite ? () => setInviting(true) : undefined}

@@ -15,9 +15,11 @@ import type { Clipboard } from "../clipboard";
 import { editorReducer, emptyEditor } from "../editor";
 import { type AutosaveController, createAutosaveController } from "../autosave";
 import type { NoteRename } from "../browser/supportingTypes";
+import { useOnlineMoves } from "./useOnlineMoves";
 import type { Listings } from "./types";
 
-export function useBrowserState() {
+export function useBrowserState(scope: { current: { epoch: number } }) {
+  const onlineMoves = useOnlineMoves(scope);
   /*
     What the bucket (or, offline, the mirror) listed. What the console *draws*
     is `listings`, below: these with the offline queue's renames, deletes, new
@@ -31,6 +33,13 @@ export function useBrowserState() {
    * its folder for, would vanish under a manifest walked a moment before it.
    */
   const listedAtRef = useRef(new Map<string, number>());
+  // Keep timestamps comparable with mirror walks, while giving two browser
+  // changes/requests within one millisecond a strict order of their own.
+  const listingClock = useRef(0);
+  const nextListingStamp = useCallback(() => {
+    listingClock.current = Math.max(Date.now(), listingClock.current + 0.001);
+    return listingClock.current;
+  }, []);
   /**
    * A change this console drew before the bucket confirmed it — a move, a new
    * folder, or undoing one. Every folder whose listing it touched counts as
@@ -38,7 +47,7 @@ export function useBrowserState() {
    * tree without it in the moment before the confirming refresh lands.
    */
   const drawLocally = useCallback((change: (current: Listings) => Listings) => {
-    const at = Date.now();
+    const at = nextListingStamp();
     setListings((current) => {
       const next = change(current);
       for (const folder of new Set([...Object.keys(current), ...Object.keys(next)])) {
@@ -46,7 +55,7 @@ export function useBrowserState() {
       }
       return next;
     });
-  }, []);
+  }, [nextListingStamp]);
   /**
    * Every note path the search index's docmap knows about for this context,
    * or `null` while there is nothing to answer from — no index yet, offline,
@@ -105,6 +114,20 @@ export function useBrowserState() {
   editorRef.current = editor;
   /** Paths whose prose is owned by the durable collaboration controller. */
   const collaborationPaths = useRef(new Set<string>());
+  /*
+    The open note while a rename of it is on its way to the bucket. Its file
+    is about to stop being at `path`, so nothing may be written there in the
+    meantime — the autosave holds, and what is typed stays in the editor until
+    the rename lands and the draft follows the note to its new name
+    (`useRowCommands`' `rename`). Writing to the old name instead put the words
+    typed straight after a title back under the old name, as a second note,
+    and the editor then reopened the renamed note without them.
+
+    `held` is the last text typed there meanwhile, for the one case the editor
+    cannot carry it: somebody who went on to another note before the rename
+    landed. It is then written to wherever the note ended up.
+  */
+  const renamingRef = useRef<{ path: string; held: string | null } | null>(null);
 
   /*
     The selection, readable from a callback that outlives the render that made
@@ -224,12 +247,12 @@ export function useBrowserState() {
   );
 
   return {
-    bucketListings, setListings, listedAtRef, drawLocally, indexedPaths, setIndexedPaths, expanded,
+    ...onlineMoves, bucketListings, setListings, listedAtRef, nextListingStamp, drawLocally, indexedPaths, setIndexedPaths, expanded,
     setExpanded, selectedPath, setSelectedPath, navigations, setNavigations, renamed, noteRenamed,
     opening, setOpening,
     settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, toasts,
     setToasts,
-    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, selectedPathRef,
+    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, renamingRef, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,
     autosave,
   };

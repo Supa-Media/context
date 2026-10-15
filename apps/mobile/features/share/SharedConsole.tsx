@@ -139,7 +139,7 @@ export function SharedConsole({
 
   return (
     <View style={styles.ground} testID="share-console">
-      <ConsoleFrame data={data} route={SHARED_ROUTE} pathname="/s" router={visitorRouter} params={NO_PARAMS}>
+      <ConsoleFrame data={data} route={SHARED_ROUTE} router={visitorRouter} params={NO_PARAMS}>
         <BrowsePane data={data} />
       </ConsoleFrame>
     </View>

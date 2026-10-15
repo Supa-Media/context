@@ -1,12 +1,12 @@
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNoteRoom } from "../../../../features/console/presence/useNoteRoom";
+import { roomPathOf } from "../../../../features/console/files/noteEditor/trashed";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
   anchorFromQuery,
   contextIdForSlug,
   noteFromQuery,
-  noteHref,
 } from "../../../../features/console/nav";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -128,7 +128,8 @@ export default function ContextBrowseRoute() {
   const { presence, drawingCollaboration } = useNoteRoom({
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
-    notePath: data.files.editor.path,
+    // None for a note in the trash: read-only, and its room is not joined (`roomPathOf`).
+    notePath: roomPathOf(data.files),
     conflicted: data.files.editor.status === "conflict",
     /*
       A function rather than a value: it is read once, by whichever client
@@ -163,6 +164,7 @@ export default function ContextBrowseRoute() {
     canEdit: data.files.canEdit,
     scope: visibilityTierForRole(viewedContext?.role) === "private" ? "private" : "team",
     onCollaborationOwned: data.files.setCollaborationOwned,
+    renamed: data.files.renamed,
     onCollaborationText: data.files.setCollaborationDraft,
     onCollaborationState: data.files.setCollaborationState,
   });
@@ -217,18 +219,6 @@ export default function ContextBrowseRoute() {
         onConnectAgent={connectAgent}
         pendingNote={note}
         anchor={anchor}
-        /*
-          A contact's activity link names a path *and* an anchor, which
-          `files.select` has no way to carry — so this is a real navigation
-          rather than a selection, the same URL a pasted link or a search
-          result would use. `noteHref` with no anchor is exactly `noteHref`
-          without one, so this never behaves differently for a plain link.
-        */
-        onOpenComms={
-          slug === null
-            ? undefined
-            : (path, targetAnchor) => router.push(noteHref(slug, path, targetAnchor))
-        }
       />
       {/* The first run's second half — see `SetupWidgetHost`. */}
       <SetupWidgetHost

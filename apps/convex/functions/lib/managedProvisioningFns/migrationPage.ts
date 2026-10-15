@@ -7,6 +7,7 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
+import { MIGRATION_SKIPPED_KEYS_MAX } from "./constants";
 import { failMigrationRowAndPlan } from "./migrationFail";
 
 /** Advance exactly the page the action read; stale duplicate pages are no-ops. */
@@ -19,6 +20,8 @@ export async function recordMigrationPageHandler(
     copied: number;
     changes: number;
     processed: number;
+    /** Files on this page over the file limit, left in the source. */
+    skipped?: string[];
   },
 ): Promise<{ applied: boolean; cutover: boolean }> {
   const row = await ctx.db
@@ -74,11 +77,27 @@ export async function recordMigrationPageHandler(
       objectsTotal: objectsProcessedInPhase,
       objectsProcessedInPhase: 0,
       changesInPass: 0,
+      // A fresh walk names what it leaves behind afresh.
+      skippedKeys: undefined,
+      skippedCount: undefined,
       updatedAt: Date.now(),
     });
     return { applied: true, cutover: false };
   }
   const changesInPass = row.changesInPass + args.changes;
+  if (args.skipped !== undefined && args.skipped.length > 0) {
+    // A later pass only adds a name it has not seen (a file that grew past
+    // the limit mid-move).
+    const named = new Set(row.skippedKeys ?? []);
+    const fresh = args.skipped.filter((key) => !named.has(key));
+    if (fresh.length > 0 || row.phase === "copy") {
+      const skippedKeys = [...named, ...fresh].slice(0, MIGRATION_SKIPPED_KEYS_MAX);
+      // Counted by the copy alone: past 50 names a later pass cannot tell a
+      // new file from one already counted.
+      const counted = (row.skippedCount ?? 0) + (row.phase === "copy" ? args.skipped.length : 0);
+      await ctx.db.patch(row._id, { skippedKeys, skippedCount: Math.max(counted, skippedKeys.length) });
+    }
+  }
   if (args.nextCursor === undefined) {
     if (row.phase === "copy") {
       await ctx.db.patch(row._id, {

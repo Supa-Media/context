@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Every workflow file is one GitHub will actually load: it parses as YAML, it
- * declares jobs, and every `if:` in it names only contexts that position is
- * allowed to name.
+ * declares jobs, and every `if:` and every `${{ }}` in a job's or a step's
+ * `env:` names only contexts that position is allowed to name.
  *
  * A workflow file GitHub refuses is not a failing check — the file is ignored
  * entirely, so it produces no run, no error, and no status at all. The pull
@@ -10,7 +10,7 @@
  * which is this repository's most-repeated failure shape (see
  * `3-resources/engineering/false-green-patterns.md`).
  *
- * It has already happened twice.
+ * It has already happened three times.
  *
  * 1. `hook.yml` shipped with an unquoted `node:` inside a step name, which YAML
  *    reads as a mapping value. That package's whole suite was silently absent
@@ -27,6 +27,17 @@
  *    triggerable by push — for as long as that line existed, and nothing went
  *    red to say so.
  *
+ * 3. `ai-benchmark.yml` shipped `BENCH_RUNNER_TOKEN_FILE: ${{ runner.temp
+ *    }}/bench-runner.json` in a JOB-level `env:` (#1482, 2026-10-10). `runner`
+ *    is available to a step and not to a job, so the refusal is the same one
+ *    #275 got, for the same reason, in a position this guard did not read:
+ *
+ *      Unrecognized named-value: 'runner'.
+ *
+ *    The AI Benchmark workflow was therefore undispatchable from the moment it
+ *    merged, and the merge went green: eight workflows passed, and the one that
+ *    had just been edited produced a run with no jobs that nothing required.
+ *
  * ## The second one is why this file's subject had to widen
  *
  * This guard was already running, in two workflows, and it passed on that
@@ -37,6 +48,17 @@
  * both. A guard that answers half its stated question, and states the whole
  * one, is worse than an honest narrow guard: it is the reason nobody added the
  * other half.
+ *
+ * The third one widened it again, the same way: this guard read `if:` and
+ * nothing else, while GitHub resolves contexts in every expression in the file
+ * and rejects the whole document over any of them. `env:` is checked below
+ * because it is where this repository actually writes them: twelve of its
+ * thirty-eight files hand a job an expression that way, and this is how a
+ * secret reaches a step at all. A WORKFLOW-level `env:` is deliberately NOT
+ * checked: no file here has one with an expression in it, so
+ * there is no corpus to confirm a closed set against, and a set guessed wrong
+ * in the strict direction would refuse a file GitHub accepts. That is a narrow
+ * guard stating its own edge, which is the opposite of the mistake above.
  *
  * `actionlint` catches this too and is what confirmed the exact message above.
  * It is not what runs here, because these guards deliberately take no
@@ -136,6 +158,50 @@ const IF_CONTEXTS = {
 };
 
 /**
+ * The same table for an `env:` value, where the sets are WIDER, not narrower.
+ *
+ * `secrets` is legal in an `env:` — it is how every deploy in this repository
+ * reads one, and it is the fix the `if:` rule above points at. So these sets
+ * cannot be shared with `IF_CONTEXTS`, and a reader who assumes one table for
+ * both positions is the person who deletes the distinction.
+ *
+ * A step's `env:` may name `runner`, `job`, `steps` and `env` as well, because
+ * by then the runner exists and the earlier steps have run. A job's may not:
+ * its values are resolved before a machine is picked.
+ *
+ * https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+ */
+const ENV_CONTEXTS = {
+  job: ["github", "needs", "strategy", "matrix", "vars", "secrets", "inputs"],
+  step: [
+    "github",
+    "needs",
+    "strategy",
+    "matrix",
+    "job",
+    "runner",
+    "env",
+    "vars",
+    "secrets",
+    "steps",
+    "inputs",
+  ],
+};
+
+/**
+ * The `${{ }}` bodies in a value, and nothing else.
+ *
+ * An `if:` is an expression whole, so the rule above reads it directly. An
+ * `env:` value is TEXT that may hold expressions, and reading it whole would
+ * refuse `BENCH_RUNNER_ENDPOINT: https://mcp.context.lc/@context-lc/mcp` for
+ * naming a context called `mcp`. Only what is inside the braces is resolved by
+ * GitHub, so only that is checked here.
+ */
+function expressionsIn(value) {
+  return [...String(value).matchAll(/\$\{\{([\s\S]*?)\}\}/g)].map((match) => match[1]);
+}
+
+/**
  * The context names an expression reads, as GitHub resolves them: the HEAD of
  * each dotted or indexed access, and nothing else.
  *
@@ -179,19 +245,28 @@ function problemWith(text) {
         "if not isinstance(document, dict) or 'jobs' not in document:",
         "    print(json.dumps({'error': 'parsed, but declares no jobs'})); sys.exit(0)",
         "conditionals = []",
+        "envs = []",
+        "def collect_env(scope, where, holder):",
+        "    block = holder.get('env')",
+        "    for key, value in (block.items() if isinstance(block, dict) else []):",
+        "        if isinstance(value, (str, int, float, bool)):",
+        "            envs.append([scope, where, str(key), str(value)])",
         "jobs = document.get('jobs')",
         "for job_id, job in (jobs.items() if isinstance(jobs, dict) else []):",
         "    if not isinstance(job, dict):",
         "        continue",
         "    if 'if' in job:",
         "        conditionals.append(['job', str(job_id), str(job['if'])])",
+        "    collect_env('job', str(job_id), job)",
         "    steps = job.get('steps')",
         "    for index, step in enumerate(steps if isinstance(steps, list) else []):",
-        "        if not isinstance(step, dict) or 'if' not in step:",
+        "        if not isinstance(step, dict):",
         "            continue",
         "        where = str(job_id) + '.' + str(step.get('name') or step.get('uses') or ('step ' + str(index + 1)))",
-        "        conditionals.append(['step', where, str(step['if'])])",
-        "print(json.dumps({'error': None, 'ifs': conditionals}))",
+        "        if 'if' in step:",
+        "            conditionals.append(['step', where, str(step['if'])])",
+        "        collect_env('step', where, step)",
+        "print(json.dumps({'error': None, 'ifs': conditionals, 'envs': envs}))",
       ].join("\n"),
     ],
     { input: text, encoding: "utf8" }
@@ -220,6 +295,23 @@ function problemWith(text) {
         `which a ${scope}-level \`if:\` may not use. GitHub rejects the WHOLE FILE ` +
         `("Unrecognized named-value"), so it produces no run at all. Available here: ` +
         `${allowed.join(", ")}. For a secret, test its value inside the \`run:\` shell instead.`
+      );
+    }
+  }
+
+  for (const [scope, where, key, value] of answer.envs ?? []) {
+    const allowed = ENV_CONTEXTS[scope];
+    for (const expression of expressionsIn(value)) {
+      const refused = contextsIn(expression).filter((name) => !allowed.includes(name));
+      if (refused.length === 0) continue;
+      return (
+        `${where}: \`env: ${key}\` names ${refused.map((n) => `'${n}'`).join(", ")}, ` +
+        `which a ${scope}-level \`env:\` may not use. GitHub rejects the WHOLE FILE ` +
+        `("Unrecognized named-value"), so it produces no run at all. Available here: ` +
+        `${allowed.join(", ")}.` +
+        (scope === "job" && refused.includes("runner")
+          ? " The runner's own variables (`$RUNNER_TEMP`) are there in the `run:` shell, or move the `env:` onto the step."
+          : "")
       );
     }
   }
@@ -296,6 +388,35 @@ function selfTest() {
       "      - uses: some/action@v1\n        with:\n          bar: ${{ secrets.BAR }}\n"
   );
 
+  // ── `env:` is the other position GitHub rejects the file over ────────────
+  //
+  // Third instance of this exact shape, 2026-10-10: ai-benchmark.yml shipped
+  // `BENCH_RUNNER_TOKEN_FILE: ${{ runner.temp }}/bench-runner.json` in a
+  // JOB-level `env:`. `runner` is available to a step and not to a job, so
+  // GitHub refused the whole file and the benchmark became undispatchable —
+  // the same zero-jobs silence as #275, and this guard passed because it read
+  // only `if:`. `secrets` must stay legal here, which is why the sets differ
+  // from the `if:` ones rather than being shared.
+  const runnerInJobEnv = wf(
+    "  deploy:\n    runs-on: ubuntu-latest\n" +
+      "    env:\n      TOKEN_FILE: ${{ runner.temp }}/x.json\n" +
+      "    steps:\n      - run: echo hi\n"
+  );
+  const runnerInStepEnv = wf(
+    "  deploy:\n    runs-on: ubuntu-latest\n    steps:\n" +
+      "      - env:\n          TOKEN_FILE: ${{ runner.temp }}/x.json\n        run: echo hi\n"
+  );
+  const envInJobEnv = wf(
+    "  deploy:\n    runs-on: ubuntu-latest\n" +
+      "    env:\n      COPY: ${{ env.THING }}\n" +
+      "    steps:\n      - run: echo hi\n"
+  );
+  const secretsInJobEnv = wf(
+    "  deploy:\n    runs-on: ubuntu-latest\n" +
+      "    env:\n      TOKEN: ${{ secrets.TOKEN }}\n      JOB: ${{ inputs.job || 'x' }}\n" +
+      "    steps:\n      - run: echo hi\n"
+  );
+
   const cases = [
     ["a well-formed workflow passes", problemWith(good) === null],
     ["an unquoted colon in a step name is caught", problemWith(unparseable) !== null],
@@ -311,6 +432,10 @@ function selfTest() {
     ["`secrets` in a FOLDED `if:` is caught (a line regex misses it)", problemWith(foldedScalarIf) !== null],
     ["bracket access `secrets['X']` is caught", problemWith(bracketAccess) !== null],
     ["`secrets` in `env:` and `with:` is never flagged", problemWith(secretsInEnvAndWith) === null],
+    ["`runner` in a job `env:` is caught (the 2026-10-10 line)", problemWith(runnerInJobEnv) !== null],
+    ["`runner` in a step `env:` is allowed", problemWith(runnerInStepEnv) === null],
+    ["`env` in a job `env:` is caught", problemWith(envInJobEnv) !== null],
+    ["`secrets` and `inputs` in a job `env:` are allowed", problemWith(secretsInJobEnv) === null],
   ];
 
   let failed = false;
@@ -357,10 +482,12 @@ if (problems.length > 0) {
   console.error("");
   console.error("A workflow GitHub refuses is ignored — no run, no failing check, and a");
   console.error("pull request that goes green without it. It refuses a file that does not");
-  console.error("parse AND a file whose `if:` names a context that position cannot use;");
+  console.error("parse AND a file whose `if:` or `env:` names a context that position");
+  console.error("cannot use;");
   console.error("both are silent, so both are checked here.");
   process.exit(1);
 }
 console.log(
-  `OK — ${files.length} workflow files parse, declare jobs, and use only contexts their \`if:\` allows.`
+  `OK — ${files.length} workflow files parse, declare jobs, and use only contexts their ` +
+    "`if:` and their jobs' and steps' `env:` allow."
 );

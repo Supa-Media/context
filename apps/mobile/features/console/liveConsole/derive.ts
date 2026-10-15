@@ -62,16 +62,6 @@ export function perWorkspaceQueries(
       query: api.functions.googleConnect.listGoogleConnections,
       args: { workspaceId: workspace.workspaceId },
     };
-    /*
-      Whether a model key exists, for the one control that would otherwise
-      offer a conversation nothing can answer. It returns fingerprints and
-      connection times — never a key, and never a fragment of one — and this
-      projection keeps only whether the list is empty.
-    */
-    spec[`providers:${workspace.workspaceId}`] = {
-      query: api.functions.providers.listProviders,
-      args: { workspaceId: workspace.workspaceId },
-    };
   }
   return spec;
 }
@@ -155,6 +145,7 @@ export function consoleClientsFrom(
     // what `listGrants` compared the row against the caller, and the console
     // has no business re-deciding it from a user id it would have to be told.
     mine: grant.isMine,
+    machine: grant.isMachine === true,
     status: grantTone(grant.status, grant.lastUsedAt),
     revoke: () => {
       void revoke({ grantId: grant.grantId });
@@ -222,6 +213,7 @@ export function consoleStorageFrom(
           handoffBucket: binding.handoffBucket,
           handoffClaimed: binding.handoffClaimed,
           handoffFailedKeys: binding.handoffFailedKeys,
+          leftBehind: binding.leftBehind,
           handoffReadyToSwitch: binding.handoffReadyToSwitch,
           handoffExistingFiles: binding.handoffExistingFiles,
           managedRetainedUntil: binding.managedRetainedUntil,
@@ -273,6 +265,7 @@ export interface StorageMutations {
   chooseExistingFilesForHandoff: ReactMutation<
     typeof api.functions.managedHandoff.chooseExistingFilesForHandoff
   >;
+  dismissLeftBehind: ReactMutation<typeof api.functions.managedHandoff.dismissLeftBehind>;
   disconnectStorage: ReactMutation<typeof api.functions.storage.disconnectStorage>;
   observeStorageLayout: ReactMutation<typeof api.functions.storage.observeStorageLayout>;
 }
@@ -291,6 +284,7 @@ export function storageActionsFor(
     startStorageMove,
     cancelManagedStorageHandoff,
     chooseExistingFilesForHandoff,
+    dismissLeftBehind,
     disconnectStorage,
     observeStorageLayout,
   }: StorageMutations,
@@ -328,6 +322,7 @@ export function storageActionsFor(
           cancelHandoff: () => cancelManagedStorageHandoff({ workspaceId: selectedContextId }),
           chooseExistingFiles: (answer) =>
             chooseExistingFilesForHandoff({ workspaceId: selectedContextId, ...answer }),
+          dismissLeftBehind: () => dismissLeftBehind({ workspaceId: selectedContextId }),
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
           /*
             Not a control anybody presses. It is the console asking the bucket

@@ -24,8 +24,8 @@ query cannot reach another's vectors because it names a different index. The
 account allows 50,000 indexes; that ceiling is a constraint on the product and
 the reason this cannot fall back to namespaces inside one index.
 
-Each note becomes at most twelve passages of about 1,500 characters
-(`apps/mcp/src/search/meaning/project.js`), each embedded with Workers AI
+Each note becomes at most 48 passages of about 1,500 characters, about 65,000
+characters in all (`apps/mcp/src/search/meaning/project.js`), each embedded with Workers AI
 `@cf/baai/bge-m3`. A vector's id is a hash of the note's path, never the path,
 and its metadata is the path, the passage number and a tier. **No text is
 stored in the index**: a snippet is read from the bucket at answer time. A
@@ -64,8 +64,35 @@ Everything else reaches the index through a **catch-up pass**
 (`catchup.js`, run by the control plane in `lib/filesFns/meaningPass.ts`):
 notes that existed before the index, what a move adds, edits made outside
 the product, and edits made in the live editor, which skips the write path
-because it commits every typing pause and re-embedding twelve passages per
+because it commits every typing pause and re-embedding a note's passages per
 pause buys nothing.
+
+**The cap is sized for a recorded meeting, not an ordinary note.** It was
+twelve passages until 2026-10-10, which stopped a 51-minute meeting's
+transcript a little past its half-hour mark: the owner searched "leaving the
+team" for the part of a call where someone talks about no longer doing their
+role, and that part had never been embedded. 48 covers about an hour and a
+half of talk. A lower cap is cheaper and makes long meetings unsearchable by
+meaning past that point; `meaningCatchup.test.mjs` ("a map written under the
+old twelve-passage cap…") fails if it returns to 12. Raising it again is the
+same change: the map records the cap it was written under (`passages`), and a
+pass that finds a smaller one embeds again the notes the census's listing says
+are big enough to have filled it, and only those. Because every write leaves a
+note's passages a run from 0, a rewrite asks the index whether passage *n*
+exists (one `get_by_ids` for twenty notes) instead of deleting every id past
+*n*, which keeps passes inside Cloudflare's 1,200-requests-in-five-minutes API
+budget.
+
+**A word hit that held only some of the words ranks below every meaning
+match.** When no note holds every word typed, word search retries with any of
+them (`toRelaxedMatchExpression`) and marks those hits `loose`. For a question
+in plain words ("who left the team") that retry matches "the" and "team", and
+fused evenly it buried the note the question was about (the owner,
+2026-10-10). `mergeHits` puts loose hits after every meaning match unless
+meaning found them too, and such a search reads up to six meaning-only notes
+for snippets instead of three. Hits that held every word still fuse evenly.
+`meaningServe.test.mjs` ("a loose word hit comes after every meaning match…")
+fails if this is reversed.
 
 The pass diffs a census (`[path, version]` for every note) against a map of
 what it last embedded, kept at `.context/search/meaning/v1/state.json`. That
@@ -108,7 +135,7 @@ hits. **Every word hit stays**; meaning adds at most three notes the words
 missed, each marked "Same topic, different words" and shown with a snippet read
 from the bucket at answer time. A note that cannot be read now (moved, deleted,
 or outside what this connection's store will open) is dropped rather than
-listed blind. Matches below a closeness of 0.55 are noise and dropped.
+listed blind. Matches below a closeness of 0.40 are noise and dropped (0.55 until 2026-10-10, which dropped nearly every real match: measured on production indexes, what a person meant scored 0.40–0.63 and queries about nothing in the workspace topped out at 0.31–0.34; `MEANING_MIN_SCORE` records the measurements).
 
 A failing model or index costs nothing but the merge: the word answer comes
 back unchanged, the miss text says it searched words only, and one log line

@@ -56,13 +56,13 @@ import { inviteHref } from "../auth/redirect";
  * Search is first, and it is app level rather than a context's, for the reason
  * it exists: the question it answers — "where did anybody write about the
  * review cycle" — is the one question in this product that spans more than one
- * context. Putting it inside a context would make the default scope "this one",
- * which is the search that already exists behind ⌘K.
+ * context. Inside a context its default scope would be "this one", ⌘K's search.
  */
 export const APP_SECTIONS = [
   { key: "search", label: "Search", href: "/console/search" },
   { key: "map", label: "Map", href: "/console/map" },
   { key: "connections", label: "Connections", href: "/console/connections" },
+  { key: "shared", label: "@shared", href: "/console/shared" }, // Dev2, 2026-10-14; door: the account menu
 ] as const;
 
 export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];
@@ -165,9 +165,9 @@ export function browseHref(slug: string): string {
  * (`apps/mcp/src/search/CONTRACT.md`, "What a search result carries for a
  * hit, and the deep link": `<notePath>#<anchor>`, the shape a wikilink into
  * one already uses) and the one `splitNoteAnchor`/`noteFromQuery`/
- * `anchorFromQuery` below already read back apart — so a contact's activity
- * link, a channel-day's own message list, and a per-message search hit all
- * produce and consume one link shape rather than three. `encodeURIComponent`
+ * `anchorFromQuery` below already read back apart — so a channel-day's own
+ * message list and a per-message search hit produce and consume one link
+ * shape rather than two. `encodeURIComponent`
  * turns the `#` into `%23`, so it never becomes a literal URL fragment; see
  * `docs/decisions/app-and-console.md`, *A note's anchor is a query
  * parameter, not a URL fragment*. This third argument used to add its own

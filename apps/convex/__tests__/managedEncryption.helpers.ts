@@ -92,6 +92,13 @@ export function generationOf(bytes: Uint8Array | null): string | null {
   return new TextDecoder().decode(bytes!.slice(8, 8 + length));
 }
 
+/**
+ * What the copy passes when it cuts over (`runManagedStorageMigration`): it
+ * has just listed, written and probed the bucket, so the binding reads
+ * connected at once and the encryption walk has no new credential to wait on.
+ */
+export const CUTOVER_PROBE = { capabilities: { conditionalWrite: true } };
+
 export const MANAGED_ENDPOINT = "https://managed-account.r2.cloudflarestorage.example";
 
 export async function bindingOf(t: TestConvex, workspaceId: Id<"workspaces">) {

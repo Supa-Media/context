@@ -1,3 +1,4 @@
+import { APP_PANE_REACHABILITY } from "./appPaneReachability";
 import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
 
 /**
@@ -210,12 +211,12 @@ const CONSOLE_LAYOUT = "features/console/ConsoleFrame.tsx";
 /**
  * The layout's pieces, which it keeps under `features/console/layout/` because
  * every file under `app/` is a route. The context pill is built in
- * `navBand.tsx` and the palette in `palette.tsx` — so a claim about one of
+ * `navBand.tsx` and the palette in `palette.tsx` (claimed in
+ * `appPaneReachability.ts`) — so a claim about one of
  * those presses names that file. The phone's account sheet is `SwitcherMenu`,
  * wired in the frame itself.
  */
 const CONSOLE_NAV_BAND = "features/console/layout/navBand.tsx";
-const CONSOLE_PALETTE = "features/console/layout/palette.tsx";
 /** The app gate, which applies every redirect decision `redirect.ts` returns. */
 const APP_LAYOUT = "app/(app)/_layout.tsx";
 
@@ -531,78 +532,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       },
     ],
   },
-  {
-    route: "/console/connections",
-    file: "app/(app)/console/connections.tsx",
-    reachable: false,
-    reason:
-      "No door, by decision, and the same decision as the map's below. Its only " +
-      'one was "Manage sharing…" on a context\'s right-click menu — a row that ' +
-      "answered a per-context question by navigating out of the context, which " +
-      "is what the owner asked be taken off the menu. Everything on the pane has " +
-      "a home inside settings already, from the same components rather than a " +
-      "copy: `MembersSection` under Settings → People, and the endpoint with the " +
-      "connected AI apps under Settings → AI apps (`settings/AccountSections.tsx`). " +
-      "So this is a duplicate surface losing its last entry, not a capability " +
-      "leaving the product. The route and the pane are untouched and still " +
-      "render: one entry point brings it back.",
-    marker: "Reachable from nowhere, deliberately",
-  },
-  {
-    route: "/console/search",
-    file: "app/(app)/console/search.tsx",
-    reachable: true,
-    from: [
-      {
-        /*
-          The handoff out of the palette, and the reason the page exists in the
-          shape it does. The overlay is on every density — ⌘K on a pointer, the
-          bottom toolbar's search key on a phone — so this claim is too, and it
-          is the entry point somebody actually uses: they search, see ten rows,
-          and want the rest.
-
-          `See all results` is a row in the palette's own list rather than a
-          button in its chrome, which is what makes it reachable by the keyboard
-          as well as by a thumb. `Palette.tsx` is named as the control because
-          that is where the row is built; the layout is named as the navigation
-          because that is where the press becomes a URL.
-        */
-        surface:
-          "“See all results”, the last row of the console's search palette",
-        control: {
-          file: "features/design/components/Palette.tsx",
-          contains: ["seeAllItem", "onSeeAll?.(query)"],
-        },
-        navigation: [
-          {
-            file: CONSOLE_PALETTE,
-            contains: ["router.push(searchHref(query))"],
-          },
-        ],
-        region: "screen",
-        densities: EVERY_DENSITY,
-      },
-    ],
-  },
-  {
-    route: "/console/map",
-    file: "app/(app)/console/map.tsx",
-    reachable: false,
-    reason:
-      'No door, by decision. Its only one was the "Elsewhere in the console" ' +
-      "card at the foot of settings — three destinations repeated under all " +
-      "nineteen sections, drawn unconditionally *because* removing it from any " +
-      "one section removed the map from the product. That is a fire escape on " +
-      "every floor rather than a place in the navigation, and the owner's answer " +
-      "when it was put to them was that the map can vanish. It had already lost " +
-      "its rail row (`SwitcherMenu.tsx` carries the reason: Map and Connections " +
-      "are facts " +
-      "about a context rather than places inside one) and a phone has no left " +
-      "panel at all, so there was nowhere left that it belonged. The route and " +
-      "the pane are untouched and still render: this is a navigation decision, " +
-      "not a deletion, and giving the map a home again is a door away.",
-    marker: "Reachable from nowhere, deliberately",
-  },
+  ...APP_PANE_REACHABILITY,
   {
     route: "/invite",
     file: "app/invite/index.tsx",
@@ -785,6 +715,26 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       "token exists in that one text message and nowhere in the app, and the " +
       "page only means something to the person holding that phone.",
     marker: "the link the texting assistant sends a phone nobody has",
+  },
+  {
+    route: "/vault/[token]",
+    file: "app/vault/[token].tsx",
+    reachable: false,
+    reason:
+      "The private link Tex texts when it needs a login saved or shared. The " +
+      "token exists in that one text message, and the page opens only for the " +
+      "signed-in person who asked for it.",
+    marker: "the private link Tex texts when it needs a login",
+  },
+  {
+    route: "/tex/[handle]",
+    file: "app/tex/[handle].tsx",
+    reachable: false,
+    reason:
+      "The person's own view of the browser Tex drives for them. Tex texts " +
+      "the address when they must sign in somewhere, and the page opens only " +
+      "for the signed-in owner of that handle.",
+    marker: "the page Tex texts when they have to sign in somewhere",
   },
   {
     route: "/[handle]",

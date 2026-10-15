@@ -1,4 +1,4 @@
-import { noteHeading, noteProperties } from "../../../mcp/src/lists.js";
+import { inlineTags, noteHeading, noteProperties } from "../../../mcp/src/lists.js";
 import { noteLede } from "../console/files/folderPage/lede";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
@@ -99,6 +99,7 @@ export async function mirroredListNotes(
         path: entry.path,
         ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
         properties: noteProperties(body) as Record<string, PropertyValue>,
+        inlineTags: inlineTags(body),
         heading: noteHeading(body) as string | null,
         // What a folder page draws under a project's title; see `folderPage/lede.ts`.
         lede: noteLede(body),

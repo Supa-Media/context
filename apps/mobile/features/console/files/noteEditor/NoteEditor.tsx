@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, View, useWindowDimensions } from "react-native";
+import { Platform, ScrollView, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../../app/AppFrame";
 import { useSurfacePadding } from "../../../app/Screen";
 import { densityFor } from "../../../app/frame";
@@ -16,11 +16,11 @@ import { LinkSheet } from "../LinkSheet";
 import { useVoiceHost } from "../../../voice/VoiceHost";
 import { makeStyles } from "./styles";
 import { noteFoot } from "./statusLine";
-import { PublishOpenNote } from "./PublishOpenNote";
 import { noteFlow } from "./flow";
 import { noteScroller } from "./scroller";
 import { noteVoiceButton } from "./voice";
 import { RecentRunsAside } from "../../routines/RecentRuns";
+import { TrashedRestoreBar } from "./trashed";
 import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 
@@ -96,6 +96,7 @@ export function NoteEditor({
   onUseTheirs,
   onKeepMine,
   onOpenLink,
+  onOpenTag,
   notePaths,
   onSuggest,
   onPickSuggestion,
@@ -116,11 +117,13 @@ export function NoteEditor({
   onTitleCaret,
   titleNote,
   titleFocus,
+  nameEdit,
   encryption,
   activity,
   activityShared = false,
   activityEditable = false,
   onOpenNote,
+  trashed,
 }: NoteEditorProps) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -157,6 +160,8 @@ export function NoteEditor({
     durableReady &&
     !state.readOnly &&
     !reading &&
+    // A note in the trash is read where it is; Restore is the way back to typing.
+    trashed === undefined &&
     !(state.path === ACTIVITY_PATH && !activityEditable);
   /*
     A passphrase note is `state.encrypted` exactly as a workspace-encrypted
@@ -236,6 +241,18 @@ export function NoteEditor({
    * first frame is never wrong in a direction anybody sees.
    */
   const [docWidth, setDocWidth] = useState(0);
+  /*
+    The element the property chips are drawn into on the web, which the editor
+    keeps in a box under the title (`chips/`, `liveEditorWeb/propertySlot.ts`).
+    One for the life of this editor, so a redraw of the box moves the chips
+    rather than remounting them. Null on native, which draws them in a row.
+  */
+  const [chipHost] = useState<HTMLElement | null>(() =>
+    Platform.OS === "web" && typeof document !== "undefined" ? document.createElement("div") : null,
+  );
+  /** "Other property…" under the chips' More: the Properties card opens on its Add row. */
+  const [addAsked, setAddAsked] = useState(0);
+  useEffect(() => setAddAsked(0), [state.path]);
   const controls = useRef<EditorControls | null>(null);
   /** The selected words the Link sheet is open over, or `null` when it is shut. */
   const [linkWords, setLinkWords] = useState<string | null>(null);
@@ -365,13 +382,15 @@ export function NoteEditor({
     controls.current?.selectTitle?.();
   }, [titleFocusId]);
   const { setAccessoryOpen } = frame;
+  // A trashed note on a phone puts the toolbar away too: Restore takes its place.
+  const toolbarAway = barUp || (compact && trashed !== undefined);
   useEffect(() => {
-    setAccessoryOpen(barUp);
+    setAccessoryOpen(toolbarAway);
     // Leaving the note with the keyboard up — closing a tab, switching context
     // — must not leave the frame believing a bar is on screen that unmounted
     // with it.
     return () => setAccessoryOpen(false);
-  }, [barUp, setAccessoryOpen]);
+  }, [toolbarAway, setAccessoryOpen]);
   /*
     Split for display, never for storage. `frontmatter` is put back in front of
     every edit before it reaches `onChange`, so what is saved is the file that
@@ -399,14 +418,14 @@ export function NoteEditor({
     onSignInToComment,
     // Props, as destructured above.
     state, presence, drawingCollaboration, canEdit, reading, notices, pathBar,
-    onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
+    onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, onOpenTag, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    folderLists, onTitleCaret, titleNote, encryption, activity, activityShared, activityEditable, onOpenNote,
+    folderLists, onTitleCaret, titleNote, nameEdit, encryption, activity, activityShared, activityEditable, onOpenNote, trashed,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
-    setDictateAsked, docWidth, setDocWidth, controls, padding, barUp, voice, moving, settledAt,
+    setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,
   };
 
@@ -468,6 +487,7 @@ export function NoteEditor({
         rather than one of two.
       */}
       {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+      {compact && trashed !== undefined ? <TrashedRestoreBar trashed={trashed} /> : null}
 
       {/*
         Outside `barUp`: the sheet's field takes the keyboard, the editor loses
@@ -513,21 +533,8 @@ export function NoteEditor({
         WebKit CI found that, in `encryption.spec.ts`, not in a test of this
         feature: a floating control is every other control's problem.
       */}
-      {/*
-        What is open, published for the console's right panel.
-
-        `NoteEditor` is the only thing that can build this — `page.ts` argues
-        that where `noteReference` is defined — and the panel is its sibling
-        rather than its descendant, so the two meet at a store rather than at
-        a provider hoisted over both. See `features/agent/openNote.ts`.
-
-        Drawn as a component rather than run as an effect here so that it
-        unmounts with the editor: leaving a stale note published after the
-        pane goes would have the panel describing a room nobody is in.
-      */}
-      <PublishOpenNote state={state} />
-
-      {voice === null || !liveEditorOnScreen ? null : (
+      {/* Nor over a note in the trash: dictating into a page that takes no typing. */}
+      {voice === null || !liveEditorOnScreen || trashed !== undefined ? null : (
         noteVoiceButton(view, voice)
       )}
     </View>

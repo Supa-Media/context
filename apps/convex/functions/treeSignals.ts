@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, query, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, query, type MutationCtx } from "../_generated/server";
 import { callerId, resolveFileAccess } from "./files";
 import { audiencesOf, isAudience } from "./lib/treeAudiences";
 
@@ -113,4 +113,14 @@ export const treeSignal = query({
     }
     return newest;
   },
+});
+
+/**
+ * Whether a workspace exists, for the gateway's tree touch: a route that
+ * answers the same whether or not the id names a context.
+ */
+export const workspaceKnown = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => (await ctx.db.get(args.workspaceId)) !== null,
 });

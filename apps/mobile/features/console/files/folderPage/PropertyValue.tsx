@@ -52,6 +52,8 @@ export interface PropertyValueProps {
   sections?: readonly { readonly label: string; readonly words: readonly string[] }[];
   /** "Edit statuses…" at the foot of a sectioned menu; null or absent to leave it out. */
   onEditList?: (() => void) | null;
+  /** "Just a note" at the foot of a sectioned menu, writing this word; absent to leave it out. */
+  noteWord?: string | null;
   /** Pick from people and agents instead of the menu; `prefer` is the folder's owners, most used first. */
   owners?: {
     readonly search: OwnerSearch;
@@ -76,12 +78,19 @@ export interface PropertyValueProps {
    * it and leaves the row.
    */
   quiet?: boolean;
+  /**
+   * Only `lead` is drawn, as the button: a List row's status dot or owner's
+   * face. The row is itself a button, and on the web a `role="button"` is a
+   * `<button>`, which HTML does not allow inside another, so this one has no
+   * role; its name still says what it does.
+   */
+  glyph?: boolean;
   /** The colour of a set value; unset and hovered have their own. */
   style?: StyleProp<TextStyle>;
   testID?: string;
 }
 
-type Id = `choice:${number}` | `head:${number}` | "new" | "clear" | "saves" | "edit";
+type Id = `choice:${number}` | `head:${number}` | "new" | "clear" | "saves" | "edit" | "note";
 
 export function PropertyValue({
   property,
@@ -91,11 +100,13 @@ export function PropertyValue({
   onChoose,
   sections,
   onEditList = null,
+  noteWord = null,
   owners,
   variant = "tree",
   unsetLabel,
   lead,
   quiet = false,
+  glyph = false,
   style,
   testID,
 }: PropertyValueProps) {
@@ -193,7 +204,9 @@ export function PropertyValue({
       items.unshift({ id: `choice:${all.length}`, label: isolateForDisplay(current), checked: true });
       all.push(current);
     }
-    if (onEditList !== null) items.push({ id: "edit", label: `Edit ${property === "status" ? "statuses" : property}…`, separatorBefore: true });
+    // Out of the project items altogether, back to a plain note (the owner, 2026-10-14).
+    if (noteWord !== null) items.push({ id: "note", label: "Just a note", separatorBefore: true });
+    if (onEditList !== null) items.push({ id: "edit", label: `Edit ${property === "status" ? "statuses" : property}…`, separatorBefore: noteWord === null });
   } else {
     all = current !== null && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : [...choices];
     items = [
@@ -226,8 +239,26 @@ export function PropertyValue({
     trigger.current?.measureInWindow?.((x, y, _width, height) => setMenu({ x, y: y + height + 4 }));
   };
 
+  const hidden = quiet && !hovered && !focused && menu === null && !picking;
   return (
     <View ref={trigger} collapsable={false}>
+      {glyph ? (
+        <Pressable
+          onPress={open}
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          aria-haspopup="menu"
+          aria-expanded={menu !== null || picking}
+          accessibilityLabel={current === null ? `Set ${property}` : `Change ${property}, ${spoken}`}
+          hitSlop={8}
+          testID={testID}
+          style={[styles.glyph, hovered && styles.glyphHover, hidden && styles.quiet]}
+        >
+          {lead}
+        </Pressable>
+      ) : (
       <Pressable
         onPress={open}
         onHoverIn={() => setHovered(true)}
@@ -257,6 +288,7 @@ export function PropertyValue({
           {current === null ? (unsetLabel ?? `Set ${property}`) : isolateForDisplay(shown)}
         </Text>
       </Pressable>
+      )}
       {owners === undefined || !picking ? null : (
         <OwnerPicker
           current={shown}
@@ -286,6 +318,7 @@ export function PropertyValue({
               setTyping(true);
             } else if (id === "clear") onChoose(null);
             else if (id === "edit") onEditList?.();
+            else if (id === "note" && noteWord !== null) onChoose(noteWord);
             else if (id.startsWith("choice:")) {
               const choice = all[Number(id.slice("choice:".length))];
               if (choice === undefined || choice.toLowerCase() === value.toLowerCase()) return;
@@ -318,6 +351,8 @@ const makeStyles = (colors: Colors) =>
     unset: { color: colors.chromeMuted },
     hover: { color: colors.accentText },
     quiet: { opacity: 0 },
+    glyph: { alignItems: "center", justifyContent: "center", borderRadius: radii.pill, cursor: "pointer" as never },
+    glyphHover: { opacity: 0.7 },
     owner: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
     shrink: { flexShrink: 1 },
     field: {

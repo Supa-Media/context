@@ -41,12 +41,12 @@ import type { SyncFacts } from "../../../offline/copy";
 import type { PendingMarks } from "../pendingMarks";
 import type { ConflictReview } from "../useConflictReview";
 import type { AppliedPluginNoteWrite } from "../../plugins/runtime";
-import type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
+import type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename, TrashedEditing } from "./supportingTypes";
 import type { TitleEdit } from "../fileBrowser/useLinkedTitle";
 
 export type { BesideEditing, SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
 
-export interface FileBrowser extends BesideEditing {
+export interface FileBrowser extends BesideEditing, TrashedEditing {
   /**
    * Whether this console may change anything.
    *
@@ -124,6 +124,13 @@ export interface FileBrowser extends BesideEditing {
   select: (path: string) => boolean;
 
   /**
+   * Somebody is about to open this note — a pointer over its row, a finger
+   * down on it — so its read can start now (`fileBrowser/notePrefetch.ts`).
+   * Optional: a surface with nothing to read ahead from leaves it out.
+   */
+  prefetch?: (path: string) => void;
+
+  /**
    * How many times `select` has moved this browser somewhere.
    *
    * **A counter, because the URL has to tell a navigation from a correction**,
@@ -173,8 +180,8 @@ export interface FileBrowser extends BesideEditing {
   /** A request, by id, to put the caret in this note's title. See `focusTitle`. */
   titleFocus?: { path: string; id: number } | null;
   /**
-   * Rename by way of the title: `true` when `path` is the open note and its
-   * title is its name, and the caret is on its way there. `false` for
+   * Rename by way of the title: `true` when `path` is the open note and has
+   * a title, and the caret is on its way there. `false` for
    * anything else, which the caller renames the old way.
    */
   focusTitle?: (path: string) => boolean;
@@ -633,17 +640,25 @@ export interface FileBrowser extends BesideEditing {
    */
   resetPrivacy: () => void;
   /**
-   * The emoji a folder was given with "Set icon…" in its menu, or `null` for
-   * the plain folder icon. Built-in folders are no different: none has one
-   * unless somebody gave it one (`folderIcons.ts`).
+   * The emoji a folder or note was given with "Set icon…" in its menu, else a
+   * built-in folder's default (`defaultFolderIcon`, decided by the owner,
+   * 2026-10-13), else `null`: the plain folder icon, or nothing beside a note.
    */
   iconOf: (path: string) => string | null;
   /**
-   * Give a folder an emoji, or remove its icon with `null`. Editor only, and
+   * Give a folder or note an emoji, or remove its icon with `null` (a
+   * built-in folder then shows its default again). Editor only, and
    * inert on a browser that cannot edit. Rejects with the server's own message
    * when the change is refused, so the dialog can say why.
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
+  /**
+   * The emoji the icon picker suggests for `path` from its name (Clef, through
+   * `folderIcons.suggest`), or `null` for none. Never rejects. Absent where
+   * nothing can be asked (the demo, tests), and the picker then offers only a
+   * random one.
+   */
+  suggestIcon?: (path: string) => Promise<string | null>;
   /**
    * Make one of the workspace's built-in folders (`builtInFolders.add`): an
    * extra the workspace lacks, or a main folder an older one does not have.

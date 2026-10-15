@@ -24,6 +24,13 @@ compatibility_date = "2026-08-01"
 
 [vars]
 
+# The egress gate (docs/decisions/privacy-and-sharing/agent-egress.md) holds an
+# AI client's call that would widen who can see something until the person
+# approves it. "off" lets such calls run at once. The owner switched it off on
+# this deployment on 2026-10-10 until orient asks smarter; leave it unset on
+# your own deployment to keep the gate.
+EGRESS_APPROVALS = "off"
+
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
@@ -225,6 +232,7 @@ name = "context-mcp-staging"
 workers_dev = true
 
 [env.staging.vars]
+EGRESS_APPROVALS = "off"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"

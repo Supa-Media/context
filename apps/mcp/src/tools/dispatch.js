@@ -15,6 +15,7 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
+import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
 import { toolSetEncryption } from "./encryption/setEncryption.js";
@@ -47,8 +48,9 @@ import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
-import { moveJobActive, moveJobKey } from "../moves/jobs.js";
+import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
+import { servedListingStore, TreeUnavailable } from "../tree/served.js";
 
 const STALLED_MOVE_MS = 5 * 60 * 1000;
 
@@ -67,7 +69,33 @@ async function moveWorkerStalled(store, id) {
   }
 }
 
+/**
+ * The tools that only list and read: their walks are answered from the Convex
+ * tree (`tree/served.js`) and never from the bucket. Where the tree cannot
+ * answer, the call says so ("still loading") rather than listing storage. A
+ * tool that writes keeps the bucket's own listing, so what it lists is always
+ * what it is about to change.
+ */
+export const TREE_LISTING_TOOLS = new Set([
+  "orient",
+  "list_notes",
+  "evaluate_lists",
+  "list_meetings",
+  "list_channel_days",
+  "list_contacts",
+]);
+
 export async function callTool(name, args, store, scope) {
+  if (!TREE_LISTING_TOOLS.has(name)) return await runTool(name, args, store, scope);
+  try {
+    return await runTool(name, args, servedListingStore(store), scope);
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return toolError(error.message);
+    throw error;
+  }
+}
+
+async function runTool(name, args, store, scope) {
   const privacy = await loadPrivacyState(store);
   if (privacy.error) {
     return toolError(
@@ -182,8 +210,7 @@ export async function callTool(name, args, store, scope) {
           await moveWorkerStalled(store, args.id);
         const result = await toolMaterializeMove(store, scope, args.id, args.batch_size);
         const text = result?.content?.[0]?.text || "";
-        if (restartWorker && !result?.isError &&
-            !text.includes("complete") && !text.includes("no active work")) {
+        if (restartWorker && !result?.isError && !moveFinished(text)) {
           if (typeof store.enqueueGatewayJob !== "function") {
             return toolText(`${text}\nbackground worker unavailable; continue with materialize_move`);
           }
@@ -213,6 +240,14 @@ export async function callTool(name, args, store, scope) {
       return toolMigrateStorageLayout(store, scope, args);
     case "create_link":
       return toolCreateLink(store, scope, args);
+    case "vault_list":
+      return toolVaultList(store);
+    case "vault_add_link":
+      return toolVaultAddLink(store, args);
+    case "vault_share_link":
+      return toolVaultShareLink(store, args);
+    case "vault_view_link":
+      return toolVaultViewLink(store, args);
     case "report_problem":
       return toolReportProblem(store, args);
     case "list_links":

@@ -1,11 +1,12 @@
-import { useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import { useFollowedAnchor } from "./followedAnchor";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { AccountBlock } from "./AccountBlock";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
 import { PhoneBack } from "./home/PhoneBack";
-import { phoneBackTarget } from "./home/phoneBack";
+import { phoneBackLevels } from "./home/phoneBack";
 import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
@@ -18,7 +19,9 @@ import { space } from "../design/tokens";
 import { atName } from "./format";
 import { selectedContext, type ConsoleData } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
+import { useTrashedFixture } from "../e2e/trashedFixture";
 import { entryAt } from "./files/tree";
+import { anchorFromQuery, noteFromQuery } from "./nav";
 import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
 import type { VoicePage } from "../voice/VoiceButton";
 
@@ -32,7 +35,7 @@ import type { VoicePage } from "../voice/VoiceButton";
  *
  * The real supplier is `app/(app)/console/_layout.tsx`. Its phone top-left is
  * `consoleAccountSlot`: ‹ back on any page below Home (owner, 2026-10-01),
- * which this draws from the same `phoneBackTarget` and `PhoneBack`, and the
+ * which this draws from the same `phoneBackLevels` and `PhoneBack`, and the
  * workspace's mark on Home — the real `SwitcherMenu` phone trigger, which is
  * how a phone reaches its other workspaces now that the path row's context
  * strip is gone. Going Home calls `files.deselect()` directly, which is what
@@ -74,17 +77,6 @@ import type { VoicePage } from "../voice/VoiceButton";
  * through `switcher-settings` in that menu, which is the control the product
  * actually has there.
  *
- * ## `onOpenComms`, without a router
- *
- * The real route implements this by pushing `noteHref(slug, path, anchor)` —
- * a genuine navigation, because a contact's activity link names an anchor
- * `files.select` has no way to carry (see `BrowsePane`'s own comment on the
- * prop). There is no `expo-router` here to push through, so this keeps the
- * one thing that navigation actually *does* to the browser and the screen: it
- * selects the path and remembers the anchor in local state, which
- * `BrowsePane` reads back exactly as it would read `?anchor=` off a URL. A
- * context switch clears it the same way a fresh URL would.
- *
  * ## Settings, without a URL
  *
  * `SettingsOverlay` had no browser-reachable surface anywhere in this
@@ -120,11 +112,28 @@ import type { VoicePage } from "../voice/VoiceButton";
  */
 export function E2EFixtureScreen({
   returned = null,
+  note = null,
+  trashed = false,
 }: {
   /** What a return from Stripe said, read by the route and handed down. */
   returned?: CheckoutOutcome | null;
+  /**
+   * `?note=<path>#<anchor>`, read the way the real route reads it
+   * (`noteFromQuery`/`anchorFromQuery`): the note opened on arrival, and the
+   * message a channel-day scrolls to — `commsInbox.spec.ts`'s anchor case.
+   */
+  note?: string | null;
+  /** `?trashed=1`: the open note drawn as moved to the trash (`trashedFixture.ts`). */
+  trashed?: boolean;
 } = {}) {
-  const data = useE2EFixtureConsoleData();
+  const data = useTrashedFixture(useE2EFixtureConsoleData(), trashed);
+  const notePath = noteFromQuery(note ?? undefined);
+  const anchor = anchorFromQuery(note ?? undefined);
+  const select = data.files.select;
+  useEffect(() => {
+    if (notePath !== null) select(notePath);
+    // On arrival only, as a URL is read once; `select` is stable per fixture.
+  }, [notePath]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = selectedContext(data);
   /**
    * Following a link, and a history with nowhere to go.
@@ -142,19 +151,24 @@ export function E2EFixtureScreen({
    * console layout — so they are honestly unavailable here rather than
    * simulated, and at compact density the breadcrumb draws neither anyway.
    */
+  const open = useCallback(
+    (path: string) => {
+      data.files.select(path);
+    },
+    [data.files],
+  );
+  const { follow, followed } = useFollowedAnchor(open, data.files);
   const nav = useMemo<ConsoleNav>(
     () => ({
-      follow: (path) => {
-        data.files.select(path);
-      },
+      follow,
+      followed,
       back: () => {},
       forward: () => {},
       canBack: false,
       canForward: false,
     }),
-    [data.files],
+    [follow, followed],
   );
-  const [anchor, setAnchor] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsSectionKey | null>(null);
   /*
     The density, decided the way the product decides it — `densityFor`, not a
@@ -184,7 +198,7 @@ export function E2EFixtureScreen({
     pressable, which is what the case about the handoff asserts.
   */
   // The phone's ‹ back, as `consoleAccountSlot` draws it in the product's top bar.
-  const back = phone ? phoneBackTarget(data.files.selectedPath) : null;
+  const levels = phone ? phoneBackLevels(data.files.selectedPath) : [];
 
   const voiceHost: VoiceHost = {
     page: fixtureVoicePage(data.files, current),
@@ -257,10 +271,9 @@ export function E2EFixtureScreen({
             <View style={styles.account}>
               {/*
                 The product's top-left on a page below Home: ‹ back, naming the
-                page above (`consoleAccountSlot`). Going up clears an anchor the
-                way the product's navigation does.
+                page above (`consoleAccountSlot`).
               */}
-              {back === null ? (
+              {levels.length === 0 ? (
                 /*
                   Home's top-left is the workspace's own mark, the product's
                   phone trigger (`consoleAccountSlot`): the way to every other
@@ -270,19 +283,15 @@ export function E2EFixtureScreen({
                   data={data}
                   label={current === null ? "Your context" : atName(current.slug)}
                   trigger="phone"
-                  onOpenContext={(slug) => {
-                    setAnchor(null);
-                    openContext(slug);
-                  }}
+                  onOpenContext={openContext}
                   onOpenSettings={openSettings}
                 />
               ) : (
                 <PhoneBack
-                  target={back}
-                  onBack={() => {
-                    setAnchor(null);
-                    if (back.folder === null) data.files.deselect();
-                    else data.files.select(back.folder);
+                  levels={levels}
+                  onGo={(target) => {
+                    if (target.folder === null) data.files.deselect();
+                    else data.files.select(target.folder);
                   }}
                 />
               )}
@@ -304,10 +313,6 @@ export function E2EFixtureScreen({
               data={data}
               onOpenSettings={openSettings}
               anchor={anchor}
-              onOpenComms={(path, targetAnchor) => {
-                setAnchor(targetAnchor ?? null);
-                data.files.select(path);
-              }}
             />
             </ConsoleNavProvider>
             </VoiceHostProvider>
@@ -325,10 +330,7 @@ export function E2EFixtureScreen({
                 them. It is the same substitution the rest of this file makes:
                 keep what the navigation *does* to this browser's state.
               */
-              onOpenContext={(slug) => {
-                setAnchor(null);
-                openContext(slug);
-              }}
+              onOpenContext={openContext}
               onOpenSettings={openSettings}
             />
           </View>
@@ -347,10 +349,7 @@ export function E2EFixtureScreen({
           */
           returned={returned}
           onSelect={setSettings}
-          onSwitchContext={(slug) => {
-            setAnchor(null);
-            openContext(slug);
-          }}
+          onSwitchContext={openContext}
           onDismiss={() => setSettings(null)}
         />
       )}

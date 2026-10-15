@@ -368,10 +368,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     }
     if (/^link\s+[a-z0-9]{6,10}[.!]?$/i.test(t)) {
       demoLinked = true;
-      return ["You're connected to @seyi's Context. Text me anything and I'll answer from your notes. If that isn't your account, text UNLINK."];
+      return ["I'm Tex, and you're connected to @seyi's Context. Text me anything: questions about your notes, or things to do. If that isn't your account, text UNLINK."];
     }
     if (!demoLinked) {
-      return ["Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you.", "https://staging.context.lc/texts/65a0a84b-fa0bc610b0924837"];
+      return ["Hi, I'm Tex, your Context assistant. Tap the link below to connect your account, then text me the code it shows you.", "https://staging.context.lc/texts/65a0a84b-fa0bc610b0924837"];
     }
     return ["Three things today:\n1. Review the texting assistant PR\n2. Publish the week 6 devlog\n3. Call Priya about the pricing page"];
   }
@@ -431,10 +431,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     var t0 = Date.now() - 4 * 60 * 1000;
     messages = [
       { dir: "out", text: "hi", at: t0 },
-      { dir: "in", text: "Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you.", at: t0 + 2000 },
+      { dir: "in", text: "Hi, I'm Tex, your Context assistant. Tap the link below to connect your account, then text me the code it shows you.", at: t0 + 2000 },
       { dir: "in", text: "https://staging.context.lc/texts/65a0a84b-fa0bc610b0924837", at: t0 + 2600 },
       { dir: "out", text: "link K7QM4PZX", at: t0 + 90000 },
-      { dir: "in", text: "You're connected to @seyi's Context. Text me anything and I'll answer from your notes. If that isn't your account, text UNLINK.", at: t0 + 92000 },
+      { dir: "in", text: "I'm Tex, and you're connected to @seyi's Context. Text me anything: questions about your notes, or things to do. If that isn't your account, text UNLINK.", at: t0 + 92000 },
       { dir: "out", text: "What's on my list today?", at: t0 + 120000 }
     ];
     demoLinked = true;

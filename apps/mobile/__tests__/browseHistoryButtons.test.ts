@@ -33,6 +33,7 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("convex/react", () => ({
+  useQueries: () => ({}),
   // An owner picker searches through the client; nothing here opens one.
   useConvex: () => ({ query: async () => undefined }),
   useAction: () => async () => {
@@ -182,6 +183,7 @@ function navWith(over: Partial<ConsoleNav> = {}): ConsoleNav & { went: string[] 
   return {
     went,
     follow: () => {},
+    followed: null,
     back: () => went.push("back"),
     forward: () => went.push("forward"),
     canBack: true,

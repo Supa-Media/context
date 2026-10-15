@@ -40,16 +40,22 @@ export async function readPublishedEmoji(
 ): Promise<Record<string, string>> {
   const names = [...new Set(markdowns.flatMap(publishedEmojiNames))].slice(0, MAX_PUBLISHED_EMOJI);
   if (names.length === 0) return {};
+  // Which of these the workspace has, and where each picture is, from Convex: the image store is never listed.
+  const held = new Map(
+    (await ctx.runQuery(internal.functions.smallData.emojiList, { workspaceId })).map(({ name, leaf }) => [name, leaf]),
+  );
   const pictures = await Promise.all(
-    names.map((name) =>
-      ctx
+    names.map((name) => {
+      const leaf = held.get(name);
+      if (leaf === undefined) return null;
+      return ctx
         .runAction(internal.functions.files.runFileOperation, {
           workspaceId,
           ...PUBLICATION_CLEARANCE,
-          operation: { kind: "emojiRead" as const, name },
+          operation: { kind: "emojiRead" as const, name, leaf },
         })
-        .catch(() => null),
-    ),
+        .catch(() => null);
+    }),
   );
   const emoji: Record<string, string> = {};
   let total = 0;

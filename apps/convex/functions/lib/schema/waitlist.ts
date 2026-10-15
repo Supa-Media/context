@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { adCampaignValidator } from "../waitlistCampaign";
 
 /**
  * Who asked to be let in, and who has been.
@@ -37,13 +38,19 @@ export const waitlistTables = {
     /** The optional one-line answer, at most `USE_FOR_MAX` characters. */
     useFor: v.optional(v.string()),
     /**
-     * Which landing page (`/a` to `/e`, `LANDING_PAGES` in `@context/shared`)
+     * Which landing page (`/a` to `/c`, `LANDING_PAGES` in `@context/shared`)
      * the person saw before joining. Set once, when the row is made, and never
      * changed after; read for the landing-page test. `enter` and `phoneSignIn`
      * validate it and drop anything that is not one, so a stored value is
      * always a landing page.
      */
     landing: v.optional(v.string()),
+    /**
+     * The ad the person came from, as its UTM parameters said (Dev,
+     * 2026-10-11). Set once, with `landing`, and cleaned by `adCampaignOf`
+     * before it is stored, so every field is short plain text.
+     */
+    campaign: v.optional(adCampaignValidator),
     admittedAt: v.optional(v.number()),
     admittedBy: v.optional(v.id("users")),
     /**
@@ -52,6 +59,12 @@ export const waitlistTables = {
      */
     joinedMailAt: v.optional(v.number()),
     admittedMailAt: v.optional(v.number()),
+    /**
+     * The "You're in" text to a row joined with a phone, claimed the same way
+     * (Dev2, 2026-10-12). Only staff letting a row in ever claims it, so a
+     * stranger typing numbers never makes Context text anyone.
+     */
+    admittedTextAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_phone", ["phone"])
@@ -65,6 +78,16 @@ export const waitlistTables = {
    * getting alerts without anybody remembering to switch them off.
    */
   signupAlertSubscribers: defineTable({
+    userId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /**
+   * Staff who asked to be mailed when a folder move's copy in the bucket falls
+   * behind the file tree (`storageLag.ts`). Same shape and same send-time
+   * staff check as signup alerts.
+   */
+  storageLagSubscribers: defineTable({
     userId: v.id("users"),
     createdAt: v.number(),
   }).index("by_user", ["userId"]),

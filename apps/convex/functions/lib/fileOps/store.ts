@@ -77,9 +77,13 @@ export interface FileStore extends ScaffoldStore {
     key: string,
     options?: { onlyIf?: { etagMatches?: string } },
   ): Promise<void | null>;
+  /** Metadata without the body, where the adapter has it: `null` when absent. */
+  head?(key: string): Promise<{ etag?: string; size?: number } | null>;
   capabilities?: {
     conditionalWrite: boolean;
     conditionalCreate?: boolean;
     conditionalDelete?: boolean;
+    /** `"same-store"` where the bucket proved at connect that it copies server-side with preconditions. */
+    serverSideCopy?: "same-store" | false;
   };
 }

@@ -104,6 +104,7 @@ import {
   badRequest,
   json,
   randomOpaqueToken,
+  MAX_PRIVACY_REQUEST_BYTES,
   readJsonBody,
   requestIsFromAgentWorker,
   requestIsFromEmailWorker,
@@ -119,10 +120,16 @@ import {
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
+import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
+import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
+import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
+import { servedNoteCount } from "./functions/lib/nodes/servedCount";
+import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
+import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
@@ -160,10 +167,11 @@ auth.addHttpRoutes(http);
  */
 function gatewayRoute(
   handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
+  maxBytes?: number,
 ) {
   return httpAction(async (ctx, request) => {
     if (!(await requestIsFromGateway(request))) return unauthorized();
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, maxBytes);
     if (body === null) return badRequest();
     return await handler(ctx, body);
   });
@@ -297,13 +305,9 @@ export const gatewaySessionsByGrant = gatewayRoute(
 /* -------------------------------------------------------------------------- */
 
 export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
+export const gatewayPrivacy = gatewayRoute(privacyRoute.gatewayPrivacyHandler, MAX_PRIVACY_REQUEST_BYTES);
 
-/* -------------------------------------------------------------------------- */
-/* 2a. POST /gateway/provider — the model account the agent spends            */
-/* -------------------------------------------------------------------------- */
-
-export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
-/** The built-in model's gate and meter, for a texting grant with no account connected. */
+/** The built-in model's gate and meter: the only model the assistant runs on. */
 export const gatewayBuiltinModel = gatewayRoute(builtinModel.gatewayBuiltinModelHandler);
 export const gatewayBuiltinUsage = gatewayRoute(builtinModel.gatewayBuiltinUsageHandler);
 /** Meeting summaries' gate and meter, for any live grant. */
@@ -328,11 +332,17 @@ export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 /* 2b-quater. POST /gateway/moves — an AI client moved a note between contexts */
 export const gatewayMoves = gatewayRoute(signals.gatewayMovesHandler);
 
+/* 2b-quinquies. POST /gateway/moves/start — an AI client's folder move, queued */
+export const gatewayMoveStart = gatewayRoute(moveRoutes.gatewayMoveStartHandler);
+
 /* -------------------------------------------------------------------------- */
 /* 2b-tree. POST /gateway/tree — a context's file tree changed               */
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
+export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
+export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
@@ -340,7 +350,7 @@ export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 
 export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
 
-/* POST /gateway/routines — a write touched `routines/`; re-read the folder. */
+/* POST /gateway/routines — a write touched a routine root; re-read both. */
 export const gatewayRoutines = gatewayRoute(routines.gatewayRoutinesHandler);
 
 /* -------------------------------------------------------------------------- */
@@ -368,6 +378,12 @@ export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
+
+/* -------------------------------------------------------------------------- */
+/* 2f. POST /gateway/mover/open — spend one page of a whole-bucket move       */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayMoverOpen = gatewayRoute(jobs.gatewayMoverOpenHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 3. POST /gateway/clients/register — RFC 7591 dynamic client registration  */
@@ -524,9 +540,18 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
       workspaceId: binding.workspaceId,
     })
     .catch(() => null);
+  // What the cap counts, from the Convex tree's rows and never the bucket
+  // (`lib/nodes/servedCount.ts`); asked only when there is a cap. Absent when
+  // the tree cannot say, and the worker then admits the note.
+  const counted = noteCap === null ? null : await servedNoteCount(ctx, binding.workspaceId);
   const managed = await ingestEncryptionSiblings(ctx, binding.workspaceId);
   if (managed === null) return json({ binding: null });
-  return json({ binding, ...(noteCap === null ? {} : { noteCap }), ...managed });
+  return json({
+    binding,
+    ...(noteCap === null ? {} : { noteCap }),
+    ...(counted === null ? {} : { noteCount: counted.notes }),
+    ...managed,
+  });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -866,7 +891,7 @@ export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTiming
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/sessions/by-grant", method: "POST", handler: gatewaySessionsByGrant });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
-http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
+http.route({ path: "/gateway/privacy", method: "POST", handler: gatewayPrivacy });
 http.route({ path: "/gateway/builtin-model", method: "POST", handler: gatewayBuiltinModel });
 http.route({ path: "/gateway/builtin-model/usage", method: "POST", handler: gatewayBuiltinUsage });
 http.route({ path: "/gateway/meeting-summary", method: "POST", handler: gatewayMeetingSummary });
@@ -875,13 +900,18 @@ http.route({ path: "/gateway/agent-turn", method: "POST", handler: gatewayAgentT
 http.route({ path: "/gateway/search-index/progress", method: "POST", handler: gatewaySearchIndexProgress });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
+http.route({ path: "/gateway/moves/start", method: "POST", handler: gatewayMoveStart });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
+http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
+http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
+http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({ path: "/gateway/jobs/create", method: "POST", handler: gatewayJobsCreate });
 http.route({ path: "/gateway/jobs/open", method: "POST", handler: gatewayJobsOpen });
 http.route({ path: "/gateway/jobs/report", method: "POST", handler: gatewayJobsReport });
+http.route({ path: "/gateway/mover/open", method: "POST", handler: gatewayMoverOpen });
 http.route({ path: "/gateway/clients/register", method: "POST", handler: gatewayClientsRegister });
 http.route({ path: "/gateway/clients/get", method: "POST", handler: gatewayClientsGet });
 http.route({ path: "/gateway/authorize/start", method: "POST", handler: gatewayAuthorizeStart });
@@ -899,6 +929,11 @@ http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIng
 export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
 http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+
+// A page where the person saves or shares a vault login themselves.
+export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
+
+http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
 
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 

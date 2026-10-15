@@ -93,6 +93,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Sign-in is invite-only, and the lock is on the server
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
+- [Email guards the big changes; a phone alone never takes an account](./identity-and-access/account-safety.md)
 - The covered-context set is a reach, not an identity
 - One person, several sign-in emails, and accounts are never joined
 - A shared workspace opened to an email domain
@@ -126,6 +127,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
+- An AI client never widens who can see something without a person saying yes
+- A note shared with a named person opens for them wherever it lives
 
 ## [Per-note encryption](./encryption.md)
 
@@ -198,6 +201,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The filter lives in the block
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
+- The List is the Notes rows, with three thin extras
+- Notes and List are one view, and its dot and face are its controls — see below
 - A folder page shows its children by status
 - Tasks and notes
 - A row's name takes the room
@@ -214,9 +219,23 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An owner is picked, never typed
 - Agents are a list the workspace writes, each optionally somebody's
 
+## [The chaos score](./chaos-score.md)
+
+- It is one opinion, on purpose
+- It reports; it never tidies
+- Every write answers with the change
+- Kept incrementally, proven equal to a full pass
+- Two audiences, and a member learns nothing held back
+- A derivative, like every index
+
 ## [The side panel](./side-panel.md)
 
 - Any row opens beside the list (amended: editable, through the same editing session)
+
+## [One List view](./one-list-view.md)
+
+- Notes and List are one view, and its dot and face are its controls
+- In a projects folder, everything is a project item
 
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 
@@ -229,15 +248,18 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agents comment through write_note, and cannot choose their name
 - Comments are never published
 - Opening a card never moves the text
+- Crowded cards fold into one row beside their words
 - On a phone, a thread opens in a sheet
 - The iOS editor draws comments and lists
 
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes
+- A scan while a folder move is queued reads the tree's names
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
 - [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)
+- [An owner's agent connects the domain; buying one stays in the person's own account](./websites/agent-tools.md#an-owners-agent-connects-the-domain-buying-one-stays-in-the-persons-own-account)
 - Every site's pages are kept at the edge per Publish
 - A fallback never reverses an explicit restriction
 - The index may lag on widening, never on narrowing
@@ -252,7 +274,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A page's pasted pictures travel with the page
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
-- [The front door is five landing pages under test](./websites/landing-pages.md)
+- [The front door is three landing pages under test](./websites/landing-pages.md)
 
 ## [Release communication](./release-communication.md)
 
@@ -275,6 +297,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A database we own holds a copy of somebody's notes only where they asked
 - A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding
+- A context with a search database is answered by it alone, never by the bucket
 - Progress is reported to the control plane, which owns the row
 - The backfill percentage is derived, and inherits the census's owner-only gate
 - The switch lives in a context's settings, and the server owns who may throw it
@@ -309,6 +332,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Hue is meaning in this product, so the palette rations it
 - Nine sizes, two densities, and no literal font size anywhere
 - One interface face, and `display` kept as a role with no face of its own
+- Note text is read in Libron, served from our own origin (2026-10-11)
 - A long press has two signals, because the platform is watching the finger too
 - An absence is a claim, and a claim needs an answer
 - A launch is not a screen, and an empty list is not an empty account
@@ -322,6 +346,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Somebody else's change reaches an open tree as a hint per audience, never as the change
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
+- [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
+- [A write asks the Convex tree whether a name is taken](./app-and-console/convex-tree-writes.md) (2026-10-14)
+- [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
+- [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
+- [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
+- [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
+- [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -356,6 +387,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
 - A diagram lives in the note, and the browser is the only thing that makes it safe
+- A Mermaid chart is drawn by our script in a frame the note cannot leave
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
 - Reading mode is the whole rule for a block that replaces its own source
@@ -371,8 +403,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Settings is seven rows, and a row has to earn its place
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
+- [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
+- [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
+- [A note's common properties are chips under its name, a new note's included](./app-and-console/property-chips.md) (2026-10-14)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)
@@ -390,8 +425,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Several rows are one operation, and a pick is what the keyboard acts on
 - No UI ships without a design audit first
 - Every unasked message goes through one path, one at a time, answered per account
-- [Pins and "You open most" live on the account, and follow only the mover's moves](./app-and-console/phone-home-places.md)
+- [Pins and "You open most" live on the account, and follow a move for whoever may see it](./app-and-console/phone-home-places.md)
 - [The phone's Home is Apple Notes', and so is its bottom bar](./app-and-console/phone-home-places.md#the-phones-home-and-a-bottom-bar-that-is-apple-notes-2026-09-30)
+- [The map is drawn on paper and a blackboard; its words are not](./app-and-console/live-map-board.md)
+- [Agents in the middle only while they work; Archive is one icon](./app-and-console/live-map-board.md#agents-in-the-middle-only-while-they-work-archive-is-one-icon-2026-10-12)
 - [A replay reads the activity feed, and a move line carries its pairs](./app-and-console/live-map-history.md)
 - [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07)
 - [A replay is served from a history index in the context's own database](./app-and-console/live-map-history.md#a-replay-is-served-from-a-history-index-in-the-contexts-own-database-2026-10-09)
@@ -459,6 +496,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A firehose is not attention
 - Retention: raw MIME is off by default, and attachments are metadata-only
 - Contacts: one page per person, and a merge never rewrites history
+- A contact page is found by who it is, and filed A–Z (owner, 2026-10-12)
+- A contact nobody has written to in a year is archived by the sync that would revive it (owner, 2026-10-12)
+- A contact page is created only for somebody the owner has written to (owner, 2026-10-12)
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - The forward sync loop: a pull, on a floor of five minutes
@@ -588,10 +628,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Routines](./routines.md)
 
 - A routine is a note, and the folder it sits in says how often
+- Routines live in Tex's own folder, and the old folder keeps running
+- A one-off reminder is a routine in `routines/once/`, marked `done:` when it has run
 - A line the format can't read is said out loud, never defaulted
 - Intervals count from a fixed epoch, never from when the file was saved
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
+- A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)
 
@@ -602,14 +645,29 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
+- [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
+- [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)
+- [Personal logins stay personal; a shared workspace's vault is shared login by login](./texting-assistant/vault.md)
+- [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
+- [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - The built-in model is for Premium, capped, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
+- [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
+- [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
@@ -618,6 +676,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md)
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
+- [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [A short core set is the default run; the long sets stay for rounds (2026-10-14)](./texting-assistant/golden-tasks.md)
+- [How Tex does a job lives in a skill note, read when it applies (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [A skill Tex read vouches for its addresses and its marked values (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [The benchmark searches the real web (2026-10-11)](./texting-assistant/golden-tasks.md)
 
 ## [Observability](./observability/token-usage.md)
 

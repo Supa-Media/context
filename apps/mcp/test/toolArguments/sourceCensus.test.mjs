@@ -26,7 +26,7 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
   const GATEWAY = gatewaySourceFiles();
   const DISPATCH = soleSource(
     GATEWAY,
-    /^(?:export )?async function callTool\(name, args, store, scope\)/m,
+    /^(?:export )?async function runTool\(name, args, store, scope\)/m,
     "tools/dispatch.js"
   );
   const SESSION = soleSource(
@@ -37,7 +37,7 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
   const ALIASES = soleSource(GATEWAY, /^(?:export )?const TOOL_NAME_ALIASES\b/m, "tools/advertised.js");
   const UNLISTED = soleSource(GATEWAY, /^(?:export )?const UNLISTED_TOOLS\b/m, "tools/advertised.js");
   for (const [what, found] of [
-    ["callTool", DISPATCH],
+    ["runTool", DISPATCH],
     ["callToolForSession", SESSION],
     ["TOOL_NAME_ALIASES", ALIASES],
     ["UNLISTED_TOOLS", UNLISTED],
@@ -53,7 +53,9 @@ export async function runToolArgumentSourceCensusChecks(check, harness) {
     return end === -1 ? "" : source.slice(start, end);
   }
 
-  const dispatchBody = functionBody(DISPATCH.text, "async function callTool(name, args, store, scope)");
+  // `runTool` holds the dispatch switch; `callTool` in the same file only
+  // decides whether the call lists from the Convex tree.
+  const dispatchBody = functionBody(DISPATCH.text, "async function runTool(name, args, store, scope)");
   const dispatched = [...dispatchBody.matchAll(/^\s*case "([a-z_]+)":/gm)].map((m) => m[1]);
   // The parser's own self-test. A census built on a regex that silently
   // matched nothing would pass every check below by finding no tools at all,

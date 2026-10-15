@@ -23,6 +23,12 @@ export interface UseCollaborationOptions {
   onText: (text: string) => void;
   onState?: (state: { text: string; etag: string | null; status: DurableStatus; pending: number; recovery?: { baseline: string; desired: string; baseEtag?: string | null }; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => void;
   onOwned?: (path: string, owned: boolean) => void;
+  /**
+   * The last rename this console started, set on the press and set again the
+   * other way round when it is refused. The note keeps its controller across
+   * it — see `retarget` — rather than starting cold at the new name.
+   */
+  rename?: { id: number; from: string; to: string } | null;
 }
 
 /** Long enough for a large note on a slow link; short enough to not strand the queue. */
@@ -77,6 +83,28 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
   // document from the one it held, so a fresh one starts. See `adoptGeneration`.
   const [restarts, setRestarts] = useState(0);
 
+  /*
+    Which document the controller is for, as opposed to which path. A rename
+    this console made moves the path and keeps the document: the controller is
+    told the new name (`retarget`) instead of being stopped and rebuilt, which
+    threw away the typing it had not sent and put the bucket's older text over
+    the editor. Anything else that changes the path is a different note.
+  */
+  const identity = useRef<{ path: string | null; generation: number }>({ path: options.path, generation: 0 });
+  if (identity.current.path !== options.path) {
+    const rename = options.rename;
+    const followed =
+      rename !== undefined && rename !== null &&
+      rename.from === identity.current.path && rename.to === options.path &&
+      controller.current !== null && controller.current.path === rename.from;
+    if (followed && options.path !== null) controller.current!.follow(options.path);
+    identity.current = {
+      path: options.path,
+      generation: identity.current.generation + (followed ? 0 : 1),
+    };
+  }
+  const documentGeneration = identity.current.generation;
+
   const active =
     options.enabled !== false &&
     options.workspaceId !== null &&
@@ -86,7 +114,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     !options.path.endsWith(".excalidraw.md");
 
   useEffect(() => {
-    const path = options.path;
+    const path = identity.current.path;
     const workspaceId = options.workspaceId;
     const endpoint = options.endpoint;
     if (!active || path === null || workspaceId === null || endpoint === null || typeof fetch !== "function") {
@@ -216,13 +244,35 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     return () => {
       stopped = true;
       stopRepairing();
-      options.onOwned?.(path, false);
+      callbacks.current.onOwned?.(next.path, false);
       next.stop();
       if (controller.current === next) controller.current = null;
     };
     // The note identity is the resource. Text and callbacks are read through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, options.endpoint, mint, options.path, options.scope, options.workspaceId, restarts]);
+  }, [active, options.endpoint, mint, documentGeneration, options.scope, options.workspaceId, restarts]);
+
+  /*
+    The rename itself: held while it is on its way, so nothing is sent to a
+    note the gateway is moving; pointed at the new name when it lands (the
+    path moves under the same document, above); let go when it is refused.
+  */
+  const rename = options.rename ?? null;
+  useEffect(() => {
+    const live = controller.current;
+    if (live === null || rename === null) return;
+    if (rename.from === live.path && options.path === rename.from) live.hold();
+    else if (rename.to === live.path) live.release();
+  }, [rename, options.path]);
+  useEffect(() => {
+    const live = controller.current;
+    const path = options.path;
+    if (live === null || path === null || live.path === path) return;
+    const from = live.path;
+    live.retarget(path);
+    callbacks.current.onOwned?.(from, false);
+    callbacks.current.onOwned?.(path, true);
+  }, [options.path]);
 
   const current = controller.current;
   const subscribeLiveUpdates = useCallback((listener: (frame: LiveUpdate) => void) =>

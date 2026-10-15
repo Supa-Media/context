@@ -62,6 +62,9 @@ const PRICES = {
   // The thinking tier a router may send a text to (`src/agent/router.js`).
   "anthropic/claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  // Decision models (`src/agent/decide.js`): input only, they write nothing.
+  "@cf/cloudflare/clef": { input: 0.24, output: 0 },
+  "@cf/cloudflare/clef-flash": { input: 0.09, output: 0 },
   // The judge the first judging used, priced so an estimate can refuse it.
   "anthropic/claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
@@ -138,17 +141,46 @@ function summaryRow(setup, runs) {
 }
 
 // For each setup with a router (`src/agent/router.js`): how many answers it sent
-// to the thinking model, and what those cost, so the average price above can
-// be read as "cheap most of the time, expensive one time in ten".
+// to the thinking model, which questions those were, and what they cost, so the
+// average price above can be read as "cheap most of the time, expensive one
+// time in ten" and a round can see which questions the cutoff reached. The
+// think picks that fell under the setup's cutoff are named too, with the
+// confidence Clef gave each, so the next setup can set `route_at` from them.
+const ROUTER_CALL = /^router: (think|main)(?: \((?:think )?(\d(?:\.\d+)?)\))?$/;
+function routerOf(run) {
+  for (const call of run.tools ?? []) {
+    const m = typeof call === "string" ? null : ROUTER_CALL.exec(call.tool ?? "");
+    if (m) return { tier: m[1], confidence: m[2] === undefined ? null : Number(m[2]) };
+  }
+  return null;
+}
+function questionList(nums) {
+  const sorted = [...new Set(nums)].sort((a, b) => a - b);
+  if (sorted.length <= 1) return sorted.map(String).join("");
+  return `${sorted.slice(0, -1).join(", ")} and ${sorted.at(-1)}`;
+}
 function routedLines(setups, runs) {
   const lines = [];
   for (const setup of setups) {
     if (!setup.router) continue;
     const mine = runs.filter((r) => r.setup === setup.name && !r.error);
-    const thought = mine.filter((r) => (r.tools ?? []).some((call) => typeof call !== "string" && call.tool === "router: think"));
+    const thought = mine.filter((r) => routerOf(r)?.tier === "think");
     const prices = thought.map((r) => runPrice(r, setup)).filter((p) => p !== null);
     const price = prices.length ? fmtUsd(mean(prices)) : "n/a";
-    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each); the rest ran on ${setup.model}.`, "");
+    const which = thought.length ? `: questions ${questionList(thought.map((r) => r.question))}` : "";
+    lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each)${which}; the rest ran on ${setup.model}.`);
+    const near = mine.filter((r) => routerOf(r)?.tier === "main" && routerOf(r)?.confidence !== null);
+    if (near.length) {
+      const byQuestion = new Map();
+      for (const r of near) byQuestion.set(r.question, [...(byQuestion.get(r.question) ?? []), routerOf(r).confidence]);
+      const named = [...byQuestion.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([q, cs]) => `${q} (${cs.map((c) => c.toFixed(2)).join(", ")})`)
+        .join(", ");
+      const cutoff = typeof setup.router.routeAt === "number" ? ` ${setup.router.routeAt}` : "";
+      lines.push(`Said think but stayed on ${setup.model}, under the cutoff${cutoff}: questions ${named}.`);
+    }
+    lines.push("");
   }
   return lines;
 }
@@ -159,7 +191,9 @@ function routedLines(setups, runs) {
 // by the fallback, and the score says what those answers were worth.
 // Where a run's hours went, per setup: answering (the model's time, which the
 // setup owns), playing the person (the run's), and the rest (worlds, reruns).
-// Decided 2026-10-09, after a seven-hour run whose answers summed to two.
+// Decided 2026-10-09, after a seven-hour run whose answers summed to two. The
+// total is summed over the setup's conversations, so with shards it exceeds
+// the clock: the line says "across its conversations", never "wall time".
 function timeLines(setups, runs) {
   const lines = [];
   const minutes = (ms) => `${Math.round(ms / 60000)} min`;
@@ -169,7 +203,7 @@ function timeLines(setups, runs) {
     const wall = mine.reduce((sum, r) => sum + r.wallMs, 0);
     const answering = mine.reduce((sum, r) => sum + (r.ms ?? 0), 0);
     const person = mine.reduce((sum, r) => sum + (r.personMs ?? 0), 0);
-    lines.push(`Time: ${setup.name} took ${minutes(wall)} of wall time, ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
+    lines.push(`Time: ${setup.name} spent ${minutes(wall)} across its conversations: ${minutes(answering)} answering, ${minutes(person)} playing the person, ${minutes(Math.max(0, wall - answering - person))} on worlds and reruns.`, "");
   }
   return lines;
 }
@@ -181,6 +215,8 @@ function resilienceLines(setups, runs) {
     const calls = (r) => (r.tools ?? []).filter((call) => typeof call !== "string").map((call) => call.tool);
     const retried = mine.filter((r) => calls(r).some((name) => name.startsWith("retried")));
     const fellBack = mine.filter((r) => calls(r).some((name) => name.startsWith("fallback: ")));
+    const cut = mine.filter((r) => calls(r).includes("cut off at the output cap"));
+    if (cut.length) lines.push(`Cut off: ${setup.name} ran out of output room in a round of ${cut.length} of ${mine.length} answers.`, "");
     if (retried.length) lines.push(`Retried: ${setup.name} had the gateway retry a round in ${retried.length} of ${mine.length} answers.`, "");
     const reran = mine.filter((r) => r.reran);
     if (reran.length) lines.push(`Reran: ${setup.name} had ${reran.length} of ${mine.length} answers run again after an error; ${reran.filter((r) => r.error).length} still failed.`, "");
@@ -199,6 +235,8 @@ function runBlock(run, setup) {
   }
   const tools = run.tools?.length ? run.tools.map(toolLabel).join(", ") : "none";
   lines.push(`Tools: ${tools}`, "");
+  // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
+  if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

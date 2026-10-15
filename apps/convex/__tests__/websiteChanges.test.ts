@@ -6,7 +6,9 @@ import type {
 import {
   operationMayRestrictWebsite,
   operationTouchesWebsite,
+  websiteNarrowingPaths,
 } from "../functions/lib/websites/changes";
+import { MOVING_SCAN_MESSAGE, assertScanSawMoves } from "../functions/lib/websites/movingScan";
 
 const written: OperationResult = {
   kind: "written",
@@ -116,5 +118,68 @@ describe("website derivative invalidation", () => {
     expect(
       touches({ kind: "write", path: "notes/page.md", text: "note" }),
     ).toBe(false);
+  });
+});
+
+/*
+  Outside `website/`, a privacy change, move or delete names its paths, and the
+  route index decides whether they reach the site (`websites/routeChangeAt.ts`).
+  SABOTAGE: returning [] for the visibility kinds fails the first case here and
+  the console case in `websiteQueuedMoves.test.ts`.
+*/
+describe("changes outside website/ that may narrow a site", () => {
+  const moved = { kind: "moved", from: "features", to: "capabilities" } as OperationResult;
+
+  test("names the paths of privacy changes, moves and deletes", () => {
+    expect(
+      websiteNarrowingPaths({ kind: "setFolderVisibility", path: "features", visibility: "private" } as FileOperation, written),
+    ).toEqual(["features"]);
+    expect(websiteNarrowingPaths({ kind: "move", from: "features", to: "capabilities" }, moved)).toEqual([
+      "features",
+      "capabilities",
+    ]);
+    expect(
+      websiteNarrowingPaths({ kind: "delete", path: "features/forms.md", confirmation: "forms" }, written),
+    ).toEqual(["features/forms.md"]);
+  });
+
+  test("names nothing for a write, or for what operationTouchesWebsite already answers", () => {
+    expect(websiteNarrowingPaths({ kind: "write", path: "features/forms.md", text: "x" }, written)).toEqual([]);
+    expect(
+      websiteNarrowingPaths({ kind: "setFolderVisibility", path: "website/blog", visibility: "private" } as FileOperation, written),
+    ).toEqual([]);
+  });
+});
+
+/*
+  SABOTAGE: dropping the `known.has` half of `assertScanSawMoves` fails
+  "a move that began under the scan"; dropping `!drawn` fails the first case.
+*/
+describe("a website scan and the moves pending around it", () => {
+  const blog = { from: "website/blog", to: "website/posts" };
+  const elsewhere = { from: "2-areas/old", to: "2-areas/new" };
+  const listed = (drawn: boolean) => [
+    { folder: "website", drawn },
+    { folder: "features", drawn },
+  ];
+
+  test("a listing that did not draw a move reaching the site fails the scan", () => {
+    expect(() => assertScanSawMoves(listed(false), [blog], [blog])).toThrow(MOVING_SCAN_MESSAGE);
+    expect(() => assertScanSawMoves(listed(true), [blog], [blog])).not.toThrow();
+  });
+
+  test("a move that began, or turned round, under the scan fails it", () => {
+    expect(() => assertScanSawMoves(listed(true), [], [blog])).toThrow(MOVING_SCAN_MESSAGE);
+    const undone = { from: blog.to, to: blog.from };
+    expect(() => assertScanSawMoves(listed(true), [blog], [undone])).toThrow(MOVING_SCAN_MESSAGE);
+    // Into a folder a page names counts as well.
+    expect(() => assertScanSawMoves(listed(true), [], [{ from: "drafts", to: "features/drafts" }])).toThrow(
+      MOVING_SCAN_MESSAGE,
+    );
+  });
+
+  test("a move that finished under the scan, or one nowhere near the site, does not", () => {
+    expect(() => assertScanSawMoves(listed(true), [blog], [])).not.toThrow();
+    expect(() => assertScanSawMoves(listed(false), [elsewhere], [elsewhere])).not.toThrow();
   });
 });

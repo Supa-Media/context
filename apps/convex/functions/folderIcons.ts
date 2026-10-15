@@ -1,41 +1,61 @@
 /**
  * Folder icons: the emoji somebody gave a folder from "Set icon…" in its menu.
  *
- * Stored in the workspace's own bucket (`.context/folder-icons.json`, see
- * `@context/shared`'s `folderIcons.cjs`), reached through `runFileOperation`
- * like every other bucket read. Any member reads the icons of the folders
- * they can see; changing one changes what everybody's folder list looks like,
- * so it takes an editor, the same role renaming the folder takes.
+ * Held in Convex (`folderIcons`, `lib/schema/smallData.ts`) since 2026-10-14,
+ * and read from there: no bucket is opened to list or set one. Each change is
+ * written to the workspace's own `.context/folder-icons.json` afterwards
+ * (`lib/smallData/sync.ts`), so the export keeps them. Who sees which is
+ * decided over the tree's rules mirror (`lib/fileOps/folderIcons.ts`). Any
+ * member reads the icons of the folders they can see; changing one changes
+ * what everybody's folder list looks like, so it takes an editor, the same
+ * role renaming the folder takes.
+ *
+ * Until a workspace's file has been imported, it shows the icons Convex
+ * holds, which may be none; asking starts the import.
  */
 
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { nameSaysSomething, suggestIconFor } from "@context/shared/src/iconSuggest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
-import type { FileOperation as Operation, OperationResult } from "./lib/filesFns/operationTypes";
+import { suggestByMeaning } from "./lib/emojiMeaningLookup";
+import { withJev } from "./lib/jev/client";
+import { clearanceOf } from "./lib/clearance";
+import { loadPrivacyState } from "./lib/fileOps";
+import { checkFolderIcon, visibleFolderIcons } from "./lib/fileOps/folderIcons";
+import { toConvexError } from "./lib/filesFns/operationErrors";
+import { servedNodesStore } from "./lib/nodes/manifestStore";
+import { NO_BUCKET, servedStoreOrLoading } from "./lib/nodes/treeLoading";
 
 type Icons = Array<{ path: string; icon: string }>;
 
-async function run(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  minimum: "member" | "editor",
-  operation: Operation,
-): Promise<Icons> {
+async function clearanceFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, minimum: "member" | "editor") {
   const actorUserId = await callerId(ctx);
   const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
     actorUserId,
     workspaceId,
     minimum,
   });
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId,
-    scope,
-    grantedNames,
-    operation,
-  })) as Extract<OperationResult, { kind: "folderIcons" }>;
-  return result.icons;
+  return clearanceOf(scope, grantedNames ?? []);
+}
+
+/** The icons this clearance may see, over the tree's rules; none while the tree is still loading. */
+async function visible(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  clearance: ReturnType<typeof clearanceOf>,
+): Promise<Icons> {
+  // A workspace whose file has not been imported yet starts that here.
+  await ctx.runMutation(internal.functions.smallData.request, { workspaceId }).catch(() => {});
+  const tree = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
+  if (tree === null) return [];
+  const state = await loadPrivacyState(tree);
+  const held = await ctx.runQuery(internal.functions.smallData.icons, { workspaceId });
+  const icons = visibleFolderIcons(Object.fromEntries(held.map(({ path, icon }) => [path, icon])), { clearance, state });
+  return Object.entries(icons).map(([path, icon]) => ({ path, icon }));
 }
 
 const iconsValidator = v.array(v.object({ path: v.string(), icon: v.string() }));
@@ -44,13 +64,73 @@ const iconsValidator = v.array(v.object({ path: v.string(), icon: v.string() }))
 export const list = action({
   args: { workspaceId: v.id("workspaces") },
   returns: iconsValidator,
-  handler: async (ctx, args): Promise<Icons> => await run(ctx, args.workspaceId, "member", { kind: "folderIconsRead" }),
+  handler: async (ctx, args): Promise<Icons> =>
+    await visible(ctx, args.workspaceId, await clearanceFor(ctx, args.workspaceId, "member")),
 });
 
 /** Give a folder an icon, or remove it with `icon: null`. Editor. Answers with every icon the caller can see. */
 export const set = action({
   args: { workspaceId: v.id("workspaces"), path: v.string(), icon: v.union(v.string(), v.null()) },
   returns: iconsValidator,
-  handler: async (ctx, args): Promise<Icons> =>
-    await run(ctx, args.workspaceId, "editor", { kind: "folderIconSet", path: args.path, icon: args.icon }),
+  handler: async (ctx, args): Promise<Icons> => {
+    const clearance = await clearanceFor(ctx, args.workspaceId, "editor");
+    const tree = await servedStoreOrLoading(ctx, args.workspaceId);
+    let path: string;
+    try {
+      path = await checkFolderIcon({
+        path: args.path,
+        icon: args.icon,
+        clearance,
+        state: await loadPrivacyState(tree),
+        tree,
+        hasEmoji: async (name) =>
+          (await ctx.runQuery(internal.functions.smallData.emojiLeaf, { workspaceId: args.workspaceId, name })) !== null,
+      });
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    await ctx.runMutation(internal.functions.smallData.setIcon, { workspaceId: args.workspaceId, path, icon: args.icon });
+    return await visible(ctx, args.workspaceId, clearance);
+  },
+});
+
+/**
+ * The emoji the picker suggests for `path`, from its name alone, or `null`:
+ * a name that says nothing (`untitled-2026-10-14`), switched
+ * off, over the day's cap, or Clef not answering. Null is "no suggestion",
+ * never an error; the picker still offers a random one.
+ *
+ * The emoji whose meaning fingerprint is closest to the name's answers it
+ * (one embedding call, `lib/emojiMeaningLookup.ts`); Clef answers only while
+ * the fingerprints are being built or the model is down.
+ *
+ * Only the name is sent, so nothing is read from the bucket and the answer
+ * says nothing about whether `path` exists. Only an editor may ask, the one
+ * who could set the icon, and Clef's questions are metered on this
+ * workspace; past the day's cap the lookup by meaning still answers.
+ */
+export const suggest = action({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args): Promise<string | null> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId: userId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const path = args.path.slice(0, 1024);
+    if (!nameSaysSomething(path)) return null;
+    return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev, refusal): Promise<string | null> => {
+      // The day's cap counts Clef's questions. A lookup by meaning is one
+      // small embedding call, so a workspace past the cap still gets one;
+      // switched off, or with no inference Worker, it gets nothing.
+      if (!jev && refusal !== "daily_cap") return null;
+      const near = await suggestByMeaning(ctx, args.workspaceId, path);
+      if (near !== "unready") return near;
+      if (!jev) return null;
+      return await suggestIconFor(path, (request) => jev.decide(request));
+    });
+  },
 });

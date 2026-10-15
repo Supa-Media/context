@@ -29,6 +29,11 @@ jobs:
       # to **true** upstream, so even once the job runs, a lint failure would be
       # reported as a pass. It must block.
       lint-continue-on-error: false
+      # `eslint .` in apps/mobile reads only the app, its config and what the
+      # lockfile installs, which is exactly the `mobile` list below. A pull
+      # request outside it (docs, the gateway, Convex) skips the install and
+      # the minute of lint; pushes to main always lint.
+      lint-filter: mobile
       # `shared-package` is deliberately NOT passed, and the skip it produces
       # is the reason this comment exists. Upstream's `Test Shared Package`
       # job is gated on `inputs.shared-package != ''`, with no fallback — so

@@ -5,6 +5,7 @@
  * production caller and holds the credential; this module never sees one.
  */
 
+import { followHeading } from "../fileOps/followHeading";
 import { type ActivityActor, readActivity, recordActivity } from "../activity";
 import type { Clearance } from "../clearance";
 import {
@@ -13,16 +14,12 @@ import {
   type FileStore,
   type ProjectionClient,
   archivePath,
-  clearMovedSourceRules,
   clearVaultBatch,
   copyPath,
   createFolder,
   removeNewFolder,
-  deleteMovedSources,
   deletePath,
   duplicatePath,
-  exportContextMoveBatch,
-  importContextMoveBatch,
   importVaultFiles,
   listFolder,
   listFolderPaths,
@@ -35,7 +32,6 @@ import {
   readFile,
   readFiles,
   readImage,
-  listCustomEmoji,
   readCustomEmoji,
   removeCustomEmoji,
   renameCustomEmoji,
@@ -54,7 +50,6 @@ import {
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
-import { listFolderIcons, setFolderIcon } from "../fileOps/folderIcons";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
 import {
   type FormNotifyMaterial,
@@ -63,7 +58,6 @@ import {
   runFormAction,
 } from "../formOps";
 import { PRIVACY_KEY, type Visibility } from "../privacy";
-import { forwardPath, readForwarding } from "../../../../mcp/src/forwarding.js";
 import { inventoryPlugins, listManagedInstalls } from "../../../../mcp/src/plugins/inventory.js";
 import {
   migrateStorageLayout as migrateStorageLayoutOp,
@@ -88,6 +82,7 @@ import {
   requireContextPlugin,
 } from "./plugins";
 import { toConvexError } from "./operationErrors";
+import { executeContextMoveOperation, isContextMoveOperation } from "./contextMoveOperations";
 import { runOrganizerOperation } from "../organizer/sweepOps";
 
 const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
@@ -158,6 +153,8 @@ export async function executeOperation(
    * happens next.
    */
   onFormNotify?: (material: FormNotifyMaterial & { responseId: string }) => void,
+  /** Diagnostic identifier for scheduled search projection logs only. */
+  workspaceId?: string,
 ): Promise<OperationResult> {
   /**
    * One change, in the activity file, if it is one worth mentioning.
@@ -176,6 +173,7 @@ export async function executeOperation(
     if (landed !== null) onActivity?.(landed);
   };
   try {
+    if (isContextMoveOperation(operation)) return await executeContextMoveOperation(store, clearance, operation);
     switch (operation.kind) {
       case "pluginInventory": {
         const inventory = await inventoryPlugins(store) as PluginInventory;
@@ -455,29 +453,6 @@ export async function executeOperation(
         });
         return { kind: "file", ...file };
       }
-      case "forward": {
-        /*
-          DELIBERATELY UNFILTERED, AND SAFE ONLY BECAUSE OF WHERE IT GOES.
-
-          This answers "where did this path go" without asking `canSee` about
-          either end, which would be wrong if the answer were ever handed to a
-          caller: a forwarded path is a fact about a note, and where a private
-          note went is not a team reader's business.
-
-          It is never handed to one. `runFileOperation` is internal, the single
-          caller is `readSharedNote`, and everything it does with the answer —
-          the folder bound, then a read at `team` scope through the live
-          `privacy.md` — decides afresh. A path that forwards somewhere the
-          reader may not see comes back as the same `SHARE_UNAVAILABLE` as one
-          that never existed. **Any new caller has to re-argue that**, or ask
-          `canSee` here.
-        */
-        const ledger = await readForwarding(store);
-        return {
-          kind: "forwarded" as const,
-          paths: operation.paths.map((path) => forwardPath(ledger, path)),
-        };
-      }
       case "manifest": {
         const manifest = await syncManifestOp(store, {
           clearance,
@@ -571,7 +546,7 @@ export async function executeOperation(
         // scheduled the pass. A projection built per caller would be one
         // database per membership.
         if (projection === null) return IDLE_PROJECTION;
-        const pass = await projectSearchIndex(store, projection);
+        const pass = await projectSearchIndex(store, projection, { workspaceId });
         return {
           kind: "indexProjected",
           projected: pass.projected,
@@ -585,7 +560,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "sweepTree": case "touchTree": case "treeState": case "treeChanges": case "folderNotes": // run by the barrier (`meaningPass.ts`, `treeTableOps.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
@@ -597,10 +572,8 @@ export async function executeOperation(
       }
       case "indexNotes": {
         // Scope-blind, like `maintainIndex` above, and for the same reason.
-        const pass = await indexChangedNotes(store, {
-          written: operation.written,
-          gone: operation.gone,
-        });
+        // And the search database, where it is `ready` (`fileOps/search.ts`).
+        const pass = await indexChangedNotes(store, operation, projection);
         return { kind: "indexMaintained", ...pass };
       }
       case "write": {
@@ -733,10 +706,12 @@ export async function executeOperation(
           now,
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
         });
+        // The heading follows the new name inside the rename (`followHeading.ts`).
+        const headed = operation.followHeading === true ? await followHeading(store, moved, { clearance, now }) : undefined;
         await noteActivity("file.move", [moved.from, moved.to], {
-          count: moved.paths.length,
+          count: moved.queued ?? moved.paths.length,
         });
-        return { kind: "moved", ...moved };
+        return { kind: "moved", ...moved, ...(headed === undefined ? {} : { etag: headed }) };
       }
       case "folderPaths": {
         const found = await listFolderPaths(store, { clearance });
@@ -755,34 +730,6 @@ export async function executeOperation(
           names: [...clearance.names],
         });
         return { kind: "activity", entries };
-      }
-      case "contextMoveExport": {
-        const exported = await exportContextMoveBatch(store, {
-          from: operation.from,
-          to: operation.to,
-          clearance,
-          skip: operation.skip,
-        });
-        return { kind: "contextMoveExported", ...exported };
-      }
-      case "contextMoveImport": {
-        const landed = await importContextMoveBatch(store, {
-          objects: operation.objects,
-          clearance,
-          ...(operation.root === undefined ? {} : { root: operation.root }),
-        });
-        return { kind: "contextMoveLanded", ...landed };
-      }
-      case "contextMoveDelete": {
-        const removed = await deleteMovedSources(store, { sources: operation.sources });
-        return { kind: "contextMoveRemoved", ...removed };
-      }
-      case "contextMoveFinish": {
-        await clearMovedSourceRules(store, {
-          from: operation.from,
-          survivors: operation.survivors,
-        });
-        return { kind: "contextMoveFinished" };
       }
       case "copy": {
         const copied = await copyPath(store, {
@@ -804,7 +751,7 @@ export async function executeOperation(
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
         });
         await noteActivity("file.archive", [moved.from, moved.to], {
-          count: moved.paths.length,
+          count: moved.queued ?? moved.paths.length,
         });
         return { kind: "moved", ...moved };
       }
@@ -930,27 +877,19 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
-      case "emojiList":
-        return { kind: "emojiList", emoji: await listCustomEmoji(store) };
-      case "folderIconsRead":
-      case "folderIconSet": {
-        const icons = operation.kind === "folderIconsRead"
-          ? await listFolderIcons(store, { clearance })
-          : await setFolderIcon(store, { path: operation.path, icon: operation.icon, clearance });
-        return { kind: "folderIcons", icons: Object.entries(icons).map(([path, icon]) => ({ path, icon })) };
-      }
+      // An emoji by the leaf Convex holds for its name (`functions/emoji.ts`): no listing of the image store.
       case "emojiRead":
-        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation.name)) };
+        return { kind: "emojiImage", ...(await readCustomEmoji(store, operation)) };
       case "emojiStore": {
         const stored = await storeCustomEmoji(store, {
           name: operation.name,
           bytes: new Uint8Array(operation.bytes),
-          replace: operation.replace,
+          previous: operation.previous,
         });
         return { kind: "emojiStored", ...stored };
       }
       case "emojiRemove":
-        await removeCustomEmoji(store, operation.name);
+        await removeCustomEmoji(store, operation);
         return { kind: "emojiRemoved" };
       case "emojiRename":
         return { kind: "emojiStored", ...(await renameCustomEmoji(store, operation)) };

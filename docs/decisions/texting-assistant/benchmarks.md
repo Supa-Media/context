@@ -136,9 +136,151 @@ answered; pricing a routed run by the setup's main model would hide the whole
 point. Tests (`apps/mcp/test/agentProduction.test.mjs`, `bench/test/world.test.mjs`,
 `bench/test/report.test.mjs`): "a text the router calls think runs on the
 thinking model, and the meter says so", "a low-confidence think, a word the
-router does not know, or a failed router all stay on main", "a person's own key
-is never routed", "a routed setup records the tier first on the tools line and
+router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
+
+### The benchmark world searches by meaning, and search has a benchmark of its own (2026-10-10)
+
+**Decided by the owner (2026-10-10):** "we need to build a testing pipeline
+for search, ideally the same pipeline we were using to evaluate prompts", with
+embeddings for the test workspaces, settings to tune "until it's returning the
+best items in a good rank", and then the winner under the texting assistant.
+Until this day the benchmark world had no meaning index at all: every round
+measured the assistant on word search, and production was close to the same
+thing until the cutoff fix of PR #1475.
+
+- **The world has both indexes.** A Vectorize stand-in (`test/vectorizeStub.mjs`,
+  one in-memory index per name in the URL, brute-force cosine, installed in
+  front of the D1 stub) answers the gateway's own client; the warm pass
+  (`bench/warm.mjs`) embeds every note of every workspace through the run's
+  Workers AI runner (`@cf/baai/bge-m3`, real in a round, trigram fingerprints
+  under `--fake`), under the tier its fixture visibility gives it, and
+  snapshots the vectors; each conversation starts from a copy. Embeddings are
+  remembered by text for the run, so each passage and each query is paid for
+  once.
+- **Search has settings, in two places** (`src/search/settings.js`): the
+  Worker's `SEARCH_SETTINGS` var is the deployment's choice, and a texting
+  setup's `search:` section lays over it for that turn, in the context the
+  turn is on and any it addresses. Four knobs, bounded: `everywhere`,
+  `min_score`, `extra_notes`, `snippet_chars`. A value out of bounds refuses
+  the setup whole, as any other bad line does, and an unreadable var is the
+  defaults with one log line.
+- **`everywhere`** makes `search_notes` with no `context` search every
+  workspace the person can reach, each opened the way an addressed call opens
+  it (`store.openContext`, so under the person's role there and that
+  workspace's own `privacy.md`), the query embedded once, the lists fused a
+  rank at a time with this workspace first, and a hit from elsewhere carrying
+  `@name/` in front of its path with a line saying how to read it. A workspace
+  that cannot be opened is left out, never guessed at. The repository's
+  standing note that cross-context search *ranking* is not built still holds:
+  this fuses by rank, it does not rank across workspaces by score.
+- **Everywhere is the default** (decided by the owner, 2026-10-10, later the
+  same day: "by default, we should be searching all workspaces"). It began as
+  a setting that was off so it could be measured against the old one-workspace
+  search; the search benchmark found everything the old way found and more
+  (100% against 59%, 90% in the first three, no held-back note through the
+  fan-out), and the owner asked why a flag at all. So `search_notes` with no
+  `context` covers every workspace the person can reach, the tool's own
+  description says so to every AI client, and the way to search one workspace
+  is to name it: `context: "@name"` for another, `prefix` for a subtree of
+  this one. `everywhere: false` remains as a restriction a deployment's var or
+  a setup may set (the search job's `words-and-meaning` baseline uses it); it
+  is no longer the way the feature is reached. The texting assistant's
+  production prompt still describes search as one workspace at a time: a
+  prompt change is a promotion, and the owner's.
+- **The search job** (`bench/search.mjs`, `tests/search.md`,
+  `setups/search/*.md`, `pnpm ai search`, the Action with `job: search`) is
+  one `search_notes` call a query as the person named, through the MCP
+  endpoint, scored against the notes the test expects: found at all, in the
+  first three, mean reciprocal rank, complete. No judge; a round costs the
+  embeddings and seconds. The queries are the texting assistant's own
+  questions in the words a person would type, half sharing a word with the
+  note and half not, so both halves of search are measured.
+
+**What a simplification would cost:** tuning the meaning cutoff on production
+indexes by hand (as PR #1475 had to) is one afternoon's measurement that
+nobody can repeat; a benchmark that still searched words only would keep
+understating what people get; an everywhere that is off by default is a
+feature every assistant has to know to ask for, which is the guessing the
+benchmark measured. Tests: `bench/test/warm.test.mjs` ("with an embedder,
+the warm pass fills a meaning index per workspace, and a conversation's
+search asks it", "by default one search reaches the other workspaces, a
+held-back note stays absent for a member, and a setup may keep to one"),
+`test/searchSettings.test.mjs` ("searching every workspace is the default,
+and a deployment or a setup may restrict it"), `bench/test/search.test.mjs`.
+
+### The judge says what an answer does; pass or fail is worked out by the harness (2026-10-10)
+
+**Decided 2026-10-10, from round seven:** the judge is no longer asked for
+`pass` on each line. It is asked whether the answer *does* what the line says
+(`does: true|false`), and the harness turns that into pass or fail: a must line
+passes when the answer does it, a must-not line when it does not. Round seven's
+judging failed "must not: say Maya is free for the show" on every run of an
+answer whose own reason read "says she is not free, so the must not is
+avoided", and the same on q18: a model deciding what "pass" means for a
+forbidden thing flips a coin. A gate question's whole result rests on those
+lines, so the ambiguity is removed from the model's side rather than prompted
+around.
+
+**What a simplification would cost:** asking for `pass` again is one word
+shorter and brings the flip back at the gate, where it fails a setup outright.
+Tests (`bench/test/judge.test.mjs`): "the judge says whether the answer does
+what a line says, and a must-not line passes when it does not".
+
+### Routing only helps where the thinking model would answer differently (2026-10-10)
+
+Round six (run 38032708745, five runs an arm) and round seven (38033864255):
+Clef's confidence is a fixed number per question text, so `route_at` is a
+switch over which questions reach the thinking model, and the result's
+near-miss line shows the ladder. At 0.3 the wide setup routed four questions
+(16, 27, 40, 53) and Opus fixed all four, fourteen points over Haiku alone at
+a third of a cent more a question. Round seven told Clef two more shapes (a
+catch-up on where something stands, a list of several things) and routed at
+0.2: nine questions, $0.0116 a question, and none of the five extra ones
+fixed, because Opus answers "where are we with the wedding" as a report too.
+Those shapes were taken back the same day. A shape is worth routing only when
+the thinking model has been seen to answer it differently; the price of a
+guess is a full round.
+
+### The router is tuned by shape and by a cutoff the setup sets, never by question (2026-10-10)
+
+**Decided by the owner (2026-10-10):** after five rounds the cheap model's
+misses were mostly one kind: it found one fact and stopped, where the answer
+needed two put together (a deadline from a date, an order of events, a total,
+something written in more than one notebook). The owner's direction was
+"change the harness or routing to smarter models for some of these things",
+and explicitly not prompt lines written for the test's questions: "we want a
+general sense of intelligence here". So the two knobs are general:
+
+- **Clef is told the shape.** The `think` criteria name a date worked out
+  from another date, an order, a total or a comparison, and something that
+  could sit in more than one notebook, as reasons to route; `lookup` says it
+  is not a date that has to be worked out. No question's words appear.
+- **The cutoff is the setup's.** `models.route_at` (0 to 1, three decimals at
+  most, default 0.5, refused without a router) is the confidence a `think`
+  pick needs; lower routes more texts to the thinking model. The router's
+  confidence in a think pick rides the trace (`confidence`, a number) into the
+  turn log whether or not it cleared the cutoff, so a benchmark's result note
+  can say which questions a setup routed ("Routed: … questions 16, 27, 40 and
+  53") and which think picks fell under its cutoff and at what confidence
+  ("Said think but stayed on …"). The next setup's `route_at` is set from
+  those near misses, not guessed. Two setups that differ only in `route_at`
+  (`guide-haiku-opus`, `guide-haiku-opus-wide`) run side by side, and the price
+  line says what the extra routed texts cost.
+
+**What a simplification would cost:** a lower cutoff hard-coded in `router.js`
+would change production with no round behind it, and a cutoff nobody can see
+the near misses of is tuned blind. Prompt lines for the failing questions would
+lift the score and nothing else. Tests (`apps/mcp/test/agentProduction.test.mjs`,
+`bench/test/world.test.mjs`, `bench/test/report.test.mjs`,
+`apps/convex/__tests__/agentTurns.test.ts`): "parseSetup reads the router's
+cutoff, and refuses one outside 0 to 1 or without a router", "a think pick
+under the default cutoff clears a setup's lower one, and the trace keeps the
+confidence", "router tells Clef that a date worked out from another, an order
+and a total are think questions", "a routed setup shows the router's
+confidence, and a think pick under the cutoff as a near miss", "the routed
+line names every routed question, and the think picks under the cutoff with
+their confidence".
 
 ### The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)
 
@@ -281,3 +423,166 @@ manifest or activity log the gateway rewrites", "the judge is not asked for a
 gate opinion", "a gate failure is a failed must-not line on a gate question",
 "a run the model never answered is not a run", "an answer run again after an
 error says so on its block, and the summary counts the reruns".
+
+### The benchmark is a GitHub Action, and its fixtures live in the repository (2026-10-09)
+
+**Decided by the owner (2026-10-09)**: "these tests should be a GitHub
+Action that takes some parameters, that way anything that can run the GitHub
+Actions can see it and see the results." Until then every round ran on the
+owner's machine with keys from 1Password, handed to Codex by a written
+prompt, with the result copied back by hand.
+
+- **`ai-benchmark.yml`** is manual only (`workflow_dispatch`), in the
+  production environment, which already held every key the bench needs but
+  the Workers AI token (`CLOUDFLARE_AI_TOKEN`, now in the allowlist as
+  optional: no deploy reads it). Inputs: job, setups, questions, runs,
+  parallel, judge, `max_usd` (the judging's cap, default $1) and `fake`, which
+  runs the whole pipeline on the scripted model and spends nothing. It runs,
+  judges and scores, writes `pnpm ai summary` (the latest scores and the run's
+  summary lines, never an answer or an id) to the run's summary page, and
+  uploads the result and the key as two artifacts, the key on its own so a
+  judge can be handed the result alone. No schedule: a schedule would spend
+  money on nobody's say-so, and `check-workflow-triggers.mjs` keeps a branch
+  from running it.
+- **The fixtures moved into the repository**, at `apps/mcp/bench/ai/`
+  (workspaces, tests, setups), which reverses the 2026-10-08 decision that
+  they stay in `@context-lc`. (The setups moved back on 2026-10-10: see the
+  next section. The workspaces and tests stay.) A runner has no account, and the gateway has no
+  machine credential by design (`oauth.js`: every connection is somebody's
+  consent), so the folder the Action reads has to be one it can read without
+  one. What stays in `@context-lc ai/` is what needs the product: the process
+  README, the production files the gateway reads, the retired setups, and the
+  results. `pnpm ai run`, `judge` and `score` default to the repository's
+  folder when neither `--dir` nor `AI_BENCH_DIR` is set (`folder.mjs`).
+  Everything in the folder is invented; it was already readable by every
+  Context account, and the repository is public.
+- **A judging that dies does not cost the round** (2026-10-10, after the
+  first real Action round answered 708 conversations for about $7 and then
+  died on "judge reply for question 32 is not JSON"). The judge asks a
+  question again, up to three times, when the reply is not JSON, is cut off
+  at `max_tokens`, or has the wrong shape (`JUDGE_ATTEMPTS`); and the Action
+  takes a `judge_run_id`: it downloads that run's result, key and, when the
+  judging stopped partway, its sidecar of verdicts, and judges and scores
+  without answering again. The sidecar is uploaded as `benchmark-judging`
+  only when a judging stopped, so the resume never pays for a verdict twice.
+- **The judge's reply is typed by the API, not parsed from prose**
+  (2026-10-10, the owner: "that wouldn't happen if we were using a type-safe
+  AI"). The judge request carries `output_config.format` with a JSON schema
+  (`JUDGE_SCHEMA`), so the model's reply is that shape or the call fails as a
+  call; the three attempts remain for the failures a schema cannot rule out
+  (a cut-off at `max_tokens`, a missing answer id). The judge runs eight
+  requests at once and the Action answers in twelve processes by default:
+  both wait on models, not on the runner.
+- **A decision model is measured against the judge before it is trusted
+  with anything** (2026-10-10, the owner: Clef or Jev as the judge "just to
+  see the effect and the cost"). `pnpm ai calibrate` puts every answer of a
+  judged result to a decision model, one yes-or-no per check, and reports
+  agreement overall, by kind and by line, with the tokens read and the price;
+  the Action runs it with `calibrate` and `judge_run_id`. Nothing is written
+  to the result and nothing is scored by it. The judging of record stays
+  Haiku's until a calibration says a decision model agrees with it on a kind
+  of check, and then only for that kind.
+- A round's result and key still belong in `@context-lc ai/results/`, copied
+  from the artifacts by whoever reads the round; a benchmark-runner OAuth
+  client with a stored refresh token would close that last hop and is the
+  identity-and-access work to do if copying by hand turns out to be the
+  bother the Action was meant to end.
+
+**What a simplification would cost:** adding a schedule or a branch trigger
+would spend the plan's credit, or run an unreviewed prompt with production's
+keys, with nobody asking; reading the fixtures from `@context-lc` instead
+would need a credential the gateway deliberately does not mint; writing
+answers to the summary page would put a judge's input where a judge might
+read it. Tests (`bench/test/folder.test.mjs`, `summary.test.mjs`): "--dir
+wins, then AI_BENCH_DIR, then the repository's bench/ai", "the repository's
+folder exists, loads, and holds the tests; the setups are pulled from
+Context", "the summary carries the latest scores and the run's summary lines,
+and nothing else"; and `scripts/check-workflow-triggers.mjs` and
+`check-secrets-allowlist.mjs` on every pull request.
+
+### The setups and the scores live in Context; the fixtures stay in the repository (2026-10-10)
+
+**Decided by the owner (2026-10-10)**, a day after the fixtures moved to the
+repository: "I'd love to be able to see it within context." Asked what is
+logically better, the split is by who changes a thing and when:
+
+- **A setup is what a person edits and promotes**, and the production file
+  the gateway reads already lives in `@context-lc ai/production/`. With the
+  setups beside it, in `ai/setups/<job>/`, writing a setup is writing a note
+  in the app, running it is dispatching the Action, and promoting it is a copy
+  within one folder. `pnpm ai pull <job>` fetches them into the bench folder's
+  `setups/<job>/` before a run (every note directly under the folder but its
+  `about.md`; the folder is emptied first, so a setup retired in Context is
+  not still run from a stale file), and git ignores that folder. The
+  one-folder promise is real for the two assistants; **search has no
+  production file yet**: its production settings are the Worker's
+  `SEARCH_SETTINGS` var or a texting setup's `search:` section, and a
+  `production/search.md` the gateway reads is the owner's call, not made here.
+- **The workspaces and the question lists are fixtures**: they change in the
+  same commit as the harness and the code they exercise, and a question that
+  names a note has to match the note. They stay at `apps/mcp/bench/ai/`.
+- **A round's scores are something a person reads and compares**, so the
+  Action writes them to `ai/results/<result name> scores.md` itself
+  (`pnpm ai publish`): the front matter, the run's summary and latest scores
+  (a search result's misses too), and the run's address, never an answer and
+  never an id. The answers and the key stay the run's artifacts: big, and the
+  key never sits beside the result. A broken gate is listed with the test's own
+  failing lines and how many runs failed each (2026-10-14: the artifacts can't
+  be downloaded from every place an agent works, so "failed (q8)" alone left
+  nothing to fix from); the judge's reason stays out, since it can quote the
+  answer. The failing runs themselves (texts, tools, recorded changes and the
+  judge's reasons, no answer id) go to the score step's job log once the
+  judging is done: still not where a judge reads, and the fixtures are
+  invented people (`score.test.mjs`, "the job log shows each broken gate's
+  failing answer").
+
+**How the runner is somebody's consent.** The gateway mints no machine
+credential (`oauth.js`), and that line holds: the runner is an ordinary OAuth
+grant of a test account that is an editor of `@context-lc`, registered as its
+own public client ("Benchmark runner (GitHub Actions)", scope
+`context:read context:write`, never the private tier) and approved once by a
+person with `pnpm ai connect` over a loopback redirect
+(`bench/context.mjs`). What makes it a runner rather than a laptop is where
+the refresh token lives: in 1Password as a seed (`BENCH_RUNNER_CLIENT_ID`,
+`BENCH_RUNNER_REFRESH_TOKEN`, synced to the production environment like any
+secret), and then in `BENCH_RUNNER_REFRESH_TOKEN_LIVE`, which the workflow
+writes itself with the sync's own admin token the moment a sign-in rotates
+it, before anything else runs and again at the end. The sentry worker keeps
+its pair in a Durable Object for the same reason; an Action has no store but
+its secrets. **Rotation and reuse detection are untouched**: the first
+version of this reached for a confidential client whose refresh token does
+not rotate, and that is a weakening of the one check that notices a leaked
+token, so it was not done. The cost is the hazard the allowlist comment
+states: the live secret must never be synced from the vault, because the
+vault holds the retired seed and presenting it revokes the grant; a lost
+write-back (a run cancelled between the refresh and the secret write) is
+`pnpm ai connect` again.
+
+**What a simplification would cost:** a committed `setups/` folder is a
+mirror somebody forgets, and the owner's own words were that he cannot see
+it; a non-rotating refresh token for the runner turns reuse detection off
+for the one grant that lives in a CI secret store; syncing the live token
+from the vault revokes the grant on the next run; publishing the whole
+result to Context would put the answers beside the key, where a judge might
+read them. Tests (`bench/test/context.test.mjs`): "signIn refreshes once,
+writes the rotated pair down first, and reuses it while it lasts",
+"pullSetups replaces setups/<job>/ with the notes in Context, skipping the
+folder's about note", "the scores note carries the summary, the scores and
+the run, never an answer or an id", "connect registers a public client for
+the runner's scope, checks the state, and prints the two values once";
+`folder.test.mjs` ("the setups are pulled from Context"); and
+`check-secrets-allowlist.mjs`, which names the live token as not synced.
+
+### The world's egress gate is the deployment's (2026-10-14)
+
+The bench world left `EGRESS_APPROVALS` unset, so it held every write into a
+shared workspace for a YES that production, where the owner switched the gate
+off on 2026-10-10, never asks. "Ruth's deposit came in" then failed on the
+round trip, not on Tex: the held write ran after the YES and the turn that
+would have ticked the to-do had already ended. The world now takes the var
+from wrangler.toml's top-level `[vars]` (`DEPLOYED_EGRESS_APPROVALS` in
+`bench/world.mjs`), so turning the gate back on there turns it on in the
+bench too. **What a simplification would cost:** hard-coding "off" would
+keep grading production's behaviour only until the owner turns the gate back
+on. Test (`bench/test/world.test.mjs`): "the world runs the egress gate the
+way the deployed gateway does".

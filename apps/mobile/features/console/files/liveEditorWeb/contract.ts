@@ -117,14 +117,6 @@ export interface LiveEditorProps {
    * happened to be.
    */
   onDictate?: (at: number) => void;
-  /**
-   * Ask the agent about this note, from the same menu.
-   *
-   * Absent where there is no right panel for an answer to land in — which is
-   * every compact layout, whatever the microphone says, and is why this is a
-   * second prop rather than a second use of the first.
-   */
-  onAsk?: () => void;
   /** The authoritative text. Written into the editor only when it differs. */
   value: string;
   editable: boolean;
@@ -170,6 +162,12 @@ export interface LiveEditorProps {
   onTitleCaret?: (inTitle: boolean) => void;
   /** The line drawn under the title, or `null` for none. Web only. */
   titleNote?: { tone: "problem" | "held"; message: string } | null;
+  /**
+   * The element the note page draws its property chips into, put in a box
+   * under the title (`propertySlot.ts`); absent for no box. Web only: the
+   * native page draws its chips above the editor instead.
+   */
+  propertyHost?: HTMLElement | null;
   /**
    * Who else has this note open, and where to send this editor's own caret.
    *
@@ -225,7 +223,9 @@ export interface LiveEditorProps {
    * Absent means links are plain text on this surface, which is what the
    * landing page's demo console wants: it has nowhere to navigate to.
    */
-  onOpenNote?: (path: string, mode: NoteLinkOpen) => void;
+  onOpenNote?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
+  /** A drawn `#tag` was clicked or tapped (`NoteLinkContext.onOpenTag`). */
+  onOpenTag?: (tag: string) => void;
   /** The note being edited, so a relative link knows what it is relative to. */
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */
@@ -316,7 +316,6 @@ export interface EditorHandlers {
   onBlur: LiveEditorProps["onBlur"];
   onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
-  onAsk: LiveEditorProps["onAsk"];
   commenter?: LiveEditorProps["commenter"];
   commentModerator?: LiveEditorProps["commentModerator"];
   onSignInToComment?: LiveEditorProps["onSignInToComment"];

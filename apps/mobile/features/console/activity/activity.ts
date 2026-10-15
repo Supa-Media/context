@@ -18,6 +18,7 @@
 
 import {
   actorLabel,
+  clientOf,
   folderOf,
   nameOf,
 } from "@context/shared/src/activity.cjs";
@@ -31,7 +32,7 @@ export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
   one module, so a `.cjs` path typed slightly differently in a component is a
   thing that cannot happen.
 */
-export { repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
+export { clientOf, repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
 
 /** One line of the file, as the console receives it. */
 export interface ActivityEntry {
@@ -250,14 +251,16 @@ export function unseenCount(
  * Your own *client* is a different matter and stays unread: ChatGPT filing
  * something into your context while you were not looking is exactly what the
  * feature was asked for, and "@seyi's ChatGPT" is not @seyi at a keyboard.
- * That is the whole reason the entry carries `via` separately from `by`.
+ * That is the whole reason the entry carries `via` separately from `by`. The
+ * app's own console is not a client in this sense (`clientOf`): an edit made
+ * here is your hand.
  */
 function isUnseen(
   entry: ActivityEntry,
   seenAt: number | null,
   me?: string | null,
 ): boolean {
-  if (me !== undefined && me !== null && entry.by === me && entry.via === null) return false;
+  if (me !== undefined && me !== null && entry.by === me && clientOf(entry.via) === null) return false;
   if (seenAt === null) return true;
   const at = Date.parse(entry.at);
   return Number.isFinite(at) && at > seenAt;

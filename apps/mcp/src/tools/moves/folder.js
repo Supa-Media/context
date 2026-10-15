@@ -1,6 +1,9 @@
 /**
- * `move_folder`, and the logical folder move it starts for a large folder:
- * the privacy rules re-pointed first, the objects materialized after.
+ * `move_folder`: queued in the control plane (`queuedFolder.js`), or, for a
+ * folder of up to `LOGICAL_FOLDER_MOVE_THRESHOLD` objects the queue declines,
+ * moved here in one go. A larger folder the queue declines is refused: the
+ * old-style move job under `.context/moves/` that used to carry it is gone
+ * (2026-10-13), so nothing reads move jobs on the way to a note any more.
  */
 
 import { withActivityHint } from "../../live/activityHint.js";
@@ -10,12 +13,9 @@ import {
   hasOverride,
   isPlumbing,
   narrowerVisibility,
-  PRIVACY_KEY,
-  PrivacyOverrides,
-  replacePrivacyRulesBlock,
   visibilityOf,
 } from "../../privacy/engine.js";
-import { clearExactVisibility, loadPrivacyState, persistExactVisibility } from "../../privacy/state.js";
+import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
 import {
   clearExactVisibilityIfAbsent,
   deleteCreatedDestination,
@@ -23,7 +23,7 @@ import {
   referencesLine,
   retireMovedSource,
 } from "../../moves/objects.js";
-import { ROLE_LABEL, isMainFolder, topLevelRole } from "../../../../../packages/shared/src/folderRoles.cjs";
+import { nameTwinRefusal, protectedFolderRefusal } from "../../tree/twins.js";
 import {
   eligible as collaborationEligible,
   supported as collaborationSupported,
@@ -34,170 +34,18 @@ import { collaborationHead } from "../../live/collaborationHttp.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { listAllKeys } from "../../notes/storage.js";
-import { LOGICAL_FOLDER_MOVE_THRESHOLD, MOVE_JOB_VERSION } from "../../moves/limits.js";
-import { materializeMoveInBackground } from "./materialize.js";
-import { moveJobKey, writeMoveSentinel } from "../../moves/jobs.js";
+import { destinationRefusal } from "./destination.js";
+import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
+import { LOGICAL_FOLDER_MOVE_THRESHOLD } from "../../moves/limits.js";
+import { startQueuedFolderMove } from "./queuedFolder.js";
 import { normalizePath } from "../../notes/paths.js";
 import { pruneEmptyFolders } from "../../store/index.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
 import { remapFolderIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { recordPartialMove } from "./notes.js";
-import { rewriteReferencesOrQueue } from "./references.js";
+import { rewriteReferencesAfterMove } from "./references.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
-
-async function persistPrivacyFolderMove(store, source, destination) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const state = await loadPrivacyState(store);
-    if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
-    if (state.legacy) {
-      throw new Error("large folder moves require a current privacy.md manifest");
-    }
-    const movePrefix = (path) => {
-      if (path === source) return destination;
-      if (path.startsWith(`${source}/`)) return `${destination}/${path.slice(source.length + 1)}`;
-      return path;
-    };
-    const rules = state.rules.filter(
-      (rule) => !(rule.prefix === destination || rule.prefix.startsWith(`${destination}/`))
-    );
-    for (const rule of state.rules) {
-      if (rule.prefix === source || rule.prefix.startsWith(`${source}/`)) {
-        rules.push({ ...rule, prefix: movePrefix(rule.prefix) });
-      }
-    }
-    /*
-      The folder's own EFFECTIVE visibility, carried as one rule.
-
-      Everything above moves what `privacy.md` NAMES — a rule on the source
-      folder or inside it, an override on a note. That is complete for a folder
-      that declares itself and for a note with its own exception, and it
-      carries nothing at all for the ordinary case: `visibilityOf` is
-      longest-prefix, so a folder private because an ANCESTOR says so is named
-      nowhere, and neither are the notes under it.
-
-      Without this, such a tree landed on the destination's rule and was
-      published — the same defect the control plane's `movePath` had, where the
-      exception half was carried and the inherited half was not. `toolMoveFolder`
-      computes the narrower value per note and never reaches this function; a
-      folder one object larger took this path instead and got a different
-      answer for the same notes.
-
-      One rule, not one exception per note: a folder operation should leave a
-      folder-shaped manifest, and 500 generated lines would be unreadable to
-      the owner who opens `privacy.md` in Obsidian. Per-note overrides still
-      win over it, so a note the owner deliberately published travels as
-      published — checked, because narrowing that would be this fix committing
-      the opposite error.
-    */
-    const sourceVisibility = visibilityOf(source, state.rules);
-    // Read AFTER the loop above, so a rule the source folder declared for
-    // itself has already been carried here and is what this compares against.
-    // That is also why no "did the folder declare itself?" guard is needed: in
-    // that case the carried rule IS the destination's visibility, the two
-    // values are equal, and the test below does not fire. An explicit guard
-    // was written first and sabotage put it at 0 — correctly redundant rather
-    // than unheld, so it is gone rather than shipped unchecked.
-    const destinationVisibility = visibilityOf(destination, rules);
-    const narrowed = narrowerVisibility(sourceVisibility, destinationVisibility);
-    if (narrowed !== destinationVisibility) {
-      rules.push({ prefix: destination, vis: narrowed });
-    }
-    const overrides = new PrivacyOverrides();
-    for (const [path, visibility] of state.overrides.entries()) {
-      if (path === destination || path.startsWith(`${destination}/`)) continue;
-      overrides.set(path, visibility);
-      if (path === source || path.startsWith(`${source}/`)) {
-        overrides.set(movePrefix(path), visibility);
-      }
-    }
-    const next = replacePrivacyRulesBlock(state.text, rules, overrides);
-    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
-    if (put) return;
-  }
-  throw new Error("privacy manifest changed concurrently; retry the operation");
-}
-
-async function createLogicalFolderMove(store, scope, source, destination, objects) {
-  if (scope !== "private") {
-    return toolError(
-      `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access`
-    );
-  }
-  const unsafeMove = moveSafetyRefusal(store);
-  if (unsafeMove) return toolError(unsafeMove);
-  const destinationPrefix = `${destination}/`;
-  const destinationObjects = await listAllKeys(store, destinationPrefix);
-  const visibleConflicts = destinationObjects.filter(({ key }) => !isPlumbing(key));
-  if (visibleConflicts.length) {
-    return toolError(`conflict: destination already contains objects: ${destination}/`);
-  }
-  await persistPrivacyFolderMove(store, source, destination);
-  // At the logical cutover, not when the copy finishes: the folder reads as
-  // moved from here on, so a link that arrives in between must forward too.
-  // One folder entry covers every object under it — see `forwarding.js`.
-  await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
-  // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
-  await remapFolderIcons(store, source, destination);
-  const now = new Date().toISOString();
-  const id = `move-${crypto.randomUUID()}`;
-  const job = {
-    version: MOVE_JOB_VERSION,
-    id,
-    status: "logical_active",
-    source,
-    destination,
-    created_at: now,
-    updated_at: now,
-    total_objects: objects.length,
-    copied_objects: 0,
-    deleted_objects: 0,
-    copied: [],
-    objects: objects.map(({ key, etag, size }) => ({
-      source: key,
-      destination: `${destination}/${key.slice(source.length + 1)}`,
-      etag,
-      size,
-    })),
-    error: null,
-  };
-  await store.put(moveJobKey(id), JSON.stringify(job, null, 2));
-  await writeMoveSentinel(store);
-  let queued = false;
-  if (typeof store.enqueueGatewayJob === "function") {
-    try {
-      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
-    } catch {
-      // The on-bucket marker is the source of truth. Queueing is what makes the
-      // move autonomous, but a control-plane blip must not roll back the
-      // logical cutover; the owner can still resume with `materialize_move`.
-    }
-  }
-  // The durable queue owns the job once accepted. Running the request's
-  // waitUntil materializer as well starts two writers on the same move marker.
-  if (!queued && typeof store.defer === "function") {
-    try {
-      store.defer(() => materializeMoveInBackground(store, scope, id));
-    } catch {
-      // The logical marker is the durable handoff. A host that cannot keep
-      // background work alive leaves the move resumable by `materialize_move`.
-    }
-  }
-  await recordChange(store, "move_folder", scope, [source, destination], {
-    count: objects.length,
-    logical_move: id,
-    status: "logical_active",
-    references: "pending",
-  });
-  return withActivityHint(toolText(
-    `logical move active: ${source}/ → ${destination}/ (${objects.length} objects)\n` +
-      `move_id: ${id}\nphysical storage sync: pending\nreferences: pending`
-  ), {
-    moves: objects
-      .filter(({ key }) => key.startsWith(`${source}/`))
-      .map(({ key }) => ({ from: key, to: `${destination}/${key.slice(source.length + 1)}` })),
-  });
-}
 
 export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
   const source = normalizePath(sourceArg)?.replace(/\/+$/, "");
@@ -212,13 +60,18 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   ) {
     return toolError("source and destination folders must be separate, non-reserved trees");
   }
-  // The five built-in folders stay where every client expects them
-  // (folderRoles.cjs). Decided by name alone, before anything is listed, so
-  // the refusal says nothing about whether the folder exists or is visible.
-  if (isMainFolder(source)) {
-    return toolError(
-      `${ROLE_LABEL[topLevelRole(source)]} is a built-in folder, so it can't be renamed or moved. Move what's inside it instead.`
-    );
+  // The folder playing a built-in role stays where every client expects it
+  // (folderRoles.cjs); a duplicate of it is an ordinary folder, and the new
+  // name may not twin a sibling (`tree/twins.js`). Both read the tree.
+  const locked = await protectedFolderRefusal(store, scope, rules, overrides, source);
+  if (locked) return toolError(locked);
+  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { kind: "folder", ignore: source });
+  if (twin) return toolError(twin);
+
+  // Queued where the control plane takes it: one step, however big the folder.
+  if (!dryRun) {
+    const queued = await startQueuedFolderMove(store, scope, source, destination);
+    if (queued !== null) return queued;
   }
 
   const sourcePrefix = `${source}/`;
@@ -238,7 +91,20 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   // objects and leaves the private ones behind. move_folder is the bulk
   // spelling of that operation, so it behaves the same way rather than
   // becoming the one tool that answers a question the others refuse.
-  const allObjects = (await listAllKeys(store, sourcePrefix))
+  // A dry run answers from the Convex tree (`tree/served.js`), and says so
+  // where the tree cannot answer yet; it never lists the bucket. A real move
+  // in one go lists the bucket it is about to change: an agent's note written
+  // a moment ago reaches the tree a second later, and a move that listed the
+  // tree would leave it behind.
+  const lister = dryRun ? servedListingStore(store) : store;
+  let listed;
+  try {
+    listed = await listAllKeys(lister, sourcePrefix);
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return toolError(error.message);
+    throw error;
+  }
+  const allObjects = listed
     .filter(({ key }) => !isPlumbing(key))
     .filter(({ key }) => canSee(key, scope, rules, overrides));
   // A folder holding nothing this caller can see is "not found" — byte-identical
@@ -250,17 +116,23 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
         `folder has more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} visible objects; large logical folder moves require owner access`
       );
     }
-    const destinationObjects = await listAllKeys(store, destinationPrefix);
-    if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
-      return toolError(`conflict: destination already contains objects: ${destination}/`);
-    }
     if (dryRun) {
+      const destinationObjects = await listAllKeys(lister, destinationPrefix);
+      if (destinationObjects.some(({ key }) => !isPlumbing(key))) {
+        return toolError(`conflict: destination already contains objects: ${destination}/`);
+      }
       return toolText(
         `preflight ok: large folder ${source}/ → ${destination}/ (${allObjects.length} objects)\n` +
-          "apply will create a logical move immediately; physical storage sync remains pending"
+          "apply will queue the move: every app shows the folder at its new name at once, and storage copies behind"
       );
     }
-    return createLogicalFolderMove(store, scope, source, destination, allObjects);
+    // The queue declined it above. A folder this large is never moved in one
+    // go, so the answer is to wait, not a move job in the bucket.
+    return toolError(
+      `could not queue this move right now: a folder of more than ${LOGICAL_FOLDER_MOVE_THRESHOLD} objects moves ` +
+        "through the queue, which did not take it (the workspace may still be loading, or another move is being set up). " +
+        "Try again in a minute, or move it from the Context app."
+    );
   }
 
   const moves = allObjects.map(({ key }) => {
@@ -287,11 +159,10 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     const unsafeMove = moveSafetyRefusal(store);
     if (unsafeMove) return toolError(unsafeMove);
   }
-  for (const move of moves) {
-    if (await getWithLegacyFallback(store, move.destination)) {
-      return toolError(`conflict: destination already exists: ${move.destination}`);
-    }
-  }
+  // Asked of the Convex tree at once (`tree/names.js`); each copy below is
+  // `onlyIf: { absent: true }`, the truth for a note it has not heard of yet.
+  const destinationsTaken = await destinationRefusal(store, moves.map((move) => move.destination));
+  if (destinationsTaken) return destinationsTaken;
 
   if (dryRun) {
     return toolText(
@@ -424,7 +295,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
   // A folder icon follows its folder (`folderIcons.cjs`); never fails the move.
   await remapFolderIcons(store, source, destination);
-  const references = await rewriteReferencesOrQueue(
+  const references = await rewriteReferencesAfterMove(
     store,
     scope,
     rules,
@@ -435,7 +306,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     count: moves.length,
     visibilities: moves.map((move) => ({ path: move.destination, visibility: move.visibility })),
     team_visible: moves.every((move) => move.visibility === "team"),
-    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+    references: references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +

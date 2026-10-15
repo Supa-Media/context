@@ -24,6 +24,8 @@ import { runAnchorChecks } from "./anchors.test.mjs";
 import { runChatChecks } from "./chat.test.mjs";
 import { runCalendarChecks } from "./calendar.test.mjs";
 import { runContactChecks } from "./contacts.test.mjs";
+import { runContactLookupChecks } from "./contactLookup.test.mjs";
+import { runContactDormancyChecks } from "./contactDormancy.test.mjs";
 import { runDestinationChecks } from "./destination.test.mjs";
 import { runEstimateChecks } from "./estimate.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
@@ -132,7 +134,7 @@ check(
     stripComments('const c = "http://x"; // y') === 'const c = "http://x"; '
 );
 
-const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "destination.js", "estimate.js", "index.js"].map((name) =>
+const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "destination.js", "estimate.js", "contactDormancy.js", "index.js"].map((name) =>
   stripComments(readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"))
 );
 check(
@@ -257,6 +259,8 @@ runEstimateChecks(check);
 // into the assertions above, which are about `protocol.js`'s channel-day
 // contract specifically.
 runCalendarChecks(check);
+await runContactLookupChecks(check);
+await runContactDormancyChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

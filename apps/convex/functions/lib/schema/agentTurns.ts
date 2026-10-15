@@ -37,11 +37,18 @@ export const agentTurnTables = {
         // router: the tier picked and the model it runs on; fallback: the model
         // the turn went on with. Model names only, as `model` above.
         tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+        // router: how sure it was the text needs thinking (0 to 1) when it
+        // said so, kept whether or not that cleared the setup's cutoff.
+        confidence: v.optional(v.number()),
         model: v.optional(v.string()),
         // model: the HTTP status a failed or retried round got; fallback: the
         // status that caused it. A number, never a provider's words.
         status: v.optional(v.number()),
         retried: v.optional(v.boolean()),
+        // model: the round stopped at the output cap, out of room to think and answer.
+        cut: v.optional(v.boolean()),
+        // tool: the egress gate held the call for the person's yes; it ran later or not at all.
+        held: v.optional(v.boolean()),
         ok: v.boolean(),
         ms: v.number(),
       }),

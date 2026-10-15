@@ -15,8 +15,9 @@
  *   none last), then newest.
  *
  * Every folder and every note in the folder is an item. One with a status is
- * a **task**; one without is a plain **note**, which the List draws in its own
- * section below the tasks and the Board leaves out (`listLayout.ts`). A task
+ * a **task**; one without is a **note** to the Board, which leaves it out.
+ * The List draws it as a project item with no status yet, an empty circle,
+ * unless it says `status: note` (`isNoteStatus`, `rowExtras.tsx`). A task
  * that is a folder holds **subtasks** — the items directly in it with a
  * status — and may hold plain notes too (`taskChildren`), one level down and
  * no deeper. See "A folder page shows its children by status" and "Tasks and
@@ -30,12 +31,17 @@ import { compareGroups, isDoneStatus } from "../../../../../mcp/src/lists.js";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import { groupLabel } from "../listBlock/words";
 import { valueChoices } from "../listBlock/valueMenu";
-import { baseName, displayName, folderLabel, isMarkdown } from "../paths";
+import { baseName, displayName, folderLabel, isMarkdown, repeatsFolderName } from "../paths";
 import type { FileEntry } from "../types";
 import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
 import { comparePriority, priorityOf, type Priority } from "./taskProps";
 
-export type FolderPageView = "files" | "list" | "board";
+/**
+ * A projects folder's two views: its rows (List, which every other folder
+ * shows with no switch) and its tasks as columns (Board). Notes and List were
+ * one view drawn twice until the owner merged them, 2026-10-14.
+ */
+export type FolderPageView = "list" | "board";
 
 /** Where a new front note is written, when a folder has none. */
 export const NEW_FRONT_NOTE: string = FRONT_NOTES[0]!;
@@ -46,9 +52,16 @@ export interface FolderSummary {
   readonly target: string;
   /** `target` does not exist yet, and writing to it creates it. */
   readonly creates: boolean;
-  /** The front note's `title` or first heading, contained; null for none. */
+  /**
+   * The front note's `title` or first heading, contained; null for none, and
+   * null for one that only repeats the folder's name (`folderTitle`).
+   */
   readonly title: string | null;
+  /** That title as the note has it, even a repeat: the heading the about note's words sit under. */
+  readonly heading?: string | null;
   readonly properties: Readonly<Record<string, PropertyValue>>;
+  /** The `#tags` written in the note's text; `allTagsOf` adds them to its `tags:`. */
+  readonly inlineTags?: readonly string[];
   /** The front note's first paragraph, when the device has read one. */
   readonly lede: string | null;
   /** The newest save anywhere inside, or null when nothing has a time. */
@@ -61,8 +74,10 @@ export interface FolderItem extends FolderSummary {
   readonly kind: "folder" | "note";
   /** What the row is called: the summary's title, else the name as the tree draws it. */
   readonly label: string;
-  /** The status as written and trimmed; `""` when there is none, which makes it a note rather than a task. */
+  /** The status as written and trimmed; `""` when there is none, or when it says it is only a note. */
   readonly status: string;
+  /** Whether it says it is only a note (`status: note`): a note's icon, not an unset status circle. */
+  readonly noted: boolean;
   /** `p0`…`p3` as 0…3; null for none. */
   readonly priority: Priority | null;
   /** Sub-items closed out of all of them, for a folder that has any. */
@@ -125,10 +140,51 @@ function titleOf(note: ListNote | null): string | null {
   return null;
 }
 
-function statusOf(properties: Readonly<Record<string, PropertyValue>>, key = "status"): string {
+/**
+ * The status that says "this is only a note", which the status menu's Just a
+ * note writes. In a projects folder everything else is a project item, one
+ * with no status yet included (the owner, 2026-10-14: "all items in project
+ * folders should have statuses and be treated like a project item with no
+ * status if status is not set unless it explicitly has status:note").
+ */
+export const NOTE_STATUS = "note";
+
+/** Whether a written status means "only a note": `note` or `notes`, any case. */
+export function isNoteStatus(status: string): boolean {
+  const word = status.trim().toLowerCase();
+  return word === NOTE_STATUS || word === "notes";
+}
+
+function rawStatusOf(properties: Readonly<Record<string, PropertyValue>>, key: string): string {
   const raw = properties[key];
   const value = Array.isArray(raw) ? raw[0] : raw;
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** A property as written and trimmed; for `status`, `""` too when it says it is only a note. */
+function statusOf(properties: Readonly<Record<string, PropertyValue>>, key = "status"): string {
+  const value = rawStatusOf(properties, key);
+  return key === "status" && isNoteStatus(value) ? "" : value;
+}
+
+/** Whether these properties say the item is only a note (`status: note`). */
+function notedIn(properties: Readonly<Record<string, PropertyValue>>): boolean {
+  return isNoteStatus(rawStatusOf(properties, "status"));
+}
+
+/**
+ * The front note's title, unless it only repeats the folder's own name.
+ *
+ * Owner, 2026-10-11: opening Areas, the page said "Areas", then a moment later
+ * "1-areas". Older folders were made with a README whose heading was the
+ * folder's name on disk, number and all, and the page swapped to it when the
+ * note arrived. A heading that says nothing the folder's name does not is not
+ * a title: the page keeps the name it already drew (`folderLabel`), so it
+ * neither changes under the reader nor shows the sort number. A heading that
+ * says something else — "Health & home" — is still the title.
+ */
+function folderTitle(folder: string, title: string | null): string | null {
+  return title !== null && repeatsFolderName(folder, title) ? null : title;
 }
 
 /** A folder as its front note describes it, with the newest save anywhere inside. */
@@ -143,8 +199,10 @@ export function summarizeFolder(folder: string, notes: readonly ListNote[]): Fol
   return {
     target: front?.path ?? `${prefix}${NEW_FRONT_NOTE}`,
     creates: front === null,
-    title: titleOf(front),
+    title: folderTitle(folder, titleOf(front)),
+    heading: titleOf(front),
     properties: front?.properties ?? {},
+    ...(front?.inlineTags?.length ? { inlineTags: front.inlineTags } : {}),
     lede: front?.lede ?? null,
     updatedAt: newest,
   };
@@ -196,6 +254,7 @@ export function folderItems(
         kind: "folder",
         label: summary.title ?? folderLabel(baseName(entry.path)),
         status: statusOf(summary.properties),
+        noted: notedIn(summary.properties),
         priority: priorityOf(summary.properties),
         progress: progressOf(entry.path, notes),
         updatedAt: summary.updatedAt ?? entry.updatedAt ?? null,
@@ -215,12 +274,14 @@ export function folderItems(
       creates: false,
       title,
       properties,
+      ...(note?.inlineTags?.length ? { inlineTags: note.inlineTags } : {}),
       lede: note?.lede ?? null,
       updatedAt: note?.updatedAt ?? entry.updatedAt ?? null,
       path: entry.path,
       kind: "note",
       label: title ?? displayName(entry.name),
       status: statusOf(properties),
+      noted: notedIn(properties),
       priority: priorityOf(properties),
       progress: null,
     });
@@ -315,11 +376,6 @@ export function isProjectsFolder(folder: string): boolean {
 export function rowsAreProjects(folder: string): boolean {
   const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
   return isProjectsFolder(folder) && !isProjectsFolder(parent);
-}
-
-/** The grouped list once anything has a status; the files otherwise. */
-export function defaultFolderView(items: readonly FolderItem[]): FolderPageView {
-  return items.some((item) => item.status !== "") ? "list" : "files";
 }
 
 /**

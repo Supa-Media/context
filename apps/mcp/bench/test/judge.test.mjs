@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_JUDGE, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
+import { DEFAULT_JUDGE, JUDGE_ATTEMPTS, JUDGE_SCHEMA, estimateJudging, fakeJudge, judgeFile, sidecarPath } from "../judge.mjs";
 import { assignIds, keyMarkdown, resultMarkdown } from "../report.mjs";
 import { parseJudgedSections } from "../resultNote.mjs";
 
@@ -112,7 +112,8 @@ function judging(verdictFor) {
   return send;
 }
 
-const allPass = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, pass: true, reason: "fine" })), gate_failed: false });
+/** A judge that finds every answer does what each must and judge line says, and nothing a must-not line forbids. */
+const allPass = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, does: c.kind !== "must not", reason: "fine" })), gate_failed: false });
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -188,6 +189,27 @@ test("the judge never needs the key: judging works with the key file removed", a
   }
 });
 
+test("the judge says whether the answer does what a line says, and a must-not line passes when it does not", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const did = (answer, payload) => ({ id: answer.id, verdicts: payload.checks.map((c) => ({ line: c.line, does: true, reason: "it did" })) });
+    const rec = recording(judging(did));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    assert.match(JSON.parse(rec.bodies[0]).system, /does: true means the answer did the thing the line forbids/);
+    // Round eight (2026-10-10): "write nothing into any other note" was read as "did it write?" and a
+    // thanks reply of "Anytime." was read as not saying the time the first reply had said.
+    assert.match(JSON.parse(rec.bodies[0]).system, /something to leave undone/);
+    assert.match(JSON.parse(rec.bodies[0]).system, /about the whole conversation/);
+    assert.equal(JSON.parse(rec.bodies[0]).output_config.format.schema.properties.answers.items.properties.verdicts.items.required.includes("does"), true);
+    const [section] = parseJudgedSections(await readFile(path, "utf8"));
+    for (const block of section.blocks.values()) {
+      for (const v of block.verdicts) assert.equal(v.pass, v.kind !== "must not", `${v.kind}: ${v.line}`);
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
 test("the judged section parses back: a passing answer passes, a wrong one fails", async () => {
   const { dir, path, cleanup } = await folder();
   try {
@@ -199,8 +221,10 @@ test("the judged section parses back: a passing answer passes, a wrong one fails
     const tuesday = ids.find((r) => r.setup === "zebra-setup" && r.run === 1).id;
     const monday = ids.find((r) => r.setup === "zebra-setup" && r.run === 2).id;
     const verdictsOf = (id) => section.blocks.get(id).verdicts;
-    assert.deepEqual(verdictsOf(tuesday).map((v) => [v.kind, v.pass]), [["must", true], ["must not", false], ["judge", false]]);
-    assert.deepEqual(verdictsOf(monday).map((v) => [v.kind, v.pass]), [["must", false], ["must not", false], ["judge", false]]);
+    // The scripted judge finds a line's long words in the answer: neither answer
+    // "invent"s a "different" day, so the must-not line passes for both.
+    assert.deepEqual(verdictsOf(tuesday).map((v) => [v.kind, v.pass]), [["must", true], ["must not", true], ["judge", false]]);
+    assert.deepEqual(verdictsOf(monday).map((v) => [v.kind, v.pass]), [["must", false], ["must not", true], ["judge", false]]);
     assert.equal(verdictsOf(monday)[0].line, "say the dentist visit is on Tuesday at 9am");
     assert.ok(verdictsOf(monday)[0].reason.length > 0);
     // The gate is derived from the must-not lines in the score, never written here.
@@ -392,6 +416,112 @@ test("the test's every_answer lines reach the judge as trailing judge lines on e
     for (const block of judged[0].blocks.values()) {
       assert.equal(block.verdicts.filter((v) => v.kind === "judge" && v.line === "read like a text from a friend").length, 1, "every answer gets a verdict under the voice line");
     }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a reply that is not JSON is asked for again, and given up on after three tries", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const good = judging(allPass);
+    let calls = 0;
+    const flaky = async (body) => {
+      calls += 1;
+      if (calls === 1) return json({ content: [{ type: "text", text: "Here are the verdicts: {\"answers\": [" }], stop_reason: "max_tokens", usage: {} });
+      return good(body);
+    };
+    flaky.route = "fake";
+    const result = await judgeFile({ path, dir, send: flaky, concurrency: 1, date: "2026-10-09" });
+    assert.equal(result.judged, 4, "every answer judged");
+    assert.equal(calls, 3, "two questions, one of them asked twice");
+
+    const { dir: dir2, path: path2, cleanup: cleanup2 } = await folder();
+    try {
+      let tries = 0;
+      const broken = async () => {
+        tries += 1;
+        return json({ content: [{ type: "text", text: "no verdicts today" }], usage: {} });
+      };
+      broken.route = "fake";
+      await assert.rejects(judgeFile({ path: path2, dir: dir2, send: broken, concurrency: 1 }), /is not JSON \(3 attempts\)/);
+      assert.equal(tries, JUDGE_ATTEMPTS, "three tries, then the error");
+    } finally {
+      await cleanup2();
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("the judge's reply is held to a JSON schema by the API, and every object in it closes additionalProperties", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    const rec = recording(judging(allPass));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-09" });
+    const body = JSON.parse(rec.bodies[0]);
+    assert.deepEqual(body.output_config, { format: { type: "json_schema", schema: JUDGE_SCHEMA } });
+    const objects = [];
+    const walk = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "object") objects.push(node);
+      for (const value of Object.values(node)) walk(value);
+    };
+    walk(JUDGE_SCHEMA);
+    assert.ok(objects.length >= 3, "the reply, an answer, a verdict");
+    for (const node of objects) {
+      assert.equal(node.additionalProperties, false);
+      assert.deepEqual(Object.keys(node.properties).sort(), [...node.required].sort(), "every property is required");
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a task's checks are graded from the run's record and never sent; a question with only checks sends nothing", async () => {
+  const tasks = `---
+job: texting-assistant
+runs: 1
+web: scripted
+---
+
+## 1. Connect ChatGPT
+
+- kind: task
+- as: Maya
+- must call: read_skill
+- must set: connected chatgpt
+- must: say it is connected
+
+## 2. Open the shop
+
+- kind: task
+- as: Maya
+- must reach: shop.example
+`;
+  const run = (question, text, browser) => ({
+    ...turn({ setup: "zebra-setup", question, text, as: "Maya", kind: "task", gate: true, asked: text, said: "It's connected." }),
+    tools: ["read_skill", "browse"],
+    browser,
+  });
+  const result = {
+    ...RESULT,
+    setups: [SETUPS[0]],
+    runs: [run(1, "Connect ChatGPT", ["open chatgpt.com/plugins", "set connected chatgpt"]), run(2, "Open the shop", ["read other.example"])],
+  };
+  const { dir, path, cleanup } = await folder(result, { test: tasks });
+  try {
+    const rec = recording(judging(allPass));
+    await judgeFile({ path, dir, send: rec.send, date: "2026-10-11" });
+    assert.equal(rec.bodies.length, 1, "question 2 has only checks: nothing to send");
+    assert.deepEqual(payloadOf(rec.bodies[0]).checks.map((c) => c.line), ["say it is connected"]);
+    const blocks = parseJudgedSections(await readFile(path, "utf8")).at(-1).blocks;
+    const ids = assignIds(result).sort((a, b) => a.question - b.question).map((r) => r.id);
+    const verdicts = ids.map((id) => blocks.get(id).verdicts.map((v) => `${v.kind}|${v.line}|${v.pass}`));
+    assert.deepEqual(verdicts, [
+      ["must|call read_skill|true", "must|set connected chatgpt|true", "must|say it is connected|true"],
+      ["must|reach shop.example|false"],
+    ]);
   } finally {
     await cleanup();
   }

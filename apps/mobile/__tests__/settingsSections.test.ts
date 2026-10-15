@@ -19,6 +19,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  isFoldedSection,
   DEFAULT_SETTINGS_SECTION,
   isSettingsSection,
   isAccountSection,
@@ -54,60 +55,44 @@ describe("which sections a context has", () => {
 describe("the order and the grouping", () => {
   test("the list reads in the artboard's order", () => {
     /*
-      The approved settings artboard (2026-09-29) fixes the order: who you
-      are, then this workspace — what it is, who is in it, which apps reach
-      it, what they did, where its notes are kept, what it costs, what it
-      publishes — and then the rows set once and left: meetings, the model,
-      emoji.
+      The second cleanup (2026-10-10, approved by the owner) fixes the order of
+      the seven listed rows: who you are, then this workspace — what it is, who
+      is in it, what is connected, what it costs, where its notes are kept,
+      what it publishes. The folded pages follow in the catalogue, unlisted.
     */
     const keys: readonly string[] = SETTINGS_SECTIONS.map((section) => section.key);
     const rank = (key: string) => keys.indexOf(key);
-    const order = [
-      "profile",
-      "feedback",
-      "workspace",
-      "sharing",
-      "integrations",
-      "activity",
-      "storage",
-      "premium",
-      "website",
-      "meetings",
-      "model",
-      "emoji",
-    ];
+    const order = ["profile", "workspace", "sharing", "integrations", "premium", "storage", "website"];
     for (let i = 1; i < order.length; i += 1) {
       expect(rank(order[i - 1])).toBeLessThan(rank(order[i]));
     }
   });
 
-  test("twelve rows, and one of them only when it has something to say", () => {
-    // The whole of the change: twenty rows under four headings became seven
-    // under none, Model made it eight, and Emoji (the workspace's own, which
-    // the : menu offers) made it ten. Feedback (early-beta
-    // telemetry switches and the report, 2026-09-29) made it eleven, beside
-    // Profile because both are about the person. Activity (the audit trail as
-    // sentences, out of Workspace's "Advanced" block, 2026-09-29) made it
-    // twelve. `plugins` is deprecated
-    // behind `shown` and `invitations` appears only while an invitation is
-    // pending.
-    expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
+  test("seven listed rows; four pages live behind a row on another page", () => {
+    /*
+      The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
+      Activity, Meetings and Emoji keep their pages and their keys —
+      an old `?settings=emoji` link and a typed "emoji" still reach them — but
+      are `folded`: a row on Profile, People & sharing, Connected apps or
+      General opens each. `plugins` is deprecated behind `shown` and
+      `invitations` appears only while an invitation is pending.
+    */
+    const all = settingsSectionsFor("personal");
+    expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
       "profile",
-      "feedback",
       "workspace",
       "sharing",
       "integrations",
-      "activity",
-      "storage",
       "premium",
+      "storage",
       "website",
-      "meetings",
-      "model",
-      "emoji",
     ]);
+    expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
+      ["activity", "emoji", "feedback", "meetings"],
+    );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(13);
+    ).toHaveLength(12);
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -115,7 +100,7 @@ describe("the order and the grouping", () => {
       // One heading left: the account/context split, which is a difference in
       // what a row acts on rather than a category to learn. Every context row
       // is ungrouped.
-      expect([null, "Your account"]).toContain(section.group);
+      expect([null, "You"]).toContain(section.group);
     }
   });
 
@@ -186,11 +171,11 @@ describe("two scopes in one list", () => {
     expect(matchSettingsSections(all, "sign out").map((s) => s.key)).toEqual(["profile"]);
   });
 
-  test("appearance is a sentence on Profile, not a section of its own", () => {
+  test("appearance is a row on Profile, not a section of its own", () => {
     /*
-      "Follow the device" is the whole of the feature now, so there is nothing
-      to navigate to — but "dark mode" is exactly what somebody types when they
-      cannot find the setting, and a search that matches nothing reads as a
+      Light / Dark / Device is one row of three chips on Profile, so there is
+      no page of its own — but "dark mode" is exactly what somebody types when
+      they cannot find it, and a search that matches nothing reads as a
       product that lost it.
     */
     const all = settingsSectionsFor("personal");

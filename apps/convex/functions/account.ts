@@ -51,6 +51,7 @@ import { releaseWorkspaceDomains } from "./lib/customDomains/handlers";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
+import { requireEmailProof } from "./lib/emailProof";
 import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
 import { isProductionTestAccount } from "./lib/testAccount";
@@ -138,6 +139,8 @@ export const deleteWorkspace = mutation({
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx, args) => {
     await authorizeWorkspaceDeletion(ctx, args);
+    // Deleting is a big change (`lib/emailProof.ts`): a phone alone cannot.
+    await requireEmailProof(ctx, (await requireAuthId(ctx)) as Id<"users">);
 
     await deleteWorkspaceCascade(ctx, args.workspaceId);
     return { deleted: true };
@@ -157,6 +160,7 @@ export const deleteAccount = mutation({
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireEmailProof(ctx, userId);
 
     // Workspaces first, membership by membership. The cascade deletes the
     // membership row along with everything else, so the two branches converge

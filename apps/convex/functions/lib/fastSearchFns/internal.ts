@@ -22,10 +22,14 @@ import {
   type SearchProjectionState,
 } from "../fastSearch";
 import { bindingFor } from "./helpers";
+import { resumeFailedRow, scheduleCopy } from "./restart";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { cleanPriorities, type IndexingPriorities } from "../indexingPriorities";
 
 /** Contexts one sweep may restart. See `sweepStalledBackfillsHandler`. */
 const SWEEP_BATCH = 50;
+/** Rows one sweep may read looking for those. */
+const SWEEP_SCAN = 500;
 const PROJECTION_LEASE_MS = 11 * 60 * 1_000;
 
 export async function claimProjectionHandler(
@@ -218,27 +222,29 @@ export async function sweepStalledBackfillsHandler(
   ctx: MutationCtx,
 ): Promise<{ started: number }> {
   const now = Date.now();
-  const rows = await ctx.db
-    .query("searchIndexes")
-    .withIndex("by_status", (q) => q.eq("status", "backfilling"))
-    // Bounded, like every other sweep here: a backlog drains over several
-    // runs rather than in one transaction big enough to hit a limit.
-    .take(SWEEP_BATCH);
-
+  // Bounded, like every other sweep here: a backlog drains over several runs
+  // rather than in one transaction big enough to hit a limit. The bound is on
+  // restarts, with a wider one on rows read: rows this sweep passes over (an
+  // archived workspace, a chain still beating) stay at the front of the
+  // status index for good, and taking only the first fifty let them starve
+  // every row behind them.
+  let scanned = 0;
   let started = 0;
-  for (const row of rows) {
+  for await (const row of ctx.db
+    .query("searchIndexes")
+    .withIndex("by_status", (q) => q.eq("status", "backfilling"))) {
+    if (started >= SWEEP_BATCH || scanned >= SWEEP_SCAN) break;
+    scanned += 1;
     // A `backfilling` row that is not opted in should not exist — `disable`
     // moves it to `releasing` — but a status index is a poor place to trust
     // an invariant that lives on another field.
     if (!row.optedIn) continue;
     // The chain's own heartbeat, never `updatedAt`: see `chainedAt`.
     if (now - (row.chainedAt ?? row.createdAt) < BACKFILL_STALL_MS) continue;
+    // Only archived accounts hold it: left where it stopped (`lib/archivedWorkspaces.ts`).
+    if (await workspaceArchived(ctx.db, row.workspaceId)) continue;
     await ctx.db.patch(row._id, { chainedAt: now });
-    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-      workspaceId: row.workspaceId,
-      scope: "private",
-      operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
-    });
+    await scheduleCopy(ctx, row.workspaceId);
     started += 1;
   }
 
@@ -254,47 +260,26 @@ export async function sweepStalledBackfillsHandler(
     token, a malformed request, a missing secret) is left for a person, since
     waiting will not change its answer.
   */
+  // Read wider the same way, since a terminal failure stays at the front for
+  // good too, and read before anything is resumed: a resumed row leaves this
+  // status, which is no thing to do to an index while walking it.
   const failedRows = await ctx.db
     .query("searchIndexes")
     .withIndex("by_status", (q) => q.eq("status", "failed"))
-    .take(SWEEP_BATCH);
+    .take(SWEEP_SCAN);
+  let resumed = 0;
   for (const row of failedRows) {
+    if (resumed >= SWEEP_BATCH) break;
     if (!row.optedIn || row.generation !== FAST_SEARCH_GENERATION) continue;
     if (!isRetryableD1Error(row.errorCode)) continue;
     if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
     const workspace = await ctx.db.get(row.workspaceId);
     if (workspace === null) continue;
     if (!fastSearchEntitled(workspace)) continue;
+    if (await workspaceArchived(ctx.db, workspace)) continue;
 
-    // A database with the current schema failed while copying: resume the
-    // copy where its cursor stopped, counters kept. Anything short of that
-    // failed while being made, so it is made again — `provisionIndex` reuses
-    // a recorded database rather than creating a second one.
-    const provisioned =
-      typeof row.databaseId === "string" &&
-      row.databaseId.length > 0 &&
-      row.schemaVersion === D1_SCHEMA_VERSION;
-    await ctx.db.patch(row._id, {
-      status: provisioned ? "backfilling" : "provisioning",
-      errorCode: undefined,
-      error: undefined,
-      chainedAt: now,
-      updatedAt: now,
-    });
-    if (provisioned) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: row.workspaceId,
-        scope: "private",
-        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
-      });
-    } else {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.fastSearchProvision.provisionIndex,
-        { workspaceId: row.workspaceId, generation: FAST_SEARCH_GENERATION },
-      );
-    }
-    started += 1;
+    await resumeFailedRow(ctx, row, now);
+    resumed += 1;
   }
-  return { started };
+  return { started: started + resumed };
 }

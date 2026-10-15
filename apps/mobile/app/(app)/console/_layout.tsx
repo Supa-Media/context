@@ -65,7 +65,6 @@ export default function ConsoleLayout() {
     <ConsoleFrame
       data={data}
       route={route}
-      pathname={pathname}
       router={router}
       params={{ openSettingsSection, checkoutReturn, connectAgent, changesOpen, mapOpen }}
     >

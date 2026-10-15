@@ -115,6 +115,12 @@ export async function rpc(env, token, method, params) {
   return { status: response.status, body };
 }
 
+/** One tool call's text, through the worker. */
+export async function callText(env, token, name, args) {
+  const { body } = await rpc(env, token, "tools/call", { name, arguments: args });
+  return body?.result?.content?.[0]?.text || "";
+}
+
 export async function orientText(env, token) {
   const { body } = await rpc(env, token, "tools/call", { name: "orient", arguments: {} });
   return body?.result?.content?.[0]?.text || "";
@@ -207,6 +213,7 @@ export async function createOrientationHarness() {
     DEAD_BUCKET: dead,
     WIDE_BUCKET: wide,
   };
+  controlPlane.serveTreesFrom(env);
 
   return { controlPlane, restore, bucket, dead, wide, env };
 }

@@ -1,6 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
-import { layout, radii } from "../../design/tokens";
+import { layout } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 
 /**
@@ -24,12 +24,6 @@ const makeStyles = (colors: Colors) =>
     band: {
       marginHorizontal: layout.readingMargin,
       marginBottom: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: radii.card,
-      backgroundColor: colors.warnWash,
-      borderWidth: 1,
-      borderColor: colors.warnBorder,
     },
-    text: { color: colors.warnText },
+    text: { color: colors.warnText, fontWeight: "600" },
   });

@@ -20,8 +20,8 @@ import {
   RECENT_ROWS_PER_WORKSPACE,
   daysInWindow,
   dayOf,
-  retargetPlaces as retarget,
 } from "./lib/places";
+import { followMovesForMembers } from "./lib/placesFollow";
 import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
 
 const kindValidator = v.union(v.literal("note"), v.literal("folder"));
@@ -272,15 +272,33 @@ export const recentNotes = query({
   },
 });
 
-/** Called by the app's moves (`lib/filesFns/entries.ts`) once storage has moved. */
-export const retargetPlaces = internalMutation({
-  args: { userId: v.id("users"), workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+const ruleListValidator = v.object({
+  invalid: v.boolean(),
+  folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
+  notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+});
+
+/**
+ * Called by the credential barrier after a move made in one go (the app, the
+ * organizer, an agent's move told to the tree), with the rules the bucket
+ * holds after it: every member's places follow, where they may see the new
+ * name (`lib/placesFollow.ts`).
+ */
+export const followMoves = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    moves: v.array(v.object({ from: v.string(), to: v.string() })),
+    rules: ruleListValidator,
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const from = normalizePath(args.from);
-    const to = normalizePath(args.to);
-    if (from === null || to === null) return null;
-    await retarget(ctx, args.userId, args.workspaceId, from, to);
+    const moves = [];
+    for (const move of args.moves) {
+      const from = normalizePath(move.from);
+      const to = normalizePath(move.to);
+      if (from !== null && to !== null) moves.push({ from, to });
+    }
+    await followMovesForMembers(ctx, args.workspaceId, moves, args.rules);
     return null;
   },
 });

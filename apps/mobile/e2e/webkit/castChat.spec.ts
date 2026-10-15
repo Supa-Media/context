@@ -72,10 +72,10 @@ test.describe("side by side, on a wide screen", () => {
     await expect(page.getByTestId("cast-chat-ChatGPT")).toContainText("Planned.", { timeout: 15_000 });
 
     // The projects folder's List, and a status moving as it is set.
-    const row = page.getByTestId("folder-item").filter({ hasText: "Beta launch" });
+    const row = page.getByTestId("folder-row").filter({ hasText: /beta.launch/i });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(claude).toContainText("Marked Beta launch as in progress", { timeout: 15_000 });
-    await expect(row).toContainText(/in progress/i);
+    await expect(row.getByTestId("status-dot-in-progress")).toBeVisible();
     await expect(claude).toContainText("Moved Website into Archive", { timeout: 15_000 });
     // The tree names folders without their number: `4-archive` is "archive".
     await expect(tree).toContainText(/archive\s*website/);

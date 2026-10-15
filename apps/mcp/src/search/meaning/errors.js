@@ -40,7 +40,7 @@ export class MeaningError extends Error {
     this.failureCause = cause && (CAUSES.has(cause) || /^http_\d{3}$/.test(cause)) ? cause : undefined;
     // Fixed operation names and numeric provider codes are diagnostic without
     // carrying a response message, note path, note text, or credential.
-    this.operation = ["embed", "upsert", "delete_by_ids", "query"].includes(detail.operation) ? detail.operation : undefined;
+    this.operation = ["embed", "upsert", "delete_by_ids", "get_by_ids", "query"].includes(detail.operation) ? detail.operation : undefined;
     this.providerCodes = Array.isArray(detail.providerCodes)
       ? detail.providerCodes.filter((value) => Number.isSafeInteger(value)).slice(0, 5)
       : [];

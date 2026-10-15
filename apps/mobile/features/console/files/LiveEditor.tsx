@@ -114,6 +114,7 @@ export function LiveEditor({
   onScrollBy,
   accessibilityLabel,
   onOpenNote,
+  onOpenTag,
   notePath,
   notePaths,
   onSubmitForm,
@@ -185,6 +186,7 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
+    onOpenTag,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -206,6 +208,7 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
+    onOpenTag,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -310,7 +313,8 @@ export function LiveEditor({
             navigating to a note relative to whichever note was open when the
             editor mounted.
           */
-          onOpenNote: (path, mode) => handlers.current.onOpenNote?.(path, mode),
+          onOpenNote: (path, mode, anchor) => handlers.current.onOpenNote?.(path, mode, anchor),
+          onOpenTag: (tag) => handlers.current.onOpenTag?.(tag),
           /*
             A web link leaves the app, so it is asked about first, with the
             address shown. The host has already allow-listed the scheme; the
@@ -732,7 +736,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 0,
     backgroundColor: "transparent",
     color: colors.text,
-    fontFamily: fonts.body,
+    fontFamily: fonts.reading,
     fontSize: t.body,
     lineHeight: leading(t.body, 1.5),
     paddingTop: space.x2,

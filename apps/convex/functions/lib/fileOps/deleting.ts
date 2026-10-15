@@ -6,7 +6,7 @@
  */
 
 import { isEncryptedNote } from "../noteEncryption";
-import { canSee, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
+import { canSee, isPlumbing, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
 import { type Clearance } from "../clearance";
 import {
   eligible as collaborationEligible,
@@ -15,12 +15,14 @@ import {
   tombstoneDocument as tombstoneCollaborationDocument,
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
+import { assertNotProtectedFolder } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
-import { assertNotMainFolder, requirePath, timestampSlug } from "./paths";
+import { requirePath, timestampSlug } from "./paths";
 import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
+import { createAbsent, fileInTree, filesInTree } from "./treeChecks";
 import { type MoveResult, movePath } from "./moving";
 import { forgetPrivacy } from "./privacyRewrite";
 
@@ -58,7 +60,7 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
@@ -86,8 +88,10 @@ export async function archivePath(
   // not a person clicking twice.
   const stamp = timestampSlug(options.now);
   let destination = `${archive}/${stamp}/${path}`;
+  // Asked of the tree (`treeChecks.ts`); `movePath` writes the destination
+  // conditionally where the store can, so a name the tree missed is refused.
   for (let attempt = 2; attempt <= 100; attempt += 1) {
-    if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
+    if (!(await isFolder(store, destination)) && !(await fileInTree(store, destination))) break;
     destination = `${archive}/${stamp}-${attempt}/${path}`;
   }
 
@@ -118,6 +122,20 @@ export async function archivePath(
 }
 
 /**
+ * A trash the tree can draw at once, queued by the credential barrier
+ * (`lib/nodes/trashStart.ts`), or `null` to trash it here. Attached to the
+ * store non-enumerably, as `queueMove` is; a store without it (tests, the
+ * gateway, self-hosting without the tree) trashes the old way.
+ */
+type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+/**
+ * Turn a still-queued trash around: `true` when it was, `false` when the
+ * bucket holds the trash, or the store to restore through when the bucket
+ * moved while this waited for it.
+ */
+type RestoreQueued = (restore: { trash: string; path: string }) => Promise<boolean | FileStore>;
+
+/**
  * Move a visible entry into hidden, recoverable trash without rewriting its
  * privacy rules or links. Keeping those rules at the original path makes Undo
  * restore the exact access state instead of guessing it from the trash folder.
@@ -139,8 +157,14 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
+  // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
+  const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
+  if (options.expectedEtag === undefined && typeof queue === "function") {
+    const queued = await queue({ path, clearance: options.clearance, now: options.now });
+    if (queued !== null) return queued;
+  }
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
@@ -252,9 +276,10 @@ export async function trashPath(
 
 /** Restore one trash result to the original path encoded inside its key. */
 export async function restoreTrashedPath(
-  store: FileStore,
+  given: FileStore,
   options: { from: string; to: string; clearance: Clearance },
 ): Promise<MoveResult> {
+  let store = given;
   const from = requirePath(options.from);
   const to = requirePath(options.to);
   assertWritablePath(to);
@@ -264,6 +289,11 @@ export async function restoreTrashedPath(
   }
   const state = await loadPrivacyState(store);
   if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+  // Deleted a moment ago, its trash may still be queued: turned around, the tree draws it back at once.
+  const restoreQueued = (store as { restoreQueuedTrash?: RestoreQueued }).restoreQueuedTrash;
+  const queued = typeof restoreQueued === "function" ? await restoreQueued({ trash: from, path: to }) : false;
+  if (queued === true) return { from, to, paths: [to], queued: 1 };
+  if (queued !== false) store = queued;
   const sources = await hiddenKeysAt(store, from);
   if (sources.length === 0 && collaborationSupported(store)) {
     throw notFound();
@@ -338,15 +368,21 @@ async function movePairs(
   store: FileStore,
   pairs: readonly { source: string; destination: string }[],
 ): Promise<void> {
+  // A restore's destination is a name in the tree; a trash entry is plumbing
+  // the tree never holds, so the sources are the bucket's (`hiddenKeysAt`).
+  // Restored names are asked of the tree, and written only if still absent
+  // where the store can hold that (`treeChecks.ts`).
+  const restoring = pairs.filter((pair) => !isPlumbing(pair.destination));
+  const taken = await filesInTree(store, restoring.map((pair) => pair.destination));
   for (const pair of pairs) {
-    if ((await store.get(pair.destination)) !== null) {
+    if (taken.has(pair.destination) || (isPlumbing(pair.destination) && (await store.get(pair.destination)) !== null)) {
       throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
     }
   }
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) throw notFound();
-    await store.put(pair.destination, await object.arrayBuffer());
+    await createAbsent(store, pair.destination, await object.arrayBuffer());
     await store.delete(pair.source);
   }
 }
@@ -409,7 +445,7 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
-  assertNotMainFolder(path);
+  await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
@@ -503,8 +539,9 @@ export async function deletePath(
 
   await forgetPrivacy(store, keys, targetIsFolder ? path : null, walk.withheld);
   // A folder that is really gone takes its icon with it; one still holding
-  // notes this caller could not see is still there, icon and all.
-  if (targetIsFolder && walk.withheld.length === 0) await dropFolderIcons(store, path);
+  // notes this caller could not see is still there, icon and all. A note
+  // deleted for good takes its own.
+  if (!targetIsFolder || walk.withheld.length === 0) await dropFolderIcons(store, path);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is

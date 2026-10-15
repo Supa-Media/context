@@ -133,8 +133,11 @@ export function useTabs(
    */
   const listings = files.listings;
   const editorPath = files.editor.path;
+  // The open note in the trash, or being looked for after it left, stays open (`useTrashedNote`).
+  const keptOpen = files.keptOpen ?? null;
   useEffect(() => {
     for (const path of tabsToClose(state.tabs, listings)) {
+      if (path === keptOpen && editorPath === keptOpen) continue;
       // Not the note a rename is carrying while the editor is still on its
       // old name: a listing that lands mid-move without it is behind, not
       // proof the note is gone. The rename settles one way or the other, and
@@ -142,7 +145,7 @@ export function useTabs(
       if (renamed !== null && path === renamed.to && editorPath === renamed.from) continue;
       dispatch({ type: "removed", path });
     }
-  }, [editorPath, listings, renamed, state.tabs]);
+  }, [editorPath, listings, renamed, state.tabs, keptOpen]);
 
   /**
    * The switch itself, keyed on the context rather than on `files`.
@@ -268,7 +271,20 @@ export function useTabs(
    * which is the exact desync this hook's one-direction rule exists to prevent.
    */
   const active = state.activePath;
+  /**
+   * The tab that was active before this change, and whether the strip still
+   * holds it. Only a close of the note **on screen** moves the editor: a
+   * folder page opens no tab, so the last note's tab stays the active one
+   * underneath it, and deleting that note from the folder's rows used to open
+   * the neighbouring note over the folder (and push its address) for a tab
+   * nobody was looking at.
+   */
+  const previous = useRef(active);
   useEffect(() => {
+    const was = previous.current;
+    previous.current = active;
+    const wentAway = was !== null && !state.tabs.some((tab) => tab.path === was);
+    if (wentAway && was !== files.editor.path) return;
     if (active === null || active === files.editor.path) return;
     /*
       Not while the editor is on its way there. A tab renamed on the press
@@ -307,14 +323,26 @@ export function useTabs(
    * a no-op that costs nothing: `useFileBrowser` clears the selection on the
    * same key, in the same commit.
    */
-  const hadTabs = useRef(false);
+  const hadTabs = useRef<readonly string[]>([]);
   useEffect(() => {
-    const has = state.tabs.length > 0;
-    if (!has && hadTabs.current) files.deselect();
-    hadTabs.current = has;
-    // Same reason as above: keyed on the count, not on the browser's identity.
+    const had = hadTabs.current;
+    hadTabs.current = state.tabs.map((tab) => tab.path);
+    /*
+      Only when the last tab was the note on screen. A folder page opens no
+      tab, so the strip can empty under one — the last note opened before it
+      deleted from the folder's own rows — and deselecting then threw the
+      person out of the folder to the context's root, replacing the folder's
+      address with the root's (Dev2, 2026-10-14; `trashedFromFolderPage.test.ts`).
+    */
+    const editorPath = files.editor.path;
+    if (state.tabs.length === 0 && had.length > 0 && editorPath !== null && had.includes(editorPath)) files.deselect();
+    /*
+      Keyed on the strip, not on the browser's identity (same reason as
+      above), and on the strip rather than its count: a preview tab replaced
+      by the next note keeps the count and changes which note the last tab is.
+    */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.tabs.length]);
+  }, [state.tabs]);
 
   return { state, activate, pin, follow, close, closeOthers, closeToRight, reopen };
 }

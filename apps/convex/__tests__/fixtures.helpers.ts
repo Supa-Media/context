@@ -14,7 +14,7 @@
 import { convexTest, type TestConvex as TestConvexFor } from "convex-test";
 import schema from "../schema";
 import { modules } from "../test.setup";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
@@ -30,9 +30,70 @@ export function setupTest(): TestConvex {
   return convexTest(schema, modules);
 }
 
-/** A signed-in view of the world for one user. */
+const ISSUER = "https://test.invalid";
+/** Far enough out that no fake clock in this suite reaches it. */
+const FIXTURE_FOREVER = Date.UTC(2100, 0, 1);
+
+/**
+ * A signed-in view of the world for one user, as somebody who has confirmed an
+ * emailed code on this device: every big change is open to them, which is
+ * what nearly every test means by "the owner does X".
+ *
+ * This is the fixture's one deliberate shortcut past real code (alongside
+ * `addMember`): it writes a session and an email proof directly. The guard
+ * itself is proven where it matters, with `asPhoneOnly` below, in
+ * `emailProof*.test.ts`. A deleted session is recreated, so a test that signs
+ * everyone out and acts again still acts as a proven person.
+ */
 export function asUser(t: TestConvex, userId: Id<"users">) {
-  return t.withIdentity({ subject: userId, issuer: "https://test.invalid" });
+  const identity = async () => {
+    const sessionId = await provenSessionFor(t, userId);
+    return t.withIdentity({ subject: `${userId}|${sessionId}`, issuer: ISSUER });
+  };
+  return {
+    query: (async (...args: unknown[]) => ((await identity()).query as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["query"],
+    mutation: (async (...args: unknown[]) => ((await identity()).mutation as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["mutation"],
+    action: (async (...args: unknown[]) => ((await identity()).action as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["action"],
+    fetch: (async (...args: unknown[]) => ((await identity()).fetch as (...a: unknown[]) => unknown)(...args)) as ReturnType<TestConvex["withIdentity"]>["fetch"],
+  };
+}
+
+/**
+ * Sessions a test made for itself, without the ones `asUser` wrote: for the
+ * tests that count what a sign-in or a deletion left behind.
+ */
+export function withoutFixtureSessions<T extends { expirationTime: number }>(rows: T[]): T[] {
+  return rows.filter((row) => row.expirationTime !== FIXTURE_FOREVER);
+}
+
+const provenSessions = new WeakMap<TestConvex, Map<string, Id<"authSessions">>>();
+
+export async function provenSessionFor(t: TestConvex, userId: Id<"users">): Promise<Id<"authSessions">> {
+  let byUser = provenSessions.get(t);
+  if (byUser === undefined) {
+    byUser = new Map();
+    provenSessions.set(t, byUser);
+  }
+  const known = byUser.get(userId);
+  const sessionId = await t.run(async (ctx) => {
+    if (known !== undefined && (await ctx.db.get(known)) !== null) return known;
+    const id = await ctx.db.insert("authSessions", { userId, expirationTime: FIXTURE_FOREVER });
+    await ctx.db.insert("emailProofs", { userId, sessionId: id, until: FIXTURE_FOREVER });
+    return id;
+  });
+  byUser.set(userId, sessionId);
+  return sessionId;
+}
+
+/** A device signed in with a texted code and nothing else: no email confirmed. */
+export async function asPhoneOnly(t: TestConvex, userId: Id<"users">) {
+  const sessionId = await t.run((ctx) => ctx.db.insert("authSessions", { userId, expirationTime: FIXTURE_FOREVER }));
+  return { sessionId, view: t.withIdentity({ subject: `${userId}|${sessionId}`, issuer: ISSUER }) };
+}
+
+/** A token with no session in it at all, as the older fixtures made. */
+export function asSessionless(t: TestConvex, userId: Id<"users">) {
+  return t.withIdentity({ subject: userId, issuer: ISSUER });
 }
 
 export async function createUser(
@@ -186,20 +247,71 @@ export async function bindFakeStorage(
  * that way asserts on the state before verification and passes or fails for
  * reasons unrelated to the code. So: yield, drain, repeat until the queue is
  * empty, and fail loudly rather than silently proceeding if it never is.
+ *
+ * A job queued for later than `LATER_MS` from now is left alone: on real
+ * timers no drain could reach it, and the one that motivated this (the tree's
+ * parity re-check, half a minute after a write in flight made the first check
+ * differ) is a staff alarm no test is about.
  */
+const LATER_MS = 10_000;
 export async function drainScheduled(t: TestConvex): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
     const outstanding = jobs.filter(
-      (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
+      (job) =>
+        (job.state.kind === "pending" && job.scheduledTime <= Date.now() + LATER_MS) ||
+        job.state.kind === "inProgress",
     );
     if (outstanding.length === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
     await t.finishInProgressScheduledFunctions();
   }
   throw new Error("scheduled functions never drained");
+}
+
+/**
+ * The workspace's first copy into the Convex tree, run to its end against the
+ * bucket it is bound to. Every reader of which notes exist reads that tree
+ * and never the bucket (decided by the owner, 2026-10-13; see
+ * `docs/decisions/app-and-console/convex-tree.md`), so a fixture that seeds a
+ * bucket copies it before anything lists it, as the first walk of a real
+ * workspace does. A change made through the app keeps the copy current on its
+ * own; one written straight into the bucket afterwards needs another call,
+ * as a real one waits for the next sweep.
+ */
+export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  for (let pass = 0; pass < 50; pass += 1) {
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesSweep" },
+    });
+    const state = await t.query(internal.functions.nodes.state, { workspaceId });
+    if (state?.status === "ready" && state.cursor === undefined) return;
+  }
+  throw new Error("the tree's first copy never finished");
+}
+
+/**
+ * Run the scheduled jobs that are actually due, and leave the future alone.
+ *
+ * `drainScheduled` waits for the queue to empty, which never happens once a
+ * job is queued for later (a form digest an hour out, a parity re-check half
+ * a minute out). A test can still say "everything due has run".
+ */
+export async function drainDueScheduled(t: TestConvex): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const due = jobs.filter(
+      (job) => (job.state.kind === "pending" && job.scheduledTime <= Date.now()) || job.state.kind === "inProgress",
+    );
+    if (due.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+  }
+  throw new Error("due scheduled functions never drained");
 }
 
 /**

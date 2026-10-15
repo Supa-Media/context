@@ -16,11 +16,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { iconFor, iconMapOf, movedIcons, removedIcons, withIcon, type IconMap } from "../folderIcons";
+import { iconFor, iconMapOf, movedIcons, removedIcons, shownIcon, withIcon, type IconMap } from "../folderIcons";
 import type { FileBrowserOptions } from "./types";
 
 export interface FolderIconsValues {
-  /** The emoji a folder was given, or `null` for the plain folder icon. */
+  /**
+   * The emoji a folder or note was given, else a built-in folder's default,
+   * else `null` (the plain folder icon, or nothing beside a note).
+   */
   iconOf: (path: string) => string | null;
   /**
    * Give `path` an emoji, or remove its icon with `null`. Shows the new icon at
@@ -28,6 +31,8 @@ export interface FolderIconsValues {
    * server's error so the caller can say why.
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
+  /** The emoji the picker suggests for `path` from its name, or `null`. Never rejects. */
+  suggestIcon: (path: string) => Promise<string | null>;
   /** A folder (or a note) moved from `from` to `to`: its icon goes with it. */
   moved: (from: string, to: string) => void;
   /** A folder is gone for good: its icon goes too. */
@@ -38,6 +43,7 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const listIcons = useAction(api.functions.folderIcons.list);
   const setIconAction = useAction(api.functions.folderIcons.set);
+  const suggestAction = useAction(api.functions.folderIcons.suggest);
 
   const [icons, setIcons] = useState<IconMap>({});
   // The same map, readable synchronously by the writers below. `apply` is the
@@ -90,7 +96,20 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
 
   const removed = useCallback((path: string) => apply(removedIcons(current.current, path)), [apply]);
 
-  const iconOf = useCallback((path: string) => iconFor(icons, path), [icons]);
+  const iconOf = useCallback((path: string) => shownIcon(icons, path), [icons]);
 
-  return { iconOf, setIcon, moved, removed };
+  const suggestIcon = useCallback(
+    async (path: string) => {
+      if (workspaceId === null) return null;
+      try {
+        return await suggestAction({ workspaceId, path });
+      } catch {
+        // A suggestion is a nicety: a refusal or an outage is simply none.
+        return null;
+      }
+    },
+    [suggestAction, workspaceId],
+  );
+
+  return { iconOf, setIcon, suggestIcon, moved, removed };
 }

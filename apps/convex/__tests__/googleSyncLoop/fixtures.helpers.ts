@@ -293,6 +293,8 @@ export async function endToEnd(options: {
   historyId?: string;
   quotaBytes?: number;
   storage?: "connected" | "missing";
+  /** What the binding says the bucket can do; a move needs conditional create. */
+  capabilities?: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
 } = {}) {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
@@ -327,7 +329,7 @@ export async function endToEnd(options: {
         encryptedSecretAccessKey: await encryptSecret(FAKE_STORAGE.secretAccessKey, keyset, {
           workspaceId,
         }),
-        capabilities: { conditionalWrite: true },
+        capabilities: options.capabilities ?? { conditionalWrite: true },
         status: "connected" as const,
         lastVerifiedAt: Date.now(),
         boundBy: owner,

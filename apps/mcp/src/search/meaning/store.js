@@ -14,7 +14,7 @@
 
 import { createMeaningClient, readMeaningIndexBinding } from "./client.js";
 import { bindingEmbedder, createRestEmbedder } from "./embed.js";
-import { meaningChangeFor, meaningIdsFor } from "./project.js";
+import { deleteStaleTails, meaningChangeFor, removePassages } from "./project.js";
 
 /**
  * Attach the meaning index's descriptor and the Workers AI binding to a store.
@@ -76,7 +76,9 @@ function reportFailure(store, event, error) {
 /**
  * Put one written note's passages in the index and take away any it no longer
  * has. Upsert first, so a note is never briefly absent; the delete then drops
- * passages past the new end, or every passage of a note that may not be indexed.
+ * passages past the new end, or every passage of a note that may not be indexed,
+ * asking first whether there are any (`deleteStaleTails`), as most saves
+ * leave a note the same number of passages long.
  *
  * @returns {Promise<boolean>} whether it landed. Never rejects.
  */
@@ -90,7 +92,7 @@ export async function writeMeaningNote(store, { path, content, visibility }, { f
       embed ?? meaningEmbedderFor(store, { fetchImpl }),
     );
     if (change.vectors.length > 0) await client.upsert(change.vectors);
-    if (change.deleteIds.length > 0) await client.deleteByIds(change.deleteIds);
+    if (change.deleteIds.length > 0) await deleteStaleTails(client, [change.deleteIds]);
     return true;
   } catch (error) {
     reportFailure(store, "meaning-write-behind-failed", error);
@@ -111,8 +113,7 @@ export async function removeMeaningNotes(store, paths, { fetchImpl } = {}) {
   if (wanted.length === 0) return false;
   try {
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
-    const ids = (await Promise.all(wanted.map((path) => meaningIdsFor(path)))).flat();
-    await client.deleteByIds(ids);
+    await removePassages(client, wanted);
     return true;
   } catch (error) {
     reportFailure(store, "meaning-remove-behind-failed", error);

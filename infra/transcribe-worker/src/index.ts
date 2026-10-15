@@ -141,6 +141,7 @@
 
 import { isAuthorized } from "./auth";
 import { handleDecide } from "./decide";
+import { handleEmbed } from "./embed";
 import { handleExtract } from "./extract";
 import { CALLER_HEADER, checkRateLimit, readCaller } from "./rateLimit";
 import type { RateLimiter } from "./rateLimit";
@@ -169,7 +170,7 @@ export interface Env {
    * and no account.
    */
   AI?: {
-    run(model: string, input: { audio: string; vad_filter?: boolean } | { model: string; state: string; questions: object } | { messages: object[] } & Record<string, unknown>): Promise<unknown>;
+    run(model: string, input: { audio: string; vad_filter?: boolean } | { model: string; state: string; questions: object } | { text: string[] } | ({ messages: object[] } & Record<string, unknown>)): Promise<unknown>;
   };
   /** This Worker's own shared secret. Pushed by the deploy workflow. */
   TRANSCRIBE_WORKER_SECRET?: string;
@@ -310,6 +311,10 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   // Clef, for the auto-organize sweep. Its own module; same secret, same rules.
   if (request.method === "POST" && path === "/decide") {
     return handleDecide(request, env);
+  }
+  // Meaning fingerprints, for the icon picker's suggestion. Same secret, same rules.
+  if (request.method === "POST" && path === "/embed") {
+    return handleEmbed(request, env);
   }
   // A writing model, for "What changed". Its own module; same secret, same rules.
   if (request.method === "POST" && path === "/extract") {

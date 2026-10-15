@@ -4,8 +4,8 @@
  * test, as the invented person the question names, in a throwaway world, and
  * the answers land in one result note to be judged later.
  *
- *   --dir <path>        the benchmarks folder (default: $AI_BENCH_DIR)
- *   --test <name>       the test file (default: the job's)
+ *   --dir <path>        the benchmarks folder (default: $AI_BENCH_DIR, else bench/ai/ here)
+ *   --test <name>       the test file (default: the job's core set, else the job's own)
  *   --setups a,b        setup file names in setups/<job>/ (default: all)
  *   --questions 1,4     only these questions
  *   --runs <n>          runs per question (default: the test's `runs`)
@@ -28,19 +28,27 @@ import { basename, join, resolve } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
 import { expandWorkspaces, readBenchFolder } from "./load.mjs";
-import { anthropicGateway, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
+import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
 import { scoreCommand } from "./score.mjs";
+import { summaryCommand } from "./summary.mjs";
+import { calibrateCommand } from "./calibrate.mjs";
+import { searchCommand } from "./search.mjs";
+import { connectCommand, publishCommand, pullCommand, signInCommand } from "./context.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { realNow } from "./clock.mjs";
+import { benchFolder } from "./folder.mjs";
 
 /** The most texts the played person may send in one conversation. */
 const MAX_PERSON_TEXTS = 4;
 
 function parseArgs(argv) {
-  const [command, job, ...rest] = argv;
+  // `pnpm ai search --fake` names no job: a first word that is a flag is one.
+  const [command, ...all] = argv;
+  const job = all.length > 0 && !all[0].startsWith("--") ? all.shift() : undefined;
+  const rest = all;
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
@@ -61,6 +69,24 @@ function commit() {
   }
 }
 
+/**
+ * The job's task skills (`src/agent/skills.js`), `setups/<job>/skills/*.md`:
+ * one folder for every setup in the round, placed where production keeps
+ * them, and promoted with the setup that names them. None is fine.
+ */
+export async function readSkills(dir, job) {
+  const folder = join(dir, "setups", job, "skills");
+  let names;
+  try {
+    names = (await readdir(folder)).filter((name) => name.endsWith(".md")).sort();
+  } catch {
+    return [];
+  }
+  const skills = [];
+  for (const name of names) skills.push({ name: name.slice(0, -3), raw: await readFile(join(folder, name), "utf8") });
+  return skills;
+}
+
 async function readSetups(dir, job, only) {
   const folder = join(dir, "setups", job);
   const names = (await readdir(folder)).filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
@@ -72,9 +98,20 @@ async function readSetups(dir, job, only) {
     const parsed = await parseSetup(raw);
     // The product would refuse it and fall back, so a run of it measures nothing.
     if (!parsed) throw new Error(`setups/${job}/${name}.md is not a valid setup file`);
-    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback });
+    setups.push({ name, raw, version: parsed.version, model: parsed.model, router: parsed.router, fallback: parsed.fallback, skills: parsed.skills.map((skill) => skill.name) });
   }
   return setups;
+}
+
+/**
+ * What the person texts back without being played: a YES when the gateway
+ * held a write for their OK (the egress gate, `src/agent/route.js`), the way a
+ * person who asked for the change answers. Every question gets it, a one-text
+ * change included, because production asks on exactly these turns and the
+ * round measures what the person gets: the extra text, its time, its words.
+ */
+export function personAnswers(turn) {
+  return turn.asked > 0 ? "YES" : null;
 }
 
 /** One conversation: the person's opening text, then as many turns as they take. */
@@ -97,22 +134,36 @@ async function converse(world, question, person) {
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
-    message = question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null;
+    message = personAnswers(turn) ?? (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
 }
 
+/**
+ * The test a job runs when none is named. The texting assistant's is its core
+ * set, `tests/core.md` (decided by the owner, 2026-10-14: a short set of the
+ * basics, run often; the long sets stay for rounds, by name). A folder
+ * without the core set runs the job's own test, as before.
+ */
+export const DEFAULT_TESTS = Object.freeze({ "texting-assistant": "core" });
+
+export function testFor(options, tests) {
+  if (options.test) return options.test;
+  const core = DEFAULT_TESTS[options.job];
+  return core && Object.hasOwn(tests, core) ? core : options.job;
+}
+
 /** What a run reads before it answers anything: the folder, the test, the setups, the questions. */
 async function loadRun(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai run <job> --dir <benchmarks folder> [--fake]");
   const loaded = await readBenchFolder(dir);
   // Fluff files are written out unless --no-fluff asks for the hand-written notes alone.
   const fluffOn = options["no-fluff"] !== true;
   const bench = fluffOn ? expandWorkspaces(loaded) : loaded;
   const fluffNotes = fluffOn ? Object.values(bench.workspaces).reduce((total, ws) => total + ws.generated.length, 0) : 0;
-  const testName = options.test ?? options.job;
+  const testName = testFor(options, bench.tests);
   const test = bench.tests[testName];
   if (!test) throw new Error(`no tests/${testName}.md`);
   const setups = await readSetups(dir, options.job, list(options.setups));
@@ -122,36 +173,56 @@ async function loadRun(options) {
   // Every conversation the run will have, in the order the result lists them.
   const jobs = [];
   for (const setup of setups) for (const question of questions) for (let n = 1; n <= runs; n += 1) jobs.push({ setup, question, run: n });
-  return { dir, bench, fluffOn, fluffNotes, testName, test, setups, questions, runs, jobs };
+  const skills = await readSkills(dir, options.job);
+  // A setup naming a skill the folder does not have would be measured without it.
+  for (const setup of setups) {
+    const missing = setup.skills.filter((name) => !skills.some((skill) => skill.name === name));
+    if (missing.length) throw new Error(`setups/${options.job}/${setup.name}.md names skills with no file in setups/${options.job}/skills/: ${missing.join(", ")}`);
+  }
+  return { dir, bench, fluffOn, fluffNotes, testName, test, setups, questions, runs, jobs, skills };
 }
 
 /** The jobs shard `index` of `count` answers: every `count`th one, so each shard mixes setups and questions. */
 export const shardJobs = (jobs, index, count) => jobs.filter((_, k) => k % count === index);
 
 /** Answer `jobs` in this process, one conversation at a time. `label` prefixes the progress lines. */
-async function answerJobs(options, { bench, test }, jobs, label = "") {
+async function answerJobs(options, { bench, test, testName = options.test ?? options.job, skills = [] }, jobs, label = "") {
+  // A test that runs on the scripted web (`front.web: scripted`, `sites.mjs`)
+  // searches and browses the bench's sites, never the real web.
+  const scripted = test.front.web === "scripted";
+  if (scripted && bench.sites.length === 0) throw new Error(`tests/${testName}.md runs on the scripted web, but sites/ has no sites`);
   const send = claudeTransport(process.env);
   if (!options.fake) process.stderr.write(`${label}Claude calls: ${send.route === "gateway" ? "through the AI gateway" : send.route === "anthropic" ? "straight to Anthropic" : "no keys set"}\n`);
   // Production's texting assistant has web search, so a run must offer it too
   // (decided 2026-10-09): without the key the assistant is measured with a
   // shorter tool list than people get. --fake runs without one.
-  if (!options.fake && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
+  if (!options.fake && !scripted && options.job === "texting-assistant" && !process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error("BRAVE_SEARCH_API_KEY is not set: production offers search_web and open_page, so a texting-assistant run must too (task 15 says where the key is)");
   }
   const models = options.fake
-    ? { gatewayFetch: fakeGateway(), ai: fakeAi() }
+    ? { gatewayFetch: fakeGateway(), ai: cachedEmbeddings(fakeAi()) }
     : {
         gatewayFetch: anthropicGateway(send),
-        ai: workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null),
+        // Embeds too (`@cf/baai/bge-m3`), remembered by text so each passage
+        // and each query is paid for once a run.
+        ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
       };
+  if (scripted) {
+    models.sites = bench.sites;
+    delete models.searchKey;
+  }
+  models.skills = skills;
   const person = { fake: options.fake === true, send, model: test.front.played_by };
 
   // Warm by default (decided 2026-10-08): every workspace indexed once, every
   // conversation a clone of it. --cold measures the scan a fresh import gets.
   const today = test.front.today ?? null;
-  const prepared = options.cold ? null : await prepareRun(bench, { today });
-  if (prepared) process.stderr.write(`${label}warmed ${prepared.buckets.size} workspaces\n`);
+  const prepared = options.cold ? null : await prepareRun(bench, { today, ai: models.ai });
+  if (prepared) {
+    const passages = [...prepared.embedded.values()].reduce((total, n) => total + n, 0);
+    process.stderr.write(`${label}warmed ${prepared.buckets.size} workspaces, ${passages} passages in their meaning indexes\n`);
+  }
 
   const records = [];
   try {
@@ -186,6 +257,8 @@ async function answerJobs(options, { bench, test }, jobs, label = "") {
           ...result,
           model: result.model ?? setup.model,
           changes: world.changes(),
+          // What the scripted browser did, for the checks (`checks.mjs`).
+          browser: world.browser(),
           // Wall time for the whole conversation, worlds and the played person
           // included, so a run can say where its hours went.
           wallMs: realNow() - wallStarted,
@@ -302,6 +375,13 @@ const USAGE = [
   "usage: pnpm ai run <job> --dir <benchmarks folder> [--fake] [--parallel <n>]",
   "       pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]",
   "       pnpm ai score <result file> --dir <benchmarks folder>",
+  "       pnpm ai summary <result file>",
+  "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
+  "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
+  "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
+  "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
+  "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
+  "       pnpm ai publish <result file> [--run-url <url>]  the result's scores note into Context",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -309,6 +389,13 @@ const COMMANDS = new Map([
   ["shard", shard],
   ["judge", judgeCommand],
   ["score", scoreCommand],
+  ["summary", summaryCommand],
+  ["calibrate", calibrateCommand],
+  ["search", searchCommand],
+  ["connect", connectCommand],
+  ["signin", signInCommand],
+  ["pull", (options) => pullCommand(options, benchFolder(options))],
+  ["publish", publishCommand],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

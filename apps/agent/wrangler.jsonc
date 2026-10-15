@@ -47,6 +47,9 @@
     "GATEWAY_ORIGIN": "https://mcp.context.lc"
   },
   "triggers": { "crons": ["* * * * *"] },
+  // Converts a texted iPhone photo (HEIC) to a JPEG the model can read
+  // (src/attachments.ts). Without it, such a photo is described, not shown.
+  "images": { "binding": "IMAGES" },
   "observability": { "enabled": true },
   "env": {
     "staging": {
@@ -57,6 +60,7 @@
       },
       "migrations": [{ "tag": "v1-sender-inbox", "new_sqlite_classes": ["SenderInbox"] }],
       "triggers": { "crons": ["* * * * *"] },
+      "images": { "binding": "IMAGES" },
       "vars": {
         "GATEWAY_ORIGIN": "https://mcp-staging.context.lc",
         "SIMULATOR": "on"

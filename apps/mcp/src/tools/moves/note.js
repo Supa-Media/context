@@ -30,7 +30,10 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
-import { rewriteReferencesOrQueue } from "./references.js";
+import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
+import { rewriteReferencesAfterMove } from "./references.js";
+import { destinationRefusal } from "./destination.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
@@ -82,7 +85,12 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   }
   const unsafeMove = moveSafetyRefusal(store);
   if (unsafeMove) return toolError(unsafeMove);
-  if (await getWithLegacyFallback(store, destination)) return toolError("conflict: destination already exists");
+  // Asked of the Convex tree (`tree/names.js`); the put below is
+  // `onlyIf: { absent: true }`, the truth for a note the tree has not heard of yet.
+  const destinationTaken = await destinationRefusal(store, destination);
+  if (destinationTaken) return destinationTaken;
+  const twin = await nameTwinRefusal(store, scope, rules, overrides, destination, { ignore: source });
+  if (twin) return toolError(twin);
 
   const body = new TextEncoder().encode(sourceText);
   const sourceEtag = sourceObject.etag;
@@ -111,7 +119,9 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
       });
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
+      // A destination the tree had not heard of yet, refused by the conditional write.
+      if (code === "DESTINATION_EXISTS") return toolError("conflict: destination already exists");
+      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH"].includes(code)) {
         return toolError("conflict: source changed since it was read; re-read and retry");
       }
       return toolError("this note's move transition could not finish safely; re-read it and retry");
@@ -125,13 +135,15 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     }
     await clearExactVisibility(store, source);
     await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
-    const references = await rewriteReferencesOrQueue(store, scope, rules, overrides, new Map([[source, destination]]));
+    // A note's icon follows it (`folderIcons.cjs`); never fails the move.
+    await remapIcons(store, [{ from: source, to: destination }]);
+    const references = await rewriteReferencesAfterMove(store, scope, rules, overrides, new Map([[source, destination]]));
     await recordChange(store, "move_note", scope, [source, destination], {
       etag: moved.etag,
       visibility: destinationVisibility,
       team_visible: sourceVisibility === "team" && destinationVisibility === "team",
       source_visibility: sourceVisibility,
-      references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+      references: references.capped ? "not-rewritten" : references.links,
     });
     return withActivityHint(toolText(
       `moved: ${source} → ${destination} (etag ${moved.etag})\nvisibility: ${destinationVisibility}` +
@@ -171,7 +183,9 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
   }
   await clearExactVisibility(store, source);
   await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
-  const references = await rewriteReferencesOrQueue(
+  // A note's icon follows it (`folderIcons.cjs`); never fails the move.
+  await remapIcons(store, [{ from: source, to: destination }]);
+  const references = await rewriteReferencesAfterMove(
     store,
     scope,
     rules,
@@ -183,7 +197,7 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
     visibility: destinationVisibility,
     team_visible: sourceVisibility === "team" && destinationVisibility === "team",
     source_visibility: sourceVisibility,
-    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+    references: references.capped ? "not-rewritten" : references.links,
   });
   return withActivityHint(toolText(
     `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +

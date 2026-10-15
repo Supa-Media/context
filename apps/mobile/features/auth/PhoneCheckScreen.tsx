@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
 import { useAction } from "convex/react";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
@@ -10,8 +8,7 @@ import { PhoneNumberField } from "./PhoneNumberField";
 import { Text } from "../design/components/Text";
 import { fonts, layout, leading, pointerType as t, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
-import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
-import { resetObservabilityUser } from "../observability/client";
+import { useSwitchAccount } from "./useSwitchAccount";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { JOINED_BODY, JOINED_TITLE, PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmError, sendError } from "./phoneCheck";
 
@@ -32,8 +29,6 @@ import { JOINED_BODY, JOINED_TITLE, PHONE_CHECK_TITLE, PHONE_CHECK_WHY, confirmE
 export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } = {}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const router = useRouter();
-  const { signOut } = useAuthActions();
   const sendCode = useAction(api.functions.phoneCheck.sendPhoneCode);
   const confirmCode = useAction(api.functions.phoneCheck.confirmPhoneCode);
 
@@ -78,17 +73,8 @@ export function PhoneCheckScreen({ initialSentTo }: { initialSentTo?: string } =
     }
   };
 
-  const useAnotherAccount = () => {
-    void (async () => {
-      // Edits still waiting to sync stay on the device for the next sign-in
-      // rather than being dropped by a sign-out from this screen.
-      const unsent = await unsentOnDevice(null);
-      if (unsent.pending + unsent.conflicted + unsent.rejected === 0) await forgetLocalCopies();
-      await signOut();
-      resetObservabilityUser();
-      router.replace("/");
-    })();
-  };
+  const switchAccount = useSwitchAccount();
+  const useAnotherAccount = () => switchAccount("/");
 
   const spinner = busy ? <ActivityIndicator color={colors.ink} size="small" /> : null;
 

@@ -23,16 +23,19 @@ import {
   supported as collaborationSupported,
 } from "@context/collaboration";
 import type { FileStore } from "./store";
+import { assertNoNameTwin, assertNotProtectedFolder } from "./nameTwins";
 import { FileOpError, notFound } from "./errors";
-import { assertNotMainFolder, requirePath } from "./paths";
+import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
+import { objectBody } from "./objectBody";
 import { keysUnder, isFolder } from "./walk";
+import { fileInTree, filesInTree } from "./treeChecks";
 import { assertMoveDestinationsVisible } from "./moveRules";
 import { type ReferenceRewrite, rewriteReferences } from "./references";
 import { mutateManifest, remapPrivacy } from "./privacyRewrite";
-import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
+import { remapFolderIcons, remapIcons } from "@context/shared/src/folderIcons.cjs";
 
 export interface MoveResult {
   from: string;
@@ -46,6 +49,48 @@ export interface MoveResult {
    * the bucket answered the write with one. See `movePath`.
    */
   etag?: string;
+  /**
+   * Set when the move was queued (a folder, phase 4 of the Convex tree): how
+   * many files the tree now draws at `to` while the bucket catches up behind
+   * it. `paths` is then just `to`.
+   */
+  queued?: number;
+}
+
+/**
+ * A folder move the tree can draw at once, queued by the credential barrier
+ * (`lib/nodes/moveStart.ts`), or `null` to move it here. Attached to the store
+ * non-enumerably, as the barrier's other seams are; a store without it (the
+ * gateway's own, tests, self-hosting without the tree) moves the old way.
+ */
+type QueueMove = (move: { from: string; to: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+
+async function queuedMove(
+  store: FileStore,
+  move: { from: string; to: string; clearance: Clearance; now: number },
+): Promise<MoveResult | null> {
+  const queue = (store as { queueMove?: QueueMove }).queueMove;
+  return typeof queue === "function" ? await queue(move) : null;
+}
+
+/**
+ * Tell the credential barrier a move landed, so pins and recents follow it
+ * once the operation answers (`lib/placesFollow.ts`). A non-enumerable seam,
+ * as `queueMove` is; a store without it (a test, the gateway) hears nothing.
+ */
+function tellMoved(store: FileStore, from: string, to: string): void {
+  (store as { onPathMoved?: (move: { from: string; to: string }) => void }).onPathMoved?.({ from, to });
+}
+
+/**
+ * Tell the credential barrier the bytes are at their new names, and wait for
+ * it, before the links pointing at them are rewritten. The rewrite can read
+ * every note in the workspace; the tree, which every screen and agent lists
+ * from, should not wait for it (`lib/nodes/landedTouch.ts`). A store without
+ * the seam (a test, the gateway) carries on at once.
+ */
+async function tellLanded(store: FileStore, from: string, to: string): Promise<void> {
+  await (store as { onMoveLanded?: (move: { from: string; to: string }) => Promise<void> }).onMoveLanded?.({ from, to });
 }
 
 /**
@@ -91,7 +136,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
-  assertNotMainFolder(from);
+  await assertNotProtectedFolder(store, from, options.clearance);
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }
@@ -107,6 +152,15 @@ export async function movePath(
       "PATH_INVALID",
       "A folder cannot be moved onto a folder it is already inside.",
     );
+  }
+
+  // `projects` beside `Projects` is refused by name before anything moves.
+  await assertNoNameTwin(store, to, options.clearance, "folder", from);
+
+  // A move asked against a version is about one note, which never queues.
+  if (options.expectedEtag === undefined) {
+    const queued = await queuedMove(store, { from, to, clearance: options.clearance, now: options.now });
+    if (queued !== null) return queued;
   }
 
   const state = await loadPrivacyState(store);
@@ -166,7 +220,8 @@ export async function movePath(
         : "A folder already exists at that path.",
     );
   }
-  if (sourceIsFolder && (await store.get(to)) !== null) {
+  // A file at the folder's new name, asked of the tree (`treeChecks.ts`).
+  if (sourceIsFolder && (await fileInTree(store, to))) {
     if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
     throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
   }
@@ -203,7 +258,8 @@ export async function movePath(
             "This storage cannot safely move a collaboratively edited note.",
           );
         }
-        if ((await store.get(to)) !== null) {
+        // The tree's early answer; `moveDocument` refuses a taken name itself.
+        if (await fileInTree(store, to)) {
           throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
         }
         const destinationVisibility = narrowerVisibility(
@@ -252,6 +308,8 @@ export async function movePath(
           survivors: [],
         });
         await recordForwarding(store, [{ from, to, kind: "note" as const }], { now: options.now });
+        tellMoved(store, from, to);
+        await tellLanded(store, from, to);
         let finalEtag = moved.etag;
         const references = await rewriteReferences(store, {
           clearance: options.clearance,
@@ -272,8 +330,11 @@ export async function movePath(
     }
   }
 
+  // Every destination asked of the tree at once; the copy below is the truth
+  // where the store can enforce a create (`treeChecks.ts`).
+  const taken = await filesInTree(store, pairs.map((pair) => pair.destination));
   for (const pair of pairs) {
-    if ((await store.get(pair.destination)) !== null) {
+    if (taken.has(pair.destination)) {
       // This message names the path back, which is safe only because the guard
       // above has established that the caller can see both the key and the
       // folder holding it. An earlier version of this comment claimed the guard
@@ -368,6 +429,7 @@ export async function movePath(
     }
   }
 
+  const landed = pairs.filter((pair) => collaborativePairs.has(pair.source));
   for (const pair of pairs) {
     if (collaborativePairs.has(pair.source)) continue;
     const object = await store.get(pair.source);
@@ -380,11 +442,27 @@ export async function movePath(
     if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
       throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
     }
-    const body = await object.text();
-    const created = atomic
-      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
-      : await store.put(pair.destination, body);
-    if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    const { body, contentType } = await objectBody(pair.source, object);
+    const typed = contentType === undefined ? {} : { contentType };
+    // Guarded wherever the store can hold a create, not only for an atomic
+    // move: the tree answered "free" above and can be a few seconds behind,
+    // so the write is what refuses a name it missed (`treeChecks.ts`).
+    const created =
+      store.capabilities?.conditionalCreate === true
+        ? await store.put(pair.destination, body, { onlyIf: { absent: true }, ...typed })
+        : await store.put(pair.destination, body, typed);
+    if (created === null) {
+      // A name the tree had not heard of yet. What already moved keeps the
+      // visibility it had, note by note, before this stops: without that a
+      // half-moved private note would sit on its new folder's rule.
+      if (landed.length > 0) await remapPrivacy(store, { moves: landed.map((done) => ({ from: done.source, to: done.destination })), folderMove: null, survivors: [] });
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        landed.length > 0
+          ? `Something already exists at ${pair.destination}, so the move stopped part way. What moved kept its visibility.`
+          : `Something already exists at ${pair.destination}.`,
+      );
+    }
     const removed = atomic
       ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })
       : await store.delete(pair.source);
@@ -393,6 +471,7 @@ export async function movePath(
       throw new FileOpError("CONFLICT", changedElsewhere);
     }
     if (!sourceIsFolder && created?.etag) movedEtag = created.etag;
+    landed.push(pair);
   }
 
   if (folderMove !== null) {
@@ -424,8 +503,10 @@ export async function movePath(
     folderMove,
     survivors: walk.withheld,
   });
-  // Its icon, and the icons of the folders inside it, go where it went.
+  // Its icon, and the icons of the folders and notes inside it, go where it
+  // went. A note's own icon is keyed by its path the same way (`folderIcons.cjs`).
   if (folderMove !== null) await remapFolderIcons(store, from, to);
+  else await remapIcons(store, pairs.map((pair) => ({ from: pair.source, to: pair.destination })));
 
   /*
     A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.
@@ -449,6 +530,8 @@ export async function movePath(
       : pairs.map((pair) => ({ from: pair.source, to: pair.destination, kind: "note" as const })),
     { now: options.now },
   );
+  tellMoved(store, from, to);
+  await tellLanded(store, from, to);
 
   const references = await rewriteReferences(store, {
     clearance: options.clearance,

@@ -19,7 +19,16 @@ breaking one, stop and say so rather than working around it.
 1. **The customer owns the content, and can always leave with it.** Canonical
    Markdown and attachments live in a bucket dedicated to one workspace; the
    control plane holds metadata only — accounts, workspaces, bindings, grants,
-   audit — and **never** note content. Who holds the bucket's key is a billing
+   audit, and each workspace's file tree (file and folder names, versions) and
+   privacy rules (decided by the owner, 2026-10-12;
+   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)), plus, as
+   rebuildable derivatives on each note's row, its links and the front
+   matter, heading and first paragraph a List shows (decided by the owner,
+   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md)),
+   and its folder icons, emoji names and forwarding ledger, whose bucket files
+   are written from those rows for the exit (decided by the owner, 2026-10-14;
+   [convex-small-data](./docs/decisions/app-and-console/convex-small-data.md))
+   — and **never** a note's body or the only copy of anything. Who holds the bucket's key is a billing
    question: on the free plan it is the customer's own bucket and revoking our
    credential leaves them a complete, usable context; on **managed storage** we
    create and pay for the bucket, and the equivalent guarantee is that
@@ -73,10 +82,14 @@ breaking one, stop and say so rather than working around it.
    completed save/export must include them. This is the explicit exception
    approved for automatic collaboration; see [collaboration](./docs/decisions/collaboration.md).
    Search indexes, caches and embeddings are **disposable derivatives**,
-   rebuildable from the files, never the only copy of anything. The on-bucket
-   layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
-   `.context/`, and user-selected folders — is a versioned stable format, not
-   an internal detail; changing it requires dual reads and an idempotent,
+   rebuildable from the files, never the only copy of anything. Once the
+   Convex tree migration reaches its phase 3, `privacy.md` is written from
+   rules held in the control plane and never read back as the authority; it
+   stays in the bucket, in the same format, so the exit keeps who-sees-what
+   (decided by the owner, 2026-10-12). The on-bucket layout — `index.md` and
+   `privacy.md` at root, Context-owned plumbing under `.context/`, and
+   user-selected folders — is a versioned stable format, not an internal
+   detail; changing it requires dual reads and an idempotent,
    verified migration with a rollback window.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
@@ -105,7 +118,15 @@ breaking one, stop and say so rather than working around it.
    locator, and every page, referenced notes included, resolves the same way,
    so frontmatter can narrow a page but never publish one `privacy.md` holds
    back, and no page may name the whole context
-   ([websites](./docs/decisions/websites.md)).
+   ([websites](./docs/decisions/websites.md)). **And no AI client widens any
+   of this on its own**: a tool call that would let more people see something
+   — a link, a publish, a visibility change, a move into a wider folder or
+   another workspace, an image fetched from an address the model chose — waits
+   for the person's yes, checked by the gateway and never by the model
+   (decided by the owner, 2026-10-09; switched off on our deployment by the
+   owner on 2026-10-10 with `EGRESS_APPROVALS = "off"` until orient asks
+   smarter, see
+   [agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
 address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
@@ -114,14 +135,18 @@ address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
 
 ```
 apps/convex/     control plane: accounts, workspaces, usernames, storage
-                 bindings, OAuth clients + grants, audit events
-apps/mobile/     Expo (iOS/Android/web): onboarding, dashboard, health
-apps/web/        landing page
+                 bindings, OAuth clients + grants, audit events, the file
+                 tree (names only) and privacy rules
+apps/mobile/     Expo (iOS/Android/web): the one app UI, also hosted by desktop
+apps/desktop/    Electron shell for macOS: menu bar, meeting capture
 apps/agent/      Cloudflare Worker: the assistant people text (Linq iMessage
                  webhook → per-sender queue → gateway /agent)
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
-packages/shared/ types and constants shared across apps
+infra/           edge Workers: router (context.lc), email, transcription,
+                 site screenshots, egress, Sentry inbox
+packages/        shared, collaboration, meetings, communications, drawings,
+                 desktop-bridge, obsidian-runtime, encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the
                  `npx @supa-media/context` CLI that installs it
@@ -278,6 +303,10 @@ checked is not a guard.**
 ## Working style
 
 - Ask all questions up front, then execute.
+- Write in the caveman voice ([`.claude/skills/caveman`](./.claude/skills/caveman/SKILL.md),
+  loaded at session start): terse chat and tool chatter, payload verbatim.
+  Anything persisted (code, docs, commits, PRs) or read by a person elsewhere
+  stays plain.
 - Surface architectural decisions rather than making them silently — auth
   provider, billing, retention defaults, attachment policy, index location,
   client compatibility targets.

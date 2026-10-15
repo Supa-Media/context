@@ -1,10 +1,11 @@
 /**
  * THE BUILT-IN MODEL: WHO MAY SPEND OURS, AND THE METER.
  *
- * The texting assistant answers with the person's own Anthropic or OpenAI key
- * when one is connected. When none is, a Premium workspace gets a cheap model
- * we run on Workers AI, up to a daily cap (decided by the owner, 2026-10-06:
- * "Premium, capped"). Everyone else is told to connect an account.
+ * The assistant runs on a model we pay for, for a Premium workspace, up to a
+ * daily cap (decided by the owner, 2026-10-06: "Premium, capped"). It is the
+ * only model: people's own Anthropic and OpenAI keys were deleted and are no
+ * longer used (the owner, 2026-10-10; `providers.ts`). Everyone else is told
+ * the assistant is not available to them.
  *
  * The gateway makes the model call, because the turn's tools run there. What it
  * may not do is decide whether the call is allowed: that is this file, through
@@ -15,8 +16,8 @@
  * Only a grant for the texting client or the routine runner may start one: a
  * routine is the same assistant answering on a schedule instead of a text, and
  * is counted against the same cap on the workspace it runs in. The app's own
- * agent panel still needs a connected account; widening that is a product
- * decision, not a line here.
+ * agent panel is refused here, so since 2026-10-10 it has no model at all;
+ * widening this set to it is a product decision, not a line here.
  *
  * Nothing about the conversation reaches this file. The gateway reports token
  * counts after a turn, never text.

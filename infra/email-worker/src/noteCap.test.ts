@@ -6,10 +6,12 @@
  * failure uses — nothing a sender can read says why — writes no note, and says
  * why only in this Worker's own log. The cap itself is the gateway's store
  * wrapper (`apps/mcp/src/store/noteCap.js`), reached through the same factory;
- * what is proved here is that this Worker hands it the number and answers the
- * refusal.
+ * what is proved here is that this Worker hands it the number, and the count
+ * the control plane took from the Convex tree, and answers the refusal.
  *
- * Sabotage: not passing the cap to the factory fails the first and third; not
+ * Sabotage: not passing the cap to the factory fails the first and last; not
+ * passing the tree's count fails the first and last too (the cap then admits
+ * every create, which is how staging caught it after #1613); not
  * naming `NoteCapReached` as its own log reason fails the third (it logs
  * `write_failed`, which is true and useless to an operator).
  */
@@ -29,7 +31,7 @@ const ENV: Env = {
   NATIVE_BINDINGS: "TEST_BUCKET",
 } as unknown as Env;
 
-/** An in-memory R2 binding that lists what it holds — the cap counts. */
+/** An in-memory R2 binding that lists what it holds. */
 function bucketHolding(notes: number) {
   const objects = new Map<string, string>();
   for (let i = 0; i < notes; i += 1) objects.set(`1-projects/n-${i}.md`, "x");
@@ -59,7 +61,12 @@ function bucketHolding(notes: number) {
   };
 }
 
-async function deliver(bucket: ReturnType<typeof bucketHolding>, noteCap: number | null) {
+/** The tree's count is the bucket's notes unless a test says otherwise. */
+async function deliver(
+  bucket: ReturnType<typeof bucketHolding>,
+  noteCap: number | null,
+  noteCount: number | null = [...bucket.objects.keys()].filter((key) => key.endsWith(".md")).length,
+) {
   const rejected: string[] = [];
   const raw = rawMessage();
   const message: InboundMessage = {
@@ -93,6 +100,7 @@ async function deliver(bucket: ReturnType<typeof bucketHolding>, noteCap: number
           status: "active",
         },
         noteCap,
+        noteCount,
       };
     },
     async record() {},
@@ -139,6 +147,19 @@ describe("a personal context on the free tier that is full", () => {
     const uncapped = bucketHolding(3);
     expect(await deliver(uncapped, null)).toEqual([]);
     expect(inbox(uncapped)).toHaveLength(1);
+  });
+
+  it("counts what the tree says, never the bucket", async () => {
+    // The bucket holds three notes; the tree, which is what the cap counts, two.
+    const bucket = bucketHolding(3);
+    expect(await deliver(bucket, 3, 2)).toEqual([]);
+    expect(inbox(bucket)).toHaveLength(1);
+  });
+
+  it("takes the message when the tree cannot count", async () => {
+    const bucket = bucketHolding(3);
+    expect(await deliver(bucket, 3, null)).toEqual([]);
+    expect(inbox(bucket)).toHaveLength(1);
   });
 
   it("says why in its own log, and only there", async () => {

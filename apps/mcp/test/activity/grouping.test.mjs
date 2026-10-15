@@ -3,7 +3,7 @@
  * for the module overview and the sabotage-testing record.
  */
 
-import { REFRESH_MS, applyEntry, change, claude, entryFor, iso, seyi } from "./fixtures.mjs";
+import { REFRESH_MS, applyEntry, change, claude, describeEntry, entryFor, iso, parseFile, renderFile, seyi } from "./fixtures.mjs";
 
 export async function runActivityGroupingChecks(check) {
   const three = ["one", "two", "three"].reduce(
@@ -155,5 +155,33 @@ export async function runActivityGroupingChecks(check) {
   check(
     "a group holding one private member is private, not team",
     publishedPrivate[0].vis === "private",
+  );
+
+  // The app's own console writes through the gateway under a client name of
+  // its own, and it is still the person's hand (the owner, 2026-10-12).
+  const inApp = { name: "@seyi", client: "Context (this app)" };
+  const appEdit = entryFor(change("create_note", ["1-projects/fixes/readme.md"], { team_visible: true }, inApp));
+  check("an edit made in the app names no client", appEdit.via === null);
+  check(
+    "and reads as the person, never as the app",
+    describeEntry(appEdit) === "@seyi added `1-projects/fixes/readme.md`",
+  );
+  const sameHand = applyEntry(
+    [entryFor(change("create_note", ["1-projects/fixes/a.md"], { team_visible: true }, seyi))],
+    appEdit,
+  );
+  check("so it merges with the person's own line", sameHand.length === 1);
+
+  // Lines written before that rule carry the console's name in the file.
+  const old = parseFile(renderFile([{ ...appEdit, via: "Context (this app)" }]));
+  check("an older line from the app reads back as the person", old.length === 1 && old[0].via === null);
+
+  // The texting assistant's client was "Texts (iMessage)" until it took Tex's
+  // name (the owner, 2026-10-14); lines from before read as Tex.
+  const texted = parseFile(renderFile([{ ...appEdit, via: "Texts (iMessage)" }]));
+  check("an older line from the texting assistant reads back as Tex", texted.length === 1 && texted[0].via === "Tex");
+  check(
+    "and is drawn as the person's Tex",
+    describeEntry(texted[0]) === "@seyi's Tex added `1-projects/fixes/readme.md`",
   );
 }

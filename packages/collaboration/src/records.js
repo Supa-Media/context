@@ -78,6 +78,18 @@ export async function readHead(store, path) {
   return { ...head, status: head.status || "active", etag: object.etag };
 }
 
+/**
+ * A head a document left behind: it moved elsewhere, or was deleted, and no
+ * Markdown sits at its path any more. It fences that document's old clients
+ * (they are told it moved, or is gone), and it does not own the name: a note
+ * created there starts a new generation over it (`load.js`), and a note moved
+ * there takes it the same way. Without this, a name a note was ever renamed
+ * or trashed away from could never be given to another note by a rename.
+ */
+export function vacatedHead(head, destinationObject) {
+  return !destinationObject && (head?.status === "moved" || head?.status === "deleted");
+}
+
 export function identityHead(head, status = head.status, extra = {}) {
   return {
     schemaVersion: SCHEMA_VERSION,

@@ -28,8 +28,8 @@
   truecolour version is several times the size for no visible gain.
 
   Paper (Dev2, 2026-10-06): warm paper ground, ink type, the motto "Less
-  chaos." with its line on top, the # tile from the app icon
-  (apps/mobile/assets/source/favicon.svg) top right, and "Context" set huge
+  chaos." with its line on top, the app icon itself
+  (apps/mobile/assets/source/favicon.svg, Tex's resting # on paper) top right, and "Context" set huge
   along the bottom with a blue period shaped like the tile. It is drawn to be
   read at feed size, like a video thumbnail, so the only small type is the one
   line under the motto.
@@ -63,8 +63,6 @@
     --ground:#EDE4D3;
     --ink:#16181C;
     --ink-2:#55534E;
-    --tile-top:#15151A;
-    --tile-bottom:#050506;
     --dot:#2F7BF5;
   }
   *{box-sizing:border-box}
@@ -81,12 +79,11 @@
   }
   .motto{font-size:64px;letter-spacing:-.035em;line-height:1}
   .line{font-size:36px;letter-spacing:-.015em;color:var(--ink-2);margin-top:16px}
+  /* Paper on paper: the icon's edge is a hairline and a soft shadow. */
   .tile{
-    width:100px;height:100px;border-radius:22px;
-    background:linear-gradient(var(--tile-top),var(--tile-bottom));
-    display:flex;align-items:center;justify-content:center;
+    width:100px;height:100px;border-radius:22px;display:block;
+    box-shadow:0 0 0 1.5px rgba(22,24,28,.10),0 6px 18px rgba(22,24,28,.10);
   }
-  .tile svg{width:66px;height:66px}
   .word{
     position:absolute;left:58px;bottom:64px;
     font-size:288px;letter-spacing:-.045em;line-height:.8;white-space:nowrap;
@@ -105,9 +102,7 @@
       <div class="motto">Less chaos.</div>
       <div class="line">Finally, everyone’s on the same page.</div>
     </div>
-    <div class="tile">
-      <svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#52A9FE" stroke-width="12" stroke-linecap="round"><path d="M40 7 L30 93"/><path d="M70 7 L60 93"/><path d="M13 36 L93 36"/><path d="M7 66 L87 66"/></g></svg>
-    </div>
+    <img class="tile" src="../../apps/mobile/assets/source/favicon.svg" alt="">
   </div>
   <div class="word"><span class="c">C</span>ontext<i class="dot"></i></div>
 </body>

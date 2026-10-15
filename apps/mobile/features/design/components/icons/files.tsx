@@ -1,4 +1,4 @@
-import { bar, dot, glyph, rect, ring, type DrawFn } from "./primitives";
+import { bar, chevron, dot, glyph, rect, ring, type DrawFn } from "./primitives";
 
 /** A chain link's half-width, in the box. */
 const LINK_RADIUS = 0.145;
@@ -52,7 +52,8 @@ type FilesIconName =
   | "book"
   | "drive"
   | "trash"
-  | "archive";
+  | "archive"
+  | "tray";
 
 /** Files, folders, links and attachments — the vault's own objects. */
 export const filesIcons: Record<FilesIconName, DrawFn> = {
@@ -124,6 +125,17 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
     rect("lid", u, w, c, { x0: 0.12, y0: 0.16, x1: 0.88, y1: 0.36, radius: 0.06 }),
     rect("body", u, w, c, { x0: 0.18, y0: 0.36, x1: 0.82, y1: 0.86, radius: 0.1 }),
     bar("slot", u, w, c, { cx: 0.5, cy: 0.53, length: 0.2 }),
+  ],
+
+  tray: (u, w, c) => [
+    /*
+      @shared, in the account card (board A1, 2026-10-14): a tray with
+      something dropping into it, since the list is what people sent you.
+      Not `share`, which already means "mint a link somebody can follow".
+    */
+    rect("tray", u, w, c, { x0: 0.12, y0: 0.58, x1: 0.88, y1: 0.88, radius: 0.1 }),
+    bar("shaft", u, w, c, { cx: 0.5, cy: 0.29, length: 0.38, angle: 90 }),
+    chevron("head", u, w, c, { cx: 0.5, cy: 0.38, side: 0.26, angle: 135 }),
   ],
 
   copy: (u, w, c) => {

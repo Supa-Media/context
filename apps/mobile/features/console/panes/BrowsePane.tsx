@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
+import { anchorOnScreen } from "../followedAnchor";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
 import { Menu } from "../../design/components/Menu";
@@ -25,6 +26,7 @@ import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { useShownEntry } from "./browsePane/useShownEntry";
+import { NoteIntentContext } from "../files/noteIntent";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
 import { useMapRoute } from "../map/live/MapRouteContext";
 
@@ -75,7 +77,6 @@ export function BrowsePane({
   onOpenSettings,
   pendingNote,
   anchor,
-  onOpenComms,
   onNavigate,
   onConnectAgent,
   summary,
@@ -299,12 +300,6 @@ export function BrowsePane({
   // And so does the live map, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
 
-  const handleOpenComms =
-    onOpenComms ??
-    ((path: string) => {
-      files.select(path);
-    });
-
   const openDocument = (
     <BrowseDocument
       data={data}
@@ -315,13 +310,13 @@ export function BrowsePane({
       compact={compact}
       contextLabel={contextLabel}
       pendingNote={pendingNote}
-      anchor={anchor}
+      // The address's own anchor, else a followed link's (`followedAnchor.ts`).
+      anchor={anchorOnScreen(selected?.path ?? null, anchor ?? null, nav?.followed ?? null)}
       presence={presence}
       drawingCollaboration={drawingCollaboration}
       reading={reading}
       nav={nav}
       commsRoute={commsRoute}
-      handleOpenComms={handleOpenComms}
       folderMenuFor={folderMenuFor}
       folderDrag={folderDrag}
       setFolderDialog={setFolderDialog}
@@ -339,6 +334,7 @@ export function BrowsePane({
   );
 
   return (
+    <NoteIntentContext.Provider value={files.prefetch}>
     <View style={styles.region}>
       {/*
         The breadcrumb is drawn for a selected *folder* too, not only a note —
@@ -498,5 +494,6 @@ export function BrowsePane({
         }}
       />
     </View>
+    </NoteIntentContext.Provider>
   );
 }

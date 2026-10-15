@@ -65,13 +65,12 @@ describe("the phone's note bar", () => {
 });
 
 describe("which quick actions a note gets", () => {
-  test("Share for whoever can share, Copy link otherwise, then Move, then Ask AI", () => {
-    expect(noteQuickActions(["share", "rename", "moveTo", "copyLink", "archive"], true).map((a) => a.id)).toEqual([
+  test("Share for whoever can share, Copy link otherwise, then Move, and no Ask AI", () => {
+    expect(noteQuickActions(["share", "rename", "moveTo", "copyLink", "archive"]).map((a) => a.id)).toEqual([
       "share",
       "moveTo",
-      "ask",
     ]);
-    expect(noteQuickActions(["copyLink"], false).map((a) => a.id)).toEqual(["copyLink"]);
-    expect(noteQuickActions([], false)).toEqual([]);
+    expect(noteQuickActions(["copyLink"]).map((a) => a.id)).toEqual(["copyLink"]);
+    expect(noteQuickActions([])).toEqual([]);
   });
 });

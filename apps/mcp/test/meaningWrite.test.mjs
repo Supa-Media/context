@@ -77,7 +77,13 @@ async function withFetch(fake, work) {
 
 test("a saved note's passages are upserted, and its stale ones deleted", async () => {
   const { store, ai } = storeWith();
-  const fetch = fakeFetch();
+  const ids = await meaningIdsFor("1-projects/hiring.md");
+  // The index still holds a second passage from a longer earlier version.
+  const fetch = fakeFetch((url, init) =>
+    url.endsWith("/get_by_ids")
+      ? { status: 200, body: { success: true, result: JSON.parse(init.body).ids.filter((id) => id === ids[1]).map((id) => ({ id })) } }
+      : { status: 200, body: { success: true, result: {} } },
+  );
   const ok = await writeMeaningNote(
     store,
     { path: "1-projects/hiring.md", content: "# Hiring\n\nWe are recruiting two engineers.", visibility: "team" },
@@ -85,17 +91,34 @@ test("a saved note's passages are upserted, and its stale ones deleted", async (
   );
   assert.equal(ok, true);
   assert.equal(ai.calls.length, 1);
-  const [upsert, remove] = fetch.requests;
+  const [upsert, probe, ...removes] = fetch.requests;
   assert.ok(upsert.url.endsWith("/context-meaning-ws1/upsert"));
   const line = JSON.parse(upsert.init.body.split("\n")[0]);
   assert.deepEqual(line.metadata, { path: "1-projects/hiring.md", chunk: 0, tier: "team" });
-  assert.ok(remove.url.endsWith("/delete_by_ids"));
-  const ids = await meaningIdsFor("1-projects/hiring.md");
-  assert.deepEqual(JSON.parse(remove.init.body).ids, ids.slice(1));
+  assert.ok(probe.url.endsWith("/get_by_ids"));
+  assert.deepEqual(JSON.parse(probe.init.body).ids, [ids[1]]);
+  assert.ok(removes.every((remove) => remove.url.endsWith("/delete_by_ids")));
+  assert.deepEqual(removes.flatMap((remove) => JSON.parse(remove.init.body).ids), ids.slice(1));
   for (const request of fetch.requests) {
     assert.equal(request.init.headers.Authorization, `Bearer ${TOKEN}`);
     assert.ok(!request.url.includes(TOKEN));
   }
+});
+
+test("a saved note no longer than before deletes nothing", async () => {
+  const { store } = storeWith();
+  const fetch = fakeFetch((url) =>
+    url.endsWith("/get_by_ids")
+      ? { status: 200, body: { success: true, result: [] } }
+      : { status: 200, body: { success: true, result: {} } },
+  );
+  const ok = await writeMeaningNote(
+    store,
+    { path: "1-projects/hiring.md", content: "# Hiring\n\nWe are recruiting three engineers.", visibility: "team" },
+    { fetchImpl: fetch.impl },
+  );
+  assert.equal(ok, true);
+  assert.deepEqual(fetch.requests.map((request) => request.url.split("/").pop()), ["upsert", "get_by_ids"]);
 });
 
 test("a provisioning index takes no writes", async () => {
@@ -142,8 +165,12 @@ test("a removed note's passages leave the index, by id, with no text read", asyn
     await settle();
   });
   const removes = fetch.requests.filter((request) => request.url.endsWith("/delete_by_ids"));
+  const ids = await meaningIdsFor("old/place.md");
+  // The old cap's worth unasked; the index answered that there is nothing past it.
   assert.equal(removes.length, 1);
-  assert.deepEqual(JSON.parse(removes[0].init.body).ids, await meaningIdsFor("old/place.md"));
+  assert.deepEqual(JSON.parse(removes[0].init.body).ids, ids.slice(0, 12));
+  const probes = fetch.requests.filter((request) => request.url.endsWith("/get_by_ids"));
+  assert.ok(probes.some((probe) => JSON.parse(probe.init.body).ids.includes(ids[12])));
 });
 
 test("a write with meaning on and fast search off is projected, behind the response", async () => {

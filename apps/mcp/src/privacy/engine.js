@@ -97,7 +97,9 @@ export function parsePrivacyManifest(text) {
       section = "notes";
       continue;
     }
-    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
+    // The visibility follows the LAST colon (`lib/privacy.ts` in the control
+    // plane says why): a bucket key may hold colons, a visibility never does.
+    const match = line.match(/^(.+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
     if (!match || !section) throw new Error(`invalid privacy rule: ${line}`);
     // A group rule is validated here rather than waved through, for the reason
     // the whole parser throws: an unusable manifest makes everything private,
@@ -151,11 +153,18 @@ export function replacePrivacyRulesBlock(text, rules, overrides) {
   const begin = text.indexOf(PRIVACY_RULES_BEGIN);
   const end = text.indexOf(PRIVACY_RULES_END);
   if (begin < 0 || end < begin) throw new Error("privacy.md is missing its managed rules block");
-  return (
+  const next =
     text.slice(0, begin) +
     renderPrivacyRulesBlock(rules, overrides) +
-    text.slice(end + PRIVACY_RULES_END.length)
-  );
+    text.slice(end + PRIVACY_RULES_END.length);
+  // Never write a manifest that would not read back: it makes the whole
+  // workspace private until someone resets it (`lib/privacy.ts`).
+  try {
+    parsePrivacyManifest(next);
+  } catch (error) {
+    throw new Error(`privacy.md would not read back after this change, so it was not written: ${error.message}`);
+  }
+  return next;
 }
 
 /** Longest matching prefix rule wins; no rule → private. Segment-aware. */

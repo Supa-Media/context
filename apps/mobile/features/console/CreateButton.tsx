@@ -47,7 +47,6 @@ export function CreateButton({
   onNewNote,
   onNewDrawing,
   onNewFolder,
-  onNewChat,
   resume = null,
   bottomInset = 0,
 }: {
@@ -57,27 +56,6 @@ export function CreateButton({
   onNewNote: () => void;
   onNewDrawing: () => void;
   onNewFolder: () => void;
-  /**
-   * Start a conversation, or `null` where one cannot be had.
-   *
-   * Two reasons it is `null`: no engine behind it (the demo console), and **no
-   * model key on this context**. A key is what makes the agent able to answer at
-   * all, so offering the row without one is an offer that opens a composer and
-   * errors on the first send — the shape this repo refuses everywhere else as "a
-   * control that appears to work and does nothing".
-   *
-   * It used to be three, and *"no panel to answer in (a phone)"* was the third.
-   * That was a fact about the code rather than a decision, and it is gone: a
-   * phone raises `AgentPanel` — a `Modal`, by its own header's argument — from
-   * the `+` sheet instead of a panel. This component is not drawn at `compact`
-   * at all, so the sentence was never about *this* control; it was about the
-   * value the layout passes, and it made the phone's sheet drop the row.
-   *
-   * The console reads it from `ConsoleData.modelConnected`, which is
-   * `undefined` until the subscription answers: absent, then present, rather
-   * than present, then taken away.
-   */
-  onNewChat: (() => void) | null;
   /**
    * Carry on recording a meeting that already has a note, or `null` when there
    * is none to carry on.
@@ -156,9 +134,8 @@ export function CreateButton({
       if (id === "new-note") onNewNote();
       if (id === "new-drawing") onNewDrawing();
       if (id === "new-folder") onNewFolder();
-      if (id === "new-chat") onNewChat?.();
     },
-    [onNewChat, onNewDrawing, onNewFolder, onNewMeeting, onNewNote, resume],
+    [onNewDrawing, onNewFolder, onNewMeeting, onNewNote, resume],
   );
 
   if (compact) return null;
@@ -201,8 +178,7 @@ export function CreateButton({
               they share a destination — the folder you have selected — and
               they share a dialog, which is the naming prompt the tree's own
               `+` raises. A meeting is above them because it starts a
-              *recording* rather than a file, and a conversation is below
-              because it makes nothing at all.
+              *recording* rather than a file.
             */
             {
               id: "new-note",
@@ -212,16 +188,6 @@ export function CreateButton({
             },
             { id: "new-drawing", label: "New drawing", detail: "An Excalidraw canvas." },
             { id: "new-folder", label: "New folder" },
-            ...(onNewChat === null
-              ? []
-              : [
-                  {
-                    id: "new-chat",
-                    label: "New chat",
-                    detail: "Ask about this note, or your whole context.",
-                    separatorBefore: true,
-                  },
-                ]),
           ]}
           onSelect={choose}
           onDismiss={dismiss}

@@ -24,6 +24,7 @@
  */
 
 import type { MutationCtx } from "../../../_generated/server";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { autoEnableHandler } from "./toggle";
 
 /** Indexes being built (or failed) at once, past which the walk waits. */
@@ -72,6 +73,7 @@ export async function rolloutFastSearchStep(ctx: MutationCtx): Promise<number> {
       stoppedEarly = true;
       break;
     }
+    if (await workspaceArchived(ctx.db, binding.workspaceId)) continue;
     const { scheduled } = await autoEnableHandler(ctx, { workspaceId: binding.workspaceId });
     if (scheduled) enabled += 1;
   }

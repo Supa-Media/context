@@ -562,6 +562,8 @@ describe("every route is reachable, or says why not", () => {
         `/invite/[token]`: the token is in one email and nowhere else.
       */
       "/join/[token]",
+      // Account-safety links mailed with a one-time token (Dev2, 2026-10-12).
+      "/not-me",
       "/note/[...address]",
       /*
         Two dev-only design-review routes for the redesigned onboarding
@@ -576,7 +578,10 @@ describe("every route is reachable, or says why not", () => {
       "/preview/onboarding",
       "/preview/onboarding/[step]",
       "/s/[token]",
+      "/stop-new-email",
+      "/tex/[handle]",
       "/texts/[token]",
+      "/vault/[token]",
     ]);
     for (const entry of exempt) {
       if (entry.reachable) continue;

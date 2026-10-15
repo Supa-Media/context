@@ -1,4 +1,5 @@
 import type { Id } from "@context/convex/_generated/dataModel";
+import type { LeftBehind } from "../storage/handoff/leftBehind";
 
 /*
   The shapes the live console reads off Convex, and the two guards every read
@@ -74,6 +75,7 @@ export interface StorageBinding {
   handoffBucket?: string;
   handoffClaimed?: boolean;
   handoffFailedKeys?: string[];
+  leftBehind?: LeftBehind;
   handoffReadyToSwitch?: boolean;
   handoffExistingFiles?: "replace" | "merge";
   managedRetainedUntil?: number;
@@ -163,6 +165,8 @@ export interface GrantSummary {
    * being told a user id in order to re-derive something it was already sent.
    */
   isMine: boolean;
+  /** The Context desktop app on one of this person's computers, not an AI tool. */
+  isMachine?: boolean;
   lastUsedAt?: number;
 }
 

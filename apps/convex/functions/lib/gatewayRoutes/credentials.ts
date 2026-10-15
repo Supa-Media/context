@@ -1,7 +1,7 @@
 /**
- * `POST /gateway/binding` and `POST /gateway/provider`: the two gateway routes
- * that hand back a decrypted credential, each spending both proofs — the
- * gateway secret (checked by the factory) and the user's access token.
+ * `POST /gateway/binding`: the gateway route that hands back a decrypted
+ * storage credential, spending both proofs — the gateway secret (checked by
+ * the factory) and the user's access token.
  *
  * Split out of `http.ts`, which keeps every route declared and registered
  * under the same name and path, built by the same factory, and passes these
@@ -10,6 +10,7 @@
  */
 
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
@@ -73,6 +74,22 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
+  // Seventh: the queued folder moves the tree draws already, so the gateway
+  // reads a moved note where people see it (`moves/queued.js`). Absent unless
+  // one is pending. The workspace is the one the grant resolved to above.
+  const boundTo = (opened.binding as { workspaceId?: unknown } | null)?.workspaceId;
+  // Unreadable is no store at all: a gateway that wrote at a new name not knowing a move was
+  // pending would put a second copy beside the one the move is carrying there.
+  const pendingMoves = typeof boundTo === "string"
+    ? await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: boundTo as Id<"workspaces"> }).catch(() => null)
+    : [];
+  if (pendingMoves === null) return json({ binding: null });
+  // Phase 3: the workspace's privacy rules, while they are the authority
+  // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
+  // one the grant opened, never one the request named.
+  const privacy = await ctx
+    .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
+    .catch(() => null);
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -102,72 +119,9 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
+    pendingMoves: pendingMoves.length > 0 ? pendingMoves : undefined,
+    // Eighth: the rules `privacy.md` is written from, while they are the
+    // authority. Absent otherwise, and then the gateway reads the file.
+    ...(privacy === null ? {} : { privacy }),
   });
-}
-
-/**
- * Open one workspace's own Anthropic or OpenAI key for the gateway.
- *
- * ## Why this is a route and not a fifth sibling on `/gateway/binding`
- *
- * Every gateway-facing credential added since `binding` became a sibling of it
- * — `searchIndex`, `encryptionKey`, `rotation` — precisely so that
- * `CREDENTIAL_HTTP_ROUTES` would not grow, and the comment above says adding to
- * that set is a conversation. This is the conversation, and it comes out the
- * other way for one reason.
- *
- * #661 was a **returns validator** accident: `v.object` is exact, a field
- * drifted, the error named the object it had refused, and `s3BindingValidator`
- * carries `secretAccessKey`. Everything folded into `openStorageBinding`'s
- * return shares that fate — one drift anywhere in it spills everything in it.
- * A model key folded in would make that error able to spill a storage secret
- * *and* somebody's provider account in one line.
- *
- * So the model key gets a validator of its own, two flat fields wide, with
- * nothing nested to drift. That is a smaller blast radius than the sibling,
- * and it is bought with a door that is the same door: the same `gatewayRoute`
- * factory, the same gateway secret, the same access token, the same
- * `expectedWorkspaceId`-is-compared-never-looked-up rule in
- * `providers.openProviderForGateway`, and `null` for everything that is not a
- * hit.
- *
- * It buys one more thing. An ordinary MCP request spends `/gateway/binding` on
- * every call; a model key riding that payload would be decrypted on every
- * `list_notes` in the product. Here it is opened only by the request that is
- * about to spend it.
- *
- * ## What this route decides, which is nothing
- *
- * It shapes the body and hands the two proofs on. The provider string is passed
- * through *unvalidated* on purpose: the closed set lives in `providers.ts`, and
- * checking it there means an unknown provider is the same `null` as an unknown
- * token rather than a different status a caller could count.
- */
-export async function gatewayProviderHandler(
-  ctx: ActionCtx,
-  body: Record<string, unknown>,
-): Promise<Response> {
-  const accessToken = stringField(body, "accessToken");
-  const expected = nullableStringField(body, "expectedWorkspaceId");
-  const provider = stringField(body, "provider");
-  // A malformed request is answered exactly like an unknown token, for the
-  // reason `/gateway/binding` gives: a 400 would tell a caller holding the
-  // gateway secret which of its proofs was the bad one.
-  if (accessToken === null || !expected.ok || provider === null) {
-    return json({ credential: null });
-  }
-
-  const credential = await ctx.runAction(
-    internal.functions.providers.openProviderForGateway,
-    {
-      hashedAccessToken: await hashToken(accessToken),
-      expectedWorkspaceId: expected.value,
-      provider,
-    },
-  );
-
-  // `credential` is the whole answer. Nothing rides beside it — not the
-  // workspace it came from, not the fingerprint, not the grant. See the
-  // `a hit names the provider and the key, and nothing else` test.
-  return json({ credential });
 }

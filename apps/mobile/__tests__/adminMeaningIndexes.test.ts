@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  fastRestartedLine,
   canRestartMeaning,
   fastSearchLine,
   meaningFailureLine,
@@ -54,6 +55,12 @@ describe("the indexing panel's words", () => {
     expect(restartedLine(3)).toBe("Restarted 3 workspaces.");
     expect(restartedLine(0, "turnedOff")).toBe("Not restarted: the owner turned search by meaning off.");
     expect(meaningStatePill(row()).tone).toBe("crit");
+  });
+
+  test("what fast search's restart says", () => {
+    expect(fastRestartedLine("restarted")).toBe("Fast search is copying again from where it stopped.");
+    expect(fastRestartedLine("running")).toBe("Not restarted: a copy is running right now.");
+    expect(fastRestartedLine("off")).toBe("Not restarted: fast search is off for this workspace.");
   });
 
   test("indexing tiers read as T0, T1, T2 with what each holds", () => {

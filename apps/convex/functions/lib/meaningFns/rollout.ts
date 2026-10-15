@@ -23,6 +23,7 @@
  */
 
 import type { MutationCtx } from "../../../_generated/server";
+import { workspaceArchived } from "../archivedWorkspaces";
 import { enableMeaningHandler } from "./rows";
 
 /** Bindings one sweep looks at once the credential is proven. */
@@ -76,8 +77,10 @@ export async function rolloutMeaningStep(ctx: MutationCtx): Promise<number> {
       stoppedAt = index;
       break;
     }
+    const workspaceId = page.page[index]!.workspaceId;
+    if (await workspaceArchived(ctx.db, workspaceId)) continue;
     const { scheduled } = await enableMeaningHandler(ctx, {
-      workspaceId: page.page[index]!.workspaceId,
+      workspaceId,
       auto: true,
     });
     if (scheduled) enabled += 1;

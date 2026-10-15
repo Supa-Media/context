@@ -10,8 +10,9 @@
  *
  * This module used to say that `listMyInvitations` was the only delivery
  * channel, and that nothing here sent email. Both were true and neither is any
- * more: `inviteMember` schedules `functions/invitationEmail.ts`, which mails an
- * `email` invitee a link.
+ * more: `inviteMember` schedules `functions/invitationEmail.ts`, which mails the
+ * invitee a link — an address directly, a `@name` at its account's verified
+ * address, resolved inside the scheduled job.
  *
  * What did **not** change is why that sentence used to be here. It was never a
  * statement that delivery was undesirable — it was the observation that the
@@ -19,10 +20,10 @@
  * read, and that `inviteMember` could not be allowed to acquire a second one
  * that told the *inviter* anything. The send is therefore scheduled rather than
  * called, so it has no return value, no exception, and no latency the inviter
- * can observe; and it happens only for an `email` invitee, so no `@name` is
- * ever resolved to a person at invite time. `listMyInvitations` remains the
- * channel for a `@name` invitation and the fallback for every address, because
- * mail is not guaranteed and an invitation must be answerable without it.
+ * can observe, and a `@name` is resolved to a mailbox only inside that job,
+ * where nothing it finds can reach the inviter. `listMyInvitations` remains the
+ * fallback for every invitation, because mail is not guaranteed and an
+ * invitation must be answerable without it.
  *
  * The four mechanisms below are unchanged, and every one of them still holds
  * with a send attached.
@@ -365,16 +366,14 @@ export const inviteMember = mutation({
     // See CLAUDE.md, "Scheduling is not calling", and the docstring of
     // `functions/invitationEmail.ts`.
     //
-    // Only for an address. A `@name` has no mailbox we know of, and finding one
-    // would mean resolving an identifier to a person at invite time, which is
-    // the thing this whole module declines to do.
-    if (parsed.invitee.kind === "email") {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.invitationEmail.sendInvitationEmail,
-        { invitationId, inviteeKind: parsed.invitee.kind },
-      );
-    }
+    // For a `@name` too. The scheduled job resolves the handle to its account's
+    // verified address, which is safe *there* for the reason above and would
+    // not be safe here; the inviter never learns whether it found one.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.invitationEmail.sendInvitationEmail,
+      { invitationId, inviteeKind: parsed.invitee.kind },
+    );
 
     return null;
   },
@@ -492,7 +491,7 @@ export const revokeInvitation = mutation({
  * the invitee reading their own invitations is how a token reaches the person
  * it was issued for.
  *
- * An `email` invitee is additionally mailed a link (see
+ * The invitee is additionally mailed a link (see
  * `functions/invitationEmail.ts`), but this query is not a fallback for that
  * and must not become one. Mail is best-effort by nature: it is dropped when
  * the inviter's own address is unverified, dropped when the deployment has no

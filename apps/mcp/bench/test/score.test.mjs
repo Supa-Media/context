@@ -390,3 +390,97 @@ test("a run the model never answered is not a run: the question is judged on its
     await empty.cleanup();
   }
 });
+
+test("a golden task's gate breaks on any failed line but a judge line, and on a run never answered", async () => {
+  const { scoreSetups, parseBars } = await import("../score.mjs");
+  const questions = new Map([
+    [1, { n: 1, kind: "task", mirror: null }],
+    [2, { n: 2, kind: "lookup", mirror: null }],
+  ]);
+  const key = [
+    { id: "a1", setup: "done", question: 1, run: 1 },
+    { id: "a2", setup: "done", question: 2, run: 1 },
+    { id: "b1", setup: "missed-check", question: 1, run: 1 },
+    { id: "b2", setup: "missed-check", question: 2, run: 1 },
+    { id: "c1", setup: "never-answered", question: 1, run: 1 },
+    { id: "c2", setup: "never-answered", question: 2, run: 1 },
+    { id: "d1", setup: "judge-line-only", question: 1, run: 1 },
+    { id: "d2", setup: "judge-line-only", question: 2, run: 1 },
+  ];
+  const v = (kind, pass) => ({ kind, line: "x", pass, reason: "" });
+  const judged = new Map([
+    ["a1", { verdicts: [v("must", true), v("must not", true)] }],
+    ["a2", { verdicts: [v("must", false)] }],
+    ["b1", { verdicts: [v("must", false), v("must not", true)] }],
+    ["b2", { verdicts: [v("must", true)] }],
+    ["c1", { verdicts: [], skipped: "no answer: status 500" }],
+    ["c2", { verdicts: [v("must", true)] }],
+    ["d1", { verdicts: [v("must", true), v("judge", false)] }],
+    ["d2", { verdicts: [v("must", true)] }],
+  ]);
+  const answers = new Map(key.map((row) => [row.id, { time: null, conversation: [] }]));
+  const { rows } = scoreSetups({ key, judged, answers, questions, bars: parseBars({ score: "50%" }) });
+  const gates = Object.fromEntries(rows.map((row) => [row.setup, row.gateFailed]));
+  assert.deepEqual(gates, { done: [], "missed-check": [1], "never-answered": [1], "judge-line-only": [] });
+  // A failed must line on a question that is not a task costs the question only.
+  assert.deepEqual(rows.find((row) => row.setup === "done").gateFailed, []);
+});
+
+test("the scores name each broken gate's failing lines and how many runs, never the judge's reason", async () => {
+  const { scoreSetups, scoreSection, parseBars } = await import("../score.mjs");
+  const questions = new Map([[1, { n: 1, kind: "task", mirror: null }]]);
+  const key = [
+    { id: "a1", setup: "alpha", question: 1, run: 1 },
+    { id: "a2", setup: "alpha", question: 1, run: 2 },
+    { id: "a3", setup: "alpha", question: 1, run: 3 },
+  ];
+  const v = (kind, line, pass) => ({ kind, line, pass, reason: "the answer said: SECRET ANSWER TEXT" });
+  const judged = new Map([
+    ["a1", { verdicts: [v("must", "confirm in a few words", false), v("must not", "ask first", true), v("judge", "voice", false)] }],
+    ["a2", { verdicts: [v("must", "confirm in a few words", false), v("must not", "ask first", false)] }],
+    ["a3", { verdicts: [v("must", "confirm in a few words", true), v("must not", "ask first", true)] }],
+  ]);
+  const answers = new Map(key.map((row) => [row.id, { time: null, conversation: [] }]));
+  const { rows, best } = scoreSetups({ key, judged, answers, questions, bars: parseBars({ score: "50%" }) });
+  assert.deepEqual(rows[0].gateLines, [
+    { question: 1, kind: "must", line: "confirm in a few words", failed: 2, runs: 3 },
+    { question: 1, kind: "must not", line: "ask first", failed: 1, runs: 3 },
+  ]);
+  const text = scoreSection({ judgeModel: "judge", date: "2026-10-14", rows, best });
+  assert.match(text, /Why gates failed, alpha:\n- q1 must "confirm in a few words": 2 of 3 runs\n- q1 must not "ask first": 1 of 3 runs/);
+  assert.doesNotMatch(text, /SECRET ANSWER TEXT/);
+  assert.doesNotMatch(text, /"voice"/);
+});
+
+test("the job log shows each broken gate's failing answer, its reason and its changes, for the scored setups only", async () => {
+  const { failedGateLog } = await import("../score.mjs");
+  const questions = new Map([
+    [1, { n: 1, kind: "task", mirror: null }],
+    [2, { n: 2, kind: "lookup", mirror: null }],
+  ]);
+  const key = [
+    { id: "a1", setup: "alpha", question: 1, run: 1 },
+    { id: "a2", setup: "alpha", question: 1, run: 2 },
+    { id: "a3", setup: "alpha", question: 2, run: 1 },
+  ];
+  const v = (kind, line, pass, reason = "") => ({ kind, line, pass, reason });
+  const judged = new Map([
+    ["a1", { verdicts: [v("must", "tick it off", false, "only one note was written"), v("judge", "voice", false, "stiff")] }],
+    ["a2", { verdicts: [v("must", "tick it off", true)] }],
+    ["a3", { verdicts: [v("must not", "invent a street", false, "lookup misses are not gates")] }],
+  ]);
+  const answers = new Map([
+    ["a1", { conversation: [{ from: "person", text: "deposit came in" }, { from: "assistant", text: "Done." }], toolsLine: "Tools: write_note", changes: ["- wrote woodshop/todo.md"] }],
+    ["a2", { conversation: [{ from: "assistant", text: "PASSING ANSWER" }], toolsLine: null, changes: [] }],
+    ["a3", { conversation: [{ from: "assistant", text: "LOOKUP ANSWER" }], toolsLine: null, changes: [] }],
+  ]);
+  const text = failedGateLog({ key, judged, answers, questions });
+  assert.match(text, /alpha q1 run 1: must "tick it off" — only one note was written/);
+  assert.match(text, /Tex: Done\./);
+  assert.match(text, /Tools: write_note/);
+  assert.match(text, /- wrote woodshop\/todo\.md/);
+  // A passing run, a judge line and a failed line on a question that is not a gate stay out.
+  assert.doesNotMatch(text, /PASSING ANSWER|LOOKUP ANSWER|stiff/);
+  // No answer id reaches the log.
+  assert.doesNotMatch(text, /\ba1\b|\ba2\b/);
+});

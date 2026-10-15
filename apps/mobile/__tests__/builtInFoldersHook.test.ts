@@ -32,7 +32,7 @@ jest.mock("convex/react", () => {
     };
     return bound[name];
   };
-  return { useAction: record, useMutation: record, useQuery: () => undefined };
+  return { useAction: record, useMutation: record, useQuery: () => undefined, useQueries: () => ({}), useConvex: () => ({ query: async () => null }) };
 });
 
 const bound: Record<string, (args: never) => Promise<unknown>> = {};

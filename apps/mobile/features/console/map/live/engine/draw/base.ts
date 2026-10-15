@@ -1,68 +1,92 @@
 import { toWorld } from "../camera";
 import { LAYER } from "../hit";
-import type { IslandPlace } from "../layout";
-import { dotRadius, edgeAlpha, highwayAlpha, subRimAlpha } from "../lod";
+import { ICON_R, type IslandPlace } from "../layout";
+import { boardHaze, dotRadius, edgeAlpha, edgeWidth, highwayAlpha, subRimAlpha } from "../lod";
 import { clamp, lerp, quad, type Point } from "../math";
 import { DUR } from "../scene";
+import { BOW, bowOf, grain } from "./board";
 import type { DrawEnv } from "./env";
-import { circle, fontOf } from "./primitives";
+import { circle, fontOf, roundRect } from "./primitives";
+
+/** How strongly a link between two folders is drawn, against one inside a folder. */
+export const CROSS_FOLDER_LINK = 0.35;
 
 /**
  * The map's ground layers, back to front: workspaces, the paths between
- * them, folder and subfolder bubbles, links, trails, and the notes themselves
+ * them, the clickable (undrawn) folder areas, links, trails, and the notes themselves
  * with their live marks (teal for writing, ink for reading).
  */
 
 export function drawGround(env: DrawEnv): void {
-  const { ctx, style, model, s } = env;
-  const C = style.palette;
+  const { model, s } = env;
+  // Nothing is drawn round a workspace, a folder or a subfolder: they are
+  // told apart by the space between them (Dev2, 2026-10-10). Their areas are
+  // still there to click, to go into them.
   if (model.scope.kind === "all") {
     for (const island of model.layout.islands) {
       const p = env.screen(island);
       if (!env.onScreen(p, island.r * s)) continue;
-      circle(ctx, p.x, p.y, island.r * s);
-      ctx.fillStyle = C.island;
-      ctx.fill();
-      ctx.strokeStyle = C.line;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
       env.hit.circle(p.x, p.y, island.r * s, { kind: "workspace", workspaceId: island.workspaceId }, LAYER.workspace);
     }
     drawHighways(env);
   }
-  ctx.lineWidth = 1;
   for (const island of model.layout.islands) {
     for (const f of island.folders) {
       const p = env.screen(f);
       const pr = f.r * s;
       if (!env.onScreen(p, pr)) continue;
-      circle(ctx, p.x, p.y, pr);
-      ctx.fillStyle = C.zone;
-      ctx.fill();
-      ctx.setLineDash([3, 5]);
-      ctx.strokeStyle = C.zoneLine;
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.setLineDash([]);
+      if (f.collapsed) {
+        const ir = drawFolderIcon(env, p);
+        env.occ.claim({ x: p.x - ir - 2, y: p.y - ir - 2, w: ir * 2 + 4, h: ir * 2 + 4 });
+        env.hit.circle(p.x, p.y, ir + 4, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
+        continue;
+      }
       if (f.name !== "") env.hit.circle(p.x, p.y, pr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/` }, LAYER.folder);
       for (const sub of f.subs) {
         if (sub.name === "") continue;
         const q = env.screen(sub);
         const sr = sub.r * s;
-        const a = subRimAlpha(sr);
-        if (a <= 0 || !env.onScreen(q, sr)) continue;
-        ctx.globalAlpha = a;
-        circle(ctx, q.x, q.y, sr);
-        ctx.setLineDash([2, 4]);
-        ctx.strokeStyle = C.zoneLine;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
+        if (subRimAlpha(sr) <= 0 || !env.onScreen(q, sr)) continue;
         env.hit.circle(q.x, q.y, sr, { kind: "folder", workspaceId: f.workspaceId, path: `${f.name}/${sub.name}/` }, LAYER.sub);
       }
     }
   }
+}
+
+/** How big a folder's icon is on screen, in pixels from its centre: readable far out, never a blot up close. */
+export function folderIconRadius(s: number): number {
+  return clamp(ICON_R * s, 9, 20);
+}
+
+/** A folder drawn as one icon (Archive): a lidded box with a handle slot, in the folder names' colour. */
+function drawFolderIcon(env: DrawEnv, p: Point): number {
+  const { ctx, style, s } = env;
+  const C = style.palette;
+  const r = folderIconRadius(s);
+  const w = r * 1.7;
+  const lidH = r * 0.5;
+  const bodyH = r * 1.05;
+  const x = p.x - w / 2;
+  const top = p.y - (lidH + bodyH) / 2;
+  ctx.globalAlpha = env.dim ? 0.5 : 1;
+  ctx.lineWidth = Math.max(1.2, r / 9);
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = C.muted;
+  ctx.fillStyle = C.ground;
+  roundRect(ctx, x, top, w, lidH, r * 0.12);
+  ctx.fill();
+  ctx.stroke();
+  roundRect(ctx, x + w * 0.07, top + lidH, w * 0.86, bodyH, r * 0.12);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x - w * 0.16, top + lidH + bodyH * 0.32);
+  ctx.lineTo(p.x + w * 0.16, top + lidH + bodyH * 0.32);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.lineJoin = "miter";
+  ctx.globalAlpha = 1;
+  return r;
 }
 
 /** Dashed paths between workspaces that notes moved along today, with a count that bumps. */
@@ -133,30 +157,52 @@ export function drawLinks(env: DrawEnv): void {
     const lo = toWorld(env.cam, env.vp, { x: -40, y: -40 });
     const hi = toWorld(env.cam, env.vp, { x: env.vp.w + 40, y: env.vp.h + 40 });
     const view = { x0: lo.x, y0: lo.y, x1: hi.x, y1: hi.y };
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = C.edge;
-    ctx.globalAlpha = ea * (env.dim ? 0.55 : 1);
-    ctx.beginPath();
-    for (const [ka, kb] of model.layout.edges) {
-      if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
-      if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
-      // A note moving within its workspace takes its links with it.
-      const fa = env.flyingAt.get(ka);
-      const fb = env.flyingAt.get(kb);
-      if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
-      const wa = fa ?? notes.get(ka)!;
-      const wb = fb ?? notes.get(kb)!;
-      // Off screen in the world's own units first: tens of thousands of
-      // links are tested every frame, and most go nowhere near the view.
-      if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
-      if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
-      const a = env.screen(wa);
-      const b = env.screen(wb);
-      if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+    const width = edgeWidth(s);
+    // Pencil on paper, chalk on the board: a grainy stroke with a slight bow.
+    const stroke = grain(ctx, C, C.edge);
+    const base = ea * boardHaze(s) * (env.dim ? 0.55 : 1);
+    // Links inside a folder at full strength, links between folders faint:
+    // the groups read, and the long cross-links do not become the picture.
+    for (const across of [true, false]) {
+      ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      ctx.beginPath();
+      for (const [ka, kb] of model.layout.edges) {
+        if (!scene.present.has(ka) || !scene.present.has(kb)) continue;
+        if (popping.has(ka) || popping.has(kb) || creating.has(ka) || creating.has(kb)) continue;
+        const na = notes.get(ka)!;
+        const nb = notes.get(kb)!;
+        // Links into a folder drawn as an icon would all meet on it: left out.
+        if (na.sub.folder.collapsed || nb.sub.folder.collapsed) continue;
+        if ((na.sub.folder !== nb.sub.folder) !== across) continue;
+        // A note moving within its workspace takes its links with it.
+        const fa = env.flyingAt.get(ka);
+        const fb = env.flyingAt.get(kb);
+        if ((scene.hidden.has(ka) && !fa) || (scene.hidden.has(kb) && !fb)) continue;
+        const wa = fa ?? na;
+        const wb = fb ?? nb;
+        // Off screen in the world's own units first: tens of thousands of
+        // links are tested every frame, and most go nowhere near the view.
+        if (Math.max(wa.x, wb.x) < view.x0 || Math.min(wa.x, wb.x) > view.x1) continue;
+        if (Math.max(wa.y, wb.y) < view.y0 || Math.min(wa.y, wb.y) > view.y1) continue;
+        const a = env.screen(wa);
+        const b = env.screen(wb);
+        if (!env.onScreen(a, 0) && !env.onScreen(b, 0) && !crosses(env, a, b)) continue;
+        const bow = bowOf(wa.x, wa.y, wb.x, wb.y) * BOW;
+        ctx.moveTo(a.x, a.y);
+        ctx.quadraticCurveTo((a.x + b.x) / 2 - (b.y - a.y) * bow, (a.y + b.y) / 2 + (b.x - a.x) * bow, b.x, b.y);
+      }
+      // Chalk carries a soft dusty halo: the same path again, wide and faint.
+      if (C.board === "chalk") {
+        ctx.strokeStyle = C.edge;
+        ctx.lineWidth = width * 3.2;
+        ctx.globalAlpha = (across ? base * CROSS_FOLDER_LINK : base) * 0.1;
+        ctx.stroke();
+        ctx.globalAlpha = across ? base * CROSS_FOLDER_LINK : base;
+      }
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.globalAlpha = 1;
   }
   // A new note's links, drawn out one after another in teal.
@@ -238,6 +284,9 @@ function crosses(env: DrawEnv, a: Point, b: Point): boolean {
   return !(Math.max(a.x, b.x) < 0 || Math.min(a.x, b.x) > w || Math.max(a.y, b.y) < 0 || Math.min(a.y, b.y) > h);
 }
 
+/** A resting dot gets its drawn rim from this radius up; smaller ones are only grain. */
+export const RIM_FROM = 2.4;
+
 /** Every note as a dot, and the marks of whatever is happening to it. */
 export function drawNotes(env: DrawEnv): void {
   const { ctx, style, model, scene, s } = env;
@@ -248,6 +297,7 @@ export function drawNotes(env: DrawEnv): void {
   // Resting dots, the great majority, go into one path and one fill: what a
   // frame costs is how many times the canvas paints, and a workspace of
   // 20,000 notes painted one dot at a time is a slide show.
+  const rims: Array<{ x: number; y: number; r: number; off: number }> = [];
   ctx.beginPath();
   for (const n of env.near) {
     const key = n.key;
@@ -256,6 +306,7 @@ export function drawNotes(env: DrawEnv): void {
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
     const R = dotRadius(s, n.deg);
+    if (R >= RIM_FROM) rims.push({ x: p.x, y: p.y, r: R + 0.7, off: bowOf(n.x, n.y, n.y, n.x) * 0.7 });
     // A dot a pixel or two across looks the same as a square and paints far
     // faster, which is what a whole workspace of tiny dots is made of.
     if (R <= 1.5) ctx.rect(p.x - R, p.y - R, R * 2, R * 2);
@@ -265,9 +316,23 @@ export function drawNotes(env: DrawEnv): void {
     }
     env.hit.circle(p.x, p.y, Math.max(R, 3), { kind: "note", workspaceId: n.workspaceId, path: n.path }, LAYER.note);
   }
-  ctx.fillStyle = C.dot;
+  // Drawn dots: a grainy fill, and round the bigger ones a loose rim, as a
+  // pencil or chalk dot has, a little off centre.
+  ctx.fillStyle = grain(ctx, C, C.dot);
   ctx.globalAlpha = env.dim ? 0.5 : 1;
   ctx.fill();
+  if (rims.length > 0) {
+    ctx.beginPath();
+    for (const m of rims) {
+      ctx.moveTo(m.x + m.off + m.r, m.y - m.off);
+      ctx.arc(m.x + m.off, m.y - m.off, m.r, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = C.dot;
+    ctx.lineWidth = 0.9;
+    ctx.globalAlpha = (env.dim ? 0.5 : 1) * 0.6;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
   ctx.globalAlpha = 1;
   // Then the few with something happening to them, each with its own marks.
   const marked = new Set<string>([...scene.editing.keys(), ...scene.reading.keys(), ...follow]);
@@ -275,7 +340,7 @@ export function drawNotes(env: DrawEnv): void {
   for (const key of marked) {
     if (!scene.present.has(key) || scene.hidden.has(key) || popping.has(key)) continue;
     const n = model.layout.notes.get(key);
-    if (!n) continue;
+    if (!n || n.sub.folder.collapsed) continue;
     const p = env.screen(n);
     if (!env.onScreen(p, 30)) continue;
     const R = dotRadius(s, n.deg);

@@ -1,3 +1,4 @@
+import { withoutFixtureSessions } from "../fixtures.helpers";
 import { describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import {
@@ -304,7 +305,7 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("names").collect()).toHaveLength(1);
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(1);
       expect(await ctx.db.query("authAccounts").collect()).toHaveLength(1);
-      expect(await ctx.db.query("authSessions").collect()).toHaveLength(1);
+      expect(withoutFixtureSessions(await ctx.db.query("authSessions").collect())).toHaveLength(1);
       expect(await ctx.db.query("workspaceDataKeys").collect()).toHaveLength(2);
       expect(await ctx.db.query("workspaceKeyRotations").collect()).toHaveLength(1);
       expect(await ctx.db.query("obsidianPluginGrants").collect()).toHaveLength(1);

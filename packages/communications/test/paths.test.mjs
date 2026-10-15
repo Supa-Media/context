@@ -30,12 +30,14 @@ import {
   channelDayNotePath,
   channelFolder,
   chooseMailboxSlug,
+  contactLetterFolder,
   contactNotePath,
   contactSlug,
   isCalendarDate,
   isChannelDayNotePath,
   isContactNotePath,
   isMailboxSlug,
+  liveContactPathForArchived,
   parseChannelDayPath,
   slugifyAddress,
 } from "../src/paths.js";
@@ -356,6 +358,28 @@ export function runPathChecks(check) {
   check("a person's name becomes a page name", contactSlug("Adam Okonkwo") === "adam-okonkwo");
   check("...and an `@` in a name is not spelled out, which would be nonsense there", contactSlug("Adam@Example") === "adam-example");
   check("a contact page is recognised", isContactNotePath(contactNotePath(contactSlug("Adam Okonkwo"))));
-  check("...and a folder under contacts is not a contact", !isContactNotePath("0-inbox/contacts/team/adam.md"));
-  check("...nor a dot file in it", !isContactNotePath("0-inbox/contacts/.adam.md"));
+  check("...and so is a page one folder down, the owner's A–Z filing", isContactNotePath("0-inbox/contacts/team/adam.md") && isContactNotePath("0-inbox/contacts/a/adam-okonkwo.md"));
+  check("...and the legacy imported iMessage folder", isContactNotePath("0-inbox/contacts/imessage/alex.md"));
+  check("...but two folders down is not a contact", !isContactNotePath("0-inbox/contacts/a/b/adam.md"));
+  check("...nor a dot file in it", !isContactNotePath("0-inbox/contacts/.adam.md") && !isContactNotePath("0-inbox/contacts/a/.adam.md"));
+  check("...nor a dot folder, a traversal or an empty segment",
+    !isContactNotePath("0-inbox/contacts/.hidden/adam.md") &&
+      !isContactNotePath("0-inbox/contacts/../adam.md") &&
+      !isContactNotePath("0-inbox/contacts/a/../../privacy.md") &&
+      !isContactNotePath("0-inbox/contacts//adam.md") &&
+      !isContactNotePath("0-inbox/contacts/./adam.md"));
+  check("...nor anything that is not Markdown", !isContactNotePath("0-inbox/contacts/a/adam.txt") && !isContactNotePath("0-inbox/contacts/a/"));
+  check("a new page's folder is the first letter of the name, accents stripped", contactLetterFolder("Émile Zola") === "e" && contactLetterFolder("  adam") === "a");
+  check("...and `other` for a name with no letter, an address or a number",
+    ["", "1234", "+1 (555) 123-4567", "adam@example.com", "(unnamed contact)", "李雷"].every((name) => contactLetterFolder(name) === "other"));
+  check("a letter-folder path is built and recognised", contactNotePath("adam", { folder: "a" }) === "0-inbox/contacts/a/adam.md");
+  check("...and a folder that is not a slug is refused", (() => {
+    try { contactNotePath("adam", { folder: "../x" }); return false; } catch { return true; }
+  })());
+  check("an archived contact comes back to the path it mirrors",
+    liveContactPathForArchived("4-archive/0-inbox/contacts/c/claire.md") === "0-inbox/contacts/c/claire.md");
+  check("...and only a contact path is mirrored back",
+    liveContactPathForArchived("4-archive/0-inbox/email/x/2026-09-07.md") === null &&
+      liveContactPathForArchived("4-archive/0-inbox/contacts/a/b/c.md") === null &&
+      liveContactPathForArchived("0-inbox/contacts/c/claire.md") === null);
 }

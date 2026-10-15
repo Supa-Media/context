@@ -40,6 +40,7 @@ import {
   createWorkspace,
   gatewayPost,
   setupTest,
+  copyTree,
 } from "./fixtures.helpers";
 
 afterEach(() => {
@@ -120,6 +121,7 @@ async function fixture(): Promise<Fixture> {
     path: "1-projects",
     visibility: "team",
   });
+  for (const workspaceId of [aliceWs, bobWs]) await copyTree(t, workspaceId);
   return { t, alice, bob, carol, aliceWs, bobWs, carolWs };
 }
 

@@ -16,6 +16,8 @@
  * quote the request, and the request is somebody's message.
  */
 
+import type { GatewayAttachment } from "./attachments";
+
 export type Fetch = typeof fetch;
 
 const TIMEOUT_MS = 30_000;
@@ -164,7 +166,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 
 // ── Control plane ─────────────────────────────────────────────────────────
 
-export type SessionAnswer = { status: "linked"; accessToken: string } | { status: "unlinked" };
+/** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -178,7 +181,8 @@ export async function openSession(
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
-    return { status: "linked", accessToken: body.accessToken };
+    const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
+    return { status: "linked", accessToken: body.accessToken, ...zone };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -218,13 +222,32 @@ export type AgentAnswer =
  * Ask the gateway's `/agent` route. `conversation` names the thread the
  * gateway keeps history for, in the person's own bucket; this Worker keeps
  * none.
+ *
+ * With `onProgress`, the turn is asked for as a stream (`Accept:
+ * application/x-ndjson`, `apps/mcp/src/agent/progress.js`): a long task texts
+ * where it has got to while it works, each `{"progress"}` line is handed to
+ * `onProgress` as it arrives, and the last line carries the turn's own status
+ * and body. A gateway that answers plain JSON (one deployed before streaming)
+ * is read exactly as before.
  */
 export async function askAgent(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
   question: string,
+  onProgress?: (text: string) => Promise<void>,
+  timeZone?: string,
+  attachments: GatewayAttachment[] = [],
 ): Promise<AgentAnswer> {
+  // The person's zone, so the turn knows the time where they are, and what
+  // they sent with the text (`attachments.ts`).
+  const ask = {
+    question,
+    conversation: "texts",
+    ...(timeZone ? { timeZone } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+  if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
   try {
     result = await post(
@@ -232,19 +255,108 @@ export async function askAgent(
       "gateway",
       `${gatewayOrigin}/agent`,
       accessToken,
-      { question, conversation: "texts" },
+      ask,
       AGENT_TIMEOUT_MS,
     );
   } catch {
     return { kind: "unavailable" };
   }
-  const body = record(result.json);
-  if (result.status === 200 && typeof body.answer === "string" && body.answer.trim()) {
+  return agentAnswer(result.status, result.json);
+}
+
+function agentAnswer(status: number, json: unknown): AgentAnswer {
+  const body = record(json);
+  if (status === 200 && typeof body.answer === "string" && body.answer.trim()) {
     return { kind: "answer", text: body.answer.trim() };
   }
-  if (result.status === 409) return { kind: "no_model" };
-  if (result.status === 429) return { kind: "daily_limit" };
+  if (status === 409) return { kind: "no_model" };
+  if (status === 429) return { kind: "daily_limit" };
   return { kind: "unavailable" };
+}
+
+/**
+ * The most a streamed (long) turn may take, end to end: inside a Durable
+ * Object alarm's 15 minutes, with room to send the answer. The gateway stops
+ * calling tools well before it (`LONG_TOOL_BUDGET_MS`).
+ */
+export const AGENT_STREAM_TIMEOUT_MS = 12 * 60_000;
+/** The gateway writes a heartbeat every 15 seconds; this long with no line is a dead stream. */
+export const AGENT_STREAM_IDLE_MS = 60_000;
+/** One line of the stream is a progress text or a final JSON body, never more. */
+const MAX_STREAM_LINE = 256 * 1024;
+
+async function askAgentStreaming(
+  fetcher: Fetch,
+  gatewayOrigin: string,
+  accessToken: string,
+  ask: { question: string; conversation: string; timeZone?: string; attachments?: GatewayAttachment[] },
+  onProgress: (text: string) => Promise<void>,
+): Promise<AgentAnswer> {
+  const abort = new AbortController();
+  const overall = setTimeout(() => abort.abort(), AGENT_STREAM_TIMEOUT_MS);
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const touch = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => abort.abort(), AGENT_STREAM_IDLE_MS);
+  };
+  try {
+    touch();
+    const response = await fetcher(`${gatewayOrigin}/agent`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/x-ndjson",
+      },
+      body: JSON.stringify(ask),
+      signal: abort.signal,
+    });
+    const type = response.headers.get("content-type") ?? "";
+    if (!type.includes("application/x-ndjson") || !response.body) {
+      let json: unknown = null;
+      try {
+        json = await response.json();
+      } catch {
+        json = null;
+      }
+      return agentAnswer(response.status, json);
+    }
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      touch();
+      buffer += value;
+      if (buffer.length > MAX_STREAM_LINE && !buffer.includes("\n")) return { kind: "unavailable" };
+      let newline: number;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = record(JSON.parse(line));
+        } catch {
+          continue;
+        }
+        if (typeof parsed.progress === "string" && parsed.progress.trim()) {
+          await onProgress(parsed.progress.trim());
+          touch();
+          continue;
+        }
+        if (typeof parsed.status === "number") return agentAnswer(parsed.status, parsed.body);
+      }
+    }
+    // The stream ended with no final line: the turn died on the way.
+    return { kind: "unavailable" };
+  } catch {
+    return { kind: "unavailable" };
+  } finally {
+    clearTimeout(overall);
+    clearTimeout(idle);
+    abort.abort();
+  }
 }
 
 /** A sign-in link for a phone nobody has linked, or none for now. */

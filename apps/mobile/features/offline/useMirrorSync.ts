@@ -41,8 +41,10 @@ import { visibilityTierForRole, type VisibilityTier } from "../console/visibilit
  * **for which contexts**:
  *
  *  - **When:** on mount once the device says it is online, when it comes back
- *    online, when the app returns to the foreground, and every
- *    `MIRROR_INTERVAL_MS` while it stays there. Never while `offline`, and
+ *    online, when the app returns to the foreground, when a context's head in
+ *    the tree's change log moves (`feed`, `useNodeFeed.ts`), and every
+ *    `MIRROR_INTERVAL_MS` while it stays there for a context the feed does
+ *    not reach. Never while `offline`, and
  *    never on `unknown` either — unlike the queue's drain, which has a person's
  *    typing to deliver, a sync can wait the second it takes the platform to
  *    say, and starting one on a guess is minutes of Convex actions with no
@@ -69,10 +71,11 @@ export const MANIFEST_TIMEOUT_MS = 60_000;
 /** The least time between two walks of one context's tree in a browser tab. */
 export const SERVER_TREE_FLOOR_MS = 15_000;
 /**
- * The same, when the last walk was answered by the tree table rather than the
- * bucket: a query or two, so the tree can follow every change.
+ * The same, when the Convex tree answered (`nodes`): the folders on screen are
+ * live already, so the walk only keeps Home and the switcher current, and a
+ * walk per hint of a busy workspace would read its whole tree every second.
  */
-export const TABLE_TREE_FLOOR_MS = 1_000;
+export const NODES_TREE_FLOOR_MS = 10_000;
 /** Fifty notes, up to four megabytes. */
 export const READ_TIMEOUT_MS = 60_000;
 
@@ -81,7 +84,7 @@ export interface MirrorActions {
     workspaceId: string;
     cursor?: string;
     source?: "tree";
-  }) => Promise<ManifestPage & { source?: "tree" | "bucket" }>;
+  }) => Promise<ManifestPage & { source?: "tree" | "bucket" | "nodes" }>;
   readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
   /** What changed since a cursor; absent, every sync walks the whole tree. */
   syncTreeChanges?: (args: {
@@ -110,6 +113,11 @@ export function useMirrorSync(options: {
   contexts: readonly { workspaceId: string; role: string | undefined }[] | undefined;
   actions: MirrorActions;
   onSynced?: (runs: MirrorRun[]) => void;
+  /**
+   * Each context's live head from the tree's change log (`useNodeFeed.ts`).
+   * A head that moves is a catch-up now; a context with one needs no timed pass.
+   */
+  feed?: ReadonlyMap<string, string>;
 }): void {
   const reachability = useReachability();
   const epochRef = useRef(currentEpoch());
@@ -167,8 +175,9 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
-        // The tree table where it can answer, as a tab's walk asks: the same
-        // `canSee` over the same keys, without walking the bucket.
+        // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
+        // the same keys. The bucket is never walked; a tree still copying
+        // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({
@@ -323,7 +332,7 @@ export function useMirrorSync(options: {
   */
   const refreshing = useRef(new Map<string, boolean>());
   const walkedAt = useRef(new Map<string, number>());
-  const fromTable = useRef(new Map<string, boolean>());
+  const walkedFrom = useRef(new Map<string, string | undefined>());
   const runRefresh = useCallback((workspaceId: string, walk: () => Promise<void>) => {
     const inFlight = refreshing.current;
     if (inFlight.has(workspaceId)) {
@@ -348,8 +357,8 @@ export function useMirrorSync(options: {
         epoch,
         mine: () => epoch === currentEpoch(),
         now: () => Date.now(),
-        // The tree table where the context has one (`treeTableOps.ts`); the
-        // answer says which it was, and that sets how soon to walk again.
+        // The Convex tree's rows (`lib/nodes/treeReads.ts`), never the bucket;
+        // the answer says where it came from, and that sets how soon to walk again.
         manifest: async (workspaceId, cursor) => {
           const page = await withTimeout(
             actionsRef.current.syncManifest({
@@ -359,7 +368,7 @@ export function useMirrorSync(options: {
             }),
             MANIFEST_TIMEOUT_MS,
           );
-          fromTable.current.set(workspaceId, page.source === "tree");
+          walkedFrom.current.set(workspaceId, page.source);
           return page;
         },
       };
@@ -386,7 +395,8 @@ export function useMirrorSync(options: {
           runRefresh(workspaceId, async () => {
             // A busy workspace signals every few seconds; one walk of its
             // bucket per `SERVER_TREE_FLOOR_MS` is live enough and spares it.
-            const floor = fromTable.current.get(workspaceId) === true ? TABLE_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
+            const from = walkedFrom.current.get(workspaceId);
+            const floor = from === "nodes" ? NODES_TREE_FLOOR_MS : SERVER_TREE_FLOOR_MS;
             const wait = (walkedAt.current.get(workspaceId) ?? -Infinity) + floor - Date.now();
             if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
             walkedAt.current.set(workspaceId, Date.now());
@@ -437,11 +447,32 @@ export function useMirrorSync(options: {
     if (!mirrorSupported() && wanted !== null) requestMirrorRefresh(wanted);
   }, [reachability, sync, targets, freshener]);
 
+  /*
+    The feed: a context's head moved, so something this person may see
+    changed there (or the rules did). One pass catches up from the change log
+    (`listForSync`), a page or two rather than the tree, and fetches what moved.
+  */
+  const feedKey = [...(options.feed ?? new Map<string, string>())]
+    .map(([workspaceId, token]) => `${workspaceId}=${token}`)
+    .sort()
+    .join("\n");
+  const fedRef = useRef<ReadonlySet<string>>(new Set());
+  fedRef.current = new Set(options.feed?.keys() ?? []);
+  useEffect(() => {
+    if (feedKey !== "") sync();
+  }, [feedKey, sync]);
+
   // Back to the foreground, and a modest interval while it stays there.
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
+    // Only for a context the feed does not reach: where every one has a head,
+    // a change arrives as it lands and the interval would only repeat it.
+    const tick = () => {
+      if (targetsRef.current.every((target) => fedRef.current.has(target.workspaceId))) return;
+      sync();
+    };
     const start = () => {
-      if (timer === null) timer = setInterval(sync, MIRROR_INTERVAL_MS);
+      if (timer === null) timer = setInterval(tick, MIRROR_INTERVAL_MS);
     };
     const stop = () => {
       if (timer !== null) clearInterval(timer);

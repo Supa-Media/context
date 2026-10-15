@@ -64,6 +64,20 @@ describe("openSession", () => {
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ phone: "+15555550100" });
   });
 
+  it("keeps the person's time zone when it looks like one, and drops anything else", async () => {
+    expect(await openSession(fake(200, { status: "linked", accessToken: "tok", timeZone: "Europe/London" }), "o", "s", "p")).toEqual({
+      status: "linked",
+      accessToken: "tok",
+      timeZone: "Europe/London",
+    });
+    for (const timeZone of [42, "", "a\nb", "x".repeat(65)]) {
+      expect(await openSession(fake(200, { status: "linked", accessToken: "tok", timeZone }), "o", "s", "p")).toEqual({
+        status: "linked",
+        accessToken: "tok",
+      });
+    }
+  });
+
   it("returns unlinked for a phone nobody linked", async () => {
     expect(await openSession(fake(200, { status: "unlinked" }), "o", "s", "p")).toEqual({ status: "unlinked" });
   });
@@ -111,5 +125,51 @@ describe("askAgent", () => {
     expect(await askAgent(fake(200, { answer: "  " }), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(fake(503, {}), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(throwing, "g", "t", "q")).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("askAgent, streamed", () => {
+  const stream = (lines: unknown[], calls: Call[] = []): Fetch =>
+    (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const text = lines.map((line) => (typeof line === "string" ? line : JSON.stringify(line))).join("\n") + "\n";
+      return new Response(text, { status: 200, headers: { "content-type": "application/x-ndjson" } });
+    }) as unknown as Fetch;
+
+  it("asks for a stream, hands each progress line over in order, and reads the last line's turn", async () => {
+    const calls: Call[] = [];
+    const said: string[] = [];
+    const answer = await askAgent(
+      stream([{ progress: "Opening ChatGPT now." }, { tick: 1 }, "not json", { progress: " Signed in. " }, { status: 200, body: { answer: "Done." } }], calls),
+      "https://gw.example",
+      "tok",
+      "connect my chatgpt",
+      async (text) => {
+        said.push(text);
+      },
+    );
+    expect(said).toEqual(["Opening ChatGPT now.", "Signed in."]);
+    expect(answer).toEqual({ kind: "answer", text: "Done." });
+    expect(new Headers(calls[0].init.headers).get("accept")).toBe("application/x-ndjson");
+  });
+
+  it("maps the final line's status like a plain answer", async () => {
+    const noop = async () => {};
+    expect(await askAgent(stream([{ status: 409, body: {} }]), "g", "t", "q", noop)).toEqual({ kind: "no_model" });
+    expect(await askAgent(stream([{ status: 429, body: {} }]), "g", "t", "q", noop)).toEqual({ kind: "daily_limit" });
+    expect(await askAgent(stream([{ status: 500, body: null }]), "g", "t", "q", noop)).toEqual({ kind: "unavailable" });
+  });
+
+  it("is unavailable when the stream ends with no final line", async () => {
+    expect(await askAgent(stream([{ progress: "Working." }]), "g", "t", "q", async () => {})).toEqual({ kind: "unavailable" });
+  });
+
+  it("reads a gateway that answers plain JSON exactly as before", async () => {
+    const said: string[] = [];
+    const answer = await askAgent(fake(200, { answer: "Sure." }), "g", "t", "q", async (text) => {
+      said.push(text);
+    });
+    expect(answer).toEqual({ kind: "answer", text: "Sure." });
+    expect(said).toEqual([]);
   });
 });

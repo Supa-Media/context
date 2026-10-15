@@ -8,6 +8,7 @@ import type { SettingsSectionKey } from "../settings/sections";
 import type { SetupAgent } from "../../agentSetup/guides";
 import { selectedContext, type ConsoleData } from "../types";
 import { setupView, showSetupWidget } from "./rules";
+import { DONE_TOP } from "./SetupDone";
 import { SetupDoneLive } from "./SetupDoneLive";
 import { SetupWidget } from "./SetupWidget";
 import { useSetupWidget } from "./useSetupWidget";
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
     justifyContent: "flex-start",
-    paddingTop: 60,
+    paddingTop: DONE_TOP,
     paddingHorizontal: 24,
   },
 });

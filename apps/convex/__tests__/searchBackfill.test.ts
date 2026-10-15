@@ -169,22 +169,28 @@ async function chain(
 }
 
 describe("a projection pass the control plane runs itself", () => {
-  test("chains through a current window to reach a later changed note", async () => {
-    const store = bucket(101);
+  test("reuses one listing to cross current windows and reach a later changed note", async () => {
+    const store = bucket(301);
     const d1 = stubD1();
     const filled = await chain(store, d1.client);
     expect(filled.last.ready).toBe(true);
 
-    // The changed Areas note sorts after the first 100 current paths. The
-    // first pass writes no note but advances the cursor to reach it.
+    // The changed Areas note sorts after the first 300 current paths. A
+    // scheduled action crosses that D1 window using the same bucket listing.
     store.seed("2-areas/README.md", "# Areas changed\n");
-    const traversed = await projectSearchIndex(store, d1.client);
-    expect(traversed.projected).toBe(0);
-    expect(traversed.moved).toBe(true);
-    expect(traversed.ready).toBe(false);
-
+    const query = d1.client.query;
+    let versionQueries = 0;
+    d1.client.query = async (sql, params) => {
+      if (sql.startsWith("SELECT path, version FROM notes WHERE path IN")) {
+        versionQueries += 1;
+        if ((params?.length ?? 0) > 100) throw new Error("D1 refused an oversized version probe");
+      }
+      return query(sql, params);
+    };
     const reached = await projectSearchIndex(store, d1.client);
     expect(reached.projected).toBe(1);
+    expect(reached.ready).toBe(true);
+    expect(versionQueries).toBeGreaterThan(1);
   });
 
   test("copies a bucket nothing has ever searched", async () => {
@@ -425,7 +431,7 @@ describe("the trigger", () => {
    * miss, so a search over one costs a D1 round trip on every keystroke and
    * returns nothing for it.
    */
-  test("a search reads the projection once the row is ready, and not before", async () => {
+  test("a search reads the projection while it fills, and says it is behind until ready", async () => {
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
     await project(t, workspaceId);
     expect(d1.paths()).toContain("1-projects/note-0.md");
@@ -433,8 +439,8 @@ describe("the trigger", () => {
     const asked = () =>
       d1.statements.filter((sql) => /^\s*SELECT[\s\S]*FROM notes_(private|team)_fts/i.test(sql));
 
-    // The row is `ready` after that pass. First the negative, from the state
-    // it was in before: a backfilling row is not read from.
+    // The row is `ready` after that pass. First the state it was in before: a
+    // backfilling row is read from, and its answer says it is still behind.
     await t.run(async (ctx) => {
       const existing = await ctx.db
         .query("searchIndexes")
@@ -448,10 +454,9 @@ describe("the trigger", () => {
       scope: "private" as const,
       operation: { kind: "search" as const, query: "quokkaplan" },
     });
-    expect(asked()).toHaveLength(0);
-    // And it still answers, from the R2 index, which is what every context
-    // without fast search does.
+    expect(asked().length).toBeGreaterThan(0);
     expect(whileFilling.kind).toBe("searchResults");
+    expect((whileFilling as { indexIncomplete?: boolean }).indexIncomplete).toBe(true);
 
     await t.run(async (ctx) => {
       const existing = await ctx.db

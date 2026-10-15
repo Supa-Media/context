@@ -540,11 +540,19 @@ export const darkSeriesColors = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d
  * hue: teal (`accent`) is spent only on live writing, a selected note and a
  * new one, so the eye can find what is changing. Taken from the approved
  * prototype; the rest of the map's colours come from `Colors`.
+ *
+ * `board` is the surface the map is drawn on (Dev2, 2026-10-11): cream paper
+ * in light mode, a blackboard in dark mode, painted in `ground`. Links are
+ * pencil or chalk in `edge` and resting notes are drawn dots in `dot`, so both
+ * are darker on paper and lighter on the board than a flat map would want
+ * (`engine/draw/board.ts`).
  */
 export const lightMapColors = {
+  board: "paper",
+  ground: "#FAF7F0",
   island: "#F7F4ED",
-  dot: "#A9A195",
-  edge: "#D6D0C4",
+  dot: "#6B645A",
+  edge: "#8E877C",
   zone: "#F3EFE7",
   zoneLine: "#DCD5C8",
   ink: "#2E2A25",
@@ -561,12 +569,14 @@ export const lightMapColors = {
   agentGlyph: "#FFFFFF",
 } as const;
 
-export type MapColors = Readonly<Record<keyof typeof lightMapColors, string>>;
+export type MapColors = Readonly<Record<Exclude<keyof typeof lightMapColors, "board">, string> & { board: "paper" | "chalk" }>;
 
 export const darkMapColors: MapColors = {
+  board: "chalk",
+  ground: "#1E2220",
   island: "#24221F",
-  dot: "#8A8277",
-  edge: "#47423C",
+  dot: "#E4E1D9",
+  edge: "#D9D6CE",
   zone: "#2B2825",
   zoneLine: "#504A43",
   ink: "#D8D2C9",

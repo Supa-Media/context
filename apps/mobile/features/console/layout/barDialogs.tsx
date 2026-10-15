@@ -21,7 +21,6 @@ export function consoleBarDialogs({
   barDialog,
   setBarDialog,
   startMeeting,
-  startNewChat,
   resumeRow,
   current,
   insideContext,
@@ -31,7 +30,6 @@ export function consoleBarDialogs({
   barDialog: Dialog;
   setBarDialog: Dispatch<SetStateAction<Dialog>>;
   startMeeting: ConsoleAside["startMeeting"];
-  startNewChat: ConsoleAside["startNewChat"];
   resumeRow: ConsoleAside["resumeRow"];
   current: ConsoleContext | null;
   insideContext: boolean;
@@ -50,11 +48,11 @@ export function consoleBarDialogs({
         onStartBusiness: () => router.push(NEW_WORKSPACE_ROUTE),
       }}
       /*
-        The two rows of the phone's create sheet that are not files. The same
+        The rows of the phone's create sheet that are not files. The same
         handlers the corner's menu gets, so the two `+`s offer the same
         things — see `CreatePrompt`.
       */
-      create={{ onNewMeeting: startMeeting, onNewChat: startNewChat, resume: resumeRow }}
+      create={{ onNewMeeting: startMeeting, resume: resumeRow }}
       /*
         The share dialog raised from the toolbar is the one a phone
         reaches, and it was drawing without the people or the groups —

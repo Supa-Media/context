@@ -82,17 +82,24 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
     };
   }
   if (move.skipped.length > 0) {
-    return {
-      id: move.id,
-      tone: "warn",
-      text:
-        `Moved ${countOf(move.objects)} to ${move.destination}. ` +
-        `${move.skipped.length === 1 ? "One note" : `${move.skipped.length} notes`} stayed here ` +
-        "because they are encrypted to this context and could not be read anywhere else: " +
-        `${move.skipped.map((entry) => entry.path).join(", ")}.`,
-      resumable: false,
-      dismissible: true,
-    };
+    const encrypted = move.skipped.filter((entry) => entry.reason === "encrypted");
+    const large = move.skipped.filter((entry) => entry.reason === "too_large");
+    const lines = [`Moved ${countOf(move.objects)} to ${move.destination}.`];
+    if (encrypted.length > 0) {
+      lines.push(
+        `${encrypted.length === 1 ? "One note" : `${encrypted.length} notes`} stayed here ` +
+          "because they are encrypted to this context and could not be read anywhere else: " +
+          `${encrypted.map((entry) => entry.path).join(", ")}.`,
+      );
+    }
+    if (large.length > 0) {
+      lines.push(
+        `${large.length === 1 ? "One file" : `${large.length} files`} stayed here ` +
+          "because they are too large to move between workspaces yet; download and upload them there: " +
+          `${large.map((entry) => entry.path).join(", ")}.`,
+      );
+    }
+    return { id: move.id, tone: "warn", text: lines.join(" "), resumable: false, dismissible: true };
   }
   return {
     id: move.id,

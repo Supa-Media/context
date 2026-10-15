@@ -5,6 +5,8 @@ import { assertIsoDate } from "./clock.mjs";
 
 import { expandFluff, parseFluff, resolveRel } from "./fluff.mjs";
 import { normalize, parseFront, unquote } from "./frontMatter.mjs";
+import { readCheck } from "./checks.mjs";
+import { parseSite } from "./sites.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
@@ -83,12 +85,24 @@ function readQuestion(sec) {
     mirror: null,
     // Allowed but never required: told to the judge, never graded.
     may: [],
+    // A search question (`tests/search.md`): the notes that should come back,
+    // as @workspace/path, and the one workspace the search is addressed to.
+    expect: [],
+    // The notes that must not come back for this person: a held-back note
+    // asked for by someone it is held back from. One in the answer fails the
+    // setup's privacy, whatever its other scores.
+    forbid: [],
+    in: null,
+    // Lines graded from the run's record, never by the judge (`checks.mjs`).
+    checks: [],
     body: sec.lines.join("\n").trim(),
   };
   for (const raw of sec.lines) {
     const line = raw.trim();
     let m;
-    if ((m = line.match(/^- as:\s*(.*)$/))) q.as = m[1].trim();
+    const check = readCheck(line);
+    if (check) q.checks.push(check);
+    else if ((m = line.match(/^- as:\s*(.*)$/))) q.as = m[1].trim();
     else if ((m = line.match(/^- kind:\s*(.*)$/))) q.kind = m[1].trim();
     else if (/^- gate:/.test(line)) q.gate = true;
     else if ((m = line.match(/^- person starts:\s*(.*)$/))) q.personStarts = unquote(m[1]);
@@ -97,6 +111,9 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- must:\s*(.*)$/))) q.must.push(m[1].trim());
     else if ((m = line.match(/^- judge:\s*(.*)$/))) q.judge.push(m[1].trim());
     else if ((m = line.match(/^- may:\s*(.*)$/))) q.may.push(m[1].trim());
+    else if ((m = line.match(/^- expect:\s*(.*)$/))) q.expect.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
+    else if ((m = line.match(/^- in:\s*(.*)$/))) q.in = m[1].trim() || null;
+    else if ((m = line.match(/^- forbid:\s*(.*)$/))) q.forbid.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
     else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
       if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
       q.mirror = Number(m[1].trim());
@@ -106,8 +123,9 @@ function readQuestion(sec) {
 }
 
 // A gate question is one a failure of fails the whole setup: every privacy
-// question, and a back-and-forth question marked `gate:`.
-export const isGateQuestion = (q) => q.kind === "privacy" || (q.kind === "back-and-forth" && q.gate === true);
+// question, a back-and-forth question marked `gate:`, and every golden task
+// (`tests/tasks.md`, decided by the owner 2026-10-11: Tex MUST do these).
+export const isGateQuestion = (q) => q.kind === "privacy" || q.kind === "task" || (q.kind === "back-and-forth" && q.gate === true);
 
 // Parse a test file: front matter plus one question per "## n. text" heading.
 export function parseTest(raw) {
@@ -229,7 +247,20 @@ export async function readBenchFolder(dir) {
     tests[name.slice(0, -3)] = { raw, ...parseTest(raw) };
   }
 
-  return { dir, readme, people, workspaces, tests, bank };
+  return { dir, readme, people, workspaces, tests, bank, sites: await readSites(dir) };
+}
+
+// The scripted sites golden tasks run on (`sites.mjs`), one file per site; none is fine.
+async function readSites(dir) {
+  let names;
+  try {
+    names = (await readdir(join(dir, "sites"))).filter((f) => f.endsWith(".md")).sort();
+  } catch {
+    return [];
+  }
+  const sites = [];
+  for (const name of names) sites.push(parseSite(await readFile(join(dir, "sites", name), "utf8"), `sites/${name}`));
+  return sites;
 }
 
 /**

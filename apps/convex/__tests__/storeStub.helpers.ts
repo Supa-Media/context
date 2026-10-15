@@ -195,6 +195,7 @@ export function memoryStore(
       if (!value) return null;
       return {
         etag: value.etag,
+        ...(value.contentType ? { contentType: value.contentType } : {}),
         text: async () => new TextDecoder().decode(value.bytes),
         arrayBuffer: async () =>
           value.bytes.buffer.slice(
@@ -219,7 +220,7 @@ export function memoryStore(
         return null;
       }
       const etag = `m${++counter}`;
-      objects.set(key, stored(body, etag));
+      objects.set(key, stored(body, etag, putOptions?.contentType));
       return { etag };
     },
     async list(listOptions) {
@@ -421,6 +422,22 @@ export function memoryS3(
           etag: `"${value.etag}"`,
           "last-modified": new Date(0).toUTCString(),
           ...(value.contentType ? { "content-type": value.contentType } : {}),
+        },
+      });
+    }
+
+    if (method === "HEAD") {
+      // What R2 and S3 answer: the metadata, no body. Without it every
+      // existence probe here threw, and a move — which asks before it reads —
+      // answered "not found" for an object the GET above would have returned.
+      const value = objects.get(key);
+      if (!value) return new Response(null, { status: 404 });
+      return new Response(null, {
+        status: 200,
+        headers: {
+          etag: `"${value.etag}"`,
+          "content-length": String(value.bytes.length),
+          "last-modified": new Date(0).toUTCString(),
         },
       });
     }

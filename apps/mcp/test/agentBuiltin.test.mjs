@@ -1,13 +1,15 @@
 /**
  * THE BUILT-IN MODEL, END TO END THROUGH `/agent`.
  *
- * "Premium, capped" (decided by the owner, 2026-10-06): with no model account
- * of the person's own, `/agent` asks the control plane whether this turn may
- * spend ours, runs it on the Workers AI binding, and reports token counts back.
+ * "Premium, capped" (decided by the owner, 2026-10-06): `/agent` asks the
+ * control plane whether this turn may spend ours, runs it on the Workers AI
+ * binding or our AI gateway, and reports token counts back. It is the only
+ * model a turn runs on since people's own keys were deleted (the owner,
+ * 2026-10-10).
  * The control plane's side of the decision is `apps/convex/__tests__/
  * builtinModel.test.ts`; these checks are the gateway's half:
  *
- *  - a connected key always wins over ours;
+ *  - a request that names a provider is refused, never answered on ours;
  *  - no verdict, no binding, or a refusal means no call to Workers AI at all;
  *  - the caller can never pick which model we pay for;
  *  - what goes back to the meter is counts, never text.
@@ -25,8 +27,6 @@ import { DEFAULT_BUILTIN_MODEL, requestBuiltin } from "../src/agent/builtin.js";
 
 const S3_ENDPOINT = "https://s3.example-builtin.test";
 const TOKEN = `cat_builtin_texter_${"0".repeat(21)}`;
-const TOKEN_KEYED = `cat_builtin_keyed_${"0".repeat(22)}`;
-const API_KEY = "zarquon-plumbago-builtin-not-a-real-key";
 
 /** A Workers AI binding that answers from a script and records what it was sent. */
 function fakeAi() {
@@ -106,7 +106,6 @@ export async function runAgentBuiltinChecks(check) {
   const restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
-  const keyedModelCalls = [];
   // The gateway's road (`aiGateway.js`): every request, and the scripted
   // Anthropic-shaped answers it gets back, in order.
   const gatewayCalls = [];
@@ -120,21 +119,11 @@ export async function runAgentBuiltinChecks(check) {
       if (!next) throw new Error("fixture: the gateway script ran out");
       return new Response(JSON.stringify(next), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (url.startsWith("https://api.anthropic.com")) {
-      keyedModelCalls.push(url);
-      return new Response(JSON.stringify({ content: [{ type: "text", text: "from your key" }] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
     return withStubs(input, init);
   };
 
   try {
-    for (const [id, slug, bucket] of [
-      ["ws_texter", "texter", "tenant-texter"],
-      ["ws_keyed", "keyed", "tenant-keyed"],
-    ]) {
+    for (const [id, slug, bucket] of [["ws_texter", "texter", "tenant-texter"]]) {
       controlPlane.addWorkspace(id, slug, {
         provider: "s3",
         status: "active",
@@ -155,15 +144,6 @@ export async function runAgentBuiltinChecks(check) {
       clientId: "context_texts",
       userId: "user_texter",
     });
-    await controlPlane.addGrant({
-      accessToken: TOKEN_KEYED,
-      workspaceId: "ws_keyed",
-      role: "owner",
-      scopes: ["context:read", "context:write", "context:private"],
-      clientId: "context_texts",
-      userId: "user_keyed",
-    });
-    controlPlane.connectProvider("ws_keyed", "anthropic", API_KEY);
     s3.bucketFor("tenant-texter").set("1-projects/launch.md", { body: "# Launch\n\nFriday.\n", etag: "g1" });
 
     const ai = fakeAi();
@@ -173,7 +153,7 @@ export async function runAgentBuiltinChecks(check) {
 
     const free = await ask(env, TOKEN, { question: "When is the launch?" });
     check(
-      "a workspace the control plane refuses is told to connect an account, and Workers AI is never called",
+      "a workspace the control plane refuses is refused as no_provider, and Workers AI is never called",
       free.status === 409 && free.body?.error === "no_provider" && ai.calls.length === 0,
     );
 
@@ -263,17 +243,20 @@ export async function runAgentBuiltinChecks(check) {
         controlPlane.builtinReports.at(-1)?.failed === true,
     );
 
-    /* ---------------- a connected key always wins ---------------- */
+    /* ---------------- a named provider is not ours to answer ---------------- */
 
-    controlPlane.setBuiltinVerdict("ws_keyed", { allowed: true, remaining: 10 });
+    // The workspace may spend ours, and the request asks for Anthropic: the
+    // refusal an unconnected provider always got, and no model call and no
+    // turn counted against the cap (the owner, 2026-10-10).
     const before = ai.calls.length;
-    const keyed = await ask(env, TOKEN_KEYED, { question: "When is the launch?" });
+    const countedBefore = controlPlane.gatewayCalls.byPath.get("/gateway/builtin-model") ?? 0;
+    const named = await ask(env, TOKEN, { question: "When is the launch?", provider: "anthropic" });
     check(
-      "a person's own connected key is used before ours",
-      keyed.status === 200 &&
-        keyed.body?.provider === "anthropic" &&
-        keyedModelCalls.length === 1 &&
-        ai.calls.length === before,
+      "a request naming a provider is refused as no_provider even where ours is allowed, and nothing is spent or counted",
+      named.status === 409 &&
+        named.body?.error === "no_provider" &&
+        ai.calls.length === before &&
+        (controlPlane.gatewayCalls.byPath.get("/gateway/builtin-model") ?? 0) === countedBefore,
     );
 
     /* ---------------- through our AI gateway, when one is configured ---------------- */

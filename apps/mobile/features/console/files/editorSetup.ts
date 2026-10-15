@@ -41,8 +41,10 @@ import {
 import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
+import { diagramHost, type DiagramHost } from "./livePreview/diagram";
 import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
+import { titleLock } from "./titleLock";
 import { emojiHost, type EmojiHostRef } from "./emoji/host";
 import { emojiInline } from "./emoji/emojiInline";
 import { emojiTyping } from "./emoji/emojiComplete";
@@ -587,6 +589,12 @@ export function editorExtensions(options: {
    * it, and standard emoji still work there.
    */
   emoji?: EmojiHostRef;
+  /**
+   * Where ```` ```mermaid ```` fences are drawn from. Absent on a surface with
+   * no frame page behind it — the native editor's `WebView` guest — and the
+   * fence then stays a code block. See `livePreview/diagram.ts`.
+   */
+  diagrams?: DiagramHost;
 }): Extension[] {
   const {
     editable,
@@ -599,6 +607,7 @@ export function editorExtensions(options: {
     images,
     reportImage,
     emoji,
+    diagrams,
   } = options;
   return [
     markdownLanguage(),
@@ -624,6 +633,12 @@ export function editorExtensions(options: {
     */
     ...(links === undefined ? [] : [noteLinks(links)]),
     /*
+      A note's `# title` stays, and stays a name a file can have — see
+      `titleLock`. On `links` because that is where the note's path lives on
+      both hosts; a surface with no path has no file to name.
+    */
+    ...(links === undefined ? [] : [titleLock(() => links.current.path)]),
+    /*
       Completion is unconditional where `noteLinks` is not: the `[[` half needs
       a note list and a form block needs nothing but the text it is in. A
       surface with no `links` — the landing page's demo console — still offers
@@ -637,6 +652,7 @@ export function editorExtensions(options: {
       — see `formHost`.
     */
     ...(forms === undefined ? [] : [formHost.of(forms)]),
+    ...(diagrams === undefined ? [] : [diagramHost.of(diagrams)]),
     /*
       Images: the host a row reads its bytes from, plus the paste and drop
       handlers that put one in the bucket. One extension so a surface cannot

@@ -1,24 +1,23 @@
 /**
- * `notePathIndex` (`lib/fileOps.ts`) — the note-path index the editor's link
- * resolution reuses rather than building a second one. See
+ * `notePathIndex` (`lib/fileOps/search.ts`): every note path a caller may
+ * link to, for the editor's `[[` completion and bare-link resolution. See
  * `docs/decisions/app-and-console.md`, "L1".
  *
- * What is asserted, and why:
+ * It answers from the Convex tree's rows and nothing else (decided by the
+ * owner, 2026-10-13: no reader of which notes exist reads the bucket, not
+ * even as a fallback). It used to read the search index's docmap out of the
+ * bucket; these cases pin that it no longer does:
  *
- *  - **It answers from the index, not from a listing.** A bucket that has
- *    never been indexed returns `null`, never `{ paths: [] }` — the same
- *    "absent is not zero" rule the search index and the note census both
- *    follow, because an empty array here would tell the editor a bucket with
- *    real notes in it has none.
- *  - **A team caller cannot learn a private note's path through it.** The
- *    docmap holds every note in the bucket regardless of who asks, so this is
- *    the same existence-oracle risk `consoleSearch.test.ts` proves closed for
- *    search results, reached through a different door: a path list rather
- *    than a hit list.
- *  - **It reuses the search index's own docmap rather than a second index** —
- *    proven by driving the same `maintainSearchIndex` fixture `consoleSearch`
- *    uses and nothing else, so there is no second maintenance loop to have
- *    forgotten to run.
+ *  - **A store that is not the tree's answers `null`, even fully indexed.**
+ *    `null` is "not there yet", never `{ paths: [] }`: an empty array would
+ *    tell the editor a workspace with notes in it has none.
+ *  - **The rows never offer `privacy.md` or plumbing keys**, and a team
+ *    caller never receives a private note's path. The clearance cases in
+ *    full live in `nodes/servedReaders.test.ts`, "link completion".
+ *
+ * Sabotage: put the docmap branch back in `notePathIndex` and the "indexed
+ * bucket" case fails; drop both the `isIndexableNote` and `isPlumbing`
+ * filters and the plumbing case fails (either one alone still holds it).
  */
 
 import { describe, expect, test } from "vitest";
@@ -32,6 +31,9 @@ import {
   setVisibility,
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
+import { nodesPagedStore } from "../functions/lib/nodes/manifestStore";
+import { privacyMirrorOf } from "../functions/lib/nodes/privacyMirror";
+import { compareKeys } from "../functions/lib/nodes/sweep";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 
 function bucket(): MemoryStore & FileStore {
@@ -58,61 +60,48 @@ async function indexed(store: FileStore): Promise<void> {
   }
 }
 
+/** The tree's store over this bucket: its rows, as a sweep records them, and its rules mirror. */
+async function served(store: MemoryStore & FileStore): Promise<FileStore> {
+  const listing = await store.list({ limit: 10_000 });
+  const rows = (listing.objects ?? [])
+    .map((object: { key: string }) => ({ path: object.key }))
+    .sort((a: { path: string }, b: { path: string }) => compareKeys(a.path, b.path));
+  return nodesPagedStore(store, async () => ({ rows, cursor: null }), await privacyMirrorOf(store), []);
+}
+
 describe("notePathIndex", () => {
   test("a bucket with no index at all answers null, never an empty list", async () => {
     const store = bucket();
-    const found = await notePathIndex(store, clearanceOf("private"));
-    expect(found).toBeNull();
+    expect(await notePathIndex(store, clearanceOf("private"))).toBeNull();
   });
 
-  test("once indexed, returns every note path the owner can see, sorted", async () => {
+  test("an indexed bucket still answers null: the search index's docmap is not read", async () => {
     const store = bucket();
     await indexed(store);
-    const found = await notePathIndex(store, clearanceOf("private"));
+    expect(await notePathIndex(store, clearanceOf("private"))).toBeNull();
+  });
 
-    expect(found).not.toBeNull();
-    expect(found!.paths).toEqual([
+  test("from the tree's rows: every note the owner can see, never privacy.md or plumbing", async () => {
+    const store = bucket();
+    store.seed(".context/routines/digest.md", "# Plumbing, not a note\n");
+    await indexed(store);
+    const found = await notePathIndex(await served(store), clearanceOf("private"));
+    expect([...found!.paths].sort()).toEqual([
       "1-projects/README.md",
       "1-projects/pay.md",
       "1-projects/shared-plan.md",
       "2-areas/README.md",
       "index.md",
     ]);
+    expect(found!.paths).not.toContain(PRIVACY_KEY);
+    expect(found!.paths.some((path) => path.startsWith(".context/") || path.startsWith(".index/"))).toBe(false);
   });
 
   test("a team caller does not receive a private note's path", async () => {
     const store = bucket();
     await shareProjects(store);
-    await indexed(store);
-
-    const asOwner = await notePathIndex(store, clearanceOf("private"));
-    expect(asOwner!.paths).toContain("1-projects/pay.md");
-
-    const asTeam = await notePathIndex(store, clearanceOf("team"));
-    expect(asTeam!.paths).not.toContain("1-projects/pay.md");
-    // Not the path anywhere in the answer, the same way `consoleSearch.test.ts`
-    // checks a search result never carries the withheld path in any field.
+    const asTeam = await notePathIndex(await served(store), clearanceOf("team"));
     expect(JSON.stringify(asTeam)).not.toContain("pay.md");
-    // And the rest of the bucket is still there — this is a filter, not a
-    // refusal of the whole answer.
     expect(asTeam!.paths).toContain("1-projects/shared-plan.md");
-  });
-
-  test("privacy.md itself is never offered as a link target", async () => {
-    const store = bucket();
-    await indexed(store);
-    const found = await notePathIndex(store, clearanceOf("private"));
-    expect(found!.paths).not.toContain(PRIVACY_KEY);
-  });
-
-  test("PRIVACY_KEY is a plumbing key excluded from the docmap entirely, not merely filtered here", async () => {
-    // Documented rather than merely asserted: `isPlumbing` runs *in addition*
-    // to `canSee` in `notePathIndex`, but the indexer's own `isIndexable`
-    // already keeps `.context/search/` and `privacy.md` out of the docmap in the first
-    // place. This pins the outcome either layer is responsible for.
-    const store = bucket();
-    await indexed(store);
-    const found = await notePathIndex(store, clearanceOf("private"));
-    expect(found!.paths.some((path) => path.startsWith(".context/search/"))).toBe(false);
   });
 });

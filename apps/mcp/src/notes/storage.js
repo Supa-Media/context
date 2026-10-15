@@ -125,8 +125,8 @@ export async function listImmediateLayout(store, prefix = "") {
 /**
  * Existence, by metadata, with the same legacy fallback a read would follow.
  *
- * Returns a sentinel rather than an object: callers of `getVisibleMovedNote`
- * only ever ask whether the thing is there, and handing back something that
+ * Returns a sentinel rather than an object: callers (`read_note`'s refusal
+ * that costs what a miss costs) only ever ask whether the thing is there, and handing back something that
  * looks like a note but has no body is how a caller ends up reading `undefined`
  * into a customer's bucket.
  */

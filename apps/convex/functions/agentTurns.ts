@@ -36,9 +36,12 @@ export const traceEntryValidator = v.object({
   kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
   tool: v.optional(v.string()),
   tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+  confidence: v.optional(v.number()),
   model: v.optional(v.string()),
   status: v.optional(v.number()),
   retried: v.optional(v.boolean()),
+  cut: v.optional(v.boolean()),
+  held: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });
@@ -74,18 +77,20 @@ export const recordAgentTurn = internalMutation({
       const ms = count(entry.ms, MAX_MS);
       if (entry.kind === "tool") {
         if (entry.tool === undefined || !TOOL_NAME.test(entry.tool)) return false;
-        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms });
+        trace.push({ kind: "tool" as const, tool: entry.tool, ok: entry.ok, ms, ...(entry.held ? { held: true } : {}) });
       } else if (entry.kind === "router") {
         // The router's pick (`src/agent/router.js`): which tier, and so which model, answered.
         if (entry.tool !== undefined || entry.tier === undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;
-        trace.push({ kind: "router" as const, tier: entry.tier, model: entry.model, ok: entry.ok, ms });
+        // How sure it was that the text needs thinking, 0 to 1, when it said so.
+        if (entry.confidence !== undefined && !(entry.confidence >= 0 && entry.confidence <= 1)) return false;
+        trace.push({ kind: "router" as const, tier: entry.tier, model: entry.model, ok: entry.ok, ms, ...(entry.confidence === undefined ? {} : { confidence: entry.confidence }) });
       } else if (entry.kind === "fallback") {
         // The turn went on with the setup's fallback model after the one it was on failed.
         if (entry.tool !== undefined || entry.model === undefined || !MODEL.test(entry.model)) return false;
         trace.push({ kind: "fallback" as const, model: entry.model, ok: entry.ok, ms, ...STATUS(entry.status) });
       } else {
         if (entry.tool !== undefined) return false;
-        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.retried ? { retried: true } : {}), ...STATUS(entry.status) });
+        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.retried ? { retried: true } : {}), ...(entry.cut ? { cut: true } : {}), ...STATUS(entry.status) });
       }
     }
 

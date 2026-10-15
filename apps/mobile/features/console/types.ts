@@ -1,3 +1,4 @@
+import type { LeftBehind } from "./storage/handoff/leftBehind";
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { ManagedEncryptionView } from "./storage/encryptionView";
 import type { MeetingDestination } from "../meetings/destination";
@@ -25,6 +26,7 @@ import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
 import type { OrganizerView } from "../organizer/useOrganizer";
+import type { ChaosSource } from "../chaos/useChaosScore";
 import type { ConnectFormValues } from "./storage/connect";
 import type { NoteLimit } from "./noteLimit";
 
@@ -169,6 +171,12 @@ export interface ConsoleClient {
    * direction this must not fail in — so a producer has to say.
    */
   mine: boolean;
+  /**
+   * The Context desktop app on one of this person's computers ("Context on
+   * Seyis-MacBook-Pro"), which records meetings. It is the app, not an AI, so
+   * the map does not draw it as one.
+   */
+  machine?: boolean;
   status: StatusTone;
   /** Absent in the demo — a demo console must not offer a Revoke that lies. */
   revoke?: () => void;
@@ -323,6 +331,8 @@ export interface ConsoleStorage {
   handoffClaimed?: boolean;
   /** The files that stopped a move, when particular files did. */
   handoffFailedKeys?: string[];
+  /** Files over the file limit the last move left in the bucket it came from. */
+  leftBehind?: LeftBehind;
   /** The last pass matched and the move is switching over; too late to stop. */
   handoffReadyToSwitch?: boolean;
   /** The owner's answer for files already in the destination. */
@@ -358,6 +368,8 @@ export interface StorageActions {
   move: (values: ConnectFormValues) => Promise<{ started: true }>;
   /** Stops a move into the owner's bucket that has not started switching over. */
   cancelHandoff: () => Promise<{ cancelled: boolean }>;
+  /** Puts away the notice of files the last move left behind. */
+  dismissLeftBehind?: () => Promise<null>;
   /** Answers a destination that already has files: merge, or start fresh (typed consent). */
   chooseExistingFiles: (
     answer: { choice: "merge" } | { choice: "replace"; confirmBucket: string },
@@ -463,6 +475,11 @@ export interface ConsoleData {
    */
   organizer?: OrganizerView;
   /**
+   * The chaos score for the selected workspace (`features/chaos`). Absent on
+   * the demo console; every surface treats absence as drawing nothing.
+   */
+  chaos?: ChaosSource;
+  /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.
    */
@@ -514,23 +531,6 @@ export interface ConsoleData {
   noteLimit?: NoteLimit | null;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
-  /**
-   * Whether this context has a model key, so anything that would *ask* one can
-   * be offered — or left out.
-   *
-   * Three values, and the third is the one that matters: `undefined` is "the
-   * subscription has not answered", which is not the same as "there is no
-   * key". A control gated on `=== true` is absent for the moment before the
-   * answer lands and then appears; one gated on `!== false` flashes an offer
-   * and takes it away, which is the worse direction for the thing it offers —
-   * a conversation with a model nobody has paid for.
-   *
-   * It is a boolean rather than the connections themselves because nothing
-   * outside the model pane may need which provider or when: the settings pane
-   * asks `listProviders` for that and shows fingerprints. This is one bit, and
-   * a bit is all a menu needs.
-   */
-  modelConnected?: boolean;
   endpoint: string;
   /**
    * The ingestion alias to display when the backend cannot yet answer for it.
@@ -664,6 +664,8 @@ export interface ConsoleData {
   whatsNew?: true;
   /** Live, signed-in console only, like `whatsNew`: routine notes' run bar and runs (`routines/RoutineHost.tsx`). */
   routines?: true;
+  /** Live, signed-in console only, like `whatsNew`: @shared's row and its dot (`shared/SharedInboxHost.tsx`). */
+  sharedInbox?: true;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

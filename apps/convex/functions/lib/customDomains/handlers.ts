@@ -187,44 +187,54 @@ export async function settingsHandler(
   const userId = await requireUserId(ctx);
   const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
   const canManage = roleAtLeast(membership.role, "owner");
-  const deployment = customDomainsDeployment();
-  const paying = await workspacePaying(ctx, args.workspaceId);
-  const row = await rootDomainOf(ctx, args.workspaceId);
-  const www = row === null ? null : await wwwCompanionOf(ctx, row);
   return {
-    available: deployment !== null,
-    paying,
+    available: customDomainsDeployment() !== null,
+    paying: await workspacePaying(ctx, args.workspaceId),
     canManage,
-    domain:
-      row === null
+    domain: await domainViewFor(ctx, args.workspaceId, canManage),
+  };
+}
+
+/**
+ * The workspace's domain as the settings screen draws it, with the records to
+ * add only when `canManage`. Shared with an owner's agent
+ * (`agentDomain.ts`), so the two can never describe one domain differently.
+ */
+export async function domainViewFor(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  canManage: boolean,
+): Promise<DomainSettings["domain"]> {
+  const deployment = customDomainsDeployment();
+  const row = await rootDomainOf(ctx, workspaceId);
+  if (row === null) return null;
+  const www = await wwwCompanionOf(ctx, row);
+  return {
+    id: row._id,
+    hostname: row.hostname,
+    apex: row.apex,
+    status: row.status,
+    stage: stageOf(row),
+    ownershipVerified: row.ownershipVerified,
+    routingVerified: row.routingVerified,
+    httpsReady: row.httpsReady,
+    problem: row.problem ?? null,
+    homeSlug: row.homeSlug ?? null,
+    checkedAt: row.checkedAt ?? null,
+    checkingSince: row.checkingSince,
+    records: canManage && deployment !== null ? recordsFor(row, www, deployment.target) : [],
+    oneClick:
+      canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
+        ? (row.oneClick ?? null)
+        : null,
+    www:
+      www === null
         ? null
         : {
-            id: row._id,
-            hostname: row.hostname,
-            apex: row.apex,
-            status: row.status,
-            stage: stageOf(row),
-            ownershipVerified: row.ownershipVerified,
-            routingVerified: row.routingVerified,
-            httpsReady: row.httpsReady,
-            problem: row.problem ?? null,
-            homeSlug: row.homeSlug ?? null,
-            checkedAt: row.checkedAt ?? null,
-            checkingSince: row.checkingSince,
-            records: canManage && deployment !== null ? recordsFor(row, www, deployment.target) : [],
-            oneClick:
-              canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
-                ? (row.oneClick ?? null)
-                : null,
-            www:
-              www === null
-                ? null
-                : {
-                    hostname: www.hostname,
-                    live: www.status === "active",
-                    stage: stageOf(www),
-                    problem: www.problem ?? null,
-                  },
+            hostname: www.hostname,
+            live: www.status === "active",
+            stage: stageOf(www),
+            problem: www.problem ?? null,
           },
   };
 }
@@ -238,6 +248,20 @@ export async function connectHandler(
   args: { workspaceId: Id<"workspaces">; hostname: string },
 ): Promise<Id<"customDomains">> {
   const userId = await requireUserId(ctx);
+  return await connectDomainAs(ctx, args.workspaceId, userId, args.hostname);
+}
+
+/**
+ * Claim `hostname` for the workspace as `userId`, who must be its owner: the
+ * settings screen's Connect and an owner's agent are this one function.
+ */
+export async function connectDomainAs(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  userId: Id<"users">,
+  hostname: string,
+): Promise<Id<"customDomains">> {
+  const args = { workspaceId, hostname };
   await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
   if (customDomainsDeployment() === null) {
@@ -319,6 +343,11 @@ export async function checkNowHandler(
   args: { domainId: Id<"customDomains"> },
 ): Promise<null> {
   const { row } = await domainForOwner(ctx, args.domainId);
+  return await checkDomainNow(ctx, row);
+}
+
+/** "Check again", on a row the caller has already cleared as its owner's. */
+export async function checkDomainNow(ctx: MutationCtx, row: Row): Promise<null> {
   if (row.status !== "pending" && row.status !== "active") return null;
   const now = Date.now();
   // A press is a fresh run of checks; a second press seconds later is not a

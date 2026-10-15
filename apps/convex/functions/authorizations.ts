@@ -135,6 +135,9 @@ export const approveAuthorization = action({
         message: "Not authenticated",
       });
     }
+    // A new connection reads the workspace for as long as it lives: a big
+    // change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
 
     const code = randomOpaqueToken(32);
     const approved: { redirectUri: string; state: string | null } =
@@ -301,6 +304,9 @@ export const approveOwnMachineGrant = action({
         message: "Not authenticated",
       });
     }
+    // A new connection reads the workspace for as long as it lives: a big
+    // change (`lib/emailProof.ts`).
+    await ctx.runQuery(internal.functions.emailProof.requireProof, {});
 
     const code = randomOpaqueToken(32);
     const approved: {

@@ -42,6 +42,10 @@ Moved to [Nine sizes, two densities, and no literal font size anywhere](./app-an
 
 Moved to [One interface face, and `display` kept as a role with no face of its own](./app-and-console/design-tokens-and-interaction.md#one-interface-face-and-display-kept-as-a-role-with-no-face-of-its-own).
 
+### Note text is read in Libron, served from our own origin (2026-10-11)
+
+Moved to [Note text is read in Libron, served from our own origin](./app-and-console/design-tokens-and-interaction.md#note-text-is-read-in-libron-served-from-our-own-origin-2026-10-11).
+
 ### A long press has two signals, because the platform is watching the finger too
 
 Moved to [A long press has two signals, because the platform is watching the finger too](./app-and-console/design-tokens-and-interaction.md#a-long-press-has-two-signals-because-the-platform-is-watching-the-finger-too).
@@ -97,6 +101,10 @@ Moved to [A front matter change is a hint too, and an open project page fetches 
 ### A workspace's tree is a table in its own database, and the bucket stays the truth
 
 Moved to [A workspace's tree is a table in its own database, and the bucket stays the truth](./app-and-console/tree-table.md#a-workspaces-tree-is-a-table-in-its-own-database-and-the-bucket-stays-the-truth).
+
+### A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files
+
+Moved to [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md#a-workspaces-tree-and-its-privacy-rules-live-in-convex-and-the-bucket-keeps-the-files).
 
 ### Links live beside the tree, and "who links here" is one query
 
@@ -241,6 +249,10 @@ Moved to [The breadcrumb head stopped being a switcher pill when it moved rows](
 ### A diagram lives in the note, and the browser is the only thing that makes it safe
 
 Moved to [A diagram lives in the note, and the browser is the only thing that makes it safe](./app-and-console/diagrams-recent-and-sharing.md#a-diagram-lives-in-the-note-and-the-browser-is-the-only-thing-that-makes-it-safe).
+
+### A Mermaid chart is drawn by our script in a frame the note cannot leave
+
+Moved to [A Mermaid chart is drawn by our script in a frame the note cannot leave](./app-and-console/diagrams-recent-and-sharing.md#a-mermaid-chart-is-drawn-by-our-script-in-a-frame-the-note-cannot-leave).
 
 ### A phone gets Recent, because it could never get a second tab
 

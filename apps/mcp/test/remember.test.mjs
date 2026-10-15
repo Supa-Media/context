@@ -19,7 +19,9 @@
  * live editing: with it, `write_note` already refuses an overwrite, which is
  * why the inbox test runs on both.) In `packages/shared`, counting notes
  * instead of facts and refusing to merge across folders failed the
- * `remembered` checks in test/activity/remembered.test.mjs.
+ * `remembered` checks in test/activity/remembered.test.mjs. Dropping the
+ * `aboutMeTooLong` refusal from `write_note` failed "Tex's memory note holds at
+ * most 500 lines".
  */
 
 import assert from "node:assert/strict";
@@ -29,6 +31,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
@@ -68,8 +71,16 @@ async function rpc(token, method, params, path = "/mcp") {
   return body?.result;
 }
 
+/** The person's own app on each workspace a tool grant connects to (`egressApproval.mjs`). */
+const CONSOLE_ME = `cat_remember_console_me_${"0".repeat(16)}`;
+const CONSOLE_RAW = `cat_remember_console_raw_${"0".repeat(15)}`;
+const consoleFor = (token) => (token === OWNER ? CONSOLE_ME : token === RAW ? CONSOLE_RAW : null);
+
 async function call(token, name, args) {
-  const result = await rpc(token, "tools/call", { name, arguments: args });
+  const result = await approving(() => rpc(token, "tools/call", { name, arguments: args }), {
+    env,
+    consoleToken: consoleFor(token),
+  });
   return { text: result?.content?.[0]?.text || "", isError: result?.isError === true };
 }
 
@@ -97,6 +108,8 @@ before(async () => {
   restore.push(s3.install());
   controlPlane = createControlPlaneStub();
   restore.push(controlPlane.install());
+  // Each workspace's tree, copied from its bucket: write_note asks it whether the note exists.
+  controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.addWorkspace("ws_me", "me", binding("remember-me"));
   controlPlane.addWorkspace("ws_team", "team", binding("remember-team"));
   controlPlane.addWorkspace("ws_other", "other", binding("remember-other"));
@@ -113,6 +126,24 @@ before(async () => {
       { workspaceId: "ws_team", role: "owner" },
       { workspaceId: "ws_edit", role: "editor" },
     ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_me",
+    userId: "user_me",
+    accessToken: CONSOLE_ME,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
+    alsoMemberOf: [
+      { workspaceId: "ws_team", role: "owner" },
+      { workspaceId: "ws_edit", role: "editor" },
+    ],
+  });
+  await controlPlane.addGrant({
+    workspaceId: "ws_raw",
+    userId: "user_me",
+    accessToken: CONSOLE_RAW,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "context_console",
   });
   await controlPlane.addGrant({
     workspaceId: "ws_me",
@@ -378,4 +409,23 @@ test("the trail's description admits the provenance the trail stores", async () 
     "the record carries note content, so the description must not promise it does not",
   );
   assert.match(changes.description, /remember_fact/i, "the description should name what does carry content");
+});
+
+test("Tex's memory note holds at most 500 lines, from write_note and remember alike", async () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => `- fact ${i + 1}`).join("\n") + "\n";
+  const full = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(500) });
+  assert.equal(full.isError, false, full.text);
+
+  const over = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(501) });
+  assert.equal(over.isError, true);
+  assert.match(over.text, /^too long: tex\/about-me\.md holds at most 500 lines/);
+  assert.equal((await read("tex/about-me.md")).trim().split("\n").length, 500);
+
+  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about-me.md" });
+  assert.equal(remembered.isError, true);
+  assert.match(remembered.text, /too long/);
+
+  // Any other note is not held to it.
+  const other = await call(OWNER, "write_note", { path: "3-resources/long.md", content: lines(600) });
+  assert.equal(other.isError, false, other.text);
 });

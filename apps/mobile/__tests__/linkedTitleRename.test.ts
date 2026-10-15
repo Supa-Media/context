@@ -43,7 +43,7 @@ jest.mock("convex/react", () => {
     };
     return bound[name];
   };
-  return { useAction: record, useMutation: record, useQuery: () => undefined };
+  return { useAction: record, useMutation: record, useQuery: () => undefined, useQueries: () => ({}), useConvex: () => ({ query: async () => null }) };
 });
 
 import { useFileBrowser } from "../features/console/files/useFileBrowser";
@@ -179,11 +179,13 @@ describe("a note whose title is its name", () => {
       files.set(path, text);
       return { path, etag: `etag:${path}:${text.length}`, conflictCheck: "conditional" };
     };
+    // The server's move, heading step included (`lib/fileOps/followHeading.ts`):
+    // the console asks for it and writes no heading of its own.
     actions[fn("moveEntry")] = async (args: never) => {
-      const { from, to } = args as { from: string; to: string };
+      const { from, to, followHeading } = args as { from: string; to: string; followHeading?: boolean };
       const text = files.get(from);
       files.delete(from);
-      if (text !== undefined) files.set(to, text);
+      if (text !== undefined) files.set(to, followHeading === true ? retitled(from, to, text) ?? text : text);
       return { path: to };
     };
   });
@@ -238,6 +240,90 @@ describe("a note whose title is its name", () => {
     expect(browser.titleEdit?.label ?? null).toBeNull();
   });
 
+  /*
+    Reported 2026-10-10 as renaming "bugging out": a title typed, Enter, and
+    straight on into the body. The rename is asked for the moment the caret
+    leaves the title, and the words typed while it was on its way were
+    autosaved to the name the file had just left — a second note at the old
+    name — and the editor then opened the renamed note without them.
+  */
+  describe("typing on while the rename is on its way", () => {
+    let release: ((ok: boolean) => void) | null = null;
+    beforeEach(() => {
+      release = null;
+      actions[fn("moveEntry")] = (args: never) =>
+        new Promise((resolve, reject) => {
+          const { from, to } = args as { from: string; to: string };
+          release = (ok) => {
+            if (!ok) return reject(new Error("refused"));
+            files.set(to, files.get(from)!);
+            files.delete(from);
+            resolve({ path: to });
+          };
+        });
+    });
+
+    async function renameThenType(body: string) {
+      unmount = mount();
+      await settle();
+      await open(ROADMAP);
+      await caret(true);
+      await type("# Q4 plan\n\nBody.\n");
+      await caret(false);
+      expect(moves()).toEqual([{ from: ROADMAP, to: `${FOLDER}/Q4 plan.md` }]);
+      await act(async () => {
+        browser.setDraft(body);
+      });
+      // Long enough for the autosave timer to have come due.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      });
+      await settle();
+    }
+
+    async function land(ok: boolean) {
+      await act(async () => {
+        release!(ok);
+      });
+      await settle();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2_500));
+      });
+      await settle();
+    }
+
+    test("what was typed goes with the note, and nothing is left at the old name", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      // Held: nothing written under the name the file is leaving.
+      expect(files.get(ROADMAP)).toBe("# Q4 plan\n\nBody.\n");
+
+      await land(true);
+      expect(browser.editor.path).toBe(`${FOLDER}/Q4 plan.md`);
+      expect(browser.editor.draft).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.get(`${FOLDER}/Q4 plan.md`)).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.has(ROADMAP)).toBe(false);
+    }, 15_000);
+
+    test("a refused rename saves what was typed where the note still is", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      await land(false);
+      expect(browser.editor.path).toBe(ROADMAP);
+      expect(files.get(ROADMAP)).toBe("# Q4 plan\n\nBody. And more\n");
+    }, 15_000);
+
+    test("somebody who went on to another note is not pulled back, and their words still land", async () => {
+      await renameThenType("# Q4 plan\n\nBody. And more\n");
+      await act(async () => {
+        browser.select(`${FOLDER}/Taken.md`);
+      });
+      await settle();
+      await land(true);
+      expect(browser.editor.path).toBe(`${FOLDER}/Taken.md`);
+      expect(files.get(`${FOLDER}/Q4 plan.md`)).toBe("# Q4 plan\n\nBody. And more\n");
+      expect(files.has(ROADMAP)).toBe(false);
+    }, 15_000);
+  });
+
   test("a body edit alone never renames it", async () => {
     unmount = mount();
     await settle();
@@ -286,6 +372,8 @@ describe("a note whose title is its name", () => {
     });
     await settle();
     expect(files.get(`${FOLDER}/Plan.md`)).toBe("# Plan\n\nBody.\n");
+    // One writer for the heading, the move itself: no second write races the editor.
+    expect(calls.filter((c) => c.name === fn("writeNote"))).toHaveLength(0);
   });
 
   test("Rename on its row goes to the title; on anything else it does not", async () => {
@@ -299,6 +387,18 @@ describe("a note whose title is its name", () => {
     expect(handled).toBe(true);
     expect(browser.titleFocus?.path).toBe(ROADMAP);
     expect(browser.focusTitle!(`${FOLDER}/Taken.md`)).toBe(false);
+  });
+
+  test("Rename on an untitled note with no heading opens the dialog rather than doing nothing", async () => {
+    // The note is linked by its untitled name, but there is no `# title` for
+    // the caret to go to, so claiming the request left Rename doing nothing
+    // (owner, 2026-10-14: "I click the rename and nothing happens").
+    const untitled = `${FOLDER}/untitled-2026-10-13.md`;
+    files.set(untitled, "I've been thinking, and no heading yet.\n");
+    unmount = mount();
+    await settle();
+    await open(untitled);
+    expect(browser.focusTitle!(untitled)).toBe(false);
   });
 });
 
@@ -323,29 +423,51 @@ describe("a note whose title differs from its name", () => {
     unmount = null;
   });
 
-  test("keeps its name whatever the heading becomes, and Rename uses the dialog", async () => {
+  /*
+    Linked from the first edit (owner, 2026-10-14: "they should just be linked
+    together"). It used to keep its name whatever the heading became, which
+    made renaming depend on whether the two happened to match already.
+  */
+  test("opening it moves nothing; editing its title renames the file", async () => {
     unmount = mount();
     await settle();
     await open(DAILY);
+    expect(moves()).toEqual([]);
+    expect(browser.focusTitle!(DAILY)).toBe(true);
     await caret(true);
     await type("# Saturday\n\nBody.\n");
     await caret(false);
+    expect(moves()).toEqual([{ from: DAILY, to: `${FOLDER}/Saturday.md` }]);
+  });
+
+  test("a heading somebody else typed is not this person's rename", async () => {
+    unmount = mount();
+    await settle();
+    await open(DAILY);
+    // The caret never entered the title: a collaborator's change.
+    await type("# Saturday\n\nBody.\n");
+    await caret(false);
     expect(moves()).toEqual([]);
-    expect(browser.titleEdit).toBeNull();
-    expect(browser.focusTitle!(DAILY)).toBe(false);
   });
 });
 
 describe("the rule itself", () => {
   const listings = { [FOLDER]: undefined };
 
-  test("linked when the title is the name, sort number aside, or the note is untitled", () => {
+  test("every note's title is linked to its name", () => {
     expect(isLinkedTitle(ROADMAP, "# Roadmap\n")).toBe(true);
-    expect(isLinkedTitle(`${FOLDER}/01-intro.md`, "# intro\n")).toBe(true);
     expect(isLinkedTitle(`${FOLDER}/untitled-2026-09-25.md`, "# anything\n")).toBe(true);
-    expect(isLinkedTitle(DAILY, "# Friday\n")).toBe(false);
-    expect(isLinkedTitle(ROADMAP, "No heading\n")).toBe(false);
-    expect(isLinkedTitle(ROADMAP, "---\nstatus: active\n---\n# Roadmap\n")).toBe(true);
+    expect(isLinkedTitle(DAILY, "# Friday\n")).toBe(true);
+    expect(isLinkedTitle(ROADMAP, "No heading\n")).toBe(true);
+  });
+
+  test("a name that is an address is never renamed by its heading, nor retitled", () => {
+    for (const path of ["index.md", `${FOLDER}/about.md`, "privacy.md", "todo.md", "website/about.md", "website/index.md", "website/layout.html.md", "website/site.css.md"]) {
+      expect(isLinkedTitle(path, "# Something else\n")).toBe(false);
+    }
+    expect(retitled("website/about.md", "website/team.md", "# About us\n")).toBeNull();
+    expect(retitled(`${FOLDER}/about.md`, `${FOLDER}/overview.md`, "# about\n")).toBeNull();
+    expect(isLinkedTitle(`${FOLDER}/about the move.md`, "# x\n")).toBe(true);
   });
 
   test("a sort number is kept, and a drawing keeps both extensions", () => {
@@ -392,12 +514,15 @@ describe("the rule itself", () => {
     }
   });
 
-  test("a title follows a rename only when it was the old name", () => {
+  test("a title follows every rename, whatever it said before", () => {
     expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "---\na: 1\n---\n\n# Roadmap\nx\n")).toBe(
       "---\na: 1\n---\n\n# Plan\nx\n",
     );
     expect(retitled(`${FOLDER}/01-intro.md`, `${FOLDER}/01-start.md`, "# intro\n")).toBe("# start\n");
-    expect(retitled(DAILY, `${FOLDER}/x.md`, "# Friday\n")).toBeNull();
+    expect(retitled(DAILY, `${FOLDER}/x.md`, "# Friday\n")).toBe("# x\n");
+    // A heading that said the name without its sort number keeps saying it so.
+    expect(retitled(`${FOLDER}/01-intro.md`, `${FOLDER}/01-start.md`, "# Welcome\n")).toBe("# start\n");
+    expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "# Plan\n")).toBeNull();
     expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "no heading\n")).toBeNull();
   });
 

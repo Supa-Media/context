@@ -9,7 +9,7 @@
  * before.
  */
 import { useCallback, useRef } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useConvex, useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowserOptions } from "./types";
@@ -22,9 +22,37 @@ export function useFileActions(deps: FileActionsDeps) {
   const { moved } = folderIcons;
 
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
+  const workspaceGenerationRef = useRef({ workspaceId, epoch: 0 });
+  if (workspaceGenerationRef.current.workspaceId !== workspaceId) {
+    workspaceGenerationRef.current = { workspaceId, epoch: workspaceGenerationRef.current.epoch + 1 };
+  }
   const slug = options.slug ?? null;
 
-  const listFiles = useAction(api.functions.files.listFiles);
+  /*
+    One folder's listing, from the Convex tree (`nodesListing.listFolder`).
+    The bucket is never listed for it (decided by the owner, 2026-10-13). The
+    query answers `null` while the workspace's first copy has not finished;
+    then the `listFiles` action answers instead, from the same rows, and its
+    `TREE_LOADING` (which also starts the copy) or refusal is the answer.
+  */
+  // Read through a ref: `listFiles` keeps one identity for the context's whole
+  // life, because the root load re-runs (and resets the tree) whenever it changes.
+  const convexClient = useConvex();
+  const convex = useRef(convexClient);
+  convex.current = convexClient;
+  const listFilesAction = useAction(api.functions.files.listFiles);
+  const listFiles = useCallback<typeof listFilesAction>(
+    async (args) => {
+      let fromTree = null;
+      try {
+        fromTree = await convex.current.query(api.functions.nodesListing.listFolder, args);
+      } catch {
+        // The action answers instead, from the same tree, and says why if it refuses.
+      }
+      return fromTree ?? (await listFilesAction(args));
+    },
+    [listFilesAction],
+  );
   const readNote = useAction(api.functions.files.readNote);
   const readNotesAction = useAction(api.functions.files.readNotes);
   const searchContext = useAction(api.functions.files.searchContext);
@@ -107,7 +135,7 @@ export function useFileActions(deps: FileActionsDeps) {
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
-    workspaceId, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
+    workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,

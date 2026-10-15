@@ -40,9 +40,11 @@ import type { WAITLIST_PLACES } from "./place";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
 import { WaitlistRows } from "./WaitlistRows";
+import { WaitlistUntold } from "./WaitlistUntold";
 import {
   WAITLIST_FILTERS,
   admittedSentence,
+  adsSentence,
   landingSentence,
   people,
   removedSentence,
@@ -139,6 +141,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
 
   const counts = list?.counts;
   const landingLine = landing === undefined ? null : landingSentence(landing);
+  const adsLine = landing === undefined ? null : adsSentence(landing);
   return (
     <View style={styles.section}>
       <View style={[styles.head, compact && styles.headCompact]}>
@@ -147,7 +150,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
             Waitlist
           </Text>
           <Text variant="meta" style={compact ? styles.textCompact : null}>
-            People who asked to be let in, by email or phone. Letting someone in by email sends them an email.
+            People who asked to be let in, by email or phone. Letting someone in tells them: an email, or a text if they joined by phone.
           </Text>
         </View>
         {adding || friends ? null : (
@@ -165,6 +168,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       </View>
 
       <SignupAlerts />
+      <WaitlistUntold onDone={(tone, sentence) => setOutcome({ tone, sentence, invalid: [] })} />
 
       {adding ? (
         <WaitlistAdd
@@ -209,6 +213,11 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
       {!friends && landingLine !== null ? (
         <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-landing">
           {landingLine}
+        </Text>
+      ) : null}
+      {!friends && adsLine !== null ? (
+        <Text variant="meta" style={compact ? styles.textCompact : null} testID="admin-waitlist-ads">
+          {adsLine}
         </Text>
       ) : null}
 

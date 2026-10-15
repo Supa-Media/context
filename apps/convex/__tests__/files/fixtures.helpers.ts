@@ -31,6 +31,7 @@ import {
   type TestConvex,
   addMember,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   setupTest,
@@ -120,6 +121,9 @@ export async function fixture(
       updatedAt: Date.now(),
     }),
   );
+
+  // Every reader of which notes exist reads the Convex tree, so the bucket is copied into it first.
+  await copyTree(t, workspaceId);
 
   return { t, owner, editor, reader, stranger, workspaceId, backend };
 }

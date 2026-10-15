@@ -20,13 +20,13 @@ import worker from "../src/index.js";
 import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-assistant-notes.test";
 const TOKEN_TEXTS = `cat_assist_texts_${"0".repeat(23)}`;
 const TOKEN_APP = `cat_assist_appcl_${"0".repeat(23)}`;
 const TOKEN_LONELY = `cat_assist_lonel_${"0".repeat(23)}`;
 const TOKEN_STAFF = `cat_assist_staff_${"0".repeat(23)}`;
-const API_KEY = "zarquon-assistant-notes-not-a-real-key";
 
 const WHO = "You are Context. Context is a notes app at context.lc, never Obsidian.";
 const STYLE = "Text like a friend: one short line, no lists.";
@@ -59,7 +59,7 @@ function binding(bucket, key) {
   };
 }
 
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
 const systems = [];
 let pinnedBucket;
 let restore = [];
@@ -93,8 +93,8 @@ before(async () => {
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (!url.startsWith("https://api.anthropic.com")) return below(input, init);
-    systems.push(JSON.parse(init.body).system);
+    if (!url.startsWith(AI_GATEWAY_ORIGIN)) return below(input, init);
+    systems.push(systemText(JSON.parse(init.body)));
     return new Response(JSON.stringify({ content: [{ type: "text", text: "Hi." }], stop_reason: "end_turn" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -106,8 +106,8 @@ before(async () => {
 
   controlPlane.addWorkspace("ws_mine", "mine", binding("assist-mine", "AA"));
   controlPlane.addWorkspace("ws_pinned", "context-lc", binding("assist-pinned", "BB"), { kind: "shared" });
-  controlPlane.connectProvider("ws_mine", "anthropic", API_KEY);
-  controlPlane.connectProvider("ws_pinned", "anthropic", API_KEY);
+  controlPlane.setBuiltinVerdict("ws_mine", BUILTIN_ALLOWED);
+  controlPlane.setBuiltinVerdict("ws_pinned", BUILTIN_ALLOWED);
 
   for (const bucket of ["assist-mine", "assist-pinned"]) {
     s3.bucketFor(bucket).set("privacy.md", { body: manifest(), etag: "p0" });
@@ -153,7 +153,7 @@ test("a texted turn is told the texting file's words, in place of the built-in o
   const system = await systemFor(TOKEN_TEXTS);
   assert.ok(system.includes(WHO) && system.includes(STYLE), "the texting file's prompt");
   assert.ok(!system.includes("updated: 2026-10-08"), "front matter is not sent");
-  assert.ok(!system.includes("You are Context, the assistant built into"), "built-in identity replaced");
+  assert.ok(!system.includes("You are Tex, the assistant built into"), "built-in identity replaced");
   assert.ok(!system.includes("No Markdown at all"), "built-in texting style replaced");
   assert.ok(!system.includes("NOT-THE-PINNED-ONE"), "only the pinned workspace's file counts");
   assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
@@ -183,7 +183,7 @@ test("a missing file means the built-in words for that job only", async () => {
   pinnedBucket.delete(PRODUCTION_TEXTING_PATH);
   const texted = await systemFor(TOKEN_TEXTS);
   assert.ok(!texted.includes(WHO));
-  assert.ok(texted.includes("You are Context, the assistant built into"), "built-in identity");
+  assert.ok(texted.includes("You are Tex, the assistant built into"), "built-in identity");
   assert.ok(texted.includes("No Markdown at all"), "built-in texting style");
   assert.ok((await systemFor(TOKEN_APP)).includes(WHO), "the app job still reads its own file");
 });
@@ -199,7 +199,7 @@ test("a file privacy.md holds back from members is not sent to their model", asy
   pinnedBucket.set("privacy.md", { body: manifest(`  ${PRODUCTION_TEXTING_PATH}: private\n`), etag: "p2" });
   const member = await systemFor(TOKEN_TEXTS);
   assert.ok(!member.includes(WHO));
-  assert.ok(member.includes("You are Context, the assistant built into"));
+  assert.ok(member.includes("You are Tex, the assistant built into"));
   // Its owner's turn still reads it: the rule is the privacy engine's.
   assert.ok((await systemFor(TOKEN_STAFF)).includes(WHO));
 });

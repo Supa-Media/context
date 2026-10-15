@@ -3,13 +3,12 @@
  * the visible notes, and the fast answer from the projection.
  */
 
+import { folderPrefix } from "./indexable.js";
 import { answerFromProjection } from "./d1/serve.js";
 import { BUDGET_EXHAUSTED, budgetedStore } from "./budget.js";
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { createD1Client } from "./d1/client.js";
 import { DEFERRED_SYNC_FLOOR, FALLBACK_SCAN_CAP, FAST_SEARCH_FLOOR } from "./pacing.js";
-import { fallbackMoveJobs, searchMoveJobs } from "../moves/jobs.js";
-import { getVisibleMovedNote, listVisibleNoteKeysWithMoves } from "../notes/visibleKeys.js";
 import { isEncryptedNote } from "../encryption.js";
 import { listScannableNoteKeys } from "./maintenance.js";
 import { mapInBatches } from "../notes/storage.js";
@@ -28,15 +27,7 @@ import { noteTitle, SEARCH_RESULT_LIMIT } from "./visible.js";
 export async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget, reserve = 0) {
   const needle = query.toLowerCase();
   const bounded = budget ? budgetedStore(store, budget, reserve) : store;
-  const moveJobs = prefix
-    ? await searchMoveJobs(store, prefix)
-    : await fallbackMoveJobs(store, prefix, budget);
-  const listed = moveJobs.length
-    ? {
-        keys: await listVisibleNoteKeysWithMoves(store, scope, rules, overrides, prefix),
-        truncated: false,
-      }
-    : await listScannableNoteKeys(bounded, prefix);
+  const listed = await listScannableNoteKeys(bounded, prefix);
   // `isPlumbing` explicitly, not as a side effect of which lister ran.
   // `canSee` answers *true* for `privacy.md` at private scope — deliberately,
   // because the manifest is the owner's to read — so the manifest reached a
@@ -60,9 +51,7 @@ export async function scanVisibleNotes(store, scope, rules, overrides, query, pr
     const matches = await mapInBatches(batch, 32, async ({ key }) => {
       let obj;
       try {
-        obj = moveJobs.length
-          ? (await getVisibleMovedNote(store, scope, rules, overrides, key)).object
-          : await bounded.get(key);
+        obj = await bounded.get(key);
       } catch (error) {
         if (!error?.[BUDGET_EXHAUSTED]) throw error;
         refused += 1;
@@ -174,7 +163,7 @@ export async function fastSearchAnswer(store, scope, rules, overrides, query, pr
     const client = createD1Client(descriptor);
     answer = await answerFromProjection(client, {
       query,
-      prefix,
+      prefix: folderPrefix(prefix),
       tier: scope,
       // The gateway's own privacy engine, bound to this caller. Injected for
       // the reason `searchIndexedNotes` takes `isVisible`: the console has its

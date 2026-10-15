@@ -1,7 +1,8 @@
 /**
  * Routines over HTTP (`docs/decisions/routines.md`). Registered in `http.ts`:
  *
- *  - `POST /gateway/routines` (gateway secret): a write touched `routines/`.
+ *  - `POST /gateway/routines` (gateway secret): a write touched a routine
+ *    root (`routines/` or `tex/routines/`).
  *  - `POST /agent-texts/routines/due` (texting Worker's secret): the runs due
  *    now, each with a short-lived grant.
  *  - `POST /agent-texts/routines/result` (same): how one went, as a code.
@@ -19,8 +20,9 @@ import { MAX_DUE_RUNS, isRoutineOutcome } from "../routines/model";
  * `POST /gateway/routines` — `{ workspaceId, userId?, paths }` → `{ ok: true }`.
  *
  * The same answer whatever it names, like `/gateway/website`: a holder of the
- * gateway secret can make a workspace re-read its own `routines/` folder, and
- * name a writer who is kept only if they can write there now. It learns
+ * gateway secret can make a workspace re-read its own routine folders
+ * (`routines/` and `tex/routines/`), and name a writer who is kept only if
+ * they can write there now. It learns
  * nothing, and it cannot add a row a scan of that workspace's own bucket would
  * not add.
  */

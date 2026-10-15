@@ -133,7 +133,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -178,7 +178,8 @@ export function storeForBinding(binding, env, options = {}) {
   // crosses it — `noteCap.js`. Absent for every other context. The two
   // escape hatches above never see it: a connect probe writes no notes, and a
   // storage-layout migration only moves what is already there.
-  return withNoteCap(withLogicalDelete(probed), options.noteCap);
+  // Counted from the Convex tree by whoever built the store (`noteCount`).
+  return withNoteCap(withLogicalDelete(probed), options.noteCap, options.noteCount ?? null);
 }
 
 /**

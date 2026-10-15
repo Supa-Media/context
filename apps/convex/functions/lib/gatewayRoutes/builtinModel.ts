@@ -7,7 +7,7 @@ import { json, nullableStringField, stringField } from "../gatewayAuth";
  * POST /gateway/builtin-model — may this turn spend the built-in model?
  *
  * Behind the gateway's own secret, with the person's access token as the second
- * proof, like `/gateway/provider`. A malformed body is answered like an unknown
+ * proof, like `/gateway/binding`. A malformed body is answered like an unknown
  * token: `{ verdict: null }`. The decision is `functions/builtinModel.ts`.
  */
 export async function gatewayBuiltinModelHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

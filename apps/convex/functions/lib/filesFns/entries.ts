@@ -14,30 +14,6 @@ import type { ActionCtx } from "../../../_generated/server";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 
-/**
- * Carry the mover's pins and open counts to where the entry now lives (only
- * theirs: `lib/places.ts` says why).
- * Storage has already moved, so a failure here must not fail the move; the
- * places it missed stop showing, because readers intersect them with the tree.
- */
-async function followMove(
-  ctx: ActionCtx,
-  userId: Id<"users">,
-  workspaceId: Id<"workspaces">,
-  result: { from: string; to: string },
-): Promise<void> {
-  try {
-    await ctx.runMutation(internal.functions.places.retargetPlaces, {
-      userId,
-      workspaceId,
-      from: result.from,
-      to: result.to,
-    });
-  } catch (error) {
-    console.warn(JSON.stringify({ event: "places.retarget_failed", workspaceId, error: String(error) }));
-  }
-}
-
 export async function createDirectoryHandler(
   ctx: ActionCtx,
   args: {
@@ -74,6 +50,7 @@ export async function moveEntryHandler(
     from: string;
     to: string;
     expectedEtag?: string;
+    followHeading?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "moved" }>> {
   const actorUserId = await callerId(ctx);
@@ -92,6 +69,7 @@ export async function moveEntryHandler(
       from: args.from,
       to: args.to,
       ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      ...(args.followHeading === true ? { followHeading: true } : {}),
     },
   })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -102,7 +80,6 @@ export async function moveEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length },
   });
-  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -206,7 +183,6 @@ export async function archiveEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, recoverable: true },
   });
-  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -241,7 +217,6 @@ export async function trashEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, recoverable: true, trash: true },
   });
-  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 
@@ -272,7 +247,6 @@ export async function restoreTrashEntryHandler(
     paths: [result.from, result.to],
     details: { files: result.paths.length, restoredFromTrash: true },
   });
-  await followMove(ctx, actorUserId, args.workspaceId, result);
   return result;
 }
 

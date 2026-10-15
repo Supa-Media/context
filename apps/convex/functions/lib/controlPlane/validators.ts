@@ -44,6 +44,13 @@ export const managedEncryptionSiblingValidator = v.object({
   mode: v.union(v.literal("migrating"), v.literal("encrypted"), v.literal("decrypting")),
 });
 
+/** The privacy rules while they are the authority (phase 3, `functions/nodesPrivacy.ts`). */
+export const heldPrivacyValidator = v.object({
+  etag: v.string(),
+  folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
+  notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+});
+
 export const openStorageBindingReturns = v.union(
   v.null(),
   v.object({
@@ -77,5 +84,6 @@ export const openGatewayJobReturns = v.union(
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
+    privacy: v.optional(heldPrivacyValidator),
   }),
 );

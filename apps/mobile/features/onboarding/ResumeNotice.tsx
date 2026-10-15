@@ -1,6 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
-import { leading, pointerType as t, radii, space } from "../design/tokens";
+import { leading, pointerType as t, space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 
 /**
@@ -30,10 +30,6 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     notice: {
       marginBottom: space.x5,
-      borderRadius: radii.card,
-      backgroundColor: colors.hintWash,
-      paddingVertical: space.x3,
-      paddingHorizontal: space.x4,
       gap: space.x2,
     },
     text: { fontSize: t.ui, lineHeight: leading(t.ui, 1.5), color: colors.text },

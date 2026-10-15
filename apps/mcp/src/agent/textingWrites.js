@@ -28,7 +28,7 @@
  * that grow their own reach.
  */
 
-import { routineFromPath } from "../../../../packages/shared/src/routines.cjs";
+import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/routines.cjs";
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
@@ -49,12 +49,29 @@ export const WITHHELD_FIELDS = new Map();
 
 const ROUTINE_HELP =
   " Routines are notes the assistant runs on a schedule as this person, then texts them what it found. " +
-  "A routine lives at routines/<how-often>/<name>.md. The folder says how often: every-5-minutes, hourly, " +
-  "every-3-hours, daily, weekly, every-2-weeks, monthly. Optional lines at the top, between --- lines: " +
+  "Write a new routine or reminder at tex/routines/<how-often>/<name>.md, in Tex's own tex/ folder. " +
+  "The folder says how often: every-5-minutes, hourly, " +
+  "every-3-hours, daily, weekly, every-2-weeks, monthly, or once for a one-off reminder (tex/routines/once/). " +
+  "Older routines at routines/<how-often>/<name>.md still run where they are: edit them in place, and move one only when asked. " +
+  "A one-off needs its date and time: at: 2026-10-15 9:00 am; it texts once, then is marked done: and stays as a record. " +
+  "Other optional lines at the top, between --- lines: " +
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
   "to: @handle (default: the writer), until: <when to stop>, paused: yes. " +
   "The body is plain instructions for the assistant, written as the person asked. " +
-  "After saving, tell them where it is in words (routines › daily › Morning brief) and that deleting it stops it.";
+  // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
+  "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +
+  "and say where the note is or how to stop it only when they ask.";
+
+/**
+ * The routine help goes at the end of the description's first paragraph: a
+ * setup with core tools hands the model only that paragraph (`toolShelf.js`),
+ * and routines are what a text asks for most of what write_note does.
+ */
+function withRoutineHelp(description) {
+  const text = typeof description === "string" ? description : "";
+  const end = text.search(/\r?\n\s*\r?\n/);
+  return end === -1 ? `${text}${ROUTINE_HELP}` : `${text.slice(0, end)}${ROUTINE_HELP}${text.slice(end)}`;
+}
 
 /** Argument names that hold a path in the bucket, at any depth. */
 const PATH_KEYS = new Set(["path", "source", "destination", "note", "responses"]);
@@ -69,7 +86,7 @@ function mirrored(tool) {
   const required = Array.isArray(schema.required) ? schema.required.filter((key) => !withheld?.has(key)) : undefined;
   return {
     ...tool,
-    ...(tool.name === "write_note" ? { description: `${tool.description}${ROUTINE_HELP}` } : {}),
+    ...(tool.name === "write_note" ? { description: withRoutineHelp(tool.description) } : {}),
     inputSchema: { ...schema, properties, ...(required ? { required } : {}) },
   };
 }
@@ -120,9 +137,12 @@ function pathsIn(value, found = []) {
 function refusalFor(name, args) {
   for (const path of pathsIn(args)) {
     if (!isWritablePath(path)) return "That path can't be used: hidden folders and privacy.md are not editable here.";
-    const inRoutines = path.startsWith("routines/");
+    // Either root: `tex/routines/` (where new ones go) or `routines/` (where
+    // they lived first, and still run). Case-insensitive, like the format.
+    const root = routineRootOf(path);
+    const inRoutines = root !== null;
     if (inRoutines && path.endsWith(".md") && routineFromPath(path)?.kind !== "routine") {
-      return "Only a routine file can be written under routines/: routines/<how-often>/<name>.md, with a folder like daily or weekly.";
+      return `Only a routine file can be written under ${root}: ${root}<how-often>/<name>.md, with a folder like daily or weekly.`;
     }
     // A routine runs as the person who wrote it, in their own context.
     if (inRoutines && name === "write_note" && args.context !== undefined) {

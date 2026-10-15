@@ -20,8 +20,9 @@ const TICK_MS = 60_000;
 
 /**
  * The run bar at the top of a routine note (board r2): the schedule in words,
- * when it last ran, and Run now and Pause. A note under `routines/` that will
- * never run gets one quiet line saying why instead. Draws nothing for any
+ * when it last ran, and Run now and Pause. A note under `tex/routines/` (or
+ * `routines/`, where routines lived first) that will never run gets one quiet
+ * line saying why instead. Draws nothing for any
  * other note, or where there is no control plane to ask (the landing page).
  */
 export function NoteRoutineBar({

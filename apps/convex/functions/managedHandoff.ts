@@ -87,3 +87,19 @@ export const beginOwnStorageMove = internalMutation({
   returns: v.object({ started: v.literal(true) }),
   handler: async (ctx, args) => beginOwnStorageMoveHandler(ctx, args),
 });
+
+/** The owner has seen which files a finished move left behind. Owner-only. */
+export const dismissLeftBehind = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding?.leftBehind !== undefined) await ctx.db.patch(binding._id, { leftBehind: undefined });
+    return null;
+  },
+});

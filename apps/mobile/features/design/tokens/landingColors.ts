@@ -12,7 +12,9 @@ export const lightLandingColors = {
   blue: "#2F7BF5",
 } as const;
 
-export type LandingColors = Readonly<Record<keyof typeof lightLandingColors, string>>;
+export type LandingColors = Readonly<
+  Record<keyof typeof lightLandingColors, string>
+>;
 
 export const darkLandingColors: LandingColors = {
   paper: "#17181B",
@@ -22,3 +24,38 @@ export const darkLandingColors: LandingColors = {
   ink2: "#B4ADA2",
   blue: "#4C8EF7",
 };
+
+/**
+ * Tex, the mascot, wherever it is drawn: the homepage and every chaos score
+ * in the app. Brand blue ink with paper-white googly eyes, as approved on the
+ * homepage (Dev, 2026-10-11). Dark mode lifts the blue so it reads on a dark
+ * surface; the eyes stay white, as googly eyes are.
+ */
+export const texColors = {
+  light: { ink: "#2A45CF", eye: "#FBFAF6" },
+  dark: { ink: "#8A9BF2", eye: "#FBFAF6" },
+} as const;
+
+/**
+ * Page a's off-white sheet (`SimplePage.web`), after the references: ink type
+ * on off-white, a grey hairline under the examples and a warm highlighter.
+ * Light only (Dev, 2026-10-11: the dark version read as a different page).
+ * Tex, the mascot, draws in `texColors` (its blue is the sheet's); the four AI
+ * helpers on the graph each have a cursor colour (Claude, ChatGPT, Maya's
+ * Codex, Jon's Claude).
+ */
+export const simpleLandingColors = {
+  paper: "#F1F0EA",
+  ink: "#1C1B19",
+  ink2: "#4A4844",
+  hair: "#C9C6BC",
+  mark: "#DDD1BE",
+  card: "#FAF9F5",
+  /** A sign-up problem: a number or code that did not work. */
+  bad: "#9A2B1F",
+  blue: texColors.light.ink,
+  agent1: "#C4572F",
+  agent2: "#167A5E",
+  agent3: "#6A45C2",
+  agent4: "#B23F78",
+} as const;

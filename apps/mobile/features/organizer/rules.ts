@@ -7,20 +7,8 @@
  * each surface asks the same functions here rather than re-deriving it.
  */
 
-import {
-  ORGANIZER_ACTOR,
-  acceptedToast,
-  offerToast,
-  resolveFailed,
-} from "./copy";
-import type {
-  OrganizerDecision,
-  OrganizerKind,
-  OrganizerStatus,
-  OrganizerSuggestion,
-  ResolveResult,
-  SweepWhy,
-} from "./types";
+import { ORGANIZER_ACTOR } from "./copy";
+import type { OrganizerStatus, SweepWhy } from "./types";
 
 export type OrganizerState =
   | { kind: "loading" }
@@ -41,22 +29,12 @@ function suggesting(status: OrganizerStatus | null): status is OrganizerStatus {
 }
 
 /**
- * The What changed page, and with it Tidy up, is there at all. Switched off
+ * The What changed page is there at all. Switched off
  * on the server (`whatChanged`), there is no page, no sidebar row, no phone
  * line and no "Look over" press: nothing that opens a page that is not drawn.
  */
 export function whatChangedPage(status: OrganizerStatus | null): status is OrganizerStatus {
   return suggesting(status) && status.whatChanged !== false;
-}
-
-/**
- * The explorer foot's "11 suggestions", or `null` for no line. What changed
- * cards are not among them: they have their own page and their own count.
- */
-export function footCount(status: OrganizerStatus | null): number | null {
-  if (!whatChangedPage(status)) return null;
-  const organizing = status.pending - (status.changes ?? 0);
-  return organizing > 0 ? organizing : null;
 }
 
 /**
@@ -66,14 +44,6 @@ export function footCount(status: OrganizerStatus | null): number | null {
  */
 export function changesCount(status: OrganizerStatus | null): number | null {
   return whatChangedPage(status) ? (status.changes ?? 0) : null;
-}
-
-/** The phone's "11 suggestions to look over", on the workspace's own page. */
-export function phoneEntryCount(
-  status: OrganizerStatus | null,
-  where: { compact: boolean; atRoot: boolean },
-): number | null {
-  return where.compact && where.atRoot ? footCount(status) : null;
 }
 
 /** The phone's "2 things changed" on the workspace's own page, to the What changed page. */
@@ -97,22 +67,13 @@ export function settingsCard(status: OrganizerStatus | null): "owner" | "member"
 }
 
 /**
- * The first-run card at the top of Premium.
- *
- * Reading, whenever a sweep is running — it is live and it is true. What it
- * found, only on the payment return and until "Later": the card is the proof
- * the upgrade did something, and on an ordinary visit the explorer's foot line
- * already says what is waiting.
+ * The first-run card at the top of Premium: reading, whenever a sweep is
+ * running. It is live and it is true. A finished sweep leaves no card; what
+ * it came up with is What changed's, and is counted there.
  */
-export function sweepPhase(
-  status: OrganizerStatus | null,
-  { returned, later }: { returned: string | null; later: boolean },
-): "reading" | "found" | null {
+export function sweepPhase(status: OrganizerStatus | null): "reading" | null {
   if (!suggesting(status) || status.sweep === null) return null;
-  if (status.sweep.state === "running") return "reading";
-  if (status.sweep.state !== "done" || later || returned !== "done") return null;
-  const { done, archive, file } = status.sweep.found;
-  return done + archive + file > 0 ? "found" : null;
+  return status.sweep.state === "running" ? "reading" : null;
 }
 
 /** Ask for the first sweep on the payment return, once, and never over one already there. */
@@ -132,7 +93,7 @@ const SWEEP_STALE_MS = 30 * 60 * 1000;
 export type SortLine =
   | { kind: "running"; read: number; total: number }
   | { kind: "never" }
-  | { kind: "done"; at: number; pending: number }
+  | { kind: "done"; at: number }
   | { kind: "failed"; at: number; why?: SweepWhy };
 
 /**
@@ -150,52 +111,10 @@ export function sortLine(status: OrganizerStatus | null, now: number): SortLine 
   }
   const at = sweep.finishedAt ?? sweep.startedAt;
   if (sweep.state === "failed") return sweep.why ? { kind: "failed", at, why: sweep.why } : { kind: "failed", at };
-  return { kind: "done", at, pending: status.pending };
-}
-
-/** Up to two projects and an inbox note, then whatever else there is. */
-export function previewSuggestions(list: readonly OrganizerSuggestion[], size = 3): OrganizerSuggestion[] {
-  const projects = list.filter((s) => s.kind !== "file");
-  const inbox = list.filter((s) => s.kind === "file");
-  const picked = [...projects.slice(0, 2), ...inbox.slice(0, 1)];
-  const rest = list.filter((s) => !picked.includes(s));
-  const chosen = [...picked, ...rest].slice(0, size);
-  // Projects first, as the review list groups them.
-  return [...chosen.filter((s) => s.kind !== "file"), ...chosen.filter((s) => s.kind === "file")];
+  return { kind: "done", at };
 }
 
 /** A row in Activity that auto-organize wrote, whichever field carries its name. */
 export function isOrganizerEntry(entry: { by: string | null; via: string | null }): boolean {
   return entry.by === ORGANIZER_ACTOR || entry.via === ORGANIZER_ACTOR;
-}
-
-export interface OrganizerToast {
-  message: string;
-  tone: "neutral" | "warn";
-  undo?: () => void;
-  /** Present on the third accept in a row: offer "Yes, automatically". */
-  offer?: OrganizerKind;
-}
-
-/**
- * What follows a press on ✓ or ✕.
- *
- * A dismiss says nothing: the row going is the answer. An accept says what
- * happened, with Undo where the server handed back a way to take it back. The
- * third accept of a kind in a row asks the offer question instead — and keeps
- * the Undo, because it is still the toast for that accept.
- */
-export function resolveToast(
-  suggestion: OrganizerSuggestion,
-  decision: OrganizerDecision,
-  result: ResolveResult,
-  { undo }: { undo: () => void },
-): OrganizerToast | null {
-  if (!result.applied) return { message: resolveFailed, tone: "warn" };
-  if (decision === "dismiss") return null;
-  const back = result.undo === null || result.undo === undefined ? {} : { undo };
-  if (result.offer !== null) {
-    return { message: offerToast(result.offer), tone: "neutral", offer: result.offer, ...back };
-  }
-  return { message: acceptedToast(suggestion), tone: "neutral", ...back };
 }

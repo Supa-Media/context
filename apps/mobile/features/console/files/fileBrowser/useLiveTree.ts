@@ -1,0 +1,126 @@
+/**
+ * The folders on screen, kept live from Convex (phase 2 of the tree's move
+ * into Convex, `docs/decisions/app-and-console/convex-tree.md`).
+ *
+ * The root, every expanded folder and the folder being viewed are subscribed
+ * to `nodesListing.listFolder`. When anybody changes one of them (a
+ * colleague, an agent, another tab of this person's), Convex sends the new
+ * listing and it lands here as the server's answer for that folder, with no
+ * walk of the bucket and no "something changed" hint to chase.
+ *
+ * `null` from the server means the workspace's first copy into the tree has
+ * not finished, and then nothing here does anything: the root load says the
+ * files are still loading (`TREE_LOADING`), never lists the bucket instead,
+ * and the first live root listing clears that line (`useListings`). `served`
+ * says which.
+ *
+ * A refusal (membership taken away) clears the folder, for the reason
+ * `refresh` gives: a listing kept after a refusal shows what was withheld.
+ */
+import { useEffect, useMemo, useRef } from "react";
+import { useQueries } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
+import { EMPTY_QUERY_SPEC } from "../../querySpec";
+import { parentPath } from "../paths";
+import type { FolderListing } from "../types";
+import type { Listings } from "./types";
+
+/** Folders subscribed at once: a bound on sockets' work, far above what a tree shows. */
+export const LIVE_FOLDERS = 40;
+
+/**
+ * Which folders to keep live: the root, the folder being viewed (or the folder
+ * of the note being viewed), then expanded folders shallowest first, up to
+ * `LIVE_FOLDERS`. Sorted, so the same set is the same spec.
+ */
+export function liveFolders(expanded: ReadonlySet<string>, selected: string | null, selectedIsFolder: boolean): string[] {
+  const picked = new Set<string>([""]);
+  if (selected !== null) picked.add(selectedIsFolder ? selected : parentPath(selected));
+  const byDepth = [...expanded].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : 1));
+  for (const folder of byDepth) {
+    if (picked.size >= LIVE_FOLDERS) break;
+    picked.add(folder);
+  }
+  return [...picked].sort();
+}
+
+interface LiveTreeDeps {
+  workspaceId: Id<"workspaces"> | null;
+  expanded: ReadonlySet<string>;
+  selectedPath: string | null;
+  listings: Listings;
+  /** Lay one server answer over the listings, as `refresh` does (`null` with `refused` clears it). */
+  commitLive: (folder: string, page: FolderListing | null, refused: boolean) => void;
+  /**
+   * Files a folder's live listing held and no longer holds: moved, renamed or
+   * deleted, by anybody. The open note uses it to follow a move made elsewhere.
+   */
+  onVanished?: (paths: string[]) => void;
+  offline: boolean;
+}
+
+/** The files one answer lists, for telling which of them a later answer dropped. */
+export function vanishedFiles(before: ReadonlySet<string> | undefined, page: FolderListing): string[] {
+  if (before === undefined) return [];
+  const now = new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path));
+  return [...before].filter((path) => !now.has(path));
+}
+
+export function useLiveTree(deps: LiveTreeDeps): { served: boolean } {
+  const { workspaceId, expanded, selectedPath, listings, commitLive, onVanished, offline } = deps;
+  const selectedIsFolder = selectedPath !== null && listings[selectedPath] !== undefined;
+  const key = useMemo(
+    () => liveFolders(expanded, selectedPath, selectedIsFolder).join("\n"),
+    [expanded, selectedPath, selectedIsFolder],
+  );
+  const spec = useMemo(() => {
+    if (workspaceId === null || offline) return EMPTY_QUERY_SPEC;
+    const queries: Record<string, { query: typeof api.functions.nodesListing.listFolder; args: { workspaceId: Id<"workspaces">; path: string } }> = {};
+    for (const path of key.split("\n")) {
+      queries[`f:${path}`] = { query: api.functions.nodesListing.listFolder, args: { workspaceId, path } };
+    }
+    return queries;
+  }, [workspaceId, offline, key]);
+  const results = useQueries(spec) as Record<string, FolderListing | null | undefined | Error>;
+
+  // What was last laid down per folder, so an unchanged answer redraws nothing.
+  const applied = useRef<{ workspaceId: string | null; pages: Map<string, string>; files: Map<string, Set<string>> }>({
+    workspaceId: null,
+    pages: new Map(),
+    files: new Map(),
+  });
+  if (applied.current.workspaceId !== workspaceId) applied.current = { workspaceId, pages: new Map(), files: new Map() };
+
+  useEffect(() => {
+    const vanished: string[] = [];
+    for (const [name, result] of Object.entries(results)) {
+      if (!name.startsWith("f:") || result === undefined || result === null) continue;
+      const folder = name.slice(2);
+      if (result instanceof Error) {
+        if (applied.current.pages.get(folder) === "refused") continue;
+        applied.current.pages.set(folder, "refused");
+        applied.current.files.delete(folder);
+        commitLive(folder, null, true);
+        continue;
+      }
+      const page = withoutKind(result);
+      const seen = JSON.stringify(page);
+      if (applied.current.pages.get(folder) === seen) continue;
+      applied.current.pages.set(folder, seen);
+      vanished.push(...vanishedFiles(applied.current.files.get(folder), page));
+      applied.current.files.set(folder, new Set(page.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path)));
+      commitLive(folder, page, false);
+    }
+    if (vanished.length > 0) onVanished?.(vanished);
+  }, [results, commitLive, onVanished]);
+
+  const root = results["f:"];
+  return { served: root !== undefined && root !== null && !(root instanceof Error) };
+}
+
+/** The listing as `listFiles` hands it to the console: the result's `kind` tag dropped. */
+function withoutKind(result: FolderListing & { kind?: string }): FolderListing {
+  const { kind: _kind, ...page } = result;
+  return page;
+}

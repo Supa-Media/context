@@ -64,6 +64,7 @@ import {
   createWorkspace,
   errorCode,
   setupTest,
+  copyTree,
 } from "./fixtures.helpers";
 
 afterEach(() => {
@@ -145,6 +146,7 @@ async function fixture(): Promise<Fixture> {
       updatedAt: Date.now(),
     }),
   );
+  await copyTree(t, workspaceId);
 
   return {
     t,

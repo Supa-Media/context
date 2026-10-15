@@ -107,10 +107,18 @@ export async function runBatchingChecks(check) {
   }
 
   {
-    // A whole window still uses a handful of bounded requests, not one per
-    // note. Each transaction stays below the size that timed out in D1.
+    // A whole window still uses bounded requests, not one per statement.
+    // Reject the transaction size that timed out in production.
     const backend = createD1Backend();
-    const client = createD1Client(DESCRIPTOR, { fetchImpl: (u, i) => backend.handle(u, i) });
+    const client = createD1Client(DESCRIPTOR, {
+      fetchImpl: (url, init) => {
+        const body = JSON.parse(init.body);
+        if (Array.isArray(body.batch) && body.batch.length > 25) {
+          return new Response(JSON.stringify({ success: false, errors: [] }), { status: 503 });
+        }
+        return backend.handle(url, init);
+      },
+    });
     const notes = {};
     const census = new Map();
     for (let n = 0; n < 60; n += 1) {
@@ -129,7 +137,7 @@ export async function runBatchingChecks(check) {
     const indexed = backend.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
     check("a pass of 60 notes copies all 60", result.projected === 60 && indexed === 60);
     check("in bounded batches", writes.length > 1 && writes.length < 60 &&
-      writes.every((r) => r.batch <= D1_BATCH_STATEMENTS));
+      writes.every((r) => r.batch <= D1_BATCH_STATEMENTS && r.batch <= 25));
     backend.close();
   }
 

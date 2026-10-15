@@ -19,6 +19,11 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: st
   return node;
 }
 
+/** A person is their face (`faces/`), an agent the robot; never initials. */
+export function avatar(author: string): HTMLElement {
+  return isPerson(author) ? faceNode(author, "cm-cmt-av") : robotNode("cm-cmt-av cm-cmt-av-agent");
+}
+
 /** A button that never takes the editor's selection away when pressed. */
 export function button(label: string, className: string, onClick: () => void): HTMLButtonElement {
   const node = el("button", className, label);
@@ -49,9 +54,8 @@ export interface Deletion {
  */
 export function message(author: string, at: string, text: string, deletion?: Deletion): HTMLElement {
   const row = el("div", "cm-cmt-msg");
-  // A person is their face (`faces/`), an agent the robot; never initials.
-  const avatar = isPerson(author) ? faceNode(author, "cm-cmt-av") : robotNode("cm-cmt-av cm-cmt-av-agent");
-  avatar.setAttribute("aria-hidden", "true");
+  const face = avatar(author);
+  face.setAttribute("aria-hidden", "true");
   const main = el("div", "cm-cmt-main");
   const who = el("div", "cm-cmt-who");
   who.append(el("b", undefined, author));
@@ -65,13 +69,13 @@ export function message(author: string, at: string, text: string, deletion?: Del
       ask.hidden = true;
       main.append(confirmDelete(deletion, () => {
         ask.hidden = false;
-        ask.focus();
+        ask.focus({ preventScroll: true });
       }));
     });
     ask.setAttribute("aria-label", deletion.thread ? "Delete this thread" : "Delete this comment");
     who.append(ask);
   }
-  row.append(avatar, main);
+  row.append(face, main);
   return row;
 }
 
@@ -98,7 +102,7 @@ function confirmDelete(deletion: Deletion, onCancel: () => void): HTMLElement {
   });
   box.append(question, el("span", "cm-cmt-confirm-actions"));
   box.lastElementChild!.append(no, yes);
-  queueMicrotask(() => no.focus());
+  queueMicrotask(() => no.focus({ preventScroll: true }));
   return box;
 }
 
@@ -168,7 +172,7 @@ export function carryOver(from: HTMLElement, to: HTMLElement) {
   if (document.activeElement === before) {
     const { selectionStart, selectionEnd } = before;
     queueMicrotask(() => {
-      after.focus();
+      after.focus({ preventScroll: true });
       after.setSelectionRange(selectionStart, selectionEnd);
     });
   }

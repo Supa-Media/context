@@ -248,6 +248,90 @@ describe("a person's own approved machines", () => {
     expect(await listMachines(t, alice)).toEqual([]);
   });
 
+  test("listGrants marks the desktop app, and only it, as a machine", async () => {
+    // The live map leaves the desktop app out of the AI tools on this flag
+    // (Dev2, 2026-10-12: "Context on <laptop>" stood among the agents).
+    const t: TestConvex = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const workspaceId = await createWorkspace(t, alice, "alfa");
+    await registerMac(t, "mcp_client_laptop", "Context on laptop");
+    await approveMachine(t, alice, "mcp_client_laptop", "alfa");
+    await gatewayPost(t, "/gateway/clients/register", {
+      clientId: "mcp_client_claude",
+      clientName: "Context on a Claude that says so",
+      redirectUris: ["https://claude.example.invalid/callback"],
+      hashedClientSecret: null,
+      tokenEndpointAuthMethod: "none",
+      scope: "context:read context:write",
+      applicationType: "web",
+    });
+    await t.run((ctx) =>
+      ctx.db.insert("oauthGrants", {
+        workspaceId,
+        userId: alice,
+        clientId: "mcp_client_claude",
+        scopes: ["context:read", "context:write"],
+        hashedRefreshToken: fakeHash("refresh:mcp_client_claude"),
+        status: "active",
+        createdAt: Date.now(),
+      }),
+    );
+
+    const rows = await asUser(t, alice).query(api.functions.grants.listGrants, { workspaceId });
+    const byClient = Object.fromEntries(rows.map((r) => [r.clientId, r.isMachine]));
+    expect(byClient).toEqual({ mcp_client_laptop: true, mcp_client_claude: false });
+  });
+
+  test("a claim is not a machine: the loopback bound decides, not the name or the software id", async () => {
+    // `software_id` and `client_name` are both client-asserted, and client
+    // registration is unauthenticated by construction. `listMyMachines`
+    // accepts that bound explicitly, because the worst a forged id buys there
+    // is a row in this person's own devices list. `isMachine` is read by the
+    // live map, which *omits* what it marks — so a client that can name
+    // itself into the flag can choose not to be drawn among the AI tools
+    // connected to this context. The fact that bounds the claim is the one
+    // `decideMachineApproval` already leans on: every registered redirect URI
+    // is loopback, so the shell is on the computer the person is sitting at.
+    const t: TestConvex = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const workspaceId = await createWorkspace(t, alice, "alfa");
+    await registerMac(t, "mcp_client_laptop", "Context on laptop");
+    await approveMachine(t, alice, "mcp_client_laptop", "alfa");
+    // Declares the shell's software id, but can receive a code off this
+    // machine, so it is not a shell on it.
+    await registerMac(t, "mcp_client_claimed_id", "A tool", {
+      redirectUris: ["https://tool.example.invalid/callback"],
+      applicationType: "web",
+    });
+    // Takes the name the older installs are recognised by instead.
+    await registerMac(t, "mcp_client_claimed_name", "Context on nothing", {
+      softwareId: "com.example.tool",
+      redirectUris: ["https://tool.example.invalid/callback"],
+      applicationType: "web",
+    });
+    for (const clientId of ["mcp_client_claimed_id", "mcp_client_claimed_name"]) {
+      await t.run((ctx) =>
+        ctx.db.insert("oauthGrants", {
+          workspaceId,
+          userId: alice,
+          clientId,
+          scopes: ["context:read", "context:write"],
+          hashedRefreshToken: fakeHash(`refresh:${clientId}`),
+          status: "active",
+          createdAt: Date.now(),
+        }),
+      );
+    }
+
+    const rows = await asUser(t, alice).query(api.functions.grants.listGrants, { workspaceId });
+    const byClient = Object.fromEntries(rows.map((r) => [r.clientId, r.isMachine]));
+    expect(byClient).toEqual({
+      mcp_client_laptop: true,
+      mcp_client_claimed_id: false,
+      mcp_client_claimed_name: false,
+    });
+  });
+
   test("signed out entirely: refused, not an empty list", async () => {
     const t: TestConvex = setupTest();
     const error = await captureError(() =>

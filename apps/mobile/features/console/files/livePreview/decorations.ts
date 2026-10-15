@@ -37,9 +37,16 @@ import { JoinWidget, joinFences } from "./joinBlock";
 import { quietHeadings, revealSelection } from "./engagement";
 import { frontmatterBlock, frontmatterHidden, frontmatterLine, frontmatterRange } from "./frontmatter";
 import { HtmlPreviewWidget, htmlPreviews } from "./htmlPreview";
+import { MermaidWidget, diagramHost, mermaidFences } from "./diagram";
 import { completedTasks, hangingIndents, listGlyphs } from "./lists";
 import { BulletWidget, TaskWidget } from "./listWidgets";
-import { hiddenMarkRanges, isBracketedText, selectionTouches, styleClassFor } from "./reveal";
+import {
+  hiddenMarkRanges,
+  isBracketedText,
+  selectionTouches,
+  styleClassFor,
+  wikiLinkExtent,
+} from "./reveal";
 import { tableGrids, tableLines } from "./tableModel";
 import { TableGridWidget } from "./tableWidget";
 
@@ -248,8 +255,11 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const casts = castFences(state, frontEnd);
   /* A `join` fence — where the homepage's waitlist field goes — see `joinFences`. */
   const joins = joinFences(state, frontEnd);
+  /* A `mermaid` fence, drawn by a sandboxed frame where a host provides one — see `mermaidFences`. */
+  const diagrams = mermaidFences(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
+    diagrams.some((diagram) => pos >= diagram.from && pos < diagram.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
     lists.some((list) => pos >= list.from && pos < list.to) ||
     rows.some((row) => pos >= row.from && pos < row.to) ||
@@ -312,7 +322,11 @@ export function decorationsFor(state: EditorState): DecorationSet {
       if (insidePreview(node.from)) return;
       // Words in brackets are not a link — see `isBracketedText`.
       if (isBracketedText(node.node, state.doc)) return;
-      styles.push(Decoration.mark({ class: className }).range(node.from, node.to));
+      // A #tag being typed or edited is drawn as the text it is, like any mark the caret is in.
+      if (node.name === "Tag" && selectionTouches(node, selection)) return;
+      // A wiki link is painted brackets and all — see `wikiLinkExtent`.
+      const { from, to } = wikiLinkExtent(node, state.doc);
+      styles.push(Decoration.mark({ class: className }).range(from, to));
     },
   });
 
@@ -349,6 +363,17 @@ export function decorationsFor(state: EditorState): DecorationSet {
         widget: new HtmlPreviewWidget(preview.html, preview.height),
         block: true,
       }).range(preview.from, preview.to),
+    );
+  }
+
+  const diagramFrame = state.facet(diagramHost);
+  for (const diagram of diagrams) {
+    if (diagramFrame === null) break;
+    hides.push(
+      Decoration.replace({
+        widget: new MermaidWidget(diagram.source, diagramFrame.frameUrl),
+        block: true,
+      }).range(diagram.from, diagram.to),
     );
   }
 

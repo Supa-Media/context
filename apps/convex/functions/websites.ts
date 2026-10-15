@@ -19,6 +19,7 @@ import {
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
+import { recordRouteChangeAtHandler } from "./lib/websites/routeChangeAt";
 import {
   resolveWebsiteAddressHandler,
   websiteAddressPlanHandler,
@@ -192,6 +193,8 @@ const linkCatalogValidator = v.object({
       href: v.string(),
       audience: v.union(v.literal("public"), v.literal("members")),
       sourceEtag: v.union(v.string(), v.null()),
+      releaseId: v.optional(v.string()),
+      releasePageId: v.optional(v.string()),
     }),
   ),
   ownedHosts: v.array(v.string()),
@@ -352,7 +355,7 @@ export const siteShotTarget = internalMutation({
   handler: siteShotTargetHandler,
 });
 
-/** `/gateway/site`: status, check, publish, screenshot and history for an owner's or editor's agent. INTERNAL. */
+/** `/gateway/site`: status, check, publish, screenshot, history and domain for an owner's or editor's agent. INTERNAL. */
 export const gatewaySite = internalAction({
   args: {
     hashedAccessToken: v.string(),
@@ -361,6 +364,7 @@ export const gatewaySite = internalAction({
     draft: v.optional(v.string()),
     path: v.optional(v.string()),
     revision: v.optional(v.number()),
+    hostname: v.optional(v.string()),
   },
   returns: gatewaySiteValidator,
   handler: gatewaySiteHandler,
@@ -449,6 +453,17 @@ export const recordRouteChange = internalMutation({
   },
   returns: v.boolean(),
   handler: recordRouteChangeHandler,
+});
+
+/** A change named by its paths, outside `website/` too: recorded only when it reaches the site. */
+export const recordRouteChangeAt = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paths: v.array(v.string()),
+    unsafe: v.optional(v.boolean()),
+  },
+  returns: v.boolean(),
+  handler: recordRouteChangeAtHandler,
 });
 
 export const websiteStarterRepairNeeded = internalQuery({

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { MEANING_ONLY_LABEL, type Match, type PaletteItem } from "../../console/files/palette";
+import { MEANING_ONLY_LABEL, WHY_LABEL, type Match, type PaletteItem } from "../../console/files/palette";
 import { space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Icon, type IconName } from "./Icon";
@@ -22,22 +22,20 @@ export const POINTER_ROW_HEIGHT = 38;
  */
 export const TOUCH_ROW_HEIGHT = 56;
 
-/** `kind` as one character. Cheaper than an icon set and legible at 10px. */
-const GLYPHS: Readonly<Record<PaletteItem["kind"], string>> = {
-  note: "▢",
-  folder: "▸",
-  command: "⌘",
-};
-
 /**
  * `kind` on a phone: the icons Home's rows draw, at Home's size (board 04).
- * The glyphs above read as tiny empty boxes at a thumb's distance (owner's
- * retest, 2026-10-01).
+ *
+ * A pointer row draws no mark for a note, folder or command: the one-character
+ * glyphs it had read as empty grey checkboxes beside every note (owner,
+ * 2026-10-01 on a phone and 2026-10-14 on a desk), and the folder after the
+ * name already says where a note is. A filter row keeps its icon on both,
+ * because it is a different kind of row in the same list (Discord's "Filters").
  */
 const ICONS: Readonly<Record<PaletteItem["kind"], IconName>> = {
   note: "file",
   folder: "folder",
   command: "sparkle",
+  filter: "grid",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -78,8 +76,11 @@ export function highlightRuns(
  * found by meaning alone says so between them, because its snippet will not
  * hold the words that were typed.
  */
-export function secondLine(item: PaletteItem): string {
-  return [item.detail, item.meaningOnly ? MEANING_ONLY_LABEL : undefined, item.snippet]
+export function secondLine(item: PaletteItem, tagged = false): string {
+  // A row that draws its own tag (`why`, on a pointer) says "Same topic,
+  // different words" there, and once is enough.
+  const meaning = item.meaningOnly && !(tagged && item.why !== undefined);
+  return [item.detail, meaning ? MEANING_ONLY_LABEL : undefined, item.snippet]
     .filter((part) => part !== undefined && part !== "")
     .join(" · ");
 }
@@ -110,7 +111,8 @@ export function PaletteRow({
   const [hovered, setHovered] = useState(false);
   const labelVariant = touch ? "treeTouch" : "tree";
   const runs = highlightRuns(match.item.label, match.ranges);
-  const second = secondLine(match.item);
+  const second = secondLine(match.item, !touch);
+  const why = match.item.why === undefined ? null : WHY_LABEL[match.item.why];
 
   return (
     <Pressable
@@ -133,11 +135,9 @@ export function PaletteRow({
     >
       {touch ? (
         <Icon name={ICONS[match.item.kind]} size={20} color={colors.text2} />
-      ) : (
-        <Text variant="treeMeta" style={styles.glyph} aria-hidden>
-          {GLYPHS[match.item.kind]}
-        </Text>
-      )}
+      ) : match.item.kind === "filter" ? (
+        <Icon name={ICONS.filter} size={16} color={colors.text2} />
+      ) : null}
 
       <View style={styles.rowText}>
         <Text variant={labelVariant} numberOfLines={1} style={styles.label}>
@@ -171,6 +171,20 @@ export function PaletteRow({
           {second}
         </Text>
       ) : null}
+
+      {/* Why it is in the list (⌘K's search of every workspace). A phone row
+          is two lines already, and says "Same topic, different words" in its
+          second one instead. */}
+      {why !== null && !touch ? (
+        <Text
+          variant="treeMeta"
+          numberOfLines={1}
+          style={[styles.why, match.item.why === "meaning" ? styles.whyMeaning : null]}
+          testID="palette-why"
+        >
+          {why}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -187,10 +201,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   rowHover: { backgroundColor: colors.surface2 },
   rowSelected: { backgroundColor: colors.accentDim },
   rowText: { flex: 1, minWidth: 0 },
-  glyph: { width: 14, textAlign: "center" },
   label: { color: colors.text2 },
   /** The whole reason `Match.ranges` is carried out of the ranker. */
   mark: { color: colors.text, fontWeight: "600" },
   detailUnder: { marginTop: 1 },
   detailBeside: { maxWidth: "45%", marginLeft: "auto" },
+  why: {
+    flexShrink: 0,
+    paddingHorizontal: space.x2,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    color: colors.text2,
+  },
+  whyMeaning: { borderColor: colors.sharedBorder, color: colors.sharedText },
 });

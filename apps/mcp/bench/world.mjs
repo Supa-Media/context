@@ -19,15 +19,24 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
+import { skillPath } from "../src/agent/skills.js";
+import { createWeb } from "./sites.mjs";
+import { createBenchSite } from "./siteStub.mjs";
 import { PROPOSAL_PENDING_PREFIX } from "../src/tools/proposals.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "../test/controlPlaneStub.mjs";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 
 import { createWorkerCtx } from "../test/workerCtx.mjs";
 import { ACCOUNT_ID as D1_ACCOUNT_ID, API_TOKEN as D1_API_TOKEN, CLOUDFLARE_API_BASE, createD1Backend } from "../test/searchProjection/fixtures.mjs";
+import { createVectorizeBackend, meaningIndexFor } from "../test/vectorizeStub.mjs";
+import { wireSearchSettings } from "../src/search/settings.js";
 import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from "./clock.mjs";
+
+/** Brave's search endpoint (`src/agent/search.js`). */
+const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
 const PINNED = "context-lc";
@@ -38,6 +47,22 @@ const PINNED = "context-lc";
  * folders and root notes with members, and a held-back note is a private
  * override on top.
  */
+/**
+ * A var as the deployed gateway has it: the top-level `[vars]` of
+ * wrangler.toml, never a per-environment table. `undefined` when unset.
+ */
+export function deployedVar(toml, name) {
+  const top = toml.match(/^\[vars\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1] ?? "";
+  return top.match(new RegExp(`^${name} = "([^"]*)"\\s*$`, "m"))?.[1];
+}
+
+/**
+ * The egress gate as production runs it. The owner switched it off on the
+ * deployment (2026-10-10); a world that held writes anyway graded a YES round
+ * trip production never has, and "tick off the to-do" failed on it.
+ */
+export const DEPLOYED_EGRESS_APPROVALS = deployedVar(readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8"), "EGRESS_APPROVALS");
+
 export function manifest({ shared, files = [], heldBack = [] }) {
   const folders = shared ? [...new Set(files.filter((path) => path.includes("/")).map((path) => path.split("/")[0]))].sort() : [];
   const rootNotes = shared ? files.filter((path) => !path.includes("/")).sort() : [];
@@ -61,7 +86,7 @@ export function searchIndexFor(name, state) {
   return { databaseId: `db-bench-${name}`, accountId: D1_ACCOUNT_ID, apiToken: D1_API_TOKEN, state };
 }
 
-export function binding(bucket, n, searchIndex = null) {
+export function binding(bucket, n, searchIndex = null, meaningIndex = null) {
   return {
     provider: "s3",
     endpoint: S3_ENDPOINT,
@@ -73,7 +98,19 @@ export function binding(bucket, n, searchIndex = null) {
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
     ...(searchIndex ? { searchIndex } : {}),
+    ...(meaningIndex ? { meaningIndex } : {}),
   };
+}
+
+/**
+ * The visibility a fixture note is written at, as `manifest` above declares it:
+ * a shared workspace's notes are team unless held back by name, a personal
+ * workspace's are private. The meaning index records the same tier.
+ */
+export function fixtureVisibility(bench, name, path) {
+  const shared = !bench.people.some((row) => row.workspace === name && row.personal);
+  if (!shared) return "private";
+  return (bench.workspaces[name].heldBack ?? []).includes(path) ? "private" : "team";
 }
 
 function bodyText(object) {
@@ -93,7 +130,7 @@ function snapshot(bucket) {
  * is a real leak. `search` is `null` (no search database: the cold world),
  * `"backfilling"` (a database to warm) or `"ready"` (a warmed clone).
  */
-export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null, prepared = null }) {
+export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null, meaning = false, prepared = null }) {
   const modified = (ms) => new Date(ms).toISOString();
   const ids = new Map();
   let n = 0;
@@ -101,7 +138,10 @@ export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null
     const id = workspaceId(name);
     const shared = !bench.people.some((row) => row.workspace === name && row.personal);
     const searchIndex = search ? searchIndexFor(name, search) : null;
-    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n, searchIndex), shared ? { kind: "shared" } : {});
+    // Search by meaning rides beside fast search, on the same state: a world
+    // with a meaning index is one whose warm pass filled it (`warm.mjs`).
+    const meaningIndex = meaning && search ? meaningIndexFor(name, search, D1_ACCOUNT_ID) : null;
+    controlPlane.addWorkspace(id, name, binding(`bench-${name}`, ++n, searchIndex, meaningIndex), shared ? { kind: "shared" } : {});
     const bucket = s3.bucketFor(`bench-${name}`);
     if (prepared) {
       // The warmed bucket, index shards included; each object copied so a turn's
@@ -148,32 +188,64 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   // A write a turn makes is stamped on the world's clock, so it reads as just written.
   const s3 = createS3Backend(S3_ENDPOINT, { now: () => new Date().toISOString() });
-  const controlPlane = createControlPlaneStub();
+  // The website and domain `write_note` `site` answers for (`siteStub.mjs`),
+  // read from the buckets placed below.
+  let site = null;
+  const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The listing tools list from the Convex tree, copied here from each S3 bucket.
+  controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
   const copies = [];
   const d1 = prepared ? createD1Backend({ open: (id) => prepared.openCopy(id, copies) }) : null;
-  const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : [])];
+  // The warmed meaning index, copied: a turn's write-behind lands in this
+  // conversation's copy and never in the snapshot or the next conversation.
+  const vectorize = prepared?.vectors ? createVectorizeBackend({ seed: prepared.vectors }) : null;
+  const restore = [s3.install(), controlPlane.install(), ...(d1 ? [d1.install()] : []), ...(vectorize ? [vectorize.install()] : [])];
   if (today !== null) restore.push(installClock(today));
 
-  // Model calls are the only traffic that leaves the world.
+  // The scripted web a golden task runs on (`sites.mjs`): the browser
+  // Worker's stand-in, and the answers to web searches.
+  const web = models.sites?.length ? createWeb(models.sites) : null;
+
+  // Model calls are the only traffic that leaves the world, and web searches
+  // when the run has a search key and no scripted web: production searches
+  // the real web, so a run does too (decided 2026-10-09; until 2026-10-11 the
+  // world refused the call, so every search_web in a result had failed).
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) return models.gatewayFetch(url, init);
+    if (url.startsWith(BRAVE_SEARCH)) {
+      if (web) {
+        const results = web.search(new URL(url).searchParams.get("q") ?? "");
+        return new Response(JSON.stringify({ web: { results } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (typeof models.searchKey === "string" && models.searchKey) return below(input, init);
+    }
     if (url.startsWith(S3_ENDPOINT) || url.startsWith(CONTROL_PLANE_ORIGIN)) return below(input, init);
-    if (d1 && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
+    if ((d1 || vectorize) && url.startsWith(CLOUDFLARE_API_BASE)) return below(input, init);
     throw new Error("a benchmark turn tried to reach the network outside the model");
   };
   restore.push(() => {
     globalThis.fetch = below;
   });
 
-  const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, prepared });
+  const ids = placeWorkspaces(bench, { s3, controlPlane, baseMs, search: prepared ? "ready" : null, meaning: vectorize !== null, prepared });
+
+  const nameOf = new Map([...ids].map(([name, id]) => [id, name]));
+  site = createBenchSite({
+    bucketOf: (id) => (nameOf.has(id) ? s3.bucketFor(`bench-${nameOf.get(id)}`) : null),
+    handleOf: (id) => nameOf.get(id) ?? null,
+  });
 
   controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", 999), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
   pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
   pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0", lastModified: modified(noteModifiedAt(setupRaw, baseMs)) });
+  // The setup's task skills (`src/agent/skills.js`), where production keeps them.
+  for (const [i, skill] of (models.skills ?? []).entries()) {
+    pinned.set(skillPath(skill.name), { body: skill.raw, etag: `k${i}`, lastModified: modified(baseMs) });
+  }
 
   const token = `cat_bench_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
   await controlPlane.addGrant({
@@ -193,10 +265,15 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
+    // Where the person's own pages live, as in production: a handoff texts
+    // `<APP_ORIGIN>/tex/<handle>` (`http/texComputer.js`), and without one
+    // the browser cannot be handed over at all.
+    APP_ORIGIN: "https://app.bench.invalid",
     // The deployed Worker's search budget (wrangler.toml). The free-tier default
     // of 40 is spent by one bucket scan, and every read, listing and orient in the
     // same turn then fails: the 2026-10-08 results measured exactly that.
     SEARCH_SUBREQUEST_BUDGET: "600",
+    ...(DEPLOYED_EGRESS_APPROVALS === undefined ? {} : { EGRESS_APPROVALS: DEPLOYED_EGRESS_APPROVALS }),
     ...(models.ai ? { AI: models.ai } : {}),
     AI_GATEWAY_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
     AI_GATEWAY_ID: "bench",
@@ -205,12 +282,19 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // A scripted web answers searches itself, so no real key is needed or sent.
+    ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
+    // The deployment's search settings (`src/search/settings.js`): what a
+    // search setup under test puts in the Worker's vars.
+    ...(models.searchSettings ? { SEARCH_SETTINGS: JSON.stringify(wireSearchSettings(models.searchSettings)) } : {}),
   };
 
-  /** Files the gateway writes for itself on a save: never the model's change. */
+  /** Files the gateway writes for itself on a save, and Tex's own transcript of the turn: never the model's change. */
   const PLUMBING_FILES = new Set(["privacy.md", "activity.md"]);
-  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path);
+  const isPlumbingPath = (path) => path.startsWith(".") || PLUMBING_FILES.has(path) || path.startsWith(`${TRANSCRIPTS_FOLDER}/`);
 
+  const routerSaid = (entry) =>
+    typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
   /** The status the failed round got, from the turn log's trace; null when none. */
   const failedStatus = (trace) => {
     const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
@@ -220,6 +304,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   return {
     /** One texted message, answered with the conversation so far. */
     async text(message) {
+      // The person opened the last handoff's link and signed in before texting.
+      web?.personSignsIn();
       const { ctx, settle } = createWorkerCtx();
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
@@ -240,8 +326,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
+        // Held calls the answer asks a YES for (`route.js`); the played person answers.
+        asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
-        // keeps the status (`route.js` `wireTraceEntry`), and a result says it.
+        // keeps the status (`turnLog.js` `wireTraceEntry`), and a result says it.
         error:
           response.status === 200
             ? null
@@ -255,15 +343,23 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         // A fallback and a retried round are recorded the same way, because
         // they are what production does and a result must show how often.
         tools: (turn.trace ?? [])
-          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && entry.retried))
+          .filter((entry) => entry.kind === "tool" || entry.kind === "router" || entry.kind === "fallback" || (entry.kind === "model" && (entry.retried || entry.cut)))
           .map((entry) =>
             entry.kind === "router"
-              ? { tool: `router: ${entry.tier}`, ok: true }
+              ? // `router: think (0.8)`; a think pick under the setup's cutoff is
+                // `router: main (think 0.4)`, so a result shows the near misses.
+                { tool: `router: ${entry.tier}${routerSaid(entry)}`, ok: true }
               : entry.kind === "fallback"
                 ? { tool: `fallback: ${entry.model}${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
-                : entry.kind === "model"
+                : entry.kind === "model" && entry.cut && !entry.retried
+                  ? { tool: "cut off at the output cap", ok: true }
+                  : entry.kind === "model"
                   ? { tool: `retried${entry.status === undefined ? "" : ` after ${entry.status}`}`, ok: true }
-                  : { tool: entry.tool, ok: entry.ok !== false },
+                  : entry.held
+                    ? // Held by the egress gate for the person's yes, and run when they
+                      // gave it (the played person answers YES): not a failed call.
+                      { tool: `${entry.tool} (held for OK)`, ok: true }
+                    : { tool: entry.tool, ok: entry.ok !== false },
           ),
         usage: {
           input: usage.inputTokens ?? 0,
@@ -272,6 +368,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           cacheWrite: usage.cacheWriteTokens ?? 0,
         },
       };
+    },
+
+    /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
+    browser() {
+      return [...(web ? web.events() : []), ...site.events()];
     },
 
     /** What the conversation changed in the invented workspaces, as a list. */
@@ -309,6 +410,35 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         }
       }
       return out;
+    },
+
+    /**
+     * One `search_notes` as the person, through the MCP endpoint, the way an
+     * AI client calls it: for the search benchmark (`search.mjs`). `context`
+     * addresses another workspace, as a client would with `context: "@name"`.
+     */
+    async search(query, context = null) {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "search_notes", arguments: { query, ...(context ? { context } : {}) } },
+          }),
+        }),
+        env,
+        ctx,
+      );
+      await settle();
+      const ms = realNow() - started;
+      const body = await response.json().catch(() => null);
+      const text = (body?.result?.content ?? []).map((block) => block.text ?? "").join("\n");
+      return { ok: response.status === 200 && body?.result?.isError !== true, text, ms };
     },
 
     close() {

@@ -16,6 +16,7 @@
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { withoutSortPrefix as sharedWithoutSortPrefix } from "@context/shared/src/linkedHeading";
 import { FRONT_NOTES } from "../../../../mcp/src/lists/grammar.js";
 
 /** The folder a path sits in. `""` is the root. */
@@ -107,10 +108,10 @@ export function isMarkdown(name: string): boolean {
  * word are a naming problem the person can see and fix; Rename, Move and the
  * palette all still spell the number out.
  */
-const SORT_PREFIX = /^\d{1,2}-(?![\d.])(?=.)/;
+// The pattern itself lives in `linkedHeading.ts`, shared with the control plane.
 
 /**
- * `1-projects` → `projects`. **Display only** — see `SORT_PREFIX` above, and
+ * `1-projects` → `projects`. **Display only** — see the sort-number pattern above, and
  * the warning on `displayName`, which this half is subject to just as much.
  *
  * Nothing but a prefix is ever removed, which is the property worth holding it
@@ -118,7 +119,7 @@ const SORT_PREFIX = /^\d{1,2}-(?![\d.])(?=.)/;
  * came off is always a sort number or nothing.
  */
 export function withoutSortPrefix(name: string): string {
-  return name.replace(SORT_PREFIX, "");
+  return sharedWithoutSortPrefix(name);
 }
 
 /**
@@ -154,6 +155,20 @@ export function displayPath(path: string): string {
  * themselves. **A folder keeps its extension**: a folder called `notes.md` is
  * a folder called `notes.md`.
  */
+/**
+ * Whether a folder's front-note heading is only its name on disk, sort number
+ * and all — "1-areas" over `2-areas`, a README older folders were made with.
+ * Such a heading is the number the label exists to hide, so a folder page
+ * keeps its label instead (`folderPage/model.ts`). A heading with no sort
+ * number is somebody's own wording, however close to the name, and is kept.
+ */
+export function repeatsFolderName(folder: string, heading: string): boolean {
+  const said = heading.replace(/[\u2066-\u2069]/g, "").trim();
+  if (withoutSortPrefix(said) === said) return false;
+  const words = (name: string) => withoutSortPrefix(name).toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  return words(said) === words(baseName(folder));
+}
+
 export function folderLabel(name: string): string {
   return isolateForDisplay(withoutSortPrefix(name));
 }
@@ -170,7 +185,7 @@ export function folderLabel(name: string): string {
  *
  * `1-projects` is drawn as `projects` for the same reason and by the same
  * argument: the number is there so a listing sorts, not so a person reads it.
- * `SORT_PREFIX` above is where that rule is stated and bounded.
+ * the sort-number pattern above is where that rule is stated and bounded.
  *
  * **This is display only, and the distinction is load-bearing.** The name on
  * disk never changes: `TreeRow.name` and `TreeRow.path` still carry the real

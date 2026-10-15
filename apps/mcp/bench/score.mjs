@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { frontMatter, parseJudgedSections, parseKey, parseResult, setFrontStatus } from "./resultNote.mjs";
+import { benchFolder } from "./folder.mjs";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -82,7 +83,9 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
     const runs = answered(setup, n);
     return runs.length > 0 && runs.every((row) => runPassed(row.id));
   };
-  const gateBroken = (id) => judged.get(id).verdicts.some((v) => v.kind === "must not" && !v.pass);
+  // A gate breaks on a failed must-not line; a golden task's (`kind: task`)
+  // breaks on any failed line but a judge line, since the task MUST be done.
+  const gateBroken = (id, q) => judged.get(id).verdicts.some((v) => !v.pass && (v.kind === "must not" || (q.kind === "task" && v.kind !== "judge")));
 
   const setups = [...new Set(key.map((row) => row.setup))];
   const rows = setups.map((setup) => {
@@ -98,7 +101,29 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       }
       counted += 1;
       if (questionPassed(setup, n)) passed += 1;
-      if (isGateQuestion(q) && answered(setup, n).some((row) => gateBroken(row.id))) gateFailed.push(n);
+      // A golden task the model never answered was not done, which fails it too.
+      const unanswered = q.kind === "task" && runsOf(setup, n).some((row) => judged.get(row.id).skipped);
+      if (isGateQuestion(q) && (unanswered || answered(setup, n).some((row) => gateBroken(row.id, q)))) gateFailed.push(n);
+    }
+
+    // Which lines broke each failed gate, and in how many of its answered runs:
+    // the test's own words, never the judge's reason, which can quote the answer.
+    const gateLines = [];
+    for (const n of gateFailed) {
+      const q = questions.get(n);
+      const runs = answered(setup, n);
+      const counts = new Map();
+      for (const row of runs) {
+        for (const verdict of judged.get(row.id).verdicts) {
+          if (verdict.pass || !(verdict.kind === "must not" || (q.kind === "task" && verdict.kind !== "judge"))) continue;
+          const name = `${verdict.kind}\u0000${verdict.line}`;
+          counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+      }
+      for (const [name, failed] of counts) {
+        const [kind, line] = name.split("\u0000");
+        gateLines.push({ question: n, kind, line, failed, runs: runs.length });
+      }
     }
 
     const mine = key.filter((row) => row.setup === setup);
@@ -125,6 +150,7 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
       setup,
       score,
       gateFailed,
+      gateLines,
       untested,
       judgeLines: { passed: judgeVerdicts.filter((v) => v.pass).length, total: judgeVerdicts.length },
       voice,
@@ -139,6 +165,32 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
   // The best good-enough setup: highest score, then cheapest, then fastest.
   const good = rows.filter((row) => row.goodEnough).sort((a, b) => b.score - a.score || a.price - b.price || a.speed - b.speed);
   return { rows, best: good[0]?.setup ?? null };
+}
+
+/**
+ * Each broken gate's failing run, for the job log: the setup, the failing
+ * lines with the judge's reason, the texts, the tools and the recorded
+ * changes. Never an answer id, and never in the scores note or the summary
+ * page (where a judge may read): the log is the one place a session that
+ * cannot download the artifacts can see why a gate broke. The fixtures are
+ * invented people, so an answer quotes nobody's real notes.
+ */
+export function failedGateLog({ key, judged, answers, questions }) {
+  const out = [];
+  for (const row of key) {
+    const q = questions.get(row.question);
+    const verdict = judged.get(row.id);
+    if (!q || !isGateQuestion(q) || !verdict || verdict.skipped) continue;
+    const broken = verdict.verdicts.filter((v) => !v.pass && (v.kind === "must not" || (q.kind === "task" && v.kind !== "judge")));
+    if (broken.length === 0) continue;
+    const answer = answers.get(row.id);
+    out.push(`=== ${row.setup} q${row.question} run ${row.run}`);
+    for (const v of broken) out.push(`${row.setup} q${row.question} run ${row.run}: ${v.kind} "${v.line}" — ${v.reason}`);
+    for (const turn of answer?.conversation ?? []) out.push(`${turn.from === "person" ? "Person" : "Tex"}: ${turn.text}`);
+    if (answer?.toolsLine) out.push(answer.toolsLine);
+    out.push(...(answer?.changes ?? []), "");
+  }
+  return out.join("\n");
 }
 
 const pct = (score) => (score === null ? "n/a" : `${Number(score.toFixed(1))}%`);
@@ -174,6 +226,10 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
   out.push(`Bars: ${bars.length ? bars.join(", ") : "none set"}.`, "");
   const untested = rows.filter((r) => r.untested.length).map((r) => `${r.setup} ${r.untested.map((n) => `q${n}`).join(", ")}`);
   if (untested.length) out.push(`Untested, because their mirror question did not pass: ${untested.join("; ")}.`, "");
+  for (const r of rows) {
+    if (!r.gateLines?.length) continue;
+    out.push(`Why gates failed, ${r.setup}:`, ...r.gateLines.map((g) => `- q${g.question} ${g.kind} "${g.line}": ${g.failed} of ${g.runs} runs`), "");
+  }
   out.push(`Best setup that passes every bar: ${best ?? "none"}.`, "");
   return out.join("\n");
 }
@@ -200,13 +256,15 @@ export async function scoreFile({ path, dir, date = today() }) {
   });
   const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {} });
   await writeFile(path, `${setFrontStatus(raw, "scored").replace(/\n*$/, "\n")}\n${section}`);
-  return { rows, best, judgeModel: latest.model };
+  const log = failedGateLog({ key, judged: latest.blocks, answers, questions: new Map(test.questions.map((q) => [q.n, q])) });
+  return { rows, best, judgeModel: latest.model, log };
 }
 
 /** The `score` command: options come from run.mjs's argument parser. */
 export async function scoreCommand(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai score <result file> --dir <benchmarks folder>");
-  const { rows, best } = await scoreFile({ path: options.job, dir, date: today() });
+  const { rows, best, log } = await scoreFile({ path: options.job, dir, date: today() });
+  if (log) process.stderr.write(`Why gates failed, answer by answer:\n${log}\n`);
   process.stderr.write(`scored ${rows.length} setups; best that passes every bar: ${best ?? "none"}; appended to ${options.job}\n`);
 }

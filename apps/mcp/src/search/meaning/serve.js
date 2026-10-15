@@ -28,16 +28,36 @@ import { noteTitle } from "../resultText.js";
 import { createMeaningClient } from "./client.js";
 import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
+import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
+import { logicalPath, pendingMovesOf, readAtTreeName } from "../../moves/queued.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
- * bge-m3 cosine; unrelated English sits well under this. Tunable, and the
- * only number here a search quality review should need to touch.
+ * bge-m3 cosine of a short query against a ~1,500-character passage, which
+ * sits far lower than two sentences compared with each other.
+ *
+ * It was 0.55 until 2026-10-10, and that dropped nearly everything: measured
+ * on two production indexes (one of ~37,000 passages) with plain questions,
+ * the passages a person meant scored 0.40 to 0.63 ("leaving the team" against
+ * a conversation where someone says they cannot keep doing their role: 0.43
+ * to 0.52), while queries about nothing in the workspace ("banana bread
+ * recipe with walnuts") topped out at 0.31 to 0.34. A loosely related match
+ * ("beach vacation" against a meeting that talks about a party venue) can
+ * reach 0.44, which is the price of the recall; it is labelled as found by
+ * meaning, never as having the words. Tunable, and the only number here a
+ * search quality review should need to touch.
  */
-export const MEANING_MIN_SCORE = 0.55;
+export const MEANING_MIN_SCORE = DEFAULT_SEARCH_SETTINGS.minScore;
 
 /** Notes found only by meaning that one search may read for a snippet. */
 export const MEANING_SNIPPET_READS = 3;
+
+/**
+ * The same, when no note held every word typed. Then meaning is the better
+ * half of the answer (a question asked in a person's own words, "who left
+ * the team"), so more of it is shown.
+ */
+export const MEANING_SNIPPET_READS_LOOSE = 6;
 
 /** The words a person reads beside a note found only by meaning. */
 export const MEANING_ONLY_LABEL = "Same topic, different words";
@@ -59,13 +79,16 @@ export function meaningSearchable(store) {
  * @param {object} store
  * @param {{query: string, scope: string, isVisible: (path: string) => boolean,
  *   prefix?: string, grantedGroups?: boolean, fetchImpl?: Function,
- *   embed?: (texts: string[]) => Promise<number[][]>}} options
+ *   embed?: (texts: string[]) => Promise<number[][]>, minScore?: number}} options
+ *   `minScore` is the closeness under which a match is dropped: the store's
+ *   setting (`../settings.js`) unless given.
  * @returns {Promise<Array<{path: string, score: number, chunk: number}> | null>}
  */
 export async function meaningMatches(
   store,
-  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed },
+  { query, scope, isVisible, prefix = "", grantedGroups = false, fetchImpl, embed, minScore },
 ) {
+  const floor = typeof minScore === "number" ? minScore : searchSettingsOf(store).minScore;
   if (!meaningSearchable(store) || typeof query !== "string" || !query.trim()) return null;
   try {
     const [vector] = await (embed ?? meaningEmbedderFor(store, { fetchImpl }))([query.trim()]);
@@ -78,7 +101,7 @@ export async function meaningMatches(
     const raw = await client.query(vector, { tiers });
     return rankMeaningMatches(raw).filter(
       (match) =>
-        match.score >= MEANING_MIN_SCORE &&
+        match.score >= floor &&
         match.path.endsWith(".md") &&
         match.path !== ACTIVITY_PATH &&
         !isPlumbing(match.path) &&
@@ -106,6 +129,13 @@ export async function meaningMatches(
  * meaning matches' order, so a note both find rises and a note only one finds
  * still places. Ties keep the word search's order.
  *
+ * **A loose word hit comes after every meaning match.** A loose hit is from
+ * the word search's any-word retry: no note held every word, so it holds
+ * some, and for a question in plain words that is mostly "the" and "team".
+ * Fused evenly, those buried the one note that was about the question (the
+ * owner, 2026-10-10, "who left the team": a page of emails that say "team",
+ * no meeting). A loose hit that meaning also found keeps its fused place.
+ *
  * @returns {Array<{key: string, word: object|null, meaning: object|null}>}
  */
 export function mergeHits(wordHits, matches, keyField = "key") {
@@ -129,16 +159,23 @@ export function mergeHits(wordHits, matches, keyField = "key") {
       });
     }
   });
+  const weak = (entry) => (entry.word?.loose === true && entry.meaning === null ? 1 : 0);
   return [...merged.values()]
-    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .sort((a, b) => weak(a) - weak(b) || b.score - a.score || a.order - b.order)
     .map(({ key, word, meaning }) => ({ key, word, meaning }));
 }
 
-/** A snippet for a note found only by meaning: the start of the passage that matched. */
-async function meaningSnippet(store, match) {
+/**
+ * A snippet for a note found only by meaning: the start of the passage that
+ * matched. `isVisible` is passed down to the read, so a note a queued folder
+ * move is carrying somewhere narrower is never opened here — `atTreeNames`
+ * drops the hit afterwards either way, but the bytes are not read first.
+ */
+async function meaningSnippet(store, match, chars = 200, isVisible) {
   let text;
   try {
-    const object = await store.get(match.path);
+    // At the name the tree draws, and only where the caller may see it there.
+    const object = await readAtTreeName(store, match.path, isVisible);
     if (!object) return null; // moved or deleted since it was embedded
     text = await object.text();
   } catch {
@@ -152,7 +189,7 @@ async function meaningSnippet(store, match) {
   // (`meaningPassages`), so the snippet is what follows that title.
   const indexedTitle = String(extractFields(match.path, text).title ?? "").trim();
   const body = passage.startsWith(indexedTitle) ? passage.slice(indexedTitle.length) : passage;
-  const line = body.replace(/\s+/g, " ").trim().slice(0, 200);
+  const line = body.replace(/\s+/g, " ").trim().slice(0, chars);
   return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
 }
 
@@ -165,27 +202,118 @@ async function meaningSnippet(store, match) {
  *
  * `matches` is `meaningMatches`'s answer, asked for alongside the word search
  * rather than after it, so the two cost one wait, not two.
+ *
+ * `extraNotes` (how many meaning-only notes may be added) and `snippetChars`
+ * (how much of the matching passage each shows) are the store's settings
+ * unless given (`../settings.js`); a word search that found only loose
+ * any-word hits may add twice as many, never fewer than the loose cap.
+ *
+ * `isVisible` is the caller's own privacy engine. It reaches the snippet
+ * read, so a note a queued folder move is carrying somewhere narrower is
+ * never opened: `atTreeNames` drops such a hit from the answer afterwards,
+ * and this keeps its bytes unread in the first place.
+ *
+ * @param {object} store
+ * @param {{hits: any[], matchCount?: number}} found
+ * @param {any} matches
+ * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number,
+ *   isVisible?: (path: string) => boolean }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key" } = {}) {
-  if (!matches || matches.length === 0) return { ...found, meaning: matches ? "none" : "off" };
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, isVisible } = {}) {
+  const settings = searchSettingsOf(store);
+  const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
+  const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
+  if (!matches || matches.length === 0) {
+    // `loose` is a ranking signal, never part of the answer; it and the word
+    // rank ride beside the hits as `evidence`, for a search across
+    // workspaces (`tools/search.js`) to rank by.
+    const hits = found.hits.map(({ loose: _loose, ...hit }) => hit);
+    const evidence = Object.fromEntries(found.hits.map((hit, rank) => [hit[keyField], { wordRank: rank, loose: hit.loose === true, meaningScore: null }]));
+    return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
+  }
   const out = [];
   let reads = 0;
+  // `every` of none is true: a word search that found nothing is the loosest.
+  const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
+  const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
+  // The evidence behind each hit, beside the hits rather than on them: a
+  // search across workspaces (`tools/search.js`) ranks by it, since one
+  // workspace's first word hit and another's are not the same strength.
+  const evidence = {};
   for (const entry of mergeHits(found.hits, matches, keyField)) {
+    evidence[entry.key] = {
+      wordRank: wordRanks.get(entry.key) ?? null,
+      loose: entry.word?.loose === true,
+      meaningScore: entry.meaning ? entry.meaning.score : null,
+    };
     if (entry.word) {
-      out.push({ ...entry.word, meaningOnly: false });
+      const { loose: _loose, ...word } = entry.word;
+      out.push({ ...word, meaningOnly: false });
       continue;
     }
-    if (reads >= MEANING_SNIPPET_READS) continue;
+    if (reads >= readCap) continue;
     reads += 1;
-    const read = await meaningSnippet(store, entry.meaning);
+    const read = await meaningSnippet(store, entry.meaning, chars, isVisible);
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;
-  return { ...found, hits: out, matchCount: found.matchCount + added, meaning: "on" };
+  return { ...found, hits: out, evidence, matchCount: found.matchCount + added, meaning: "on" };
 }
 
 /** Word search and search by meaning, asked together and merged. */
 export async function searchBothWays(store, wordSearch, options, shape = {}) {
   const [found, matches] = await Promise.all([wordSearch(), meaningMatches(store, options)]);
-  return await withMeaning(store, found, matches, shape);
+  return atTreeNames(await withMeaning(store, found, matches, { isVisible: options.isVisible, ...shape }), store?.pendingMoves, {
+    isVisible: options.isVisible,
+    prefix: options.prefix,
+    keyField: shape.keyField,
+  });
+}
+
+/**
+ * An answer at the names the tree draws while queued folder moves are still
+ * copying (phase 4 of `docs/decisions/app-and-console/convex-tree.md`).
+ *
+ * Both indexes hold notes at their bucket keys, and a queued move leaves those
+ * keys where they are until its copy lands. So each hit is folded through the
+ * session's pending moves (`logicalPath`, the same fold every listing draws
+ * with) and judged again by the caller's own `isVisible` at its new name: a
+ * folder moved somewhere narrower takes its notes out of a team member's
+ * answer at once, rather than when the copy finishes. A hit moving out of a
+ * folder search's prefix leaves it, and a note found at both names (an index
+ * that has seen the copy land and one that has not) is listed once. The count
+ * drops by what was dropped, never below what is shown.
+ *
+ * @template T
+ * @param {T} found
+ * @param {unknown} moves the store's `pendingMoves`, absent when none
+ * @param {{ isVisible?: (path: string) => boolean, prefix?: string, keyField?: string }} [options]
+ * @returns {T}
+ */
+export function atTreeNames(found, moves, { isVisible, prefix = "", keyField = "key" } = {}) {
+  const pending = pendingMovesOf(moves);
+  if (pending.length === 0 || !Array.isArray(found?.hits)) return found;
+  const hits = [];
+  const evidence = {};
+  const shown = new Set();
+  for (const hit of found.hits) {
+    const key = hit[keyField];
+    const named = typeof key === "string" ? logicalPath(key, pending) : key;
+    if (named !== key) {
+      if (typeof isVisible === "function" && !isVisible(named)) continue;
+      if (prefix && !named.startsWith(prefix)) continue;
+    }
+    if (shown.has(named)) continue;
+    shown.add(named);
+    hits.push(named === key ? hit : { ...hit, [keyField]: named });
+    if (found.evidence && key in found.evidence) evidence[named] = found.evidence[key];
+  }
+  const dropped = found.hits.length - hits.length;
+  if (dropped === 0 && hits.every((hit, index) => hit === found.hits[index])) return found;
+  return {
+    ...found,
+    hits,
+    ...(found.evidence ? { evidence } : {}),
+    ...(typeof found.matchCount === "number" ? { matchCount: Math.max(hits.length, found.matchCount - dropped) } : {}),
+  };
 }

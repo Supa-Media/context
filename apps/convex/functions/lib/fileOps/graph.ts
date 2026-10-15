@@ -3,9 +3,9 @@
  * between them — `docs/decisions/search.md`, "The map's graph is read per
  * shard at request time, and stored nowhere".
  *
- * Where the context's tree table has read every note's links
- * (`apps/mcp/src/tree/links.js`), the notes and links come from it instead,
- * in a few queries, and no shard is read; everything below about who may see
+ * Where the Convex tree's facts have read every note's links
+ * (`lib/nodes/linkTable.ts`), the notes and links come from them instead, in
+ * a few queries, and no shard is read; everything below about who may see
  * what applies to those rows exactly as to the shards'.
  *
  * Built from the search index this bucket already keeps, never from a listing
@@ -55,7 +55,10 @@ import {
   indexIsBehind,
   loadDocmap,
 } from "../../../../mcp/src/search/shards.js";
-import { treeLinkRows, treeNotePaths } from "../../../../mcp/src/tree/links.js";
+import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
+import { isServedStore, servedKeys, servedMoves } from "../nodes/manifestStore";
+import { linkTableOf, type LinkTable } from "../nodes/linkTable";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 
@@ -162,23 +165,10 @@ export function linksBehind(unparsed: number, notes: number): boolean {
   return unparsed > 0 && unparsed >= Math.max(LINKS_BEHIND_MIN, notes * LINKS_BEHIND_SHARE);
 }
 
-/** The tree's link table, as the barrier attaches it to the map's store (`treeTableOps.ts`). */
-interface LinkTable {
-  client: Parameters<typeof treeNotePaths>[0];
-  /** Notes changed since their links were read: the map is "catching up". */
-  unparsed: number;
-}
-
-function linkTableOf(store: FileStore): LinkTable | null {
-  const table = (store as unknown as { linkTable?: LinkTable }).linkTable;
-  return table && typeof table === "object" ? table : null;
-}
-
 /** Every note path and every link, from the table; `null` when it cannot be read. */
 async function readLinkTable(table: LinkTable): Promise<{ paths: string[]; links: string[][] } | null> {
   try {
-    const [paths, links] = await Promise.all([treeNotePaths(table.client), treeLinkRows(table.client)]);
-    return { paths, links };
+    return await table.read();
   } catch {
     return null;
   }
@@ -198,20 +188,30 @@ export async function workspaceGraph(
   // first drawn note is round trips to the bucket, not bytes. Where the tree's
   // link table has read every note once, it answers both the notes and the
   // links in two queries and the search index is not read at all.
-  const [state, tableRows, jobs] = await Promise.all([
+  // Where the Convex tree serves (every map the app draws,
+  // `lib/nodes/treeReads.ts`), it says which notes exist and where they are
+  // drawn now, pending moves folded in, and the link table only says what
+  // links to what. Nothing is then read from the bucket: not the search
+  // index, not the legacy move jobs under `.context/moves/` (decided by the
+  // owner, 2026-10-13).
+  const served = isServedStore(store);
+  const [state, tableRows, jobs, treePaths] = await Promise.all([
     loadPrivacyState(store),
     table === null ? Promise.resolve(null) : readLinkTable(table),
-    loadMoveJobs(store),
+    served ? Promise.resolve([]) : loadMoveJobs(store),
+    served
+      ? servedKeys(store).then((keys) => keys.filter((key) => isIndexableNote(key)), () => null)
+      : Promise.resolve(null),
   ]);
   const found =
-    tableRows === null
+    tableRows === null && !served
       ? await loadDocmap(store as unknown as Parameters<typeof loadDocmap>[0], budget, 0)
       : null;
   const isVisible = (path: string) =>
     !isPlumbing(path) &&
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
 
-  if (tableRows === null && found === null) {
+  if (treePaths === null && tableRows === null && found === null) {
     return { nodes: [], edges: [], truncated: false, noteCount: 0, linksCut: false, behind: true, indexMissing: true };
   }
 
@@ -226,14 +226,20 @@ export async function workspaceGraph(
       sourceOf.set(item.destination, item.source);
     }
   }
-  const logicalPath = (path: string) => destinationOf.get(path) ?? path;
+  // The links name bucket keys, and a queued move draws them elsewhere already (`moveOverlay.ts`).
+  const queued = servedMoves(store);
+  const logicalPath = (path: string) => {
+    const moved = destinationOf.get(path) ?? path;
+    return queued.length === 0 ? moved : (queuedLogicalPath(moved, queued) as string);
+  };
   const mayDraw = (path: string) => {
     const logical = logicalPath(path);
     return isVisible(logical) && isVisible(sourceOf.get(logical) ?? path);
   };
 
   const visible = new Set<string>();
-  const physicalPaths = tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
+  const physicalPaths =
+    treePaths !== null ? [treePaths] : tableRows !== null ? [tableRows.paths] : found!.docsByShard.map((docs) => docs.keys());
   for (const paths of physicalPaths) {
     for (const path of paths) if (mayDraw(path)) visible.add(logicalPath(path));
   }
@@ -289,8 +295,11 @@ export async function workspaceGraph(
       if (source === undefined) continue;
       addEdge(source, kind === "name" ? namedTarget(physical, target) : targetOf(target));
     }
+  } else if (found !== null) {
+    behind = await shardEdges(store, budget, found, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
   } else {
-    behind = await shardEdges(store, budget, found!, { indexOf, logicalPath, mayDraw, targetOf, addEdge });
+    // Notes from the tree, and nothing yet that says what links to what.
+    behind = true;
   }
 
   const sortedEdges = [...edges.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);

@@ -52,6 +52,8 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
     fontSize: t.meta,
     // Its own border is the field; no browser focus ring on top of it.
     outlineWidth: 0,
+    // Safari draws its focus ring whatever the width; only `none` stops it.
+    outlineStyle: "none" as never,
   },
   tools: { flexDirection: "row", alignItems: "center", gap: 6 },
   iconButton: {
@@ -115,12 +117,6 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
   refusal: {
     marginHorizontal: space.x2,
     marginBottom: space.x2,
-    paddingVertical: space.x2,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.warnBorder,
-    backgroundColor: colors.warnWash,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: space.x2,

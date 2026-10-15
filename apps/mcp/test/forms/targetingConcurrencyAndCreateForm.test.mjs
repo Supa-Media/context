@@ -533,6 +533,7 @@ export async function runFormTargetingAndConcurrencyChecks(check, harness) {
       WEAK_BUCKET: weakBucket,
     };
     weakBucket.seed("privacy.md", MANIFEST);
+    controlPlane.serveTreesFrom(weakEnv);
     await call(weakEnv, WEAK_TOKEN, "write_note", {
       path: "3-resources/bugs.md",
       content: BUGS_NOTE,

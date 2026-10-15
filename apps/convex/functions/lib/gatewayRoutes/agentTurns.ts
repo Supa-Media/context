@@ -7,9 +7,12 @@ type TraceEntry = {
   kind: "model" | "tool" | "router" | "fallback";
   tool?: string;
   tier?: "main" | "think";
+  confidence?: number;
   model?: string;
   status?: number;
   retried?: boolean;
+  cut?: boolean;
+  held?: boolean;
   ok: boolean;
   ms: number;
 };
@@ -25,23 +28,29 @@ function traceOf(value: unknown): TraceEntry[] | null {
   const trace: TraceEntry[] = [];
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null) return null;
-    const { kind, tool, tier, model, status, retried, ok, ms } = entry as Record<string, unknown>;
+    const { kind, tool, tier, confidence, model, status, retried, cut, held, ok, ms } = entry as Record<string, unknown>;
     if (kind !== "model" && kind !== "tool" && kind !== "router" && kind !== "fallback") return null;
     if (typeof ok !== "boolean" || typeof ms !== "number") return null;
     if (tool !== undefined && typeof tool !== "string") return null;
     if (tier !== undefined && tier !== "main" && tier !== "think") return null;
+    if (confidence !== undefined && typeof confidence !== "number") return null;
     if (model !== undefined && typeof model !== "string") return null;
     if (status !== undefined && typeof status !== "number") return null;
     if (retried !== undefined && typeof retried !== "boolean") return null;
+    if (cut !== undefined && typeof cut !== "boolean") return null;
+    if (held !== undefined && typeof held !== "boolean") return null;
     trace.push({
       kind,
       ok,
       ms,
       ...(tool === undefined ? {} : { tool }),
       ...(tier === undefined ? {} : { tier }),
+      ...(confidence === undefined ? {} : { confidence }),
       ...(model === undefined ? {} : { model }),
       ...(status === undefined ? {} : { status }),
       ...(retried === undefined ? {} : { retried }),
+      ...(cut === undefined ? {} : { cut }),
+      ...(held === undefined ? {} : { held }),
     });
   }
   return trace;

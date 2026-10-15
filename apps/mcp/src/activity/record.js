@@ -16,13 +16,16 @@
  */
 import { ACTIVITY_PATH, mayBeReportable as mayBeActivity, nextFile as nextActivityFile } from "../../../../packages/shared/src/activity.cjs";
 import { AUDIT_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
-import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing } from "../privacy/engine.js";
+import { isRoutinePath } from "../../../../packages/shared/src/routines.cjs";
+import { effectiveVisibility, GROUP_SCOPE_PATTERN, isPlumbing, PRIVACY_KEY } from "../privacy/engine.js";
 import { generatedCollaborationBase, writeGeneratedNote } from "../notes/sealing.js";
 import { loadPrivacyState, persistExactVisibility } from "../privacy/state.js";
 import { timestampSlug } from "../notes/paths.js";
 import { sendsTreeHint, treeHintOf } from "./changes.js";
-import { indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
-import { keepTreeTable, treeTouchOf } from "../tree/record.js";
+import { followChangeAfterResponse, indexWrittenNotesAfterResponse } from "../search/writeProjection.js";
+import { treeEditsOf, treeTouchOf } from "../tree/record.js";
+import { rememberChaos, within } from "../chaos/report.js";
+import { CHAOS_ACTIONS, changeChaos } from "../chaos/change.js";
 import { keepHistoryActivityLater } from "../history/record.js";
 
 export async function recordChange(store, action, actorScope, paths, details = {}) {
@@ -40,7 +43,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
-  announceWebsiteChange(store, paths);
+  announceWebsiteChange(store, action, paths);
   announceRoutineChange(store, paths);
   await indexChangedNotes(store, action, paths, details);
 }
@@ -49,9 +52,11 @@ export async function recordChange(store, action, actorScope, paths, details = {
  * Actions whose paths are notes a search should find as they now are.
  *
  * `written`: every path holds new text. `moved`: `[source, destination]`, the
- * source gone and the destination new. Folder-wide actions are absent on
- * purpose — their paths are prefixes, and a folder's worth of notes is a
- * listing's job, which the next full pass does.
+ * source gone and the destination new. `movedPairs`: `[source, destination]`
+ * repeated, the shape `move_notes` records. Folder moves are `folderMoved`:
+ * their paths are prefixes, so the R2 index leaves a folder's worth of notes
+ * to a listing (the next full pass does it), and fast search renames the
+ * folder's rows in place.
  */
 export const INDEX_ON_CHANGE = new Map([
   ["update_note", "written"],
@@ -66,7 +71,85 @@ export const INDEX_ON_CHANGE = new Map([
   ["calendar_sync", "written"],
   ["move_note", "moved"],
   ["archive_note", "moved"],
+  ["move_notes", "movedPairs"],
+  ["move_folder", "folderMoved"],
+  ["materialize_move", "folderMoved"],
 ]);
+
+/**
+ * Writes whose writer projects the note into fast search and search by
+ * meaning itself, with the text in hand (`projectWrittenNoteAfterResponse`):
+ * following them here too would read and project every save twice. Every
+ * other action in `INDEX_ON_CHANGE` is followed (`followChangeAfterResponse`).
+ */
+export const PROJECTED_BY_WRITER = new Set(["update_note", "create_note", "remember_fact"]);
+
+/** `[old, new]` pairs from a flat list, the first `count` of them. */
+function pairsOf(paths, count) {
+  const pairs = [];
+  for (let index = 0; index + 1 < paths.length && pairs.length < count; index += 2) {
+    pairs.push([paths[index], paths[index + 1]]);
+  }
+  return pairs;
+}
+
+/**
+ * What one change asks of the search derivatives: the R2 index's notes, and
+ * what fast search and search by meaning must follow, or `null` for nothing.
+ *
+ * A folder move that is still only logical (`status: "logical_active"`) or
+ * queued is followed when it is materialized, not before: until then the
+ * bucket holds the old layout, and that is what every derivative is read from.
+ */
+export function searchChangeOf(action, paths, details) {
+  const kind = INDEX_ON_CHANGE.get(action);
+  if (!kind || !Array.isArray(paths) || paths.length === 0) return null;
+  const named = paths.filter((path) => typeof path === "string" && path);
+  if (named.length === 0) return null;
+  // The etag a writer recorded is the stored object's, and it lets the pass
+  // skip a note already indexed at that version. Only where it names one path.
+  const etag = typeof details?.etag === "string" ? details.etag : "";
+
+  if (kind === "written") {
+    return {
+      notes: named.map((path) => ({ path, version: named.length === 1 ? etag : "" })),
+      follow: PROJECTED_BY_WRITER.has(action) ? null : { written: named },
+    };
+  }
+  if (kind === "moved") {
+    const [source, destination] = named;
+    if (!destination) return null;
+    return {
+      notes: [
+        { path: source, removed: true },
+        { path: destination, version: etag },
+      ],
+      follow: { moved: [[source, destination]] },
+    };
+  }
+  if (kind === "movedPairs") {
+    // A partial move records its applied pairs first, then the destinations
+    // it copied without removing their sources (`recordPartialMove`).
+    const applied = details?.partial === true ? Number(details?.moved) || 0 : Math.floor(named.length / 2);
+    const pairs = pairsOf(named, applied);
+    const stranded = named.slice(pairs.length * 2);
+    return {
+      notes: [
+        ...pairs.flatMap(([source, destination]) => [
+          { path: source, removed: true },
+          { path: destination, version: "" },
+        ]),
+        ...stranded.map((path) => ({ path, version: "" })),
+      ],
+      follow: { moved: pairs, written: stranded },
+    };
+  }
+  // folderMoved. Queued or still logical, the bucket holds the old layout;
+  // the copy records `materialize_move` when it lands, and that is followed.
+  if (details?.status === "logical_active" || details?.queued === true || details?.partial === true) return null;
+  if (named.length !== 2) return null;
+  return { notes: [], follow: { moved: [[named[0], named[1]]] } };
+}
 
 /**
  * Re-index what this change touched, so it is searchable now rather than at
@@ -74,23 +157,11 @@ export const INDEX_ON_CHANGE = new Map([
  * never throws: the change itself has already landed.
  */
 async function indexChangedNotes(store, action, paths, details) {
-  const kind = INDEX_ON_CHANGE.get(action);
-  if (!kind || !Array.isArray(paths) || paths.length === 0) return;
-  // The etag a writer recorded is the stored object's, and it lets the pass
-  // skip a note already indexed at that version. Only where it names one path.
-  const etag = typeof details?.etag === "string" ? details.etag : "";
-  let notes;
-  if (kind === "moved") {
-    const [source, destination] = paths;
-    notes = [
-      { path: source, removed: true },
-      { path: destination, version: etag },
-    ];
-  } else {
-    notes = paths.map((path) => ({ path, version: paths.length === 1 ? etag : "" }));
-  }
+  const change = searchChangeOf(action, paths, details);
+  if (change === null) return;
   try {
-    await indexWrittenNotesAfterResponse(store, notes);
+    if (change.notes.length > 0) await indexWrittenNotesAfterResponse(store, change.notes);
+    if (change.follow !== null) await followChangeAfterResponse(store, change.follow);
   } catch {
     // A derivative that is one note late, never a failed write.
   }
@@ -127,15 +198,37 @@ function treeAudiencesOf(paths, known, rules, overrides) {
  * Tell the consoles showing this context that its tree changed — deferred,
  * best-effort, and never able to fail the change, exactly as `reportActivity`
  * is. Only a session-bound store has a reporter; see `reportTreeChange`.
- * The tree table is re-checked first (`tree/record.js`), on any store.
  */
 function announceTreeChange(store, action, paths, details) {
-  // The tree table first, so a console told to look again reads the change.
   const touch = treeTouchOf(action, paths, details);
+  const edited = treeEditsOf(action, paths, details);
   const reports = sendsTreeHint(action, details) && typeof store.reportTreeChange === "function";
-  if (touch === null && !reports) return;
+  if (touch === null && edited.length === 0 && !reports) return;
+  // Started now, so the tool's answer can report the chaos score
+  // (`chaos/report.js`). It counts from the tree's keys as they were before
+  // this change, so the control plane is told only once it has answered, or
+  // once the answer has waited as long as a tool's would.
+  const scored = CHAOS_ACTIONS.has(action) ? changeChaos(store, touch).catch(() => null) : null;
+  if (scored !== null) rememberChaos(store, scored);
   const work = (async () => {
-    await keepTreeTable(store, touch);
+    if (scored !== null) await within(scored);
+    // The Convex tree re-checks what the change named (`reportTreeTouch`).
+    if (touch !== null && typeof store.reportTreeTouch === "function") {
+      // A visibility change rewrote the manifest, whatever path it recorded:
+      // the control plane refreshes its copy of the rules only for a touch
+      // that names that file (`treeTouchOf`, `lib/nodes/touch.ts`).
+      const files = touch.files ?? [];
+      await store.reportTreeTouch({
+        paths: touch.paths ?? [],
+        files: touch.privacy === true && !files.includes(PRIVACY_KEY) ? [...files, PRIVACY_KEY] : files,
+        // So pins and recents follow an agent's moves (`lib/placesFollow.ts`).
+        ...(Array.isArray(touch.moves) ? { moves: touch.moves.map(([from, to]) => ({ from, to })) } : {}),
+        left: touch.left,
+      });
+    } else if (edited.length > 0 && typeof store.reportTreeTouch === "function") {
+      // A save of a note's text: its new version, gathered with others (`treeEditsOf`).
+      await store.reportTreeTouch({ paths: [], files: [], edited });
+    }
     if (!reports) return;
     const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
     const state = await loadPrivacyState(store);
@@ -167,6 +260,33 @@ function touchesWebsite(path) {
   return normalized === WEBSITE_ROOT || normalized.startsWith(`${WEBSITE_ROOT}/`);
 }
 
+/** Changes that can take a note away from whoever could read it: a move, or a privacy change. */
+const NARROWING_ACTIONS = new Set([
+  "move_note",
+  "move_notes",
+  "move_folder",
+  "materialize_move",
+  "archive_note",
+  "set_visibility",
+  "set_folder_visibility",
+]);
+
+/** At most this many paths go in one website report, the control plane's own bound. */
+const MAX_WEBSITE_PATHS = 50;
+
+/**
+ * The paths of a change that may narrow a site from outside `website/`, or
+ * `[]`. A page can publish a folder it names with `folder:`, which this
+ * Worker cannot see, so it names the paths and the control plane asks its
+ * route index whether they reach the site. `privacy.md` written by any
+ * action decides every page.
+ */
+function websiteNarrowingPaths(action, paths) {
+  const named = paths.map((path) => String(path).replace(/^\/+|\/+$/g, "")).filter((path) => path !== "");
+  if (!NARROWING_ACTIONS.has(action) && !named.includes(PRIVACY_KEY)) return [];
+  return named.length > MAX_WEBSITE_PATHS ? [PRIVACY_KEY] : named;
+}
+
 /**
  * Tell the control plane its route index no longer describes the bucket.
  *
@@ -181,17 +301,20 @@ function touchesWebsite(path) {
  * moved *out* of the folder has to invalidate too. So this reads the raw paths
  * and asks one question of them.
  *
- * **Both ends, and only this folder.** The control plane rebuilds the whole
- * index when it hears this, and since that scan reads every published page,
+ * **Both ends, and only this folder** — or a move or privacy change
+ * anywhere, with its paths (`websiteNarrowingPaths`), which the control plane
+ * checks against the notes the site publishes. It rebuilds the whole index
+ * when it hears this, and since that scan reads every published page,
  * reporting an ordinary note write would be a full scan after every save.
  *
  * Deferred, best-effort and unable to fail the change, like its neighbours: a
  * missed report costs the freshness the quarter-hourly sweep restores.
  */
-function announceWebsiteChange(store, paths) {
-  if (typeof store.reportWebsiteChange !== "function") return;
-  if (!Array.isArray(paths) || !paths.some(touchesWebsite)) return;
-  const work = Promise.resolve(store.reportWebsiteChange()).catch(() => {});
+function announceWebsiteChange(store, action, paths) {
+  if (typeof store.reportWebsiteChange !== "function" || !Array.isArray(paths)) return;
+  const named = websiteNarrowingPaths(action, paths);
+  if (named.length === 0 && !paths.some(touchesWebsite)) return;
+  const work = Promise.resolve(store.reportWebsiteChange(named.length === 0 ? undefined : named)).catch(() => {});
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);
@@ -200,9 +323,6 @@ function announceWebsiteChange(store, paths) {
   }
 }
 
-/** The schedule folder (`packages/shared/src/routines.cjs`). */
-const ROUTINES_ROOT = "routines";
-
 /** At most this many paths go in one report; the control plane re-lists anyway. */
 export const MAX_ROUTINE_PATHS = 50;
 
@@ -210,9 +330,11 @@ export const MAX_ROUTINE_PATHS = 50;
  * Tell the control plane a routine may have been added, changed, moved or
  * deleted, and who did it: a routine runs as the person who last wrote it.
  *
- * Paths and the acting user, never text. The control plane re-reads the
- * `routines/` folder itself before it schedules anything, so a report is a
- * nudge and a writer, not a fact it trusts about the file. Deferred and
+ * A routine path is one under either root, `tex/routines/` or `routines/`, or
+ * the `tex` folder itself (`isRoutinePath`, `packages/shared/src/routines.cjs`).
+ * Paths and the acting user, never text. The control plane re-reads both
+ * roots itself before it schedules anything, so a report is a nudge and a
+ * writer, not a fact it trusts about the file. Deferred and
  * best-effort like its neighbours; a missed one costs the freshness the
  * control plane's periodic re-read restores.
  */
@@ -220,7 +342,7 @@ export function announceRoutineChange(store, paths) {
   if (typeof store.reportRoutineChange !== "function" || !Array.isArray(paths)) return;
   const touched = paths
     .map((path) => String(path).replace(/^\/+|\/+$/g, ""))
-    .filter((path) => path === ROUTINES_ROOT || path.startsWith(`${ROUTINES_ROOT}/`))
+    .filter((path) => isRoutinePath(path))
     .slice(0, MAX_ROUTINE_PATHS);
   if (touched.length === 0) return;
   const work = Promise.resolve(store.reportRoutineChange(touched, store.actor?.userId ?? null)).catch(() => {});

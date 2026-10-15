@@ -7,12 +7,15 @@
  */
 
 import type { FolderNotesResult } from "./folderNotes";
+import type { ChaosScoreResult } from "./chaosOps";
 import type { ActivityEntry } from "../activity";
 import type {
   ContextMoveExport,
   ContextMoveImport,
   ContextMoveObject,
+  ContextMoveSkip,
   FileContents,
+  PlannedContextMoveObject,
   ProjectionPass,
   SearchResults,
   ManifestEntry,
@@ -46,6 +49,9 @@ export const IDLE_PROJECTION = {
   report: false,
 } as const;
 
+/** What a pruning pass answers when there is no `ready` database to prune. */
+export const IDLE_PRUNE = { kind: "indexPruned", deleted: 0, checked: false } as const;
+
 /** What a meaning pass answers when its index is not there to fill. */
 export const IDLE_MEANING = {
   kind: "meaningProjected",
@@ -63,7 +69,6 @@ export type FileOperation =
   | { kind: "routineRuns"; path: string }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
-  | { kind: "forward"; paths: string[] }
   | { kind: "manifest"; cursor?: string; folder?: string; source?: "tree" }
   | { kind: "readMany"; paths: string[]; plain?: boolean }
   | {
@@ -96,26 +101,35 @@ export type FileOperation =
    * Re-index the notes one file operation changed, without listing the bucket.
    * Scheduled by the barrier behind that operation; never sent by a client.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[] }
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
   | { kind: "projectIndex"; passes?: number }
+  /** Remove a `ready` database's rows for notes that are gone. See `prunePass.ts`. */
+  | { kind: "pruneIndex"; passes?: number }
   /** A catch-up pass of search by meaning. See `meaningPass.ts`. */
   | { kind: "projectMeaning"; passes?: number }
-  /** The tree table (`treeTableOps.ts`): scheduled by the barrier, never sent by a client. */
-  | { kind: "sweepTree"; passes?: number }
+  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`): scheduled by the barrier or the staff panel, never sent by a client. */
+  | { kind: "nodesSweep"; passes?: number }
+  | { kind: "nodesFactFill"; passes?: number }
   | {
-      kind: "touchTree";
+      kind: "nodesTouch";
       paths: string[];
       files: string[];
-      audiences: string[];
-      /** For a key this change took away: the audiences that could see it before. */
+      moves?: { from: string; to: string }[];
+      /** Who could see each key the change took away, before it (`lib/nodes/convexTable.ts`). */
       left?: { path: string; audiences: string[] }[];
     }
-  /** The tree table's health, for the staff panel (`adminFns/treeIndexes.ts`). No bucket opened. */
-  | { kind: "treeState" }
-  /** What changed in the tree since a device's last sync. See `treeChanges.ts`. */
-  | { kind: "treeChanges"; since: number; after?: string; privacy?: string }
-  /** A folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+  | { kind: "nodesParity"; confirm?: boolean }
+  /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
+  | { kind: "nodesMoveStart"; from: string; to: string }
+  | { kind: "nodesMoveWork" }
+  /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
+  | { kind: "nodesPrivacyExport" }
+  /** Import the icons, emoji and forwarding files once, then write them from Convex (`lib/smallData/sync.ts`). */
+  | { kind: "nodesSmallData" }
+  /** A folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
   | { kind: "folderNotes"; folder: string; subfolders: boolean; cursor?: string }
+  /** The chaos score for this reader, and one folder's own. See `chaosOps.ts`. */
+  | { kind: "chaosScore"; folder?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | {
       kind: "importVault";
@@ -133,7 +147,7 @@ export type FileOperation =
   | { kind: "createFolder"; path: string }
   /** Undo of a new folder, only while it holds nothing but its placeholder (`removeNewFolder`). */
   | { kind: "removeNewFolder"; path: string }
-  | { kind: "move"; from: string; to: string; expectedEtag?: string }
+  | { kind: "move"; from: string; to: string; expectedEtag?: string; followHeading?: boolean }
   | { kind: "copy"; from: string; to: string }
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
@@ -143,10 +157,22 @@ export type FileOperation =
       sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
     }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
+  /** A batch for the gateway's mover, by name only (`lib/contextMoveMover.ts`). */
+  | { kind: "contextMovePlan"; from: string; to: string; skip: string[]; maxObjectBytes: number }
+  | {
+      kind: "contextMovePrepare";
+      objects: Array<{ destination: string; sourceVisibility: "private" | "team" }>;
+      root?: string;
+    }
+  /** What the mover landed here, for the tree; nothing in the bucket. */
+  | { kind: "contextMoveArrived"; paths: string[]; root?: string }
+  | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
   | { kind: "trash"; path: string; expectedEtag?: string }
   | { kind: "restoreTrash"; from: string; to: string }
+  /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */
+  | { kind: "readTrashed"; path: string; trash: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
@@ -160,14 +186,12 @@ export type FileOperation =
     }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
-  | { kind: "emojiList" }
-  | { kind: "folderIconsRead" }
   | { kind: "addBuiltInFolder"; role: string }
-  | { kind: "folderIconSet"; path: string; icon: string | null }
-  | { kind: "emojiRead"; name: string }
-  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
-  | { kind: "emojiRemove"; name: string }
-  | { kind: "emojiRename"; from: string; to: string }
+  /** An emoji's picture, by the leaf Convex holds for its name (`functions/emoji.ts`). */
+  | { kind: "emojiRead"; name: string; leaf: string }
+  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; previous: string | null }
+  | { kind: "emojiRemove"; name: string; leaf: string }
+  | { kind: "emojiRename"; from: string; to: string; leaf: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -287,7 +311,6 @@ export type OperationResult =
   | { kind: "notePaths"; paths: string[] | null }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
   | { kind: "visiblePaths"; paths: string[] }
-  | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";
       pending: number;
@@ -363,24 +386,23 @@ export type OperationResult =
     }
   | ({
       kind: "manifest";
-      source?: "tree" | "bucket";
+      source?: "tree" | "bucket" | "nodes";
       /** Where a catch-up after this walk starts, by the table's clock. First page of a table walk only. */
       since?: number;
       /** The `privacy.md` version the walk was judged by, read before it started. */
       privacy?: string | null;
     } & SyncManifest)
-  | { kind: "treeKept"; complete: boolean }
+  | { kind: "nodesKept"; complete: boolean }
+  /** `pruneIndex`: rows removed, and whether the bucket and database were both reached. */
+  | { kind: "indexPruned"; deleted: number; checked: boolean }
+  /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
+  | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
+  /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
+  | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
+  | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult
-  | {
-      kind: "treeState";
-      status: "ready" | "filling" | "empty" | "unsupported" | "unreachable";
-      rows: number | null;
-      sweptAt: number | null;
-      dirty: boolean;
-      /** Why the last sweep pass failed, keys removed. */
-      error: string | null;
-    }
+  | ChaosScoreResult
   | {
       kind: "notes";
       results: Array<
@@ -413,6 +435,13 @@ export type OperationResult =
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
   | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
   | { kind: "contextMoveFinished" }
+  | {
+      kind: "contextMovePlanned";
+      objects: PlannedContextMoveObject[];
+      skipped: ContextMoveSkip[];
+      remaining: boolean;
+    }
+  | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
   | {
       kind: "visibility";
@@ -431,11 +460,9 @@ export type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer }
-  | { kind: "emojiList"; emoji: Array<{ name: string; leaf: string }> }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
   | { kind: "emojiRemoved" }
-  | { kind: "folderIcons"; icons: Array<{ path: string; icon: string }> }
   | { kind: "organizerResult"; output: string };
 
 /**

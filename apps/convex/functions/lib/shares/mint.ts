@@ -13,7 +13,7 @@
  * nothing to `workspaceMembers`. It is a standing grant, addressed to a person,
  * over one path, that the owner can revoke.
  *
- * ## A share narrows; it can never widen
+ * ## A share narrows past its note; it never widens a link
  *
  * Two rules carry that, and only the first one lives here:
  *
@@ -21,7 +21,11 @@
  *    map — handing it over enumerates every private folder by name — and
  *    everything under a dot-folder is `.history/`, which holds every revision of
  *    every note the owner has ever written, private ones included.
- *  - **The note must still be `team`-visible on every read.** That is not
+ *  - **What the share reaches past its note must still be `team`-visible on
+ *    every read.** A share addressed to a person opens its entry note at the
+ *    owner's own clearance — Drive's rule, decided by the owner 2026-10-14
+ *    (docs/decisions/privacy-and-sharing/name-rules-and-grants.md) — and every
+ *    link, and every share not addressed to anybody, at `team`. That is not
  *    checked here, and its absence is deliberate rather than an omission: a
  *    creation-time check reads a bucket, and its answer goes stale the moment
  *    the owner changes their mind in `privacy.md`. The read path re-derives it

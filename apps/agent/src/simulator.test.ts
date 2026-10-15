@@ -127,7 +127,7 @@ describe("texts simulator", () => {
     expect(typing).toBe(false);
     expect(messages.map((m) => [m.dir, m.text])).toEqual([
       ["out", "hi"],
-      ["in", "Hi, I'm your Context. Tap the link below to connect your account, then text me the code it shows you."],
+      ["in", "Hi, I'm Tex, your Context assistant. Tap the link below to connect your account, then text me the code it shows you."],
       ["in", LINK],
     ]);
   });

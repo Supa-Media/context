@@ -8,6 +8,11 @@
  * first page of a `syncManifest` walk with `source: "tree"`. An answer with
  * `full: true` means walk the manifest instead.
  *
+ * Where the Convex tree serves the workspace its change log answers
+ * (`nodesFeed.ts`, phase 6); elsewhere the answer is a walk, and that walk
+ * (`source: "tree"`) is of the Convex rows, or "still loading", never the
+ * bucket (decided by the owner, 2026-10-13).
+ *
  * Its own module because `files.ts` is past the size a file may grow from.
  */
 
@@ -29,18 +34,29 @@ export async function syncTreeChangesHandler(
     workspaceId: args.workspaceId,
     minimum: "member",
   });
-  const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+  // The Convex tree's change log, where the tree serves the workspace (`nodesFeed.ts`).
+  const fromNodes = await ctx.runQuery(internal.functions.nodesFeed.changes, {
+    actorUserId,
     workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    operation: {
-      kind: "treeChanges",
-      since: args.since,
-      ...(args.after === undefined ? {} : { after: args.after }),
-      ...(args.privacy === undefined ? {} : { privacy: args.privacy }),
-    },
+    since: args.since,
+    ...(args.privacy === undefined ? {} : { privacy: args.privacy }),
+    now: Date.now(),
   });
-  return result as TreeChangesResult;
+  if (fromNodes !== null) return fromNodes;
+  // Not served by the tree: the device walks.
+  return {
+    kind: "treeChanges",
+    full: true,
+    entries: [],
+    folders: [],
+    gone: [],
+    goneFolders: [],
+    since: args.since,
+    after: args.after ?? "",
+    more: false,
+    privacy: null,
+    manifestUsable: true,
+  };
 }
 
 export const syncTreeChanges = action({

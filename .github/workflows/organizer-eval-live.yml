@@ -12,6 +12,10 @@
 # arrivals read by the writing models on the Worker's /extract route
 # (organizerChanges.live.test.ts), scored, with what each model cost.
 #
+# The third asks Clef for the icon picker's suggested emoji for real folder
+# and note names, out of every emoji (iconSuggest.live.test.ts), and prints
+# them for a person to read.
+#
 # No customer note is ever sent: the workspace is in the test. A run asks a
 # few dozen questions. Manual, and weekly, so a change in the model's answers
 # shows up without anybody having to look.
@@ -24,6 +28,11 @@ on:
         description: "Score to pass, 0 to 1"
         required: false
         default: "0.9"
+      models:
+        description: "Also compare decision models (Clef, Clef Flash, Jev) and meaning fingerprints on the icon suggestion"
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: "17 6 * * 1"
 
@@ -64,3 +73,14 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/convex
         run: npx vitest run __tests__/organizerChanges.live.test.ts
+      - name: Suggest icons for real names out of every emoji
+        if: ${{ !cancelled() }}
+        working-directory: apps/convex
+        run: npx vitest run __tests__/iconSuggest.live.test.ts
+      - name: Compare decision models on the icon suggestion
+        if: ${{ !cancelled() && inputs.models }}
+        working-directory: apps/convex
+        env:
+          ICON_MODELS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ICON_MODELS_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+        run: npx vitest run __tests__/iconSuggest.models.live.test.ts __tests__/iconSuggest.meaning.live.test.ts

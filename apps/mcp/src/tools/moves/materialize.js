@@ -26,7 +26,7 @@ import {
   replacePrivacyRulesBlock,
 } from "../../privacy/engine.js";
 import { loadPrivacyState } from "../../privacy/state.js";
-import { MOVE_AUTOMATIC_BATCH, MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
+import { MOVE_AUTOMATIC_REFERENCE_BATCH, MOVE_MATERIALIZE_BATCH } from "../../moves/limits.js";
 import {
   moveJobActive,
   moveJobKey,
@@ -38,11 +38,13 @@ import { recordChange } from "../../activity/record.js";
 import { onlyLinkTargetsChanged } from "../../links.js";
 import { referenceCandidates, rewriteReferences } from "./references.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
+import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { listImmediateLayout } from "../../notes/storage.js";
 import { loadMoveJobs } from "../../moves/jobs.js";
-import { readForwarding } from "../../forwarding.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { toolError, toolText } from "../results.js";
+import { isContactNote } from "../../../../../packages/communications/src/contacts.js";
+import { isContactNotePath } from "../../../../../packages/communications/src/paths.js";
 
 // Owner-only diagnostics for a wrapped storage failure. Provider exceptions
 // may echo request URLs, object keys or credentials, so return a short redacted
@@ -103,12 +105,19 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
       return toolError(`move ${job.id} reference inventory paused: exceeded 100 pages`);
     }
     if (!Array.isArray(job.reference_inventory_prefixes)) {
-      // The tree's link table answers the whole inventory in one pass, and
-      // names the few notes worth reading (`tree/links.js`).
-      const fromTable = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
-      if (fromTable !== null) {
-        job.reference_inventory_keys = fromTable.inventoryKeys;
-        job.reference_candidates = [...fromTable.candidates];
+      // From a person's connection the Convex tree answers the whole inventory
+      // at once (`references.js`); the background worker, with no grant to ask
+      // with (`null`), pages the bucket below.
+      let fromTree;
+      try {
+        fromTree = await referenceCandidates(store, new Map(job.objects.map((item) => [item.source, item.destination])));
+      } catch (error) {
+        if (error instanceof TreeUnavailable) return toolError(`move ${job.id} reference inventory paused: ${error.message}`);
+        throw error;
+      }
+      if (fromTree !== null) {
+        job.reference_inventory_keys = fromTree.inventoryKeys;
+        if (fromTree.candidates) job.reference_candidates = [...fromTree.candidates];
         job.reference_inventory_complete = true;
         await persistMoveJob(store, job);
         return toolText(`move ${job.id}: reference inventory complete`);
@@ -200,14 +209,6 @@ async function rewriteMoveReferences(store, scope, job, key, batchSize) {
   return toolText(`move ${job.id}: complete\nphysical storage sync: complete\nreferences rewritten: ${job.reference_links || 0}\nconflicts preserved: ${Object.keys(job.conflicts || {}).length}`);
 }
 
-export async function materializeMoveInBackground(store, scope, id) {
-  for (let pass = 0; pass < 20; pass += 1) {
-    const result = await toolMaterializeMove(store, scope, id, MOVE_AUTOMATIC_BATCH, { automatic: true });
-    const text = result?.content?.[0]?.text || "";
-    if (result?.isError || text.includes("complete") || text.includes("no active work")) return;
-  }
-}
-
 async function destinationMatchesOriginalOrRetargetedLinks(store, pair) {
   if (await destinationMatchesMoveSource(store, pair)) return true;
   if (!pair.source.endsWith(".md") || await collaborationHead(store, pair.source)) return false;
@@ -226,6 +227,50 @@ function generatedCommunicationSource(path, text) {
     (/^role:\s*communication-contact\s*$/m.test(frontmatter) ||
       /^source:\s*imessage\s*$/m.test(frontmatter) ||
       path.startsWith("2-areas/communications/daily/"));
+}
+
+/**
+ * A page the contact sync renders and keeps writing at its physical key, even
+ * while a logical move of its folder is in flight (the sync does not read the
+ * move overlay). Its newest version is the one the destination should hold,
+ * so a change to it under a move is adopted rather than treated as a conflict
+ * that pauses the move for good. A person's own note is never this.
+ */
+function syncOwnedPage(path, text) {
+  return isContactNotePath(path) && isContactNote(text);
+}
+
+/**
+ * Re-pin a sync-owned pair to its source's current version, and, when the
+ * copy already made is still exactly ours, refresh it to that version.
+ * Returns false (the caller refuses as before) for anything else.
+ */
+async function adoptSyncOwnedChange(store, pair, sourceObject, { copied, job }) {
+  const text = await sourceObject.text();
+  if (!syncOwnedPage(pair.source, text)) return false;
+  if (copied && !pair.copied_etag) {
+    // Copied before copies were recorded, so whether the destination is still
+    // ours is unknown: leave it as it is, and keep the newest version beside it.
+    const destination = await getWithLegacyFallback(store, pair.destination);
+    if (!destination) return false;
+    const beside = `${pair.destination.slice(0, -3)}.newer.md`;
+    const kept = await getWithLegacyFallback(store, beside);
+    const ours = job.conflicts?.[pair.source] === beside;
+    if (kept && await kept.text() !== text &&
+        (!ours || !await store.put(beside, text, { onlyIf: { etagMatches: kept.etag } }))) return false;
+    if (!kept && !await store.put(beside, text, { onlyIf: { absent: true } })) return false;
+    job.conflicts ||= {};
+    job.conflicts[pair.source] = beside;
+  } else if (copied) {
+    const destination = await getWithLegacyFallback(store, pair.destination);
+    if (!destination || destination.etag !== pair.copied_etag) return false;
+    const written = await store.put(pair.destination, text, { onlyIf: { etagMatches: destination.etag } });
+    if (!written) return false;
+    pair.copied_etag = written.etag;
+  }
+  pair.etag = sourceObject.etag;
+  pair.size = sourceObject.size ?? new TextEncoder().encode(text).byteLength;
+  return true;
 }
 
 /**
@@ -319,7 +364,8 @@ async function retireMovePair(store, job, pair) {
     let sourceObject = await getWithLegacyFallback(store, pair.source);
     sourceObject = await ensureCleanupDestination(store, pair, sourceObject, (value) => { stage = value; });
     if (sourceObject === null) return { deleted: true, processed: false };
-    if (!objectMatchesMoveItem(sourceObject, pair)) {
+    if (!objectMatchesMoveItem(sourceObject, pair) &&
+        !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: true, job })) {
       throw new Error(`source changed before cleanup: ${pair.source}`);
     }
     stage = "reading collaboration heads";
@@ -459,7 +505,9 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, opt
       if (copied.has(pair.source)) continue;
       const sourceObject = await getWithLegacyFallback(store, pair.source);
       if (!sourceObject) throw new Error(`source missing during materialization: ${pair.source}`);
-      if (!objectMatchesMoveItem(sourceObject, pair)) {
+      if (!objectMatchesMoveItem(sourceObject, pair) &&
+          (await getWithLegacyFallback(store, pair.destination) !== null ||
+            !await adoptSyncOwnedChange(store, pair, sourceObject, { copied: false }))) {
         throw new Error(`source changed during materialization: ${pair.source}`);
       }
       // Copy the raw body first. At retirement, a headed note is handed to the
@@ -478,10 +526,13 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, opt
         }
         throw new Error(`destination changed during materialization: ${pair.destination}`);
       }
-      await copyObjectForMove(store, pair);
+      const created = await copyObjectForMove(store, pair);
       if (!(await destinationMatchesOriginalOrRetargetedLinks(store, pair))) {
         throw new Error(`destination verification failed: ${pair.destination}`);
       }
+      // What this move wrote, so a later sync change to the source can refresh
+      // an untouched copy and never one somebody else changed.
+      if (created?.etag) pair.copied_etag = created.etag;
       copied.add(pair.source);
       copiedThisPass += 1;
       if (copiedThisPass >= batchSize) break;
@@ -624,12 +675,11 @@ export async function toolProfileMoveReferences(store, idArg) {
     Array.isArray(job.reference_inventory_keys);
   const keys = checkpointed
     ? job.reference_inventory_keys.map((key) => ({ key }))
-    : await measure("note inventory", () => listAllNoteKeys(store));
+    : await measure("note inventory", () => listAllNoteKeys(servedListingStore(store)));
   if (!keys) return toolText(rows.join("\n"));
   if (checkpointed) rows.push(`checkpointed inventory: ${keys.length} keys`);
   const jobs = await measure("active move markers", () => loadMoveJobs(store));
   if (!jobs) return toolText(rows.join("\n"));
-  await measure("forwarding ledger", () => readForwarding(store));
   const unavailable = new Set();
   for (const active of jobs) for (const item of active.objects) {
     unavailable.add(item.source);

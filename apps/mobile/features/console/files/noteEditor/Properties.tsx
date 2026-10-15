@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { PressRow } from "../../../design/components/Button";
 import { Icon } from "../../../design/components/Icon";
@@ -46,8 +46,14 @@ export function Properties({
   gutter,
   compact,
   onSet,
+  addAsked = 0,
 }: {
   frontmatter: string;
+  /**
+   * Bumped by "Other property…" under the chips: the card opens with its Add
+   * row already a field. `0` is never asked.
+   */
+  addAsked?: number;
   /**
    * Changes one property of the note, or `undefined` where it cannot be
    * changed — a reader without edit access, or an activity list.
@@ -70,6 +76,9 @@ export function Properties({
   const [open, setOpen] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const rows = withoutVisibility(propertyRows(frontmatter));
+  useEffect(() => {
+    if (addAsked > 0) setOpen(true);
+  }, [addAsked]);
 
   return (
     <View style={[styles.properties, { paddingLeft: gutter, paddingRight: gutter }]}>
@@ -93,7 +102,7 @@ export function Properties({
             common enough — a bare `updated:` — that the ungrammatical form
             would be on screen most days.
           */}
-          {rows.length === 1 ? "1 property" : `${rows.length} properties`}
+          {rows.length === 0 ? "Add a property" : rows.length === 1 ? "1 property" : `${rows.length} properties`}
         </Text>
       </PressRow>
 
@@ -132,7 +141,9 @@ export function Properties({
           )}
 
           {/* Obsidian's last row. Absent, not inert, for somebody who can only read. */}
-          {onSet === undefined ? null : <AddProperty onSet={onSet} onError={setProblem} />}
+          {onSet === undefined ? null : (
+            <AddProperty key={addAsked} startAdding={addAsked > 0} onSet={onSet} onError={setProblem} />
+          )}
           {problem === null ? null : (
             <Text variant="meta" style={styles.propertyError} role="alert" testID="note-properties-problem">
               {problem}

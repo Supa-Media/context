@@ -40,12 +40,19 @@
 import { SEARCH_PREFIX } from "../../../../../packages/shared/src/storageLayout.cjs";
 import { compareIndexingOrder, countByIndexingPriority } from "../../../../../packages/shared/src/folderRoles.cjs";
 import { MeaningError } from "./errors.js";
-import { meaningChangeFor, meaningIdsFor } from "./project.js";
+import {
+  MEANING_MAX_PASSAGES,
+  MEANING_PASSAGE_CHARS,
+  MEANING_PASSAGE_OVERLAP,
+  deleteStaleTails,
+  meaningChangeFor,
+  removePassages,
+} from "./project.js";
 
 export const MEANING_STATE_KEY = `${SEARCH_PREFIX}meaning/v1/state.json`;
 
 /**
- * Notes one pass may embed. Twelve passages each at most, 32 to a model call.
+ * Notes one pass may embed. 48 passages each at most, 32 to a model call.
  * Each pass also lists the bucket for its census, so a pass does enough
  * embedding to make that listing worth it: a 9,000-note workspace is about
  * ninety passes, inside one chain of `MEANING_PASS_CHAIN`.
@@ -61,14 +68,27 @@ const MEANING_HELD_VECTORS = 240;
 const STATE_VERSION = 1;
 
 /**
+ * The per-note passage cap a map written without `passages` was built under.
+ * A map records which version of a note was embedded, not how much of it, so
+ * a note that filled this cap looks finished to a pass with a larger one.
+ */
+const LEGACY_MAP_PASSAGES = 12;
+
+/**
  * The map of what was embedded, for this generation of the index, or an empty
  * one. A map from another generation, or one this build cannot read, is the
  * same as none: the safe reading of "I don't know" is "embed it again".
  */
 export async function readMeaningState(store, generation) {
+  return (await readState(store, generation)).notes;
+}
+
+/** The map and the passage cap it was written under. */
+async function readState(store, generation) {
+  const none = { notes: new Map(), passages: MEANING_MAX_PASSAGES };
   try {
     const object = await store.get(MEANING_STATE_KEY);
-    if (!object) return new Map();
+    if (!object) return none;
     const parsed = JSON.parse(await object.text());
     if (
       !parsed ||
@@ -78,23 +98,35 @@ export async function readMeaningState(store, generation) {
       typeof parsed.notes !== "object" ||
       Array.isArray(parsed.notes)
     ) {
-      return new Map();
+      return none;
     }
     const notes = new Map();
     for (const [path, version] of Object.entries(parsed.notes)) {
       if (typeof version === "string") notes.set(path, version);
     }
-    return notes;
+    const passages = Number.isInteger(parsed.passages) && parsed.passages > 0 ? parsed.passages : LEGACY_MAP_PASSAGES;
+    return { notes, passages };
   } catch {
-    return new Map();
+    return none;
   }
+}
+
+/**
+ * Bytes a note can be and still have fit a cap of `passages` whole. A passage
+ * advances by its length less the overlap, and the title, headings and front
+ * matter are not body, so a note smaller than this did not reach the cap's
+ * last passage; one this size or over may have, and is embedded again. Bytes
+ * are never fewer than characters, so this only ever over-counts.
+ */
+export function bytesThatFit(passages) {
+  return passages * (MEANING_PASSAGE_CHARS - MEANING_PASSAGE_OVERLAP);
 }
 
 async function writeMeaningState(store, generation, notes) {
   const sorted = [...notes.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   await store.put(
     MEANING_STATE_KEY,
-    JSON.stringify({ v: STATE_VERSION, generation, notes: Object.fromEntries(sorted) }),
+    JSON.stringify({ v: STATE_VERSION, generation, passages: MEANING_MAX_PASSAGES, notes: Object.fromEntries(sorted) }),
   );
 }
 
@@ -135,6 +167,8 @@ export function meaningDiff(census, notes, regionComplete = () => true) {
  * @param {(path: string) => boolean} [options.regionComplete] whether the
  *   listing behind the census reached the part of the bucket `path` is in;
  *   a path the census lacks is deleted only where it did
+ * @param {(path: string) => number|null} [options.sizeOf] a census note's size
+ *   in bytes, from the same listing; `null` where it reported none
  * @returns {Promise<{embedded: number, deleted: number, notesIndexed: number,
  *   notesPending: number, priorities: Array<{priority: number, indexed: number,
  *   pending: number}>, ready: boolean, moved: boolean, failure: string|null,
@@ -151,10 +185,10 @@ export async function meaningPass(
     noteCap = MEANING_PASS_NOTE_CAP,
     indexPending = 0,
     regionComplete = () => true,
+    sizeOf = () => null,
   },
 ) {
-  const notes = await readMeaningState(store, generation);
-  const { changed, removed } = meaningDiff(census, notes, regionComplete);
+  const { notes, passages: mapPassages } = await readState(store, generation);
   const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [], probeStatus: null, inputChars: null };
   let dirty = false;
 
@@ -199,12 +233,30 @@ export async function meaningPass(
     };
   };
 
+  let changed = [];
+  let removed = [];
   try {
+    // A map written under a smaller passage cap: the notes big enough to
+    // have filled it forget their version, so they are embedded again, whole.
+    // Sizes come from the census's own listing, so this costs no request.
+    // Only paths the census still has: one that is gone keeps its entry and
+    // is deleted below with every id it can have. Once; then the map says
+    // the new cap. A size the listing did not report counts as big.
+    if (mapPassages < MEANING_MAX_PASSAGES) {
+      const fit = bytesThatFit(mapPassages);
+      for (const path of [...notes.keys()]) {
+        if (!census.has(path)) continue;
+        const size = sizeOf(path);
+        if (!Number.isFinite(size) || size >= fit) notes.delete(path);
+      }
+      dirty = true;
+    }
+    ({ changed, removed } = meaningDiff(census, notes, regionComplete));
+
     // Deletes first: a passage of a note that is gone is the one wrong thing
     // this index can put in front of somebody, and deleting costs no model call.
     if (removed.length > 0) {
-      const ids = (await Promise.all(removed.map((path) => meaningIdsFor(path)))).flat();
-      await client.deleteByIds(ids);
+      await removePassages(client, removed);
       for (const path of removed) notes.delete(path);
       result.deleted = removed.length;
       dirty = true;
@@ -212,16 +264,16 @@ export async function meaningPass(
 
     const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : MEANING_PASS_NOTE_CAP;
     let held = [];
-    let heldDeletes = [];
+    let heldTails = [];
     let heldPaths = [];
     const flush = async () => {
       if (held.length > 0) await client.upsert(held);
-      if (heldDeletes.length > 0) await client.deleteByIds(heldDeletes);
+      await deleteStaleTails(client, heldTails);
       for (const [path, version] of heldPaths) notes.set(path, version);
       if (heldPaths.length > 0) dirty = true;
       result.embedded += heldPaths.length;
       held = [];
-      heldDeletes = [];
+      heldTails = [];
       heldPaths = [];
     };
 
@@ -258,7 +310,7 @@ export async function meaningPass(
         const change = changes[index];
         if (change === null) continue;
         held.push(...change.vectors);
-        heldDeletes.push(...change.deleteIds);
+        if (change.deleteIds.length > 0) heldTails.push(change.deleteIds);
         heldPaths.push([group[index], census.get(group[index])]);
       }
       if (held.length >= MEANING_HELD_VECTORS) await flush();

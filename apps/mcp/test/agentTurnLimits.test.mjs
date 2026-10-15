@@ -153,3 +153,33 @@ test("the turn names its model before any tool call, for the usage breakdown", a
   });
   assert.deepEqual(seen, [["model", MODEL], ["tool"]]);
 });
+
+test("a call the egress gate held is traced as held, not as a failure", async () => {
+  const ai = scripted([chat("", ["search_notes"]), chat("I'd move it to the 27th.")]);
+  const result = await turn(ai, {
+    callTool: async () => ({ content: [{ type: "text", text: "Not done yet: this would change something." }], isError: true, held: true }),
+  });
+  const traced = result.timing.trace.find((e) => e.kind === "tool");
+  assert.ok(traced, "the tool call is in the trace");
+  assert.equal(traced.ok, false, "it did not run in this turn");
+  assert.equal(traced.held, true, "because it is waiting for the person, not because it broke");
+  assert.match(result.answer, /27th/);
+});
+
+test("a turn with earlier turns is told their lookups happened", async () => {
+  const history = [
+    { role: "user", text: "what time's the dentist again" },
+    { role: "assistant", text: "Tuesday, October 13 at 3 pm." },
+  ];
+  const ai = scripted([chat("Anytime.")]);
+  await turn(ai, { question: "thanks!", history, notes: { prompt: "You are Context." } });
+  const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
+  assert.match(system, /you did use them/, "the words-only history is explained");
+  assert.match(system, /Never take back or doubt an earlier answer/);
+
+  const first = scripted([chat("Tuesday.")]);
+  await turn(first, { notes: { prompt: "You are Context." } });
+  const opening = first.calls[0].input.messages.find((message) => message.role === "system").content;
+  assert.doesNotMatch(opening, /you did use them/, "a first text has no earlier turns to explain");
+  assert.doesNotMatch(systemPrompt(null, { texting: true }), /you did use them/);
+});

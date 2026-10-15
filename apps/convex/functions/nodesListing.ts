@@ -1,0 +1,60 @@
+/**
+ * The console's file tree, read live from Convex (phase 2 of
+ * `docs/decisions/app-and-console/convex-tree.md`).
+ *
+ * A query, so every open tab is subscribed: a change anybody makes (a
+ * colleague, an agent, a captured email) redraws each tab that shows the
+ * folder as soon as the tree records it, with no walk of the bucket.
+ *
+ * `null` means "still loading": the workspace's first copy into the tree has
+ * not finished (`treeReadiness`). The console then asks `files.listFiles`,
+ * which starts the copy and answers `TREE_LOADING` (or the listing, if the
+ * copy finished in between) without opening the bucket. Since 2026-10-13
+ * nothing here falls back to the bucket: parity is a staff alarm, and Pause
+ * stops copying work only (decided by the owner).
+ *
+ * Who may read is decided first, by the same `resolveFileAccess` the bucket
+ * listing uses, so a stranger is refused whether or not the tree serves; and
+ * which names they see is `listFolder`'s own decision (`lib/nodes/listing.ts`).
+ */
+
+import { v } from "convex/values";
+import { internalQuery, query } from "../_generated/server";
+import { clearanceOf } from "./lib/clearance";
+import { callerId, resolveFileAccess } from "./lib/filesFns/access";
+import { listingValidator } from "./lib/filesFns/validators";
+import { listFolderFromNodes, treeServesNow } from "./lib/nodes/listing";
+
+/** One folder's contents at the caller's clearance, or `null` while the first copy is still loading. */
+export const listFolder = query({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.null(), listingValidator),
+  handler: async (ctx, { workspaceId, path }) => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const listing = await listFolderFromNodes(ctx, workspaceId, path, clearanceOf(scope, grantedNames));
+    return { kind: "listing" as const, ...listing };
+  },
+});
+
+/**
+ * The same listing for the file-operation barrier's `list` (the console's
+ * fallback, shared folder links, share cards, routines and plugins), which
+ * has already decided who is asking and at what clearance. `null` while the
+ * first copy is still loading, and the barrier answers `TREE_LOADING`.
+ */
+export const listServed = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.optional(v.array(v.string())),
+  },
+  returns: v.union(v.null(), listingValidator),
+  handler: async (ctx, { workspaceId, path, scope, grantedNames }) => {
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const listing = await listFolderFromNodes(ctx, workspaceId, path, clearanceOf(scope, grantedNames ?? []));
+    return { kind: "listing" as const, ...listing };
+  },
+});

@@ -16,32 +16,72 @@
  *   token or session: a members-only page would show a sign-in screen, which
  *   is why the control plane only ever names public pages.
  * - **It keeps nothing.** No KV, R2, D1 or cache. The pictures go back in the
- *   response and nowhere else.
+ *   response and nowhere else. One Durable Object per person holds their
+ *   owner tag and an alarm, which releases their Browserbase browser five
+ *   minutes after its last use (./idle.ts), and nothing else.
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
  *                 the texting assistant. A plain request when the site sends
  *                 Markdown or readable HTML (./fetchText.ts), else a warm
  *                 browser (./read.ts)
+ *   POST /browse  `{ session?, steps }` → `{ session, ran, page }`: one
+ *                 browser the texting assistant drives across calls in one
+ *                 question (./browse.ts). Its session id is held by the
+ *                 gateway's turn and nowhere else; the browser closes itself
+ *                 when idle, and nothing in it is kept.
+ *   POST /browse/close `{ session }` → closes that browser now.
+ *   Either with `provider: "browserbase"` drives the person's Browserbase
+ *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
+ *   one secret, the Browserbase key, which never leaves this Worker.
+ *   POST /view/frame `{ owner }`, /view/input `{ owner, action }`: the
+ *   person's own look at, and hands on, that browser, for the Context app's
+ *   `/tex/<handle>` page through the gateway (./view.ts). They find a
+ *   browser and never start one.
  *   anything else 404
  */
 
 import puppeteer from "@cloudflare/puppeteer";
+import { DurableObject } from "cloudflare:workers";
+import { IdleTimer } from "./idle";
 import { fetchPage } from "./fetchText";
 import { parseReadRequest, read } from "./read";
+import type { BrowserbaseEnv } from "./browserbase";
+import { browseOnBrowserbase } from "./browserbaseRoute";
+import { viewOnBrowserbase } from "./view";
+import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
 
-interface Env {
+interface Env extends BrowserbaseEnv {
   BROWSER: Parameters<typeof puppeteer.launch>[0];
 }
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
+/** One per person, by owner tag: their browser's five-minute idle alarm (./idle.ts). */
+export class BrowserIdle extends DurableObject<Env> {
+  private timer = new IdleTimer(this.ctx.storage, this.env, fetch, Date.now, (fn) => this.ctx.blockConcurrencyWhile(fn));
+  async touch(owner: string): Promise<void> {
+    await this.timer.touch(owner);
+  }
+  async alarm(): Promise<void> {
+    await this.timer.alarm();
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close")) {
+      const body = await request.json().catch(() => null);
+      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body);
+      return await browse(env, url.pathname, body);
+    }
+    if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
+      return await viewOnBrowserbase(env, url.pathname, await request.json().catch(() => null));
+    }
     if (request.method !== "POST" || (url.pathname !== "/shoot" && url.pathname !== "/read")) {
       return new Response(null, { status: 404 });
     }
@@ -111,12 +151,22 @@ async function warmContext(env: Env): Promise<BrowserLike> {
   try {
     for (const session of await puppeteer.sessions(env.BROWSER)) {
       if (session.connectionId) continue;
+      let candidate: Browser;
       try {
-        browser = await puppeteer.connect(env.BROWSER, session.sessionId);
-        break;
+        candidate = await puppeteer.connect(env.BROWSER, session.sessionId);
       } catch {
         // Taken by another read a moment ago; try the next.
+        continue;
       }
+      // A browser someone is driving (`/browse`) has a page open on a site;
+      // a reading browser's own pages are blank between reads. Leave it be.
+      const pages = await candidate.pages().catch(() => []);
+      if (pages.some((page) => page.url() !== "about:blank")) {
+        await candidate.disconnect().catch(() => undefined);
+        continue;
+      }
+      browser = candidate;
+      break;
     }
   } catch {
     // Listing sessions failed: launch instead.
@@ -137,4 +187,61 @@ async function warmContext(env: Env): Promise<BrowserLike> {
       await warm.disconnect().catch(() => undefined);
     },
   };
+}
+
+/**
+ * How long a driven browser waits, idle, for the assistant's next call. The
+ * most Browser Rendering allows; a question's calls come seconds apart, and
+ * the gateway closes it when the question is answered.
+ */
+const BROWSE_KEEP_ALIVE_MS = 600_000;
+
+async function browse(env: Env, path: string, body: unknown): Promise<Response> {
+  const session = typeof (body as { session?: unknown })?.session === "string" ? (body as { session: string }).session : null;
+  if (path === "/browse/close") {
+    if (session === null || !/^[A-Za-z0-9-]{8,80}$/.test(session)) return json({ error: "a session is required" }, 400);
+    const browser = await puppeteer.connect(env.BROWSER, session).catch(() => null);
+    await browser?.close().catch(() => undefined);
+    return json({ closed: true });
+  }
+  const parsed = parseBrowseRequest(body);
+  if (parsed === null) return json({ error: "those steps could not be read" }, 400);
+  let browser: Browser;
+  if (parsed.session !== null) {
+    const connected = await connectWithRetry(env, parsed.session);
+    if (connected === null) return json({ error: "that browser has closed" }, 410);
+    browser = connected;
+  } else {
+    try {
+      browser = await puppeteer.launch(env.BROWSER, { keep_alive: BROWSE_KEEP_ALIVE_MS });
+    } catch (error) {
+      return launchFailed(error);
+    }
+  }
+  const started = Date.now();
+  try {
+    const page = (await browser.pages())[0] ?? (await browser.newPage());
+    if (parsed.session === null) await page.setViewport({ width: 1280, height: 860 });
+    page.setDefaultTimeout(BROWSE_GOTO_TIMEOUT_MS);
+    const result = await runSteps(page as unknown as BrowsePage, parsed.steps);
+    // Step kinds and timing only: never an address, a word typed or the page.
+    console.log(JSON.stringify({ event: "site_shots_browse", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));
+    return json({ session: browser.sessionId(), ...result });
+  } catch {
+    return json({ session: browser.sessionId(), error: "the browser could not do that" }, 502);
+  } finally {
+    await browser.disconnect().catch(() => undefined);
+  }
+}
+
+/** A browser takes one connection at a time; a read may hold it for a moment. */
+async function connectWithRetry(env: Env, session: string): Promise<Browser | null> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await puppeteer.connect(env.BROWSER, session);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    }
+  }
+  return null;
 }

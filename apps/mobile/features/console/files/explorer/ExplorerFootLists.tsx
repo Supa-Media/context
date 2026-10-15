@@ -12,7 +12,7 @@ import { PeopleList } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/activity";
 import type { ExplorerProps } from "./props";
-import { AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
+import { ACTIVITY_LIFT, AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
 import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
 import { changesCount } from "../../../organizer/rules";
 import type { ExplorerState } from "./useExplorer";
@@ -54,7 +54,7 @@ export function ExplorerFootLists({
     covers the line.
   */
   const organizerLine = changesCount(organizer?.status ?? null) !== null;
-  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? 76) + AGENTS_LINE_HEIGHT } : sheetLift;
+  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? ACTIVITY_LIFT) + AGENTS_LINE_HEIGHT } : sheetLift;
   return (
     <>
       {/*

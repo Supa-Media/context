@@ -59,6 +59,7 @@ import {
   worker,
 } from "./searchProjection/fixtures.mjs";
 import { createLiveNamespace } from "./agentActivityFixtures.mjs";
+import { approving } from "./egressApproval.mjs";
 import { renderFile } from "../../../packages/shared/src/activity.cjs";
 import { timestampSlug } from "../src/notes/paths.js";
 import { HISTORY_MAX_ROWS } from "../src/history/serve.js";
@@ -136,6 +137,8 @@ async function setUp({ budget } = {}) {
     PRESENCE_ROOM: createLiveNamespace(),
     ...(budget ? { SEARCH_SUBREQUEST_BUDGET: String(budget) } : {}),
   };
+  // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+  controlPlane.serveTreesFrom(env, { s3 });
   return {
     s3,
     d1,
@@ -148,7 +151,20 @@ async function setUp({ budget } = {}) {
   };
 }
 
+/** Each tool grant's person's own console, which approves what the gate holds (`egressApproval.mjs`). */
+const consoleFor = (token) =>
+  token === T.ownerTool ? T.console : token === T.teamTool ? T.consoleTeam : token === T.toolB ? T.consoleB : null;
+
 async function call(world, token, name, args) {
+  const result = await approving(async () => (await callOnce(world, token, name, args))?.result, {
+    env: world.env,
+    consoleToken: consoleFor(token),
+    origin: "https://gateway.test",
+  });
+  return { jsonrpc: "2.0", id: 1, result };
+}
+
+async function callOnce(world, token, name, args) {
   const harness = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://gateway.test/mcp", {

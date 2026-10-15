@@ -116,7 +116,7 @@ describe("the indexing panel", () => {
     });
     // Our words only: the operator sentence and the index name stay on the row.
     expect(Object.keys(report.rows[0]).sort()).toEqual(
-      ["enabled", "errorCause", "errorCode", "fastSearch", "kind", "notesIndexed", "notesPending", "priorities", "slug", "status", "updatedAt", "workspaceId"].sort(),
+      ["archived", "enabled", "errorCause", "errorCode", "fastSearch", "kind", "notesIndexed", "notesPending", "priorities", "slug", "status", "updatedAt", "workspaceId"].sort(),
     );
   });
 

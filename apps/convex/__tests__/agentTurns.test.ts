@@ -107,14 +107,16 @@ describe("the turn log", () => {
     expect(await turns(t)).toHaveLength(0);
   });
 
-  test("a router's pick, a fallback and a retried round are kept with their status, and a provider's words are not", async () => {
+  test("a router's pick, a fallback, a retried round and one cut off at the output cap are kept with their status, and a provider's words are not", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t);
     const trace = [
-      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40 },
+      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40, confidence: 0.8 },
       { kind: "model", ok: true, ms: 900, retried: true, status: 529 },
       { kind: "fallback", model: "@cf/zai-org/glm-4.7-flash", ok: true, ms: 2_000, status: 529 },
       { kind: "model", ok: true, ms: 1_200 },
+      { kind: "model", ok: true, ms: 3_000, cut: true },
+      { kind: "tool", tool: "write_note", ok: false, ms: 5, held: true },
     ];
     expect((await report(t, accessToken, { trace })).recorded).toBe(true);
     const [row] = await turns(t, workspaceId);
@@ -122,6 +124,7 @@ describe("the turn log", () => {
     for (const bad of [
       { kind: "router", model: "anthropic/claude-opus-5-5", ok: true, ms: 1 },
       { kind: "router", tier: "think", model: "a model\nwith a sentence", ok: true, ms: 1 },
+      { kind: "router", tier: "main", model: "anthropic/claude-haiku-5-5", ok: true, ms: 1, confidence: 7 },
       { kind: "fallback", ok: true, ms: 1 },
       { kind: "fallback", model: "@cf/x", tool: "read_note", ok: true, ms: 1 },
     ]) {

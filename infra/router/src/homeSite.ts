@@ -96,12 +96,13 @@ function parseImages(value: unknown): Record<string, string> {
  * First segments that are never a homepage page: the app's own screens and
  * this Worker's paths. Mirrors `APP_SEGMENTS` in
  * `apps/mobile/features/home/homeSite.ts`, which the app's tests hold to its
- * routes. Only a saving here: a page is injected into a document only when the
- * site has it, and the app never draws the homepage at one of these anyway.
+ * routes and `homeSite.test.ts` here holds this to. Only a saving here: a page
+ * is injected into a document only when the site has it, and the app never
+ * draws the homepage at one of these anyway.
  */
 const NOT_PAGES = new Set([
   "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "join", "login", "meetings",
-  "note", "preview", "privacy", "s", "terms", "texts", "welcome", "workspace", "_expo", "api", "og",
+  "not-me", "note", "preview", "privacy", "s", "stop-new-email", "terms", "tex", "texts", "vault", "welcome", "workspace", "_expo", "api", "og",
 ]);
 
 /**

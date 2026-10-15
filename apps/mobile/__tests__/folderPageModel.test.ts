@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
-  defaultFolderView,
+  isNoteStatus,
   isProjectsFolder,
   folderItems,
   groupFolderItems,
@@ -111,6 +111,17 @@ describe("a folder's children as items", () => {
     expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
     expect(items.find((item) => item.path === "p/backlog")!.progress).toBeNull();
   });
+  test("status: note says only a note: no status, never a column word, and not counted as a part", () => {
+    const noted = [...notes, note("p/loose.md", { status: "Note" }), note("p/web/readme-ish.md", { status: "notes" })];
+    const { items } = folderItems("p", entries, noted.filter((each) => !(each.path === "p/loose.md" && each.properties.status === "paused")));
+    const loose = items.find((item) => item.path === "p/loose.md")!;
+    expect(loose).toMatchObject({ status: "", noted: true });
+    // No status written at all is not the same thing: a project item with none yet.
+    expect(items.find((item) => item.path === "p/do this")).toMatchObject({ status: "", noted: false });
+    expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
+    expect(isNoteStatus(" NOTE ")).toBe(true);
+    expect(isNoteStatus("notable")).toBe(false);
+  });
 });
 
 describe("groups", () => {
@@ -152,15 +163,6 @@ describe("groups", () => {
       [note("p/old/overview.md", { status: "active" }, { updatedAt: 1 }), note("p/new/overview.md", { status: "active" }, { updatedAt: 9 })],
     ).items;
     expect(groupFolderItems(within, "status", defaultStatusList() as StatusList)[0].items.map((item) => item.path)).toEqual(["p/new", "p/old"]);
-  });
-});
-
-describe("the view a folder opens in", () => {
-  test("is the grouped list once anything in it has a status, and files otherwise", () => {
-    const withStatus = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "active" })]).items;
-    const without = folderItems("p", [folder("p/a"), folder("p/b")], []).items;
-    expect(defaultFolderView(withStatus)).toBe("list");
-    expect(defaultFolderView(without)).toBe("files");
   });
 });
 
@@ -236,5 +238,34 @@ describe("a board's columns and what a drop writes", () => {
     expect(dropValue({ status: "Active" }, "active")).toBeUndefined();
     expect(dropValue({ status: "" }, "")).toBeUndefined();
     expect(dropValue({ status: "" }, "planned")).toBe("planned");
+  });
+});
+
+/*
+  Owner, 2026-10-11: opening Areas, the title said "Areas" and then, when the
+  folder's notes arrived, "1-areas". Older folders were made with a README
+  headed by the folder's name on disk; a heading that only repeats the name is
+  not a title, so the page keeps the name it already drew.
+*/
+describe("a front note headed by the folder's own name", () => {
+  test("is not the page's title when it is the name on disk, sort number and all", () => {
+    for (const heading of ["2-areas", "1-areas", "2-Areas"]) {
+      const summary = summarizeFolder("2-areas", [note("2-areas/README.md", {}, { heading })]);
+      expect(summary.title).toBeNull();
+      // The about note's words are still read under the heading it really has.
+      expect(strip(summary.heading ?? "")).toBe(heading);
+    }
+  });
+
+  test("somebody's own wording is kept, however close to the name", () => {
+    for (const heading of ["Areas", "Health & home"]) {
+      const summary = summarizeFolder("2-areas", [note("2-areas/about.md", {}, { heading })]);
+      expect(strip(summary.title ?? "")).toBe(heading);
+    }
+  });
+
+  test("nor is a frontmatter title that only repeats the name on disk", () => {
+    const summary = summarizeFolder("1-projects/3-web-app", [note("1-projects/3-web-app/about.md", { title: "3-web-app" })]);
+    expect(summary.title).toBeNull();
   });
 });

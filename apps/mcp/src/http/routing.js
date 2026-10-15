@@ -31,6 +31,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A vault link (`tools/vault.js`): a page where the person saves or shares
+  // a login themselves, signed in. The control plane builds the URL.
+  Object.defineProperty(store, "vaultLinks", {
+    value: {
+      request: (request) => controlPlane.vaultRequest(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),
@@ -65,6 +75,21 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // every store a request touches.
   Object.defineProperty(store, "reportProblem", {
     value: (message) => controlPlane.reportProblem(session.accessToken, message),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // The Convex tree, for the agent tools that list (`tree/served.js`). The
+  // control plane picks the workspace and clearance off this token's grant.
+  Object.defineProperty(store, "treeManifest", {
+    value: (page) => controlPlane.readTreeManifest(session.accessToken, session.workspaceId, page),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`).
+  Object.defineProperty(store, "treeFacts", {
+    value: (request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request),
     enumerable: false,
     writable: false,
     configurable: true,

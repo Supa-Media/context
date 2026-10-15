@@ -54,9 +54,12 @@ const traceEntry = v.object({
   kind: v.union(v.literal("model"), v.literal("tool"), v.literal("router"), v.literal("fallback")),
   tool: v.optional(v.string()),
   tier: v.optional(v.union(v.literal("main"), v.literal("think"))),
+  confidence: v.optional(v.number()),
   model: v.optional(v.string()),
   status: v.optional(v.number()),
   retried: v.optional(v.boolean()),
+  cut: v.optional(v.boolean()),
+  held: v.optional(v.boolean()),
   ok: v.boolean(),
   ms: v.number(),
 });

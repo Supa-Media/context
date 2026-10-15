@@ -5,9 +5,9 @@
  * with `requireAdmin` inline before calling one of these — see that file's
  * header and `__tests__/adminSurface.test.ts`.
  *
- * Letting somebody in claims their "you're in" mail in the same transaction,
- * so pressing Let in twice, or on a whole selection that overlaps, mails each
- * person once.
+ * Letting somebody in claims their "you're in" mail, or their text when they
+ * joined with a phone, in the same transaction, so pressing Let in twice, or
+ * on a whole selection that overlaps, tells each person once.
  */
 
 import { v } from "convex/values";
@@ -17,6 +17,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { AdminActor } from "../admin";
 import { normalizePhone } from "../phoneCheck";
 import { waitlistEmail } from "../waitlist";
+import { adCampaignLabel } from "@context/shared";
 
 /** Rows one listing returns, newest first. */
 export const WAITLIST_PAGE = 200;
@@ -39,12 +40,18 @@ export const waitlistRowValidator = v.object({
   source: v.string(),
   useFor: v.union(v.string(), v.null()),
   admittedAt: v.union(v.number(), v.null()),
-  /** The landing page (`/a` to `/e`) the person saw before joining, if recorded. */
+  /** The landing page (`/a` to `/c`) the person saw before joining, if recorded. */
   landing: v.optional(v.string()),
+  /** The ad that sent them, as `adCampaignLabel` reads it, if recorded. */
+  campaign: v.optional(v.string()),
 });
 
+/**
+ * One row per landing page and ad: `campaign` is absent for joins no ad
+ * sent, so summing a page's rows gives its total.
+ */
 export const landingCountsValidator = v.array(
-  v.object({ landing: v.string(), joined: v.number(), admitted: v.number() }),
+  v.object({ landing: v.string(), campaign: v.optional(v.string()), joined: v.number(), admitted: v.number() }),
 );
 
 export async function listWaitlistHandler(
@@ -71,6 +78,7 @@ export async function listWaitlistHandler(
       useFor: row.useFor ?? null,
       admittedAt: row.admittedAt ?? null,
       landing: row.landing,
+      ...campaignField(row),
     })),
     more: rows.length > WAITLIST_PAGE,
     counts,
@@ -87,41 +95,53 @@ async function countStatus(ctx: QueryCtx, status: Doc<"waitlist">["status"]): Pr
   return rows.length;
 }
 
+function campaignField(row: Doc<"waitlist">): { campaign?: string } {
+  const campaign = adCampaignLabel(row.campaign);
+  return campaign === null ? {} : { campaign };
+}
+
 /**
- * Joins and admissions per landing page, for the console's one-line summary.
+ * Joins and admissions per landing page and ad, for the console's summary.
  * `none` is a row made before the page was recorded. Like the counts above,
  * this reads at most `COUNT_LIMIT` rows, so past that it is a floor.
  */
 export async function landingCountsHandler(ctx: QueryCtx) {
   const rows = await ctx.db.query("waitlist").take(COUNT_LIMIT);
-  const tallies = new Map<string, { joined: number; admitted: number }>();
+  const tallies = new Map<string, { landing: string; campaign?: string; joined: number; admitted: number }>();
   for (const row of rows) {
     const landing = row.landing ?? "none";
-    const tally = tallies.get(landing) ?? { joined: 0, admitted: 0 };
+    const origin = { landing, ...campaignField(row) };
+    const key = JSON.stringify([origin.landing, origin.campaign ?? null]);
+    const tally = tallies.get(key) ?? { ...origin, joined: 0, admitted: 0 };
     tally.joined += 1;
     if (row.status === "admitted") tally.admitted += 1;
-    tallies.set(landing, tally);
+    tallies.set(key, tally);
   }
-  return [...tallies.entries()]
-    .map(([landing, tally]) => ({ landing, ...tally }))
-    .sort((a, b) => (a.landing < b.landing ? -1 : a.landing > b.landing ? 1 : 0));
+  const order = (tally: { landing: string; campaign?: string }) => `${tally.landing}\u0000${tally.campaign ?? ""}`;
+  return [...tallies.values()].sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
 }
 
 async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActor): Promise<boolean> {
   if (row.status === "admitted") return false;
   const now = Date.now();
-  const mail = row.admittedMailAt === undefined;
+  // A row joined with a phone is told by text, one with an address by mail.
+  const text = row.phone !== undefined && row.email === undefined && row.admittedTextAt === undefined;
+  const mail = row.email !== undefined && row.admittedMailAt === undefined;
   await ctx.db.patch(row._id, {
     status: "admitted",
     admittedAt: now,
     admittedBy: actor.userId,
     ...(mail ? { admittedMailAt: now } : {}),
+    ...(text ? { admittedTextAt: now } : {}),
   });
   if (mail) {
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, {
       waitlistId: row._id,
       kind: "admitted",
     });
+  }
+  if (text) {
+    await ctx.scheduler.runAfter(0, internal.functions.waitlistText.sendAdmitted, { waitlistId: row._id });
   }
   return true;
 }

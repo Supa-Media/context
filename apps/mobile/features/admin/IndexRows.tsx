@@ -1,33 +1,41 @@
 /**
  * The Indexes view's table (`./IndexesView`): one row per workspace, a column
  * per index, and a row that opens to show the T0/T1/T2 split, what went wrong,
- * and that workspace's Refill and Restart. On a phone a row is the workspace,
- * three dots (tree, fast, meaning) and the reason under it; a tap opens the
- * same detail.
+ * that workspace's Restart, and its file tree box (`./FileTreeDetail`) with
+ * Repair, Check and any folder move still copying. On a phone a row is the
+ * workspace, three dots (file tree, fast, meaning) and the reason under it; a
+ * tap opens the same detail.
  */
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Button, Dot, Text, space, useThemedStyles, type Colors, type DotTone } from "../design";
 import { useCompact } from "./AdminKit";
 import { TableHead, type Column } from "./AdminTable";
+import { FileTreeDetail } from "./FileTreeDetail";
 import { whenLabel } from "./agent";
 import { canRestartMeaning } from "./meaningIndexes";
-import { INDEXES, tierLabel, type IndexCell, type IndexHealth, type IndexKey, type WorkspaceIndexes } from "./searchIndexes";
+import { INDEXES, healthTone, tierLabel, type IndexCell, type WorkspaceIndexes } from "./searchIndexes";
 
 export type IndexActions = {
   busy: string | null;
-  fill: (workspaceId: string) => void;
   restart: (workspaceId: string) => void;
+  /** Start the fast search copy again now, rather than on the sweep. */
+  restartFast: (workspaceId: string) => void;
+  /** Copying is paused by staff (readers still read the tree), so a copy cannot start. */
+  migrationPaused: boolean;
+  /** Copy the workspace again; its facts follow the copy. */
+  repair: (workspaceId: string) => void;
+  check: (workspaceId: string) => void;
+  retryMove: (id: string) => void;
+  undoMove: (id: string) => void;
+  /** Walk a sealed bucket again, for notes saved unsealed after its walk. */
+  reseal: (workspaceId: string) => void;
 };
-
-export function healthTone(health: IndexHealth): DotTone {
-  return health === "ok" ? "ok" : health === "working" ? "warn" : health === "stuck" ? "crit" : "neutral";
-}
 
 const COLUMNS: readonly Column[] = [
   { label: "Workspace", flex: 1.1 },
-  { label: "Sidebar tree", flex: 1.3 },
+  { label: "File tree", flex: 1.8 },
   { label: "Fast search", flex: 1.5 },
   { label: "Search by meaning", flex: 1.8 },
   { label: "Changed", flex: 0.8 },
@@ -90,8 +98,8 @@ function Row({
               <Text variant="rowTitle" numberOfLines={1} style={styles.grow}>
                 {name(row)}
               </Text>
-              <View style={styles.dots} aria-label="Sidebar tree, fast search, search by meaning">
-                <Dot tone={healthTone(row.tree.health)} />
+              <View style={styles.dots} aria-label="File tree, fast search, search by meaning">
+                <Dot tone={healthTone(row.files.health)} />
                 <Dot tone={healthTone(row.fast.health)} />
                 <Dot tone={healthTone(row.meaning.health)} />
               </View>
@@ -105,7 +113,7 @@ function Row({
                 {name(row)}
               </Text>
             </View>
-            <CellView cell={row.tree} flex={1.3} />
+            <CellView cell={row.files} flex={1.8} />
             <CellView cell={row.fast} flex={1.5} />
             <CellView cell={row.meaning} flex={1.8} />
             <View style={[styles.td, { flex: 0.8 }]}>
@@ -154,7 +162,7 @@ function compactLine(row: WorkspaceIndexes): string {
   const parts = INDEXES.filter((index) => row[index.key].health === "stuck" || row[index.key].health === "working").map(
     (index) => {
       const cell = row[index.key];
-      const short = index.key === "tree" ? "Tree" : index.key === "fast" ? "Fast" : "Meaning";
+      const short = { files: "Files", fast: "Fast", meaning: "Meaning" }[index.key];
       const said = `${short} ${cell.label.toLowerCase()}${cell.figure && cell.progress ? ` ${cell.figure}` : ""}`;
       return cell.problem ? `${said}: ${cell.problem}` : said;
     },
@@ -165,48 +173,31 @@ function compactLine(row: WorkspaceIndexes): string {
 function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
   const styles = useThemedStyles(makeStyles);
   const id = row.slug ?? row.workspaceId;
-  const now = Date.now();
-  const tree = row.treeRow;
   const meaning = row.meaningRow;
-  const canFill = tree !== null && tree.status !== "unsupported" && tree.status !== "unreachable";
   const canRestart = meaning !== null && canRestartMeaning(meaning);
-  const button = (key: string, label: string, busyLabel: string, onPress: () => void, testID: string) => (
-    <Button
-      label={actions.busy === key ? busyLabel : label}
-      disabled={actions.busy !== null}
-      onPress={onPress}
-      testID={testID}
-    />
-  );
-  const columns: { key: IndexKey; action: ReactNode; note: string | null }[] = [
+  const columns = [
     {
-      key: "tree",
-      action: canFill
-        ? button(
-            `tree:${row.workspaceId}`,
-            tree.status === "ready" ? "Refill" : "Fill",
-            "Starting…",
-            () => actions.fill(row.workspaceId),
-            `admin-tree-fill-${id}`,
-          )
-        : null,
-      note:
-        tree === null
-          ? "No sidebar tree yet. It lives in the workspace's fast search database."
-          : [
-              tree.rows === null ? null : `${tree.rows.toLocaleString("en-US")} notes and files.`,
-              tree.sweptAt === null ? "Never filled." : `Last filled ${whenLabel(tree.sweptAt, now)}.`,
-              tree.dirty ? "A big change is waiting for the next pass." : null,
-            ]
-              .filter(Boolean)
-              .join(" "),
+      key: "fast",
+      action: row.fast.health === "working" || row.fast.health === "stuck" ? (
+        <Button
+          label={actions.busy === `fast:${row.workspaceId}` ? "Restarting…" : "Restart"}
+          disabled={actions.busy !== null}
+          onPress={() => actions.restartFast(row.workspaceId)}
+          testID={`admin-fast-restart-${id}`}
+        />
+      ) : null,
+      note: row.fast.health === "none" ? "No fast search for this workspace." : null,
     },
-    { key: "fast", action: null, note: row.fast.health === "none" ? "No fast search for this workspace." : null },
     {
       key: "meaning",
-      action: canRestart
-        ? button(`meaning:${row.workspaceId}`, "Restart", "Restarting…", () => actions.restart(row.workspaceId), `admin-meaning-restart-${id}`)
-        : null,
+      action: canRestart ? (
+        <Button
+          label={actions.busy === `meaning:${row.workspaceId}` ? "Restarting…" : "Restart"}
+          disabled={actions.busy !== null}
+          onPress={() => actions.restart(row.workspaceId)}
+          testID={`admin-meaning-restart-${id}`}
+        />
+      ) : null,
       note:
         meaning === null
           ? "No search by meaning for this workspace yet."
@@ -214,9 +205,10 @@ function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions
             ? "The owner turned search by meaning off."
             : null,
     },
-  ];
+  ] as const;
   return (
     <View style={styles.detail} testID={`admin-indexes-detail-${id}`}>
+      <FileTreeDetail row={row} actions={actions} />
       {columns.map((column) => {
         const cell = row[column.key];
         const label = INDEXES.find((index) => index.key === column.key)?.label ?? column.key;
@@ -243,7 +235,7 @@ function Detail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions
                     </Text>
                   </View>
                 ))
-              : cell.figure && column.key !== "tree"
+              : cell.figure
                 ? <Text variant="meta" style={styles.num}>{`${cell.label}, ${cell.figure} notes`}</Text>
                 : null}
             {column.note ? <Text variant="meta">{column.note}</Text> : null}

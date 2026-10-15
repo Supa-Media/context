@@ -11,6 +11,8 @@ import {
   activityValidator,
   contextMoveExportedValidator,
   contextMoveFinishedValidator,
+  contextMovePlannedValidator,
+  contextMoveSettledValidator,
   contextMoveLandedValidator,
   contextMoveRemovedValidator,
   deletedValidator,
@@ -20,14 +22,13 @@ import {
   imageValidator,
   imageWrittenValidator,
   emojiImageValidator,
-  emojiListValidator,
   emojiRemovedValidator,
-  folderIconsValidator,
   emojiStoredValidator,
   listingValidator,
   manifestValidator,
   treeChangesValidator,
   folderNotesValidator,
+  chaosScoreValidator,
   movedValidator,
   notesValidator,
   privacyResetValidator,
@@ -55,7 +56,6 @@ import {
   googleSyncRunValidator,
 } from "./syncAndFormValidators";
 import {
-  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
   meaningProjectedValidator,
@@ -71,23 +71,25 @@ export const operationResultValidator = v.union(
     runs: v.array(v.object({ at: v.number(), outcome: v.string(), text: v.string() })),
   }),
   v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
-  v.object({ kind: v.literal("treeKept"), complete: v.boolean() }),
+  v.object({ kind: v.literal("nodesKept"), complete: v.boolean() }),
+  v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
+  v.object({ kind: v.literal("trashedText"), path: v.string(), text: v.string(), encrypted: v.boolean() }),
+  v.object({
+    kind: v.literal("moveQueued"),
+    queued: v.boolean(),
+    count: v.optional(v.number()),
+    error: v.optional(v.string()),
+    message: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("nodesParity"),
+    clearances: v.number(),
+    mismatches: v.number(),
+    privacyMatches: v.boolean(),
+  }),
   treeChangesValidator,
   folderNotesValidator,
-  v.object({
-    kind: v.literal("treeState"),
-    status: v.union(
-      v.literal("ready"),
-      v.literal("filling"),
-      v.literal("empty"),
-      v.literal("unsupported"),
-      v.literal("unreachable"),
-    ),
-    rows: v.union(v.number(), v.null()),
-    sweptAt: v.union(v.number(), v.null()),
-    dirty: v.boolean(),
-    error: v.union(v.string(), v.null()),
-  }),
+  chaosScoreValidator,
   v.object({
     kind: v.literal("websiteReleasePages"),
     results: v.array(
@@ -115,6 +117,8 @@ export const operationResultValidator = v.union(
   contextMoveLandedValidator,
   contextMoveRemovedValidator,
   contextMoveFinishedValidator,
+  contextMovePlannedValidator,
+  contextMoveSettledValidator,
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
@@ -122,11 +126,9 @@ export const operationResultValidator = v.union(
   storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
-  emojiListValidator,
   emojiImageValidator,
   emojiStoredValidator,
   emojiRemovedValidator,
-  folderIconsValidator,
   pluginInventoryValidator,
   pluginManagedInstallsValidator,
   contextPluginsValidator,
@@ -140,7 +142,6 @@ export const operationResultValidator = v.union(
   notePathsValidator,
   workspaceGraphValidator,
   visiblePathsValidator,
-  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
   meaningProjectedValidator,
@@ -161,23 +162,11 @@ export const operationValidator = v.union(
      * Absent is `never`, which is every caller that predates the forwarding
      * ledger. `onMiss` is for an address somebody is holding — a deep link, a
      * remembered path. A share needs the opposite order and resolves through
-     * the `forward` operation instead; `readFile` carries the argument for why
+     * the forwarding ledger in Convex instead (`smallData.forward`); `readFile` carries the argument for why
      * those two orders cannot be one.
      */
     forward: v.optional(v.union(v.literal("never"), v.literal("onMiss"))),
   }),
-  /**
-   * Where these paths are now, according to the bucket's forwarding ledger.
-   *
-   * A read can forward itself (`forward`, above). A share cannot: its bound is
-   * decided in `shares.ts` *before* any bucket access — `withinSharedFolder`
-   * refuses a path outside the shared folder without spending a GET — and a
-   * bound checked against a stale prefix while the read forwards to a live one
-   * would be two different answers to the same question. So the share resolves
-   * both paths first, in one operation, and everything after it works in live
-   * paths.
-   */
-  v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
   /** The offline mirror's manifest, one page of it. See `syncManifest`. */
   v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()), folder: v.optional(v.string()), source: v.optional(v.literal("tree")) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
@@ -251,6 +240,8 @@ export const operationValidator = v.union(
     kind: v.literal("indexNotes"),
     written: v.array(v.string()),
     gone: v.array(v.string()),
+    moved: v.optional(v.array(v.array(v.string()))),
+    queued: v.optional(v.boolean()),
   }),
   /**
    * Copy a pass's worth of this context's notes into its search database.
@@ -262,23 +253,31 @@ export const operationValidator = v.union(
    * stopped being `backfilling`, or a projection that reached `ready`.
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
+  /** Remove a `ready` database's rows for notes that are gone; scheduled only, like `projectIndex`. */
+  v.object({ kind: v.literal("pruneIndex"), passes: v.optional(v.number()) }),
   /** A search-by-meaning catch-up pass; scheduled only, like `projectIndex`. */
   v.object({ kind: v.literal("projectMeaning"), passes: v.optional(v.number()) }),
-  /** The tree table's sweep and re-check (`treeTableOps.ts`); scheduled only. */
-  v.object({ kind: v.literal("sweepTree"), passes: v.optional(v.number()) }),
-  /** The tree table's health for the staff panel; no bucket is opened. */
-  v.object({ kind: v.literal("treeState") }),
+  /** The Convex tree's sweep, check and parity (`lib/nodes/run.ts`); scheduled only. */
+  v.object({ kind: v.literal("nodesSweep"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("nodesFactFill"), passes: v.optional(v.number()) }),
   v.object({
-    kind: v.literal("touchTree"),
+    kind: v.literal("nodesTouch"),
     paths: v.array(v.string()),
     files: v.array(v.string()),
-    audiences: v.array(v.string()),
+    /** An agent's moves, old name to new, so pins and recents follow (`placesFollow.ts`). */
+    moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
+    /** Who could see each key the change took away, before it: gone rows narrow to it. */
     left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   }),
-  /** What changed since a device's last sync (`treeChanges.ts`). */
-  v.object({ kind: v.literal("treeChanges"), since: v.number(), after: v.optional(v.string()), privacy: v.optional(v.string()) }),
-  /** A folder List's notes from the tree's properties table (`folderNotes.ts`). */
+  v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
+  v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("nodesMoveWork") }),
+  v.object({ kind: v.literal("nodesPrivacyExport") }),
+  v.object({ kind: v.literal("nodesSmallData") }),
+  /** A folder List's notes from the Convex tree's facts (`folderNotes.ts`). */
   v.object({ kind: v.literal("folderNotes"), folder: v.string(), subfolders: v.boolean(), cursor: v.optional(v.string()) }),
+  /** The chaos score for this reader (`chaosOps.ts`). */
+  v.object({ kind: v.literal("chaosScore"), folder: v.optional(v.string()) }),
   v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
   /**
    * Advance one connected Google account from its own cursor. Scheduled by
@@ -327,19 +326,16 @@ export const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
-  v.object({ kind: v.literal("emojiList") }),
-  v.object({ kind: v.literal("folderIconsRead") }),
   v.object({ kind: v.literal("addBuiltInFolder"), role: v.string() }),
-  v.object({ kind: v.literal("folderIconSet"), path: v.string(), icon: v.union(v.string(), v.null()) }),
-  v.object({ kind: v.literal("emojiRead"), name: v.string() }),
+  v.object({ kind: v.literal("emojiRead"), name: v.string(), leaf: v.string() }),
   v.object({
     kind: v.literal("emojiStore"),
     name: v.string(),
     bytes: v.bytes(),
-    replace: v.boolean(),
+    previous: v.union(v.string(), v.null()),
   }),
-  v.object({ kind: v.literal("emojiRemove"), name: v.string() }),
-  v.object({ kind: v.literal("emojiRename"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("emojiRemove"), name: v.string(), leaf: v.string() }),
+  v.object({ kind: v.literal("emojiRename"), from: v.string(), to: v.string(), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),
@@ -398,6 +394,8 @@ export const operationValidator = v.union(
     from: v.string(),
     to: v.string(),
     expectedEtag: v.optional(v.string()),
+    /** Rewrite a single note's first heading to its new name, inside the move (`followHeading.ts`). */
+    followHeading: v.optional(v.boolean()),
   }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   /*
@@ -448,10 +446,29 @@ export const operationValidator = v.union(
     from: v.string(),
     survivors: v.array(v.string()),
   }),
+  v.object({
+    kind: v.literal("contextMovePlan"),
+    from: v.string(),
+    to: v.string(),
+    skip: v.array(v.string()),
+    maxObjectBytes: v.number(),
+  }),
+  v.object({
+    kind: v.literal("contextMovePrepare"),
+    root: v.optional(v.string()),
+    objects: v.array(v.object({
+      destination: v.string(),
+      sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+    })),
+  }),
+  v.object({ kind: v.literal("contextMoveArrived"), paths: v.array(v.string()), root: v.optional(v.string()) }),
+  v.object({ kind: v.literal("contextMoveForget"), paths: v.array(v.string()) }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
+  /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */
+  v.object({ kind: v.literal("readTrashed"), path: v.string(), trash: v.string() }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),

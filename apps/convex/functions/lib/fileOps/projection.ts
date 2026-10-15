@@ -18,6 +18,7 @@ import {
   projectPass,
   worthReporting,
 } from "../../../../mcp/src/search/d1/backfill.js";
+import { deleteStatements } from "../../../../mcp/src/search/d1/project.js";
 import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
@@ -57,12 +58,14 @@ const PROJECTION_RESERVE_SHARE = 4;
 /**
  * Notes one pass may copy.
  *
- * `VERSION_PROBE_CAP` in `d1/backfill.js` bounds the window to 100 paths, so
- * asking for more than that cannot buy more; asking for the gateway's 20 would
- * leave three quarters of an affordable pass unspent. The budget is the real
- * bound either way.
+ * Writes stay at 100 even though the control plane probes 300 versions per
+ * pass. A current window is a cheap D1 read, while listing a 10,000-note
+ * bucket again just to cross another 100 current paths takes minutes.
  */
 const PROJECTION_NOTE_CAP = 100;
+
+/** Scan several D1 windows against one bucket listing, within one scheduled action. */
+const PROJECTION_WINDOWS_PER_PASS = 10;
 
 /** What one pass learned. No path, no title, no term — see `maintainSearchIndex`. */
 export interface ProjectionPass {
@@ -211,7 +214,7 @@ export async function passCensus(
 export async function projectSearchIndex(
   store: FileStore,
   client: ProjectionClient,
-  options: { budget?: number; noteCap?: number } = {},
+  options: { budget?: number; noteCap?: number; workspaceId?: string } = {},
 ): Promise<ProjectionPass> {
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
   const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
@@ -226,9 +229,14 @@ export async function projectSearchIndex(
   const census = listed?.census ?? fallback?.census ?? null;
   const indexPending = listed ? (listed.truncated ? 1 : 0) : (fallback?.indexPending ?? 0);
   const synced = fallback?.synced ?? null;
+  const budgetAfterCensus = budget.remaining;
 
   const moved = Boolean(synced?.committed);
   if (census === null) {
+    if (options.workspaceId) console.info("fast_search.projection_pass", {
+      workspaceId: options.workspaceId, source: "none", budgetAfterCensus,
+      budgetRemaining: budget.remaining, projected: 0, cursorAdvanced: false,
+    });
     // Nothing to walk. Not a failure — a bucket whose index this pass has just
     // started building is the ordinary first link of a cold chain, and `moved`
     // says whether it got anywhere.
@@ -249,42 +257,77 @@ export async function projectSearchIndex(
   // parameters read as required from TypeScript — `reportProgress` defaults to
   // `null` in the body and is deliberately not passed. The fields below are
   // checked against their own declared types; only the omission is waived.
-  const result = await projectPass(store, client, {
-    census,
-    touched: synced?.touched ?? [],
-    removed: [
-      ...(synced?.removed ?? []),
-      ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
-    ],
-    visibilityOf: (path: string) =>
-      effectiveVisibility(path, state.rules, state.overrides),
-    budget,
-    noteCap: options.noteCap ?? PROJECTION_NOTE_CAP,
-    // A projection cannot honestly call itself complete over a census the R2
-    // index is still building — every count here is a floor when a walk was
-    // cut short, in the census's own language.
-    indexPending,
-    // The pass may spend down to nothing: this is not riding a search, and
-    // there is no caller after it owed a reserve.
-    reserve: 0,
-  } as unknown as Parameters<typeof projectPass>[2]);
+  const removed = [
+    ...(synced?.removed ?? []),
+    ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
+  ];
+  const budgetBeforeCopy = budget.remaining;
+  let projected = 0;
+  let deleted = 0;
+  let cursorAdvanced = false;
+  let windowsScanned = 0;
+  let last = null as Awaited<ReturnType<typeof projectPass>> | null;
+  let counted = null as Awaited<ReturnType<typeof projectPass>> | null;
+  const noteCap = options.noteCap ?? PROJECTION_NOTE_CAP;
+  for (let window = 0; window < PROJECTION_WINDOWS_PER_PASS; window += 1) {
+    windowsScanned += 1;
+    // The expensive bucket listing above is valid for every window in this
+    // action. Walk current notes here instead of listing the entire bucket
+    // again for each 300-path D1 version probe.
+    const result = await projectPass(store, client, {
+      census,
+      touched: window === 0 ? synced?.touched ?? [] : [],
+      removed: window === 0 ? removed : [],
+      visibilityOf: (path: string) =>
+        effectiveVisibility(path, state.rules, state.overrides),
+      budget,
+      noteCap: Math.max(0, noteCap - projected),
+      versionProbeCap: 300,
+      indexPending,
+      reserve: 0,
+    } as unknown as Parameters<typeof projectPass>[2]);
+    last = result;
+    projected += result.projected;
+    deleted += result.deleted;
+    cursorAdvanced ||= result.cursorAdvanced;
+    if (result.projected > 0 || result.deleted > 0 || result.sweepComplete) counted = result;
+    if (result.failure || result.sweepComplete || !result.cursorAdvanced || projected >= noteCap) break;
+  }
 
-  const progress = progressFrom(result);
+  const result = last!;
+  const progress = progressFrom(counted ?? result);
   const failure: string | null = result.failure ?? null;
+  if (options.workspaceId) console.info("fast_search.projection_pass", {
+    workspaceId: options.workspaceId,
+    source: listed ? "bucket" : "index",
+    censusSize: census.size,
+    listingTruncated: listed?.truncated ?? null,
+    budgetAfterCensus,
+    budgetBeforeCopy,
+    budgetRemaining: budget.remaining,
+    windowsScanned,
+    projected,
+    deleted,
+    cursorAdvanced,
+    sweepComplete: result.sweepComplete,
+    syncCommitted: moved,
+    report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
+    failure,
+  });
   return {
-    projected: result.projected,
-    deleted: result.deleted,
+    projected,
+    deleted,
     notesIndexed: progress.notesIndexed,
     notesPending: progress.notesPending,
     ...(progress.priorities ? { priorities: progress.priorities as IndexingPriorities } : {}),
-    ready: progress.state === "ready",
+    ready: result.sweepComplete && result.failure === null && result.notesPending === 0,
     failure,
     failureDetail: result.failureDetail ?? null,
     // A window of already-current notes can still move the cursor closer to
     // missing notes. Keep the chain running through it instead of waiting for
     // the 15-minute stalled-backfill sweep after every such window.
-    moved: moved || result.projected > 0 || result.deleted > 0 || result.cursorAdvanced,
-    report: failure === null && worthReporting(result),
+    moved: moved || projected > 0 || deleted > 0 || cursorAdvanced,
+    report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
   };
 }
 
@@ -300,7 +343,7 @@ export async function projectSearchIndex(
  * docmap held, so rows already copied stay current. `null` when the listing
  * fails, and the pass falls back to the index's census rather than stopping.
  */
-async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
+export async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
   try {
     const listing = await listNoteObjects(store, budget, 0, (key: string) => key.endsWith(".md") && !isPlumbing(key));
     const census = new Map<string, string>();
@@ -330,7 +373,7 @@ const GONE_CHECK_KEEP = 100;
  * listing cannot know about, and deleting it would hide a fresh note from
  * search until the next sweep. A query or a read that fails deletes nothing.
  */
-async function goneFromBucket(
+export async function goneFromBucket(
   store: FileStore,
   client: ProjectionClient,
   budget: ReturnType<typeof createSearchBudget>,
@@ -356,4 +399,39 @@ async function goneFromBucket(
     }
   }
   return gone;
+}
+
+/** Store operations one pruning pass may spend: a listing and the notes asked for by name. */
+const PRUNE_PASS_BUDGET = 1_200;
+
+/**
+ * Rows of a `ready` database whose notes are gone, removed.
+ *
+ * The copy above deletes such rows while it runs, but it only runs until the
+ * database is `ready`. After that every write the product makes says what it
+ * removed (`search/d1/follow.js`), and nothing else ever did: a note deleted in
+ * Obsidian or the bucket's own console, or a row left behind before writes were
+ * followed (seen on @supa, 2026-10-13), answered searches at a path that opens
+ * nothing, for good. This is the same check, run on its own: the bucket listed,
+ * a row the listing lacks asked for by name, and deleted only when absent.
+ *
+ * `checked: false` when the listing or the database failed; nothing was
+ * deleted then. Counts only, never a path.
+ */
+export async function pruneSearchIndex(
+  store: FileStore,
+  client: ProjectionClient,
+  options: { budget?: number } = {},
+): Promise<{ deleted: number; checked: boolean }> {
+  const budget = createSearchBudget(options.budget ?? PRUNE_PASS_BUDGET);
+  const listed = await listingCensus(store, budget);
+  if (listed === null) return { deleted: 0, checked: false };
+  const gone = await goneFromBucket(store, client, budget, listed);
+  if (gone.length === 0) return { deleted: 0, checked: true };
+  try {
+    await client.runAll(gone.flatMap((path) => deleteStatements(path)));
+  } catch {
+    return { deleted: 0, checked: false };
+  }
+  return { deleted: gone.length, checked: true };
 }

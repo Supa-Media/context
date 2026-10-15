@@ -175,3 +175,57 @@ describe("the deploy pushes what the control plane reads", () => {
     }
   });
 });
+
+/**
+ * AND NOBODY MAY *ENUMERATE* THE ENVIRONMENT, ONLY READ IT BY NAME.
+ *
+ * Convex's `process.env` answers a named read and lists no keys, so
+ * `{ ...process.env }` is an **empty object** there and
+ * `Object.keys(process.env)` is an empty array. That is not a theory: #1439
+ * shipped `twilioSmsKeys({ ...process.env, TWILIO_MESSAGING_SERVICE_SID: id })`,
+ * which arrived carrying only the ID, returned `null` for want of the account
+ * keys, and sent every sign-in code through Verify instead. The admin panel
+ * saved the value and nothing changed. #1443 fixed it by naming each key.
+ *
+ * The guard above could not catch it, and the reason is worth keeping: it
+ * collects reads **by name**, and an enumeration names nothing, so it
+ * contributed no names and passed. This closes that gap from the other side.
+ *
+ * It fails closed here and did there — no key, no call — but the next spread
+ * might gate a check rather than a credential, and an empty environment would
+ * then make the check vacuous rather than refuse.
+ */
+describe("the control plane reads the environment by name", () => {
+  /** Spread, `Object.*` over it, or `for (… in …)`: every way to ask for its keys. */
+  const ENUMERATIONS = [
+    /\.\.\.\s*process\.env/,
+    /Object\s*\.\s*(?:keys|values|entries|assign|getOwnPropertyNames|fromEntries)\s*\(\s*process\.env/,
+    /for\s*\(\s*(?:const|let|var)\s+[\w$]+\s+in\s+process\.env/,
+    /JSON\s*\.\s*stringify\s*\(\s*process\.env\s*\)/,
+  ];
+
+  const offenders: string[] = [];
+  for (const path of sources(repoFile("apps/convex"))) {
+    const source = readFileSync(path, "utf8");
+    if (ENUMERATIONS.some((pattern) => pattern.test(source))) offenders.push(path);
+  }
+
+  it("finds an enumeration when there is one", () => {
+    // Calibration: a guard whose patterns match nothing proves nothing.
+    const samples = [
+      "const all = { ...process.env, A: 1 };",
+      "Object.keys(process.env).forEach(f);",
+      "for (const name in process.env) read(name);",
+      "log(JSON.stringify(process.env));",
+    ];
+    for (const sample of samples) {
+      expect(ENUMERATIONS.some((pattern) => pattern.test(sample))).toBe(true);
+    }
+    // And does not fire on an ordinary named read.
+    expect(ENUMERATIONS.some((pattern) => pattern.test('const k = process.env.GATEWAY_SECRET;'))).toBe(false);
+  });
+
+  it("nothing under apps/convex enumerates it", () => {
+    expect(offenders).toEqual([]);
+  });
+});

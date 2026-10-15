@@ -26,9 +26,11 @@ import type { LinkedTitleValues } from "./useLinkedTitle";
 import type { ListingsValues } from "./useListings";
 import type { NoteReadsValues } from "./useNoteReads";
 import type { OfflineQueueValues } from "./useOfflineQueue";
+import type { OpenNoteValues } from "./useOpenNote";
 import type { BesideNoteValues } from "./useBesideNote";
 import type { PendingOpsValues } from "./usePendingOps";
 import type { RowCommandsValues } from "./useRowCommands";
+import type { TrashedNoteValues } from "./useTrashedNote";
 import type { SavingValues } from "./useSaving";
 import type { ShareScopeValues } from "./useShareScope";
 import type { SharesValues } from "./useShares";
@@ -129,8 +131,10 @@ type FileBrowserValueDeps =
   >
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
-  & Pick<FolderIconsValues, "iconOf" | "setIcon">
-  & Pick<BuiltInFoldersValues, "addBuiltInFolder">;
+  & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
+  & Pick<BuiltInFoldersValues, "addBuiltInFolder">
+  & Pick<OpenNoteValues, "prefetch">
+  & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
 
 export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
   const {
@@ -147,8 +151,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setCollaborationState, setDraft, focusTitle, setTitleCaret, titleEdit, titleFocus, setScope,
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
-    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon,
-    addBuiltInFolder,
+    toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
+    addBuiltInFolder, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen,
   } = deps;
 
   return useMemo(
@@ -156,6 +160,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       canEdit: options.canEdit,
       iconOf,
       setIcon,
+      suggestIcon,
       addBuiltInFolder,
       submitForm,
       loadImage,
@@ -174,7 +179,12 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       collapseAll,
       selectedPath,
       opening,
+      trashed,
+      restoreTrashed,
+      restoringTrashed,
+      keptOpen,
       select,
+      prefetch,
       navigations,
       renamed,
       deselect,
@@ -361,6 +371,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       applyPluginNoteWrite,
       search,
       select,
+      prefetch,
       navigations,
       renamed,
       deselect,
@@ -369,6 +380,10 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       beside,
       selectedPath,
       opening,
+      trashed,
+      restoreTrashed,
+      restoringTrashed,
+      keptOpen,
       setDraft,
       setCollaborationOwned,
       setCollaborationDraft,
@@ -392,6 +407,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       readRaw,
       iconOf,
       setIcon,
+      suggestIcon,
       addBuiltInFolder,
     ],
   );

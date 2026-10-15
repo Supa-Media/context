@@ -1,8 +1,8 @@
-import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText } from "./harness.mjs";
+import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText, WORKSPACE_ID } from "./harness.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
-import { recordForwarding } from "../src/forwarding.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
+import { seedLegacyFolderMove, seedLegacyReferenceJob } from "./legacyMoveJob.mjs";
 
 export async function runMovesAndBatchChecks() {
   // -- batch move plan and apply
@@ -90,9 +90,9 @@ export async function runMovesAndBatchChecks() {
       folderDryRun.content[0].text.includes("preflight ok") &&
       objects.has("1-projects/portable-moved/batch-a.md")
   );
-  // The five built-in folders cannot be renamed or moved, by owner or team,
-  // under any number, and the refusal is the same whether the folder exists.
-  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"], ["priv-token", "4-archive"], ["priv-token", "9-archive"], ["priv-token", "Inbox"]]) {
+  // The folder playing each built-in role cannot be renamed or moved, by
+  // owner or team, under any number (a duplicate of it can: tree/twins.js).
+  for (const [token, source] of [["priv-token", "1-projects"], ["pub-token", "1-projects/"]]) {
     const refused = await call(token, "move_folder", { source, destination: "renamed-main-folder", dry_run: true });
     check(
       `move_folder refuses the built-in folder ${source}`,
@@ -167,62 +167,41 @@ export async function runMovesAndBatchChecks() {
       objects.has("1-projects/big-move/note-000.md") &&
       !objects.has("1-projects/big-moved/note-000.md")
   );
-  await contextStore.put(".context/folder-icons.json", JSON.stringify({
-    version: 1,
-    icons: { "1-projects/big-move": "🚀", "1-projects/big-move/sub": "🧪", "2-areas": "🏠" },
-  }));
-  const bigMove = await call("priv-token", "move_folder", {
+  /*
+    Past the one-go threshold a folder moves through the Convex move queue
+    (`queuedFolder.js`); this harness's control plane has no queue, which is
+    what a workspace still loading looks like. The move is refused and nothing
+    changes: no `.context/moves/` job is written any more (2026-10-13), because
+    nothing on the way to a note reads one. These checks replace "owner
+    move_folder creates a logical move for a too-large tree" and the overlay
+    checks after it (destination readable before the copy, the source listed
+    and searched at its new name), which tested reading jobs.
+  */
+  const jobsBefore = [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length;
+  const refusedBigMove = await call("priv-token", "move_folder", {
     source: "1-projects/big-move",
     destination: "1-projects/big-moved",
   });
   check(
-    "a folder's icon, and the icons inside it, move with it",
-    JSON.stringify(JSON.parse(storedText(".context/folder-icons.json")).icons) ===
-      JSON.stringify({ "1-projects/big-moved": "🚀", "1-projects/big-moved/sub": "🧪", "2-areas": "🏠" })
-  );
-  const bigMoveId = bigMove.content[0].text.match(/move_id: (\S+)/)?.[1];
-  check(
-    "owner move_folder creates a logical move for a too-large tree",
-    !bigMove.isError &&
-      bigMoveId &&
-      objects.has(`.context/moves/${bigMoveId}.json`) &&
-      objects.has("1-projects/big-move/note-000.md") &&
-      !objects.has("1-projects/big-moved/note-000.md")
+    "a folder too large to move in one go is refused when the queue cannot take it",
+    refusedBigMove.isError && refusedBigMove.content[0].text.includes("could not queue this move")
   );
   check(
-    "logical folder move makes destination readable before physical copy",
-    succeeded(await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" }))
+    "...and nothing moved, and no move job was written",
+    objects.has("1-projects/big-move/note-000.md") &&
+      !objects.has("1-projects/big-moved/note-000.md") &&
+      [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length === jobsBefore
   );
-  /*
-    THE SOURCE PREFIX IS GONE, AND A READ OF IT IS FORWARDED RATHER THAN REFUSED.
-
-    This check asserted `isError` until `forwarding.js` landed. The refusal was
-    never the point — the point is that the source prefix stops being a live
-    location, so a *write* there cannot land (checked below) and a read cannot be
-    served the pre-move bytes and written back to a dead path.
-
-    Forwarding keeps both of those and drops the collateral damage: the caller is
-    handed the note at its *destination*, with `moved_from` naming the address
-    they arrived on, so a client that reads-edits-writes uses the live path. A
-    link pasted before the rename now opens, which is the whole reason the ledger
-    exists. `canSee` is re-asked at the destination, so nothing widens — the
-    private-override check immediately below still passes through the same path.
-  */
-  {
-    const stale = await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" });
-    check(
-      "a read of the moved-away source is forwarded to the destination, and says so",
-      succeeded(stale) &&
-        stale.content[0].text.includes("path: 1-projects/big-moved/note-000.md") &&
-        stale.content[0].text.includes("moved_from: 1-projects/big-move/note-000.md")
-    );
-  }
+  // A job an older gateway left behind still finishes (below); until the
+  // drain copies a note, the note is where the bucket holds it.
+  const bigMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-move", "1-projects/big-moved");
   check(
-    "logical folder move preserves exact private overrides at the destination",
-    (await call("pub-token", "read_note", { path: "1-projects/big-moved/note-501.md" })).isError
+    "a legacy move job is not read on the way to a note: its destination is absent until copied",
+    (await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" })).isError &&
+      succeeded(await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" }))
   );
   check(
-    "logical folder move refuses writes under the moved-away source prefix",
+    "a draining legacy move still refuses writes under its source prefix",
     (await call("priv-token", "write_note", {
       path: "1-projects/big-move/new-private.md",
       content: "post-cutover write",
@@ -230,32 +209,10 @@ export async function runMovesAndBatchChecks() {
     })).isError &&
       !objects.has("1-projects/big-move/new-private.md")
   );
-  const bigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-moved" })).content[0].text;
-  const oldBigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-move" })).content[0].text;
-  const bigSearchDestination = (await call("priv-token", "search_notes", {
-    query: "big 000",
-    prefix: "1-projects/big-moved",
-  })).content[0].text;
-  const bigSearchSource = (await call("priv-token", "search_notes", {
-    query: "big 000",
-    prefix: "1-projects/big-move",
-  })).content[0].text;
-  const bigSearchUnprefixed = (await call("priv-token", "search_notes", {
-    query: "big 000",
-  })).content[0].text;
+  const bigList = (await call("priv-token", "list_notes", { prefix: "1-projects/big-move" })).content[0].text;
   check(
-    "logical folder move lists destination keys from the source prefix",
-    bigList.includes("1-projects/big-moved/note-000.md") &&
-      !bigList.includes("1-projects/big-move/note-000.md") &&
-      oldBigList === "(no visible notes under that prefix)"
-  );
-  check(
-    "logical folder move makes fallback search destination-aware",
-    bigSearchDestination.includes("1-projects/big-moved/note-000.md") &&
-      !bigSearchDestination.includes("1-projects/big-move/note-000.md") &&
-      !bigSearchSource.includes("1-projects/big-move/note-000.md") &&
-      bigSearchUnprefixed.includes("1-projects/big-moved/note-000.md") &&
-      !bigSearchUnprefixed.includes("1-projects/big-move/note-000.md")
+    "a listing draws the tree, not the job",
+    bigList.includes("1-projects/big-move/note-000.md") && !bigList.includes("1-projects/big-moved/")
   );
   const markerBeforeInspection = storedText(`.context/moves/${bigMoveId}.json`);
   const inspection = await call("priv-token", "materialize_move", { id: bigMoveId, batch_size: 0 });
@@ -306,11 +263,7 @@ export async function runMovesAndBatchChecks() {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/big-missing/note-${suffix}.md`, `missing ${suffix}`);
   }
-  const missingMove = await call("priv-token", "move_folder", {
-    source: "1-projects/big-missing",
-    destination: "1-projects/big-missing-moved",
-  });
-  const missingMoveId = missingMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  const missingMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-missing", "1-projects/big-missing-moved");
   await contextStore.delete("1-projects/big-missing/note-000.md");
   const missingMaterialize = await call("priv-token", "materialize_move", {
     id: missingMoveId,
@@ -327,11 +280,7 @@ export async function runMovesAndBatchChecks() {
     await contextStore.put(`1-projects/retargeted/note-${i}.md`,
       i === 0 ? "Contact [site](https://old.example)" : `record ${i}`);
   }
-  const retargetedMove = await call("priv-token", "move_folder", {
-    source: "1-projects/retargeted",
-    destination: "4-archive/1-projects/retargeted",
-  });
-  const retargetedId = retargetedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  const retargetedId = await seedLegacyFolderMove(contextStore, "1-projects/retargeted", "4-archive/1-projects/retargeted");
   await contextStore.put("4-archive/1-projects/retargeted/note-0.md",
     "Contact [site](https://new.example)");
   let retargetedResult = await call("priv-token", "materialize_move", {
@@ -357,11 +306,7 @@ export async function runMovesAndBatchChecks() {
     await contextStore.put(`2-areas/communications/generated-conflict/note-${i}.md`,
       `---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nOriginal message ${i}`);
   }
-  const conflictMove = await call("priv-token", "move_folder", {
-    source: "2-areas/communications/generated-conflict",
-    destination: "4-archive/2-areas/communications/generated-conflict",
-  });
-  const conflictId = conflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  const conflictId = await seedLegacyFolderMove(contextStore, "2-areas/communications/generated-conflict", "4-archive/2-areas/communications/generated-conflict");
   await contextStore.put("4-archive/2-areas/communications/generated-conflict/note-0.md",
     "---\nsource: imessage\ngenerated: 2026-08-31\n---\n\nUpdated message 0");
   let conflictResult;
@@ -387,11 +332,7 @@ export async function runMovesAndBatchChecks() {
   await call("priv-token", "read_note", {
     path: "2-areas/communications/headed-conflict/note-0.md",
   });
-  const headedConflictMove = await call("priv-token", "move_folder", {
-    source: "2-areas/communications/headed-conflict",
-    destination: "4-archive/2-areas/communications/headed-conflict",
-  });
-  const headedConflictId = headedConflictMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  const headedConflictId = await seedLegacyFolderMove(contextStore, "2-areas/communications/headed-conflict", "4-archive/2-areas/communications/headed-conflict");
   await call("priv-token", "materialize_move", { id: headedConflictId, batch_size: 1 });
   await readCollaborationDocument(contextStore,
     "4-archive/2-areas/communications/headed-conflict/note-0.md");
@@ -417,12 +358,8 @@ export async function runMovesAndBatchChecks() {
   }
   await contextStore.put("1-projects/big-complete-link.md", "[[1-projects/big-complete/note-000]]");
   await contextStore.put("1-projects/big-complete/note-001.md", "[[../big-complete-link]]");
-  const completeMove = await call("priv-token", "move_folder", {
-    source: "1-projects/big-complete",
-    destination: "2-areas/deep/big-complete-moved",
-  });
-  const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
-  const completeMaterialize = await finishMoveWithBoundedCleanup(completeMoveId, completeMove);
+  const completeMoveId = await seedLegacyFolderMove(contextStore, "1-projects/big-complete", "2-areas/deep/big-complete-moved");
+  const completeMaterialize = await finishMoveWithBoundedCleanup(completeMoveId, null);
   check(
     "materialize_move completes a logical move and removes the source objects",
     !completeMaterialize.isError &&
@@ -448,13 +385,12 @@ export async function runMovesAndBatchChecks() {
     const suffix = String(i).padStart(3, "0");
     await contextStore.put(`1-projects/queued-move/note-${suffix}.md`, `queued ${suffix}`);
   }
-  const queuedMove = await call("priv-token", "move_folder", {
-    source: "1-projects/queued-move",
-    destination: "1-projects/queued-moved",
-  });
-  const queuedMoveId = queuedMove.content[0].text.match(/move_id: (\S+)/)?.[1];
+  const queuedMoveId = await seedLegacyFolderMove(contextStore, "1-projects/queued-move", "1-projects/queued-moved");
+  // A legacy job is handed to the durable queue by the owner's resume (an
+  // older gateway enqueued it at cutover); the resume itself copies one.
+  await call("priv-token", "materialize_move", { id: queuedMoveId, batch_size: 1, resume_background: true });
   check(
-    "large logical move enqueues a durable gateway job without credentials",
+    "a resumed legacy move enqueues a durable gateway job without credentials",
     queuedGatewayMessages.length === 1 &&
       queuedGatewayMessages[0]?.ticket === "job-ticket-1" &&
       queuedGatewayMessages[0]?.kind === "materialize_move" &&
@@ -471,7 +407,7 @@ export async function runMovesAndBatchChecks() {
     firstProgressReport?.body?.result?.status === "queued" &&
       firstProgressReport?.body?.result?.progress?.phase === "copying" &&
       Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
-      firstProgressReport.body.result.progress.completed === 20 &&
+      firstProgressReport.body.result.progress.completed === 21 &&
       firstProgressReport?.body?.result?.progress?.total === 501 &&
       !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
   );
@@ -588,7 +524,8 @@ export async function runMovesAndBatchChecks() {
   await contextStore.put("1-projects/secret-thing/private-link.md", "[[1-projects/portable-link-target/note]]");
   await contextStore.put("4-archive/1-projects/earlier-thread.md", "archived thread");
   await contextStore.put("1-projects/earlier-ref.md", "[[1-projects/earlier-thread]]");
-  await recordForwarding(contextStore, [{
+  // An earlier move, in the ledger the control plane holds (the queued repair reads it with its ticket).
+  controlPlane.recordForwarding(WORKSPACE_ID, [{
     from: "1-projects/earlier-thread.md",
     to: "4-archive/1-projects/earlier-thread.md",
     kind: "note",
@@ -608,14 +545,27 @@ export async function runMovesAndBatchChecks() {
   }));
   const referenceMessages = [];
   env.GATEWAY_JOBS = { async send(message) { referenceMessages.push(message); } };
+  const jobFilesBefore = [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length;
   const queuedLinks = await call("priv-token", "move_folder", {
     source: "1-projects/portable-link-target",
     destination: "1-projects/deep/portable-link-moved",
   });
-  const linkJobId = /move_id: ([a-z0-9-]+)/i.exec(queuedLinks?.content?.[0]?.text || "")?.[1];
-  check("an owner move schedules reference repair beyond the scan cap",
-    !queuedLinks.isError && Boolean(linkJobId) &&
-      queuedLinks.content[0].text.includes("references: updating in background"));
+  /*
+    Beyond the scan cap a move no longer queues a reference-repair job under
+    `.context/moves/` (2026-10-13): its rewrite is reported as not done, and
+    the forwarding ledger carries the links. This replaces "an owner move
+    schedules reference repair beyond the scan cap". A repair job an older
+    gateway queued is still finished by the drain, which the checks after
+    this hold, from a job seeded as that gateway wrote it.
+  */
+  check("a move beyond the scan cap leaves its links to forwarding and queues nothing",
+    !queuedLinks.isError &&
+      queuedLinks.content[0].text.includes("links to the old path forward to the new one") &&
+      referenceMessages.length === 0 &&
+      [...objects.keys()].filter((key) => key.startsWith(".context/moves/")).length === jobFilesBefore);
+  const linkJobId = await seedLegacyReferenceJob(contextStore, [
+    ["1-projects/portable-link-target/note.md", "1-projects/deep/portable-link-moved/note.md"],
+  ]);
   const profileMarker = storedText(`.context/moves/${linkJobId}.json`);
   const profile = await call("priv-token", "materialize_move", { id: `${linkJobId}:profile`, batch_size: 1 });
   check("owner can profile without changing the marker; other scopes are masked",
@@ -630,20 +580,26 @@ export async function runMovesAndBatchChecks() {
   });
   check("an owner can restart a stalled reference worker",
     !restarted.isError && restarted.content[0].text.includes("background worker queued") &&
-      referenceMessages.length >= 2);
+      referenceMessages.length === 1);
   const inventoryAfterFirstPass = JSON.parse(storedText(`.context/moves/${linkJobId}.json`));
-  check("reference inventory saves its first storage page before rewriting",
-    inventoryAfterFirstPass.reference_inventory_pages === 1 &&
-      Array.isArray(inventoryAfterFirstPass.reference_inventory_keys) &&
-      inventoryAfterFirstPass.reference_scanned === undefined);
+  /*
+    Asked from the owner's connection, the pass takes the whole reference
+    inventory from the Convex tree in one step (`references.js`) rather than
+    a bucket page per pass; the background worker, which has no grant to ask
+    the tree with, still pages the bucket (the queued move above). This
+    replaces "reference inventory saves its first storage page" and
+    "...resumes from the saved cursor", which held the request's bucket pages.
+  */
+  check("an owner's pass takes the reference inventory from the tree in one step",
+    inventoryAfterFirstPass.reference_inventory_complete === true &&
+      inventoryAfterFirstPass.reference_inventory_pages === undefined &&
+      inventoryAfterFirstPass.reference_inventory_keys.includes("1-projects/deep/portable-link-moved/note.md"));
   const queuedBeforeFreshPass = referenceMessages.length;
   const freshPass = await call("priv-token", "materialize_move", {
     id: linkJobId, batch_size: 1,
   });
   check("a fresh move pass does not queue a duplicate worker",
     !freshPass.isError && referenceMessages.length === queuedBeforeFreshPass);
-  check("reference inventory resumes from the saved cursor",
-    JSON.parse(storedText(`.context/moves/${linkJobId}.json`)).reference_inventory_pages === 2);
   const staleKey = `.context/moves/${linkJobId}.json`;
   const staleJob = JSON.parse(storedText(staleKey));
   staleJob.updated_at = new Date(Date.now() - 10 * 60 * 1000).toISOString();

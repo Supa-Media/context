@@ -158,6 +158,20 @@ describe("replyTo", () => {
     expect(reply).toEqual(["Three things."]);
   });
 
+  it("tells the gateway the person's time zone, so Tex knows the time where they are", async () => {
+    const reply = await replyTo(
+      message("remind me to sleep in 2 minutes"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "t", timeZone: "America/Chicago" }],
+        "/agent": (body) => {
+          expect(body).toEqual({ question: "remind me to sleep in 2 minutes", conversation: "texts", timeZone: "America/Chicago" });
+          return [200, { answer: "Set for 11:37 pm." }];
+        },
+      }),
+    );
+    expect(reply).toEqual(["Set for 11:37 pm."]);
+  });
+
   it("says no model is connected when the gateway refuses for that reason", async () => {
     const reply = await replyTo(
       message("hi"),

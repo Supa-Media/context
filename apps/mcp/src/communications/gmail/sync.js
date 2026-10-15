@@ -1,6 +1,7 @@
 import { gmailMessageToEvent, dateKeyOf } from "./parsing.js";
 import { buildDayQuery, listAllMessageIds, getMessageOrNull, listAllHistory, GmailHistoryExpiredError } from "./api.js";
 import { syncOneDay } from "./render.js";
+import { openContactLookup } from "../contactLookup.js";
 
 /* -------------------------------------------------------------------------- */
 /* Orchestration: backfill and incremental sync                               */
@@ -58,6 +59,7 @@ export async function syncDayFromGmail(options) {
     accessToken: options.accessToken,
     attachmentMode: options.attachmentMode,
     attachmentRetentionDays: options.attachmentRetentionDays,
+    contacts: options.contacts,
   });
   return { ...result, messageCount: events.length };
 }
@@ -85,6 +87,8 @@ export async function runBackfill(options) {
   let daysProcessed = 0;
   let quotaExceeded = false;
   const used = options.bytesAlreadyUsed ?? 0;
+  // One contact lookup for the whole run: the folder is listed once, not per day.
+  const contacts = await openContactLookup(options.store, { root: options.root });
 
   for (const date of dates) {
     const remaining = options.quotaBytes - used - bytesWritten;
@@ -107,6 +111,7 @@ export async function runBackfill(options) {
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
+      contacts,
     });
     daysProcessed += 1;
     itemsFound += result.messageCount;
@@ -117,6 +122,8 @@ export async function runBackfill(options) {
       break;
     }
   }
+  // A cache: a run that threw before here only costs the next one a rebuild.
+  await contacts.save();
   return { daysProcessed, daysWithMail, itemsFound, bytesWritten, quotaExceeded };
 }
 
@@ -196,6 +203,7 @@ export async function runIncrementalSync(options) {
   let quotaExceeded = false;
   const daysTouched = [];
   const used = options.bytesAlreadyUsed ?? 0;
+  const contacts = await openContactLookup(options.store, { root: options.root });
   for (const date of [...affectedDates].sort()) {
     const remaining = options.quotaBytes - used - bytesWritten;
     if (remaining <= 0) {
@@ -217,6 +225,7 @@ export async function runIncrementalSync(options) {
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
+      contacts,
     });
     daysTouched.push(date);
     bytesWritten += result.bytesWritten;
@@ -225,6 +234,13 @@ export async function runIncrementalSync(options) {
       break;
     }
   }
+  // Pages nobody has written to in a year go to the archive, with the lookup
+  // this pass already holds; the next message brings one back. Last, so this
+  // pass's own drafts count as activity. Never throws.
+  // `docs/decisions/communications/contacts-and-chat.md`.
+  await contacts.sweepDormant({ now: options.dormancyNow });
+  // A cache: a run that threw before here only costs the next one a rebuild.
+  await contacts.save();
   return {
     gapDetected: false,
     daysTouched,

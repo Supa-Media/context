@@ -6,8 +6,8 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser } from "./fixtures.helpers";
-import { fixture, publish } from "./website.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
+import { fixture, pressPublish, publish } from "./website.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -135,10 +135,12 @@ describe("public website resolution", () => {
       path: "website/draft.md",
       visibility: "team",
     });
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
     );
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
       workspaceId: f.workspaceId,
       path: "website/draft.md",
@@ -223,6 +225,7 @@ describe("public website resolution", () => {
       path: "1-projects/private.md",
       visibility: "private",
     });
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
@@ -265,6 +268,7 @@ describe("public website resolution", () => {
       api.functions.files.setDirectoryVisibility,
       { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
     );
+    await copyTree(f.t, f.workspaceId);
     const { token } = await asUser(f.t, f.owner).action(
       api.functions.shares.createLinkShare,
       { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
@@ -328,6 +332,60 @@ describe("public website resolution", () => {
         .unique(),
     );
     expect(state?.routeGeneration).not.toBe(state?.routeReconciledGeneration);
+  });
+
+  test("a listed note whose address has a space is still a link", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Home\n---\n\n```list\nfrom: website\n```\n",
+    );
+    f.backend.seed(
+      "website/Team Notes.md",
+      "---\ntitle: Team Notes\n---\n\nNotes\n",
+    );
+    await publish(f);
+    await pressPublish(f);
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({ kind: "page" });
+    if (resolved.kind !== "page") throw new Error("expected a website page");
+    expect(resolved.markdown).toContain("[Team Notes](/Team%20Notes)");
+  });
+
+  test("an edited published note stays listed as it was published", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Home\n---\n\n```list\nfrom: website\n```\n",
+    );
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nOld\n");
+    await publish(f);
+    await pressPublish(f);
+    f.backend.seed(
+      "website/about.md",
+      "---\ntitle: About, half typed\n---\n\nNew\n",
+    );
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({ kind: "page" });
+    if (resolved.kind !== "page") throw new Error("expected a website page");
+    expect(resolved.markdown).toContain("[About](/about)");
+    expect(resolved.markdown).not.toContain("half typed");
+
+    await pressPublish(f);
+    const after = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    if (after.kind !== "page") throw new Error("expected a website page");
+    expect(after.markdown).toContain("[About, half typed](/about)");
   });
 
   test("an anonymous members page returns only a server-built sign-in route", async () => {

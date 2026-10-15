@@ -1,25 +1,35 @@
 import type { Rect } from "../labels";
 import { folderLabelAlpha, islandLabelAlpha, subLabelAlpha } from "../lod";
 import { clamp } from "../math";
+import { folderIconRadius } from "./base";
 import type { DrawEnv } from "./env";
-import { fillText, fontOf, haloText, roundRect } from "./primitives";
+import { drawFace, FACE_R, fillText, fontOf, haloText, roundRect } from "./primitives";
 
 /**
- * The names of containers — a workspace's title and total, "PROJECTS 312"
- * over a folder, a subfolder's name — and the "N moved today" pills on the
+ * The names of containers — a workspace's title and total, "PROJECTS"
+ * under a folder (a name, never a count), a subfolder's name — and the "N moved today" pills on the
  * paths between workspaces.
  *
  * Placed early, drawn late. They claim their space in the occupancy pass
  * before faces' flags and note names, so nothing is put on top of them; and
  * they are drawn after the reading dots, so a stream of dots running past a
  * name passes *under* it (and fades as it goes, see `quietAt`). A folder
- * label that would collide with a bigger folder's tries below its bubble,
- * and is dropped if that is taken too.
+ * label goes under its group; if that would collide it tries above, then
+ * beside it, and is dropped if those are taken too.
  */
 
-type Line = { text: string; size: number; weight: number; color: string; dy: number };
+type Line = { text: string; size: number; weight: number; color: string; dy: number; dx?: number };
 
-export type ContainerLabel = { x: number; baseline: number; alpha: number; halo: string; lines: Line[]; rect: Rect };
+/** A member's face beside a workspace's "N people", by name. */
+type MemberFace = { name: string; x: number; y: number };
+
+export type ContainerLabel = { x: number; baseline: number; alpha: number; halo: string; lines: Line[]; rect: Rect; faces?: MemberFace[] };
+
+/** At most this many member faces beside a workspace's "N people"; their size and overlap. */
+const MEMBER_FACES = 4;
+const MEMBER_SCALE = 0.55;
+const MEMBER_R = FACE_R * MEMBER_SCALE;
+const FACE_STEP = MEMBER_R * 1.5;
 
 export type Pill = { x: number; y: number; w: number; text: string; bump: number; alpha: number };
 
@@ -45,10 +55,19 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
       const pr = island.r * s;
       const a = islandLabelAlpha(pr);
       if (a <= 0 || !env.onScreen(p, pr)) continue;
+      // With the hub drawn, who is in it; otherwise how much is in it.
+      const people = model.hub?.workspaces[island.workspaceId];
       const total = env.counts.get(island.workspaceId) ?? 0;
-      const count = `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`;
-      const baseline = p.y - pr - 22;
-      const w = Math.max(measure(island.name, 15, 700), measure(count, 12, 500)) + 8;
+      const count = people
+        ? people.people <= 1
+          ? "Just you"
+          : `${people.people.toLocaleString("en-US")} people`
+        : `${total.toLocaleString("en-US")} ${total === 1 ? "note" : "notes"}`;
+      const faces = people ? people.faces.slice(0, MEMBER_FACES) : [];
+      // Over its highest note: there is no rim to sit on.
+      const baseline = env.screen({ x: island.x, y: island.top }).y - 34;
+      const facesW = faces.length > 0 ? 6 + FACE_STEP * (faces.length - 1) + MEMBER_R * 2 : 0;
+      const w = Math.max(measure(island.name, 15, 700), measure(count, 12, 500) + facesW) + 8;
       const rect = { x: p.x - w / 2, y: baseline - 15, w, h: 36 };
       env.occ.claim(pad(rect, PAD + 2));
       out.push({
@@ -59,8 +78,13 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
         rect,
         lines: [
           { text: island.name, size: 15, weight: 700, color: C.text, dy: 0 },
-          { text: count, size: 12, weight: 500, color: C.dim, dy: 16 },
+          { text: count, size: 12, weight: 500, color: C.dim, dy: 16, ...(faces.length > 0 ? { dx: -facesW / 2 } : {}) },
         ],
+        faces: faces.map((name, k) => ({
+          name,
+          x: p.x + (measure(count, 12, 500) - facesW) / 2 + 6 + MEMBER_R + k * FACE_STEP,
+          y: baseline + 12,
+        })),
       });
     }
   }
@@ -69,23 +93,25 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
   type Cand = { x: number; y: number; rr: number; top: number; bottom: number; size: number; weight: number; text: string; color: string; halo: string; alpha: number; r: number };
   const cands: Cand[] = [];
   for (const island of model.layout.islands) {
-    const halo = all ? C.island : C.ground;
+    const halo = C.ground;
     for (const f of island.folders) {
       const q = env.screen(f);
       const fr = f.r * s;
       if (!env.onScreen(q, fr)) continue;
-      const a = f.label ? folderLabelAlpha(fr) : 0;
+      // An icon's name shows as soon as its neighbours' do, and sits clear of the icon.
+      const ir = f.collapsed ? folderIconRadius(s) : 0;
+      const a = f.label ? folderLabelAlpha(f.collapsed ? Math.max(fr, ir * 2) : fr) : 0;
       if (a > 0) {
-        const size = clamp(fr / 9, 10, 13);
+        const size = f.collapsed ? 10 : clamp(fr / 9, 10, 13);
         cands.push({
           x: q.x,
           y: q.y,
-          rr: fr,
-          top: q.y - fr - 7,
-          bottom: q.y + fr + size + 5,
+          rr: f.collapsed ? ir : fr,
+          top: f.collapsed ? q.y - ir - 9 : env.screen({ x: f.x, y: f.top }).y - 9,
+          bottom: f.collapsed ? q.y + ir + size + 9 : env.screen({ x: f.x, y: f.bottom }).y + size + 8,
           size,
           weight: 700,
-          text: `${f.label.toUpperCase()}  ${env.counts.get(f.key) ?? 0}`,
+          text: f.label.toUpperCase(),
           color: C.muted,
           halo,
           alpha: a,
@@ -93,7 +119,7 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
         });
       }
       for (const sub of f.subs) {
-        if (sub.name === "") continue;
+        if (sub.name === "" || f.collapsed) continue;
         const sq = env.screen(sub);
         const sr = sub.r * s;
         const sa = subLabelAlpha(sr);
@@ -108,7 +134,7 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
           weight: 700,
           text: sub.label,
           color: C.text2,
-          halo: C.zone,
+          halo: C.ground,
           alpha: sa,
           r: sr,
         });
@@ -118,11 +144,11 @@ export function placeContainerLabels(env: DrawEnv): ContainerLabel[] {
   cands.sort((a, b) => b.r - a.r);
   for (const c of cands) {
     const w = measure(c.text, c.size, c.weight) + 6;
-    // Above the bubble, else below it, else beside it on either side.
+    // Under its group, else over it, else beside it on either side.
     const mid = c.y + c.size * 0.35;
     const spots: Array<[number, number]> = [
-      [c.x, c.top],
       [c.x, c.bottom],
+      [c.x, c.top],
       [c.x - c.rr - 8 - w / 2, mid],
       [c.x + c.rr + 8 + w / 2, mid],
     ];
@@ -166,7 +192,8 @@ export function drawContainerLabels(env: DrawEnv, labels: readonly ContainerLabe
   }
   for (const l of labels) {
     ctx.globalAlpha = l.alpha;
-    for (const line of l.lines) haloText(ctx, style, line.text, l.x, l.baseline + line.dy, line.size, line.weight, line.color, l.halo);
+    for (const line of l.lines) haloText(ctx, style, line.text, l.x + (line.dx ?? 0), l.baseline + line.dy, line.size, line.weight, line.color, l.halo);
+    for (const f of l.faces ?? []) drawFace(ctx, { kind: "person", id: f.name, name: f.name }, f.x, f.y, MEMBER_SCALE, style);
   }
   ctx.globalAlpha = 1;
 }

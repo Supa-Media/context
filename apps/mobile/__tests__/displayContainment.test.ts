@@ -371,6 +371,10 @@ describe("the console contains a name it did not choose", () => {
       // Compares a title with a file's name to decide whether they are one
       // thing; the label it hands out is contained at its exit.
       "features/console/files/linkedTitle.ts",
+      // The value of a text field the person edits and that is written back
+      // as a file name: isolation marks there would be typed into the name.
+      // An input is its own bidi box, so nothing around it is reordered.
+      "features/console/files/noteName.ts",
     ]);
     const found = sourceFilesMatching("withoutSortPrefix(").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);

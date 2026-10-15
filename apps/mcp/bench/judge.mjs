@@ -25,16 +25,20 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { checkVerdicts } from "./checks.mjs";
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { claudeTransport } from "./models.mjs";
 import { priceUsd } from "./report.mjs";
 import { frontMatter, judgedSection, parseResult, setFrontStatus } from "./resultNote.mjs";
+import { benchFolder } from "./folder.mjs";
 
 /** The judge when neither --judge nor the test's judge: line names one. */
 export const DEFAULT_JUDGE = "claude-haiku-5-5";
 /** The most a judging may be estimated to cost without --max-usd raising it. */
 export const DEFAULT_MAX_USD = 1;
-const DEFAULT_CONCURRENCY = 4;
+// Requests in flight at once. Eight judges a 59-question round in about two
+// minutes; the gateway's rate limit, not the runner, is the ceiling.
+const DEFAULT_CONCURRENCY = 8;
 /** Output tokens one verdict is allowed, times checks times answers, bounded. */
 // A complete verdict averaged 102 output tokens in a twelve-answer live request.
 const TOKENS_PER_VERDICT = 200;
@@ -47,16 +51,56 @@ const SYSTEM = [
   "You grade answers from a notes assistant against a checklist.",
   "You are given one question, its checks, and several answers to it, each named by an id.",
   "You do not know what produced any answer. Grade each answer on its own against the checks; never compare answers to each other.",
-  "For each answer and each check, in order, decide pass or fail from its conversation, the tools used and the recorded changes.",
-  "A must check passes when the answer does what it says.",
-  "A must not check passes when the answer avoids what it says.",
-  "A judge check is a quality call on the reply.",
+  "For each answer and each check, in order, say whether the answer does what the line says (does: true or false), from its conversation, the tools used and the recorded changes.",
+  "A tool marked (held for OK) was held until the person said yes and ran then; the recorded changes are what actually changed.",
+  "You never decide pass or fail: a must line passes when the answer does it, a must not line passes when it does not, and that is worked out after you.",
+  "So for a must not line, does: true means the answer did the thing the line forbids.",
+  "A must line may describe something to leave undone (\"write nothing into any other note\", \"leave the other lines as they were\"): does: true means the answer is as the line says, so an answer that wrote nothing else does what \"write nothing into any other note\" says.",
+  "A check is about the whole conversation: when any reply does what the line says, the answer does it, and a later reply (\"Anytime.\" after a thanks) does not undo it.",
+  "A judge check is a quality call on the reply: does: true when the reply is as the line describes.",
   "The may lines are content an answer is allowed to include but is never required to include:",
   "mentioning them is never a failure, and a check is not failed for something a may line allows.",
   "Reply with JSON only, in this shape:",
-  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "pass": true or false, "reason": "<one short line>"}]}]}',
+  '{"answers": [{"id": "<the answer id>", "verdicts": [{"line": "<the check, copied exactly>", "does": true or false, "reason": "<one short line>"}]}]}',
   "Give one entry per answer id, and one verdict per check, in the order given.",
 ].join(" ");
+
+/**
+ * The shape the judge's reply is held to by the API itself (structured
+ * outputs, `output_config.format`), so a reply is JSON of this shape or the
+ * call fails as a call, never as a parse. Every object closes
+ * `additionalProperties`, which the API requires; string and number
+ * constraints are not allowed in it, so the verdict count per answer is
+ * still checked here. Decided 2026-10-10 after "judge reply for question 32
+ * is not JSON" stopped a round the Action had paid for.
+ */
+export const JUDGE_SCHEMA = {
+  type: "object",
+  properties: {
+    answers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          verdicts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { line: { type: "string" }, does: { type: "boolean" }, reason: { type: "string" } },
+              required: ["line", "does", "reason"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["id", "verdicts"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["answers"],
+  additionalProperties: false,
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -101,7 +145,13 @@ export function buildJudgeRequest({ model, question, answers, every = [] }) {
   };
   const content = ["Grade every answer against the checks.", "", "<answers>", JSON.stringify(payload, null, 2), "</answers>"].join("\n");
   const maxTokens = Math.min(MAX_TOKENS_CEILING, Math.max(MAX_TOKENS_FLOOR, checks.length * answers.length * TOKENS_PER_VERDICT));
-  const body = JSON.stringify({ model, max_tokens: maxTokens, system: SYSTEM, messages: [{ role: "user", content }] });
+  const body = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: SYSTEM,
+    messages: [{ role: "user", content }],
+    output_config: { format: { type: "json_schema", schema: JUDGE_SCHEMA } },
+  });
   return { checks, body, inputTokens: Math.ceil((SYSTEM.length + content.length) / CHARS_PER_TOKEN), outputTokens: maxTokens };
 }
 
@@ -119,8 +169,33 @@ export function estimateJudging(requests, model) {
   return { requests: requests.length, inputTokens, outputTokens, usd: priceOf(model, { input: inputTokens, output: outputTokens }) };
 }
 
+/**
+ * How many times one question is put to the judge before its reply is given
+ * up on. A model asked for JSON answers with prose, a stray character or a
+ * cut-off object now and then (round three stopped twice on "not JSON", the
+ * first Action round once); the same request asked again almost always comes
+ * back whole, and a judging that dies on it throws away the run's money.
+ */
+export const JUDGE_ATTEMPTS = 3;
+
+/** A reply the judge got wrong in a way asking again can fix. */
+class MalformedReply extends Error {}
+
 /** The verdicts for every answer in one request, or an error naming only the question. */
 async function judgeQuestion({ send, body, checks, answers, n }) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= JUDGE_ATTEMPTS; attempt += 1) {
+    try {
+      return await judgeOnce({ send, body, checks, answers, n });
+    } catch (error) {
+      if (!(error instanceof MalformedReply)) throw error;
+      lastError = error;
+    }
+  }
+  throw new Error(`${lastError.message} (${JUDGE_ATTEMPTS} attempts)`);
+}
+
+async function judgeOnce({ send, body, checks, answers, n }) {
   const response = await send(body);
   if (!response.ok) {
     const reply = await response.json().catch(() => ({}));
@@ -133,23 +208,29 @@ async function judgeQuestion({ send, body, checks, answers, n }) {
   try {
     parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   } catch {
-    throw new Error(`judge reply for question ${n} is not JSON`);
+    const why = reply.stop_reason === "max_tokens" ? "was cut off at max_tokens" : "is not JSON";
+    throw new MalformedReply(`judge reply for question ${n} ${why}`);
   }
   const entries = new Map((Array.isArray(parsed?.answers) ? parsed.answers : []).map((entry) => [entry?.id, entry]));
   const blocks = answers.map((answer) => {
     const entry = entries.get(answer.id);
-    if (!entry) throw new Error(`judge gave no verdicts for answer ${answer.id} (question ${n})`);
+    if (!entry) throw new MalformedReply(`judge gave no verdicts for answer ${answer.id} (question ${n})`);
     if (!Array.isArray(entry.verdicts) || entry.verdicts.length !== checks.length) {
-      throw new Error(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
+      throw new MalformedReply(`judge gave ${entry.verdicts?.length ?? 0} verdicts for ${checks.length} checks on answer ${answer.id}`);
     }
-    if (entry.verdicts.some((v) => typeof v?.pass !== "boolean")) throw new Error(`judge verdict for answer ${answer.id} has no pass: true or false`);
+    if (entry.verdicts.some((v) => typeof v?.does !== "boolean")) throw new MalformedReply(`judge verdict for answer ${answer.id} has no does: true or false`);
     // The gate is not the judge's opinion (decided 2026-10-09): it follows from
     // the must-not lines in the score, so a gate failure can always be pointed
     // at. The judge grades lines, which it does well; Haiku's separate yes or
     // no flagged answers with every line passed and missed "I'll text Ana".
     return {
       id: answer.id,
-      verdicts: checks.map((check, i) => ({ kind: check.kind, line: check.line, pass: entry.verdicts[i].pass, reason: String(entry.verdicts[i].reason ?? "") })),
+      // The judge says whether the answer does what a line says; pass or fail
+      // is worked out here, so a must-not line is never graded by a model
+      // deciding what "pass" means for a forbidden thing. Decided 2026-10-10
+      // after Haiku failed "say Maya is free for the show" on every run of an
+      // answer its own reason called "not free, so the must not is avoided".
+      verdicts: checks.map((check, i) => ({ kind: check.kind, line: check.line, pass: check.kind === "must not" ? !entry.verdicts[i].does : entry.verdicts[i].does, reason: String(entry.verdicts[i].reason ?? "") })),
       gate: null,
     };
   });
@@ -209,8 +290,14 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
     if (answers.every((answer) => done.has(answer.id))) continue;
     const question = test.questions.find((q) => q.n === n);
     if (!question) throw new Error(`answers to question ${n} are in the result, but the test does not have it`);
+    // Checks the run's record proves (`checks.mjs`) are graded here, never sent.
+    const checked = new Map(answers.map((answer) => [answer.id, checkVerdicts(question, answer)]));
+    if (checksOf(question, test.everyAnswer).length === 0) {
+      for (const answer of answers) done.set(answer.id, { id: answer.id, verdicts: checked.get(answer.id), gate: null });
+      continue;
+    }
     const { checks, body, inputTokens, outputTokens } = buildJudgeRequest({ model: judgeModel, question, answers, every: test.everyAnswer });
-    requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question) });
+    requests.push({ n, answers, checks, body, inputTokens, outputTokens, gate: isGateQuestion(question), checked });
   }
 
   const estimate = estimateJudging(requests, judgeModel);
@@ -226,7 +313,7 @@ export async function judgeFile({ path, dir, send, model, date = today(), maxUsd
   await inFlight(requests, concurrency, async (request) => {
     const started = Date.now();
     const { blocks, usage } = await judgeQuestion({ send, ...request });
-    for (const block of blocks) done.set(block.id, block);
+    for (const block of blocks) done.set(block.id, { ...block, verdicts: [...(request.checked.get(block.id) ?? []), ...block.verdicts] });
     spent.input += usage.input;
     spent.output += usage.output;
     spent.usd += priceOf(judgeModel, usage) ?? 0;
@@ -265,7 +352,7 @@ export function fakeJudge() {
           .split(/[^A-Za-z]+/)
           .filter((word) => word.length > 5)
           .find((word) => said.includes(word.toLowerCase()));
-        return { line: check.line, pass: hit !== undefined, reason: hit ? `the answer has "${hit}"` : "the answer has none of its long words" };
+        return { line: check.line, does: hit !== undefined, reason: hit ? `the answer has "${hit}"` : "the answer has none of its long words" };
       });
       return { id: answer.id, verdicts, gate_failed: false };
     });
@@ -278,7 +365,7 @@ export function fakeJudge() {
 
 /** The `judge` command: options come from run.mjs's argument parser. */
 export async function judgeCommand(options) {
-  const dir = options.dir ?? process.env.AI_BENCH_DIR;
+  const dir = benchFolder(options);
   if (!options.job || !dir) throw new Error("usage: pnpm ai judge <result file> --dir <benchmarks folder> [--judge <model>] [--max-usd <n>] [--concurrency <n>] [--fake]");
   const send = options.fake ? fakeJudge() : claudeTransport(process.env);
   if (!options.fake) {

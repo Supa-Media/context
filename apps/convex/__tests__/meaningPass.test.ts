@@ -14,6 +14,7 @@
  *   the provisioner not scheduling the pass                → "provisioning schedules the first pass" fails
  *   the barrier not attaching the index to a search's store → "a console search through the barrier…" fails
  *   `meaningSearchDescriptor` recording NOT_CONFIGURED     → "a search with no credential searches words…" fails
+ *   the listing's sizes not handed to the pass              → "re-embeds the notes the listing says are big…" fails
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -176,6 +177,7 @@ describe("the pass itself", () => {
         return vectors.length;
       },
       deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -210,6 +212,7 @@ describe("the census is a listing, not the bucket's search index", () => {
         return vectors.length;
       },
       deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -223,6 +226,39 @@ describe("the census is a listing, not the bucket's search index", () => {
     expect(last.notesIndexed).toBe(62);
     expect(upserted.size).toBe(62);
     expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/v2/"))).toBe(false);
+  });
+});
+
+describe("a larger passage cap", () => {
+  // 2026-10-10: the cap went from 12 passages to 48 so a long meeting's whole
+  // transcript is searchable by meaning. The map recorded versions only, so
+  // the notes big enough to have filled the old cap are found by the sizes
+  // the census's own listing reports, and only they are embedded again.
+  test("re-embeds the notes the listing says are big, and only those", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed("meetings/long.md", `# Long call\n\n${"We went over the plan again. ".repeat(1_500)}`);
+    store.seed("notes/short.md", "# Short\n\nOne line.");
+    const versions = new Map<string, string>();
+    const first = { upsert: async (vectors: unknown[]) => vectors.length, deleteByIds: async (ids: string[]) => ids.length, existingIds: async () => new Set<string>() };
+    const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
+    await projectMeaningIndex(store, { client: first, embed, generation: "g1" });
+    const written = JSON.parse(store.snapshot()[MEANING_STATE_KEY]);
+    for (const [path, version] of Object.entries(written.notes as Record<string, string>)) versions.set(path, version);
+    // As the build before this one wrote it: no `passages`.
+    store.seed(MEANING_STATE_KEY, JSON.stringify({ v: 1, generation: "g1", notes: Object.fromEntries(versions) }));
+
+    const upserted = new Set<string>();
+    const client = {
+      upsert: async (vectors: unknown[]) => {
+        for (const vector of vectors as { metadata: { path: string } }[]) upserted.add(vector.metadata.path);
+        return vectors.length;
+      },
+      deleteByIds: async (ids: string[]) => ids.length,
+      existingIds: async () => new Set<string>(),
+    };
+    const result = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    expect(result.failure).toBeNull();
+    expect([...upserted]).toEqual(["meetings/long.md"]);
   });
 });
 
@@ -344,6 +380,34 @@ describe("the sweep", () => {
     expect(await queued(t, "provisionMeaningIndex")).toHaveLength(2);
     // Touched, so the next sweep does not start a second chain.
     expect((await t.mutation(internal.functions.meaningSearch.sweep, {})).started).toBe(0);
+  });
+});
+
+describe("activity freshens a ready index", () => {
+  /*
+   * Typing in the app, Obsidian and console moves embed nothing at the time,
+   * and used to reach search by meaning on the daily refresh. Activity now
+   * schedules a catch-up five minutes out, one per burst.
+   *
+   * Sabotage: `markWorkspaceActivityHandler` not calling
+   * `freshenMeaningAfterActivity` fails the first; dropping the `freshenAt`
+   * check fails "one per burst".
+   */
+  test("a change in a ready workspace schedules one catch-up, a burst still one", async () => {
+    const { t, workspaceId } = await workspace({ status: "ready" });
+    await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() - 1000 });
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+    expect((await row(t, workspaceId))?.freshenAt).toBeGreaterThan(Date.now());
+    await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() });
+    expect(await queued(t, "runFileOperation")).toHaveLength(1);
+  });
+
+  test("a filling or switched-off index is left to its own chain", async () => {
+    for (const options of [{ status: "backfilling" as const }, { status: "ready" as const, enabled: false }]) {
+      const { t, workspaceId } = await workspace(options);
+      await t.mutation(internal.functions.files.markWorkspaceActivity, { workspaceId, at: Date.now() });
+      expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    }
   });
 });
 

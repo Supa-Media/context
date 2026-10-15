@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
 import { WORKSPACE_ICON_EMOJI, isSingleEmoji } from "@context/shared";
 import { densityFor } from "../../app/frame";
@@ -12,7 +12,9 @@ import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { toFileError } from "./browser";
 import { Shell, type DialogAnchor } from "./DialogShell";
 import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
-import { baseName, folderLabel } from "./paths";
+import { baseName, displayName, folderLabel, isMarkdown } from "./paths";
+import { TEX_FIGURE_ICON, defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
+import { randomIcon } from "@context/shared/src/iconSuggest";
 
 /** How many of every emoji are drawn at first, and added each time the list is scrolled near its end. */
 export const EMOJI_PAGE = 240;
@@ -45,7 +47,16 @@ interface Cell {
  *
  * A tap sets the icon and closes; the dialog stays open until the server has
  * answered, so a refusal is read here rather than lost behind a closed sheet.
- * "Remove icon" is there only when the folder has one.
+ * "Remove icon" is there only when the folder has one. On a built-in folder,
+ * whose default comes back when its chosen icon goes, it says so: "Use
+ * default 📥", and is absent while the default is what shows.
+ *
+ * A note gets the same dialog (2026-10-13); only its words change.
+ *
+ * Above the grid, before anything is typed, two quick picks (decided by the
+ * owner, 2026-10-14, instead of giving things an emoji on their own): the one
+ * Clef suggests from the name (`suggest`, absent where nothing can be asked),
+ * and a random one with a Shuffle button. Both are taps like any other cell.
  */
 export function FolderIconDialog({
   path,
@@ -53,15 +64,18 @@ export function FolderIconDialog({
   onSet,
   onClose,
   anchor,
+  suggest,
 }: {
   path: string;
-  /** The folder's icon now, or `null`. */
+  /** The icon drawn now (chosen, or a built-in folder's default), or `null`. */
   current: string | null;
   /** Rejects with the server's refusal, which is shown here. */
   onSet: (icon: string | null) => Promise<void>;
   onClose: () => void;
   /** Opened from the folder's icon in the tree: a popover there rather than a dialog in the middle. */
   anchor?: DialogAnchor;
+  /** The emoji suggested from the name, or `null` for none. Never rejects. */
+  suggest?: () => Promise<string | null>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -73,8 +87,26 @@ export function FolderIconDialog({
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [shown, setShown] = useState(EMOJI_PAGE);
+  // `undefined` while Clef is asked, `null` for no suggestion.
+  const [suggested, setSuggested] = useState<string | null | undefined>(suggest === undefined ? null : undefined);
+  const [random, setRandom] = useState(() => randomIcon());
+
+  useEffect(() => {
+    if (suggest === undefined) return;
+    let live = true;
+    void suggest().then((icon) => {
+      if (live) setSuggested(icon);
+    });
+    return () => {
+      live = false;
+    };
+    // Asked once per opening: the name does not change while the dialog is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const custom = host?.names ?? NO_NAMES;
+  const fallback = defaultFolderIcon(path);
+  const note = isMarkdown(path);
   const sections = useMemo(() => sectionsFor(query, custom, shown), [query, custom, shown]);
 
   async function choose(icon: string | null) {
@@ -96,9 +128,9 @@ export function FolderIconDialog({
   }
 
   return (
-    <Shell title="Folder icon" onClose={onClose} sheet={sheet} anchor={anchor}>
+    <Shell title={note ? "Note icon" : "Folder icon"} onClose={onClose} sheet={sheet} anchor={anchor}>
       <Text variant="paneSub" testID="folder-icon-name">
-        {folderLabel(baseName(path))}
+        {note ? displayName(baseName(path)) : folderLabel(baseName(path))}
       </Text>
       <TextInput
         value={query}
@@ -115,6 +147,59 @@ export function FolderIconDialog({
         onBlur={() => setFocused(false)}
         testID="folder-icon-search"
       />
+      {query.trim() !== "" ? null : (
+        <View style={styles.picks} testID="folder-icon-picks">
+          {suggested === null ? null : (
+            <View style={styles.pick}>
+              {suggested === undefined ? (
+                <View style={styles.cell} testID="folder-icon-suggested-wait">
+                  <Text variant="meta" style={styles.waiting}>…</Text>
+                </View>
+              ) : (
+                <Pressable
+                  role="button"
+                  accessibilityLabel={`Use the suggested ${suggested} as this ${note ? "note" : "folder"}’s icon`}
+                  disabled={busy}
+                  onPress={() => void choose(suggested)}
+                  style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+                    styles.cell,
+                    hovered && styles.cellHover,
+                    current === suggested && styles.cellChosen,
+                  ]}
+                  testID="folder-icon-suggested"
+                >
+                  <EmojiGlyph emoji={suggested} size={26} textStyle={styles.glyph} fallback={<Text variant="meta">?</Text>} />
+                </Pressable>
+              )}
+              <Text variant="meta" style={styles.pickLabel}>Suggested</Text>
+            </View>
+          )}
+          <View style={styles.pick}>
+            <Pressable
+              role="button"
+              accessibilityLabel={`Use ${random} as this ${note ? "note" : "folder"}’s icon`}
+              disabled={busy}
+              onPress={() => void choose(random)}
+              style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
+                styles.cell,
+                hovered && styles.cellHover,
+                current === random && styles.cellChosen,
+              ]}
+              testID="folder-icon-random"
+            >
+              <EmojiGlyph emoji={random} size={26} textStyle={styles.glyph} fallback={<Text variant="meta">?</Text>} />
+            </Pressable>
+            <Text variant="meta" style={styles.pickLabel}>Random</Text>
+            <Button
+              label="Shuffle"
+              variant="dialog"
+              onPress={() => setRandom((was) => randomIcon(Math.random, was))}
+              disabled={busy}
+              testID="folder-icon-shuffle"
+            />
+          </View>
+        </View>
+      )}
       <ScrollView
         style={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -179,9 +264,9 @@ export function FolderIconDialog({
             testID="folder-icon-add"
           />
         )}
-        {current === null ? null : (
+        {current === null || current === fallback ? null : (
           <Button
-            label="Remove icon"
+            label={fallback === null ? "Remove icon" : fallback === TEX_FIGURE_ICON ? "Use default (Tex)" : `Use default ${fallback}`}
             variant="dialog"
             onPress={() => void choose(null)}
             disabled={busy}
@@ -213,7 +298,7 @@ export function sectionsFor(
     const seen = new Set<string>(WORKSPACE_ICON_EMOJI);
     return [
       { title: "This workspace", cells: own(custom) },
-      { title: "Suggested", cells: WORKSPACE_ICON_EMOJI.map((char) => ({ icon: char, label: char })) },
+      { title: "Popular", cells: WORKSPACE_ICON_EMOJI.map((char) => ({ icon: char, label: char })) },
       {
         title: "All emoji",
         cells: allStandardEmoji()
@@ -271,6 +356,10 @@ const makeStyles = (colors: Colors) =>
     cellChosen: { borderColor: colors.accent, backgroundColor: colors.accentDim },
     glyph: { fontSize: t.title, lineHeight: 32 },
     empty: { paddingVertical: space.x3 },
+    picks: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x4 },
+    pick: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    pickLabel: { color: colors.muted },
+    waiting: { color: colors.muted },
     actions: { flexDirection: "row", gap: space.x2, flexWrap: "wrap", marginTop: space.x2 },
     error: { color: colors.crit },
   });

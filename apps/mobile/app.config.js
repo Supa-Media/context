@@ -108,8 +108,8 @@ module.exports = ({ config }) => {
     android: {
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
-        // The mark is drawn for the dark ground it sits on, not for white.
-        backgroundColor: "#050506",
+        // Context's paper, the ground every other icon draws (assets/source/tex-mark.mjs).
+        backgroundColor: "#EDE4D3",
       },
       package:
         process.env.APP_ENV === "staging"

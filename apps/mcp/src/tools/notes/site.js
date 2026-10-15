@@ -18,7 +18,7 @@
 import { ControlPlaneError } from "../../controlPlane.js";
 import { toolError, toolText } from "../results.js";
 
-const ACTIONS = new Set(["status", "check", "publish", "screenshot", "history"]);
+const ACTIONS = new Set(["status", "check", "publish", "screenshot", "history", "domain"]);
 const SIZES = ["phone", "tablet", "desktop"];
 
 /** One sentence for every refusal, so it says nothing about why. */
@@ -69,7 +69,7 @@ export async function toolSiteAction(store, args) {
   const request = args.site;
   if (!request || typeof request !== "object" || !ACTIONS.has(request.action)) {
     return toolError(
-      'site must be { action: "status" }, { action: "check", inspect? }, { action: "publish", draft? }, { action: "screenshot", page?, sizes? } or { action: "history", revision?, inspect? }',
+      'site must be { action: "status" }, { action: "check", inspect? }, { action: "publish", draft? }, { action: "screenshot", page?, sizes? }, { action: "history", revision?, inspect? } or { action: "domain", hostname? }',
     );
   }
   if (args.content !== undefined || args.comment !== undefined || args.images !== undefined) {
@@ -110,6 +110,12 @@ export async function toolSiteAction(store, args) {
   ) {
     return toolError('sizes goes with action "screenshot" and lists phone, tablet and/or desktop');
   }
+  if (
+    request.hostname !== undefined &&
+    (request.action !== "domain" || typeof request.hostname !== "string" || !/^[^\s\0]{1,253}$/.test(request.hostname.trim()))
+  ) {
+    return toolError('hostname goes with action "domain" and is the domain to connect, e.g. "example.com" or "blog.example.com"');
+  }
   if (typeof store.site !== "function") {
     return toolError("websites are not available on this deployment");
   }
@@ -124,6 +130,7 @@ export async function toolSiteAction(store, args) {
       ...(request.inspect ? { inspect: request.inspect } : {}),
       ...(request.revision !== undefined ? { revision: request.revision } : {}),
       ...(request.action === "screenshot" ? { page: request.page ?? "/" } : {}),
+      ...(request.hostname !== undefined ? { hostname: request.hostname.trim() } : {}),
     });
   } catch (error) {
     // A slow answer is not an outage, and a publish we stopped waiting for
@@ -142,6 +149,7 @@ export async function toolSiteAction(store, args) {
   if (request.action === "screenshot") return await photograph(store, answer, request.sizes ?? SIZES);
   if (request.action === "check") return describeCheck(answer);
   if (request.action === "history") return describeHistory(answer);
+  if (request.action === "domain") return describeDomain(answer);
   return request.action === "status" ? describeStatus(answer) : describePublish(answer);
 }
 
@@ -151,7 +159,7 @@ function when(ms) {
 
 function describeStatus(site) {
   if (!site.enabled) {
-    return toolText(OFF);
+    return toolText(site.settingsUrl ? `${OFF} Send them this to turn it on: ${site.settingsUrl}` : OFF);
   }
   const lines = [
     `website: on · draft ${site.draft} · published revision ${site.publishedRevision ?? "none yet"}${when(site.publishedAt)}`,
@@ -175,6 +183,11 @@ function describeStatus(site) {
     for (const entry of problems) lines.push(`- ${entry.path}: ${entry.problems.join(" ")}`);
   }
   lines.push(`pages: ${live.length} published when you publish, ${drafts.length} drafts.`);
+  const editable = site.pages.filter((entry) => typeof entry.editUrl === "string" && entry.role === null);
+  if (editable.length > 0) {
+    lines.push(`to write a page themselves, a person opens it in the app: ${editable.map((entry) => `${entry.path} ${entry.editUrl}`).join("; ")}`);
+  }
+  if (site.settingsUrl) lines.push(`website settings (domain, turning it off): ${site.settingsUrl}`);
   lines.push(
     problems.length > 0
       ? "fix the problems, then check again."
@@ -299,4 +312,68 @@ function describeHistory(history) {
     lines.push("", `${file.path}:`, `${fence}markdown`, file.text.replace(/\n$/, ""), fence);
   }
   return toolText(lines.join("\n"));
+}
+
+const STAGES = {
+  ownership: "waiting for the records to show up in DNS",
+  routing: "ownership proved; waiting for the domain to point at Context",
+  https: "pointed at Context; its secure certificate is being issued",
+  live: "live",
+};
+
+const PROBLEMS = {
+  ROUTING_BLOCKED: (domain) => `${domain.hostname} isn't reaching Context: the ${domain.apex ? "ALIAS" : "CNAME"} record must match exactly.`,
+  CERTIFICATE_FAILED: () =>
+    "a CAA record on the domain may not allow our certificate providers: remove it, or add letsencrypt.org and pki.goog.",
+  TIMED_OUT: () => "checks stopped after three days without both records; fix them, then ask for the domain again to restart the checks.",
+  PROVIDER_REFUSED: () => "the certificate provider turned it down: check the name, or remove it in the app and connect it again.",
+  NOT_CONFIGURED: () => "Context is finishing its side of the setup; checks keep running.",
+  PROVIDER_UNAVAILABLE: () => "a check couldn't finish just now; checks keep running.",
+};
+
+/**
+ * The workspace's domain and what is left to do, in an order a person can be
+ * walked through: the records at their DNS provider, one at a time.
+ */
+function describeDomain(answer) {
+  const lines = [];
+  if (answer.message) lines.push(`not done: ${answer.message}`);
+  if (!answer.available) {
+    lines.push("custom domains aren't available on this deployment.");
+    return lines.length > 1 ? toolError(lines.join("\n")) : toolText(lines.join("\n"));
+  }
+  const domain = answer.domain;
+  if (domain === null) {
+    lines.push("no domain is connected. The owner connects one they already own with site: { action: \"domain\", hostname }.");
+  } else {
+    lines.push(`domain: ${domain.hostname} · ${domain.status === "active" ? "live" : STAGES[domain.stage] ?? domain.stage}`);
+    if (domain.problem && PROBLEMS[domain.problem]) lines.push(`problem: ${PROBLEMS[domain.problem](domain)}`);
+    if (domain.records.length > 0) {
+      const missing = domain.records.filter((record) => !record.done);
+      lines.push(
+        missing.length === 0
+          ? "every DNS record is in place."
+          : `DNS records to add at their DNS provider (where the domain's DNS is managed, usually where they bought it), ${missing.length} still missing:`,
+      );
+      for (const record of domain.records) {
+        lines.push(`- ${record.done ? "found" : "missing"}: type ${record.type}, host ${record.host}, value ${record.value}`);
+      }
+      if (missing.some((record) => record.type === "ALIAS")) {
+        lines.push(
+          "ALIAS goes on the root (@). Providers call it ALIAS, ANAME or CNAME flattening; where the provider has none, use a subdomain such as www or blog instead.",
+        );
+      }
+      lines.push("DNS changes can take a few minutes to an hour to show; ask for the domain again to check now.");
+    } else if (!answer.owner && domain.status !== "active") {
+      lines.push("only the workspace's owner is shown the records to add.");
+    }
+    if (domain.oneClick) lines.push(`one-click setup at ${domain.oneClick.provider}: ${domain.oneClick.url}`);
+    if (domain.www) {
+      lines.push(`www: ${domain.www.hostname} · ${domain.www.live ? "live, sends visitors to the root" : STAGES[domain.www.stage] ?? domain.www.stage}`);
+    }
+    if (domain.status === "active") lines.push(`the site is served at https://${domain.hostname}`);
+  }
+  if (answer.settingsUrl) lines.push(`website settings in the app: ${answer.settingsUrl}`);
+  const text = lines.join("\n");
+  return answer.message && domain === null ? toolError(text) : toolText(text);
 }

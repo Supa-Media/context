@@ -1,5 +1,5 @@
 import { StyleSheet } from "react-native";
-import { layout, radii, space } from "../../../design/tokens";
+import { layout, space } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
 /** Shared by every part of the Browse pane, so they all draw from one sheet of styles. */
@@ -58,6 +58,13 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * rather than being guarded against.
    */
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  /** The crumb with "In trash" after it, on the path's own line. */
+  crumbTrashed: { flexDirection: "row", alignItems: "center" },
+  /**
+   * On the path's own line: the crumb's bar pads 16 above and 8 below, so the
+   * pill comes down to its text, and back over the bar's trailing padding.
+   */
+  trashedPill: { marginTop: space.x3, marginLeft: -space.x4, flexShrink: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
   /**
    * The pointer layout's page scroller, and its content.
@@ -106,15 +113,9 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
   noticesCompact: { paddingHorizontal: layout.readingMargin, paddingTop: space.x2 },
   notice: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.hintBorder,
-    backgroundColor: colors.hintWash,
     gap: 10,
   },
-  noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
+  noticeWarn: {},
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
   /**

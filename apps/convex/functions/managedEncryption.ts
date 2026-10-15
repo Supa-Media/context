@@ -21,6 +21,7 @@ import {
   stopStartingNewHandler,
   tickHandler,
 } from "./lib/managedEncryptionFns/rollout";
+import { afterPlainWritesHandler, resealWorkspaceHandler } from "./lib/managedEncryptionFns/reseal";
 import {
   bindingIsManaged,
   gatewayModeFor,
@@ -109,9 +110,23 @@ export const retryWorkspace = mutation({
   handler: retryWorkspaceHandler,
 });
 
+/** Staff: walk a sealed workspace again, for plain objects saved after its walk (`reseal.ts`). */
+export const resealWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: resealWorkspaceHandler,
+});
+
 export const stopStartingNew = mutation({ args: {}, returns: v.null(), handler: stopStartingNewHandler });
 
 /* ------------------------------ internal -------------------------------- */
+
+/** A writer built while the workspace read plain has finished: walk again if the walk moved on (`reseal.ts`). */
+export const afterPlainWrites = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: afterPlainWritesHandler,
+});
 
 /** The mode a store for this workspace is built in; null for plain. */
 export const gatewayMode = internalQuery({

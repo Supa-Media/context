@@ -26,6 +26,8 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createTreeRoutes } from "./tree.mjs";
+
 const encoder = new TextEncoder();
 
 export async function sha256Hex(value) {
@@ -51,14 +53,6 @@ export function createControlPlaneStub(options = {}) {
 
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
-  /**
-   * `${workspaceId}:${provider}` → the model API key that workspace connected.
-   *
-   * Flat and keyed by both, modelling `providerCredentials`' own
-   * `by_workspace_provider` index — so a lookup that forgets the workspace half
-   * reaches the wrong tenant's key here exactly as it would there.
-   */
-  const providerCredentials = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
   const meetingSummaryVerdicts = new Map();
@@ -95,6 +89,7 @@ export function createControlPlaneStub(options = {}) {
   /** Problem reports `/gateway/feedback` accepted, token and message as sent. */
   const feedback = [];
   const siteCalls = [];
+  const vaultCalls = [];
   const flags = {
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
@@ -167,7 +162,7 @@ export function createControlPlaneStub(options = {}) {
     );
     if (!named || (named.role !== "owner" && named.role !== "editor")) return null;
     if (!grant.scopes.includes("context:write")) return null;
-    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId, role: named.role };
   }
 
   /** One row as the real route reports it: URLs, and never the token. */
@@ -293,6 +288,10 @@ export function createControlPlaneStub(options = {}) {
     }
     return rows;
   }
+
+  // `/gateway/tree/manifest`, `/facts` and `/touch`, from the store a test names (`tree.mjs`); a
+  // queued move's ticket proves its workspace while its job in `gatewayJobs` runs.
+  const tree = createTreeRoutes(grantForAccessToken, bindings, gatewayJobs);
 
   function ok(body) {
     return new Response(JSON.stringify(body), {
@@ -446,46 +445,19 @@ export function createControlPlaneStub(options = {}) {
 
         // `noteCap` is a fifth sibling — the free managed tier's cap — split
         // here for the reason above: a fixture may nest it, the wire never does.
-        const { searchIndex, encryptionKey, noteCap, ...storage } = binding;
+        // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
+        // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
+        const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
+          ...(meaningIndex ? { meaningIndex } : {}),
           ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));
-      }
-
-      case "/gateway/provider": {
-        /*
-          The same two proofs the binding route spends, in the same order, with
-          the same refusal. Written out rather than sharing a helper with
-          `/gateway/binding` on purpose: these are two doors on the real control
-          plane, and a stub that collapses them into one would pass a gateway
-          that had quietly started sending the wrong shape to one of them.
-        */
-        const grant = await grantForAccessToken(body.accessToken);
-        if (!grant) return ok({ credential: null });
-        const covered = coveredContexts(grant);
-        const named =
-          body.expectedWorkspaceId === null || body.expectedWorkspaceId === undefined
-            ? covered.find((entry) => entry.workspaceId === grant.workspaceId)
-            : covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
-        if (!named) return ok({ credential: null });
-
-        // The closed set lives on the control plane, and an unknown provider is
-        // the same `null` as an unknown token — never a different status a
-        // caller could count to enumerate it.
-        if (body.provider !== "anthropic" && body.provider !== "openai") {
-          return ok({ credential: null });
-        }
-        const apiKey = providerCredentials.get(`${named.workspaceId}:${body.provider}`);
-        if (apiKey === undefined) return ok({ credential: null });
-        // Two flat fields and nothing beside them — no workspace id, no
-        // fingerprint, no grant. See the route's own header in `http.ts`.
-        return ok({ credential: { provider: body.provider, apiKey } });
       }
 
       case "/gateway/builtin-model":
@@ -669,7 +641,7 @@ export function createControlPlaneStub(options = {}) {
         job.status = "running";
         const binding = bindings.get(job.workspaceId);
         if (!binding) return ok({ job: null });
-        const { searchIndex, encryptionKey, ...storage } = binding;
+        const { searchIndex, meaningIndex, encryptionKey, ...storage } = binding;
         return ok({
           job: {
             job: {
@@ -682,6 +654,7 @@ export function createControlPlaneStub(options = {}) {
             },
             binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
             ...(searchIndex ? { searchIndex } : {}),
+            ...(meaningIndex ? { meaningIndex } : {}),
             ...(encryptionKey ? { encryptionKey } : {}),
           },
         });
@@ -728,8 +701,18 @@ export function createControlPlaneStub(options = {}) {
         // its answer as `options.site(cleared, body)`, and every call is kept.
         const cleared = await clearedEditor(body);
         siteCalls.push({ ...body, cleared });
-        if (!cleared || !["status", "check", "publish", "screenshot", "history"].includes(body.action)) return ok({ site: null });
+        if (!cleared || !["status", "check", "publish", "screenshot", "history", "domain"].includes(body.action)) return ok({ site: null });
         return ok({ site: typeof options.site === "function" ? await options.site(cleared, body) : null });
+      }
+
+      case "/gateway/vault/request": {
+        // The real route (`gatewayRoutes/vault.ts`): the editor clearance, then
+        // a link to the app's vault page for that person. Every issued one is kept.
+        const kind = ["add", "share", "view"].includes(body.kind) ? body.kind : null;
+        const cleared = kind ? await clearedEditor(body) : null;
+        if (!cleared) return ok({ url: null });
+        vaultCalls.push({ kind, workspaceId: cleared.workspaceId, userId: cleared.actorUserId });
+        return ok({ url: `https://app.context.test/vault/stub-${vaultCalls.length}` });
       }
 
       case "/gateway/links/create": {
@@ -882,8 +865,11 @@ export function createControlPlaneStub(options = {}) {
         return ok({ applied: events.length });
       }
 
-      default:
+      default: {
+        const answered = await tree.handle(path, body);
+        if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+      }
     }
   }
 
@@ -909,11 +895,6 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
-  /** Connect a model account to one workspace, as the console's action does. */
-  function connectProvider(workspaceId, provider, apiKey) {
-    providerCredentials.set(`${workspaceId}:${provider}`, apiKey);
-  }
-
   /** What `/gateway/builtin-model` answers for one workspace. */
   function setBuiltinVerdict(workspaceId, verdict) {
     builtinVerdicts.set(workspaceId, verdict);
@@ -926,6 +907,11 @@ export function createControlPlaneStub(options = {}) {
 
   return {
     gatewayCalls,
+    // serveTree, serveTreesFrom, stopServing, resumeServing, and the ledger and icon moves held.
+    ...tree.controls,
+    treeRequests: tree.requests,
+    /** Whether the stub's tree routes are reading the bucket right now (so a test counting the gateway's reads can leave them out). */
+    treeReading: () => tree.reading > 0,
     origin,
     secret,
     handle,
@@ -934,13 +920,11 @@ export function createControlPlaneStub(options = {}) {
     addGrant,
     revoke,
     issueCode,
-    connectProvider,
     setBuiltinVerdict,
     builtinReports,
     setMeetingSummaryVerdict,
     meetingSummaryReports,
     turnReports,
-    providerCredentials,
     grants,
     clients,
     codes,
@@ -948,6 +932,7 @@ export function createControlPlaneStub(options = {}) {
     flags,
     feedback,
     siteCalls,
+    vaultCalls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

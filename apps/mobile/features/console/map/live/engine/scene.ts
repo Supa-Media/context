@@ -1,4 +1,4 @@
-import type { ActorRef, Doing, MapEvent, MapScope, MapView, WorkspaceGraph } from "../types";
+import type { ActorRef, Doing, MapEvent, MapHub, MapScope, MapView, WorkspaceGraph } from "../types";
 import type { IslandPlace, Layout, NotePlace } from "./layout";
 import { arcControl, clamp, ease, lerp, quad, type Point } from "./math";
 import { noteKey } from "./paths";
@@ -26,6 +26,8 @@ export type Model = {
   /** History milliseconds per visual millisecond: 1 live, 1/10/60 in a replay. */
   speed: number;
   selfId: string | null;
+  /** The all-workspaces view's middle (`MapHub`), or null. */
+  hub: MapHub | null;
   /** Live: what each agent says it read, by actor id. */
   liveReads: Map<string, Array<{ workspaceId: string; path: string }>>;
   /** Replay: how long an actor stays after their last event (history ms). */

@@ -9,11 +9,15 @@
  * is the one the board it shares with a person draws, and it discloses
  * nothing about a note held back. An encrypted front note has no readable
  * frontmatter and is passed over too.
+ *
+ * The front notes' properties come from the Convex tree (`factProps`), never
+ * from opening the notes: names and front matter are the tree's, the bucket
+ * only holds bodies (owner, 2026-10-14). A tree that cannot answer gives the
+ * defaults; this list is advice and an orient line, never a refusal.
  */
 
 import { canSee } from "../../privacy/engine.js";
-import { getWithLegacyFallback } from "../../storageLayout.js";
-import { isEncryptedNote } from "../../encryption.js";
+import { factProps } from "../../tree/facts.js";
 import { FRONT_NOTES } from "../../lists/grammar.js";
 import { noteProperties } from "../../lists/properties.js";
 import {
@@ -28,20 +32,21 @@ import {
 
 /** The list governing `folder`: `{ list, from }`, `from` null for the defaults. */
 export async function readStatusList(store, scope, rules, overrides, folder) {
-  let at = String(folder || "").replace(/^\/+|\/+$/g, "");
-  while (at !== "") {
+  const folders = [];
+  for (let at = String(folder || "").replace(/^\/+|\/+$/g, ""); at !== ""; at = at.includes("/") ? at.slice(0, at.lastIndexOf("/")) : "") {
+    folders.push(at);
+  }
+  const visible = (path) => canSee(path, scope, rules, overrides);
+  const candidates = folders.flatMap((at) => FRONT_NOTES.map((name) => `${at}/${name}`)).filter(visible);
+  const facts = candidates.length === 0 ? null : await factProps(store, candidates);
+  for (const at of facts === null ? [] : folders) {
     for (const name of FRONT_NOTES) {
-      const path = `${at}/${name}`;
-      if (!canSee(path, scope, rules, overrides)) continue;
-      const object = await getWithLegacyFallback(store, path);
-      if (!object) continue;
-      const text = await object.text();
-      if (isEncryptedNote(text)) break;
-      const properties = noteProperties(text);
-      if (declaresStatuses(properties)) return { list: statusListOf(properties), from: at };
+      const fact = visible(`${at}/${name}`) ? facts.get(`${at}/${name}`) : undefined;
+      if (fact === undefined) continue;
+      if (fact.sealed || fact.props === null) break;
+      if (declaresStatuses(fact.props.properties)) return { list: statusListOf(fact.props.properties), from: at };
       break; // the first front note present speaks for the folder
     }
-    at = at.includes("/") ? at.slice(0, at.lastIndexOf("/")) : "";
   }
   return { list: defaultStatusList(), from: null };
 }

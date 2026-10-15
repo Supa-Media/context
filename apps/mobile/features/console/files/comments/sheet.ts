@@ -176,7 +176,7 @@ class Sheet implements PluginValue {
         this.panel.replaceChildren(next);
         this.signature = signature;
         this.layer.hidden = false;
-        if (opening && content.kind === "draft") queueMicrotask(() => this.panel.querySelector("textarea")?.focus());
+        if (opening && content.kind === "draft") queueMicrotask(() => this.panel.querySelector("textarea")?.focus({ preventScroll: true }));
       }
       this.keepAboveKeyboard();
     }

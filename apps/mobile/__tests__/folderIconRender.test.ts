@@ -18,6 +18,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { WORKSPACE_ICON_EMOJI } from "@context/shared";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 import { ConvexError } from "convex/values";
 import { FileTree } from "../features/console/files/FileTree";
 import { FolderRow } from "../features/console/files/FolderRow";
@@ -78,7 +79,7 @@ function file(path: string, depth = 0): TreeRow {
 
 function tree(iconOf?: (path: string) => string | null) {
   return createElement(FileTree, {
-    rows: [folder("2-areas"), folder("2-areas/cooking", 1), file("2-areas/plan.md", 1)],
+    rows: [folder("2-areas"), folder("2-areas/cooking", 1), file("2-areas/plan.md", 1), file("2-areas/photo.png", 1)],
     canSetVisibility: false,
     onSelect: () => {},
     onToggle: () => {},
@@ -103,6 +104,14 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     expect(emojiOn(container, "2-areas, folder")).toBeNull();
   });
 
+  test("tex/'s default draws Tex as a picture, never its marker as text", () => {
+    const container = mount(tree((path) => (path === "2-areas/cooking" ? TEX_FIGURE_ICON : null)));
+    const glyph = container.querySelector("[aria-label^='cooking, folder'] [data-testid='tree-folder-emoji']");
+    expect(glyph).not.toBeNull();
+    expect(glyph!.querySelector("svg")).not.toBeNull();
+    expect(container.textContent).not.toContain(TEX_FIGURE_ICON);
+  });
+
   test("the name of a folder with an icon is still its name", () => {
     const container = mount(tree((path) => (path === "2-areas/cooking" ? ICON : null)));
     const row = container.querySelector("[aria-label^='cooking, folder']");
@@ -110,9 +119,33 @@ describe("the tree draws a folder's own icon in its glyph slot", () => {
     expect(row?.textContent).toContain("cooking");
   });
 
-  test("a file never draws an emoji, even where its folder has one", () => {
+  test("a note draws its own emoji in the same slot (2-areas/plan.md)", () => {
+    const container = mount(tree((path) => (path === "2-areas/plan.md" ? ICON : null)));
+    expect(emojiOn(container, "plan.md")).toBe(ICON);
+    expect(emojiOn(container, "cooking, folder")).toBeNull();
+  });
+
+  test("a file that is not a note never draws one, whatever the source says", () => {
     const container = mount(tree(() => ICON));
-    expect(emojiOn(container, "plan.md")).toBeNull();
+    expect(emojiOn(container, "photo.png")).toBeNull();
+  });
+
+  test("a note with no emoji draws the plain note icon, as a button for an editor", () => {
+    const container = mount(
+      createElement(FileTree, {
+        rows: [file("plan.md")],
+        canSetVisibility: false,
+        onSelect: () => {},
+        onToggle: () => {},
+        onCycleVisibility: () => {},
+        iconOf: () => null,
+        onIconPress: () => {},
+      }),
+    );
+    expect(container.querySelector("[data-testid='tree-folder-emoji']")).toBeNull();
+    const button = container.querySelector("[data-testid='tree-folder-icon-button']") as HTMLElement | null;
+    expect(button).not.toBeNull();
+    expect(button?.querySelector("[data-icon='file']")).not.toBeNull();
   });
 
   test("with no icon source at all, every folder draws the plain icon", () => {
@@ -141,11 +174,17 @@ describe("a folder listing's card draws the icon in place of the folder glyph", 
     expect(plain.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
   });
 
-  test("a note never draws one", () => {
-    const container = mount(
+  test("a note draws its own in place of the file glyph, in a card and outside one", () => {
+    const card = mount(
       createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, card: true, folderIcon: ICON }),
     );
-    expect(container.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
+    expect(card.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    const listing = mount(
+      createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, folderIcon: ICON }),
+    );
+    expect(listing.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    const plain = mount(createElement(FolderRow, { row: entry("2-areas/plan.md", "file"), onSelect: () => {}, card: true }));
+    expect(plain.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
   });
 });
 
@@ -334,14 +373,18 @@ describe("the main folder view shows the icon too", () => {
     readOnly: false,
   };
 
-  test("a desktop listing row draws the icon in its chevron's place", () => {
+  // The owner, 2026-10-14: "when there's an emoji, the arrow is gone in the middle section, which is just funky".
+  test("a desktop listing row draws the icon beside its chevron, never in its place", () => {
     const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {}, folderIcon: ICON }));
     expect(container.querySelector("[data-testid='folder-row-emoji']")?.textContent).toBe(ICON);
+    expect(container.querySelector("[data-testid='folder-row-chevron']")).not.toBeNull();
   });
 
-  test("and without one keeps the chevron", () => {
+  test("and without one keeps the chevron and draws the plain folder icon, as the tree does", () => {
     const container = mount(createElement(FolderRow, { row: entry, onSelect: () => {} }));
     expect(container.querySelector("[data-testid='folder-row-emoji']")).toBeNull();
+    expect(container.querySelector("[data-testid='folder-row-chevron']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='folder-row-icon']")).not.toBeNull();
   });
 
   test("the folder's own page draws it before its title", () => {

@@ -133,11 +133,24 @@ describe("for somebody who can edit", () => {
     expect(iconButton(container)?.getAttribute("aria-label")).toBe("Change 2-areas’s icon");
   });
 
-  test("a note has no icon to click", () => {
+  test("clicking a note's plain icon opens the picker for that note, not the note", async () => {
+    const { container, opened, iconPresses } = setup(true);
+    const note = container.querySelector("[aria-label^='plan.md']");
+    click(note?.querySelector("[data-testid='tree-folder-icon-button']") ?? null);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    expect(iconPresses.map((press) => press.path)).toEqual(["plan.md"]);
+    expect(opened).toEqual([]);
+  });
+
+  test("a note's plain icon is clickable too (2026-10-13)", () => {
     const { container } = setup(true);
     const note = container.querySelector("[aria-label^='plan.md']");
-    expect(note?.querySelector("[data-testid='tree-folder-icon-button']")).toBeNull();
-    expect(container.querySelectorAll("[data-testid='tree-folder-icon-button']")).toHaveLength(1);
+    expect(note?.querySelector("[data-testid='tree-folder-icon-button']")?.getAttribute("aria-label")).toBe(
+      "Change plan.md’s icon",
+    );
+    expect(container.querySelectorAll("[data-testid='tree-folder-icon-button']")).toHaveLength(2);
   });
 });
 

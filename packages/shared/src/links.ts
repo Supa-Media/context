@@ -358,6 +358,15 @@ function splitAnchor(target: string): { file: string; anchor: string } {
   return { file: target.slice(0, hash), anchor: target.slice(hash) };
 }
 
+/**
+ * The place inside a note a link points at — `heading` from `note#heading` —
+ * decoded, or `""` for none. `splitAnchor`'s answer, so what a reader follows
+ * and what a rewrite carries are one reading of the target.
+ */
+export function linkAnchor(target: string): string {
+  return safeDecode(splitAnchor(target).anchor.slice(1)).trim();
+}
+
 /** `a/b/c.md` → `a/b`; a note at the root → `""`. */
 export function dirOf(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -415,7 +424,7 @@ export function resolveLink(
 
   if (style === "bare") {
     const name = decoded.replace(/\.md$/, "");
-    const candidates = byName?.get(name);
+    const candidates = byName?.get(name) ?? looselyNamed(byName, name);
     return candidates?.length === 1 ? candidates[0] : null;
   }
 
@@ -545,6 +554,13 @@ export function rewriteLinks(
     const destination = renames.get(resolved) ?? resolved;
     // The referrer stayed put and the target stayed put: nothing to say.
     if (destination === resolved && fromPath === toPath) continue;
+    /*
+      A bare name resolves by name wherever the referrer lives, so a target
+      that stayed put needs nothing however far the referrer moved — and
+      re-expressing it would rewrite `[[Eve]]` to `[[eve]]`, the file's own
+      spelling, which is a change nobody asked for. See `looselyNamed`.
+    */
+    if (destination === resolved && link.kind === "wiki" && styleOf(splitAnchor(link.target.trim()).file) === "bare") continue;
 
     const replacement = expressLink(link, toPath, destination);
     if (replacement === link.target) continue;
@@ -555,6 +571,34 @@ export function rewriteLinks(
   }
 
   return changed === 0 ? null : { text: out + text.slice(cursor), changed };
+}
+
+/**
+ * The notes a bare name matches when no basename matches it exactly: the same
+ * name with case, spaces and underscores set aside, so `[[Eve]]` finds
+ * `people/eve.md` and `[[Love Thy Neighbor]]` finds `love-thy-neighbor.md`.
+ *
+ * Only a fallback. An exact basename always wins, and a loose match still has
+ * to be the only one, by the same rule as an exact name: two candidates are a
+ * guess, and a guess is not a link. Reported 2026-10-11 as a `[[Eve]]` that was
+ * drawn as a link and opened nothing, because the note on disk was `eve.md`.
+ */
+function looselyNamed(
+  byName: ReadonlyMap<string, string[]> | undefined,
+  name: string,
+): string[] | undefined {
+  if (byName === undefined) return undefined;
+  const wanted = looseName(name);
+  if (wanted === "") return undefined;
+  const found: string[] = [];
+  for (const [candidate, paths] of byName) {
+    if (looseName(candidate) === wanted) found.push(...paths);
+  }
+  return found.length === 0 ? undefined : found;
+}
+
+function looseName(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
 }
 
 /**

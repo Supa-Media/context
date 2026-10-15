@@ -59,13 +59,17 @@ import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
 import { runReferenceRewriteAuditChecks } from "./auditReferenceRewrite.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
-import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
 import { runAgentBuiltinChecks } from "./agentBuiltin.test.mjs";
 import { runMeetingSummaryChecks } from "./meetingSummary.test.mjs";
 import { runAgentGatewayChecks } from "./agentGateway.test.mjs";
 import { runAgentComputerChecks } from "./agentComputer.test.mjs";
+import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
+import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
+import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
+import { runAgentEgressChecks } from "./agentEgress.test.mjs";
+import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -83,6 +87,7 @@ import { runOrientVisibilityChecks } from "./orientVisibility.test.mjs";
 import { runPrivacyAclChecks } from "./privacyAcl.test.mjs";
 import { runProposalsAndArchiveChecks } from "./proposalsAndArchive.test.mjs";
 import { runMovesAndBatchChecks } from "./movesAndBatch.test.mjs";
+import { checkSyncOwnedSourceChanges } from "./moveSyncOwnedChecks.mjs";
 import { runMoveDiagnosticsRedactionChecks } from "./moveDiagnosticsRedaction.test.mjs";
 import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
@@ -107,6 +112,7 @@ await runOrientVisibilityChecks();
 await runPrivacyAclChecks();
 await runProposalsAndArchiveChecks();
 await runMovesAndBatchChecks();
+await checkSyncOwnedSourceChanges();
 await suite("runMoveDiagnosticsRedactionChecks", () => runMoveDiagnosticsRedactionChecks());
 await runWebhooksAndCalendarChecks();
 await runAttachmentsCoreChecks();
@@ -137,7 +143,6 @@ await suite("runOrientationChecks", () => runOrientationChecks(check));
 // The model account the agent spends, across the control-plane wire. Its own
 // control plane, for the same reason the tenancy suite has one: it swaps
 // globalThis.fetch and restores it.
-await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(check));
 
 // The agent turn, end to end: a question in, tool calls through the same
 // dispatcher a client's go through, an answer out. Its own control plane, S3
@@ -148,7 +153,15 @@ await suite("runAgentBuiltinChecks", () => runAgentBuiltinChecks(check));
 await suite("runMeetingSummaryChecks", () => runMeetingSummaryChecks(check));
 await suite("runAgentGatewayChecks", () => runAgentGatewayChecks(check));
 await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
+await suite("runAgentBrowseChecks", () => runAgentBrowseChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
+await suite("runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check));
+// Tex's daily transcript in tex/transcripts/, written as a text is answered.
+await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
+// The egress gate: a widening tool call waits for a person, outside the model.
+await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
+// The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).
+await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.

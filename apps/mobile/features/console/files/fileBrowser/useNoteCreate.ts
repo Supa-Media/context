@@ -37,8 +37,8 @@ import type { RunOperationValues } from "./useRunOperation";
 
 type NoteCreateDeps =
   & { options: FileBrowserOptions }
-  & Pick<FileActionsValues, "workspaceId" | "writeNote">
-  & Pick<BrowserStateValues, "drawLocally" | "setExpanded" | "setNotice">
+  & Pick<FileActionsValues, "workspaceId" | "workspaceGenerationRef" | "writeNote">
+  & Pick<BrowserStateValues, "beginOnlineCreate" | "drawLocally" | "openRun" | "setExpanded" | "setNotice">
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
   & Pick<RunOperationValues, "run">
@@ -67,8 +67,8 @@ function seedFor(name: string): string {
 
 export function useNoteCreate(deps: NoteCreateDeps) {
   const {
-    options, drawLocally, listings, listingsRef, offlineRef, refresh, reportRefreshFailure, run, select,
-    setExpanded, setNotice, workspaceId, writeNote,
+    options, beginOnlineCreate, drawLocally, openRun, listings, listingsRef, offlineRef, refresh, reportRefreshFailure, run, select,
+    setExpanded, setNotice, workspaceId, workspaceGenerationRef, writeNote,
   } = deps;
 
   /**
@@ -91,7 +91,7 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   const latestCreate = useRef(0);
 
   const createNote = useCallback(
-    (folder: string, rawName: string, untitled?: UntitledKind) => {
+    (folder: string, rawName: string, untitled?: UntitledKind, navigation = openRun.current) => {
       const name = ensureMarkdown(rawName);
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
@@ -138,9 +138,11 @@ export function useNoteCreate(deps: NoteCreateDeps) {
       */
       latestCreate.current += 1;
       const mine = latestCreate.current;
+      const epoch = workspaceGenerationRef.current.epoch;
       let at = path;
       let current = name;
       const refused: string[] = [];
+      let pending = beginOnlineCreate(at);
       drawLocally((listed) => applyNoteCreate(listed, at));
       void run(
         async () => {
@@ -148,9 +150,10 @@ export function useNoteCreate(deps: NoteCreateDeps) {
             const text = seedFor(current);
             try {
               const result = await writeNote({ workspaceId: workspaceId!, path: at, text });
+              const accepted = pending.commit();
               announceDid(workspaceId ?? null, { kind: "create", path: at });
               const visibility = listingsRef.current[folder]?.folderDefault ?? "private";
-              if (latestCreate.current === mine) {
+              if (accepted && latestCreate.current === mine && openRun.current === navigation && workspaceGenerationRef.current.epoch === epoch) {
                 select(at, {
                   path: at,
                   text,
@@ -163,7 +166,12 @@ export function useNoteCreate(deps: NoteCreateDeps) {
               }
               return { touched: [at] };
             } catch (error) {
+              pending.reject();
+              // A refusal from a context we left cannot undo rows or retry
+              // names against the next context's listings.
+              if (workspaceGenerationRef.current.epoch !== epoch) throw error;
               const gone = at;
+              awaitingTitle.current.delete(gone);
               drawLocally((listed) => undoNoteCreate(listed, gone));
               /*
                 Taken: the listing said this untitled name was free and the
@@ -188,11 +196,17 @@ export function useNoteCreate(deps: NoteCreateDeps) {
               at = joinPath(folder, current);
               awaitingTitle.current.add(at);
               const next = at;
+              pending = beginOnlineCreate(next);
               drawLocally((listed) => applyNoteCreate(listed, next));
             }
           }
         },
-        () => drawLocally((listed) => undoNoteCreate(listed, at)),
+        () => {
+          pending.reject();
+          if (workspaceGenerationRef.current.epoch === epoch) {
+            drawLocally((listed) => undoNoteCreate(listed, at));
+          }
+        },
       );
     },
     [listings, options.canEdit, run, select, workspaceId, writeNote],
@@ -223,10 +237,13 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   const createUntitled = useCallback(
     (folder: string, kind: "note" | "drawing") => {
       if (!options.canEdit) return;
+      const navigation = openRun.current;
+      const epoch = workspaceGenerationRef.current.epoch;
       const make = (known: Listings) => {
+        if (workspaceGenerationRef.current.epoch !== epoch) return;
         const name = untitledName(known, folder, kind, new Date());
         awaitingTitle.current.add(joinPath(folder, name));
-        createNote(folder, name, kind);
+        createNote(folder, name, kind, navigation);
       };
       /*
         THE DESTINATION IS LOADED FIRST, AND THAT IS NOT A TIDINESS POINT.

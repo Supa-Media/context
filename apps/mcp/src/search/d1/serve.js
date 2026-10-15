@@ -280,10 +280,12 @@ export async function answerFromProjection(
   // Nothing had every word exactly: ask again for any of them, prefixes
   // included, before calling it a miss (`toRelaxedMatchExpression`).
   const relaxed = visible.length === 0 ? toRelaxedMatchExpression(query) : null;
+  let loose = false;
   if (relaxed !== null) {
     const second = await searchProjection(client, { query, prefix, tier, budget, reserve, match: relaxed });
     if (second) {
       result = second;
+      loose = true;
       visible = second.notes.filter((note) => isVisible(note.path));
       if (typeof onCounts === "function") onCounts(second.notes.length, visible.length);
     }
@@ -305,6 +307,10 @@ export async function answerFromProjection(
       // the chunk, so this is the note's own text as it was copied, and the
       // array shape is what both surfaces already render.
       snippets: note.snippet ? [note.snippet] : [],
+      // No note held every word, so these hold some of them: "who left the
+      // team" matching anything that says "team". Search by meaning ranks its
+      // matches above hits this weak (`meaning/serve.js`, `mergeHits`).
+      ...(loose ? { loose: true } : {}),
     })),
     matchCount: Math.min(visible.length, MAX_RESULTS),
     // Two ways this is a floor and both are real: a table that filled its row

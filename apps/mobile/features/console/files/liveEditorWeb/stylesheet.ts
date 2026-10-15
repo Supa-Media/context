@@ -43,6 +43,8 @@ export function ensureStyles(colors: Colors): void {
   --lp-link: ${colors.codeKey};
   --lp-code-bg: ${colors.well};
   --lp-mark: ${colors.markWash};
+  --lp-tag: ${colors.accentText};
+  --lp-tag-wash: ${colors.accentDim};
   --lp-mono: ${fonts.mono};
   /*
     THIS BLOCK IS THE CONTRACT, AND IT HAS BEEN BROKEN TWICE THE SAME WAY.
@@ -97,7 +99,7 @@ export function ensureStyles(colors: Colors): void {
     Not the scroller's own font-family, which is set directly below: that one
     is the note's body text and existed before anything here needed a token.
   */
-  --lp-body: ${fonts.body};
+  --lp-body: ${fonts.reading};
   /*
     THE READING MEASURE — the one --lp-* here that is not a colour or a face.
 
@@ -124,7 +126,8 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }
 .cm-lp-root .cm-editor.cm-focused { outline: none; }
 .cm-lp-root .cm-scroller {
-  font-family: ${fonts.body};
+  /* The note's text is read in Libron; the interface around it is not. */
+  font-family: ${fonts.reading};
   /*
     The two numbers noteGutterFor needs, spent here and read there.
 
@@ -233,6 +236,12 @@ export function ensureStyles(colors: Colors): void {
 }
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
+/*
+  The box under the title the property chips are drawn in (propertySlot.ts):
+  room above for the title's descent, more below so the chips read as the
+  name's and not the first paragraph's. The chips draw themselves.
+*/
+.cm-lp-root .cm-lp-property-slot { padding: 2px 0 12px; cursor: default; }
 ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
 `;

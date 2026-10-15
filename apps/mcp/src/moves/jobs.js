@@ -1,11 +1,14 @@
 /**
- * Logical folder-move jobs: their keys, the active-move sentinel, and the
- * overlay that makes a half-materialized move read as finished. Owns
- * `LOGICAL_MOVE_WORKSPACES`, the per-isolate hint that a workspace may have a
- * move in flight. Moved verbatim out of `src/index.js`.
+ * Legacy logical folder-move jobs under `.context/moves/`: their keys, and the
+ * active-move sentinel. No new job is written (a large folder move goes
+ * through the Convex move queue), and no read, listing or search overlays one
+ * any more (owner, 2026-10-13: only opening a note reads storage); the jobs
+ * already in a bucket are finished by the background drain
+ * (`tools/moves/materialize.js`), and `write_note` still refuses a path a
+ * draining job is copying out of. The sentinel is kept up to date for a
+ * gateway rolled back to a version that reads it.
  */
 
-import { budgetedStore } from "../search/budget.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
 import { listAllKeys } from "../notes/storage.js";
 import { MOVE_JOB_PREFIX, MOVE_JOB_VERSION, MOVE_SENTINEL_KEY } from "./limits.js";
@@ -54,7 +57,15 @@ export function moveErrorForControlPlane(text) {
   return `move job failed: ${id}${stage ? ` (${stage})` : ""}`;
 }
 
-const LOGICAL_MOVE_WORKSPACES = new Set();
+/**
+ * Whether a `materialize_move` pass's answer says the move needs no more
+ * passes: it completed, or there is no work. Not any answer containing
+ * "complete": "reference inventory complete" is a step, and reading it as the
+ * end stopped the owner's resume one pass in.
+ */
+export function moveFinished(text) {
+  return /^move \S+: complete$/m.test(text) || text.includes("no active work");
+}
 
 export function moveJobKey(id) {
   if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{12,80}$/i.test(id)) return null;
@@ -64,11 +75,6 @@ export function moveJobKey(id) {
 export function noteUnderPrefix(path, prefix) {
   if (!prefix) return true;
   return path === prefix || path.startsWith(`${prefix}/`);
-}
-
-export function movedSourceFor(job, destinationKey) {
-  const item = (job.objects || []).find((entry) => entry.destination === destinationKey);
-  return item?.source || null;
 }
 
 export function moveJobActive(job) {
@@ -106,17 +112,7 @@ export async function loadMoveJobs(store) {
   return jobs.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
 }
 
-async function moveSentinelActive(store, budget = null) {
-  try {
-    const reader = budget ? budgetedStore(store, budget, 0) : store;
-    return (await reader.get(MOVE_SENTINEL_KEY)) !== null;
-  } catch {
-    return false;
-  }
-}
-
-export async function writeMoveSentinel(store) {
-  markLogicalMovesMaybeActive(store);
+async function writeMoveSentinel(store) {
   await store.put(
     MOVE_SENTINEL_KEY,
     JSON.stringify({ version: MOVE_JOB_VERSION, active: true, updated_at: new Date().toISOString() })
@@ -129,57 +125,8 @@ export async function refreshMoveSentinel(store) {
     await writeMoveSentinel(store);
   } else {
     await deleteWithLegacyFallback(store, MOVE_SENTINEL_KEY).catch(() => {});
-    clearLogicalMovesMaybeActive(store);
   }
   return jobs;
-}
-
-function logicalMoveWorkspaceKey(store) {
-  return store?.actor?.workspaceId || null;
-}
-
-function markLogicalMovesMaybeActive(store) {
-  const key = logicalMoveWorkspaceKey(store);
-  if (key) LOGICAL_MOVE_WORKSPACES.add(key);
-}
-
-function clearLogicalMovesMaybeActive(store) {
-  const key = logicalMoveWorkspaceKey(store);
-  if (key) LOGICAL_MOVE_WORKSPACES.delete(key);
-}
-
-export async function searchMoveJobs(store, prefix, budget = null) {
-  if (prefix) return loadMoveJobs(store);
-  const key = logicalMoveWorkspaceKey(store);
-  if (!key || (!LOGICAL_MOVE_WORKSPACES.has(key) && !(await moveSentinelActive(store, budget)))) return [];
-  const jobs = await loadMoveJobs(store);
-  if (!jobs.length) await refreshMoveSentinel(store);
-  return jobs;
-}
-
-export async function fallbackMoveJobs(store, prefix, budget = null) {
-  return searchMoveJobs(store, prefix, budget);
-}
-
-export function applyMoveOverlay(keys, jobs) {
-  if (!jobs.length) return keys;
-  // A workspace can have thousands of notes and several thousand objects in
-  // active moves. Looking through every job's object list for every listed
-  // note made ordinary listings and orientation take minutes. Index the
-  // source paths once, retaining the earliest job's precedence for a source.
-  const destinations = new Map();
-  for (const job of jobs) {
-    for (const item of job.objects || []) {
-      if (!destinations.has(item.source)) destinations.set(item.source, item.destination);
-    }
-  }
-  const out = new Map();
-  for (const object of keys) {
-    const destination = destinations.get(object.key);
-    if (destination) out.set(destination, { ...object, key: destination, logicalSource: object.key });
-    else if (!out.has(object.key)) out.set(object.key, object);
-  }
-  return [...out.values()];
 }
 
 export async function pathUnderActiveMovedSource(store, path) {

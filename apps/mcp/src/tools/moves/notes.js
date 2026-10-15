@@ -32,7 +32,9 @@ import { normalizePath } from "../../notes/paths.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
-import { rewriteReferencesOrQueue } from "./references.js";
+import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
+import { rewriteReferencesAfterMove } from "./references.js";
+import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
 export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
@@ -155,6 +157,10 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     } else if (fastArchiveCandidate) {
       preloadedBody = new TextEncoder().encode(sourceText);
     }
+    if (!destinationObject) {
+      const twin = await nameTwinRefusal(store, scope, rules, overrides, move.destination, { ignore: move.source });
+      if (twin) return toolError(twin);
+    }
     preflight.push({
       ...move,
       etag: collaborationBase?.etag ?? sourceObject.etag,
@@ -268,7 +274,9 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
     store,
     preflight.map((move) => ({ from: move.source, to: move.destination, kind: "note" }))
   );
-  const references = await rewriteReferencesOrQueue(
+  // Each note's icon follows it, in one write (`folderIcons.cjs`); never fails the move.
+  await remapIcons(store, preflight.map((move) => ({ from: move.source, to: move.destination })));
+  const references = await rewriteReferencesAfterMove(
     store,
     scope,
     rules,
@@ -284,7 +292,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       count: preflight.length,
       visibilities: preflight.map((move) => ({ path: move.destination, visibility: move.visibility })),
       team_visible: preflight.every((move) => move.visibility === "team"),
-    references: references.pending ? "pending" : references.capped ? "not-rewritten" : references.links,
+    references: references.capped ? "not-rewritten" : references.links,
     }
   );
   return withActivityHint(

@@ -1,7 +1,7 @@
 /**
  * Font loading — web.
  *
- * `public/index.html` already puts the Google Fonts `<link>` in the served
+ * `public/index.html` already puts both font `<link>`s in the served
  * document, which is what avoids a flash of fallback type on a cold load. This
  * module is the belt to that brace: the shell is the *export's* document, and a
  * host that serves its own (or a future embed) would otherwise get system type.
@@ -18,13 +18,28 @@ export const FONT_STYLESHEET_HREF =
   "https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600" +
   "&family=JetBrains+Mono:wght@400;500&display=swap";
 
+/**
+ * Libron, the face note text is read in (`fonts.reading`), is not on Google
+ * Fonts: its official web files are served from our own origin, unmodified,
+ * with the OFL beside them (`public/libron.css`, `public/Libron-OFL.txt`).
+ * Root-level paths on purpose: a customer's domain serves only one-segment
+ * static files (`infra/router`'s `site.ts`), and a shared note can open there.
+ */
+export const LIBRON_STYLESHEET_ID = "context-libron";
+
+export const LIBRON_STYLESHEET_HREF = "/libron.css";
+
 export function ensureFontsLoaded(): void {
   if (typeof document === "undefined") return;
-  if (document.getElementById(FONT_STYLESHEET_ID)) return;
+  link(FONT_STYLESHEET_ID, FONT_STYLESHEET_HREF);
+  link(LIBRON_STYLESHEET_ID, LIBRON_STYLESHEET_HREF);
+}
 
-  const link = document.createElement("link");
-  link.id = FONT_STYLESHEET_ID;
-  link.rel = "stylesheet";
-  link.href = FONT_STYLESHEET_HREF;
-  document.head.appendChild(link);
+function link(id: string, href: string): void {
+  if (document.getElementById(id)) return;
+  const node = document.createElement("link");
+  node.id = id;
+  node.rel = "stylesheet";
+  node.href = href;
+  document.head.appendChild(node);
 }

@@ -48,6 +48,7 @@ import {
   errorCode,
   setupTest,
   type TestConvex,
+  copyTree,
 } from "./fixtures.helpers";
 
 afterEach(() => {
@@ -119,6 +120,8 @@ async function fixture(): Promise<Fixture> {
     visibility: "team",
   });
 
+  // The mint asks the tree whether its readers would see the note.
+  await copyTree(t, workspaceId);
   return { t, owner, member, workspaceId, backend };
 }
 
@@ -760,6 +763,7 @@ describe("what a short link unfurls with", () => {
       path: "1-projects",
       visibility: "team",
     });
+    await copyTree(f.t, other);
     const theirs = await asUser(f.t, stranger).action(
       api.functions.shares.createLinkShare,
       { workspaceId: other, path: ENTRY },

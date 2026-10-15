@@ -3,9 +3,9 @@ import type { ActivityEntry } from "../../features/console/activity/activity";
 import { PremiumBody } from "../../features/console/settings/panels/PremiumPanel";
 import type { PremiumStatus, PremiumView } from "../../features/console/settings/panels/premium";
 import type { ToastSpec } from "../../features/design/components/Toast";
-import { ORGANIZER_ACTOR, offerAction, offerToast } from "../../features/organizer/copy";
+import { ORGANIZER_ACTOR } from "../../features/organizer/copy";
 import { usePremiumOrganizerSlots } from "../../features/organizer/PremiumParts";
-import type { ChangeCard, OrganizerStatus, OrganizerSuggestion, RouteCard, RouteTeam } from "../../features/organizer/types";
+import type { ChangeCard, OrganizerStatus, RouteCard, RouteTeam } from "../../features/organizer/types";
 import type { OrganizerView } from "../../features/organizer/useOrganizer";
 import { NOW } from "./workspace";
 
@@ -22,8 +22,6 @@ export interface ShotFrame {
   organizer?: (density: "phone" | "desktop") => OrganizerFixture;
   activity?: boolean;
   activityOpen?: boolean;
-  /** Pointer resting on this suggestion's row (desktop). */
-  hover?: string;
   prepare?: (ctx: FrameCtx) => Promise<void> | void;
   assert?: string[];
   sizes?: ReadonlyArray<"phone" | "desktop">;
@@ -39,8 +37,6 @@ export interface FrameCtx {
 
 export interface OrganizerFixture {
   status: OrganizerStatus;
-  /** Which What changed tab is showing. */
-  tab?: "inbox" | "tidy";
   toasts?: ToastSpec[];
   /** What changed cards waiting on their page. */
   changes?: ChangeCard[];
@@ -53,14 +49,13 @@ export interface OrganizerFixture {
 }
 
 /** A still view of auto-organize, in the frame's state. Nothing on it does anything. */
-export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion[]): OrganizerView {
+export function fixtureView(fixture: OrganizerFixture): OrganizerView {
   const noop = () => {};
   return {
     state: { kind: "ready", status: fixture.status },
     status: fixture.status,
     slug: "seyi",
     suggestions: {
-      list,
       changes: fixture.changes ?? [],
       routes: fixture.routes ?? [],
       teams: fixture.teams ?? [],
@@ -70,12 +65,6 @@ export function fixtureView(fixture: OrganizerFixture, list: OrganizerSuggestion
       busy: new Set(),
     },
     loadSuggestions: noop,
-    tab: fixture.tab ?? "inbox",
-    setTab: noop,
-    openReview: noop,
-    resolve: async () => null,
-    resolveMany: async () => new Map(),
-    undo: async () => false,
     resolveChange: noop,
     sendRoute: async () => false,
     sendRoutes: async () => 0,
@@ -147,34 +136,6 @@ export const STATUS: OrganizerStatus = {
   pending: 11,
   autopilot: { done: false, archive: false, file: false },
 };
-
-export const SUGGESTIONS: OrganizerSuggestion[] = [
-  { id: "incident", kind: "done", path: "1-projects/client-intake-publishing-incident/overview.md", title: "Client intake publishing incident", reason: "Its fix merged 2 days ago" },
-  { id: "decomp", kind: "done", path: "1-projects/code-decomposition/overview.md", title: "Code decomposition", reason: "Every step is ticked off" },
-  { id: "members", kind: "done", path: "1-projects/website-folder/members-only-pages.md", title: "Members-only pages", reason: "Shipped with the website, Sep 23" },
-  { id: "handoff", kind: "done", path: "1-projects/custom-domains/cloudflare-handoff.md", title: "Cloudflare handoff", reason: "Sayo ticked the last step Thursday" },
-  ...(
-    [
-      ["timeline", "intake-incident-timeline", "Client intake publishing incident"],
-      ["saas", "cloudflare-saas-hostname-notes", "Custom domains"],
-      ["dns", "sayo-dns-questions", "Custom domains"],
-      ["meeting", "meeting-2026-09-25-website-review", "Website folder"],
-      ["fleet", "fleet-shutdown-checklist", "Deprecate the agent fleet"],
-      ["memo", "voice-memo-2026-09-24", "Project views"],
-      ["permit", "fwd-bandshell-permit", "Public Worship"],
-    ] as const
-  ).map(([id, title, target]) => ({
-    id,
-    kind: "file" as const,
-    path: `0-inbox/${title}.md`,
-    title,
-    reason: "",
-    target: { path: `1-projects/${target}`, title: target },
-  })),
-];
-
-/** The sweep's preview reads the first two projects and the second inbox note, as drawn. */
-export const SWEEP_SUGGESTIONS = [SUGGESTIONS[0], SUGGESTIONS[1], SUGGESTIONS[5], ...SUGGESTIONS.slice(2, 5)];
 
 export const ORGANIZER_ACTIVITY: ActivityEntry[] = [
   {
@@ -257,7 +218,6 @@ const openRoot: ShotFrame["prepare"] = async ({ density, settle, press }) => {
 };
 
 const sweepRunning = { state: "running" as const, startedAt: NOW - 60_000, finishedAt: null, read: 212, total: 450, found: { done: 0, archive: 0, file: 0 } };
-const sweepDone = { ...sweepRunning, state: "done" as const, finishedAt: NOW, read: 450, found: { done: 4, archive: 0, file: 7 } };
 
 const FOR_TEAMS: RouteCard[] = [
   {
@@ -317,21 +277,6 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
     assert: ["Tidying up @seyi", "212 of 450 notes"],
   },
   {
-    id: "02b-sweep-found",
-    at: settingsAt,
-    settings: { premium: () => <PremiumFrame view={ACTIVE} returned="done" /> },
-    organizer: () => ({ status: { ...STATUS, sweep: sweepDone } }),
-    assert: ["Found 4 projects that look done and 7 inbox notes to file", "Looks done. Its fix merged 2 days ago"],
-    schemes: ["light", "dark"],
-  },
-  {
-    id: "04-review-list",
-    at: listAt,
-    organizer: () => ({ status: STATUS, pageOpen: true, tab: "tidy" as const }),
-    assert: ["Tidy up", "Looks finished · 4", "Mark all 4 done", "Belongs somewhere else · 7", "Projects › Custom domains", "0 of 11 done"],
-    schemes: ["light", "dark"],
-  },
-  {
     id: "04c-what-changed",
     at: listAt,
     organizer: () => ({ status: { ...STATUS, changes: WHAT_CHANGED.length }, pageOpen: true, changes: WHAT_CHANGED }),
@@ -372,19 +317,10 @@ export const FRAMES: ReadonlyArray<ShotFrame> = [
   {
     id: "04b-phone-entry",
     at: listAt,
-    organizer: () => ({ status: STATUS }),
+    organizer: () => ({ status: { ...STATUS, changes: WHAT_CHANGED.length }, changes: WHAT_CHANGED }),
     prepare: openRoot,
-    assert: ["11 suggestions to look over"],
+    assert: ["2 changes to look over"],
     sizes: ["phone"],
-  },
-  {
-    id: "05a-offer-automatic",
-    at: listAt,
-    organizer: () => ({
-      status: STATUS,
-      toasts: [{ id: "organizer-1", message: offerToast("done"), action: { label: offerAction, run: () => {} } }],
-    }),
-    assert: ["Do this automatically from now on?"],
   },
   {
     id: "05b-activity-organizer",

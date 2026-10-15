@@ -25,6 +25,7 @@ import {
   ImageRowWidget,
   MIN_IMAGE_WIDTH,
   imageFilesFrom,
+  pastedImagesFrom,
   imageRowDecoration,
   imageRows,
   inCode,
@@ -272,8 +273,10 @@ describe("what a paste offers, and from which list", () => {
   function transfer(options: {
     files?: File[];
     items?: Array<{ kind: string; file: File | null }>;
+    text?: string;
   }): DataTransfer {
     return {
+      getData: (type: string) => (type === "text/plain" ? options.text ?? "" : ""),
       files: options.files ?? [],
       items: (options.items ?? []).map((entry) => ({
         kind: entry.kind,
@@ -326,6 +329,25 @@ describe("what a paste offers, and from which list", () => {
       ),
     ).toEqual([]);
     expect(imageFilesFrom(null)).toEqual([]);
+  });
+
+  /*
+    Dev2, 2026-10-11, in the paste report: Word, Excel, Numbers and Google
+    Sheets put a picture of the copied text beside the text, and the paste took
+    the picture and dropped the words.
+  */
+  test("a paste that carries text pastes the text, even with a picture beside it", () => {
+    const png = file("image/png");
+    expect(pastedImagesFrom(transfer({ files: [png], text: "cell one\tcell two" }))).toEqual([]);
+    // A drop of the same thing is still the file somebody dragged in.
+    expect(imageFilesFrom(transfer({ files: [png], text: "cell one" }))).toEqual([png]);
+  });
+
+  test("a screenshot, with no text on the clipboard, still pastes as an image", () => {
+    const png = file("image/png");
+    expect(pastedImagesFrom(transfer({ files: [png] }))).toEqual([png]);
+    expect(pastedImagesFrom(transfer({ files: [png], text: "  \n" }))).toEqual([png]);
+    expect(pastedImagesFrom(null)).toEqual([]);
   });
 });
 

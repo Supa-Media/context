@@ -18,6 +18,7 @@ import {
 } from "../features/console/map/live/engine/camera";
 import { buildLayout } from "../features/console/map/live/engine/layout";
 import { crumbsOf } from "../features/console/map/live/ui/breadcrumb";
+import { trailAfterScope, workspaceMenuItems, workspacePick } from "../features/console/map/live/ui/mapControls";
 import { createMapEngine } from "../features/console/map/live/engine";
 import { fakeCanvas, palette, para } from "./liveMapFixture";
 
@@ -152,6 +153,35 @@ describe("the breadcrumb over the map", () => {
     expect(crumbsOf({ trail: ["Personal", "Projects"], stops: stopsOne }, false).map((c) => c.name)).toEqual(["Personal", "Projects"]);
     expect(crumbsOf({ trail: ["All workspaces", "Personal"], stops: stopsAll }, false).map((c) => c.name)).toEqual(["Personal"]);
     expect(crumbsOf({ trail: [], stops: stopsOne }, true)).toEqual([]);
+  });
+});
+
+describe("the trail beside the workspace menu", () => {
+  const stopsAll = { all: 0, workspace: 0.3, folders: 0.6, notes: 1 };
+  const stopsOne = { workspace: 0, folders: 0.5, notes: 1 };
+
+  test("one workspace: the menu names it, so the trail starts at the folder", () => {
+    const crumbs = crumbsOf({ trail: ["Personal", "Projects"], stops: stopsOne }, true);
+    expect(trailAfterScope(crumbs, false)).toEqual([{ name: "Projects", to: "folders" }]);
+    expect(trailAfterScope(crumbsOf({ trail: ["Personal"], stops: stopsOne }, true), false)).toEqual([]);
+  });
+
+  test("every workspace: the trail keeps the workspace, so it can zoom back out to it", () => {
+    const crumbs = crumbsOf({ trail: ["All workspaces", "Personal", "Projects"], stops: stopsAll }, true);
+    expect(trailAfterScope(crumbs, true).map((c) => c.name)).toEqual(["Personal", "Projects"]);
+  });
+
+  test("the menu ticks the workspace drawn, or All my workspaces", () => {
+    const workspaces = [
+      { id: "a", slug: "seyi", displayName: "seyi", kind: "personal" as const },
+      { id: "b", slug: "supa", displayName: "Supa", kind: "shared" as const },
+    ];
+    const one = workspaceMenuItems({ scope: "one", many: true, selected: workspaces[0], workspaces });
+    expect(one.map((i) => [i.label, i.checked])).toEqual([["seyi", true], ["Supa", false], ["All my workspaces", false]]);
+    const all = workspaceMenuItems({ scope: "all", many: true, selected: workspaces[0], workspaces });
+    expect(all.map((i) => i.checked)).toEqual([false, false, true]);
+    expect(workspacePick(one[1].id)).toEqual({ kind: "one", workspaceId: "b" });
+    expect(workspacePick(one[2].id)).toEqual({ kind: "all" });
   });
 });
 

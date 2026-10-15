@@ -43,10 +43,9 @@ import type { SettingsSectionKey } from "../settings/sections";
  * "the back button has to mean something"), so this union is the set of URLs
  * one context can be showing, minus the context segment they share:
  *
- *  - **`path`** — a note or a folder, and with it a channel-day and a
- *    contact page. Those are addressed by path too (`classifyCommsPath`), so
- *    they came along the moment the other two kinds did rather than needing a
- *    kind each.
+ *  - **`path`** — a note or a folder, and with it a channel-day. That is
+ *    addressed by path too (`classifyCommsPath`), so it came along the moment
+ *    the other two kinds did rather than needing a kind of its own.
  *  - **`settings`** — the overlay, *per section*. `?settings=storage` and
  *    `?settings=ingestion` are different URLs and a person moving between them
  *    has moved; collapsing them to one "settings" place would make `‹` skip a

@@ -12,7 +12,9 @@ import {
   type NativeSyntheticEvent,
   type Role,
 } from "react-native";
-import { rank, type PaletteItem } from "../../console/files/palette";
+import { paletteKey, rank, type PaletteItem } from "../../console/files/palette";
+import { mergeRanked } from "./paletteMerge";
+import { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { layout } from "../tokens";
 import { useColors, useThemedStyles } from "../theme";
@@ -21,6 +23,7 @@ import { Text } from "./Text";
 import { makeStyles } from "./PaletteStyles";
 import { PaletteSheet, type PaletteLookIn } from "./PaletteSheet";
 import { usePaletteKeys } from "./usePaletteKeys";
+import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 
 /**
  * One filterable, keyboard-driven list, behind every surface that needs one.
@@ -182,6 +185,14 @@ export interface PaletteSearch {
    * rest of this context".
    */
   emptyMessage?: string;
+  /**
+   * The search's answer is the ranking: once it has answered, its rows are
+   * drawn in its own order with the loaded name matches folded in
+   * (`mergeRanked`), rather than under them. ⌘K's search of every workspace.
+   */
+  ranked?: boolean;
+  /** What the strip says while the search runs, where "the rest of this workspace" is wrong. */
+  searchingText?: string;
 }
 
 export interface PaletteProps {
@@ -219,81 +230,20 @@ export interface PaletteProps {
    * keystroke exactly when the overlay has failed to answer.
    */
   onSeeAll?: (query: string) => void;
-  /**
-   * Hand the query to the agent, and open the panel it answers in.
-   *
-   * Absent on every surface with no panel to answer in — a phone, the landing
-   * page's picture of the console — and the row is absent with it, which is
-   * the same rule `onSeeAll` follows and the reason neither is a button in the
-   * chrome: a row that exists only where it works is a row the keyboard and
-   * the pointer agree about.
-   */
-  onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
   /** Under the field: what the search is narrowed to, and the way to widen it. */
   scopeBar?: ReactNode;
+  /** Beside the field on a pointer layout, above the scope bar on a phone: ⌘K's timing pill. */
+  fieldAccessory?: ReactNode;
   /** A phone's Look in chips and folder and tag results; ignored on a pointer layout. */
   lookIn?: PaletteLookIn;
+  /** Typed filters (⌘K's `in:`): suggestions while one is typed, chips once picked. */
+  filters?: PaletteFilters;
 }
 
-/**
- * The id of the "See all results" row.
- *
- * A real `PaletteItem` so it lives in the one flat `matches` array the arrows,
- * the scroll arithmetic and Enter all walk — a row rendered outside that list
- * would be a row the keyboard cannot reach, which is the same defect as a
- * button drawn where a phone cannot see it. Prefixed so it cannot collide with
- * a note path or a command name.
- */
-export const SEE_ALL_ID = "\u0000see-all";
-
-/** The row, or `null` where there is nothing more to see. */
-export function seeAllItem(query: string, offered: boolean): PaletteItem | null {
-  const trimmed = query.trim();
-  if (!offered || trimmed === "") return null;
-  return {
-    id: SEE_ALL_ID,
-    label: `See all results for “${trimmed}”`,
-    detail: "Every workspace you can reach",
-    kind: "command",
-  };
-}
-
-/**
- * The other handoff: hand the query to the agent instead of to search.
- *
- * `SEE_ALL_ID`'s reasoning, for a second destination. The two are genuinely
- * different questions — "find the note called this" and "answer this" — and
- * the palette is where somebody has already typed the words for either.
- *
- * ## Why it is below `See all` and not above
- *
- * Because the palette is a navigator first. Somebody typing `pricing` almost
- * always wants the note, and a row that answers a question costs a model call
- * and several seconds, so it must never be what Enter reaches by accident. The
- * ordering is the whole guard: the cursor rests on the first row, and this is
- * the last one.
- *
- * The one case where it is a good default is the one where nothing matched —
- * and that case needs no special rule, because the two handoff rows are then
- * the only rows and `See all` is still the first of them. A person who wanted
- * an answer presses ↓ once, which is exactly the cost of the second-best
- * guess.
- */
-export const ASK_ID = "\u0000ask";
-
-/** The row, or `null` where there is nobody to ask. */
-export function askItem(query: string, offered: boolean): PaletteItem | null {
-  const trimmed = query.trim();
-  if (!offered || trimmed === "") return null;
-  return {
-    id: ASK_ID,
-    label: `Ask about “${trimmed}”`,
-    detail: "Answers from your notes, in the panel",
-    kind: "command",
-  };
-}
+export { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
+export type { PaletteFilters } from "./PaletteFilterTokens";
 
 /* -------------------------------------------------------------------------- */
 /*                                  palette                                   */
@@ -307,11 +257,12 @@ export function Palette({
   noMatchMessage,
   search,
   onSeeAll,
-  onAsk,
   onChoose,
   onDismiss,
   scopeBar,
+  fieldAccessory,
   lookIn,
+  filters,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -330,10 +281,17 @@ export function Palette({
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
   const rowHeight = touch ? TOUCH_ROW_HEIGHT : POINTER_ROW_HEIGHT;
 
-  const untyped = query.trim() === "" && recent !== undefined && recent.length > 0;
+  /*
+    A filter being typed ("rent in:ac") turns the list into its suggestions,
+    and only the words before it are searched; with none, the field is the query.
+  */
+  const typing = useMemo(() => filters?.suggest(query) ?? null, [filters, query]);
+  const words = typing?.rest ?? query;
+
+  const untyped = words.trim() === "" && recent !== undefined && recent.length > 0;
   const ranked = useMemo(
-    () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(query, items)),
-    [untyped, recent, query, items],
+    () => (untyped ? recent.map((item) => ({ item, score: 0, ranges: [] })) : rank(words, items)),
+    [untyped, recent, words, items],
   );
 
   /**
@@ -377,7 +335,13 @@ export function Palette({
    * what the *copy* is about. Keeping them separate is what lets the handoff
    * be a real row in the list without it counting as having found something.
    */
-  const found = local.length + remote.length;
+  const answeredInOrder =
+    search?.ranked === true && (search.state === "ready" || search.state === "indexing");
+  const merged = useMemo(
+    () => (answeredInOrder && search !== undefined ? mergeRanked(ranked, search.items) : null),
+    [answeredInOrder, ranked, search],
+  );
+  const found = merged === null ? local.length + remote.length : merged.length;
 
   /**
    * One list for the arrows and for Enter, so a keyboard walks into the search
@@ -393,28 +357,22 @@ export function Palette({
     () => seeAllItem(query, onSeeAll !== undefined),
     [query, onSeeAll],
   );
-  const ask = useMemo(() => askItem(query, onAsk !== undefined), [query, onAsk]);
   const matches = useMemo(() => {
-    const rows = [...local, ...remote];
-    /*
-      Both handoffs at the end, search before ask, and the order is the guard
-      rather than a preference — see `askItem`. A `filter(Boolean)` over a
-      fixed pair rather than two conditionals, so adding a third destination
-      is one entry in the list rather than a branch.
-    */
-    const tail = [handoff, ask].filter((item): item is PaletteItem => item !== null);
-    if (tail.length === 0) return rows;
-    return [
-      ...rows,
-      ...tail.map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] })),
-    ];
-  }, [local, remote, handoff, ask]);
+    const unranked = (item: PaletteItem) => ({ item, score: 0, ranges: [] as readonly [number, number][] });
+    if (typing !== null) return typing.items.map(unranked);
+    const rows = merged ?? [...local, ...remote];
+    // Under an empty field the filters follow Recent, so Enter still opens the last note.
+    const idle = query.trim() === "" && filters?.idle ? filters.idle.items.map(unranked) : [];
+    // The handoff is last, so it is never what Enter reaches by accident.
+    if (handoff === null) return [...rows, ...idle];
+    return [...rows, ...idle, unranked(handoff)];
+  }, [typing, merged, local, remote, handoff, query, filters]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
     if (!onSearchQuery) return;
-    onSearchQuery(query);
-  }, [onSearchQuery, query]);
+    onSearchQuery(words);
+  }, [onSearchQuery, words]);
 
   /**
    * The highlight is always on a row that exists. `cursor` is intent — where
@@ -431,13 +389,22 @@ export function Palette({
    * id into `onChoose` would have every caller writing the same guard, and the
    * one that forgot would try to open a note called `\u0000see-all`.
    */
+  const open = useCallback(
+    (item: PaletteItem) => {
+      if (item.id === SEE_ALL_ID) onSeeAll?.(query);
+      else if (item.kind === "filter" && filters !== undefined) {
+        // A filter is picked into the field, which keeps the caret.
+        setQuery(filters.pick(item, query));
+        setCursor(0);
+        input.current?.focus();
+      } else onChoose(item);
+    },
+    [onChoose, onSeeAll, query, filters],
+  );
   const choose = useCallback(() => {
     const match = matches[selected];
-    if (match === undefined) return;
-    if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-    else if (match.item.id === ASK_ID) onAsk?.(query);
-    else onChoose(match.item);
-  }, [matches, selected, onChoose, onSeeAll, onAsk, query]);
+    if (match !== undefined) open(match.item);
+  }, [matches, selected, open]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -496,9 +463,14 @@ export function Palette({
       ref={input}
       value={query}
       onChangeText={(next) => {
-        setQuery(next);
+        setQuery(filters ? filters.absorb(next) : next);
         // A new query is a new list; the highlight belongs on its top row.
         setCursor(0);
+      }}
+      onKeyPress={(event) => {
+        // Backspace in an empty field takes off the last filter chip, as in Slack.
+        const last = filters?.active[filters.active.length - 1];
+        if (event.nativeEvent.key === "Backspace" && query === "" && last !== undefined) filters?.remove(last.key);
       }}
       onSubmitEditing={choose}
       autoFocus
@@ -523,7 +495,8 @@ export function Palette({
    * and "nothing matches" would be worse than what it replaced.
    */
   const emptyText = (() => {
-    if (search?.state === "searching") return "Searching the rest of this workspace…";
+    if (typing !== null) return typing.empty;
+    if (search?.state === "searching") return search.searchingText ?? "Searching the rest of this workspace…";
     if (search?.state === "indexing") {
       return "This workspace is still being indexed. Try again in a moment.";
     }
@@ -535,7 +508,7 @@ export function Palette({
   })();
 
   /** The label above the search half, when there is a search half. */
-  const searchNote = remote.length > 0 ? (search?.heading ?? "In your notes") : null;
+  const searchNote = merged === null && remote.length > 0 ? (search?.heading ?? "In your notes") : null;
 
   /**
    * The shed-note caveat, fixed above the list rather than inside it.
@@ -594,21 +567,26 @@ export function Palette({
         which is the one those states were written for.
       */}
       {looked?.places}
-      {notes && found === 0 ? (
+      {notes && (typing !== null ? typing.items.length === 0 : found === 0) ? (
         <View style={styles.empty} testID="palette-empty">
           <Text variant="rowSub">{emptyText}</Text>
         </View>
       ) : null}
       {(notes ? matches : []).map((match, index) => (
-        <Fragment key={`${match.item.kind}:${match.item.id}`}>
+        <Fragment key={paletteKey(match.item)}>
           {/*
             The divider between what was already loaded and what searching the
             whole context found. Rendered at the boundary rather than as a
             wrapper, so the flat `matches` list the keyboard walks stays flat.
           */}
-          {index === local.length && searchNote !== null ? (
+          {index === local.length && searchNote !== null && typing === null ? (
             <Text variant="eyebrow" style={styles.heading} testID="palette-search-heading">
               {searchNote}
+            </Text>
+          ) : null}
+          {match.item.kind === "filter" && (index === 0 || matches[index - 1].item.kind !== "filter") ? (
+            <Text variant="eyebrow" style={styles.heading} testID="palette-filters-heading">
+              {typing?.heading ?? filters?.idle?.heading}
             </Text>
           ) : null}
           <PaletteRow
@@ -617,9 +595,7 @@ export function Palette({
             touch={touch}
             onPress={() => {
               setCursor(index);
-              if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
-              else if (match.item.id === ASK_ID) onAsk?.(query);
-              else onChoose(match.item);
+              open(match.item);
             }}
             testID={`palette-row-${index}`}
           />
@@ -631,16 +607,16 @@ export function Palette({
         on found rows for the same reason as the block above: with none, the
         empty text already says it, and both would say it twice.
       */}
-      {found > 0 && search?.state === "searching" ? (
+      {found > 0 && typing === null && search?.state === "searching" ? (
         <View style={styles.empty} testID="palette-searching">
-          <Text variant="rowSub">Searching the rest of this workspace…</Text>
+          <Text variant="rowSub">{search.searchingText ?? "Searching the rest of this workspace…"}</Text>
         </View>
       ) : null}
     </ScrollView>
   );
 
   const heading =
-    emptyHeading && notes && query.trim() === "" && matches.length > 0 ? (
+    emptyHeading && notes && query.trim() === "" && found > 0 ? (
       <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
         {emptyHeading}
       </Text>
@@ -651,7 +627,8 @@ export function Palette({
 
   if (touch) {
     return (
-      <PaletteSheet field={field} onDismiss={onDismiss}>
+      <PaletteSheet field={<><FilterTokens filters={filters} />{field}</>} onDismiss={onDismiss}>
+        {fieldAccessory}
         {scopeBar}
         {looked?.chips}
         {heading}
@@ -686,7 +663,9 @@ export function Palette({
         >
           <View style={styles.panelHeader}>
             <Icon name="search" size={16} color={colors.muted} />
+            <FilterTokens filters={filters} />
             {field}
+            {fieldAccessory}
           </View>
           {scopeBar}
           {heading}

@@ -252,7 +252,9 @@ describe("the console's search, out of the projection", () => {
     expect(found.hits).toEqual([]);
   });
 
-  test("a refused projection leaves a working search", async () => {
+  // Answered from the database alone (decided by the owner, 2026-10-13): a
+  // refused one says the index is catching up and never asks the bucket's.
+  test("a refused projection leaves a working search that says it is behind", async () => {
     const store = bucket();
     const stub = await projected(store);
     stub.fail = "UNAUTHORIZED";
@@ -262,10 +264,9 @@ describe("the console's search, out of the projection", () => {
       { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
-    expect(found.hits.map((hit) => hit.path).sort()).toEqual([
-      "1-projects/shared-plan.md",
-      "2-areas/health.md",
-    ]);
+    expect(found.hits).toEqual([]);
+    expect(found.indexIncomplete).toBe(true);
+    expect(found.answeredBy).toBe("none");
   });
 
   /**

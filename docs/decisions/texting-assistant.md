@@ -54,8 +54,10 @@ whoever opened the link receive the texter's questions in their own notes.
 The token is stored hashed, lives 30 minutes, one per phone, ten an hour, and
 an hourly sweep removes expired ones with the number they name. Texting
 `UNLINK` disconnects the phone it came from: holding the phone linked it, so
-it is enough to unlink it. The assistant introduces itself as "your Context"
-(decided by the owner, 2026-10-07). The link goes out as a text of its own
+it is enough to unlink it. The assistant is **Tex** (decided by the owner,
+2026-10-10, replacing "your Context" of 2026-10-07): Context stays the product
+and the notes, Tex is the assistant people text, and `tex` is a reserved name.
+Code identifiers (`apps/agent`, this file) keep their names. The link goes out as a text of its own
 after the greeting, because iMessage draws a tappable card only for a message
 that is nothing but a link. Tests: `textLinkInvites.test.ts`,
 "someone else opening a forwarded link gets a code only that phone can use";
@@ -159,6 +161,44 @@ bubble under a finished answer. Tests: `format.test.ts`; `inbox.test.ts`
 after"); `agentBuiltin.test.mjs` ("a texting grant's turn is told it is writing
 a text").
 
+### Earlier turns are words only, and the model is told so (2026-10-09)
+
+A conversation's history is the words exchanged, never a tool's result
+(`conversation.js`): a result can quote a note the next turn's grant may no
+longer reach. So the model sees its earlier answers with no tool call behind
+them, and a model that notices concludes it never looked. Round three of the
+texting benchmark caught Haiku doing exactly that on a "thanks!": in four of
+twelve runs it took back a correct dentist time with "I didn't check your
+notes before answering", when its first turn had read the note. A turn that
+carries history now says in the system prompt that the lookups behind the
+earlier answers happened and are not shown, and that an earlier answer is
+never taken back for lack of them (`prompt.js`, `CONTINUED`). The decision
+to keep tool results out of the history stands; this is the model being told
+what the history is.
+
+**What a simplification would cost:** dropping the line brings the retraction
+back on the second text of any conversation; putting tool results in the
+history instead would hand a later turn a note its grant may no longer reach.
+Test (`agentTurnLimits.test.mjs`): "a turn with earlier turns is told their
+lookups happened".
+
+**The names of the tools each answer used are kept too (2026-10-10).** The
+line alone was not enough: live on staging, Haiku opened two later answers
+with "I need to correct my last reply: I didn't open Wikipedia in this
+conversation" after a turn that had driven the browser to the article. An
+answer in the history now carries the names of the tools it called
+successfully, and nothing else about them (no arguments, no results, so the
+grant reason above still holds), and the next turn is told, per answer, what
+it used: `- "When was Ada Lovelace born?": you used browse.` (a 60-character
+excerpt of the person's own question). Pooled names for the whole
+conversation were tried first and did not stop it, because a retraction
+already in the history is copied by the next turn; so the prompt also says
+that an earlier text claiming it hadn't checked something was the mistake.
+Tests
+(`agentConversation.test.mjs`, `agent.test.mjs`): "an answer keeps the names
+of the tools it used, and nothing else about them", "a texted answer keeps the
+names of the tools it used, never their arguments".
+
 ### Every agent turn is logged by name and duration, never by text
 
 The owner, 2026-10-07: "make sure that we are logging these things so that
@@ -196,33 +236,56 @@ exception to two rules, bounded as follows:
   moment it fills a form, and its plaintext is never put in a model's context,
   a tool result, a log or a message.
 
-The vault is not built yet. When it is, the tests must prove both bounds: a
-bucket read never yields plaintext, and no model request ever carries a vault
-value.
+Built 2026-10-10, with personal and shared vaults and sharing as a person's
+own action: [the vault](./texting-assistant/vault.md).
+
+Tex's daily transcript of each person's texts, thinking and tool calls in
+their own `tex/transcripts/` folder, written as each text is answered:
+[transcripts](./texting-assistant/transcripts.md).
+
+Golden tasks (jobs Tex must always get right, gating a setup), the task
+skills it reads before doing one, and why a read skill may vouch for an
+address: [golden tasks](./texting-assistant/golden-tasks.md).
 
 ### The built-in model is for Premium, capped, and metered like Jev
 
-Decided by the owner, 2026-10-06 ("Premium, capped"). When a texter has
-connected no Anthropic or OpenAI account of their own, a Premium workspace's
+Decided by the owner, 2026-10-06 ("Premium, capped"). A Premium workspace's
 texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
 Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
-to swap it), up to 100 questions a day. Anyone
-else is told to connect an account.
+to swap it), up to 100 questions a day. Anyone else is told the assistant is
+not available to them.
 
-- A connected key always wins: the built-in model is asked for only after
-  every account of the person's own came back empty.
+**Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
+assistant uses only the built-in model.** People could once save their own
+Anthropic or OpenAI key, and a saved key was used before ours. The Settings
+page went first (#1465); then the control plane's connect, list and disconnect
+functions, `/gateway/provider` and the gateway's own provider calls were
+removed, and `providerCredentials` is emptied by one run of the internal
+mutation `functions/providers:deleteSavedKeys` (`npx convex run --prod
+functions/providers:deleteSavedKeys '{}'`, which deletes in batches and
+reschedules itself until the table is empty, logging counts only). The table
+stays in the schema until production has run it, so the deploy does not fail
+on existing rows; then it can be dropped. A request to `/agent` that still
+names a provider gets `no_provider`, the refusal an unconnected one always
+got, and is never answered on ours. Tests: `apps/convex/__tests__/
+providerKeysDeletion.test.ts` (every row, across workspaces and batches, and
+no other table) and `apps/mcp/test/agent.test.mjs` ("a request naming any
+provider is refused as no_provider, and no model is called").
+
 - The gateway makes the call, because the turn's tools run there, but the
   control plane decides whether it may (`functions/builtinModel.ts`), through
   the same switches and `jevUsage` meter as every other paid inference
   feature. The kill switch is `admin.setJevSwitch({ feature: "assistant",
   off: true })`. The turn is counted when it is allowed, before anything is
   spent, and its token counts are reported afterwards; never its text.
-- Only a grant for the texting client may start one. The app's agent panel
-  still needs a connected account until the owner says otherwise.
+- Only a grant for the texting client or the routine runner may start one.
+  The app's agent panel has no model since keys were removed; widening the
+  set to it is the owner's call.
 - The model is ours to pick on our bill: a `model` named in the request is
-  ignored for a built-in turn.
-- A gateway with no `AI` binding (self-hosting without Workers AI) has no
-  built-in model and refuses the turn as "no account connected".
+  ignored.
+- A gateway with neither an `AI` binding nor an AI gateway (self-hosting
+  without either) has no built-in model and refuses every turn as
+  `no_provider`.
 
 Note text read by tools reaches the model in flight and is kept nowhere, the
 same seam as [inference](./storage-and-credentials/inference.md).
@@ -342,20 +405,107 @@ So the model never chooses an address:
   does; a pick it is at least 60% sure of opens in the same call, saving the
   writing model a round. It chooses only among links the guard already
   allows, counts toward the 5 pages, and is re-checked by the guard. What it
-  reads is metered as `decisionTokens` at Clef's rate. A turn on the person's
-  own key never uses it, because nothing would meter it.
+  reads is metered as `decisionTokens` at Clef's rate. Every turn is a
+  built-in one since 2026-10-10, so every turn may use it.
 - Saved runs replayed later are deliberately not used: a page can plant
   instructions in that memory. Any cache added later is per workspace and
   holds no page or note text.
 - A search result's address may be opened like a link on a page: it was in
   the search provider's index before the turn began. An address written inside
   a result's snippet may not. See the next section.
+- Trusted sites (owner, 2026-10-11, after Tex refused chatgpt.com/auth/login
+  mid-setup): the production setup may name up to 20 sites in
+  `trusted_sites:` (`trustedSites.js`), and the model may open any page on
+  one of them or its subdomains without being given the address. It may add
+  nothing of its own to that address: no query string (`chatgpt.com/?q=…` is
+  refused) and no payload in the path — the path has to be a plain route, at
+  most four word-shaped segments and 64 characters (`isRoute`), because the
+  path is the half a server logs and refusing only the query left
+  `chatgpt.com/<the notes>` open. Lookalike hosts, ports and credentials are
+  refused too. A trusted site is one staff chose in the pinned workspace,
+  never a stranger, and the list is edited like the skills.
+
+  What it does not close, stated so nobody reads more into it: a real route
+  may be opaque (`/g/g-p-68a1b2c3`), so no rule here tells a short id from a
+  short secret, and 64 characters of route is 64 characters the model chose —
+  the same residual as its choosing which trusted site to open. The test that
+  fails if this is reversed is "a trusted site carries a route the model
+  chose, never a payload in the path" in `agentTrustedSites.test.mjs`.
+- Open web (owner, 2026-10-11: "let's accept the risk like these products",
+  after learning that Instinct and OpenAI's agents browse freely): with
+  `open_web: yes` in the production setup, the model may open any public
+  https address it chooses, query included. **This knowingly reopens the
+  exfiltration this section was written to close**: a page can ask the
+  assistant to put the person's notes in an address. What still holds:
+  saved passwords are filled by the gateway and never seen, IP addresses,
+  internal names, ports and credentials are refused, and removing the line
+  from the setup note closes it again with no deploy. Since 2026-10-14 it
+  also lifts the typing rule and raises the page budget; see the next
+  section.
 
 **What a simplification would cost:** letting the model open any address it
 writes turns every page it reads into a way to post the person's notes to a
 stranger. The test that fails is `apps/mcp/test/agentComputer.test.mjs` ("an
 address a page told the agent to open, carrying a note, is refused and never
 fetched").
+
+### The agent can click and type, and types only what the person vouched for
+
+Decided 2026-10-10, when the owner asked for Tex to use a browser by text.
+Beside `open_page`, the texting assistant has `browse`
+(`apps/mcp/src/agent/browse.js`): one browser per question that opens a page,
+clicks, types, picks options and goes back across several calls, driven by
+`infra/site-shots` POST `/browse` on Cloudflare Browser Rendering.
+
+Typing sends words to whoever runs the page, so "type their notes into this
+box" is the exfiltration the address guard closes, by another door. So:
+
+- `goto` keeps the address guard above, and shares its page budget.
+- Words the person wrote this question may be typed anywhere (every word of
+  the text must be theirs). Anything else may be typed only on a site they
+  named in the message, and the browser re-checks the page's host at the
+  moment it types, so a redirect in between gets nothing.
+- Clicking is not limited: where a click leads was written by the page before
+  the agent read anything, the same reason a link on a page may be opened.
+- A reading numbers what can be pressed or typed into and never includes what
+  a field holds, only whether it holds something. The vault's fill step
+  (`fillSecret`) is the gateway's, never a tool the model calls; the browser
+  types the value only on the entry's exact origin.
+- The session id stays in the turn's closure: the model never sees it, and the
+  browser is closed when the question is answered (it closes itself when idle
+  regardless). At most 10 steps a call and 40 a question.
+
+All of this is the default. Under `open_web: yes` (owner, 2026-10-14) the
+typing rule is lifted and the step and page budgets raised:
+[open web lifts the browser's limits](./texting-assistant/open-web-browser.md).
+
+**Browserbase, and handing the browser to the person.** Decided by the owner
+the same day: Browserbase is the browser, stateless (no Contexts,
+`recordSession: false`). It sits in `infra/site-shots`
+(`src/browserbase.ts`), which holds its key, and switches on by itself once
+`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
+Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
+outlives the question until five idle minutes pass (`src/idle.ts`), and is found
+again by a tag, an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
+ours stores a session id and no one can name another person's browser. When
+the person must act themselves (sign in, a code, a captcha), the model asks
+for a `handoff`; the gateway adds the link to the text itself, so the model
+never holds it, and it is kept out of the saved conversation. Since
+2026-10-11 that link is the person's own page, not Browserbase's live view:
+[Tex's computer](./texting-assistant/computer.md).
+
+A Browserbase billing refusal (402, every texted browser job from
+2026-10-13) is answered 402 by the screenshot Worker, which logs only the
+status; the gateway does that question on Cloudflare's browser, which cannot be
+handed over, and skips Browserbase for ten minutes
+(`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
+
+**What a simplification would cost:** letting the model type anything
+anywhere lets a page collect the person's notes through a search box. The
+tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,
+only the person's own words may be typed") and
+`infra/site-shots/src/browse.test.ts` ("types nothing on a site the person did
+not name", "fills a secret only on the entry's exact origin").
 
 ### The agent searches the web on its own
 
@@ -447,18 +597,15 @@ invented data.
   texting turn that this is a text).
 - A file that is missing, does not validate, or is held back means the
   built-in words for that job. Never an error.
-- Its model is used for a built-in turn only, and only when this deployment can
-  call it (`canRunBuiltin`). A person's own connected account keeps their model:
-  their bill, their model. The gateway call is filed under the file's version,
-  and the meter reports the model that answered.
+- Its model is used only when this deployment can call it (`canRunBuiltin`).
+  (Until 2026-10-10 a person's own connected key kept its own model; those keys
+  are gone.) The gateway call is filed under the file's version, and the meter
+  reports the model that answered.
 
-**What a simplification would cost:** letting the setup's model reach a person's
-own key would spend their account on a model they did not choose; using it
-without checking the deployment can call it turns every texted answer into an
+**What a simplification would cost:** using the setup's model without checking the deployment can call it turns every texted answer into an
 error on a self-hosted or gateway-less deployment; reading it with the gateway's
 own authority would hand members text `privacy.md` holds back from them. The
-tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a person's own
-key never takes the production model", "a production model this deployment
+tests that fail are in `apps/mcp/test/agentProduction.test.mjs` ("a production model this deployment
 cannot call falls back to the Workers AI default", "a production file privacy.md
 holds back from members falls back, and its owner still reads it").
 
@@ -467,6 +614,8 @@ holds back from members falls back, and its owner still reads it").
 Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md#setups-are-benchmarked-in-a-throwaway-world-on-invented-workspaces).
 
 ### A text has every MCP tool
+
+_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
@@ -486,7 +635,7 @@ withheld (`WITHHELD_TOOLS` is empty). The one tool it used to withhold,
 ([encryption](./encryption/teardown-and-revocation.md#there-is-no-key-export-over-mcp-decided-by-the-owner-2026-10-08)).
 The dispatcher in front of the
 client's also refuses any path into a dot folder or `privacy.md` and a
-malformed routine under `routines/` ([routines](./routines.md)). Everything
+malformed routine under `tex/routines/` or `routines/` ([routines](./routines.md)). Everything
 else, including whether the person may write in another workspace, is the
 client's dispatcher's, unchanged. The prompt tells the model to check its tool
 list before saying it can't do something, and to change notes only because
@@ -495,10 +644,15 @@ and a routine's own run still only propose.
 
 **What is accepted:** a note the agent reads can carry instructions, and a
 personal context takes email from strangers into `0-inbox/`. A steered turn can
-now do anything the person could through an MCP client, including minting a
+now do anything the person could through an MCP client — *inside the
+workspace*. The part of this paragraph that once read "including minting a
 public link, publishing the website, and having the gateway fetch an image
-address of the model's choosing (which reopens, for writes, the channel "The
-agent opens only addresses it was given" closes for reads). Every write is
+address of the model's choosing" was reversed by the owner on 2026-10-09: a
+call that would widen who can see something, after the turn has read a
+private note or anything from outside, is held until the person replies YES
+on the thread, and the gateway checks the reply rather than the model
+([agent-egress](./privacy-and-sharing/agent-egress.md)). A turn that read
+nothing still runs it, because the words were the person's. Every write is
 attributed to the texting client in the audit trail and kept in the note's
 history.
 
@@ -521,3 +675,11 @@ Moved to [The assistant texts like a capable friend, and the benchmark grades th
 ### A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)
 
 Moved to [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md#a-busy-provider-is-retried-a-failed-one-is-replaced-and-both-are-counted-2026-10-09).
+
+### A long task texts its progress, and may take longer than a question (2026-10-10)
+
+Moved to [texting-assistant/progress.md](./texting-assistant/progress.md).
+
+### What a person texts with their words reaches the model (2026-10-15)
+
+Moved to [texting-assistant/attachments.md](./texting-assistant/attachments.md).

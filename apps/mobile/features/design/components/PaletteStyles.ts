@@ -43,6 +43,8 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
     // The panel is the field; the browser's own focus ring drew a blue box inside it.
     outlineWidth: 0,
+    // Safari draws its focus ring whatever the width; only `none` stops it.
+    outlineStyle: "none" as never,
   },
   inputPointer: { fontSize: t.lede, paddingVertical: 13 },
   /**

@@ -80,10 +80,11 @@ const D1_TIMEOUT_MS = 8_000;
 /**
  * How big one batched request may get: statements, and bytes of SQL and
  * params. @seyi's 500-statement requests timed out even after its projection
- * was serialized (2026-10-09). Smaller transactions finish inside the D1
- * timeout while still using far fewer requests than one per statement.
+ * was serialized; 100-statement requests still timed out after 8 seconds
+ * during the Archive backfill (2026-10-09). Keep transactions small enough
+ * to finish while still using fewer requests than one per statement.
  */
-export const D1_BATCH_STATEMENTS = 100;
+export const D1_BATCH_STATEMENTS = 25;
 export const D1_GROUP_BYTES = 512 * 1024;
 
 /** Split statements into groups under both caps, in order. */

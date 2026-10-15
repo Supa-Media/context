@@ -14,10 +14,10 @@
  *    precedence is the gateway's documented order: a key on the request wins,
  *    and no key means Unified Billing.
  *
- * Neither is the customer's key. A person's own connected account never comes
- * here (`providers.js` spends it directly), and nothing in this file can be
- * pointed elsewhere by a caller: the address is built from two configured ids
- * that are checked against a strict shape, never from a request.
+ * Neither is the customer's key: people's own keys were deleted (the owner,
+ * 2026-10-10). Nothing in this file can be pointed elsewhere by a caller: the
+ * address is built from two configured ids that are checked against a strict
+ * shape, never from a request.
  *
  * ## Notes never stay in Cloudflare's logs
  *
@@ -30,8 +30,8 @@
  *
  * ## Errors are phrases
  *
- * As in `providers.js`: what a provider sends back on an error can quote the
- * request, so no body text ever reaches an error, a log line or the caller.
+ * What a provider sends back on an error can quote the request, so no body
+ * text ever reaches an error, a log line or the caller.
  * The one thing read from an error body is whether it says the credit balance
  * is too low, and that is reduced to a boolean before anything else happens.
  *
@@ -44,16 +44,30 @@ import { ProviderError, anthropicMessages } from "./providers.js";
 /** The Anthropic API version this build is written against. */
 const ANTHROPIC_VERSION = "2023-06-01";
 
-/** How much of the model's answer one round may produce. */
-const MAX_OUTPUT_TOKENS = 2048;
+/**
+ * How much one round may produce: the models' own ceiling (128K output on
+ * every Claude 5.5 model). `max_tokens` caps the thinking *and* the answer
+ * together, and tokens are billed as used, not as allowed, so a lower cap
+ * only cuts a round off mid-thought. The owner, 2026-10-14: "I see no reason
+ * why we are capping it less than the allowed 128K". The round's deadline
+ * (`ROUND_TIMEOUT_MS`) is what bounds a runaway round, and a cut-off one is
+ * marked in the turn log (`cut`, `turn.js`).
+ */
+const MAX_OUTPUT_TOKENS = 128_000;
 
-/** The most a caller may ask for with `maxTokens`. */
-const MAX_CALLER_OUTPUT_TOKENS = 8192;
+/** The most a caller may ask for with `maxTokens`: the same ceiling. */
+const MAX_CALLER_OUTPUT_TOKENS = MAX_OUTPUT_TOKENS;
+
+/** How hard a model thinks (`output_config.effort`), when a setup says (`production.js`). */
+export const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+/** The answer blocks a later round hands back unchanged: thinking, and what it led to. */
+const REPLAYED_BLOCKS = new Set(["thinking", "redacted_thinking", "text", "tool_use"]);
 
 /** How long one round may take before it is abandoned. */
 const ROUND_TIMEOUT_MS = 60_000;
 
-/** The largest answer this worker will read, as in `providers.js`. */
+/** The largest answer this worker will read. */
 const RESPONSE_BYTE_CAP = 2_000_000;
 
 /**
@@ -147,7 +161,17 @@ function metadataHeader(metadata) {
  * rounds over a growing transcript, so each round reads the previous one's
  * prefix from cache at a tenth of the price.
  */
-export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice }) {
+/**
+ * The models that think by default (every Claude 5 model), where asking for
+ * the thinking in words changes only what comes back, never whether or how
+ * hard it thinks. An older model that thinks only when asked is never sent it.
+ */
+const THINKS_BY_DEFAULT = /^anthropic\/claude-(?:haiku|sonnet|opus|fable|mythos)-5(?:-\d+)?$/;
+
+/** `thinking.display`: "summarized" returns the thinking in words (`transcript.js`); the default leaves it empty. */
+const DISPLAYS = new Set(["summarized"]);
+
+export function gatewayBody({ model, system, messages, tools, maxTokens, toolChoice, effort, display }) {
   const toolList = tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -172,6 +196,8 @@ export function gatewayBody({ model, system, messages, tools, maxTokens, toolCho
     ...(typeof toolChoice === "string" && toolList.some((tool) => tool.name === toolChoice)
       ? { tool_choice: { type: "tool", name: toolChoice } }
       : {}),
+    ...(EFFORTS.has(effort) ? { output_config: { effort } } : {}),
+    ...(DISPLAYS.has(display) && THINKS_BY_DEFAULT.test(model) ? { thinking: { type: "adaptive", display } } : {}),
   };
 }
 
@@ -258,7 +284,7 @@ async function sendWithRetry(config, body, options, fetchImpl, wait) {
 }
 
 /**
- * One round through the gateway, in the shape `requestCompletion` returns,
+ * One round through the gateway, in the shape `providers.js` describes,
  * plus token counts and who paid: `"credit"` (the plan) or `"cloudflare"`.
  *
  * @param {{model: string, system: string, messages: Array, tools: Array}} call
@@ -322,6 +348,12 @@ export async function requestViaGateway(call, config, options = {}) {
         name: block.name,
         args: block.input && typeof block.input === "object" && !Array.isArray(block.input) ? block.input : {},
       })),
+    // The round's own blocks, thinking first, when it thought: the next round
+    // hands them back exactly as they came (`providers.js`), so the model keeps
+    // its reasoning across tool calls instead of starting over each round.
+    content: blocks.some((block) => block?.type === "thinking" || block?.type === "redacted_thinking")
+      ? blocks.filter((block) => REPLAYED_BLOCKS.has(block?.type))
+      : null,
     stop: parsed.stop_reason ?? null,
     usage: {
       input: count(usage.input_tokens),

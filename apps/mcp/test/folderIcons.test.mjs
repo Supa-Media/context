@@ -2,11 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FOLDER_ICONS_KEY,
+  TEX_FIGURE_ICON,
+  defaultFolderIcon,
   dropFolderIcons,
   iconsAfterDelete,
   iconsAfterMove,
   parseFolderIcons,
   remapFolderIcons,
+  remapIcons,
   serializeFolderIcons,
 } from "../../../packages/shared/src/folderIcons.cjs";
 
@@ -84,4 +87,80 @@ test("a store that throws never fails the move that asked", async () => {
   const broken = { async get() { throw new Error("down"); }, async put() { throw new Error("down"); } };
   assert.equal(await remapFolderIcons(broken, "a", "b"), null);
   assert.equal(await dropFolderIcons(broken, "a"), null);
+});
+
+test("built-in folders have a default emoji, only at the top level", () => {
+  assert.equal(defaultFolderIcon("0-inbox"), "📥");
+  assert.equal(defaultFolderIcon("inbox"), "📥");
+  assert.equal(defaultFolderIcon("1-projects"), "🏗️");
+  assert.equal(defaultFolderIcon("2-Areas"), "🛠️");
+  assert.equal(defaultFolderIcon("3-resources"), "📚");
+  assert.equal(defaultFolderIcon("4-archive"), "🗄️");
+  assert.equal(defaultFolderIcon("9-archive"), "🗄️");
+  assert.equal(defaultFolderIcon("5-teams"), "👥");
+  assert.equal(defaultFolderIcon("website"), "🖥️");
+  assert.equal(defaultFolderIcon("1-projects/inbox"), null);
+  assert.equal(defaultFolderIcon("1-projects/website"), null);
+  assert.equal(defaultFolderIcon("recipes"), null);
+  assert.equal(defaultFolderIcon("old-archive"), null);
+  assert.equal(defaultFolderIcon("todo.md"), null);
+  assert.equal(defaultFolderIcon("constructor"), null);
+});
+
+test("the folders the product files into inside the inbox show a default emoji", () => {
+  assert.equal(defaultFolderIcon("0-inbox/calendar"), "🗓️");
+  assert.equal(defaultFolderIcon("0-inbox/contacts"), "📇");
+  assert.equal(defaultFolderIcon("0-inbox/email"), "✉️");
+  assert.equal(defaultFolderIcon("0-inbox/forms"), "📝");
+  assert.equal(defaultFolderIcon("0-inbox/google-chat"), "💬");
+  assert.equal(defaultFolderIcon("0-inbox/imessage"), "📲");
+  assert.equal(defaultFolderIcon("0-inbox/meetings"), "🎙️");
+  assert.equal(defaultFolderIcon("inbox/memories"), "💭");
+  // Only one level under the inbox, only by exact name, only under the inbox.
+  assert.equal(defaultFolderIcon("0-inbox/email/archive"), null);
+  assert.equal(defaultFolderIcon("0-inbox/Email"), null);
+  assert.equal(defaultFolderIcon("1-projects/email"), null);
+  assert.equal(defaultFolderIcon("0-inbox/constructor"), null);
+  assert.equal(defaultFolderIcon("0-inbox/email.md"), null);
+});
+
+test("Tex's folder, its about note, its routines and each how-often folder show a default emoji", () => {
+  assert.equal(defaultFolderIcon("tex"), TEX_FIGURE_ICON);
+  assert.equal(defaultFolderIcon("tex/about-me.md"), "🪪");
+  assert.equal(defaultFolderIcon("tex/routines"), "🔁");
+  assert.equal(defaultFolderIcon("tex/routines/once"), "📌");
+  assert.equal(defaultFolderIcon("tex/routines/daily"), "☀️");
+  assert.equal(defaultFolderIcon("tex/routines/every-day"), "☀️");
+  assert.equal(defaultFolderIcon("tex/routines/weekly"), "📅");
+  assert.equal(defaultFolderIcon("tex/routines/biweekly"), "📅");
+  assert.equal(defaultFolderIcon("tex/routines/hourly"), "⏳");
+  assert.equal(defaultFolderIcon("tex/routines/every-30-minutes"), "⏱️");
+  assert.equal(defaultFolderIcon("tex/routines/monthly"), "🌙");
+  assert.equal(defaultFolderIcon("tex/routines/yearly"), "🎆");
+  // A name that means no cadence, a folder deeper down, and a tex/ that is not at the top are somebody's own.
+  assert.equal(defaultFolderIcon("tex/routines/someday"), null);
+  assert.equal(defaultFolderIcon("tex/routines/once/trip"), null);
+  assert.equal(defaultFolderIcon("tex/routines/daily/standup.md"), null);
+  assert.equal(defaultFolderIcon("1-projects/tex"), null);
+  assert.equal(defaultFolderIcon("tex/notes"), null);
+  assert.equal(defaultFolderIcon("tex/routines/constructor"), null);
+});
+
+test("remapIcons carries several note icons in one write", async () => {
+  const store = memory({ [FOLDER_ICONS_KEY]: serializeFolderIcons({ "a.md": "🅰️", "b.md": "🅱️", work: "💼" }) });
+  let puts = 0;
+  const put = store.put.bind(store);
+  store.put = async (...args) => { puts += 1; return await put(...args); };
+  await remapIcons(store, [{ from: "a.md", to: "work/a.md" }, { from: "b.md", to: "work/b.md" }]);
+  assert.equal(puts, 1);
+  assert.deepEqual(parseFolderIcons(store.objects.get(FOLDER_ICONS_KEY)), {
+    "work/a.md": "🅰️",
+    "work/b.md": "🅱️",
+    work: "💼",
+  });
+  assert.equal(await remapIcons(store, [{ from: "c.md", to: "d.md" }]), null);
+  assert.equal(puts, 1);
+  assert.equal(await remapIcons(store, []), null);
+  const broken = { async get() { throw new Error("down"); }, async put() { throw new Error("down"); } };
+  assert.equal(await remapIcons(broken, [{ from: "a.md", to: "b.md" }]), null);
 });

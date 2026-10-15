@@ -11,7 +11,10 @@ import { scheduleSignupAlert } from "./signupAlerts";
 import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { WAITLIST_JOINS_PER_HOUR } from "./waitlist";
-import { landingPageOf } from "@context/shared";
+import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
+import { waitlistConversionId } from "./lib/xConversion";
+import { phoneSignInPaused } from "./lib/emailProof";
+import { scheduleSignInAlert } from "./signInAlerts";
 
 /**
  * Signing in, and joining the waitlist, with a phone (Dev2, 2026-10-09:
@@ -55,6 +58,7 @@ const startStatus = v.union(
   v.literal("too_many"),
   v.literal("unavailable"),
   v.literal("failed"),
+  v.literal("paused"),
 );
 type StartStatus = typeof startStatus.type;
 
@@ -73,31 +77,37 @@ export async function phoneHolder(ctx: QueryCtx, phone: string): Promise<Id<"use
   return link?.userId ?? null;
 }
 
+const reservedValidator = v.object({
+  status: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many"), v.literal("paused")),
+  // On `joined` only: the id the page's X and Meta pixel events report.
+  conversionId: v.optional(v.string()),
+});
+type Reserved = typeof reservedValidator.type;
+
 /** Put `phone` on the waitlist, or say it already is. */
 async function joinWaitlist(
   ctx: MutationCtx,
   phone: string,
-  landing: string | undefined,
-): Promise<"joined" | "already" | "too_many"> {
+  origin: { landing?: string; campaign?: unknown },
+): Promise<Reserved> {
   const existing = await ctx.db
     .query("waitlist")
     .withIndex("by_phone", (q) => q.eq("phone", phone))
     .first();
-  if (existing !== null) return "already";
+  if (existing !== null) return { status: "already" };
   // The same deployment-wide cap as joining with an address.
   if (!(await tryConsumeRateLimit(ctx, { key: "waitlist.join", limit: WAITLIST_JOINS_PER_HOUR, windowMs: WINDOW_MS }))) {
-    return "too_many";
+    return { status: "too_many" };
   }
-  const page = landingPageOf(landing);
   const id = await ctx.db.insert("waitlist", {
     phone,
     status: "waiting",
     joinedAt: Date.now(),
     source: "login",
-    ...(page === undefined ? {} : { landing: page }),
+    ...signUpOrigin(origin),
   });
   await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
-  return "joined";
+  return { status: "joined", conversionId: waitlistConversionId(id) };
 }
 
 /**
@@ -105,23 +115,26 @@ async function joinWaitlist(
  * may. A phone that may not joins the waitlist instead, and is texted nothing.
  */
 export const reserveSend = internalMutation({
-  args: { phone: v.string(), landing: v.optional(v.string()) },
-  returns: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many")),
-  handler: async (ctx, { phone, landing }) => {
+  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator) },
+  returns: reservedValidator,
+  handler: async (ctx, { phone, ...origin }): Promise<Reserved> => {
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.lookup", limit: LOOKUPS_PER_HOUR, windowMs: WINDOW_MS }))) {
-      return "too_many";
+      return { status: "too_many" };
     }
-    if ((await phoneHolder(ctx, phone)) === null && !(await isPhoneAdmitted(ctx.db, phone))) {
-      return await joinWaitlist(ctx, phone, landing);
+    const holder = await phoneHolder(ctx, phone);
+    if (holder === null && !(await isPhoneAdmitted(ctx.db, phone))) {
+      return await joinWaitlist(ctx, phone, origin);
     }
+    // Paused by "This wasn't me": no text is spent on it.
+    if (holder !== null && (await phoneSignInPaused(ctx, holder))) return { status: "paused" };
     if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.sendTo:${phone}`, limit: SEND_PER_PHONE, windowMs: WINDOW_MS }))) {
-      return "too_many";
+      return { status: "too_many" };
     }
     if (!(await tryConsumeRateLimit(ctx, { key: "phoneSignIn.send", limit: SEND_PER_HOUR, windowMs: WINDOW_MS }))) {
       // Rolls back the other spends with it.
       throw new ConvexError({ code: "RATE_LIMITED", message: "too_many" });
     }
-    return "ok";
+    return { status: "ok" };
   },
 });
 
@@ -136,7 +149,14 @@ export const signInUser = internalMutation({
   returns: v.union(v.id("users"), v.null()),
   handler: async (ctx, { phone }) => {
     const held = await phoneHolder(ctx, phone);
-    if (held !== null) return held;
+    if (held !== null) {
+      // "This wasn't me" paused this phone: it signs nobody in until the
+      // person turns it back on from an email sign-in (`signInAlerts.ts`).
+      if (await phoneSignInPaused(ctx, held)) return null;
+      // Every email on the account hears about it (board k3).
+      await scheduleSignInAlert(ctx, held, phone);
+      return held;
+    }
     if (!(await isPhoneAdmitted(ctx.db, phone))) return null;
     const now = Date.now();
     const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
@@ -158,18 +178,20 @@ export const spendCheck = internalMutation({
 
 /** The sign-in page's first step: text a code, or put the phone on the list. */
 export const start = action({
-  // `landing` is the page the person saw; it is kept only if they join.
-  args: { phone: v.string(), landing: v.optional(v.string()) },
-  returns: v.object({ status: startStatus, phone: v.optional(v.string()) }),
-  handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string }> => {
+  // `landing` is the page the person saw and `campaign` the ad that sent
+  // them; both are kept only if they join.
+  args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator) },
+  returns: v.object({ status: startStatus, phone: v.optional(v.string()), conversionId: v.optional(v.string()) }),
+  handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string; conversionId?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
     if (!canTextCodes()) return { status: "unavailable", phone };
-    let reserved: "ok" | "joined" | "already" | "too_many";
+    let reserved: Reserved;
     try {
       reserved = await ctx.runMutation(internal.functions.phoneSignIn.reserveSend, {
         phone,
         ...(args.landing === undefined ? {} : { landing: args.landing }),
+        ...(args.campaign === undefined ? {} : { campaign: args.campaign }),
       });
     } catch (error) {
       if (error instanceof ConvexError && (error.data as { code?: string }).code === "RATE_LIMITED") {
@@ -177,7 +199,7 @@ export const start = action({
       }
       throw error;
     }
-    if (reserved !== "ok") return { status: reserved, phone };
+    if (reserved.status !== "ok") return { ...reserved, status: reserved.status, phone };
     const sent = await textCode(ctx, phone);
     if (sent.ok) return { status: "sent", phone };
     return { status: sent.reason === "invalid_phone" ? "invalid_phone" : sent.reason, phone };

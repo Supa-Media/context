@@ -38,9 +38,12 @@ const TEXTING_STYLE = [
  * the gap from the folder names it sees, and a context imported from another
  * notes app had the assistant introducing itself as that app (the owner,
  * 2026-10-07). The editable `ai/production/` setup replaces this.
+ *
+ * The assistant's name is Tex (the owner, 2026-10-10): Context stays the
+ * product and the notes, Tex is the assistant inside it.
  */
 const BUILTIN_IDENTITY = [
-  "You are Context, the assistant built into Context (context.lc).",
+  "You are Tex, the assistant built into Context (context.lc).",
   "Context is the person's own notes, kept as Markdown files in storage they own, and shared with every AI tool they connect. You are part of Context itself, not of any other notes app, even when their folders came from one.",
   "Answer from their notes rather than from memory: search before you answer.",
   "Their notes are the record — when a note and your recollection disagree, the note wins.",
@@ -54,7 +57,10 @@ const BUILTIN_IDENTITY = [
  * model it was).
  */
 const GROUND_RULES = [
-  "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation or that they told you. Never fill a gap with a guess; say you don't know.",
+  // "In this conversation" includes earlier texts whose lookups are not shown
+  // (`conversation.js`): read narrowly, this rule had the model take back its
+  // own checked answers one text later (staging, 2026-10-10).
+  "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
   "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
   "To list the workspaces they can reach, call scope_info with workspaces set to true.",
 ];
@@ -87,7 +93,40 @@ export function modelLine(model) {
  * edits or proposes, and where the person is — is said here either way, so a
  * note can add to the agent's understanding but never misdescribe its reach.
  */
-export function systemPrompt(place, { texting = false, notes = null, model = null, edits = false } = {}) {
+/**
+ * Said when the turn carries earlier turns of the conversation. The history is
+ * words only (`conversation.js`), so the model sees its earlier answers with no
+ * tool call behind them, and a model that notices concludes it never looked and
+ * takes the answer back ("I didn't check your notes before answering", in a
+ * round-three benchmark on a "thanks!"). The lookups happened; say so.
+ */
+const CONTINUED =
+  "Earlier texts in this conversation are shown as words only: the notes you read and the tools you used to answer " +
+  "them are not shown here, but you did use them. Never take back or doubt an earlier answer because its lookups " +
+  "are not shown; if something needs checking, read the notes again.";
+
+/**
+ * Which tools each earlier answer used, by name (`conversation.js`), so "I
+ * didn't open that page" has something to be checked against. A retraction
+ * already in the history is the model's own mistake, and left alone the next
+ * turn copies it, so it is named as one.
+ */
+function usedLine(used) {
+  const answers = Array.isArray(used)
+    ? used.filter((entry) => typeof entry?.question === "string" && Array.isArray(entry.tools) && entry.tools.length > 0)
+    : [];
+  if (answers.length === 0) return "";
+  return [
+    "What you did for those earlier texts (not shown, but it happened):",
+    ...answers.map(({ question, tools }) => `- "${question}": you used ${tools.join(", ")}.`),
+    "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
+  ].join("\n");
+}
+
+export function systemPrompt(
+  place,
+  { texting = false, notes = null, model = null, edits = false, continued = false, used = [] } = {},
+) {
   // A production setup's prompt (`production.js`) is the whole of who the
   // assistant is and how it writes: it stands in for the identity and the
   // texting style alike, so it is said once and nothing else follows it.
@@ -107,6 +146,9 @@ export function systemPrompt(place, { texting = false, notes = null, model = nul
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
       ];
+  if (continued) lines.push(CONTINUED);
+  const usedBefore = continued ? usedLine(used) : "";
+  if (usedBefore) lines.push(usedBefore);
   const which = modelLine(model);
   if (which) lines.push(which);
 

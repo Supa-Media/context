@@ -6,10 +6,12 @@
  * the tools and the guard below never know which one answered:
  *
  *     computer.readPage(url) → { url, title, text, truncated, links: [{ text, href }] }
+ *     computer.browse(session | null, steps) → { session, ran, page }   (`browse.js`)
+ *     computer.closeBrowser(session)
  *
- * Today that is one method on one provider: Cloudflare Browser Rendering,
+ * Today that is one provider: Cloudflare Browser Rendering,
  * reached through the `SITE_SHOTS` service binding (`infra/site-shots`, POST
- * /read), which already runs in the account that holds customer data. A sandbox
+ * /read and /browse), which already runs in the account that holds customer data. A sandbox
  * with a terminal (Cloudflare Sandbox now, E2B if pause-with-memory turns out
  * to matter) adds methods here and a provider in `PROVIDERS`; nothing above
  * this file changes. `AGENT_COMPUTER` in the Worker's vars picks the provider.
@@ -34,8 +36,12 @@
  * so it is allowed to open exactly as a link on a page is.
  */
 
+import { BROWSE_TOOL, browserSession } from "./browse.js";
+import { FILL_LOGIN_TOOL, fillLoginTool } from "./fillLogin.js";
+import { siteShotsComputer } from "./browserProviders.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
+import { OpenableAddresses } from "./trustedSites.js";
 
 /** The web tools: opening a page, and searching when there is a searcher. */
 export const OPEN_PAGE_TOOL = "open_page";
@@ -43,6 +49,13 @@ export const SEARCH_WEB_TOOL = "search_web";
 
 /** Pages one turn may open: a bound on browser time as much as on latency. */
 export const MAX_PAGES_PER_TURN = 5;
+/**
+ * Pages one turn may open when the setup opened the web (owner, 2026-10-14:
+ * "get all the capabilities and then we'll rein it back"). The default stays
+ * 5 because there the cap also bounds the bits a choice *between* links can
+ * carry; open web already gave up that bound on purpose.
+ */
+export const MAX_PAGES_PER_TURN_OPEN_WEB = 40;
 
 /**
  * How sure Clef must be of the next link before it is opened ahead of the
@@ -56,37 +69,23 @@ const MAX_PAGE_CHARS = 12_000;
 const MAX_LINKS_SHOWN = 40;
 
 const PROVIDERS = {
-  cloudflare: cloudflareComputer,
+  // Cloudflare's browser, and Browserbase for `browse` once its key is set.
+  cloudflare: (env, options) => siteShotsComputer(env, options),
+  // Cloudflare's browser only, even when Browserbase is configured.
+  "cloudflare-only": (env) => siteShotsComputer(env, {}),
 };
 
 /**
  * The computer this deployment gives the agent, or null when it has none (a
  * self-hosted gateway without Browser Rendering, or an unknown provider name).
+ * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
+ * find their Browserbase browser again in a later question; `viewer` is the
+ * page they take it over on (`texViewerUrl`), the only link a handoff texts.
  */
-export function computerFor(env) {
+export function computerFor(env, { owner = null, viewer = null } = {}) {
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env) : null;
-}
-
-function cloudflareComputer(env) {
-  const browser = env?.SITE_SHOTS;
-  if (typeof browser?.fetch !== "function") return null;
-  return {
-    provider: "cloudflare",
-    async readPage(url) {
-      const response = await browser.fetch("https://site-shots/read", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.page || typeof body.page.text !== "string") {
-        throw new Error("page unreadable");
-      }
-      return body.page;
-    },
-  };
+  return make ? make(env, { owner, viewer }) : null;
 }
 
 /**
@@ -148,6 +147,14 @@ const OPEN_PAGE_DEFINITION = {
   annotations: { readOnlyHint: true },
 };
 
+/** The same tool when the setup opened the web: the model is not told it may not. */
+const OPEN_PAGE_OPEN_WEB_DEFINITION = {
+  ...OPEN_PAGE_DEFINITION,
+  description:
+    "Open web pages and read their text and links. Pass every page you need at once in urls; " +
+    "they open together, which is much faster than one at a time. You can open any public https address.",
+};
+
 const SEARCH_WEB_DEFINITION = {
   name: SEARCH_WEB_TOOL,
   description:
@@ -179,6 +186,16 @@ export function webPrompt(webNames) {
       webNames.has(SEARCH_WEB_TOOL)
         ? "You can open search results and web pages the person gives you with open_page, and follow links on them."
         : "You can open web pages the person gives you with open_page, and follow links on them.",
+    );
+  }
+  if (webNames.has(BROWSE_TOOL)) {
+    lines.push(
+      "When the person wants something done on a website (search a site, fill in a form, check availability, add to a cart), use browse and do it rather than telling them how. Do several steps per call. Never buy, book, send or delete anything without the person's yes in this conversation.",
+    );
+  }
+  if (webNames.has(FILL_LOGIN_TOOL)) {
+    lines.push(
+      "When a site needs signing in, check vault_list and use fill_login with a saved login. With none saved, hand the browser to the person (a browse handoff step) so they sign in themselves, then carry on when they text you; offer vault_add_link afterwards so next time you can sign in yourself. Never ask for a password, and never say you can't use a site just because no login is saved.",
     );
   }
   if (lines.length === 0) return "";
@@ -232,35 +249,89 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, say = null, store = null } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
   // this gateway wrote and carries the last run's answer — the model's words,
   // which must never vouch for anything (`route.js`).
-  const allowed = new Set(addressesIn(addresses));
+  const allowed = new OpenableAddresses(addressesIn(addresses));
   const seen = new Set();
   const usage = { decision: 0, searches: 0 };
   let opened = 0;
-  const tools = [...(computer ? [OPEN_PAGE_DEFINITION] : []), ...(search ? [SEARCH_WEB_DEFINITION] : [])];
+  // The question's page budget, larger once the setup opens the web (`trust`).
+  const pageCap = () => (allowed.webIsOpen() ? MAX_PAGES_PER_TURN_OPEN_WEB : MAX_PAGES_PER_TURN);
+  // Doing things on a page (`browse.js`) shares the guard's addresses and
+  // the question's page budget with reading one.
+  const browser =
+    typeof computer?.browse === "function"
+      ? browserSession(computer, {
+          allowed,
+          addresses,
+          say,
+          takePages(n) {
+            if (opened + n > pageCap()) return false;
+            opened += n;
+            return true;
+          },
+        })
+      : null;
+  // Saved logins, filled by the gateway into this browser (`fillLogin.js`).
+  const logins = browser && store ? fillLoginTool(browser, store) : null;
+  const tools = [
+    ...(computer ? [OPEN_PAGE_DEFINITION] : []),
+    ...(browser ? [browser.definition] : []),
+    ...(logins ? [logins.definition] : []),
+    ...(search ? [SEARCH_WEB_DEFINITION] : []),
+  ];
   return {
     tools,
     usage,
+    browser,
+    /**
+     * A task skill was read this question (`skills.js`): its addresses may be
+     * opened, as if the person had written them, and the values it marks in
+     * backticks typed (`browse.js`). Staff wrote it in the pinned workspace;
+     * no page or note can add to it.
+     */
+    vouch(text) {
+      for (const url of addressesIn(text)) allowed.add(url);
+      browser?.vouch(text);
+    },
+    /**
+     * The setup's trusted sites (`trustedSites.js`): any page of theirs with
+     * no query string may be opened without the person writing its address.
+     */
+    trust(sites, { openWeb = false } = {}) {
+      allowed.trust(sites);
+      allowed.openWeb(openWeb);
+      // The turn already holds this list, so its descriptions change in place:
+      // under open web the model is not told the address and typing rules.
+      tools.forEach((tool, i) => {
+        if (tool.name === OPEN_PAGE_TOOL) tools[i] = allowed.webIsOpen() ? OPEN_PAGE_OPEN_WEB_DEFINITION : OPEN_PAGE_DEFINITION;
+        if (tool.name === BROWSE_TOOL && browser) tools[i] = browser.definition;
+      });
+    },
+    /** Ends this question's browser, if it opened one. */
+    close: () => browser?.close() ?? Promise.resolve(),
     async call(name, args) {
       if (name === SEARCH_WEB_TOOL && search) return searchWeb(args);
+      if (name === BROWSE_TOOL && browser) return browser.call(args);
+      if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
       if (name !== OPEN_PAGE_TOOL || !computer) return text("There is no such tool.", true);
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];
       const wanted = [...new Set(asked.map(canonicalUrl))];
       if (wanted.length === 0 || wanted.some((url) => url === null || !allowed.has(url))) {
         return text(
-          "You can only open an address the person wrote, or a link from a page you opened. Ask them for the address.",
+          "You can only open an address the person wrote, a link from a page you opened, or a page on a trusted site — and there only its plain path, with nothing of yours written into it. Ask them for the address.",
           true,
         );
       }
-      if (opened + wanted.length > MAX_PAGES_PER_TURN) {
+      const cap = pageCap();
+      if (opened + wanted.length > cap) {
         return text(
-          `That's more pages than one question can open (${MAX_PAGES_PER_TURN}, ${MAX_PAGES_PER_TURN - opened} left). Answer with what you have, or open fewer.`,
+          `That's more pages than one question can open (${cap}, ${cap - opened} left). Answer with what you have, or open fewer.`,
           true,
         );
       }
@@ -277,7 +348,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       }
       if (pages.every((page) => page === null)) return text("That page could not be opened.", true);
       const parts = pages.map((page, i) => (page === null ? `${wanted[i]} could not be opened.` : pageText(page)));
-      const next = decide !== null && opened < MAX_PAGES_PER_TURN ? await guessNext(decide, question, pages, seen, usage) : null;
+      const next = decide !== null && opened < cap ? await guessNext(decide, question, pages, seen, usage) : null;
       // Already allowed (a link on a page opened now); checked again so the
       // guard stays the one place that decides, whatever picked the link.
       if (next !== null && allowed.has(next)) {

@@ -36,6 +36,34 @@ export function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 }
 
 /**
+ * The listing a walk of the tree's names reads: the Convex tree's rows, which
+ * the credential barrier attaches to every operation's store
+ * (`lib/nodes/treeNames.ts`), and which answer `TREE_LOADING` rather than
+ * list the bucket while the first copy runs. `keysUnder`, `isFolder`,
+ * `namesExtending`, the link rewrite's note inventory and the name checks
+ * (`treeChecks.ts`) ask it; every read and write still goes to the store
+ * itself. A store with nothing attached is the unit tests' in-memory one,
+ * which is its own tree.
+ */
+export function namesListing(store: FileStore): Pick<FileStore, "list"> {
+  const tree = (store as { treeListing?: Pick<FileStore, "list"> }).treeListing;
+  return tree ?? store;
+}
+
+/**
+ * `store` with its listings answered by the tree (`namesListing`), for a
+ * reader that takes a whole store (`listFolder`); every other read is the
+ * store's own.
+ */
+export function treeView(store: FileStore): FileStore {
+  const names = namesListing(store);
+  if (names === store) return store;
+  const view = Object.create(store) as FileStore;
+  view.list = (options) => names.list(options);
+  return view;
+}
+
+/**
  * Every key under a folder *this caller can see*, capped. Move, copy and
  * delete all walk it.
  *
@@ -80,8 +108,9 @@ export async function keysUnder(
   let stop: WalkStop = "budget";
   let cursor: string | undefined;
   const seen = new Set<string>();
+  const names = namesListing(store);
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix, cursor, limit: 1000 });
+    const listing = await names.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
       if (!canSee(object.key, clearance.scope, rules, overrides, clearance.names)) {
@@ -144,8 +173,10 @@ export async function namesExtending(store: FileStore, path: string): Promise<st
   let complete = false;
   let stop: WalkStop = "budget";
   const seen = new Set<string>();
+  // The tree's names, as `keysUnder` reads them: which notes exist is never a bucket listing.
+  const names = namesListing(store);
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
+    const listing = await names.list({ prefix: `${path}.`, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (object.key === path || isPlumbing(object.key)) continue;
       keys.push(object.key);
@@ -310,8 +341,10 @@ export async function historyKeysFor(
 /** Does this path name a folder (something has keys under it)? */
 export async function isFolder(store: FileStore, path: string): Promise<boolean> {
   let cursor: string | undefined;
+  // The same names `keysUnder` will walk, so "is it a folder" and "what is in it" agree.
+  const names = namesListing(store);
   for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
-    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    const listing = await names.list({ prefix: `${path}/`, cursor, limit: 1_000 });
     if ((listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0) {
       return true;
     }

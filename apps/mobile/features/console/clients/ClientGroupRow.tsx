@@ -24,7 +24,14 @@ import { connectionCount, type ClientGroup } from "./grouped";
  * person has to learn, and the row that does not expand is the one they press
  * hardest. Its detail is one row, which is honest.
  */
-export function ClientGroupRow({ group }: { group: ClientGroup }) {
+export function ClientGroupRow({
+  group,
+  divided = true,
+}: {
+  group: ClientGroup;
+  /** False for the first row of a card, which has no row above to divide from. */
+  divided?: boolean;
+}) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
 
@@ -38,7 +45,7 @@ export function ClientGroupRow({ group }: { group: ClientGroup }) {
         } each connection.`}
         testID={`client-group-${group.name}`}
       >
-        <Row divided style={styles.row}>
+        <Row divided={divided} style={styles.row}>
           <Dot tone={group.status} />
           <Grow>
             <Row style={styles.title}>
@@ -52,6 +59,9 @@ export function ClientGroupRow({ group }: { group: ClientGroup }) {
               {` · ${connectionCount(group)} · ${group.detail}`}
             </Text>
           </Grow>
+          <Text variant="mini" style={styles.details}>
+            {open ? "Hide" : "Details"}
+          </Text>
           <Icon name={open ? "chevronUp" : "chevronDown"} size={16} />
         </Row>
       </PressRow>
@@ -78,6 +88,7 @@ const makeStyles = (colors: Colors) =>
     row: { gap: 10 },
     title: { gap: 8 },
     rowSub: { marginTop: 2 },
+    details: { color: colors.accent },
     contexts: { color: colors.text2, fontWeight: "600" },
     /** Indented, so an open group reads as its own list rather than as more rows. */
     grants: { paddingLeft: 17 },

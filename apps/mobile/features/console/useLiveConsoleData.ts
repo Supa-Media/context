@@ -25,6 +25,7 @@ import {
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
 import { setObservabilityUser } from "../observability/client";
 import { useOrganizer } from "../organizer/useOrganizer";
+import { useChaosScore } from "../chaos/useChaosScore";
 import { useFacesSync } from "./faces/useFacesSync";
 import {
   memberOf,
@@ -182,6 +183,7 @@ export function useLiveConsoleData(): ConsoleData {
   const chooseExistingFilesForHandoff = useMutation(
     api.functions.managedHandoff.chooseExistingFilesForHandoff,
   );
+  const dismissLeftBehind = useMutation(api.functions.managedHandoff.dismissLeftBehind);
   /*
     The same action `useFileBrowser` holds, taken here too rather than threaded
     up through `FileBrowser`'s interface: `useAction` returns a callable, not a
@@ -331,22 +333,6 @@ export function useLiveConsoleData(): ConsoleData {
   */
   const membershipContextId: Id<"workspaces"> | null =
     selected?.pinned === true ? null : selectedContextId;
-  /**
-   * Whether the selected context has a model key. `undefined` until answered.
-   *
-   * `usable` answers `undefined` for a query that has not landed *and* for one
-   * that failed, which is the right reading for both here: a console that
-   * cannot ask offers no conversation rather than an offer that errors.
-   */
-  const modelConnected: boolean | undefined =
-    selectedContextId === null
-      ? undefined
-      : (() => {
-          const answer = usable<{ provider: string }[]>(
-            results[`providers:${selectedContextId}`],
-          );
-          return answer === undefined ? undefined : answer.length > 0;
-        })();
 
   const googleConnections: GoogleConnection[] = googleConnectionsFrom(selectedContextId, results);
 
@@ -367,6 +353,7 @@ export function useLiveConsoleData(): ConsoleData {
     startStorageMove,
     cancelManagedStorageHandoff,
     chooseExistingFilesForHandoff,
+    dismissLeftBehind,
     disconnectStorage,
     observeStorageLayout,
   });
@@ -410,6 +397,9 @@ export function useLiveConsoleData(): ConsoleData {
   // Auto-organize for this workspace — status, suggestions, and the presses on them.
   const organizer = useOrganizer({ workspaceId: membershipContextId, slug: selected?.slug ?? "" });
 
+  // How organized it is, asked again when the tree changes (`features/chaos`).
+  const chaos = useChaosScore({ workspaceId: membershipContextId, listings: files.listings });
+
   // The free plan's count, from nine tenths of its cap — see `noteLimit.ts`.
   const noteLimit = useNoteLimit(selectedContextId, isOwner);
 
@@ -429,6 +419,7 @@ export function useLiveConsoleData(): ConsoleData {
     activity,
     agents,
     organizer,
+    chaos,
     searchableContexts,
     graph,
     ...accountActionsFor({ leaveWorkspace, deleteAccountMutation, authActions }),
@@ -438,7 +429,6 @@ export function useLiveConsoleData(): ConsoleData {
     storageActions,
     noteLimit,
     googleConnections,
-    modelConnected,
     googleActions:
       selectedContextId === null || !isOwner || selected?.kind !== "personal"
         ? undefined
@@ -466,6 +456,7 @@ export function useLiveConsoleData(): ConsoleData {
     pluginBrowse,
     pluginRuntime,
     whatsNew: true,
+    sharedInbox: true,
     routines: true,
     fastSearch,
     meaningSearch,

@@ -15,6 +15,9 @@ import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
+import { SharedInboxHost, type SharedEntry } from "./shared/SharedInboxHost";
+import { SHARED_HREF } from "./shared/sharedInbox";
+import { onShared, sharedFrameSlots } from "./shared/sharedSlots";
 import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
@@ -34,6 +37,7 @@ import { atName } from "./format";
 import { NavBandProvider } from "./NavBand";
 import { VoiceHostProvider } from "../voice/VoiceHost";
 import { hrefFor, sameRoute, type ConsoleRoute, type settingsFromQuery } from "./nav";
+import { useNavWithTags } from "./useNavWithTags";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
@@ -74,9 +78,11 @@ import {
   consoleSyncSheet,
 } from "./layout/sheets";
 import { consoleBarDialogs } from "./layout/barDialogs";
-import { consoleCreateButton, consolePhoneChat } from "./layout/createButton";
+import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
 import { OrganizerProvider } from "../organizer/OrganizerContext";
+import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
+import { ChaosSheet } from "../chaos/ChaosPopover";
 import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import {
@@ -107,7 +113,6 @@ import {
 export function ConsoleFrame({
   data,
   route,
-  pathname,
   router,
   params,
   children,
@@ -115,7 +120,6 @@ export function ConsoleFrame({
   data: ConsoleData;
   /** Which console page this is. The homepage is always a context's Browse. */
   route: ConsoleRoute;
-  pathname: string;
   router: ConsoleRouter;
   /** The query the console acts on — `useConsoleParams` on a real route. */
   params: {
@@ -251,6 +255,7 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  const sharedHere = onShared(route);
   const { search, paletteItems, recent, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
@@ -280,7 +285,8 @@ export function ConsoleFrame({
    */
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
-  const { nav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const { nav: layoutNav, closeTab } = useConsoleCommands({ tabs, step, history, data, setClosingTab });
+  const nav = useNavWithTags(layoutNav, data, phone, router);
 
   /*
     A visitor's one workspace is named by its display name: the homepage's is
@@ -293,13 +299,15 @@ export function ConsoleFrame({
   const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
   // Opening a note or folder from the tree leaves the page for it.
   useLeavePageOnOpen(organizer, data.files.selectedPath);
+  // The chaos score, for the surfaces that draw it; absent-as-nothing everywhere else.
+  const chaos = useConsoleChaos(data.chaos, data.files.select);
   // The live map (`?map=1`), over Browse in the same slot; leaves the same way.
   const mapRoute = useConsoleMapRoute(router, params.mapOpen === true, {
     available: !data.demo && visitor === undefined,
     selectedPath: data.files.selectedPath,
   });
 
-  const { selectedEntry, readable } = noteTargetsFor({ browsing, data });
+  const { selectedEntry } = noteTargetsFor({ data });
   const reading = useReadMode();
   /*
     The phone's ••• over the open note or folder: its actions as a bottom
@@ -320,6 +328,7 @@ export function ConsoleFrame({
       canEdit: data.files.canEdit,
       canShare: data.files.canShare,
       visitor: visitor !== undefined,
+      reading,
     }).length > 0
       ? selectedEntry
       : null;
@@ -328,10 +337,9 @@ export function ConsoleFrame({
   }, [actionsEntry]);
 
   const {
-    meetingsAt, newChatAt, phoneChatAt, setPhoneChatAt, showMeetings, contextHrefFrom,
-    startMeetingFlow, meetingSheet, startNewChat, startMeeting, canCreate, agentPlace, asked,
-    setAsked, openAsideAt, agentEngine, resumeRow, voiceHost,
-  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry, pathname });
+    meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
+    canCreate, openAsideAt, approvals, resumeRow, voiceHost,
+  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry });
 
   /**
    * Where the control is and where a press takes it.
@@ -355,6 +363,9 @@ export function ConsoleFrame({
   const whatsNewShown = data.whatsNew === true && visitor === undefined && !data.demo;
   const [whatsNewEntry, setWhatsNewEntry] = useState<WhatsNewEntry | null>(null);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  // @shared's row, the same way: the host reports whether anything is new.
+  const sharedShown = data.sharedInbox === true && visitor === undefined && !data.demo;
+  const [sharedEntry, setSharedEntry] = useState<SharedEntry>({ unseen: 0 });
 
   /*
     One set of handlers, two triggers.
@@ -376,7 +387,7 @@ export function ConsoleFrame({
     onOpenApp: visitor.openApp,
   } : {
     data,
-    label: insideContext ? contextLabel : "Your context",
+    label: sharedHere ? "Shared with me" : insideContext ? contextLabel : "Your context",
     onOpenContext: (slug: string) => {
       const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
       if (sameRoute(next, route)) return;
@@ -420,11 +431,13 @@ export function ConsoleFrame({
       whatsNewShown && whatsNewEntry !== null
         ? { ...whatsNewEntry, onOpen: () => setWhatsNewOpen(true) }
         : undefined,
+    shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
   return (
     <ConsoleDataProvider value={data}>
       <OrganizerProvider value={organizer}>
+      <ChaosProvider value={chaos}>
       <MapRouteProvider value={mapRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
@@ -451,6 +464,7 @@ export function ConsoleFrame({
           onEntry={setWhatsNewEntry}
         />
       ) : null}
+      {sharedShown ? <SharedInboxHost onEntry={setSharedEntry} /> : null}
       {/* The time zone routines fall back to, kept in step with this device (`routines/TimeZoneSync.tsx`). */}
       {data.routines === true && visitor === undefined && !data.demo ? <TimeZoneSync /> : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
@@ -493,7 +507,7 @@ export function ConsoleFrame({
           ) : undefined
         }
         topTrailing={consoleTopTrailing({
-          phone, readable, reading, showMeetings, data, insideContext, current, router, canReport,
+          phone, showMeetings, data, insideContext, current, router, canReport,
           onOpenActions: actionsEntry === null ? undefined : () => setActionsOpen(true),
         })}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
@@ -519,16 +533,15 @@ export function ConsoleFrame({
           no visible change at all.
         */
         aside={consoleAsidePanel({
-          data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router,
+          data, meetingsAt, router, approvals,
         })}
-        explorer={consoleExplorer({
-          browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
-          switcherProps, router,
+        {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router }),
+          status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
-        status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
           browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
-          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel, ask: startNewChat } : null,
+          note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel } : null,
         })}
       >
         <Shortcuts
@@ -569,7 +582,7 @@ export function ConsoleFrame({
             phone, current, route, router, data, contextHrefFrom,
           })}
         >
-          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
+          <EditorRegion browse={browsing || sharedHere} failure={data.failure} phone={phone}>
             {children}
           </EditorRegion>
         </NavBandProvider>
@@ -609,7 +622,7 @@ export function ConsoleFrame({
         ) : null}
 
         {consoleBarDialogs({
-          data, barDialog, setBarDialog, startMeeting, startNewChat, resumeRow, current,
+          data, barDialog, setBarDialog, startMeeting, resumeRow, current,
           insideContext, router,
         })}
 
@@ -629,22 +642,18 @@ export function ConsoleFrame({
 
 
         {consoleCreateButton({
-          data, phone, startMeetingFlow, resumeRow, setBarDialog, startNewChat,
+          data, phone, startMeetingFlow, resumeRow, setBarDialog,
         })}
 
         {/*
           The panel, opened by anything above the frame that cannot reach
-          `useFrame` — today the note's right-click menu. It renders nothing;
+          `useFrame` — today a meeting starting. It renders nothing;
           it exists to be *inside* `AppFrame`, which is where the command is.
         */}
         <OpenAsideOn at={openAsideAt} />
 
-        {consolePhoneChat({
-          phoneChatAt, agentEngine, agentPlace, phone, setPhoneChatAt,
-        })}
-
         {consolePalette({
-          paletteOpen, setAsked, paletteItems, recent, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}
@@ -655,11 +664,14 @@ export function ConsoleFrame({
           not the key.
         */}
         {meetingSheet}
+        {/* The chaos panel, from a folder page's line or the phone's Home. */}
+        <ChaosSheet />
       </AppFrame>
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
       </MapRouteProvider>
+      </ChaosProvider>
       </OrganizerProvider>
     </ConsoleDataProvider>
   );

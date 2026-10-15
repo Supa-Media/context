@@ -2,7 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, query } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { canTextCodes, checkCode, textCode } from "./phoneCodes";
 import {
   hasConfirmedPhone,
@@ -14,6 +14,8 @@ import {
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { attachedEmailsOf } from "./lib/signInEmails";
 import { joinOnPhone, phoneJoinFor } from "./lib/account/phoneJoin";
+import { currentPhoneOf, requireEmailProof } from "./lib/emailProof";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 /**
  * The phone check's three calls: is this person asked, text them a code, and
@@ -37,16 +39,19 @@ const sendStatus = v.union(
   v.literal("too_many"),
   v.literal("failed"),
   v.literal("not_needed"),
+  v.literal("has_account"),
 );
 type SendResult = {
-  status: "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed";
+  status: "sent" | "invalid_phone" | "taken" | "too_many" | "failed" | "not_needed" | "has_account";
   phone?: string;
 };
-type ConfirmResult = { status: "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed" };
+type ConfirmResult = { status: "confirmed" | "joined" | "wrong" | "taken" | "too_many" | "failed" | "has_account" };
 
 /**
  * "joined": the number was another account's, and this one (owning nothing)
  * closed into it (`lib/account/phoneJoin.ts`). The person signs in again.
+ * "has_account": the number's account already has an email, so a texted code
+ * alone may not join anything to it; the person signs in with the phone.
  */
 const confirmStatus = v.union(
   v.literal("confirmed"),
@@ -55,6 +60,7 @@ const confirmStatus = v.union(
   v.literal("taken"),
   v.literal("too_many"),
   v.literal("failed"),
+  v.literal("has_account"),
 );
 
 function requireSignedIn(userId: Id<"users"> | null): Id<"users"> {
@@ -68,7 +74,13 @@ function requireSignedIn(userId: Id<"users"> | null): Id<"users"> {
  */
 export const myPhoneCheck = query({
   args: {},
-  returns: v.object({ required: v.boolean(), confirmed: v.boolean(), needsEmail: v.boolean() }),
+  returns: v.object({
+    required: v.boolean(),
+    confirmed: v.boolean(),
+    needsEmail: v.boolean(),
+    /** The phone this account signs in with, for Account settings. Its own, so not a lookup. */
+    phone: v.optional(v.string()),
+  }),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return { required: false, confirmed: false, needsEmail: false };
@@ -77,7 +89,8 @@ export const myPhoneCheck = query({
     const confirmed = await hasConfirmedPhone(ctx, user);
     const required = phoneCheckRequired() && !isExemptEmail(user.email) && !confirmed;
     const needsEmail = user.email === undefined && (await attachedEmailsOf(ctx, userId)).length === 0;
-    return { required, confirmed, needsEmail };
+    const phone = await currentPhoneOf(ctx, user);
+    return { required, confirmed, needsEmail, ...(phone === null ? {} : { phone }) };
   },
 });
 
@@ -88,11 +101,28 @@ export const myPhoneCheck = query({
  */
 export const reserveSend = internalMutation({
   args: { userId: v.id("users"), phone: v.string() },
-  returns: v.union(v.literal("ok"), v.literal("taken"), v.literal("too_many"), v.literal("not_needed")),
+  returns: v.union(
+    v.literal("ok"),
+    v.literal("taken"),
+    v.literal("too_many"),
+    v.literal("not_needed"),
+    v.literal("has_account"),
+  ),
   handler: async (ctx, { userId, phone }) => {
     const user = await ctx.db.get(userId);
-    if (user === null || (await hasConfirmedPhone(ctx, user))) return "not_needed";
-    if ((await phoneJoinFor(ctx, userId, phone)).kind === "blocked") return "taken";
+    if (user === null) return "not_needed";
+    const current = await currentPhoneOf(ctx, user);
+    if (current === phone) return "not_needed";
+    if (current !== null) {
+      // Changing the phone is a big change: the new number signs in from
+      // then on. Asked before a text is spent, and again when it is recorded.
+      await requireEmailProof(ctx, userId);
+      if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
+    } else {
+      const join = (await phoneJoinFor(ctx, userId, phone)).kind;
+      if (join === "blocked") return "taken";
+      if (join === "guarded") return "has_account";
+    }
     if (!(await tryConsumeRateLimit(ctx, { key: `phoneCheck.send:${userId}`, limit: SEND_LIMIT, windowMs: WINDOW_MS }))) {
       return "too_many";
     }
@@ -114,7 +144,7 @@ export const sendPhoneCode = action({
     if (!canTextCodes()) return { status: "failed" as const };
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" as const };
-    let reserved: "ok" | "taken" | "too_many" | "not_needed";
+    let reserved: "ok" | "taken" | "too_many" | "not_needed" | "has_account";
     try {
       reserved = await ctx.runMutation(internal.functions.phoneCheck.reserveSend, { userId, phone });
     } catch (error) {
@@ -144,10 +174,14 @@ export const spendCheck = internalMutation({
  */
 export const recordConfirmedPhone = internalMutation({
   args: { userId: v.id("users"), phone: v.string() },
-  returns: v.union(v.literal("confirmed"), v.literal("joined"), v.literal("taken")),
+  returns: v.union(v.literal("confirmed"), v.literal("joined"), v.literal("taken"), v.literal("has_account")),
   handler: async (ctx, { userId, phone }) => {
+    const user = await ctx.db.get(userId);
+    const current = user === null ? null : await currentPhoneOf(ctx, user);
+    if (current !== null && current !== phone) return await changePhone(ctx, userId, phone);
     const join = await phoneJoinFor(ctx, userId, phone);
     if (join.kind === "blocked") return "taken";
+    if (join.kind === "guarded") return "has_account";
     if (join.kind !== "free") {
       await joinOnPhone(ctx, userId, phone, join);
       return join.kind === "into" ? "joined" : "confirmed";
@@ -173,7 +207,24 @@ export const confirmPhoneCode = action({
     }
     const checked = await checkCode(ctx, phone, code);
     if (checked !== "approved") return { status: checked };
-    const recorded: "confirmed" | "joined" | "taken" = await ctx.runMutation(internal.functions.phoneCheck.recordConfirmedPhone, { userId, phone });
+    const recorded: "confirmed" | "joined" | "taken" | "has_account" = await ctx.runMutation(internal.functions.phoneCheck.recordConfirmedPhone, { userId, phone });
     return { status: recorded };
   },
 });
+
+/**
+ * Move the account to a new phone (board k4): needs an emailed code from this
+ * session, never joins accounts, and takes texting along, so the assistant
+ * answers the new number and stops answering the old one.
+ */
+async function changePhone(ctx: MutationCtx, userId: Id<"users">, phone: string): Promise<"confirmed" | "taken"> {
+  await requireEmailProof(ctx, userId);
+  if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
+  await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
+  const links = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const link of links) await ctx.db.patch(link._id, { phone, linkedAt: Date.now() });
+  return "confirmed";
+}

@@ -14,6 +14,7 @@ import type {
   FormVote,
 } from "../formBlock";
 import type { FolderListSource } from "../listBlock/model";
+import type { TrashedView } from "./trashed";
 
 /** What a surface mounts `NoteEditor` with. */
 export interface NoteEditorProps {
@@ -104,6 +105,13 @@ export interface NoteEditorProps {
   titleNote?: { tone: "problem" | "held"; message: string } | null;
   titleFocus?: { path: string; id: number } | null;
   /**
+   * The note's name and how to change it, for a note this person may rename.
+   * A note with no title of its own draws its name above the body as a field
+   * (`flow.tsx`, `noteName.ts`); absent, the name is drawn as text or not at
+   * all, as before.
+   */
+  nameEdit?: { name: string; onCommit: (typed: string) => void };
+  /**
    * What the pane has to say about this note, inside the note's own scroller.
    *
    * A prop rather than a sibling above this component, because on a phone that
@@ -131,7 +139,13 @@ export interface NoteEditorProps {
    * and the gesture is a tap now, which is not ambiguous. Nothing is at risk
    * from a tap that was not at risk from a click.
    */
-  onOpenLink?: (path: string, mode: NoteLinkOpen) => void;
+  onOpenLink?: (path: string, mode: NoteLinkOpen, anchor?: string) => void;
+  /**
+   * A `#tag` written in the note was clicked or tapped: show the notes that
+   * carry it. Absent where there is nowhere to show them, and tags are then
+   * drawn but take the caret like any other text.
+   */
+  onOpenTag?: (tag: string) => void;
   /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
   /**
@@ -187,4 +201,10 @@ export interface NoteEditorProps {
   activityEditable?: boolean;
   /** Open another note, from a row in that list. */
   onOpenNote?: (path: string) => void;
+  /**
+   * The note is in the trash and still on screen: dimmed, read-only, a line
+   * under the title saying who moved it, and on a phone Restore at its foot
+   * in place of the toolbar (`trashed.tsx`). Absent for every other note.
+   */
+  trashed?: TrashedView;
 }

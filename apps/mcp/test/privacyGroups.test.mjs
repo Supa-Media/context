@@ -53,6 +53,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { approving } from "./egressApproval.mjs";
 import { FTS_TABLE, upsertStatements } from "../src/search/d1/project.js";
 
 const OWNER_TOKEN = `cat_groups_owner_${"0".repeat(16)}`;
@@ -150,7 +151,18 @@ function createBucket() {
   };
 }
 
+/** The owner's own app, which approves what the gate holds (`egressApproval.mjs`). */
+const CONSOLE_TOKEN = `cat_groups_console_${"0".repeat(15)}`;
+
 async function callTool(env, token, name, args) {
+  const result = await approving(() => callToolOnce(env, token, name, args), {
+    env,
+    consoleToken: token === OWNER_TOKEN ? CONSOLE_TOKEN : null,
+  });
+  return result?.content?.[0]?.text ?? "";
+}
+
+async function callToolOnce(env, token, name, args) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
@@ -168,7 +180,7 @@ async function callTool(env, token, name, args) {
   );
   const body = await response.json();
   await settle();
-  return body?.result?.content?.[0]?.text ?? "";
+  return body?.result;
 }
 
 async function meetingRequest(env, token, path, body) {
@@ -213,6 +225,14 @@ export async function runPrivacyGroupChecks(check) {
       userId: "user_groups_owner",
     });
     await controlPlane.addGrant({
+      accessToken: CONSOLE_TOKEN,
+      workspaceId: "ws_groups",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_console",
+      userId: "user_groups_owner",
+    });
+    await controlPlane.addGrant({
       accessToken: TEAM_TOKEN,
       workspaceId: "ws_groups",
       role: "editor",
@@ -227,7 +247,7 @@ export async function runPrivacyGroupChecks(check) {
       NATIVE_BINDINGS: "GROUPS_BUCKET",
       GROUPS_BUCKET: bucket,
     };
-
+    controlPlane.serveTreesFrom(env); // writes ask the tree which names are taken (`src/tree/names.js`)
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");

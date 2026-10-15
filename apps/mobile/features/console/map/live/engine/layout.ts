@@ -50,6 +50,14 @@ export type FolderPlace = {
   subs: SubPlace[];
   /** Every note the layout holds here, including ones only in the history. */
   size: number;
+  /** The highest and lowest note, in world units: where its name goes, with no rim to hang it on. */
+  top: number;
+  bottom: number;
+  /**
+   * Drawn as one icon, its notes not spread out: Archive (`collapsesToIcon`).
+   * Its notes all sit on the icon, so a move into it still lands somewhere.
+   */
+  collapsed?: boolean;
 };
 
 export type IslandPlace = {
@@ -61,6 +69,9 @@ export type IslandPlace = {
   r: number;
   folders: FolderPlace[];
   size: number;
+  /** The highest and lowest note, in world units. */
+  top: number;
+  bottom: number;
 };
 
 export type Layout = {
@@ -90,6 +101,21 @@ const PARA_ANGLE: Record<number, number> = {
   3: (35 * Math.PI) / 180,
   4: (145 * Math.PI) / 180,
 };
+
+/** Empty space between neighbouring root folders, in world units. */
+export const ROOT_GAP = SPACING * 5;
+
+/** How much room a folder drawn as an icon takes, in world units. */
+export const ICON_R = SPACING * 2.4;
+
+/**
+ * Archive is where finished things go: its notes are not spread out on the
+ * map, it is one icon with its name (Dev2, 2026-10-12: "reduced to just an
+ * icon, that way it doesnt clutter the map"). The folder page still lists them.
+ */
+export function collapsesToIcon(root: string): boolean {
+  return root !== "" && paraRank(root) === 4;
+}
 
 type Raw = { workspaceId: string; path: string; title: string; deg: number };
 
@@ -127,17 +153,26 @@ export function buildLayout(
   placeIslands(islands);
   // Islands are placed: turn every local coordinate into a world one.
   for (const island of islands) {
+    island.top = island.y;
+    island.bottom = island.y;
     for (const folder of island.folders) {
       folder.x += island.x;
       folder.y += island.y;
+      folder.top = Infinity;
+      folder.bottom = -Infinity;
       for (const sub of folder.subs) {
         sub.x += folder.x;
         sub.y += folder.y;
         for (const note of sub.notes) {
           note.x += sub.x;
           note.y += sub.y;
+          folder.top = Math.min(folder.top, note.y);
+          folder.bottom = Math.max(folder.bottom, note.y);
         }
       }
+      if (folder.top > folder.bottom || folder.collapsed) folder.top = folder.bottom = folder.y;
+      island.top = Math.min(island.top, folder.top);
+      island.bottom = Math.max(island.bottom, folder.bottom);
     }
   }
   let radius = 0;
@@ -162,6 +197,8 @@ function buildIsland(
     r: discRadius(1),
     folders: [],
     size: raws.length,
+    top: 0,
+    bottom: 0,
   };
   const byRoot = new Map<string, Map<string, Raw[]>>();
   for (const raw of raws) {
@@ -188,7 +225,15 @@ function buildIsland(
       island,
       subs: [],
       size: 0,
+      top: 0,
+      bottom: 0,
     };
+    if (collapsesToIcon(root)) {
+      collapseFolder(folder, bySub, notes, subs);
+      island.folders.push(folder);
+      folders.set(folder.key, folder);
+      continue;
+    }
     const subNames = [...bySub.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a < b ? -1 : a > b ? 1 : 0));
     const bubbles: Bubble[] = [];
     for (const name of subNames) {
@@ -233,7 +278,7 @@ function buildIsland(
       // A folder with no subfolders is just its notes, with a little more rim.
       folder.r = folder.subs[0]!.r * 1.08;
     } else {
-      const packed = packBubbles(bubbles, SPACING * 0.8);
+      const packed = packBubbles(bubbles, SPACING * 1.1);
       packed.items.forEach((p, i) => {
         folder.subs[i]!.x = p.x;
         folder.subs[i]!.y = p.y;
@@ -251,7 +296,8 @@ function buildIsland(
     if (projects >= 0) return projects;
     let best = 0;
     order.forEach((f, i) => {
-      if (f.size > order[best]!.size) best = i;
+      // An icon is never the middle, however much it holds.
+      if (!f.collapsed && (order[best]!.collapsed || f.size > order[best]!.size)) best = i;
     });
     return best;
   })();
@@ -263,7 +309,9 @@ function buildIsland(
     const angle = PARA_ANGLE[rank] ?? (Math.PI / 2 + ((i - 1) / Math.max(1, others)) * Math.PI * 2);
     return { id: f.key, r: f.r, angle };
   });
-  const packed = packBubbles(bubbles, SPACING * 2.5);
+  // Folders are told apart by space alone (no rims), so the gap between them
+  // is wide enough to read as a gap at any zoom.
+  const packed = packBubbles(bubbles, ROOT_GAP);
   const byKey = new Map(packed.items.map((p) => [p.id, p]));
   for (const folder of island.folders) {
     const p = byKey.get(folder.key)!;
@@ -274,44 +322,69 @@ function buildIsland(
   return island;
 }
 
+/** A folder drawn as an icon: every note and subfolder on its centre, nothing scattered. */
+function collapseFolder(folder: FolderPlace, bySub: Map<string, Raw[]>, notes: Map<string, NotePlace>, subs: Map<string, SubPlace>): void {
+  folder.collapsed = true;
+  folder.r = ICON_R;
+  for (const name of [...bySub.keys()].sort()) {
+    const members = bySub.get(name)!;
+    const sub: SubPlace = {
+      key: subKey(folder.workspaceId, folder.name, name),
+      name,
+      label: name === "" ? "" : folderLabel(name),
+      x: 0,
+      y: 0,
+      r: ICON_R,
+      folder,
+      notes: [],
+    };
+    for (const m of members) {
+      const note: NotePlace = { key: noteKey(m.workspaceId, m.path), workspaceId: m.workspaceId, path: m.path, title: m.title, x: 0, y: 0, deg: m.deg, sub };
+      sub.notes.push(note);
+      notes.set(note.key, note);
+    }
+    folder.subs.push(sub);
+    folder.size += members.length;
+    subs.set(sub.key, sub);
+  }
+}
+
+/** The clear round space in the middle of "all workspaces", where you stand. */
+export const HUB_R = SPACING * 14;
+
 /**
- * Islands in a grid, read left to right then down, in the order the graphs
- * came (the caller decides: their own workspace first). Each row and column
- * is as wide as its biggest island, so neighbours never touch.
+ * Workspaces in a ring round you, in the order the graphs came (the caller
+ * decides: their own workspace first, top left), each far enough out to
+ * leave the middle clear and never touch its neighbours. One workspace sits
+ * in the middle on its own.
  */
 function placeIslands(islands: IslandPlace[]): void {
   const n = islands.length;
   if (n === 0) return;
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
-  const gap = Math.max(...islands.map((i) => i.r)) * 0.45 + SPACING * 6;
-  const colW = new Array<number>(cols).fill(0);
-  const rowH = new Array<number>(rows).fill(0);
-  islands.forEach((island, i) => {
-    colW[i % cols] = Math.max(colW[i % cols]!, island.r * 2);
-    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)]!, island.r * 2);
-  });
-  const totalW = colW.reduce((a, b) => a + b, 0) + gap * (cols - 1);
-  const totalH = rowH.reduce((a, b) => a + b, 0) + gap * (rows - 1);
-  islands.forEach((island, i) => {
-    const c = i % cols;
-    const r = Math.floor(i / cols);
-    let x = -totalW / 2;
-    for (let k = 0; k < c; k += 1) x += colW[k]! + gap;
-    let y = -totalH / 2;
-    for (let k = 0; k < r; k += 1) y += rowH[k]! + gap;
-    island.x = x + colW[c]! / 2;
-    island.y = y + rowH[r]! / 2;
-  });
-  // A short last row sits centred under the others.
-  const lastRow = rows - 1;
-  const inLast = islands.filter((_, i) => Math.floor(i / cols) === lastRow);
-  if (rows > 1 && inLast.length < cols) {
-    let used = 0;
-    inLast.forEach((_, k) => (used += colW[k]! + (k > 0 ? gap : 0)));
-    const shift = (totalW - used) / 2;
-    inLast.forEach((island) => (island.x += shift));
+  if (n === 1) {
+    islands[0]!.x = 0;
+    islands[0]!.y = 0;
+    return;
   }
+  const gap = SPACING * 8;
+  const step = (Math.PI * 2) / n;
+  // Two face each other across you; more start top left and go round.
+  const start = n === 2 ? Math.PI : (-3 * Math.PI) / 4;
+  // The middle grows with the workspaces, so it still reads as a clearing
+  // (with room for the agents) once the ring is framed whole.
+  const biggest = Math.max(...islands.map((i) => i.r));
+  let R = biggest + Math.max(HUB_R, biggest * 1.1) + gap;
+  for (let i = 0; i < n; i += 1) {
+    const a = islands[i]!.r;
+    const b = islands[(i + 1) % n]!.r;
+    // Neighbours on the ring are 2R·sin(π/n) apart, centre to centre.
+    R = Math.max(R, (a + b + gap) / (2 * Math.sin(Math.PI / n)));
+  }
+  islands.forEach((island, i) => {
+    const ang = start + i * step;
+    island.x = Math.cos(ang) * R;
+    island.y = Math.sin(ang) * R;
+  });
 }
 
 /** The note keys a folder or subfolder holds, for counts and hit tests. */

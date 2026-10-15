@@ -562,6 +562,27 @@ describe("the census counts the estate", () => {
     });
   });
 
+  test("the roster shows each account's phone: the texting link first, else a verified sign-in phone", async () => {
+    const t = convexTest(schema, modules);
+    const { as } = await staff(t);
+    const linked = await seedUser(t, "linked@example.test");
+    const signsIn = await seedUser(t, "signs-in@example.test");
+    const unverified = await seedUser(t, "unverified@example.test");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(linked, { phone: "+15555550111", phoneVerificationTime: 1 });
+      await ctx.db.insert("phoneLinks", { userId: linked, phone: "+15555550100", linkedAt: 1 });
+      await ctx.db.patch(signsIn, { phone: "+15555550122", phoneVerificationTime: 1 });
+      await ctx.db.patch(unverified, { phone: "+15555550133" });
+    });
+
+    const report = await as.query(api.functions.admin.censusReport, {});
+    const byEmail = new Map(report.roster.map((row) => [row.email, row]));
+    expect(byEmail.get("linked@example.test")?.phone).toBe("+15555550100");
+    expect(byEmail.get("signs-in@example.test")?.phone).toBe("+15555550122");
+    expect(byEmail.get("unverified@example.test")?.phone).toBeNull();
+    expect(byEmail.get(ADMIN)?.phone).toBeNull();
+  });
+
   test("an empty deployment reports zeroes rather than failing", async () => {
     const t = convexTest(schema, modules);
     const { as } = await staff(t);

@@ -10,11 +10,10 @@ import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { mapInBatches } from "../../notes/storage.js";
 import { forwardPath, readForwarding } from "../../forwarding.js";
-import { MOVE_JOB_VERSION } from "../../moves/limits.js";
-import { loadMoveJobs, persistMoveJob, writeMoveSentinel } from "../../moves/jobs.js";
+import { loadMoveJobs } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
-import { linkCandidates } from "../../tree/links.js";
-import { treeClientOf } from "../../tree/record.js";
+import { factCandidates } from "../../tree/facts.js";
+import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 
 /**
  * Point every link at where its note went.
@@ -68,7 +67,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
 
   let keys;
   try {
-    keys = (inventoryKeys || (await listAllNoteKeys(store)).map(({ key }) => key))
+    keys = (inventoryKeys || (await noteInventory(store, renames)))
       .filter((key) => canSee(key, scope, rules, overrides));
   } catch {
     // `listAllKeys` throws rather than truncate. A walk that could not be
@@ -79,7 +78,10 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   }
   keys.sort();
   const allVisibleKeys = keys;
-  const activeJobs = await loadMoveJobs(store);
+  // Only the background worker finishing an old-style folder move
+  // (`.context/moves/`, `materialize.js`) names its job, and only it reads the
+  // others: a request's rewrite never lists move jobs (2026-10-13).
+  const activeJobs = currentJobId ? await loadMoveJobs(store) : [];
   const unavailable = new Set();
   for (const job of activeJobs) {
     for (const item of job.objects) {
@@ -88,8 +90,8 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     }
   }
   keys = keys.filter((key) => !unavailable.has(key));
-  // The tree's link table named the notes that can hold a link to what moved
-  // (`tree/links.js`): only those are read. Every visible note still feeds
+  // The Convex tree's facts named the notes that can hold a link to what
+  // moved (`tree/facts.js`): only those are read. Every visible note still feeds
   // `byName` below, because a bare link is unambiguous only across them all.
   if (candidates) keys = keys.filter((key) => candidates.has(key));
   const paged = Number.isInteger(limit) && limit > 0;
@@ -256,63 +258,64 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   };
 }
 
-/** A large workspace needs a durable background reference sweep, even for a
- * one-note move. The move has already committed; keeping its rename map in a
- * job lets the same materializer finish the link work after the request ends.
+/**
+ * The rewrite a move runs once it has landed: the notes to read come from the
+ * Convex tree (`referenceCandidates`), and nothing is queued. A rewrite too
+ * large for one call (over `LINK_SCAN_CAP` notes to read), or one the tree
+ * cannot list for yet, is reported as not done; the forwarding ledger the
+ * move wrote sends every old link to the new name meanwhile. It used to queue
+ * an old-style move job under `.context/moves/` for a later pass, which every
+ * note read and search then had to look through.
  */
-export async function rewriteReferencesOrQueue(store, scope, rules, overrides, renames) {
-  const fromTable = await referenceCandidates(store, renames);
-  const result = await rewriteReferences(store, scope, rules, overrides, renames, fromTable ?? {});
-  // Gateway jobs currently require owner clearance. A team caller must not
-  // create a job that the queue will later run with owner permissions.
-  if (!result.capped || result.failed > 0 || scope !== "private") return result;
-  const entries = [...renames];
-  const id = `move-${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  const job = {
-    version: MOVE_JOB_VERSION,
-    id,
-    status: "rewriting",
-    source: entries[0][0],
-    destination: entries[0][1],
-    reference_scope: scope,
-    created_at: now,
-    updated_at: now,
-    total_objects: entries.length,
-    objects: entries.map(([source, destination]) => ({ source, destination })),
-    reference_failed_paths: [],
-  };
-  await persistMoveJob(store, job);
-  await writeMoveSentinel(store);
-  let queued = false;
+export async function rewriteReferencesAfterMove(store, scope, rules, overrides, renames) {
+  let options;
   try {
-    if (typeof store.enqueueGatewayJob === "function") {
-      queued = await store.enqueueGatewayJob({ kind: "materialize_move", moveId: id }) !== false;
-    }
-  } catch {
-    // The marker remains resumable if queueing is temporarily unavailable.
+    options = await referenceCandidates(store, renames);
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return { notes: 0, links: 0, capped: true, loading: true };
+    throw error;
   }
-  if (!queued) {
-    try {
-      store.defer?.(async () => {
-        const { materializeMoveInBackground } = await import("./materialize.js");
-        await materializeMoveInBackground(store, scope, id);
-      });
-    } catch {
-      // The durable job is the source of truth, not this request's lifetime.
-    }
-  }
-  return { notes: 0, links: 0, capped: false, pending: true, moveId: id };
+  return await rewriteReferences(store, scope, rules, overrides, renames, options ?? {});
 }
 
 /**
- * The notes that can hold a link to what moved, from the tree's link table,
- * as `rewriteReferences` options; `null` where this context has no table or
- * it cannot be trusted yet, and the rewrite walks every note as before.
+ * The notes a rewrite for these renames reads, as `rewriteReferences`
+ * options: every note key from the Convex tree (`tree/served.js`), and, where
+ * its facts are whole, only the notes that can hold a link to what moved
+ * (`tree/facts.js`). Where the facts are not whole yet, every note the tree
+ * lists is read, which is reading the notes the rewrite may edit, never a
+ * listing of storage. Throws `TreeUnavailable` where the tree cannot list
+ * this workspace.
+ *
+ * `null` only for a store with no person's grant to ask the tree with: the
+ * background worker draining an old-style move job, which inventories the
+ * bucket itself, a page per pass (`materialize.js`).
  */
 export async function referenceCandidates(store, renames) {
-  const client = treeClientOf(store);
-  if (client === null || renames.size === 0) return null;
-  const found = await linkCandidates(client, renames);
-  return found === null ? null : { inventoryKeys: found.inventory, candidates: found.candidates };
+  if (renames.size === 0 || typeof store?.treeManifest !== "function") return null;
+  const inventoryKeys = await noteInventory(store, renames);
+  const candidates = await factCandidates(store, renames);
+  return candidates === null ? { inventoryKeys } : { inventoryKeys, candidates };
+}
+
+/**
+ * Every note key, with this move's renames applied: what a bare link's name
+ * is resolved against. Listed from the Convex tree (`tree/served.js`), one
+ * request; it throws where the tree cannot answer. A store with no tree to ask
+ * (a background job, which has no person's grant) lists the bucket. The tree
+ * may not have heard of this move yet, so an old name is dropped and its new
+ * one counted; against a bucket that has already moved that changes nothing.
+ */
+async function noteInventory(store, renames) {
+  const listing = typeof store?.treeManifest === "function" ? servedListingStore(store) : store;
+  return withRenames((await listAllNoteKeys(listing)).map(({ key }) => key), renames);
+}
+
+function withRenames(keys, renames) {
+  const found = new Set(keys);
+  for (const [source, destination] of renames) {
+    found.delete(source);
+    if (destination.endsWith(".md")) found.add(destination);
+  }
+  return [...found];
 }

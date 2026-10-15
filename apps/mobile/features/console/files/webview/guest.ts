@@ -317,8 +317,9 @@ export function mountGuest(
   const links: NoteLinkRef = {
     current: {
       path: null,
-      onOpen: (path, mode) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode }),
+      onOpen: (path, mode, anchor) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode, anchor }),
       onOpenUrl: (url) => bridge.post({ v: PROTOCOL_VERSION, type: "open-url", url }),
+      onOpenTag: (tag) => bridge.post({ v: PROTOCOL_VERSION, type: "open-tag", tag }),
     },
   };
 

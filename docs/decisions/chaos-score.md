@@ -1,0 +1,140 @@
+# The chaos score
+
+Every workspace has a chaos score: one number from 0 (calm) to 100 (chaos)
+for how well its notes are organized, kept current in the tree database as
+notes are created, moved, renamed and edited. Asked for by the owner on
+2026-10-10, who set the rubric and answered the open questions in the project
+thread "chaos score". The rubric is `apps/mcp/src/chaos/rubric.js`; the
+"How we define chaos" skill (`plugins/context/skills/how-we-define-chaos/`)
+teaches it to agents.
+
+## It is one opinion, on purpose
+
+The owner asked for "an extremely opinionated scoring rubric for what chaos
+and organizing is". There is no setting, no per-workspace threshold and no
+"my folders are different" switch. A score people can tune measures their
+tuning. If the rubric is wrong it changes here, for everyone, as a decision.
+
+The rules, all the owner's:
+
+- 4 or 5 items in a folder is calm, 10 is the average mark, past 10 it climbs,
+  35 or more is full chaos.
+- Thin folders are chaos too: a folder holding only its about note is the
+  worst, one item should move out, two should probably be combined, three is
+  nearly fine. The root and the built-in folders are never thin.
+- A run (dated notes, a name with a number, chapters 1 to N) counts as one
+  item, but only up to 30: past a month of daily notes it costs again.
+- A note past 1,000 lines adds chaos. Meetings and generated notes are exempt:
+  nobody wrote them long.
+- Archive is never scored. The inbox is: a full inbox should raise the score,
+  as the reminder to sort it.
+- Folders named A to Z are a run, like chapters: three or more single-letter
+  subfolders, with a catch-all (`other`, `#`, `0-9`) beside them, count as one
+  item (2026-10-12).
+- Contacts are scored on hygiene, never on count (2026-10-12). The owner wants
+  contacts to be the app's to keep, an A to Z index it files every page into,
+  that "should never get to the point where it's chaotic" however many people
+  write. Counting items would make everyone who receives mail chaotic through
+  no choice of theirs, so in `0-inbox/contacts` each page carries its own
+  chaos instead (`apps/mcp/src/chaos/contacts.js`):
+  - filed under a letter: 0;
+  - filed under `other/`, the app's place for a page with no name: 50;
+  - loose in contacts, or in any folder that is not a letter (the legacy
+    `imessage/` import): 100, unsorted;
+  - frontmatter `review:` holding a question, such as a possible duplicate the
+    merge swarm left for the owner: 100, until it is answered.
+  The folders are never thin and weigh nothing themselves. What the score
+  asks for is what a person or an agent can actually fix: sort, name, review.
+  The owner chose this over leaving contacts unscored, which measured nothing.
+- The workspace score weighs each folder by what it holds: 20% of the notes in
+  a calm folder and 80% in a chaotic one is 80% chaos.
+- Lower is better, and it is called the chaos score. The owner chose both "for
+  now, and we'll see how users react", so renaming it or flipping it to a
+  "calm score" is their call, not a copy edit.
+
+Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule; the A to Z and
+contacts rules are "folders named A to Z are one run" and "contacts are scored
+on hygiene, not on how many there are". "a contact page's review: question
+reaches the score" travels from frontmatter through the Convex facts
+(`apps/convex/__tests__/nodes/nodeFacts.test.ts`, `servedChaos.test.ts`).
+
+## It reports; it never tidies
+
+The score replaced the "Tidy up" tab of What changed, which the owner removed
+on 2026-10-10 as not useful. Keeping a workspace organized is the person's job,
+or an agent's they asked. So nothing acts on the score by itself: `orient`
+shows it and the biggest wins, every write and move answer shows the score
+before and after, the app shows the number in words, and none of them
+carry a "tidy now" button. A "simplification" that brings automatic tidying
+back is the feature the owner just removed.
+
+One surface gives advice, because the owner asked for it (2026-10-13): a
+crowded or thin folder's page has one muted line beside its title ("14
+things in here · calm is 4 or 5"), and pressing it says how that folder
+could be calmer, in words from this rubric ("find two to five themes",
+"move these notes up into the folder above"). Words only: nothing it says
+comes with a button that moves a note, and it speaks only when pressed. The
+tree's foot has no chaos line.
+
+## No figure in the app
+
+The owner took Tex out of the app on 2026-10-14 ("looks awful"): the
+folder page, the tree's foot, the panel and the phone's Home are words only.
+The foot's line was the figure alone, so it went with it; the panel is
+reached from a folder's advice ("The whole workspace's score") and from the
+phone's Home card. `chaosRender.test.ts` checks that no chaos surface in the
+app draws an svg. Bringing Tex back to the app is the owner's call, not a
+polish pass.
+
+## The figure is Tex, drawn once
+
+The homepage's mascot, and any chaos figure drawn again later, use the same
+component, `apps/mobile/features/chaos/Tex.tsx`, from
+`figureGeometry.ts`: the brand-blue scribble that untangles into the app
+icon's #, with googly eyes at every score, calm included (Dev2, 2026-10-12:
+the app had drifted to a thinner black variant with dots at 0, and the
+character "is not consistent"). A per-surface variant is that drift again;
+`chaosFigure.test.ts` pins the brush and the eyes. `figureParts` keeps a
+`tug` pose (stressed, hauling a strand of its own yarn) that a folder's page
+drew until 2026-10-14; it is the same drawing in motion, not a variant.
+
+## Every write answers with the change
+
+`write_note`, `move_note`, `move_notes`, `move_folder` and `archive_note` end
+with `chaos: X → Y of 100` and the folders the change touched, so an agent sees
+at once whether it helped. It is a line on existing tools, not a new tool,
+because installed clients cache tool lists (see
+[gateway protocol](./gateway-protocol.md)). The answer waits at most three
+seconds for the rescore; a slower one finishes behind the response and says
+nothing rather than holding the agent up.
+
+## Kept incrementally, proven equal to a full pass
+
+The score is counted from the Convex tree's keys and facts whenever it is
+asked (`apps/mcp/src/chaos/live.js`), with the closing number per day kept in
+`nodeChaosDays` for "a week ago". It was kept in the search database
+(`tree_chaos`) and rescored per change until phase 7 of
+[convex-tree](./app-and-console/convex-tree.md) retired that table
+(2026-10-13). A write's report counts the tree's keys from before the change
+and the same keys with the change applied (`apps/mcp/src/chaos/change.js`),
+and names the folders it touched and the parents above any folder that
+appeared or vanished; `apps/mcp/test/chaosChange.test.mjs` covers a created
+note, a moved note and a moved folder, and a change the tree already shows
+counted once.
+
+## Two audiences, and a member learns nothing held back
+
+Each row holds an owner's numbers and a team member's, the latter over only
+the notes `privacy.md` shows the team (`canSee` at `team` scope, no granted
+names, so it fails closed). A member is answered from the team numbers, and a
+folder is named to them only where a note they may open sits beneath it. A
+score that counted held-back notes would let a member watch it move and learn
+that something exists. Test: "a team member never counts, sees or is named a
+private folder or note", now in `apps/convex/__tests__/nodes/servedChaos.test.ts`
+and, for a write's report, `apps/mcp/test/chaosChange.test.mjs`.
+
+## A derivative, like every index
+
+`tree_chaos` and the daily history are rebuildable from the bucket and are
+never the only copy of anything (non-negotiable #3). A workspace with no tree
+database has no score, and every surface shows nothing rather than a guess.

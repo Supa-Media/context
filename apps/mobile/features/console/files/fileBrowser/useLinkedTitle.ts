@@ -48,6 +48,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 import { isLinkedTitle, proposeTitle, type TitleProposal } from "../linkedTitle";
 import { sharesBreakingWarning } from "../shares";
 import { isUntitled, titleFor } from "../untitled";
@@ -59,8 +60,8 @@ import type { RowCommandsValues } from "./useRowCommands";
 import type { SharesValues } from "./useShares";
 
 type LinkedTitleDeps =
-  & Pick<FileActionsValues, "readNote" | "workspaceId">
-  & Pick<BrowserStateValues, "editor" | "renamed">
+  & Pick<FileActionsValues, "readNote" | "workspaceId" | "workspaceGenerationRef">
+  & Pick<BrowserStateValues, "editor" | "renamed" | "pendingMoveTo">
   & Pick<OfflineQueueValues, "listings">
   & Pick<NoteCreateValues, "awaitingTitle">
   & Pick<RowCommandsValues, "rename">
@@ -97,10 +98,14 @@ interface OwedRename {
   /** The title the note was opened with, for handing it back on reopen. */
   openedTitle: string | null;
   workspaceId: FileActionsValues["workspaceId"];
+  epoch: number;
+  attempt?: { title: string; label: string; path: string };
 }
 
 export function useLinkedTitle(deps: LinkedTitleDeps) {
-  const { awaitingTitle, editor, listings, readNote, rename, renamed, shares, workspaceId } = deps;
+  const { awaitingTitle, editor, listings, readNote, rename, renamed, shares, workspaceId, workspaceGenerationRef, pendingMoveTo } = deps;
+  const epoch = workspaceGenerationRef.current.epoch;
+  const openedEpoch = useRef(epoch);
 
   /*
     The rename the open note is owed and has not asked for yet, kept current
@@ -110,12 +115,12 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
   */
   const owed = useRef<OwedRename | null>(null);
   const carried = useRef(new Map<string, OwedRename>());
-  const latest = useRef({ readNote, rename, workspaceId });
-  latest.current = { readNote, rename, workspaceId };
+  const latest = useRef({ readNote, rename, workspaceId, epoch });
+  latest.current = { readNote, rename, workspaceId, epoch };
   useEffect(() => {
     const pending = carried.current;
     return () => pending.clear();
-  }, []);
+  }, [epoch]);
 
   const carry = useCallback((left: OwedRename) => {
     carried.current.set(left.from, left);
@@ -124,10 +129,10 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
         if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
         if (carried.current.get(left.from) !== left) return;
         const now = latest.current;
-        if (now.workspaceId !== left.workspaceId || left.workspaceId === null) break;
+        if (now.epoch !== left.epoch || now.workspaceId !== left.workspaceId || left.workspaceId === null) break;
         try {
           const note = await now.readNote({ workspaceId: left.workspaceId, path: left.from });
-          if (carried.current.get(left.from) !== left) return;
+          if (carried.current.get(left.from) !== left || latest.current.epoch !== left.epoch) return;
           if (note.readOnly || note.encrypted === true) break;
           if (note.text === left.text) {
             carried.current.delete(left.from);
@@ -144,8 +149,8 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
   }, [awaitingTitle]);
 
   /*
-    What the note was when it was opened: whether its title is its name, and
-    what the title was. Reset whenever the editor moves to another path — a
+    What the note was when it was opened: whether its title renames it
+    (always, see `linkedTitle.ts`), and what the title was. Reset whenever the editor moves to another path — a
     rename landing is one of those, and the note then reads as linked again at
     its new name, which is what lets a second edit of the title follow too.
   */
@@ -167,15 +172,50 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     person typing it renames it, from their own client, when they leave it.
   */
   const [touched, setTouched] = useState(false);
+  // The first title already earned `touched`. A later title needs its own
+  // local caret observation before it may follow that first rename.
+  const locallyEditedTitle = useRef<{ path: string; title: string | null } | null>(null);
   const [titleFocus, setTitleFocus] = useState<{ path: string; id: number } | null>(null);
   const baseline = editor.baseline;
   useEffect(() => {
     const path = editor.path;
     const left = owed.current;
     owed.current = null;
-    if (left !== null && left.from !== path) carry(left);
+    const sameWorkspace = openedEpoch.current === epoch;
+    openedEpoch.current = epoch;
+    const ownRename = sameWorkspace && path !== null && opened !== null && acted !== null &&
+      acted.path === path && renamed?.from === opened.path && renamed.to === path;
+    const pendingLocalTitle = ownRename && locallyEditedTitle.current?.path === opened.path &&
+      locallyEditedTitle.current.title === titleFor(editor.draft) &&
+      locallyEditedTitle.current.title !== acted.title;
+    // This is the same note changing identity, rather than a note being left.
+    // Carrying its old-path debt would retry against a source that just moved.
+    if (left !== null && left.epoch === epoch && left.from !== path && !ownRename) {
+      const pending = acted !== null && renamed?.from === left.from && renamed.to === acted.path
+        ? pendingMoveTo(acted.path) : undefined;
+      if (pending === undefined) carry(left);
+      else if (locallyEditedTitle.current?.path === left.from &&
+        locallyEditedTitle.current.title === titleFor(left.text) &&
+        locallyEditedTitle.current.title !== acted!.title) {
+        // Register the debt now: reopening its source or unmounting can
+        // reclaim it even before the pending operation has answered.
+        const waiting = { ...left, attempt: acted! };
+        carried.current.set(left.from, waiting);
+        void pending.done.then((committed) => {
+          if (workspaceGenerationRef.current.epoch !== left.epoch ||
+            carried.current.get(left.from) !== waiting) return;
+          carried.current.delete(left.from);
+          carry(committed ? { ...left, from: acted!.path, openedTitle: acted!.title } : left);
+        });
+      }
+    }
     setActed(null);
-    setTouched(false);
+    setTouched(pendingLocalTitle);
+    locallyEditedTitle.current = pendingLocalTitle ? { path, title: titleFor(editor.draft) } : null;
+    if (ownRename) {
+      setOpened({ path, linked: true, title: acted.title });
+      return;
+    }
     if (path === null) {
       setOpened(null);
       return;
@@ -185,8 +225,16 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     const returned = carried.current.get(path);
     if (returned !== undefined) {
       carried.current.delete(path);
-      setOpened({ path, linked: true, title: returned.openedTitle });
-      setTouched(true);
+      const pendingAttempt = returned.attempt !== undefined && pendingMoveTo(returned.attempt.path) !== undefined
+        ? returned.attempt : null;
+      const stillLocal = titleFor(editor.draft) === titleFor(returned.text);
+      setActed(pendingAttempt);
+      setOpened({
+        path, linked: pendingAttempt !== null || stillLocal || isLinkedTitle(path, baseline),
+        title: pendingAttempt?.title ?? (stillLocal ? returned.openedTitle : titleFor(baseline)),
+      });
+      setTouched(stillLocal);
+      if (stillLocal) locallyEditedTitle.current = { path, title: titleFor(editor.draft) };
       return;
     }
     const title = titleFor(baseline);
@@ -200,14 +248,17 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     // whose saved title now differs from its name is exactly the one this is
     // about to rename — reading it again would unlink it first.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor.path]);
+  }, [editor.path, epoch]);
 
   const [inTitle, setInTitle] = useState(false);
   const setTitleCaret = useCallback((next: boolean) => setInTitle(next), []);
   const draftTitle = titleFor(editor.draft);
   useEffect(() => {
-    if (inTitle && opened !== null && draftTitle !== opened.title) setTouched(true);
-  }, [draftTitle, inTitle, opened]);
+    if (inTitle && opened !== null && opened.path === editor.path) {
+      locallyEditedTitle.current = { path: opened.path, title: draftTitle };
+      if (draftTitle !== opened.title) setTouched(true);
+    }
+  }, [draftTitle, editor.path, inTitle, opened]);
 
   const proposal: TitleProposal | null = useMemo(() => {
     if (opened === null || !opened.linked || !touched || opened.path !== editor.path) return null;
@@ -230,27 +281,37 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
   useEffect(() => {
     if (opened === null || opened.path !== editor.path) return;
     owed.current =
-      proposal !== null && proposal.kind === "rename" && draftTitle !== null
+      proposal !== null && proposal.kind === "rename" && draftTitle !== null &&
+      locallyEditedTitle.current?.path === opened.path && locallyEditedTitle.current.title === draftTitle
         ? {
             from: opened.path,
             name: proposal.name,
             text: editor.draft,
             openedTitle: opened.title,
             workspaceId,
+            epoch,
           }
         : null;
-  }, [draftTitle, editor.draft, editor.path, opened, proposal, workspaceId]);
+  }, [draftTitle, editor.draft, editor.path, epoch, opened, proposal, workspaceId]);
 
   useEffect(() => {
     if (proposal === null || proposal.kind !== "rename" || opened === null) return;
     if (inTitle) return;
+    // `touched` can predate a failed attempt. It cannot authorize a newer
+    // collaborator title that arrived while this person's caret was away.
+    if (locallyEditedTitle.current?.path !== opened.path ||
+      locallyEditedTitle.current.title !== draftTitle) return;
+    // Keep the first attempt's identity until it settles. A collaborative
+    // editor can report a saved newer title while that move is still pending.
+    if (acted !== null && renamed?.from === opened.path && renamed.to === acted.path &&
+      pendingMoveTo(acted.path) !== undefined) return;
     if (editor.status !== "clean" && editor.status !== "saved") return;
     const folder = opened.path.includes("/") ? opened.path.slice(0, opened.path.lastIndexOf("/") + 1) : "";
     owed.current = null;
     setActed({ title: draftTitle!, label: proposal.label, path: `${folder}${proposal.name}` });
     awaitingTitle.current.delete(opened.path);
     rename(opened.path, proposal.name);
-  }, [awaitingTitle, draftTitle, editor.status, inTitle, opened, proposal, rename]);
+  }, [acted, awaitingTitle, draftTitle, editor.status, inTitle, opened, pendingMoveTo, proposal, rename, renamed]);
 
   const titleEdit: TitleEdit | null = useMemo(() => {
     if (opened === null) return null;
@@ -290,10 +351,16 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     (path: string): boolean => {
       if (opened === null || opened.path !== path || !opened.linked) return false;
       if (editor.readOnly || editor.encrypted) return false;
+      // Only where there is a title to go to, and an editor that can put the
+      // caret in it. An untitled note is linked before it has any heading,
+      // and claiming Rename for one whose text never got a `# title` sent the
+      // caret nowhere: Rename did nothing (owner, 2026-10-14). The native
+      // editor has no `selectTitle` at all. Both get the dialog instead.
+      if (Platform.OS !== "web" || titleFor(editor.draft) === null) return false;
       setTitleFocus((last) => ({ path, id: (last?.id ?? 0) + 1 }));
       return true;
     },
-    [editor.encrypted, editor.readOnly, opened],
+    [editor.draft, editor.encrypted, editor.readOnly, opened],
   );
 
   return { titleEdit, setTitleCaret, titleFocus, focusTitle };

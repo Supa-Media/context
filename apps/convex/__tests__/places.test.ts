@@ -18,10 +18,11 @@
  *     is exactly the order asked for. There is a ceiling per workspace.
  *  5. **Opens are a 14-day window,** counted per day, older days forgotten, a
  *     ceiling of rows per person per workspace with the stalest evicted.
- *  6. **Places follow a move** made through the app, a folder's children with
- *     it, without catching a sibling that merely shares a prefix, and only in
- *     that workspace, but only the mover's own. Another member may not be
- *     able to see where the entry went, so their places are never rewritten.
+ *  6. **Places follow a move,** a folder's children with it, without catching
+ *     a sibling that merely shares a prefix, and only in that workspace, for
+ *     every member who may see where each place went, judged one place at a
+ *     time under the rules after the move. Anybody who may not keeps the old
+ *     path (it stops showing), and rules that do not parse move nobody's.
  *  7. **They leave** with the account, with the workspace, and with the
  *     person when they leave or are removed.
  *
@@ -38,9 +39,11 @@
  *   recordOpen never drops days outside the window                   1
  *   no ceiling on open rows                                          1
  *   retarget uses startsWith(from) without the slash                 1
- *   retarget rewrites every member's places                          1
+ *   follow skips the canSee check (every member's places)            2
+ *   follow judges only the folder, not each place under it           1
+ *   follow goes ahead on rules that do not parse                     1
  *   no sweep on leaveWorkspace                                       1
- *   retarget left out of moveEntry                                   1
+ *   barrier never calls the follower after a one-go move             1
  *   no sweep on removeMember                                         1
  *   no sweep on account deletion                                     1
  *   no sweep on workspace deletion                                   1
@@ -55,6 +58,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3 } from "./storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   addMember,
   asUser,
@@ -70,7 +74,25 @@ const unpin = api.functions.places.unpin;
 const reorderPins = api.functions.places.reorderPins;
 const recordOpen = api.functions.places.recordOpen;
 const mostOpened = api.functions.places.mostOpened;
-const retarget = internal.functions.places.retargetPlaces;
+const followMoves = internal.functions.places.followMoves;
+
+/** Clients and Work are the team's, 2-areas/hr is private, one note in Clients is held back. */
+const RULES = {
+  invalid: false,
+  folders: [
+    { prefix: "Clients", visibility: "team" },
+    { prefix: "Clients-old", visibility: "team" },
+    { prefix: "Work", visibility: "team" },
+    { prefix: "A", visibility: "team" },
+    { prefix: "B", visibility: "team" },
+    { prefix: "2-areas/hr", visibility: "private" },
+  ],
+  notes: [{ path: "Work/Clients/held.md", visibility: "private" }],
+};
+
+function retarget(t: TestConvex, ws: Id<"workspaces">, from: string, to: string, rules = RULES) {
+  return t.mutation(followMoves, { workspaceId: ws, moves: [{ from, to }], rules });
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -265,7 +287,7 @@ describe("opens", () => {
 });
 
 describe("places follow a move", () => {
-  test("the mover's exact paths and everything under a folder, in that workspace only", async () => {
+  test("exact paths and everything under a folder, in that workspace only", async () => {
     const { t, seyi, ws } = await world();
     const other = await createWorkspace(t, seyi, "elsewhere");
     const me = asUser(t, seyi);
@@ -275,7 +297,7 @@ describe("places follow a move", () => {
     await me.mutation(pin, { workspaceId: other, path: "Clients", kind: "folder" });
     await me.mutation(recordOpen, { workspaceId: ws, path: "Clients/Acme" });
 
-    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "Clients", to: "Work/Clients" });
+    await retarget(t, ws, "Clients", "Work/Clients");
 
     expect((await me.query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
       "Work/Clients",
@@ -286,18 +308,51 @@ describe("places follow a move", () => {
     expect((await me.query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual(["Work/Clients/Acme"]);
   });
 
-  test("another member's places are never rewritten to where the mover put them", async () => {
-    // Seyi can move a note into a folder Jon cannot see. Rewriting Jon's pin
-    // would hand Jon that folder's path; his stays put, and his phone stops
-    // showing it because the old path is gone from the tree he can see.
+  test("another member's places follow too, when they may see where it went", async () => {
+    const { t, jon, ws } = await world();
+    await asUser(t, jon).mutation(pin, { workspaceId: ws, path: "Clients/brief.md", kind: "note" });
+    await asUser(t, jon).mutation(recordOpen, { workspaceId: ws, path: "Clients" });
+    await retarget(t, ws, "Clients", "Work/Clients");
+    expect((await asUser(t, jon).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
+      "Work/Clients/brief.md",
+    ]);
+    expect((await asUser(t, jon).query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual(["Work/Clients"]);
+  });
+
+  test("a member who may not see where it went keeps the old path, and is never handed the new one", async () => {
+    // Seyi moves a folder into one Jon cannot see. Rewriting Jon's pin would
+    // hand him that folder's path; his stays put, and stops showing. Seyi's follows.
     const { t, seyi, jon, ws } = await world();
     await asUser(t, jon).mutation(pin, { workspaceId: ws, path: "Clients/brief.md", kind: "note" });
     await asUser(t, jon).mutation(recordOpen, { workspaceId: ws, path: "Clients" });
-    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "Clients", to: "2-areas/hr/Clients" });
+    await asUser(t, seyi).mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" });
+    await retarget(t, ws, "Clients", "2-areas/hr/Clients");
     expect((await asUser(t, jon).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
       "Clients/brief.md",
     ]);
     expect((await asUser(t, jon).query(mostOpened, { workspaceId: ws })).map((r) => r.path)).toEqual(["Clients"]);
+    expect((await asUser(t, seyi).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
+      "2-areas/hr/Clients",
+    ]);
+  });
+
+  test("each place is judged by its own new name: a held-back note stays put", async () => {
+    const { t, jon, ws } = await world();
+    const member = asUser(t, jon);
+    await member.mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" });
+    await member.mutation(pin, { workspaceId: ws, path: "Clients/held.md", kind: "note" });
+    await retarget(t, ws, "Clients", "Work/Clients");
+    expect((await member.query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual([
+      "Work/Clients",
+      "Clients/held.md",
+    ]);
+  });
+
+  test("rules that do not parse move nobody's places", async () => {
+    const { t, seyi, ws } = await world();
+    await asUser(t, seyi).mutation(pin, { workspaceId: ws, path: "Clients", kind: "folder" });
+    await retarget(t, ws, "Clients", "Work/Clients", { invalid: true, folders: [], notes: [] });
+    expect((await asUser(t, seyi).query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual(["Clients"]);
   });
 
   test("landing on a place already there merges rather than duplicating", async () => {
@@ -307,7 +362,7 @@ describe("places follow a move", () => {
     await me.mutation(pin, { workspaceId: ws, path: "B", kind: "folder" });
     await me.mutation(recordOpen, { workspaceId: ws, path: "A" });
     await me.mutation(recordOpen, { workspaceId: ws, path: "B" });
-    await t.mutation(retarget, { userId: seyi, workspaceId: ws, from: "A", to: "B" });
+    await retarget(t, ws, "A", "B");
     expect((await me.query(listPins, { workspaceId: ws })).map((p) => p.path)).toEqual(["B"]);
     expect((await me.query(mostOpened, { workspaceId: ws })).map((r) => [r.path, r.opens])).toEqual([["B", 2]]);
   });
@@ -341,6 +396,7 @@ describe("places follow a move", () => {
         updatedAt: Date.now(),
       }),
     );
+    await copyTree(t, workspaceId);
     const me = asUser(t, owner);
     await me.mutation(pin, { workspaceId, path: "1-projects/clients", kind: "folder" });
     await me.action(api.functions.files.moveEntry, {
