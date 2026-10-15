@@ -38,6 +38,7 @@ import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
+import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { smallDataTables } from "./functions/lib/schema/smallData";
@@ -118,6 +119,7 @@ const schema = defineSchema({
   ...routineTables,
   ...nodeTables,
   ...smallDataTables,
+  ...noteMailTables,
 });
 
 export default schema;

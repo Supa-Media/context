@@ -38,6 +38,13 @@
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-15",
+    text:
+      'Mail between agents working on one note: write_note `mail: { join: "builder" }` gives you a mailbox id; ' +
+      "pass `mailbox` on every call and answers say when mail is new for you; send with write_note `mail: { text, to }`, " +
+      "read with read_note `mail: true`.",
+  },
+  {
     date: "2026-10-12",
     text: 'write_note `site: { action: "domain" }` shows or connects a website\'s own domain and the DNS records it needs.',
   },
@@ -86,7 +93,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "8830dd51";
+export const TOOL_SHAPE = "e90942ed";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

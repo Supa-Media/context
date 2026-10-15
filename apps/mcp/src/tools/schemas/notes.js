@@ -52,6 +52,10 @@ export function noteWriteToolDefinitions() {
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
         "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
         "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here. " +
+        "\n\nTHIS TOOL ALSO SENDS MAIL between agents working on one note. Agents cannot wake each other, so mail is checked, not pushed: " +
+        "join with mail: { join: \"builder\" } (a short name for your role) and you get a mailbox id; pass mailbox: \"<id>\" on EVERY Context call after that, " +
+        "and each answer ends with a line when mail is new for you. Send with mail: { text, to } (to \"everyone\" by default, or one name that joined); read with read_note mail: true. " +
+        "Whoever leads the work sends the first mail: who does what, and how often everyone checks (for example every 10 minutes). Mail is kept at the end of the note, append-only; never edit it by hand. " +
         "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
         "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
         "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
@@ -96,6 +100,18 @@ export function noteWriteToolDefinitions() {
               },
             },
             required: ["action"],
+          },
+          mail: {
+            type: "object",
+            description:
+              "Mail on this note instead of rewriting it; pass this without content. " +
+              "{ join: \"name\" } joins under that name and returns your mailbox id; { text, to? } sends a message, signed with your mailbox's name when you pass mailbox.",
+            properties: {
+              join: { type: "string", description: "join: a short name for your role here, letters, digits and dashes, e.g. lead, builder, reviewer." },
+              text: { type: "string", description: "send: the message, up to 4000 characters." },
+              to: { type: "string", description: "send: \"everyone\" (the default) or the name of one agent that joined." },
+            },
+            additionalProperties: false,
           },
           comment: {
             type: "object",

@@ -93,10 +93,20 @@ export function coreToolDefinitions() {
       description:
         "Read one of the user's notes in full — the paths come from orient, list_notes, or " +
         "search_notes. Returns its content and an etag; pass that etag back to write_note so a " +
-        "concurrent edit is detected instead of silently overwritten.",
+        "concurrent edit is detected instead of silently overwritten. " +
+        "Pass mail: true to read only the note's mail (what agents working on it sent each other) instead of the note: " +
+        "with your mailbox, just what is new for you; mail: \"all\" for all of it.",
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string", description: "e.g. '1-projects/togather/status.md'" } },
+        properties: {
+          path: { type: "string", description: "e.g. '1-projects/togather/status.md'" },
+          mail: {
+            type: ["boolean", "string"],
+            enum: [true, "new", "all"],
+            description:
+              "Read the note's mail instead of its text. true: what is new for your mailbox (all of it without one); \"all\": every message.",
+          },
+        },
         required: ["path"],
         additionalProperties: false,
       },

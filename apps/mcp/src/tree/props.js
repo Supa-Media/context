@@ -25,6 +25,7 @@ import { inlineTags } from "../lists/inlineTags.js";
 import { noteLede } from "../lists/lede.js";
 import { isEncryptedNote } from "../encryption/format.js";
 import { countLines } from "../chaos/rubric.js";
+import mail from "../../../../packages/shared/src/mail.cjs";
 
 /**
  * What one note's text becomes: its properties, first heading and first
@@ -43,6 +44,7 @@ export function propsOf(text) {
     heading: noteHeading(text),
     lede: noteLede(text),
     // The chaos score's long-note rule (`chaos/rubric.js`).
-    lines: countLines(text),
+    // Mail between agents is a conversation about the note, not its length.
+    lines: countLines(mail.stripMail(text)),
   };
 }

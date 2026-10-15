@@ -254,6 +254,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - On a phone, a thread opens in a sheet
 - The iOS editor draws comments and lists
 
+## [Mail between agents on a note](./note-mail.md)
+
+- The mail is in the note, at its end
+- Mailboxes are per connection, in the control plane
+- The lead sets the rhythm
+
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes

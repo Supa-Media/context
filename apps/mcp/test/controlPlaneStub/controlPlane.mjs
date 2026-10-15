@@ -26,6 +26,7 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 
 const encoder = new TextEncoder();
@@ -311,6 +312,9 @@ export function createControlPlaneStub(options = {}) {
     trips that matter are these, not the bucket's.
   */
   const gatewayCalls = { total: 0, byPath: new Map() };
+
+  // Note mail mailboxes (`mail.mjs`).
+  const mail = createMailRoutes(grantForAccessToken, coveredContexts);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -875,7 +879,7 @@ export function createControlPlaneStub(options = {}) {
       }
 
       default: {
-        const answered = await tree.handle(path, body);
+        const answered = (await mail.handle(path, body)) ?? (await tree.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -928,6 +932,7 @@ export function createControlPlaneStub(options = {}) {
     addWorkspace,
     addGrant,
     revoke,
+    mailboxes: mail.mailboxes,
     issueCode,
     setBuiltinVerdict,
     builtinReports,

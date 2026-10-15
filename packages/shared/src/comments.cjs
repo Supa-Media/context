@@ -458,12 +458,18 @@ function applyChanges(text, changes) {
  * The note without its comments: markers gone and the block removed. For
  * every surface that publishes a note beyond its readers (share links,
  * websites), where comments are never shown.
+ *
+ * The note's mail block (`mail.cjs`) goes too: it is the same kind of
+ * conversation about the note rather than the note, and every caller here is
+ * a place it must not show. Found by info string here rather than through
+ * `mail.cjs`, which itself builds on this module.
  */
 function stripComments(text) {
-  const source = typeof text === "string" ? text : "";
-  const block = findBlock(source);
-  let out = source;
-  if (block) {
+  let out = typeof text === "string" ? text : "";
+  for (const info of ["comments", "mail"]) {
+    const blocks = fencedBlocks(out).filter((b) => b.info === info && b.closed);
+    const block = blocks.length ? blocks[blocks.length - 1] : null;
+    if (!block) continue;
     let start = block.start;
     while (start > 0 && out[start - 1] === "\n") start -= 1;
     const tail = out.slice(block.end);
@@ -492,6 +498,8 @@ module.exports = {
   closeMarker,
   findBlock,
   findAnchors,
+  fencedBlocks,
+  lines,
   parseComments,
   sanitizeAuthor,
   newThreadId,
