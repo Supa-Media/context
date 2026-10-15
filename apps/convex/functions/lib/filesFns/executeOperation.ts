@@ -27,6 +27,7 @@ import {
   maintainSearchIndex,
   movePath,
   notePathIndex,
+  notePathsAnswer,
   workspaceGraph,
   projectSearchIndex,
   readFile,
@@ -534,7 +535,7 @@ export async function executeOperation(
       }
       case "notePaths": {
         const found = await notePathIndex(store, clearance);
-        return { kind: "notePaths", paths: found?.paths ?? null };
+        return { kind: "notePaths", ...notePathsAnswer(found?.paths ?? null) };
       }
       case "workspaceGraph":
         return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance, { compact: operation.compact === true })) };
