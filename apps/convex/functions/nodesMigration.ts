@@ -33,7 +33,7 @@ export const MIGRATION_PHASE = 3;
 /** Workspaces one report or one start reads: a bound on a loop, not on any deployment we have. */
 export const MIGRATION_ROWS = 500;
 
-async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
+export async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
   try {
     return (await requireAdmin(ctx)).userId;
   } catch (error) {
@@ -42,7 +42,7 @@ async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
 }
 
 /** Every workspace with storage, a workspace once however many bindings it has. */
-async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]; truncated: boolean }> {
+export async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]; truncated: boolean }> {
   const ids: Id<"workspaces">[] = [];
   const seen = new Set<string>();
   let truncated = false;
@@ -63,7 +63,7 @@ async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]
  * on: every one but those only archived accounts hold (`lib/archivedWorkspaces.ts`).
  * One workspace's own button still reaches an archived one.
  */
-async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces">[]> {
+export async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces">[]> {
   const live: Id<"workspaces">[] = [];
   for (const workspaceId of (await boundWorkspaces(ctx)).ids) {
     if (!(await workspaceArchived(ctx.db, workspaceId))) live.push(workspaceId);

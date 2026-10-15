@@ -219,11 +219,28 @@ function foldPath(key) {
 }
 
 /** Dot-prefixed segments (.history, .obsidian, …) are plumbing, never notes. */
+/**
+ * An id-layout key (`notes/<noteId>.md`, `files/<noteId><.ext>`), never a note.
+ *
+ * While the move from path keys to id keys runs, a bucket holds every note at
+ * its path and a copy at its id key. The copies are not notes of their own:
+ * the tree sweep must not make them rows (the next copy pass would copy the
+ * copies), and no listing, search or tool may show them, so they are
+ * plumbing. Only names that are a UUIDv7 match, so a folder a person called
+ * `notes/` or `files/` stays theirs.
+ */
+const ID_KEY = /^(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
+
+export function isIdKey(key) {
+  return typeof key === "string" && ID_KEY.test(key);
+}
+
 export function isPlumbing(key) {
   const folded = foldPath(key);
   return (
     folded === PRIVACY_KEY ||
     folded === LEGACY_SCOPES_KEY ||
+    isIdKey(key) ||
     key.split("/").some((s) => s.startsWith("."))
   );
 }

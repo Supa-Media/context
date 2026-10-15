@@ -21,6 +21,7 @@ import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { hashToken } from "./crypto";
+import type { NoteIdItem } from "./nodes/noteIds";
 import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "./gatewayAuth";
 import { MOVER_PAGE_TIMEOUT_MS } from "./managedProvisioningFns/constants";
 import type { MigrationPageResult } from "./managedProvisioningFns/migrationRun";
@@ -28,9 +29,10 @@ import type { MigrationPageResult } from "./managedProvisioningFns/migrationRun"
 type TicketPhase = Doc<"moverTickets">["phase"];
 type CarriedObject = { source: string; destination: string; size: number };
 type TicketFor =
-  | { migrationId: Id<"managedStorageMigrations">; walkRunId?: undefined; contextMoveId?: undefined }
-  | { walkRunId: number; migrationId?: undefined; contextMoveId?: undefined }
-  | { contextMoveId: Id<"contextMoves">; objects: CarriedObject[]; migrationId?: undefined; walkRunId?: undefined };
+  | { migrationId: Id<"managedStorageMigrations">; walkRunId?: undefined; contextMoveId?: undefined; idRunId?: undefined; idItems?: undefined }
+  | { walkRunId: number; migrationId?: undefined; contextMoveId?: undefined; idRunId?: undefined; idItems?: undefined }
+  | { contextMoveId: Id<"contextMoves">; objects: CarriedObject[]; migrationId?: undefined; walkRunId?: undefined; idRunId?: undefined; idItems?: undefined }
+  | { idRunId: number; idItems: NoteIdItem[]; migrationId?: undefined; walkRunId?: undefined; contextMoveId?: undefined };
 
 export const STORAGE_MOVER_ORIGIN_ENV_VAR = "STORAGE_MOVER_ORIGIN";
 const MOVER_PAGE_PATH = "/internal/mover/page";
@@ -100,6 +102,7 @@ async function handToMover(
     ...(page.migrationId === undefined ? {} : { migrationId: page.migrationId }),
     ...(page.walkRunId === undefined ? {} : { walkRunId: page.walkRunId }),
     ...(page.contextMoveId === undefined ? {} : { contextMoveId: page.contextMoveId, objects: page.objects }),
+    ...(page.idRunId === undefined ? {} : { idRunId: page.idRunId, idItems: page.idItems }),
     phase: page.phase,
     ...(page.expectedCursor === undefined ? {} : { expectedCursor: page.expectedCursor }),
     now: Date.now(),
@@ -263,4 +266,42 @@ export async function runContextMoveBatchOnMover(
       }
     : null;
   return { kind: "done", landed, skipped, conflicts, failure };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                    a page of the path-to-id copy on the mover              */
+/* -------------------------------------------------------------------------- */
+
+export type NoteIdPageOutcome =
+  | { kind: "done"; results: unknown[] }
+  | { kind: "stale" }
+  | { kind: "unanswered" }
+  | { kind: "failed"; code: string };
+
+/**
+ * Hand one page of the id copy (`id_copy`) or its check (`id_check`) to the
+ * mover. The ticket names the run and the items; the mover answers what it did
+ * to those items, and the caller reads the answer for them only.
+ */
+export async function runNoteIdPageOnMover(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  page: { runId: number; phase: "id_copy" | "id_check"; items: NoteIdItem[] },
+  origin: string,
+  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {},
+): Promise<NoteIdPageOutcome> {
+  const body = await handToMover(
+    ctx,
+    workspaceId,
+    { idRunId: page.runId, idItems: page.items, phase: page.phase },
+    origin,
+    options,
+  );
+  if (body === null || typeof body !== "object") return { kind: "unanswered" };
+  const answer = body as Record<string, unknown>;
+  if (answer.ok !== true) {
+    if (answer.error === "STALE") return { kind: "stale" };
+    return { kind: "failed", code: typeof answer.error === "string" && WALK_CODE.test(answer.error) ? answer.error : "ID_COPY_FAILED" };
+  }
+  return { kind: "done", results: Array.isArray(answer.results) ? answer.results : [] };
 }

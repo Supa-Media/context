@@ -17,6 +17,8 @@
  * person from them yet.
  */
 
+import { isIdKey } from "../../../../mcp/src/privacy/engine.js";
+
 /** A key the bucket holds, as a listing describes it. */
 export interface NodeRow {
   /** The bucket key, e.g. `1-projects/a.md`. Never a top-level dot folder. */
@@ -217,6 +219,8 @@ export function nodePath(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const path = value.replace(/^\/+|\/+$/g, "");
   if (path === "" || path.startsWith(".")) return null;
+  // An id-layout copy (`notes/<noteId>.md`) is not a note: never a row.
+  if (isIdKey(path)) return null;
   return path;
 }
 

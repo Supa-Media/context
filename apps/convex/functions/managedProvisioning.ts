@@ -21,6 +21,7 @@ import {
 import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
 import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
 import { type ContextMoveMoverPage, type ContextMoveTicket, openContextMovePage } from "./lib/contextMoveMover";
+import { type NoteIdMoverPage, type NoteIdTicket, openNoteIdPage } from "./lib/noteIds/mover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -710,12 +711,11 @@ export const failManagedStorageMigration = internalMutation({
 
 /**
  * The mover's door (`lib/storageMover.ts`): spend one page's ticket and open
- * both buckets for it. The workspace, page and rules come off the ticket and
- * the migration row, never off the request; a ticket for a page the move has
- * already passed opens nothing.
+ * the buckets for it. Everything comes off the ticket and the row, never the
+ * request; a ticket for a page already passed opens nothing.
  */
 type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
-type MoverTicketJobs = {
+type MoverTicketJobs = Partial<NoteIdTicket> & {
   walkRunId?: number;
   migrationId?: Id<"managedStorageMigrations">;
   contextMoveId?: Id<"contextMoves">;
@@ -725,12 +725,13 @@ type MoverTicketJobs = {
 export const openMoverPage = internalAction({
   args: { hashedTicket: v.string() },
   returns: v.any(),
-  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | null> => {
+  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | NoteIdMoverPage | null> => {
     const ticket: (Omit<WalkTicket, "walkRunId"> & MoverTicketJobs) | null =
       await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
     if (ticket === null) return null;
     if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
     if (ticket.contextMoveId !== undefined) return await openContextMovePage(ctx, { ...ticket, contextMoveId: ticket.contextMoveId, objects: ticket.objects ?? [] });
+    if (ticket.idRunId !== undefined) return await openNoteIdPage(ctx, { workspaceId: ticket.workspaceId, phase: ticket.phase, runId: ticket.idRunId, items: ticket.idItems ?? [] });
     const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
       internal.functions.managedProvisioning.migrationForCopy,
       { workspaceId: ticket.workspaceId },
