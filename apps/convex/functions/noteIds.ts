@@ -13,7 +13,9 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import { convexNodeTable } from "./lib/nodes/convexTable";
 import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
+import { applyObservation } from "./lib/nodes/observe";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
@@ -261,8 +263,15 @@ export const recordCopy = internalMutation({
     // bytes. The row takes the key's version; nothing else about it changes (no `keyedFrom`: the bytes did not move).
     if (row.storageKey !== undefined) {
       if (row.storageKey !== key || keyEtag === undefined) return false;
-      await ctx.db.patch(row._id, { etag: keyEtag, observedAt: Date.now() });
-      return true;
+      // A seam observation, so the new bytes are logged as a change like any keyed write.
+      await applyObservation(convexNodeTable(ctx, workspaceId), {
+        at: Date.now(),
+        rows: [{ path, etag: keyEtag, keyed: { noteId: row.noteId, storageKey: key } }],
+        gone: [],
+        vanishedUnder: [],
+        source: "seam",
+      });
+      return (await nodeAt(ctx.db, workspaceId, path))?.etag === keyEtag;
     }
     if (idKeyFor(row.noteId, path) !== key) return false;
     await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now(), ...(keyEtag === undefined ? {} : { keyEtag }) } });

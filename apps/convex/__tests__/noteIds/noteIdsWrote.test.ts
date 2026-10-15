@@ -87,6 +87,28 @@ describe("POST /gateway/note-ids/wrote", () => {
     expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, keyEtag: "key-etag-2", fresh: true });
   });
 
+  test("a row the flip keyed after the gateway's lookup takes the key's version, and the change is logged", async () => {
+    const f = await fixture();
+    await seedCopies(f);
+    const key = idKeyFor(NOTE_IDS.noCopy, NO_COPY);
+    await patchRow(f.t, f.ws, NO_COPY, { storageKey: key, etag: "key-etag-before" });
+    const logged = async () =>
+      await f.t.run(async (ctx) =>
+        (await ctx.db.query("nodeLog").collect()).filter((row) => row.workspaceId === f.ws && row.path === NO_COPY).length,
+      );
+    const before = await logged();
+    const body = await bodyOf(await wrote(f, { ...writeOf(f, EDITOR, NO_COPY, key), keyEtag: "key-etag-after" }));
+    expect(body).toEqual({ ok: true, recorded: true });
+    expect(await rowOf(f.t, f.ws, NO_COPY)).toMatchObject({ storageKey: key, etag: "key-etag-after" });
+    expect(await logged()).toBe(before + 1);
+
+    // Another key, or no key version at all, is refused and changes nothing.
+    const other = idKeyFor(NOTE_IDS.plan, "1-projects/elsewhere.md");
+    expect(await bodyOf(await wrote(f, { ...writeOf(f, EDITOR, NO_COPY, other), keyEtag: "x" }))).toEqual({ ok: true, recorded: false });
+    expect(await bodyOf(await wrote(f, writeOf(f, EDITOR, NO_COPY, key)))).toEqual({ ok: true, recorded: false });
+    expect(await rowOf(f.t, f.ws, NO_COPY)).toMatchObject({ etag: "key-etag-after" });
+  });
+
   test("a key that is not the row's id key is refused and nothing is recorded", async () => {
     const f = await fixture();
     await seedCopies(f);
