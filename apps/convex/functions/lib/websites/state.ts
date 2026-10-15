@@ -239,16 +239,16 @@ export async function ensureWebsiteStarter(
   },
 ): Promise<"created" | "existing"> {
   // Whether the homepage exists, at this caller's own clearance, is the tree's
-  // answer: an existing homepage is never opened. A tree that cannot say stops
-  // here, since a write would replace what it cannot see.
+  // answer: an existing homepage is never opened. A tree that cannot say (a new
+  // workspace's still filling) falls through to the write below, which only
+  // creates: a page already there answers CONFLICT, read as "existing".
   const visible = await visibleTreePaths(
     ctx,
     args.workspaceId,
     clearanceOf(args.scope, args.grantedNames),
     [STARTER_PATH],
   );
-  if (visible === null) throw new Error("website starter: the tree is not served");
-  if (visible.has(STARTER_PATH)) return "existing";
+  if (visible?.has(STARTER_PATH)) return "existing";
 
   try {
     const written = await ctx.runAction(
