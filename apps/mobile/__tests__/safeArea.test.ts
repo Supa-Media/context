@@ -229,7 +229,7 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(home)/_layout.tsx": { kind: "framed" },
   "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
-  ...Object.fromEntries(["privacy.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*

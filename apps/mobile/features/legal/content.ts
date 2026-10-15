@@ -162,3 +162,28 @@ export const termsContent: LegalPageContent = {
     },
   ],
 };
+
+export const supportContent: LegalPageContent = {
+  eyebrow: "Support",
+  title: "Support",
+  updated: "October 15, 2026",
+  intro:
+    "Questions, problems, or something that doesn't work the way you expected? Email context@supa.media and a person will answer, usually within a day.",
+  sections: [
+    {
+      title: "Contact us",
+      body: [
+        "Email context@supa.media. Tell us what you were doing, what you expected, and what happened instead. Say which device you use and whether it was the app or the website.",
+        "You can also send a report from inside the app, in Settings under Feedback. It can attach the app version and a log of recent screens and errors, so we can find the problem faster.",
+      ],
+    },
+    {
+      title: "Your account and your notes",
+      body: [
+        "To download every note as plain Markdown folders, use Download everything in Settings. It is free on every plan, and it still works after you cancel.",
+        "To delete your account, open Settings, then Profile, then Delete account.",
+        "For privacy questions or data requests, see the Privacy Policy or email the same address.",
+      ],
+    },
+  ],
+};
