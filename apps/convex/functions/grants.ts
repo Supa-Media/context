@@ -26,6 +26,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
+import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { isDesktopShellClient } from "./lib/machineGrant";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
@@ -49,6 +50,39 @@ import {
  * hardcode the number twice.
  */
 export const MAX_GRANTS_RETURNED = 200;
+
+/**
+ * How many of those 200 the console may take.
+ *
+ * The console is not a third-party client, but it mints like one and far more
+ * often: every page load is a new instance, and a person may mint 600 an hour
+ * (`CONSOLE_MINT_LIMIT`), which is what a browser agent opening one note per
+ * page load does. Nothing expires inside that hour, so each load inserts its
+ * own row, and newest-first put hundreds of them above every AI client the
+ * person had ever connected — pushing the client somebody came here to revoke
+ * off the bottom of the only screen that revokes it. A cap that hides what
+ * you came to switch off is worse than no cap.
+ *
+ * So the console gets a share rather than the list. A few rows still let
+ * somebody unplug a console session, which is the only thing these rows are
+ * here for; the rest of the screen stays about clients.
+ *
+ * Showing one row for the console instead of a handful is the better screen,
+ * and it is a question about what people see rather than about revocation,
+ * so it is not settled here.
+ */
+export const MAX_CONSOLE_GRANTS_RETURNED = 10;
+
+/**
+ * Rows one listing may walk past to fill its 200.
+ *
+ * Skipping the console's extra rows means reading them, so the walk needs its
+ * own bound or a workspace with tens of thousands of grants would turn this
+ * into a full-table read — the very thing `MAX_GRANTS_RETURNED` exists to
+ * stop. Past this, the list is whatever was found: the newest rows, which is
+ * the same failure direction the cap already chose.
+ */
+export const MAX_GRANTS_SCANNED = 2_000;
 
 /**
  * One error for "no such grant" and for "a grant you have no business
@@ -131,19 +165,34 @@ export const listGrants = query({
     // means the rows below the cap already arrive newest-first, so nothing
     // downstream has to re-sort them back into that order.
     const seesAll = membership.role === "owner";
-    const rows: Doc<"oauthGrants">[] = seesAll
-      ? await ctx.db
+    const newestFirst = seesAll
+      ? ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
           .order("desc")
-          .take(MAX_GRANTS_RETURNED)
-      : await ctx.db
+      : ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace_user", (q) =>
             q.eq("workspaceId", args.workspaceId).eq("userId", userId),
           )
-          .order("desc")
-          .take(MAX_GRANTS_RETURNED);
+          .order("desc");
+
+    // A walk rather than a `.take()`, so the console's extra rows
+    // (`MAX_CONSOLE_GRANTS_RETURNED`) can be stepped over instead of spending
+    // the cap. Still newest-first, still bounded both ways.
+    const rows: Doc<"oauthGrants">[] = [];
+    let consoleKept = 0;
+    let scanned = 0;
+    for await (const grant of newestFirst) {
+      scanned += 1;
+      const isConsole = grant.clientId === CONSOLE_CLIENT_ID;
+      if (!isConsole || consoleKept < MAX_CONSOLE_GRANTS_RETURNED) {
+        if (isConsole) consoleKept += 1;
+        rows.push(grant);
+        if (rows.length >= MAX_GRANTS_RETURNED) break;
+      }
+      if (scanned >= MAX_GRANTS_SCANNED) break;
+    }
 
     const summaries = [];
     for (const grant of rows) {
