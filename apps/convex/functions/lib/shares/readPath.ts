@@ -409,6 +409,20 @@ async function readThroughShare(
   scope: "private" | "team" = "team",
 ): Promise<{ text: string }> {
   try {
+    /*
+      THE TREE DECIDES SEALED BEFORE THE BUCKET IS ASKED FOR THE BODY.
+
+      The tree records each note's sealed state when its facts are read
+      (`writeFacts`, from the same envelope the body check looks for), so it
+      can refuse a sealed note without opening the object. A body rewritten in
+      the bucket since then still reads as sealed here until the tree catches
+      up, and that is the point: the tree is the answer for names and front
+      matter, and this is front matter. When the tree does not answer, the
+      body check below decides alone, exactly as before.
+    */
+    if (openToAnyone && (await sealedInTree(ctx, workspaceId, path))) {
+      throw anonymousSafe(actorUserId, shareUnavailable());
+    }
     const result = await ctx.runAction(
       internal.functions.files.runFileOperation,
       {
@@ -469,6 +483,25 @@ async function readThroughShare(
     // caller. See `anonymousSafe`.
     throw error;
   }
+}
+
+/**
+ * Whether the Convex tree holds this note as sealed. `false` when the tree does
+ * not answer (a copy still loading, a failed query): the body check then
+ * decides, and this never refuses on an absence it cannot read.
+ */
+async function sealedInTree(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<boolean> {
+  const rows = await ctx
+    .runQuery(internal.functions.nodeFacts.publishedRows, {
+      workspaceId,
+      paths: [path],
+    })
+    .catch(() => null);
+  return rows?.some((row) => row.path === path && row.sealed) ?? false;
 }
 
 /**
