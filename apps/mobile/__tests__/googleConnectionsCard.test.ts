@@ -160,6 +160,50 @@ describe("an account is one row", () => {
   });
 });
 
+describe("where connected data appears", () => {
+  test("shows each enabled service's real destination and its own delivery state", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "0-inbox/calendar/YYYY-MM-DD.md", syncCursorReady: false },
+        chat: { destinationFolder: "0-inbox/google-chat/person", destinationPath: "0-inbox/google-chat/person/YYYY-MM-DD.md", cursorCount: 0 },
+      })], actions,
+    }));
+    expect(screen.text()).toContain("Email → 0-inbox/email/person-at-example-invalid");
+    expect(screen.text()).toContain("Calendar → 0-inbox/calendar");
+    expect(screen.text()).toContain("Chat → 0-inbox/google-chat/person");
+    expect(screen.text()).toContain("Waiting for the first sync.");
+    expect(screen.text()).toContain("Your connected AI assistants can read these notes and answer questions about them.");
+    screen.unmount();
+  });
+
+  test("reports Calendar delivery separately while Gmail still awaits its first sync", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({ calendar: {
+        destinationFolder: "0-inbox/calendar", destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+        syncCursorReady: true, lastSyncedAt: Date.parse("2026-10-15T12:00:00Z"),
+      } })], actions,
+    }));
+    expect(screen.text()).toContain("Last synced:");
+    expect(screen.text()).toContain("Waiting for the first sync.");
+    screen.unmount();
+  });
+
+  test("keeps two mailboxes' destinations distinct and hides disabled service data", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection(), connection({ connectionId: "google_2", email: "second@example.invalid",
+        syncServices: { gmail: true, calendar: false, chat: false },
+        gmail: { backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/second", destinationPath: "0-inbox/email/second/YYYY-MM-DD.md", historyCursorReady: true },
+        chat: { destinationFolder: "hidden-chat-folder", destinationPath: "hidden-chat-folder/YYYY-MM-DD.md", cursorCount: 0 },
+      })], actions,
+    }));
+    expect(screen.text()).toContain("Email → 0-inbox/email/person-at-example-invalid");
+    expect(screen.text()).toContain("Email → 0-inbox/email/second");
+    expect(screen.text()).not.toContain("hidden-chat-folder");
+    expect(screen.text()).not.toContain("Last synced:");
+    screen.unmount();
+  });
+});
+
 describe("nothing on the row is a setting", () => {
   test("no destination field, and no path to edit", () => {
     const screen = render(
