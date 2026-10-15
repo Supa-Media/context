@@ -120,6 +120,23 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     expect(store.alarm()).toBe(now + RETRY_MS);
   });
 
+  it("arms the next try before asking Browserbase, so a handler cut off mid-call still retries", async () => {
+    const store = fakeStorage();
+    let now = 0;
+    let armedDuringLookup: number | null = null;
+    const hanging = (async () => {
+      armedDuringLookup = store.alarm();
+      return await new Promise<Response>(() => {});
+    }) as typeof fetch;
+    const timer = new IdleTimer(store.storage, ENV, hanging, () => now);
+    await timer.touch(OWNER);
+    now += IDLE_MS;
+    store.clearAlarm();
+    void timer.alarm();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(armedDuringLookup).toBe(now + RETRY_MS);
+  });
+
   it("looks up and releases with no touch let in between", async () => {
     const store = fakeStorage();
     const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);

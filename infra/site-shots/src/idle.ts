@@ -61,6 +61,9 @@ export class IdleTimer {
   async alarm(): Promise<void> {
     await this.exclusive(async () => {
       const owner = await this.storage.get<string>("owner");
+      // Armed before any call to Browserbase, so that even a handler the
+      // runtime resets mid-call (after 30 seconds) leaves the next try set.
+      await this.storage.setAlarm(this.now() + RETRY_MS);
       let ids: string[];
       try {
         ids = owner ? await ownerSessionIds(this.env, owner, this.fetcher) : [];
@@ -72,8 +75,8 @@ export class IdleTimer {
         }
         for (const id of ids) await releaseSession(this.env, id, this.fetcher);
       } catch {
+        // The retry armed above stands.
         console.log(JSON.stringify({ event: "site_shots_browserbase_idle_retry" }));
-        await this.storage.setAlarm(this.now() + RETRY_MS);
         return;
       }
       console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: ids.length }));
