@@ -104,8 +104,16 @@ async function applySeamRow(
   const keyed = row.keyed;
   // A note's key is never a folder marker (`a/`): a seam write of one has no note to land as.
   if (keyed === undefined || path.endsWith("/")) return "taken";
-  const existing = await lookup(path);
+  let existing = await lookup(path);
 
+  // A folder emptied and retired earlier holds the name only as a tombstone:
+  // it gives way to the note, or the name could never be written again in a
+  // keyed workspace, which is never pruned.
+  if (existing !== null && existing.kind === "folder" && existing.goneAt !== undefined && !(await table.hasLiveChild(existing.id))) {
+    await table.remove(existing.id);
+    cache.set(path, null);
+    existing = null;
+  }
   if (existing !== null && existing.kind === "folder") return "taken";
   if (existing !== null && existing.goneAt === undefined) {
     if (!isKeyed(existing) || existing.noteId !== keyed.noteId) return "taken";

@@ -178,7 +178,7 @@ export class NoteNameTaken extends Error {
  * @param {object} store
  * @param {{
  *   lookup: (paths: string[]) => Promise<{copies?: object, keyed?: boolean, notes?: object}>,
- *   wrote: (record: object) => Promise<unknown>,
+ *   wrote: (record: {path: string, key: string, etag: string, keyEtag?: string, keyed?: boolean, size?: number, at?: number}) => Promise<unknown>,
  *   adopt?: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
  *   removed?: (note: {path: string, key: string, at: number}) => Promise<unknown>,
  *   mode?: "ids" | "keys",

@@ -271,6 +271,18 @@ describe("a seam write that cannot land is taken, and changes nothing", () => {
     expect(table.rows()).toEqual(before);
   });
 
+  test("a folder retired as empty gives its name to a note, which is never taken by its tombstone", async () => {
+    const table = memoryNodeTable();
+    await applyAll(table, bucket(10, [{ path: "docs/x/y.md", etag: "p" }]));
+    await applyAll(table, bucket(15, [], { gone: ["docs/x/y.md"] }));
+    expect(find(table, "docs/x")?.goneAt).toBe(15);
+
+    const result = await applyObservationOnce(table, seam(20, "docs/x", NOTE_A, "k1"));
+
+    expect(result.taken).toEqual([]);
+    expect(find(table, "docs/x")).toMatchObject({ kind: "file", noteId: NOTE_A, storageKey: keyFor(NOTE_A) });
+  });
+
   test("a file sitting in a folder's place in the chain is taken, and no folder is created above it", async () => {
     const table = memoryNodeTable();
     await applyAll(table, bucket(10, [{ path: "f.md", etag: "p" }]));
