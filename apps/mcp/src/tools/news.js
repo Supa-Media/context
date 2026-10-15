@@ -38,6 +38,12 @@
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-15",
+    text:
+      "orient `tools: true` lists every tool you may call and its arguments as they are today. " +
+      "orient shows that list by itself whenever your app's copy is out of date.",
+  },
+  {
     date: "2026-10-12",
     text: 'write_note `site: { action: "domain" }` shows or connects a website\'s own domain and the DNS records it needs.',
   },
@@ -86,7 +92,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "8830dd51";
+export const TOOL_SHAPE = "acc5bde6";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -105,7 +105,7 @@ async function runTool(name, args, store, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(store, scope, rules, overrides);
+      return toolOrient(store, scope, rules, overrides, { tools: args.tools === true });
     case "scope_info":
       return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":

@@ -25,3 +25,36 @@ gateway does not keep, and only some clients act on it.
 Reversing the stamp, the orient section or the fingerprint fails
 `apps/mcp/test/toolNews.test.mjs` and the `tools-listed` cases in
 `apps/convex/__tests__/controlPlane/session.test.ts`.
+
+## Orient carries the live tool list, in full only when it is needed
+
+Decided with the owner, 2026-10-15. News says what *changed*; an agent whose
+copy is old also needs what *is*, argument by argument, and a hand-kept copy
+of that would drift the first week.
+
+- **Generated, never written.** `apps/mcp/src/tools/liveList.js` renders the
+  list at request time from `toolsForSession`, the same call `tools/list`
+  answers with, through `store.offeredTools` (set beside `store.actor` in
+  `mcp/handlers.js`, handed along by `openContext`). Each tool is its name,
+  the opening of its description, and every argument with its type, `*` for
+  required, and an object's keys one level down. The `context` argument every
+  tool takes is said once.
+- **Only what this connection may call.** Read-only grants see no write
+  tools, `PRIVATE_TIER_ONLY_TOOLS` stay out below the private tier,
+  `rotate_encryption_keys` included, and unlisted or switched-off tools are
+  absent, because the list *is* the listing. Addressed to another workspace,
+  orient still lists this connection's tools, as `tools/list` does.
+- **It tells the agent to trust it.** The section says to prefer it over the
+  app's copy, to pass arguments exactly as listed even where that copy does
+  not show them, and that a tool the app does not offer needs a reconnect.
+- **Default: full list only when the copy is stale.** The full list is about
+  10 KB. It is shown when the news section is (a news entry dated on or after
+  the grant's `toolsListedAt`), or when the agent passes `orient { tools: true }`.
+  Otherwise orient carries a two-line "Context's tools" section saying the
+  copy is current and how to ask. An unknown listing time gets the pointer
+  without claiming the copy is current. The texting assistant, handed today's
+  tools on every turn, sets no `offeredTools` and gets neither.
+
+Reversing any of these fails `apps/mcp/test/liveToolList.test.mjs`; listing
+the registry instead of the connection's tools was sabotage-checked there and
+reddens five cases.
