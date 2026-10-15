@@ -1,6 +1,7 @@
+import { NativePlan } from "./NativePlan";
 import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
 import type { CheckoutOutcome } from "@context/shared";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -236,6 +237,8 @@ export function PremiumBody({
       )
       .finally(() => setWorking(false));
   };
+
+  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} />;
 
   const status = view.status;
   const state = premiumStateOf(status?.status);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
@@ -129,7 +129,7 @@ export function StorageChoiceBody({
             onPress={free.onChoose}
           />
         )}
-        {managed === undefined ? null : (
+        {Platform.OS !== "web" || managed === undefined ? null : (
           /*
             The badge is the number and the sub says what kind of number it is.
             Splitting it that way keeps the badge a badge — it is a pill beside
