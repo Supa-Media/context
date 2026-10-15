@@ -10,7 +10,7 @@
  *   Worker. Nothing here needs configuring to switch: the gateway asks for
  *   Browserbase first, and a Worker without its key answers 501, after which
  *   this isolate uses Cloudflare's browser. Its browser outlives the question
- *   (up to 15 minutes, `infra/site-shots/src/browserbase.ts`), found again by
+ *   (until five idle minutes pass, `infra/site-shots/src/idle.ts`), found again by
  *   the person's tag, so a person can sign in on it and text Tex to carry on.
  *   They take it over at `viewer`, their own `context.lc/tex/<handle>` page
  *   (`http/texComputer.js`), signed in; Browserbase's live-view link, which

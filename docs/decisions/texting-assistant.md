@@ -481,8 +481,8 @@ the same day: Browserbase is the browser, stateless (no Contexts,
 (`src/browserbase.ts`), which holds its key, and switches on by itself once
 `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
 Worker answers 501 and Cloudflare's browser is used. A Browserbase browser
-outlives the question, capped at 15 minutes of life, and is found again by a
-tag that is an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
+outlives the question until five idle minutes pass (`src/idle.ts`), and is found
+again by a tag, an HMAC of the person's id under `GATEWAY_SECRET`, so nothing of
 ours stores a session id and no one can name another person's browser. When
 the person must act themselves (sign in, a code, a captcha), the model asks
 for a `handoff`; the gateway adds the link to the text itself, so the model
