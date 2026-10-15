@@ -1,4 +1,5 @@
 import { defineTable } from "convex/server";
+import { googlePushValidator } from "./googlePush";
 import { v } from "convex/values";
 
 /**
@@ -326,6 +327,15 @@ export const googleTables = {
     managedProvisioningError: v.optional(v.string()),
     /** When the last attempt ended, so a retry can be rate-limited by a human. */
     managedProvisioningAt: v.optional(v.number()),
+    /**
+     * Google's push notifications for this account, per product, and the
+     * pokes they have delivered (`docs/decisions/communications/google-push.md`).
+     *
+     * Push only ever makes a connection due sooner. Nothing here is mail, and
+     * nothing here is a credential: the Calendar channel's token is stored as
+     * its SHA-256, so a database read cannot forge a notification.
+     */
+    push: v.optional(googlePushValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -346,7 +356,11 @@ export const googleTables = {
      * A row with no `nextSyncAt` sorts before every number, so a never-synced
      * connection is at the front of the queue rather than invisible to it.
      */
-    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"]),
+    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"])
+    /** Push receivers: whose mailbox, channel or subscription a notification names. */
+    .index("by_push_gmail_address", ["push.gmail.address"])
+    .index("by_push_calendar_channel", ["push.calendar.channelId"])
+    .index("by_push_chat_subscription", ["push.chat.subscriptionName"]),
 
   /**
    * User-visible Google sync work.

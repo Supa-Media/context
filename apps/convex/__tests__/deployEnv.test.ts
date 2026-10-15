@@ -78,6 +78,12 @@ const SET_ELSEWHERE: Record<string, string> = {
   PHONE_CHECK_EXEMPT_EMAILS:
     "test inboxes set by hand on a deployment whose sign-in tests use them; absent exempts " +
     "nobody, which is the safe default",
+  GOOGLE_PUSH:
+    "an emergency brake set by hand to exactly `off`; push registers whenever its topic is " +
+    "configured, and polling carries on without it",
+  GOOGLE_PUSH_AUDIENCE:
+    "a self-host's override for a push subscription with a custom audience; ours use the " +
+    "default, the push URL itself",
   HOME_SITE_HANDLE:
     "a self-host's own homepage handle; our deployments leave it unset and get the " +
     "default, `context-lc`, which is also the router's default",

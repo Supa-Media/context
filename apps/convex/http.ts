@@ -143,6 +143,12 @@ import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
+import {
+  calendarChannelRoute,
+  calendarPushHandler,
+  pubsubPushHandler,
+  pubsubPushRoute,
+} from "./functions/lib/googlePush/routes";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 
 const http = httpRouter();
@@ -880,6 +886,12 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
 });
 
 http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
+
+/** Google's push notifications: each only makes a sync due sooner. `lib/googlePush/routes.ts`. */
+export const googlePubsubPush = pubsubPushRoute(pubsubPushHandler);
+http.route({ path: "/google/push/pubsub", method: "POST", handler: googlePubsubPush });
+export const googleCalendarPush = calendarChannelRoute(calendarPushHandler);
+http.route({ path: "/google/push/calendar", method: "POST", handler: googleCalendarPush });
 
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);

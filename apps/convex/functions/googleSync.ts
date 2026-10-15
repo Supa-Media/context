@@ -16,16 +16,14 @@
  * `runFileOperation` — the one credential barrier — exactly as the historical
  * backfill drove them before #388 removed it.
  *
- * ## Why a pull, and not a webhook
+ * ## A pull, with push as an accelerator on top
  *
- * Google can push: `users.watch` posts Gmail changes to a Pub/Sub topic, and
- * Calendar has watch channels. Both are rejected here for now, and
- * `docs/decisions/communications.md` carries the argument in full — the short
- * version is that a push path needs a Google Cloud Pub/Sub topic in *our*
- * project, an internet-facing verified endpoint, and a re-registration every
- * seven days per mailbox, and it still needs this loop underneath it, because
- * a missed or expired watch is only ever noticed by something that polls. A
+ * Google can push, and since 2026-10-15 it does (`googlePush.ts`): a Gmail,
+ * Chat or Calendar notification marks the product pending and brings
+ * `nextSyncAt` forward, and this loop does the rest. The loop stays because a
+ * missed or expired watch is only ever noticed by something that polls; a
  * pull that works is worth more than a push that needs a pull to be correct.
+ * See `docs/decisions/communications/google-push.md`.
  *
  * ## Why the floor is five minutes, and how one cron serves many intervals
  *
@@ -87,9 +85,11 @@ import {
   SYNC_STALL_MS,
   failureBackoffMs,
   isDue,
+  nextProductToSync,
   syncIntervalMinutesOf,
   syncableProductsOf,
 } from "./lib/googleSchedule";
+import { settlePushAfterPass } from "./lib/googlePush/pending";
 
 /** Connections one sweep may start, bounded like every other sweep here. */
 const SWEEP_BATCH = 50;
@@ -450,18 +450,9 @@ export const googleForwardSyncJob = internalQuery({
       return { kind: "skip" as const, reason: "NO_SYNCABLE_PRODUCT" };
     }
 
-    /*
-     * One account owns one claim, but each product owns its own cursor. Pick
-     * the least-recently-synced product so a Gmail pass cannot starve Chat on
-     * a row that carries both grants. A missing timestamp wins, which lets a
-     * newly-added product establish its baseline before the already-running
-     * sibling is polled again.
-     */
-    const product = [...products].sort((left, right) => {
-      const last = (candidate: (typeof products)[number]) =>
-        connection[candidate]?.lastSyncedAt ?? Number.NEGATIVE_INFINITY;
-      return last(left) - last(right);
-    })[0]!;
+    // One claim, a cursor per product: Google's pushed product first, then
+    // the least-recently-synced one, so no product starves (`googleSchedule.ts`).
+    const product = nextProductToSync(connection, products);
 
     if (product === "calendar") {
       const calendar = connection.calendar!;
@@ -620,6 +611,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
       // Nothing was read, so `lastSyncAt` does not move — a skipped pass must
       // not be able to make a connection that has never synced look synced.
       await ctx.db.patch(args.connectionId, {
+        push: connection.push && { ...connection.push, pending: undefined },
         syncStartedAt: undefined,
         nextSyncAt: now + intervalMs,
         // A skipped pass is no longer urgently draining anything. Keeping
@@ -716,6 +708,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
     */
     const gap = args.gapDetected === true;
     const catchUp = args.catchUp === true;
+    const pushed = await settlePushAfterPass(ctx, connection, product, now, catchUp);
     const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
       if (candidate === product) return now;
       return connection[candidate]?.lastSyncedAt;
@@ -732,7 +725,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
       // A pass that knows it left work behind is due at once; anything else
       // waits its interval. `syncCatchUp` is cleared either way, so a
       // connection that has caught up stops being due every tick.
-      nextSyncAt: catchUp ? now : nextProductDueAt,
+      nextSyncAt: catchUp ? now : Math.min(nextProductDueAt, pushed.dueAt),
+      push: pushed.push,
       syncCatchUp: catchUp ? true : undefined,
       syncFailures: undefined,
       syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
