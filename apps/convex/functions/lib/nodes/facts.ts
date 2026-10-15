@@ -90,6 +90,14 @@ export interface FactState {
   startSeq?: number;
   leaseAt?: number;
   retry?: string[];
+  /**
+   * A ready fill still re-reading notes whose props predate `PROPS_VERSION`:
+   * the last path that walk reached (`""` before the first). Readers keep
+   * trusting the rows meanwhile; only the notes it re-reads change.
+   */
+  upgrade?: string;
+  /** Set by the pass whose upgrade walk reached the end. */
+  upgraded?: boolean;
 }
 
 export async function factStateRow(db: DatabaseReader, workspaceId: Id<"workspaces">) {
@@ -131,7 +139,7 @@ export async function factsDue(db: DatabaseReader, workspaceId: Id<"workspaces">
   const row = await factStateRow(db, workspaceId);
   if (row === null) return true;
   if (row.leaseAt !== undefined && now - row.leaseAt < FACT_LEASE_MS) return false;
-  if (!row.ready || (row.retry?.length ?? 0) > 0) return true;
+  if (!row.ready || (row.retry?.length ?? 0) > 0 || row.propsVersion !== PROPS_VERSION) return true;
   const next = await db
     .query("nodeLog")
     .withIndex("by_workspace_seq", (q) => q.eq("workspaceId", workspaceId).gt("seq", row.seq))
@@ -181,6 +189,19 @@ export async function liveNode(db: DatabaseReader, workspaceId: Id<"workspaces">
 /** Whether a row's facts were read at its current version. A row with no version cannot say it changed. */
 export function factsCurrent(row: { etag?: string; parsed?: string }): boolean {
   return row.parsed !== undefined && (row.etag === undefined || row.parsed === row.etag);
+}
+
+/**
+ * What a row's props carry, by version: 2 added `site` (`siteFlagsOf`, the
+ * website restriction flags a public list asks instead of opening the page).
+ * A fill whose state names an older version walks every note once more and
+ * reads the ones whose props predate it (`propsPredate`).
+ */
+export const PROPS_VERSION = 2;
+
+/** A row read before its props carried `site`: the fill reads it again; a website list does not trust it. */
+export function propsPredate(row: { props?: string; sealed?: boolean }): boolean {
+  return row.sealed !== true && row.props !== undefined && !row.props.includes('"site":');
 }
 
 /** Whether one note still has links recorded. */
