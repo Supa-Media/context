@@ -137,3 +137,7 @@ Moved to [Dropbox is a source and never a destination, and its grant outlives th
 ## Dropbox workspaces are told support is ending, without a date
 
 Moved to [Dropbox workspaces are told support is ending, without a date](./storage-and-credentials/own-storage-moves.md#dropbox-workspaces-are-told-support-is-ending-without-a-date).
+
+## Names, folders and privacy live on tree rows; the bucket holds bodies by id
+
+Moved to [Names, folders and privacy live on tree rows; the bucket holds bodies by id](./storage-and-credentials/notes-by-id.md#names-folders-and-privacy-live-on-tree-rows-the-bucket-holds-bodies-by-id).
