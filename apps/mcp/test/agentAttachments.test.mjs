@@ -151,11 +151,11 @@ test("attachments the model cannot take are refused before any model runs", asyn
   }
 });
 
-test("size ceilings: a picture over 5 MB and a PDF over 10 MB", () => {
+test("size ceilings: a picture over write_note's 5,000,000 bytes and a PDF over 10 MB", () => {
   const big = (megabytes) => "A".repeat(Math.ceil((megabytes * 1024 * 1024) / 3) * 4);
-  assert.throws(() => readAttachments([{ name: "a.jpg", mediaType: "image/jpeg", data: big(5.1) }]), /5 MB/);
+  assert.throws(() => readAttachments([{ name: "a.jpg", mediaType: "image/jpeg", data: big(4.8) }]), /5 MB/);
   assert.throws(() => readAttachments([{ name: "a.pdf", mediaType: "application/pdf", data: big(10.1) }]), /10 MB/);
-  assert.equal(readAttachments([{ name: "a.jpg", mediaType: "image/jpeg", data: big(4.9) }]).length, 1);
+  assert.equal(readAttachments([{ name: "a.jpg", mediaType: "image/jpeg", data: big(4.7) }]).length, 1);
 });
 
 test("a model that reads words only is told what it cannot see", () => {

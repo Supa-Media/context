@@ -33,7 +33,7 @@ export type AttachmentDeps = { fetch: Fetch; images?: ImagesLike };
 /** Most bytes one file may be downloaded at. */
 export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 /** The gateway's ceilings (`apps/mcp/src/agent/attachments.js`), kept in step. */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 5_000_000;
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 100_000;
 export const MAX_TOTAL_BYTES = 20 * 1024 * 1024;

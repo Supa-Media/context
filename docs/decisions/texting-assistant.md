@@ -719,7 +719,8 @@ that pictures and files reach the model. Now:
   in a note with write_note `images: [{ name, data: "attachment:N" }]`; the
   bytes go in on the way to the tool, so the model never repeats them.
 - Attachments live for one turn. The saved conversation keeps their names, not
-  their contents, and a turn with attachments counts as having read something
+  their contents (a write_note held for the person's yes keeps its picture in
+  their own approval record until it is settled, so the yes can still save it), and a turn with attachments counts as having read something
   from outside the workspace, so a widening in it asks first, as after a web
   page. A bare "yes" sent with a photo goes to the model, never to a waiting ask.
 

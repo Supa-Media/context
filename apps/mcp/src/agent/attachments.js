@@ -22,8 +22,8 @@
 
 /** The most attachments one question may carry; iMessage sends a few photos at once, not dozens. */
 export const MAX_ATTACHMENTS = 8;
-/** Anthropic's own ceiling for one picture. */
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Anthropic's ceiling for one picture, and write_note's (`MAX_REMOTE_IMAGE_BYTES`), so a picture seen can be kept. */
+export const MAX_IMAGE_BYTES = 5_000_000;
 /** A PDF reads as text and a picture per page; past this it is a book, not a text. */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 /** A file's words, at most. */
