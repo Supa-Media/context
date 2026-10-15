@@ -143,7 +143,7 @@ function seconds(ms) {
 }
 
 /** One event of a turn as Markdown. */
-function eventLines(event) {
+export function eventLines(event) {
   switch (event.kind) {
     case "thinking": {
       const text = cut(event.text, MAX_THINKING_CHARS);

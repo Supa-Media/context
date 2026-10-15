@@ -144,6 +144,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_routines from "../functions/routines.js";
+import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_meetingSummary from "../functions/meetingSummary.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
@@ -307,6 +308,7 @@ declare const fullApi: ApiFromModules<{
   "functions/appearance": typeof functions_appearance;
   "functions/textLinks": typeof functions_textLinks;
   "functions/routines": typeof functions_routines;
+  "functions/dreams": typeof functions_dreams;
   "functions/builtinModel": typeof functions_builtinModel;
   "functions/meetingSummary": typeof functions_meetingSummary;
   "functions/agentTurns": typeof functions_agentTurns;

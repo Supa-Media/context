@@ -125,12 +125,14 @@ const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.
  * segment is Context's own storage and is not a note in any tool.
  *
  * `activity.md` itself would otherwise be a loop, and Tex's transcripts
- * (`agent/transcript.js`) a line per text: logs of their own, never lines.
+ * (`agent/transcript.js`) a line per text, and its dream logs
+ * (`agent/dream.js`) a second line beside the about-me change each dream
+ * makes: logs of their own, never lines.
  */
 function isQuietPath(path) {
   if (typeof path !== "string" || path === "") return true;
   if (path === ACTIVITY_PATH) return true;
-  return path.startsWith("tex/transcripts/") || path.split("/").some((segment) => segment.startsWith("."));
+  return path.startsWith("tex/transcripts/") || path.startsWith("tex/dreams/") || path.split("/").some((segment) => segment.startsWith("."));
 }
 
 /**

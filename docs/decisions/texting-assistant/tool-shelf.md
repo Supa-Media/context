@@ -66,6 +66,9 @@ The note has a hard size: 500 lines and 40,000 characters (the owner,
 any write past it, whoever the writer, and `remember` goes through the same
 check, so the prompt always carries the whole note and Tex is told to merge
 and drop what's stale as it grows.
+Since 2026-10-15 a nightly dream also rewrites it from the day's
+transcripts, and starts it for anyone who has none
+([dreams](./dreams.md)).
 
 **What a simplification would cost:** keeping the profile anywhere but a note
 makes it the opaque memory the owner ruled out. Tests:

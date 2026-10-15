@@ -34,7 +34,7 @@ export class ServiceError extends Error {
   }
 }
 
-async function post(
+export async function post(
   fetcher: Fetch,
   service: ServiceError["service"],
   url: string,
@@ -62,7 +62,7 @@ async function post(
   return { status: response.status, json };
 }
 
-function record(value: unknown): Record<string, unknown> {
+export function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};

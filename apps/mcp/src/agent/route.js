@@ -14,6 +14,7 @@ import {
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
+import { DREAMS_CLIENT_ID, handleDream } from "./dream.js";
 import { openTranscript } from "./transcript.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
@@ -114,6 +115,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
+  }
+
+  // Tex's nightly dream (`dream.js`): its own client, its own turn, nothing else.
+  if (session.actorClientId === DREAMS_CLIENT_ID || body.dream !== undefined) {
+    return await handleDream(body, env, store, session, controlPlane);
   }
 
   /*
