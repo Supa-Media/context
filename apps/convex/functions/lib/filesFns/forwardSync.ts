@@ -63,7 +63,7 @@ import {
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
   ForwardSyncStorageError,
-  safeErrorDetail,
+  logForwardSyncFailure,
   type ForwardSyncJob,
   type ForwardSyncProduct,
   type ForwardSyncResult,
@@ -651,21 +651,7 @@ async function forwardSyncFailed(
     );
   }
   const { code, message } = classifyForwardSyncError(error);
-  // Structured, and carrying no mail: an identifier, a code, and the name of
-  // whatever was thrown.
-  console.log(
-    JSON.stringify({
-      event: "google.forward_sync_failed",
-      connectionId: job.connectionId,
-      product: job.product,
-      errorCode: code,
-      errorName: error instanceof Error ? error.name : typeof error,
-      // Only for the catch-all, and with anything path-shaped cut out
-      // (`safeErrorDetail`): the classified codes already say what happened.
-      errorDetail: code === "GOOGLE_SYNC_FAILED" ? safeErrorDetail(error) : undefined,
-      gmailStatus: error instanceof GmailApiError ? error.status : undefined,
-    }),
-  );
+  logForwardSyncFailure(job, code, error);
   return await failForwardSync(ctx, job.connectionId, code, message, job.product);
 }
 

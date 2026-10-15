@@ -402,3 +402,26 @@ export async function writeSharedCalendarDay(
   }
   throw new CalendarContributionConflictError();
 }
+
+/**
+ * The failure, structured and carrying no mail: an identifier, a code, the
+ * name of whatever was thrown, and for the catch-all only a detail with
+ * anything path-shaped cut out (`safeErrorDetail`).
+ */
+export function logForwardSyncFailure(
+  job: { connectionId: Id<"googleConnections">; product: ForwardSyncProduct },
+  code: string,
+  error: unknown,
+): void {
+  console.log(
+    JSON.stringify({
+      event: "google.forward_sync_failed",
+      connectionId: job.connectionId,
+      product: job.product,
+      errorCode: code,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorDetail: code === "GOOGLE_SYNC_FAILED" ? safeErrorDetail(error) : undefined,
+      gmailStatus: error instanceof GmailApiError ? error.status : undefined,
+    }),
+  );
+}
