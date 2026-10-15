@@ -298,6 +298,7 @@ function stripeWebhookRoute(
 /* -------------------------------------------------------------------------- */
 
 export const gatewaySession = gatewayRoute(sessions.gatewaySessionHandler);
+export const gatewayToolsListed = gatewayRoute(sessions.gatewayToolsListedHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -941,6 +942,7 @@ http.route({ path: "/gateway/codes/consume", method: "POST", handler: gatewayCod
 http.route({ path: "/gateway/grants/create", method: "POST", handler: gatewayGrantsCreate });
 http.route({ path: "/gateway/grants/rotate", method: "POST", handler: gatewayGrantsRotate });
 http.route({ path: "/gateway/grants/revoke", method: "POST", handler: gatewayGrantsRevoke });
+http.route({ path: "/gateway/grants/tools-listed", method: "POST", handler: gatewayToolsListed });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });

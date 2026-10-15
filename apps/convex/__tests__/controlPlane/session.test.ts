@@ -44,6 +44,7 @@ describe("the gateway secret is necessary", () => {
       "/gateway/grants/create",
       "/gateway/grants/rotate",
       "/gateway/grants/revoke",
+      "/gateway/grants/tools-listed",
     ]) {
       const response = await gatewayPost(t, path, { accessToken: ACCESS_A }, {
         secret: null,
@@ -485,6 +486,32 @@ describe("/gateway/session", () => {
     await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A });
     const grant = await t.run((ctx) => ctx.db.get(grantA));
     expect(grant?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("tools-listed stamps only the presenting grant, and the session reports when", async () => {
+    const { t, grantA, grantB } = await twoConnectedTenants();
+    type Listed = { session: { toolsListedAt: number } };
+    const before = (await bodyOf(await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A }))) as Listed;
+    const created = (await t.run((ctx) => ctx.db.get(grantA)))!.createdAt;
+    // Never listed since the field existed: stale since the grant was made.
+    expect(before.session.toolsListedAt).toBe(created);
+
+    const answer = await gatewayPost(t, "/gateway/grants/tools-listed", { accessToken: ACCESS_A });
+    expect(await bodyOf(answer)).toEqual({ ok: true });
+    const stamped = (await t.run((ctx) => ctx.db.get(grantA)))?.toolsListedAt;
+    expect(stamped).toBeGreaterThan(0);
+    expect((await t.run((ctx) => ctx.db.get(grantB)))?.toolsListedAt).toBeUndefined();
+
+    const after = (await bodyOf(await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A }))) as Listed;
+    expect(after.session.toolsListedAt).toBe(stamped);
+  });
+
+  test("tools-listed answers the same for an unknown token and stamps nothing", async () => {
+    const { t, grantA, grantB } = await twoConnectedTenants();
+    const answer = await gatewayPost(t, "/gateway/grants/tools-listed", { accessToken: token("nobody") });
+    expect(await bodyOf(answer)).toEqual({ ok: true });
+    expect((await t.run((ctx) => ctx.db.get(grantA)))?.toolsListedAt).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(grantB)))?.toolsListedAt).toBeUndefined();
   });
 
   test("an expired access token is refused", async () => {

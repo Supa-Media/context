@@ -41,6 +41,8 @@ export function actorFor(session) {
      * `clientId`, which is the one the control plane issued.
      */
     client: typeof session.actorClientName === "string" ? session.actorClientName : null,
+    /** When this connection last fetched our tool list; see `tools/news.js`. */
+    toolsListedAt: Number.isFinite(session.toolsListedAt) ? session.toolsListedAt : null,
   };
 }
 

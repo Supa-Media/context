@@ -310,6 +310,17 @@ export const oauthTables = {
     previousHashedRefreshToken: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("revoked")),
     lastUsedAt: v.optional(v.number()),
+    /**
+     * Epoch ms of the last `tools/list` this grant's client asked for.
+     *
+     * A client caches our tool list and re-fetches on its own schedule, so a
+     * connection can go on describing our tools as they were the day it
+     * connected. `orient` names what changed since this moment (or since
+     * `createdAt` for a client that has not listed since the field existed),
+     * which is the only way to reach a client that never refreshes. A time,
+     * nothing about what was listed.
+     */
+    toolsListedAt: v.optional(v.number()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })

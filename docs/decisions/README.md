@@ -172,6 +172,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
+- [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 - [What an AI client reads is kept, in the customer's bucket](./gateway-protocol/stored-reads.md)

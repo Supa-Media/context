@@ -28,6 +28,7 @@ import { readFrontPage, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { websiteGuideFor } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
+import { toolNewsSection } from "../tools/news.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
@@ -222,6 +223,10 @@ export async function toolOrient(store, scope, rules, overrides) {
         globalNote
     );
   }
+  // Then what changed in our tools since this client last loaded them: the
+  // one way to reach a client that never refreshes its copy (`tools/news.js`).
+  const toolNews = toolNewsSection(store.actor?.toolsListedAt);
+  if (toolNews) parts.push(toolNews);
   parts.push(
     `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`
   );
