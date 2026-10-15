@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser } from "./fixtures.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -20,7 +20,9 @@ const HOME = "---\ntitle: Home\nnav: 1\n---\n\nHome\n";
 const BROKEN = "---\ntitle: Half typed\naudience: everyone\n---\n\nStill writing\n";
 const ENCRYPTED = "---\ncontext_encryption: v1\n---\n\n```context-encrypted\nAAAA\n```\n";
 
+/** Notes seeded into the bucket reach the tree before a scan lists it (`copyTree`). */
 async function publishAgain(f: Fixture): Promise<void> {
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
     publish: true,
@@ -28,6 +30,7 @@ async function publishAgain(f: Fixture): Promise<void> {
 }
 
 async function rebuild(f: Fixture): Promise<void> {
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId });
 }
 
@@ -70,7 +73,8 @@ describe("a site keeps its last five published versions", () => {
     expect(kept.map((row) => row.releaseId)).not.toContain(oldest.releaseId);
     expect(releases(f).ids.size).toBe(5);
     expect(releases(f).ids.has(oldest.releaseId)).toBe(false);
-  });
+    // Six publishes, each with its tree copy: longer than the default five seconds.
+  }, 15_000);
 
   test("the control plane keeps paths and ids, never a page's words", async () => {
     const f = await fixture();

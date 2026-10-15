@@ -17,7 +17,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../../_generated/api";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
+import { addMember, copyTree, createUser, gatewayPost } from "../fixtures.helpers";
 import { fixture, publish } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
@@ -75,6 +75,8 @@ async function site(f: Awaited<ReturnType<typeof historyFixture>>, accessToken: 
 }
 
 async function publishAgain(f: Awaited<ReturnType<typeof historyFixture>>) {
+  // Pages written straight into the bucket reach the tree before the Publish lists it.
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId, publish: true });
 }
 

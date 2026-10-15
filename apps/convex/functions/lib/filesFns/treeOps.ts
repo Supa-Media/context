@@ -30,10 +30,10 @@ const ORGANIZER_READS = new Set(["gather", "outline"]);
 
 /**
  * The store an operation inside the barrier walks. The organizer's read-only
- * passes read the Convex tree where it serves; a website Publish's walk reads
- * the bucket, on purpose (`docs/decisions/websites.md`). Every other walk of
- * which notes exist is answered before the barrier opens the bucket
- * (`lib/nodes/treeReads.ts`) and never reaches here.
+ * passes read the Convex tree where it serves. Every walk of which notes
+ * exist, a website scan's included (`docs/decisions/websites.md`), is answered
+ * from the tree before the barrier opens the bucket (`lib/nodes/treeReads.ts`)
+ * and never reaches here; what is left here is the bucket's own listing.
  */
 export async function manifestSource(
   ctx: ActionCtx,

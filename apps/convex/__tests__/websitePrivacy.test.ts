@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { asUser, drainScheduled } from "./fixtures.helpers";
+import { asUser, copyTree, drainScheduled } from "./fixtures.helpers";
 import {
   fixture,
   publish,
@@ -103,7 +103,7 @@ describe("a note privacy.md holds back is never served", () => {
       }
       // The public page next to it still works.
       await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
-    });
+    }, 15_000);
 
     test(`a members page privacy.md holds back is refused to every member (${path})`, async () => {
       const f = await fixture();
@@ -299,6 +299,8 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
       });
     });
 
+    // The page seeded above reaches the tree before the rebuild lists it.
+    await copyTree(f.t, f.workspaceId);
     await f.t.action(internal.functions.websites.reconcileWorkspace, {
       workspaceId: f.workspaceId,
     });

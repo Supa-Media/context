@@ -27,6 +27,7 @@ import { memoryS3 } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   drainScheduled,
@@ -54,6 +55,8 @@ async function liveSite() {
   backend.seed("website/notes.md", PUBLIC_NOTES);
   vi.stubGlobal("fetch", backend.fetchImpl);
   await seedStorageBinding(t, { workspaceId, boundBy: owner });
+  // The notes seeded above reach the tree before the site's first scan lists it.
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.workspaces.enableWebsite, {
     workspaceId,
   });

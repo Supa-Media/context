@@ -19,7 +19,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
-import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
+import { addMember, copyTree, createUser, gatewayPost } from "../fixtures.helpers";
 import { fixture, publish } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
@@ -86,7 +86,7 @@ describe("/gateway/site", () => {
       expect(await site(f, accessToken, { action: "publish" })).toBeNull();
     }
     expect(await aboutText(f)).toBe("First words\n");
-  });
+  }, 15_000);
 
   test("status names the draft, the published revision, the addresses and the changed pages", async () => {
     const f = await siteFixture();
@@ -107,6 +107,7 @@ describe("/gateway/site", () => {
   test("status names the app's Website settings and each page, for a person to open and write", async () => {
     const f = await siteFixture();
     f.backend.seed("website/our story.md", "---\ntitle: Our story\n---\n\nWords\n");
+    await copyTree(f.t, f.workspaceId);
     const status = await site(f, EDITOR, { action: "status" });
     expect(status!.settingsUrl).toBe("https://context.lc/console/@atlas?settings=website");
     const editUrls = Object.fromEntries(
@@ -144,8 +145,10 @@ describe("/gateway/site", () => {
     // change to what Publish releases as a page's own words.
     const f = await siteFixture();
     f.backend.seed("website/site.css.md", "```css\nbody { color: red; }\n```\n");
+    await copyTree(f.t, f.workspaceId);
     const checked = await site(f, EDITOR, { action: "status" });
     f.backend.seed("website/site.css.md", "```css\nbody { color: blue; }\n```\n");
+    await copyTree(f.t, f.workspaceId);
     const stale = await site(f, EDITOR, { action: "publish", draft: checked!.draft });
     expect(stale).toMatchObject({ published: false, conflict: true });
   });
@@ -169,6 +172,7 @@ describe("/gateway/site", () => {
     const f = await siteFixture();
     f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
     f.backend.seed("website/broken.md", "---\ntitle: Broken\naudience: everyone\n---\n\nBroken\n");
+    await copyTree(f.t, f.workspaceId);
     const status = await site(f, EDITOR, { action: "status" });
     expect(status!.pages.find((page) => page.path === "website/broken.md")!.problems.length).toBeGreaterThan(0);
     const result = await site(f, EDITOR, { action: "publish" });
