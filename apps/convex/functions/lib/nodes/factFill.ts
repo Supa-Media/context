@@ -136,7 +136,14 @@ export async function runFactFill(
   }
   await ctx.runMutation(internal.functions.nodeFacts.finish, {
     workspaceId,
-    next: { ready: next.ready, seq: next.seq, ...(next.after === undefined ? {} : { after: next.after }), ...(next.startSeq === undefined ? {} : { startSeq: next.startSeq }) },
+    next: {
+      ready: next.ready,
+      seq: next.seq,
+      ...(next.after === undefined ? {} : { after: next.after }),
+      ...(next.startSeq === undefined ? {} : { startSeq: next.startSeq }),
+      ...(next.upgrade === undefined ? {} : { upgrade: next.upgrade }),
+      ...(next.upgraded === true ? { upgraded: true } : {}),
+    },
     failed,
     ...(failed.length > 0 && kinds.length > 0 ? { failedKind: commonReadFailure(kinds) ?? "other" } : {}),
   });
