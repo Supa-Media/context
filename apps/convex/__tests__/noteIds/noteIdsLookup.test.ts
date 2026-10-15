@@ -41,6 +41,7 @@ import {
   fixture,
   seedCopies,
   type Fixture,
+  KEY_ETAG,
 } from "./noteIdsGateway.helpers";
 
 const LOOKUP = "/gateway/note-ids/lookup";
@@ -62,10 +63,10 @@ describe("POST /gateway/note-ids/lookup", () => {
     const body = await bodyOf(response);
     expect(body).toEqual({
       copies: {
-        [PLAN]: { key: `notes/${NOTE_IDS.plan}.md`, etag: `e-${PLAN}`, keyEtag: null, fresh: true },
-        [STALE]: { key: `notes/${NOTE_IDS.stale}.md`, etag: "an-older-etag", keyEtag: null, fresh: false },
+        [PLAN]: { key: `notes/${NOTE_IDS.plan}.md`, etag: `e-${PLAN}`, keyEtag: KEY_ETAG, fresh: true },
+        [STALE]: { key: `notes/${NOTE_IDS.stale}.md`, etag: "an-older-etag", keyEtag: KEY_ETAG, fresh: false },
         [NO_COPY]: { key: `notes/${NOTE_IDS.noCopy}.md`, etag: null, keyEtag: null, fresh: false },
-        [PICTURE]: { key: `files/${NOTE_IDS.picture}.png`, etag: `e-${PICTURE}`, keyEtag: null, fresh: true },
+        [PICTURE]: { key: `files/${NOTE_IDS.picture}.png`, etag: `e-${PICTURE}`, keyEtag: KEY_ETAG, fresh: true },
       },
     });
   });
@@ -96,7 +97,7 @@ describe("POST /gateway/note-ids/lookup", () => {
     expect((asOwner.copies as Record<string, unknown>)[SECRET]).toEqual({
       key: `notes/${NOTE_IDS.secret}.md`,
       etag: `e-${SECRET}`,
-      keyEtag: null,
+      keyEtag: KEY_ETAG,
       fresh: true,
     });
   });

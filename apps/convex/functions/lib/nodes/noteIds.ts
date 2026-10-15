@@ -83,9 +83,20 @@ export function idKeyFor(noteId: string, path: string): string {
   return extension === ".md" ? `notes/${noteId}.md` : `files/${noteId}${extension}`;
 }
 
-/** Whether the copy the row records was made from the version the row has now. */
+/**
+ * Whether the copy the row records was made from the version the row has now,
+ * and says which version of the key holds it (`keyEtag`). A record without the
+ * key's etag cannot tell a copy from a racing write at the key, so it is never
+ * trusted: the next pass copies it again and records one.
+ */
 export function copyMatches(row: Pick<Doc<"nodes">, "etag" | "idCopy">): boolean {
-  return row.idCopy !== undefined && row.etag !== undefined && row.idCopy.etag === row.etag;
+  return (
+    row.idCopy !== undefined &&
+    row.etag !== undefined &&
+    row.idCopy.etag === row.etag &&
+    typeof row.idCopy.keyEtag === "string" &&
+    row.idCopy.keyEtag !== ""
+  );
 }
 
 /** A live file whose copy is still true: the only rows a copy is not owed for. */

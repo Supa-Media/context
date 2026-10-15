@@ -15,6 +15,9 @@ import { registerClient, seedConnectedClient, token } from "../controlPlane/fixt
 
 export type T = ReturnType<typeof convexTest>;
 
+/** The key's own etag every seeded copy records. */
+export const KEY_ETAG = "key-etag-0";
+
 export const OWNER = token("ids_owner");
 export const MEMBER = token("ids_member");
 export const EDITOR = token("ids_editor");
@@ -157,25 +160,25 @@ export async function seedCopies(f: Fixture): Promise<void> {
   const etagOf = async (path: string) => (await rowOf(f.t, f.ws, path))!.etag!;
   await patchRow(f.t, f.ws, PLAN, {
     noteId: NOTE_IDS.plan,
-    idCopy: { key: `notes/${NOTE_IDS.plan}.md`, etag: await etagOf(PLAN), copiedAt: 1 },
+    idCopy: { key: `notes/${NOTE_IDS.plan}.md`, etag: await etagOf(PLAN), copiedAt: 1, keyEtag: KEY_ETAG },
   });
   await patchRow(f.t, f.ws, SECRET, {
     noteId: NOTE_IDS.secret,
-    idCopy: { key: `notes/${NOTE_IDS.secret}.md`, etag: await etagOf(SECRET), copiedAt: 1 },
+    idCopy: { key: `notes/${NOTE_IDS.secret}.md`, etag: await etagOf(SECRET), copiedAt: 1, keyEtag: KEY_ETAG },
   });
   await patchRow(f.t, f.ws, PICTURE, {
     noteId: NOTE_IDS.picture,
-    idCopy: { key: `files/${NOTE_IDS.picture}.png`, etag: await etagOf(PICTURE), copiedAt: 1 },
+    idCopy: { key: `files/${NOTE_IDS.picture}.png`, etag: await etagOf(PICTURE), copiedAt: 1, keyEtag: KEY_ETAG },
   });
   await patchRow(f.t, f.ws, STALE, {
     noteId: NOTE_IDS.stale,
-    idCopy: { key: `notes/${NOTE_IDS.stale}.md`, etag: "an-older-etag", copiedAt: 1 },
+    idCopy: { key: `notes/${NOTE_IDS.stale}.md`, etag: "an-older-etag", copiedAt: 1, keyEtag: KEY_ETAG },
   });
   await patchRow(f.t, f.ws, NO_COPY, { noteId: NOTE_IDS.noCopy });
   await patchRow(f.t, f.ws, GONE, {
     noteId: NOTE_IDS.gone,
     goneAt: 5,
-    idCopy: { key: `notes/${NOTE_IDS.gone}.md`, etag: await etagOf(GONE), copiedAt: 1 },
+    idCopy: { key: `notes/${NOTE_IDS.gone}.md`, etag: await etagOf(GONE), copiedAt: 1, keyEtag: KEY_ETAG },
   });
   await patchRow(f.t, f.ws, ORPHAN, { noteId: undefined });
 }

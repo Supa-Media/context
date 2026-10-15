@@ -115,7 +115,7 @@ async function withBothCopies() {
   return store;
 }
 
-const FRESH = { key: "notes/id1.md", etag: "e2", fresh: true };
+const FRESH = { key: "notes/id1.md", etag: "e2", keyEtag: "e1", fresh: true };
 
 /* -------------------------------- reads -------------------------------- */
 

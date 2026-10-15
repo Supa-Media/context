@@ -81,7 +81,8 @@ async function copyOne(store, item) {
     if (landed === null || (typeof item.size === "number" && landed.size !== item.size)) {
       return { path: item.path, ok: false, reason: "verify_failed" };
     }
-    return { path: item.path, ok: true, etag: item.etag, copiedEtag };
+    // The key's own version is what a read checks the copy by; a store that did not name it on the write names it here.
+    return { path: item.path, ok: true, etag: item.etag, copiedEtag: copiedEtag ?? landed.etag ?? null };
   } catch {
     return { path: item.path, ok: false, reason: "copy_failed" };
   }

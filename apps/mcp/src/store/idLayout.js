@@ -161,7 +161,8 @@ export function withIdLayout(store, { lookup, wrote } = {}) {
         const object = await idObject(() => store.get(copy.key));
         // A copy written out of order (two saves racing) holds another version
         // than the one recorded: the key's own etag tells them apart.
-        const same = typeof copy.keyEtag !== "string" || copy.keyEtag === "" || object?.etag === copy.keyEtag;
+        // A record that does not name the key's version cannot tell them apart, and is never trusted.
+        const same = typeof copy.keyEtag === "string" && copy.keyEtag !== "" && object?.etag === copy.keyEtag;
         if (object !== null && same) return underPathEtag(object, copy.etag);
       }
       return await store.get(path, ...rest);

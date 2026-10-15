@@ -80,11 +80,11 @@ describe("POST /gateway/note-ids/wrote", () => {
     await seedCopies(f);
     const key = idKeyFor(NOTE_IDS.noCopy, NO_COPY);
     await patchRow(f.t, f.ws, NO_COPY, { etag: NEW_ETAG });
-    await wrote(f, writeOf(f, EDITOR, NO_COPY, key));
+    await wrote(f, { ...writeOf(f, EDITOR, NO_COPY, key), keyEtag: "key-etag-2" });
     const answer = await bodyOf(
       await gatewayPost(f.t, "/gateway/note-ids/lookup", { accessToken: OWNER, workspaceId: f.ws, paths: [NO_COPY] }),
     );
-    expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, keyEtag: null, fresh: true });
+    expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, keyEtag: "key-etag-2", fresh: true });
   });
 
   test("a key that is not the row's id key is refused and nothing is recorded", async () => {
