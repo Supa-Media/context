@@ -42,6 +42,15 @@ export function createGrantMethods({ post, required }) {
       return required(await post("/gateway/grants/rotate", rotation), "grant");
     },
 
+    /**
+     * Say that the client holding this token just fetched `tools/list`, so a
+     * later `orient` names only what changed after it. Bookkeeping: the
+     * caller defers it and swallows its failure.
+     */
+    async reportToolsListed(accessToken) {
+      return await post("/gateway/grants/tools-listed", { accessToken });
+    },
+
     async revokeGrant(token, tokenType, clientId) {
       return required(
         await post("/gateway/grants/revoke", { token, tokenType, clientId }),

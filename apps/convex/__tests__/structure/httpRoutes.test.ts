@@ -162,6 +162,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/grants/create": "gatewayGrantsCreate",
     "/gateway/grants/rotate": "gatewayGrantsRotate",
     "/gateway/grants/revoke": "gatewayGrantsRevoke",
+    "/gateway/grants/tools-listed": "gatewayToolsListed",
     "/gateway/ingest/resolve": "gatewayIngestResolve",
     "/gateway/ingest/binding": "gatewayIngestBinding",
     "/gateway/ingest/record": "gatewayIngestRecord",

@@ -124,6 +124,12 @@ export const resolveGrantByAccessTokenReturns = v.union(
     actorUserId: v.id("users"),
     scopes: v.array(v.string()),
     expiresAt: v.number(),
+    /**
+     * Since when this connection's tool list may be stale: its last
+     * `tools/list`, or the grant's creation for a client that has not listed
+     * since that was recorded. `orient` names the tool changes after it.
+     */
+    toolsListedAt: v.number(),
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     role: v.string(),
@@ -181,6 +187,7 @@ export async function resolveGrantByAccessTokenHandler(
     actorUserId: live.grant.userId,
     scopes: live.grant.scopes,
     expiresAt: live.grant.accessTokenExpiresAt as number,
+    toolsListedAt: live.grant.toolsListedAt ?? live.grant.createdAt,
     workspaceId: live.grant.workspaceId,
     slug: live.workspace.slug,
     role: live.role,

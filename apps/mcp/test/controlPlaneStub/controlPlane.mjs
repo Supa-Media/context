@@ -213,6 +213,7 @@ export function createControlPlaneStub(options = {}) {
     alsoMemberOf = [],
     grantedNamesByWorkspace = {},
     expiresAt,
+    toolsListedAt,
   }) {
     const grantId = `grant_${++grantCounter}`;
     grants.set(grantId, {
@@ -227,6 +228,7 @@ export function createControlPlaneStub(options = {}) {
       grantedNamesByWorkspace,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
+      toolsListedAt,
     });
     accessTokens.set(await sha256Hex(accessToken), grantId);
     if (refreshToken) refreshTokens.set(await sha256Hex(refreshToken), grantId);
@@ -339,8 +341,15 @@ export function createControlPlaneStub(options = {}) {
             expiresAt: grant.expiresAt,
             defaultWorkspaceId: grant.workspaceId,
             workspaces: coveredContexts(grant),
+            ...(grant.toolsListedAt === undefined ? {} : { toolsListedAt: grant.toolsListedAt }),
           },
         });
+      }
+
+      case "/gateway/grants/tools-listed": {
+        const grant = await grantForAccessToken(body.accessToken);
+        if (grant) grant.toolsListedAt = Date.now();
+        return ok({ ok: true });
       }
 
       case "/gateway/sessions/by-grant": {
