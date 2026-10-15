@@ -32,6 +32,7 @@ import { probeWebsitePage } from "./probe";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { readPublishedEmoji } from "./emoji";
 import { readPublishedImages } from "./images";
+import { readableSharePaths } from "./shareReadability";
 import { folderListFor, folderPagesUnder, routeStatusKey, type FolderPage } from "./folders";
 import { readWebsiteDesign, siteDesignsAllowed, type DesignNote } from "./design";
 
@@ -655,24 +656,11 @@ async function renderWebsitePage(
     viewerAudience: args.viewerAudience,
     catalog: catalog.entries,
   });
-  const sharePaths = websiteReferencedSharePaths(withLists, linkOptions);
-  const readableShares = new Set<string>();
-  if (sharePaths.length > 0) {
-    const shares = await ctx
-      .runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        ...PUBLICATION_CLEARANCE,
-        operation: { kind: "readMany" as const, paths: sharePaths },
-      })
-      .catch(() => null);
-    if (shares?.kind === "notes") {
-      for (const result of shares.results) {
-        if (result.outcome === "read" && !isEncryptedNote(result.note.text)) {
-          readableShares.add(result.path);
-        }
-      }
-    }
-  }
+  const readableShares = await readableSharePaths(
+    ctx,
+    args.workspaceId,
+    websiteReferencedSharePaths(withLists, linkOptions),
+  );
 
   const markdown = rewriteWebsiteLinks(withLists, linkOptions, readableShares);
   const [emoji, images, design] = await Promise.all([
