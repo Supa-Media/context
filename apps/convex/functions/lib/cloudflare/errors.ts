@@ -218,12 +218,18 @@ export class CloudflareApiError extends Error {
   readonly errorCode: ProvisionErrorCode;
   /** Provider text, for the honest half of the recorded error. May be empty. */
   readonly detail: string;
+  /**
+   * The HTTP status, when Cloudflare answered at all. A cleanup reads a 404 as
+   * "already gone", which only the status can say; absent when no answer came.
+   */
+  readonly status?: number;
 
-  constructor(failure: ProvisionFailure, detail: string) {
+  constructor(failure: ProvisionFailure, detail: string, status?: number) {
     super(failure.message);
     this.name = "CloudflareApiError";
     this.errorCode = failure.errorCode;
     this.detail = detail;
+    this.status = status;
   }
 }
 

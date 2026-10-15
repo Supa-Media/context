@@ -12,7 +12,7 @@ import type { SetupAgent } from "../../agentSetup/guides";
 import { ConnectClients } from "../clients/ConnectClients";
 import { ClientGroupRow } from "../clients/ClientGroupRow";
 import { groupClients } from "../clients/grouped";
-import { DeleteAccountCard } from "./DeleteAccountCard";
+import { LiveDeleteAccountCard } from "./LiveDeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
@@ -225,7 +225,7 @@ export function AccountSection({
           testID="settings-sign-out"
         />
         {/* Absent in the demo, where there is no account to delete. */}
-        {data.deleteAccount ? <DeleteAccountCard deleteAccount={data.deleteAccount} /> : null}
+        {data.deleteAccount ? <LiveDeleteAccountCard data={data} deleteAccount={data.deleteAccount} /> : null}
       </View>
       <Text variant="rowSub" style={styles.rowSub}>
         Signing out keeps everything, and the AI apps you connected keep working.
