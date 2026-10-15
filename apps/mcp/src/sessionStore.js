@@ -17,6 +17,7 @@ import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 import { withPendingMoves } from "./moves/queued.js";
+import { withIdLayout } from "./store/idLayout.js";
 
 /**
  * Build the storage adapter for one session.
@@ -228,7 +229,20 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  return storeThroughMoves(store, opened.pendingMoves, (moved) =>
+  // While staff have switched the layout to ids, reads and writes also go to
+  // each note's id copy (`store/idLayout.js`). Wrapped after the properties
+  // above, which it carries across, and before the moves, so a pending move
+  // still resolves a name first. Absent, there is no wrapper at all.
+  const layered =
+    opened.idLayout === "ids" &&
+    typeof controlPlane.noteIdLookup === "function" &&
+    typeof controlPlane.noteIdWrote === "function"
+      ? withIdLayout(store, {
+          lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
+          wrote: (copy) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, copy),
+        })
+      : store;
+  return storeThroughMoves(layered, opened.pendingMoves, (moved) =>
     controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
   );
 }
