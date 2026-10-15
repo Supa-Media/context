@@ -111,6 +111,7 @@ import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
 import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
+import * as dreams from "./functions/lib/gatewayRoutes/dreams";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
@@ -951,9 +952,7 @@ http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLink
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
-
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
-
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 http.route({ path: "/gateway/search-timing", method: "POST", handler: gatewaySearchTiming });
 
@@ -967,10 +966,12 @@ export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHand
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
 
-/* Routines: the runs due now, and how each one went (a code, never text). */
+/* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);
 export const agentRoutinesResult = agentWorkerRoute(routines.agentRoutinesResultHandler);
 http.route({ path: "/agent-texts/routines/due", method: "POST", handler: agentRoutinesDue });
 http.route({ path: "/agent-texts/routines/result", method: "POST", handler: agentRoutinesResult });
+http.route({ path: "/agent-texts/dreams/due", method: "POST", handler: agentWorkerRoute(dreams.agentDreamsDueHandler) });
+http.route({ path: "/agent-texts/dreams/result", method: "POST", handler: agentWorkerRoute(dreams.agentDreamsResultHandler) });
 
 export default http;

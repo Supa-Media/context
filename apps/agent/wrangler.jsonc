@@ -30,7 +30,8 @@
   // on the gateway's /agent with that run's own grant, texts the answer to the
   // phones that texted this line first, and reports an outcome and a count.
   // It pulls with AGENT_WORKER_SECRET, so it needs no secret of its own, and
-  // without CONTROL_PLANE_ORIGIN or that secret it does nothing.
+  // without CONTROL_PLANE_ORIGIN or that secret it does nothing. The same tick
+  // runs Tex's nightly dreams (src/dreams.ts) the same way; a dream texts nobody.
   //
   // GATEWAY_ORIGIN is the gateway's own host (apps/mcp/wrangler.toml
   // PUBLIC_ORIGIN), not the app's: context.lc is the router, and `/agent` there

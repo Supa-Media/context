@@ -72,6 +72,13 @@ crons.interval(
  * bucket and writes nothing there, and decides nothing — whether a routine
  * runs, and as whom, is asked again when it is handed out.
  */
+/**
+ * Give everyone with a linked phone a first nightly dream if they have never
+ * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
+ * dream runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },

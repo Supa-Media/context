@@ -39,6 +39,7 @@ import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
@@ -590,6 +591,8 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") {
+        // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
+        if (session.actorClientId === DREAMS_CLIENT_ID) return await handleDream(request, env, store, session, controlPlane);
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);

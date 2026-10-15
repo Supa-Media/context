@@ -183,6 +183,8 @@ describe("worker", () => {
           });
         }
         if (path === "/agent") return Response.json({ outcome: "answered", answer: "hi", send: "text" });
+        // The same tick asks for dreams too (`dreams.ts`); none are due here.
+        if (path === "/agent-texts/dreams/due") return Response.json({ dreams: [] });
         reported.push(JSON.parse(String(init.body)));
         return Response.json({ ok: true });
       });

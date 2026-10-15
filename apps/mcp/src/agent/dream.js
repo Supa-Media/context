@@ -1,0 +1,374 @@
+/**
+ * TEX'S NIGHTLY DREAM (owner, 2026-10-15).
+ *
+ * "There should be a folder inside tex called dreams … we run a nightly job
+ * that … updates [about-me] … log the transcript of what exactly the dream
+ * changed … set this up for all users so that they have a smarter Tex."
+ *
+ * Once a night, when the person texted Tex since the last dream (or never had
+ * one), the control plane hands the texting Worker a short-lived grant for the
+ * `context_dreams` client on their personal workspace, and the Worker asks
+ * `/agent` to dream. This file is that turn:
+ *
+ *   1. It finds the day's transcripts (`tex/transcripts/`, `transcript.js`)
+ *      written since the last dream, and reads `tex/about-me.md` (`aboutMe.js`).
+ *   2. A model reads them and rewrites `tex/about-me.md`, under the same
+ *      500-line cap every write to it has. It may read their notes and write
+ *      that one note, and nothing else: no other note, no other workspace, no
+ *      visibility, no link, no web, no text to anyone.
+ *   3. The gateway reads the note again and writes `tex/dreams/YYYY-MM-DD.md`:
+ *      the lines it added and removed, the model's own account of why, and
+ *      every step it took (its thinking and tool calls, never a tool's result),
+ *      the same way a day's transcript is written.
+ *
+ * Everything goes through the session's own dispatcher, so the privacy engine,
+ * the note's history and the audit trail see it like any other write, and it
+ * is attributed to the dreams client. The control plane hears an outcome code.
+ */
+
+import { ABOUT_ME_PATH, readAboutMe } from "./aboutMe.js";
+import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
+import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
+import { AgentRefusal, openProvider, runTurn } from "./turn.js";
+import { BUILTIN_PROVIDER, builtinModel } from "./builtin.js";
+import { aiGatewayConfig } from "./aiGateway.js";
+import { ProviderError } from "./providers.js";
+import { actorFor, contextsFor } from "../context/identity.js";
+import { callToolForSession } from "../tools/session.js";
+import { toolsForSession } from "../tools/advertised.js";
+import { newLedger } from "../privacy/egress.js";
+import { json } from "../http/responses.js";
+import { wallClock } from "../../../../packages/shared/src/routines.cjs";
+
+/** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
+export const DREAMS_CLIENT_ID = "context_dreams";
+
+export const DREAMS_FOLDER = "tex/dreams";
+
+/** The most transcript notes one dream is pointed at, newest kept. */
+export const MAX_DREAM_TRANSCRIPTS = 6;
+/** A first dream (or one whose `since` is unknown) looks back this many days. */
+export const FIRST_DREAM_DAYS = 3;
+const DREAM_ROUNDS = 12;
+const MAX_WHY_CHARS = 4_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** What the model may call. Reading their own notes, and writing one. */
+const DREAM_READS = new Set(["read_note", "list_notes"]);
+const DREAM_WRITE_ARGS = new Set(["path", "content", "expected_etag"]);
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const pad = (value) => String(value).padStart(2, "0");
+
+function dayOf(now, timeZone) {
+  const w = wallClock(now, timeZone);
+  return `${w.year}-${pad(w.month)}-${pad(w.day)}`;
+}
+
+/** Tonight's log: `tex/dreams/2026-10-16.md`, dated the night it ran, in their zone. */
+export function dreamPath(now, timeZone) {
+  return `${DREAMS_FOLDER}/${dayOf(now, timeZone)}.md`;
+}
+
+/**
+ * The transcript notes a dream reads, from a `list_notes` answer: the days
+ * from `since` (or the last `FIRST_DREAM_DAYS`) to today, oldest first, at
+ * most `MAX_DREAM_TRANSCRIPTS`, newest kept.
+ */
+export function transcriptsToRead(listing, { since, now, timeZone }) {
+  const from = dayOf(typeof since === "number" ? since : now - (FIRST_DREAM_DAYS - 1) * DAY_MS, timeZone);
+  const to = dayOf(now, timeZone);
+  const found = [];
+  const pattern = new RegExp(`^(${TRANSCRIPTS_FOLDER}/(\\d{4}-\\d{2}-\\d{2})(?:-(\\d+))?\\.md) \\(`);
+  for (const line of String(listing ?? "").split("\n")) {
+    const match = pattern.exec(line.trim());
+    if (!match || match[2] < from || match[2] > to) continue;
+    found.push({ path: match[1], day: match[2], part: Number(match[3] ?? 1) });
+  }
+  found.sort((a, b) => (a.day === b.day ? a.part - b.part : a.day < b.day ? -1 : 1));
+  return found.slice(-MAX_DREAM_TRANSCRIPTS).map((entry) => entry.path);
+}
+
+function refused(text) {
+  return { isError: true, content: [{ type: "text", text }] };
+}
+
+/**
+ * The dream's dispatcher: their own notes to read, and `tex/about-me.md` to
+ * write, with nothing but its text and etag. Everything else is refused here,
+ * before the session's dispatcher is reached, so a dream steered by something
+ * it read can still only change the one note it is for.
+ */
+export function dreamCallTool(dispatch) {
+  return async (name, args) => {
+    const given = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+    if (given.context !== undefined) return refused("A dream works in their own workspace only.");
+    if (DREAM_READS.has(name)) return await dispatch(name, given);
+    if (name !== "write_note") return refused(`A dream can't use ${name}.`);
+    if (given.path !== ABOUT_ME_PATH) return refused(`A dream writes only ${ABOUT_ME_PATH}.`);
+    const extra = Object.keys(given).filter((key) => given[key] !== undefined && !DREAM_WRITE_ARGS.has(key));
+    if (extra.length > 0) return refused(`A dream writes only the note's text: ${extra.join(", ")} can't be set.`);
+    if (typeof given.content !== "string") return refused("Write the whole note as content.");
+    return await dispatch("write_note", {
+      path: ABOUT_ME_PATH,
+      content: given.content,
+      ...(typeof given.expected_etag === "string" ? { expected_etag: given.expected_etag } : {}),
+    });
+  };
+}
+
+/** The tools a dream is offered: the session's own definitions of the four it may call. */
+export function dreamTools(offered) {
+  return offered.filter((tool) => DREAM_READS.has(tool.name) || tool.name === "write_note");
+}
+
+/** What the dream is asked to do. */
+export function dreamQuestion({ transcripts, first, since, timeZone }) {
+  const when = first || typeof since !== "number" ? "lately" : `since ${dayOf(since, timeZone)}`;
+  return [
+    "This is your nightly dream, not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
+    `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
+    transcripts.length > 0
+      ? `Read these transcripts of your texts with them (tool calls and thinking included, never what a tool returned):\n${transcripts.map((path) => `- ${path}`).join("\n")}`
+      : "There are no transcripts of your texts with them yet.",
+    first
+      ? "This is your first dream about them: also read index.md, their front page, if it exists, and start the note from what it says about them."
+      : "",
+    "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, preferences, how they like you to answer, corrections they gave you, places and routines. " +
+      "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
+    `Write the whole note back once with write_note: read it first and pass its etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.`,
+    "Then answer with two or three plain sentences for the dream log: what you changed and why, or why nothing changed.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** The lines added to and removed from the note, ignoring blank lines and order. */
+export function aboutMeChanges(before, after) {
+  const lines = (text) =>
+    String(text ?? "")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim() !== "");
+  const count = (list) => {
+    const counts = new Map();
+    for (const line of list) counts.set(line, (counts.get(line) ?? 0) + 1);
+    return counts;
+  };
+  const was = count(lines(before));
+  const now = count(lines(after));
+  const added = [];
+  const removed = [];
+  for (const line of lines(after)) {
+    if ((was.get(line) ?? 0) > 0) was.set(line, was.get(line) - 1);
+    else added.push(line);
+  }
+  for (const line of lines(before)) {
+    if ((now.get(line) ?? 0) > 0) now.set(line, now.get(line) - 1);
+    else removed.push(line);
+  }
+  return { added, removed };
+}
+
+function clock(now, timeZone) {
+  const w = wallClock(now, timeZone);
+  const h = w.hour % 12 === 0 ? 12 : w.hour % 12;
+  return `${h}:${pad(w.minute)} ${w.hour < 12 ? "am" : "pm"}`;
+}
+
+function heading(now, timeZone) {
+  const w = wallClock(now, timeZone);
+  return (
+    `# Tex dreamed, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}\n\n` +
+    `What Tex's nightly dream read, thought and changed in \`${ABOUT_ME_PATH}\`.\n`
+  );
+}
+
+const asCode = (line) => `\`${line.replace(/`/g, "'")}\``;
+
+/** One dream's part of the night's log. */
+export function dreamEntry({ now, timeZone, transcripts, model, changes, why, events, outcome }) {
+  const lines = [`## ${clock(now, timeZone)}`, ""];
+  lines.push(
+    transcripts.length > 0
+      ? `_Read ${transcripts.map((path) => `\`${path}\``).join(", ")}${model ? `, on ${model}` : ""}._`
+      : `_No transcripts to read${model ? `; on ${model}` : ""}._`,
+    "",
+    `### What changed in \`${ABOUT_ME_PATH}\``,
+    "",
+  );
+  if (changes.added.length === 0 && changes.removed.length === 0) {
+    lines.push(outcome === "failed" ? "_Nothing: the dream did not finish._" : "_Nothing changed._");
+  } else {
+    for (const line of changes.added) lines.push(`- Added ${asCode(line)}`);
+    for (const line of changes.removed) lines.push(`- Removed ${asCode(line)}`);
+  }
+  const said = String(why ?? "").trim();
+  if (said) lines.push("", "### Why", "", said.length > MAX_WHY_CHARS ? `${said.slice(0, MAX_WHY_CHARS)}…` : said);
+  const steps = events.map(eventLines).filter(Boolean);
+  if (steps.length > 0) lines.push("", "### How it went", "", ...steps.map((step) => step.replace(/\n$/, "")));
+  return `${lines.join("\n")}\n`;
+}
+
+/** `{ etag, body }`, `{ missing: true }`, or null when the note could not be read. */
+async function readWithEtag(dispatch, path) {
+  try {
+    const result = await dispatch("read_note", { path });
+    const text = (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
+    if (result?.isError === true) return /^not found\b/i.test(text.trim()) ? { missing: true } : null;
+    const split = text.indexOf("\n\n");
+    if (split === -1) return null;
+    const etag = /^etag: (.+)$/m.exec(text.slice(0, split))?.[1]?.trim();
+    return etag ? { etag, body: text.slice(split + 2) } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write tonight's entry after whatever the night's log already holds. Best effort. */
+async function writeLog(dispatch, path, entry, { now, timeZone }) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = await readWithEtag(dispatch, path);
+    if (current === null) return false; // a log that can't be read is never overwritten
+    const before = current.missing ? heading(now, timeZone) : current.body;
+    const written = await dispatch("write_note", {
+      path,
+      content: `${before.replace(/\n*$/, "\n\n")}${entry}`,
+      ...(current.missing ? {} : { expected_etag: current.etag }),
+    }).catch(() => null);
+    if (written && written.isError !== true) return true;
+  }
+  return false;
+}
+
+/**
+ * `/agent` for the dreams client (`http/route.js` sends it here by the
+ * grant's client, never by the body): it dreams, and does nothing else. A
+ * `dream` body from any other client goes to the ordinary turn, which has
+ * no use for it.
+ */
+export async function handleDream(request, env, store, session, controlPlane) {
+  if (session.actorClientId !== DREAMS_CLIENT_ID) return json({ error: "invalid_request", error_description: "Only Tex's dreams dream." }, 403);
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    body = null;
+  }
+  const asked = body?.dream !== undefined && body.dream !== null && typeof body.dream === "object" && !Array.isArray(body.dream);
+  if (!asked) return json({ error: "invalid_request", error_description: "This connection only dreams." }, 400);
+
+  store.actor = actorFor(session);
+  store.contexts = contextsFor(session);
+  // Nothing a dream reads is sent anywhere, and the one thing it writes is in their own workspace.
+  session.egress = { complete: true, ledger: newLedger(), texting: false };
+  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
+
+  const timeZone = readTimeZone(body.dream.timeZone) ?? DEFAULT_TIME_ZONE;
+  const since = typeof body.dream.since === "number" && Number.isFinite(body.dream.since) ? body.dream.since : null;
+  const started = Date.now();
+  const listed = await dispatch("list_notes", { prefix: TRANSCRIPTS_FOLDER }).catch(() => null);
+  const listing = listed?.isError === true ? "" : (listed?.content ?? []).map((part) => part?.text ?? "").join("\n");
+  const transcripts = transcriptsToRead(listing, { since, now: started, timeZone });
+  const before = await readAboutMe(dispatch);
+  const first = since === null && before === "";
+  // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
+  if (transcripts.length === 0 && !first) return json({ outcome: "nothing_new" });
+
+  try {
+    await openProvider(controlPlane, session, undefined, env);
+  } catch (error) {
+    if (error instanceof AgentRefusal && error.code === "daily_limit") return json({ error: "daily_limit" }, 429);
+    if (error instanceof AgentRefusal) return json({ error: error.code }, 409);
+    return json({ error: "model_unavailable" }, 503);
+  }
+
+  const events = [];
+  const offered = await toolsForSession(session, store);
+  const model = builtinModel(env);
+  const meter = async (usage, failed, answering = model) => {
+    try {
+      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
+        input: usage?.input ?? 0,
+        output: usage?.output ?? 0,
+        cacheRead: usage?.cacheRead ?? 0,
+        cacheWrite: usage?.cacheWrite ?? 0,
+        model: typeof answering === "string" ? answering : model,
+        decision: 0,
+        failed,
+        ms: Date.now() - started,
+      });
+    } catch {
+      // A meter that could not be reached costs us a report, not the dream.
+    }
+  };
+
+  let turn = null;
+  try {
+    turn = await runTurn({
+      question: dreamQuestion({ transcripts, first, since, timeZone }),
+      tools: dreamTools(offered),
+      callTool: dreamCallTool(dispatch),
+      env,
+      providerOptions: {
+        ai: env.AI,
+        gateway: aiGatewayConfig(env),
+        metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "dreams" },
+      },
+      aboutMe: before,
+      localNow: { now: started, timeZone },
+      observe: (event) => events.push(event),
+      maxRounds: DREAM_ROUNDS,
+    });
+  } catch (error) {
+    await meter(null, true, error instanceof ProviderError ? error.model : model);
+    console.log(
+      JSON.stringify({
+        event: "dream",
+        workspace: session.workspaceId,
+        grant: session.grantId,
+        outcome: "failed",
+        ...(error instanceof ProviderError ? { reason: error.reason, status: error.status } : {}),
+      }),
+    );
+    if (!(error instanceof ProviderError)) throw error;
+  }
+  if (turn !== null) await meter(turn.usage, false, turn.model);
+
+  const after = await readAboutMe(dispatch);
+  const changes = aboutMeChanges(before, after);
+  const changed = changes.added.length > 0 || changes.removed.length > 0;
+  const outcome = turn === null || turn.exhausted ? (changed ? "dreamed" : "failed") : changed ? "dreamed" : "unchanged";
+  const now = Date.now();
+  const entry = dreamEntry({
+    now,
+    timeZone,
+    transcripts,
+    model: turn?.model ?? null,
+    changes,
+    why: turn?.answer ?? "",
+    events,
+    outcome,
+  });
+  const logged = await writeLog(dispatch, dreamPath(now, timeZone), entry, { now, timeZone });
+  console.log(
+    JSON.stringify({
+      event: "dream",
+      workspace: session.workspaceId,
+      grant: session.grantId,
+      provider: BUILTIN_PROVIDER,
+      outcome,
+      transcripts: transcripts.length,
+      added: changes.added.length,
+      removed: changes.removed.length,
+      logged,
+      ms: now - started,
+    }),
+  );
+  if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
+  return json({ outcome, steps: turn?.steps ?? [] });
+}

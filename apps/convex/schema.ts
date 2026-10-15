@@ -41,6 +41,7 @@ import { searchTimingTables } from "./functions/lib/schema/searchTimings";
 import { meaningTables } from "./functions/lib/schema/meaning";
 import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
+import { dreamTables } from "./functions/lib/schema/dreams";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { smallDataTables } from "./functions/lib/schema/smallData";
 import { blockTables } from "./functions/lib/schema/blocks";
@@ -120,6 +121,7 @@ const schema = defineSchema({
   ...searchTimingTables,
   ...meaningTables,
   ...routineTables,
+  ...dreamTables,
   ...nodeTables,
   ...smallDataTables,
   ...noteMailTables,
