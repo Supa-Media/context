@@ -27,7 +27,7 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
-import { AttachmentRefusal, attachmentsLine, readAttachments, withAttachmentImages } from "./attachments.js";
+import { attachmentsLine, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { toolsForSession } from "../tools/advertised.js";
 import {
   SHOWN_HISTORY_TURNS,
@@ -136,15 +136,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     The routine is re-read now, before any model is opened, so a paused or
     vanished one costs nobody a turn from their daily allowance.
   */
+  // A tool call through the client's own dispatcher, under this session.
+  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
   let runs = [];
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (runner) {
     try {
-      routine = await loadRoutine(
-        (name, args) => callToolForSession({ name, arguments: args }, store, session),
-        routinePathFrom(body.routine),
-      );
+      routine = await loadRoutine(dispatch, routinePathFrom(body.routine));
     } catch (error) {
       if (!(error instanceof RoutineRefusal)) throw error;
       return json({ error: error.code, error_description: error.message }, error.code === "routine_gone" ? 404 : 400);
@@ -158,24 +157,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
   }
   // What came with the question (`attachments.js`). A routine's run has none.
-  let attachments = [];
-  try {
-    attachments = runner ? [] : readAttachments(body.attachments);
-  } catch (error) {
-    if (!(error instanceof AttachmentRefusal)) throw error;
-    return json({ error: "invalid_request", error_description: error.message }, 400);
-  }
+  const { attachments, refusal } = turnAttachments(body.attachments, runner);
+  if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
   if (question.length === 0 && attachments.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
   if (question.length > MAX_QUESTION_LENGTH) {
-    return json(
-      {
-        error: "invalid_request",
-        error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.`,
-      },
-      400,
-    );
+    return json({ error: "invalid_request", error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.` }, 400);
   }
 
   /*
@@ -190,8 +178,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     through `/approvals`.
   */
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    // A yes sent with a photo is about the photo, not an ask.
-    const verdict = attachments.length > 0 ? null : approvalVerdict(question);
+    const verdict = attachments.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
     if (verdict !== null) {
       const settled = await settleByText(store, session, verdict);
       if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
@@ -346,8 +333,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
-  // A forwarded PDF or a screenshot is someone else's words as much as a web page is.
-  if (attachments.length > 0) markUntrusted(ledger);
+  if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
   const earlier = conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
   // The setup's `search:` section, when it has one, over the deployment's
@@ -471,13 +457,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
-      callTool: withAttachmentImages(
-        attachments,
-        withSkills(
-          skills,
-          textingAwareCallTool((name, args) => callToolForSession({ name, arguments: args }, store, session), textingWriting),
-        ),
-      ),
+      callTool: withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting))),
       attachments,
       env,
       providerOptions: {
@@ -497,7 +477,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       local: earlier,
       coreTools: production?.coreTools ?? null,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
-      ...(texting ? await readTexNotes((name, args) => callToolForSession({ name, arguments: args }, store, session)) : {}),
+      ...(texting ? await readTexNotes(dispatch) : {}),
       // Their clock: a routine's own zone, else the one the texting Worker sent (`localNow.js`).
       localNow: { now: Date.now(), timeZone: runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE },
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
@@ -528,11 +508,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
       // A routine whose `until:` came true stops itself, recoverably.
       if (ran.outcome === "finished" && routine.cadence.unit !== "once") {
-        await stopRoutine((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path);
+        await stopRoutine(dispatch, routine.path);
       }
       // A one-off has run: it stays where it is, marked done (`finishOnce`).
       if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
-        await finishOnce((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path, {
+        await finishOnce(dispatch, routine.path, {
           now: Date.now(),
           timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
         });
@@ -565,7 +545,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        const saved = attachments.length === 0 ? question : [question, attachmentsLine(attachments)].filter(Boolean).join("\n");
+        const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, answer, {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),

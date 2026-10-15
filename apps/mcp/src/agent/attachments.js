@@ -93,6 +93,17 @@ export function readAttachments(raw) {
   });
 }
 
+/** `readAttachments` for one `/agent` turn: none on a routine's run, and a refusal as its sentence. */
+export function turnAttachments(raw, runner) {
+  if (runner) return { attachments: [], refusal: null };
+  try {
+    return { attachments: readAttachments(raw), refusal: null };
+  } catch (error) {
+    if (!(error instanceof AttachmentRefusal)) throw error;
+    return { attachments: [], refusal: error.message };
+  }
+}
+
 const isPicture = (attachment) => typeof attachment.data === "string" && IMAGE_TYPES.has(attachment.mediaType);
 
 /** What the model is told about the attachments, ahead of the person's words. */
