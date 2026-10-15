@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Linking, View } from "react-native";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { Card } from "../design/components/Card";
 import { Text } from "../design/components/Text";
 import { enableNotifications } from "./device";
@@ -28,7 +29,7 @@ export function NotificationSettings() {
           }}
           testID="notifications-enable"
         />
-        <Button label="System settings" variant="ghost" onPress={() => {
+        <TextLink label="System settings" onPress={() => {
           setSettingsFailed(false);
           void Linking.openSettings().catch(() => setSettingsFailed(true));
         }} />
