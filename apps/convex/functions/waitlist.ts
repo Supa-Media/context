@@ -49,6 +49,12 @@ export const enter = mutation({
     // unknown value is dropped rather than refused.
     landing: v.optional(v.string()),
     campaign: v.optional(adCampaignValidator),
+    // Set by the iOS and Android apps. A sign-up made inside the app is never
+    // reported to X or Meta: a hashed address sent to an ad network from an
+    // app is "tracking" under Apple's App Privacy rules, which the app neither
+    // asks permission for nor declares. The flag can only switch reporting
+    // off, so a client lying about it reports less, never more.
+    app: v.optional(v.literal("native")),
   },
   returns: v.object({
     status: v.union(v.literal("admitted"), v.literal("joined"), v.literal("already")),
@@ -83,8 +89,10 @@ export const enter = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
     await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
-    await scheduleXConversion(ctx, { kind: "waitlist", waitlistId: id, twclid: args.twclid });
-    await scheduleMetaConversion(ctx, { kind: "waitlist", waitlistId: id, fbc: args.fbc, fbp: args.fbp });
+    if (args.app !== "native") {
+      await scheduleXConversion(ctx, { kind: "waitlist", waitlistId: id, twclid: args.twclid });
+      await scheduleMetaConversion(ctx, { kind: "waitlist", waitlistId: id, fbc: args.fbc, fbp: args.fbp });
+    }
     return { status: "joined" as const, conversionId: waitlistConversionId(id) };
   },
 });
