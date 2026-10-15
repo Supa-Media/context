@@ -401,6 +401,19 @@ export async function route(request, env, ctx) {
           workspaceId: session.workspaceId,
         });
 
+      // That this connection just fetched `tools/list`, against its own grant
+      // (the token is the proof, as for the session). Deferred and dropped
+      // where it cannot be, the trade `reportUsage` makes: a stamp that is
+      // lost only means `orient` repeats some tool news next time.
+      store.reportToolsListed = () => {
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(controlPlane.reportToolsListed(session.accessToken).catch(() => {}));
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
+
       /**
        * That something landed in this context's `activity.md`, and at which
        * tier; and that its file tree changed, for which audiences. See

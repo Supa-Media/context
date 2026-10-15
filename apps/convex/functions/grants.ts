@@ -623,3 +623,23 @@ export const touchGrant = internalMutation({
     return null;
   },
 });
+
+/**
+ * Record that this grant's client just fetched our tool list.
+ *
+ * Keyed by the access token's hash like session resolution, so it can only
+ * ever stamp the grant the presented token belongs to, and only a live one.
+ */
+export const noteToolsListed = internalMutation({
+  args: { hashedAccessToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const grant = await ctx.db
+      .query("oauthGrants")
+      .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", args.hashedAccessToken))
+      .unique();
+    if (grant === null || grant.status !== "active") return null;
+    await ctx.db.patch(grant._id, { toolsListedAt: Date.now() });
+    return null;
+  },
+});

@@ -57,6 +57,9 @@ export async function gatewaySessionHandler(
       actorUserId: session.actorUserId,
       scopes: session.scopes,
       expiresAt: session.expiresAt,
+      // When this client last fetched our tool list (or connected); see
+      // `oauthGrants.toolsListedAt`.
+      toolsListedAt: session.toolsListedAt,
       // The context this grant was approved against: what a bare `/mcp` and an
       // unaddressed tool call resolve to.
       defaultWorkspaceId: session.workspaceId,
@@ -101,4 +104,26 @@ export async function gatewaySessionsByGrantHandler(
     { expectedWorkspaceId, grantIds },
   );
   return json({ sessions });
+}
+
+/**
+ * `POST /gateway/grants/tools-listed`: the client holding this access token
+ * just fetched `tools/list`. Answers `{ ok: true }` whatever the token, like
+ * `lastUsedAt`'s stamp it is bookkeeping, and an unknown token learns nothing.
+ */
+export async function gatewayToolsListedHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  if (accessToken !== null) {
+    try {
+      await ctx.runMutation(internal.functions.grants.noteToolsListed, {
+        hashedAccessToken: await hashToken(accessToken),
+      });
+    } catch {
+      // Bookkeeping; a failure here changes nothing for the client.
+    }
+  }
+  return json({ ok: true });
 }

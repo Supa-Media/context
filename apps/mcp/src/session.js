@@ -246,6 +246,9 @@ export async function resolveSession(token, slug, controlPlane) {
     grantScopes: session.scopes,
     workspaces: session.workspaces,
     expiresAt: session.expiresAt,
+    // When this client last fetched our tool list; `orient` names what
+    // changed since (`tools/news.js`). A time, and nothing about the tools.
+    toolsListedAt: session.toolsListedAt,
   };
 
   /**
@@ -390,6 +393,10 @@ function normalizeSession(raw) {
     workspaces: normalized,
     defaultWorkspaceId,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
+    // Optional for the reason `clientName` is: it decides nothing, it only
+    // chooses which tool news `orient` shows. A control plane older than the
+    // field omits it, and the news is then left out rather than guessed.
+    toolsListedAt: Number.isFinite(raw.toolsListedAt) ? raw.toolsListedAt : null,
     /*
       Optional, and unvalidated beyond its type: it is the name the client
       asserted at registration, it decides nothing, and a control plane older
