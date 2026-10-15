@@ -25,6 +25,8 @@
  *     → "a texted picture is stored once and shown, a voice message is quoted…" fails.
  *  8. `writeOnce` keeping a refused picture.
  *     → "a picture write_note refuses is named instead, and the turn is still written" fails.
+ *  9. `writeOnce` not marking the transcript dirty while pictures remain.
+ *     → "more pictures than one write takes all go up…" fails.
  *  5. `gatewayBody` sending `thinking` to every model.
  *     → "the thinking is asked for in words only from a model that thinks by default" fails.
  */
@@ -141,6 +143,23 @@ test("a texted picture is stored once and shown, a voice message is quoted, anot
   assert.match(body, /> 🎤 Voice message: "Buy milk on the way home\."/);
   assert.match(body, /_Sent odd\.bin, which could not be opened\._/);
   assert.doesNotMatch(body, new RegExp(PNG.slice(0, 20)));
+});
+
+test("more pictures than one write takes all go up, even with nothing else happening", async () => {
+  const store = fakeNotes();
+  const base = Buffer.from(PNG, "base64");
+  // Eleven different pictures: one write takes ten.
+  const attachments = Array.from({ length: 11 }, (_, i) => ({
+    name: `IMG_${i}.png`,
+    mediaType: "image/png",
+    data: Buffer.concat([base, Buffer.from([i])]).toString("base64"),
+  }));
+  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "all of these", attachments });
+  await t.finish({ answer: "Got them." });
+  const uploaded = store.calls.filter(([name, args]) => name === "write_note" && args.images).flatMap(([, args]) => args.images);
+  assert.equal(new Set(uploaded.map((image) => image.name)).size, 11);
+  const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
+  assert.equal(body.match(/!\[\[upload-/g)?.length, 11);
 });
 
 test("a picture write_note refuses is named instead, and the turn is still written", async () => {

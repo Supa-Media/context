@@ -331,6 +331,7 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
     });
     if (result?.isError !== true) {
       sent.pictures = sent.pictures.slice(batch.length); // stored; later writes only embed them
+      if (sent.pictures.length > 0) dirty = true; // more than one write takes: the next batch goes next
       state.etag = writtenEtag(result) ?? state.etag;
       /*
         A collaboratively edited note merges a write made against an older
