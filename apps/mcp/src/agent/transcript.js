@@ -20,7 +20,15 @@
  *   - A secret. Saved logins never reach the model (`fillLogin.js`), so they
  *     never reach this either; an argument whose name looks like one
  *     (`password`, `token`, `code`…) is written as `[hidden]` all the same.
- *   - An attachment's bytes: names only, as the history keeps them.
+ *
+ * ## What they sent (owner, 2026-10-15)
+ *
+ * "When we send voice memos or when we send an image … in the transcripts I
+ * can see them." A texted picture is stored once in the workspace's own image
+ * store (`.context/assets/images/`, where a paste in the app goes) through
+ * write_note's `images`, and embedded where they sent it; it borrows the
+ * note's visibility like any pasted picture. A voice message is quoted as the
+ * words it was heard as. Any other file is named, its bytes never kept.
  *
  * ## Written through the dispatcher, never around it
  *
@@ -39,6 +47,8 @@
 
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
+import { IMAGE_TYPES } from "./attachments.js";
+import { MAX_UPLOADED_BYTES_PER_WRITE, prepareNoteImages } from "../notes/uploadedImages.js";
 
 export const TRANSCRIPTS_FOLDER = "tex/transcripts";
 
@@ -154,6 +164,56 @@ function eventLines(event) {
   }
 }
 
+/** A name as picture alt text or a line of text: nothing that ends the embed or the line. */
+function plainName(name) {
+  return String(name ?? "").replace(/[\[\]|`\r\n]+/g, " ").trim() || "attachment";
+}
+
+/**
+ * What they sent: one line each, and the pictures still to store. A picture's
+ * stored name (`upload-<hash>.jpg`) is the one write_note gives it, worked out
+ * here first so every rewrite of the turn embeds the same name. One that
+ * cannot be stored is named instead (`fallback`).
+ */
+async function sentItems(attachments) {
+  const items = [];
+  const pictures = [];
+  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+    const name = plainName(attachment?.name);
+    const named = `_Sent ${name}${typeof attachment?.unread === "string" ? ", which could not be opened" : ""}._\n`;
+    if (attachment?.heard && typeof attachment.text === "string") {
+      items.push({ line: `${quoted(`🎤 Voice message: "${cut(attachment.text, MAX_SAID_CHARS)}"`)}\n` });
+      continue;
+    }
+    if (typeof attachment?.data === "string" && IMAGE_TYPES.has(attachment.mediaType)) {
+      const data = `data:${attachment.mediaType};base64,${attachment.data}`;
+      const prepared = await prepareNoteImages("", [{ name: "picture", data }]).catch(() => null);
+      const leaf = prepared?.images?.[0]?.leaf;
+      if (leaf && !pictures.some((picture) => picture.name === leaf)) {
+        pictures.push({ name: leaf, data, bytes: prepared.images[0].bytes.byteLength });
+      }
+      if (leaf) {
+        items.push({ line: `![[${leaf}|${name}]]\n`, leaf, fallback: `_Sent ${name}, a picture that could not be kept._\n` });
+        continue;
+      }
+    }
+    items.push({ line: named });
+  }
+  return { items, pictures, lost: new Set() };
+}
+
+/** The pictures still to store, as many as one write takes. */
+function nextBatch(pictures) {
+  const batch = [];
+  let total = 0;
+  for (const picture of pictures) {
+    if (batch.length > 0 && (batch.length >= 10 || total + picture.bytes > MAX_UPLOADED_BYTES_PER_WRITE)) break;
+    batch.push(picture);
+    total += picture.bytes;
+  }
+  return batch;
+}
+
 const startMarker = (id) => `<!-- tex-turn ${id} -->`;
 const endMarker = (id) => `<!-- /tex-turn ${id} -->`;
 
@@ -192,10 +252,13 @@ async function readDay(callTool, path) {
   }
 }
 
+function resultText(result) {
+  return (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
+}
+
 /** The etag `write_note` answered with, or null. */
 function writtenEtag(result) {
-  const text = (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
-  return /\(etag ([^)\s]+)\)/.exec(text)?.[1] ?? null;
+  return /\(etag ([^)\s]+)\)/.exec(resultText(result))?.[1] ?? null;
 }
 
 /**
@@ -208,25 +271,27 @@ function writtenEtag(result) {
  * @param {number} options.now when the text arrived
  * @param {string} [options.timeZone] theirs; the day and the times are in it
  * @param {string} options.question what they sent, or the routine's name
- * @param {string} [options.attachments] the attachments line, names only
+ * @param {object[]} [options.attachments] what they sent, as `attachments.js` reads it (voice messages heard)
  * @param {string|null} [options.routine] the routine's path, when this is one's run
  * @param {() => number} [options.clock]
  */
-export function openTranscript(callTool, { now, timeZone, question, attachments = "", routine = null, clock: tick = Date.now }) {
+export function openTranscript(callTool, { now, timeZone, question, attachments = [], routine = null, clock: tick = Date.now }) {
   const id = `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const events = [];
   let ending = null;
   let state = null; // { path, etag, before } once the day's note is read; false when it can't be
   let dirty = false;
   let running = null;
+  let sent = { items: [], pictures: [], lost: new Set() }; // filled before the first write
 
   const opening =
     routine === null
-      ? `**Them:** ${cut(question, MAX_SAID_CHARS)}\n${attachments ? `_${attachments}_\n` : ""}`
+      ? `**Them:** ${cut(question, MAX_SAID_CHARS) || "_(no words)_"}\n`
       : `**Routine** \`${routine}\` ran.\n`;
 
   function part() {
     const body = [`## ${clock(now, timeZone)}${routine === null ? "" : " · routine"}`, "", opening];
+    for (const item of sent.items) body.push(sent.lost.has(item.leaf) ? item.fallback : item.line);
     for (const event of events) {
       const lines = eventLines(event);
       if (lines) body.push(lines);
@@ -257,12 +322,15 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
 
   async function writeOnce(retry = true) {
     const content = `${state.before.replace(/\n*$/, "\n\n")}${part()}`;
+    const batch = nextBatch(sent.pictures);
     const result = await callTool("write_note", {
       path: state.path,
       content,
       ...(state.etag ? { expected_etag: state.etag } : {}),
+      ...(batch.length > 0 ? { images: batch.map(({ name, data }) => ({ name, data })) } : {}),
     });
     if (result?.isError !== true) {
+      sent.pictures = sent.pictures.slice(batch.length); // stored; later writes only embed them
       state.etag = writtenEtag(result) ?? state.etag;
       /*
         A collaboratively edited note merges a write made against an older
@@ -277,7 +345,15 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
       }
       return;
     }
-    if (!retry) return;
+    if (!retry) {
+      // Twice refused over the pictures: write the rest without them, rather than never again.
+      if (batch.length > 0 && /\bimages?\b/i.test(resultText(result))) {
+        for (const picture of batch) sent.lost.add(picture.name);
+        sent.pictures = sent.pictures.slice(batch.length);
+        dirty = true;
+      }
+      return;
+    }
     // Another turn wrote the day first (or it was made since): read it again and go again.
     const day = await readDay(callTool, state.path);
     if (day === null) return;
@@ -288,7 +364,10 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
 
   async function drain() {
     try {
-      if (state === null) state = await open();
+      if (state === null) {
+        sent = await sentItems(attachments);
+        state = await open();
+      }
       while (dirty && state) {
         dirty = false;
         await writeOnce();

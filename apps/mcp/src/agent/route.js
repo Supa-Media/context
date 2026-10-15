@@ -449,7 +449,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         now: received,
         timeZone,
         question,
-        attachments: attachmentsLine(attachments),
+        attachments,
         routine: runner ? routine.path : null,
       })
     : null;
