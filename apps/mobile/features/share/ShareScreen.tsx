@@ -621,5 +621,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   card: { borderRadius: radii.xl },
   publishedWith: { alignSelf: "center", paddingVertical: 18 },
   report: { alignSelf: "center", paddingVertical: 12 },
-  reportText: { fontSize: 12.5, color: colors.muted },
+  reportText: { color: colors.muted },
 });
