@@ -24,6 +24,7 @@ import {
   type BrowserbaseEnv,
 } from "./browserbase";
 import { cdpPage, connectCdp } from "./cdp";
+import { touchIdle } from "./idle";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -52,6 +53,8 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
     if (status === "402") return json({ error: "browserbase refused: payment required" }, 402);
     return json({ error: "no browser is free right now; try again in a minute" }, 503);
   }
+  // In use: it lives five more minutes from now.
+  await touchIdle(env.BROWSER_IDLE, owner);
   let cdp;
   try {
     cdp = await connectCdp(session.connectUrl, fetcher);

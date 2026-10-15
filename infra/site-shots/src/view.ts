@@ -33,6 +33,7 @@
 
 import { browserbaseConfigured, findSession, OWNER_TAG, type BrowserbaseEnv } from "./browserbase";
 import { attachPage, connectCdp, type AttachedPage } from "./cdp";
+import { touchIdle } from "./idle";
 
 /** The most one `type` action inserts. A sign-in field, not a document. */
 export const MAX_VIEW_TEXT = 1_000;
@@ -209,6 +210,8 @@ export async function viewOnBrowserbase(env: BrowserbaseEnv, path: string, body:
   const started = Date.now();
   const session = await findSession(env, owner, fetcher).catch(() => null);
   if (session === null) return json({ running: false });
+  // The person looking at or driving it is using it.
+  await touchIdle(env.BROWSER_IDLE, owner);
   let cdp;
   try {
     cdp = await connectCdp(session.connectUrl, fetcher);

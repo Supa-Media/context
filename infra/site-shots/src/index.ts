@@ -16,7 +16,9 @@
  *   token or session: a members-only page would show a sign-in screen, which
  *   is why the control plane only ever names public pages.
  * - **It keeps nothing.** No KV, R2, D1 or cache. The pictures go back in the
- *   response and nowhere else.
+ *   response and nowhere else. One Durable Object per person holds their
+ *   owner tag and an alarm, which releases their Browserbase browser five
+ *   minutes after its last use (./idle.ts), and nothing else.
  *
  *   POST /shoot   `{ url, sizes? }` → `{ shots, failures }` (see ./shoot.ts)
  *   POST /read    `{ url }` → `{ page }`: title, visible text and links, for
@@ -40,6 +42,8 @@
  */
 
 import puppeteer from "@cloudflare/puppeteer";
+import { DurableObject } from "cloudflare:workers";
+import { IdleTimer } from "./idle";
 import { fetchPage } from "./fetchText";
 import { parseReadRequest, read } from "./read";
 import type { BrowserbaseEnv } from "./browserbase";
@@ -55,6 +59,17 @@ interface Env extends BrowserbaseEnv {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** One per person, by owner tag: their browser's five-minute idle alarm (./idle.ts). */
+export class BrowserIdle extends DurableObject<Env> {
+  private timer = new IdleTimer(this.ctx.storage, this.env);
+  async touch(owner: string): Promise<void> {
+    await this.timer.touch(owner);
+  }
+  async alarm(): Promise<void> {
+    await this.timer.alarm();
+  }
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
