@@ -84,27 +84,21 @@ export async function runProtocolBasicsChecks() {
     instructionsFlat.includes("save_context") &&
       instructionsFlat.includes("Default privacy follows this connection")
   );
-  // The argument for using this at all, which is the only reason the rest gets
-  // read. Asserted because it is the part a tidy-up would cut as "not a rule",
-  // and because the whole payload is worthless if it opens with housekeeping.
   check(
-    "initialize leads with the instruction to orient, in the clear",
-    /READ THIS BEFORE YOU ANSWER ANYTHING ELSE/.test(instructionsFlat) &&
-      /CALL `orient` FIRST\. EVERY SESSION\./.test(instructionsFlat)
+    "initialize leads with scoped guidance for when to use Context",
+    /WHEN TO USE CONTEXT/.test(instructionsFlat) &&
+      /Use Context only to retrieve, save, or organize information/i.test(instructionsFlat)
   );
   check(
-    "initialize makes the case rather than only stating rules",
-    /Skipping it is not a neutral choice/i.test(instructionsFlat) &&
-      /richest source of information about this person/i.test(instructionsFlat)
+    "initialize explicitly excludes the negative-routing categories",
+    /Do not use Context for weather, image generation, travel search, or booking/i.test(
+      instructionsFlat,
+    ) && /first-person wording alone is not a reason to call Context/i.test(instructionsFlat)
   );
-  // It has to reach the model before any housekeeping does. Measured rather than
-  // asserted in a comment: a later edit that reinstates a preamble above the
-  // instruction is the exact regression this payload was rewritten to undo.
   check(
-    "the call to action comes before any of the rules",
-    instructionsFlat.indexOf("CALL `orient` FIRST") <
-      instructionsFlat.indexOf("FIVE RULES") &&
-      instructionsFlat.indexOf("CALL `orient` FIRST") < 500
+    "the routing scope comes before any operating rules",
+    instructionsFlat.indexOf("Use Context only") < instructionsFlat.indexOf("FIVE RULES") &&
+      instructionsFlat.indexOf("Use Context only") < 500
   );
   const noteRes = await worker.fetch(
     new Request("https://x/mcp", {
@@ -117,6 +111,22 @@ export async function runProtocolBasicsChecks() {
   );
   check("notification → 202", noteRes.status === 202);
   const tools = await rpc("priv-token", "tools/list");
+  const orientDescription =
+    tools.result?.tools?.find((tool) => tool.name === "orient")?.description || "";
+  const searchDescription =
+    tools.result?.tools?.find((tool) => tool.name === "search")?.description || "";
+  check(
+    "orient advertises a narrow Context-notes scope and explicit non-goals",
+    orientDescription.startsWith("Use this when") &&
+      orientDescription.includes("Context notes or shared workspaces") &&
+      orientDescription.includes("weather, image generation, travel search, or booking")
+  );
+  check(
+    "search does not claim every question about the user",
+    searchDescription.startsWith("Use this when") &&
+      searchDescription.includes("already saved in their Context notes") &&
+      !searchDescription.includes("any question about the user")
+  );
   // 18 became 20 when `search` and `fetch` landed — ChatGPT's ordinary chats can
   // invoke only those two names on a custom connector, so they are the same
   // read capabilities wearing OpenAI's deep-research contract. 21 with

@@ -11,10 +11,11 @@ export function coreToolDefinitions() {
       name: "orient",
       title: "Orient in your context",
       description:
-        "CALL THIS FIRST, once per session, before answering anything about the user's own work. " +
-        "One cheap call returns their front page, what they touched most recently, and a map of " +
-        "every folder with note counts — so you know what already exists instead of guessing. " +
-        "Everything else here is easier to use well afterwards.",
+        "Use this when the request concerns information in the user's Context notes or shared " +
+        "workspaces, or asks to save or organize that information. When Context is relevant, call " +
+        "this first: one cheap call returns their front page, recent activity, and a folder map. " +
+        "Do not use Context for weather, image generation, travel search, or booking unless the " +
+        "user explicitly asks to use information from their Context notes or workspaces.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -27,10 +28,10 @@ export function coreToolDefinitions() {
       name: "search",
       title: "Search memory",
       description:
-        "Search the user's own memory: their notes about their projects, people, decisions, " +
-        "preferences and past work. The first place to look for any question about the user — " +
-        "the answer is usually already written down here. Returns results whose id can be " +
-        "passed to fetch for the full note.",
+        "Use this when the user asks to find information already saved in their Context notes " +
+        "about projects, people, decisions, preferences, or past work. Do not use it for weather, " +
+        "image generation, travel search, or booking unless the user explicitly asks to search " +
+        "their Context notes. Returns results whose id can be passed to fetch for the full note.",
       inputSchema: {
         type: "object",
         properties: { query: { type: "string" } },
