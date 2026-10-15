@@ -134,19 +134,36 @@ export function withIdLayout(store, { lookup, wrote } = {}) {
     }
   };
 
-  /** Shared by `get` and `head`: the id copy under the path's etag, else the path itself. */
-  const readThrough = (method) => async (path, ...rest) => {
-    if (!mirroredPath(path) || hasConditional(rest[0])) return await store[method](path, ...rest);
-    const copy = await readableCopy(path);
-    if (copy !== null) {
-      const object = await idObject(() => store[method](copy.key));
-      if (object !== null) return underPathEtag(object, copy.etag);
+  /** The path's current etag, or `null` when it is missing or cannot be asked. */
+  const pathEtag = async (path) => {
+    try {
+      return (await store.head(path))?.etag ?? null;
+    } catch {
+      return null;
     }
-    return await store[method](path, ...rest);
   };
 
-  if (typeof store.get === "function") wrapped.get = readThrough("get");
-  if (typeof store.head === "function") wrapped.head = readThrough("head");
+  /**
+   * A read: the id copy under the path's etag, else the path itself. The
+   * tree's etag can trail the bucket (a write by a store without this layer,
+   * reported to the tree later), so "fresh" is also checked against the path
+   * itself, with one HEAD asked alongside the lookup: a copy never serves a
+   * body older than the path's. A `head` needs no copy at all: the path's
+   * metadata is the answer either way.
+   */
+  if (typeof store.get === "function") {
+    wrapped.get = async (path, ...rest) => {
+      if (!mirroredPath(path) || hasConditional(rest[0]) || typeof store.head !== "function") {
+        return await store.get(path, ...rest);
+      }
+      const [copy, current] = await Promise.all([readableCopy(path), pathEtag(path)]);
+      if (copy !== null && current === copy.etag) {
+        const object = await idObject(() => store.get(copy.key));
+        if (object !== null) return underPathEtag(object, copy.etag);
+      }
+      return await store.get(path, ...rest);
+    };
+  }
 
   /**
    * One write to the id key of `path`, then the record of it. Any failure is

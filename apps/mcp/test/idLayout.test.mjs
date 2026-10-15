@@ -7,6 +7,7 @@
  *
  * Sabotage, each confirmed to fail a case here:
  *  - drop the etag override on a read from the id copy: the fresh-copy case fails;
+ *  - skip the path HEAD before a fresh copy answers: the moved-on case fails;
  *  - look the id copy up on a plumbing path: the plumbing case fails;
  *  - write the key before the path: the ordering case fails;
  *  - let a failed path put touch the key: the failed-put case fails;
@@ -192,17 +193,25 @@ test("plumbing is never looked up", async () => {
   assert.deepEqual(asked, []);
 });
 
-test("head reads the id copy's metadata under the path's etag, or the path's when stale", async () => {
+test("head answers from the path: its metadata is the answer either way", async () => {
   const store = await withBothCopies();
-  const fresh = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": FRESH }), wrote: NOWRITE });
-  const head = await fresh.head("1-projects/a.md");
+  const asked = [];
+  const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": FRESH }, asked), wrote: NOWRITE });
+  const head = await wrapped.head("1-projects/a.md");
   assert.equal(head.etag, "e2");
-  assert.equal(head.size, "ID BODY".length);
-  const stale = withIdLayout(store, {
-    lookup: lookupTo({ "1-projects/a.md": { key: "notes/id1.md", etag: "e2", fresh: false } }),
-    wrote: NOWRITE,
-  });
-  assert.equal((await stale.head("1-projects/a.md")).size, "PATH BODY".length);
+  assert.equal(head.size, "PATH BODY".length);
+  assert.deepEqual(asked, []);
+});
+
+test("a copy the tree calls fresh is not read once the path has moved on", async () => {
+  // A write by a store without this layer: the bucket has a newer body, the
+  // tree still holds the version the copy was made from.
+  const store = await withBothCopies();
+  await store.put("1-projects/a.md", "NEWER BODY");
+  const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": FRESH }), wrote: NOWRITE });
+  const object = await wrapped.get("1-projects/a.md");
+  assert.equal(await object.text(), "NEWER BODY");
+  assert.notEqual(object.etag, "e2");
 });
 
 /* -------------------------------- writes -------------------------------- */
