@@ -144,25 +144,29 @@ async function labelOffset(row: Locator, label: string): Promise<number> {
   return textBox.x - rowBox.x;
 }
 
-test("a phone opens settings on a section, and Back is the way to the list", async ({ page }) => {
+test("a phone opens settings on its list, and a row pushes its page", async ({ page }) => {
   await openConsole(page);
   await tap(page, ACCOUNT_MENU);
   await page.getByTestId(ACCOUNT_SETTINGS).tap();
 
   /*
-    Choosing Settings… from the account menu is somebody asking for a *thing*,
-    not for a menu — `SettingsOverlay`'s own rule — so the first level is the
-    default section, and the list is one press back from it. Both halves are
-    asserted: the panel is up, and the list it was pushed over is not.
+    Choosing Settings… from the account menu is somebody asking for the menu,
+    the way every phone's Settings opens (Dev2, 2026-10-15: "why does it open
+    up in the general page first"). Both halves are asserted: the list is up,
+    no row on it is lit, and no page is drawn behind it.
   */
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  await expect(page.getByTestId("settings-sections")).toBeVisible();
+  await expect(page.locator('[data-testid^="settings-section-"][aria-current="true"]')).toHaveCount(0);
+  await expect(page.getByTestId("overview-identity")).toHaveCount(0);
+
+  // General is a row like the rest, and Back from it is the list again.
+  await page.getByTestId("settings-section-workspace").tap();
   await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
   // The kind is a row in the facts card under the name, matched by testID
   // so the section list's previews can never satisfy it.
   await expect(page.getByTestId("overview-facts")).toContainText("Personal workspace");
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
-
-  // Back pops that level rather than closing the overlay.
   await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
   await expect(page.getByTestId("overview-identity")).toHaveCount(0);
@@ -186,7 +190,6 @@ test("the phone's section labels are left-aligned, not centred", async ({ page }
   await tap(page, ACCOUNT_MENU);
   await page.getByTestId(ACCOUNT_SETTINGS).tap();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
-  await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
 
   /*
@@ -235,8 +238,8 @@ test("the plugins search box is not squeezed by its filters on a phone", async (
   await page.getByTestId(ACCOUNT_SETTINGS).tap();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
   /*
-    Settings opens on a section; the list is one press back, and Plugins is on
-    it — the same two steps `a phone opens settings on a section` walks.
+    Settings opens on its list, and Plugins is on it — the same step
+    `a phone opens settings on its list` walks.
 
     Plugins is deprecated in the console (`plugins/experiment.ts`) and off the
     list for a context that has never touched one. The fixture is the demo
@@ -246,7 +249,6 @@ test("the plugins search box is not squeezed by its filters on a phone", async (
     ever fails to find the row, check the fixture's plugin views before
     changing the selector.
   */
-  await page.getByTestId("settings-overlay-back").tap();
   await page.getByTestId("settings-section-plugins").tap();
 
   const field = page.getByTestId("plugins-query");
@@ -363,7 +365,6 @@ test.describe("back from Stripe", () => {
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
-    await page.getByLabel("Back", { exact: true }).tap();
     await page.getByTestId("settings-section-premium").tap();
 
     const notice = page.getByTestId("premium-checkout-return");
@@ -390,7 +391,6 @@ test.describe("back from Stripe", () => {
     await page.getByTestId("note-scroll").waitFor();
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
-    await page.getByLabel("Back", { exact: true }).tap();
     await page.getByTestId("settings-section-premium").tap();
 
     const notice = page.getByTestId("premium-checkout-return");
@@ -404,7 +404,6 @@ test.describe("back from Stripe", () => {
     await openConsole(page);
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
-    await page.getByLabel("Back", { exact: true }).tap();
     await page.getByTestId("settings-section-premium").tap();
     await expect(page.getByTestId("premium-title")).toBeVisible();
     await expect(page.getByTestId("premium-checkout-return")).toHaveCount(0);

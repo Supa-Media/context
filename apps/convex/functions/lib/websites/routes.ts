@@ -73,11 +73,12 @@ export async function scanWebsiteRoutes(
     same clearance, so a note `privacy.md` holds back is absent from it exactly
     as it was from the whole-bucket walk.
   */
-  // While a folder move is queued, list the tree, which draws it, so each page is read at its new name (`./movingScan.ts`).
+  // Always the tree (moves drawn), never the bucket: names and existence are rows,
+  // bytes may sit at `notes/<id>.md`. A move starting mid-scan fails it (`./movingScan.ts`).
   const movesBefore = await pendingMovesNow(ctx, workspaceId);
   const listedFolders: ListedFolder[] = [];
   const list = async (folder: string) => {
-    const listed = await listMarkdownUnder(ctx, workspaceId, clearance, folder, movesBefore.length > 0);
+    const listed = await listMarkdownUnder(ctx, workspaceId, clearance, folder);
     listedFolders.push({ folder, drawn: listed.drawn });
     return listed.paths;
   };
@@ -115,19 +116,19 @@ export async function scanWebsiteRoutes(
  * Every Markdown path under `folder` this clearance may list, through the
  * barrier's prefix-limited manifest. A listing that cannot finish fails the
  * scan rather than reading as "nothing there": a partial manifest is never
- * evidence that an indexed route was deleted. `fromTree` lists the Convex
- * tree, moves drawn, where it serves; `drawn` says every page came from it.
+ * evidence that an indexed route was deleted. Always the Convex tree, moves
+ * drawn; a tree still loading fails the scan (`TREE_LOADING`). `drawn` says
+ * every page came from it.
  */
 async function listMarkdownUnder(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   clearance: Clearance,
   folder: string,
-  fromTree: boolean,
 ): Promise<{ paths: string[]; drawn: boolean }> {
   const prefix = `${folder}/`;
   const paths: string[] = [];
-  let drawn = fromTree;
+  let drawn = true;
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -141,7 +142,7 @@ async function listMarkdownUnder(
           kind: "manifest",
           folder,
           ...(cursor === undefined ? {} : { cursor }),
-          ...(fromTree ? { source: "tree" as const } : {}),
+          source: "tree" as const,
         },
       },
     );

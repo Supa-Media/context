@@ -14,7 +14,7 @@ import {
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
-import { AddFolderLine, Card, FolderLine, MapPlace, NoteRow, Section, Tile } from "./homeRows";
+import { AddFolderLine, Card, FolderLine, NoteRow, Section, Tile, type HoldPoint } from "./homeRows";
 import { ChaosHomeLine } from "../../chaos/ChaosHomeLine";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
@@ -47,11 +47,10 @@ export function PhoneHome({
   onOpen,
   onNewFolder,
   onActions,
-  onTogglePin,
+  onHold,
   iconOf,
   onAddFolder,
   foot,
-  onOpenMap,
 }: {
   title: string;
   source: HomeSource;
@@ -66,16 +65,18 @@ export function PhoneHome({
   onNewFolder?: () => void;
   /** The workspace's own ••• sheet (New note, New folder, Share, Download). */
   onActions?: (anchor: { x: number; y: number }) => void;
-  /** Held on a tile or row: pin it, or unpin it. `null` without an account. */
-  onTogglePin: ((path: string, kind: "note" | "folder") => void) | null;
+  /**
+   * Held on a tile or row: that row's own menu, Pin or Unpin among its verbs.
+   * Absent for a visitor. Never a pin by itself: a hold that pinned silently
+   * is how notes nobody chose ended up under Pinned (owner, 2026-10-15).
+   */
+  onHold?: (path: string, at: HoldPoint) => void;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
   iconOf?: (path: string) => string | null;
   /** "Add a folder", the last line of All folders. Absent for who may not make one. */
   onAddFolder?: () => void;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
-  /** The live map, a place of its own on Home. `undefined` where there is none (a visitor, the demo). */
-  onOpenMap?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -93,8 +94,7 @@ export function PhoneHome({
     return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, recents, tag: null, now }) : built;
   }, [source, pins, opened, recents, tag, now]);
   const activeTag = home.tagged?.tag ?? null;
-  const hold = (path: string, kind: "note" | "folder") =>
-    onTogglePin === null ? undefined : () => onTogglePin(path, kind);
+  const hold = (path: string) => (onHold === undefined ? undefined : (at: HoldPoint) => onHold(path, at));
 
   return (
     <View style={styles.page} testID="phone-home">
@@ -149,8 +149,6 @@ export function PhoneHome({
         </View>
       )}
 
-      {onOpenMap === undefined ? null : <MapPlace onPress={onOpenMap} />}
-
       {home.pinned.length === 0 ? null : (
         <Section label="Pinned">
           <View style={styles.grid}>
@@ -168,7 +166,7 @@ export function PhoneHome({
                       : `Edited ${whenLabel(tile.updatedAt, now)}`,
                 ]}
                 onPress={() => onOpen(tile.path)}
-                onLongPress={hold(tile.path, tile.kind)}
+                onLongPress={hold(tile.path)}
                 style={styles.gridTile}
               />
             ))}
@@ -187,7 +185,7 @@ export function PhoneHome({
                 shared={folder.shared}
                 lines={[countLabel(folder.notes, 0), folder.label]}
                 onPress={() => onOpen(folder.path)}
-                onLongPress={hold(folder.path, "folder")}
+                onLongPress={hold(folder.path)}
                 style={styles.railTile}
               />
             ))}
@@ -204,7 +202,7 @@ export function PhoneHome({
                 note={note}
                 when={whenOf(note.seenAt ?? note.updatedAt, now)}
                 onPress={() => onOpen(note.path)}
-                onLongPress={hold(note.path, "note")}
+                onLongPress={hold(note.path)}
               />
             ))}
           </Card>
@@ -225,7 +223,7 @@ export function PhoneHome({
                 folder={folder}
                 icon={iconOf?.(folder.path) ?? null}
                 onPress={() => onOpen(folder.path)}
-                onLongPress={hold(folder.path, "folder")}
+                onLongPress={hold(folder.path)}
               />
             ))}
             {onAddFolder === undefined || activeTag !== null ? null : <AddFolderLine onPress={onAddFolder} />}
@@ -242,7 +240,7 @@ export function PhoneHome({
                 note={note}
                 when=""
                 onPress={() => onOpen(note.path)}
-                onLongPress={hold(note.path, "note")}
+                onLongPress={hold(note.path)}
               />
             ))}
           </Card>

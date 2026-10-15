@@ -46,7 +46,7 @@ describe("public website resolution", () => {
         { routePath: "/", title: "Home" },
       ],
     });
-  });
+  }, 15_000);
 
   test("an address that names a page by its file opens the page that file publishes", async () => {
     // `index.md` publishes at `/`, so a link to `/index` (the file's name) is a

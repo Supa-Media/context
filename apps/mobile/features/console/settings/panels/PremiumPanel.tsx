@@ -572,7 +572,7 @@ function TakeEverything({ onDownload }: { onDownload?: () => void }) {
   const [showHow, setShowHow] = useState(false);
   return (
     <Card style={styles.notice} testID="premium-export-promise">
-      <Row style={styles.actions}>
+      <Row style={styles.takeEverythingRow}>
         <View style={styles.testCleanupCopy}>
           <Text variant="rowTitle">Download everything</Text>
           <Text variant="rowSub">Free on every plan, even after you cancel</Text>
@@ -620,6 +620,9 @@ const makeStyles = (colors: Colors) =>
     returnText: { flex: 1, minWidth: 0 },
     actions: { marginTop: 12, gap: 8 },
     testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
+    // No top margin: this is the card's first child, so the margin read as
+    // extra padding above "Download everything" and no other card has it.
+    takeEverythingRow: { gap: 8 },
     loadingRow: {
       flexDirection: "row",
       alignItems: "center",

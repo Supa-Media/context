@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Grow, Row } from "../../design/components/Card";
 import { Icon } from "../../design/components/Icon";
 import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { space } from "../../design/tokens";
+import { layout, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   deletionConfirmed,
@@ -66,9 +66,38 @@ export function DeleteWorkspaceCard({
   const [typed, setTyped] = useState("");
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<KeyExportFailure | null>(null);
+  /*
+    On a phone the buttons go under the words, not beside them: beside them,
+    "Download everything" squeezed the sentence into a narrow column and the
+    icon floated halfway down it.
+  */
+  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   const ready = deletionConfirmed(typed, deletion.slug);
   const who =
     people === undefined || people < 2 ? "Removes it" : `Removes it for all ${people} people`;
+
+  const actions = (
+    <>
+      {onDownload === undefined ? null : (
+        <Button
+          variant="mini"
+          label="Download everything"
+          accessibilityLabel="Download every note in this workspace, as a .zip"
+          onPress={onDownload}
+          testID="workspace-download-all"
+        />
+      )}
+      {deletion.blocked === null && !open ? (
+        <Button
+          label="Delete…"
+          accessibilityLabel={`Delete the workspace @${deletion.slug}…`}
+          variant="danger"
+          onPress={() => setOpen(true)}
+          testID="delete-workspace-open"
+        />
+      ) : null}
+    </>
+  );
 
   /*
     One line that says to take a copy first, then the buttons. The long
@@ -83,7 +112,9 @@ export function DeleteWorkspaceCard({
   return (
     <View style={styles.card} testID="delete-workspace-card">
       <View style={styles.head}>
-        <Icon name="trash" size={16} color={colors.critText} />
+        <View style={styles.icon}>
+          <Icon name="trash" size={16} color={colors.critText} />
+        </View>
         <View style={styles.grow}>
           <Text variant="rowTitle">Delete this workspace</Text>
           {deletion.blocked !== null ? (
@@ -99,25 +130,11 @@ export function DeleteWorkspaceCard({
             </Text>
           )}
         </View>
-        {onDownload === undefined ? null : (
-          <Button
-            variant="mini"
-            label="Download everything"
-            accessibilityLabel="Download every note in this workspace, as a .zip"
-            onPress={onDownload}
-            testID="workspace-download-all"
-          />
-        )}
-        {deletion.blocked === null && !open ? (
-          <Button
-            label="Delete…"
-            accessibilityLabel={`Delete the workspace @${deletion.slug}…`}
-            variant="danger"
-            onPress={() => setOpen(true)}
-            testID="delete-workspace-open"
-          />
-        ) : null}
+        {compact ? null : actions}
       </View>
+      {compact && (onDownload !== undefined || (deletion.blocked === null && !open)) ? (
+        <View style={styles.actions}>{actions}</View>
+      ) : null}
       {deletion.blocked === null && open ? (
         <View style={styles.body}>
           <Text variant="rowSub" style={styles.sub}>
@@ -128,7 +145,7 @@ export function DeleteWorkspaceCard({
             {deletion.slug} is released for anybody to claim, and it stops counting
             against the workspaces you can own. This cannot be undone.
           </Text>
-          <Row style={styles.confirmRow}>
+          <Row style={compact ? { ...styles.confirmRow, ...styles.confirmStack } : styles.confirmRow}>
             <Grow>
               <TextField
                 label="Type its name to confirm"
@@ -181,11 +198,23 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: { paddingVertical: space.x2 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x3 },
+    // Level with the title's first line, not the middle of a wrapped paragraph.
+    icon: { alignSelf: "flex-start", paddingTop: 2 },
+    // Under the words, starting where they start: the icon's 16 plus the gap.
+    actions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.x2,
+      marginTop: space.x3,
+      marginLeft: 16 + space.x3,
+    },
     grow: { flex: 1, minWidth: 0 },
     line: { marginTop: 2 },
     oneWay: { fontWeight: "600", color: colors.critText },
     body: { marginTop: space.x3 },
     sub: { maxWidth: 520 },
     confirmRow: { marginTop: 12, alignItems: "flex-end", gap: 12 },
+    // A phone stacks the name field over the button instead of squeezing both.
+    confirmStack: { flexDirection: "column", alignItems: "stretch" },
     blocked: { marginTop: 12 },
   });

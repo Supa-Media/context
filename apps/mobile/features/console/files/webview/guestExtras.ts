@@ -26,6 +26,7 @@
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { comments } from "../comments/extension";
+import { noteMail } from "../mail/extension";
 import { commentSheet } from "../comments/sheet";
 import { listHost, type ListHostRef, type ListNote, type ListSource, type PropertyValue } from "../listBlock/model";
 import type { NoteLinkRef } from "../noteLinks";
@@ -88,6 +89,7 @@ export function guestExtras(post: (message: ToHost) => void, links: NoteLinkRef)
     extensions: [
       comments({ author: () => author, moderator: () => moderator }),
       commentSheet({ placement: "inline" }),
+      noteMail(),
       listHost.of(lists),
     ],
     documentReplaced: () => {

@@ -60,37 +60,8 @@
  * along with the rule that only an enumerated route may reach a decrypted
  * storage credential.
  *
- * ============================================================================
- * THE INGEST ROUTES
- * ============================================================================
- *
- * `infra/email-worker/src/controlPlane.ts` is the normative contract, and
- * `functions/ingestionGateway.ts` holds the reasoning for what they may do.
- * Three things about them are worth stating here, where the routes are:
- *
- * 1. **A different secret.** They are built by `emailWorkerRoute`, not
- *    `gatewayRoute`, and the two secrets do not substitute for one another. A
- *    stolen email-worker secret must not become a working MCP gateway.
- *
- * 2. **They relax the two-proof rule, and that is a decision, not an
- *    oversight.** An inbound email carries no user access token — nobody is
- *    present and nothing was authorized just now — so proof #2 cannot exist in
- *    the form `/gateway/binding` uses. What is kept is its important half:
- *    `/gateway/ingest/resolve` takes a *name a sender typed* and mints a ticket
- *    for whatever that name resolved to; `/gateway/ingest/binding` takes only
- *    that ticket. No field in either request can name a context, so a holder of
- *    the worker secret has no vocabulary for "give me the shared context
- *    `acme-board`" — and no such context could answer anyway, because mail
- *    lands in a personal context and nowhere else.
- *
- * 3. **`/gateway/ingest/binding` is the second internet-facing path to a
- *    decrypted credential**, and it is enumerated as such in
- *    `__tests__/structure.test.ts`. That file's `CREDENTIAL_HTTP_ROUTES`
- *    comment says a second entry "means a second internet-facing path to other
- *    people's bucket keys". It does. The residual risk is written out in full
- *    in the worker's contract and is bounded by: personal contexts only,
- *    ingestion-enabled owners only, a per-name rate limit on resolve, and a
- *    ticket that expires in five minutes and buys exactly one credential.
+ * The ingest routes, and why they relax the two-proof rule, are explained at
+ * the top of `functions/ingestionGateway.ts`.
  */
 
 import { httpRouter } from "convex/server";
@@ -119,6 +90,7 @@ import {
   stripeSignatureIsValid,
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
+import * as noteMail from "./functions/lib/gatewayRoutes/noteMail";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
@@ -300,6 +272,9 @@ function stripeWebhookRoute(
 
 export const gatewaySession = gatewayRoute(sessions.gatewaySessionHandler);
 export const gatewayToolsListed = gatewayRoute(sessions.gatewayToolsListedHandler);
+export const gatewayMailJoin = gatewayRoute(noteMail.gatewayMailJoinHandler);
+export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
+export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -944,6 +919,9 @@ http.route({ path: "/gateway/grants/create", method: "POST", handler: gatewayGra
 http.route({ path: "/gateway/grants/rotate", method: "POST", handler: gatewayGrantsRotate });
 http.route({ path: "/gateway/grants/revoke", method: "POST", handler: gatewayGrantsRevoke });
 http.route({ path: "/gateway/grants/tools-listed", method: "POST", handler: gatewayToolsListed });
+http.route({ path: "/gateway/mail/join", method: "POST", handler: gatewayMailJoin });
+http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet });
+http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });

@@ -5,6 +5,7 @@
  * crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
+import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
@@ -613,6 +614,8 @@ export async function callToolForSession(params, store, session) {
   }
   noteAgentActivity(targetStore, params?.name, args, result);
   result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
+  // When the caller joined a note's mail, the news rides on every answer.
+  result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would

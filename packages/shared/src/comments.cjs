@@ -481,9 +481,14 @@ function stripBlocks(text, info) {
  * The note without its comments: markers gone and every comments block
  * removed. For every surface that publishes a note beyond its readers (share
  * links, websites), where comments are never shown.
+ *
+ * The note's mail blocks (`mail.cjs`) go too: they are the same kind of
+ * conversation about the note rather than the note, and every caller here is
+ * a place they must not show. Found by info string here rather than through
+ * `mail.cjs`, which itself builds on this module.
  */
 function stripComments(text) {
-  return stripBlocks(text, "comments").replace(MARKER_RE, "");
+  return stripBlocks(stripBlocks(text, "comments"), "mail").replace(MARKER_RE, "");
 }
 
 /** One line for an agent: how many threads are open and on what. */
@@ -507,6 +512,8 @@ module.exports = {
   findBlock,
   findAnchors,
   stripBlocks,
+  fencedBlocks,
+  lines,
   parseComments,
   sanitizeAuthor,
   newThreadId,

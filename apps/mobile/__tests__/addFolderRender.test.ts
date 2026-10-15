@@ -114,7 +114,6 @@ describe("phone Home's Add a folder line", () => {
       opened: [],
       recents: null,
       onOpen: () => {},
-      onTogglePin: null,
       ...(onAddFolder === undefined ? {} : { onAddFolder }),
     } as never);
   }

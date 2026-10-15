@@ -145,6 +145,19 @@ const CONTEXT_ARGUMENT = {
 };
 
 /**
+ * The `mailbox` argument (`tools/notes/mail.js`), added to every tool for the
+ * reason `context` is: an agent that joined a note's mail passes it on every
+ * call, whatever the tool, and the answer ends with a line when mail is new
+ * for it. A tool that refused it would be the one call that went quiet.
+ */
+const MAILBOX_ARGUMENT = {
+  type: "string",
+  description:
+    "Optional. Your mailbox id, if you joined a note's mail with write_note mail: { join }. " +
+    "Pass it on every call; the answer then says when mail is new for you.",
+};
+
+/**
  * The same fact, in the one field every client renders.
  *
  * A property blurb is not nothing, but a client is free to summarise the schema,
@@ -194,7 +207,7 @@ export function toolDefinitions() {
       description: `${tool.description || ""}${CONTEXT_ARGUMENT_SENTENCE}`.trim(),
       inputSchema: {
         ...schema,
-        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT },
+        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT, mailbox: MAILBOX_ARGUMENT },
       },
     };
   });

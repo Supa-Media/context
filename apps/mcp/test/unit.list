@@ -59,6 +59,8 @@ test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningServe.test.mjs
 test/meaningWrite.test.mjs
+test/meetingClaimTree.test.mjs
+test/meetingResolveTree.test.mjs
 test/moveFinished.test.mjs
 test/moveQueueRecovery.test.mjs
 test/mover.test.mjs
@@ -86,6 +88,7 @@ test/staleClientArguments.test.mjs
 test/storeHead.test.mjs
 test/texComputer.test.mjs
 test/toolNews.test.mjs
+test/noteMail.test.mjs
 test/toolTitles.test.mjs
 test/treeFacts.test.mjs
 test/treeLinks.test.mjs

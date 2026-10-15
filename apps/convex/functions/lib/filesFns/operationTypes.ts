@@ -308,7 +308,7 @@ export type OperationResult =
       mainJs: string;
       stylesCss: string | null;
     }
-  | { kind: "notePaths"; paths: string[] | null }
+  | { kind: "notePaths"; paths: string[] | null; pathChunks?: string[][] }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
   | { kind: "visiblePaths"; paths: string[] }
   | {

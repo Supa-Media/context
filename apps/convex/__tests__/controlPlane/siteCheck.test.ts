@@ -23,7 +23,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import { MAX_PUBLISHED_IMAGE_BYTES } from "../../functions/lib/websites/images";
-import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
+import { addMember, copyTree, createUser, gatewayPost } from "../fixtures.helpers";
 import { fixture, publish } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
@@ -173,6 +173,7 @@ describe("/gateway/site check", () => {
     f.backend.seed(`${IMAGES}team.png`, PNG);
     f.backend.seed("website/news.md", '---\ntitle: News\n---\n\n![Team](team.png "original photograph")\n');
     f.backend.seed("website/team.md", '---\ntitle: Team\n---\n\n![Again](team.png "original photograph") ![Mock](team.png \'early draft\')\n');
+    await copyTree(f.t, f.workspaceId);
     const pictures = new Map((await check(f, EDITOR))!.pictures.map((picture) => [picture.name, picture]));
     expect(pictures.get("team.png")).toMatchObject({ usedBy: ["website/news.md", "website/team.md"], labels: ["early draft", "original photograph"] });
     expect(pictures.get("logo.png")!.labels).toEqual([]);
@@ -193,6 +194,7 @@ describe("/gateway/site check", () => {
   test("a site that says base: off is inspected without the base sheet", async () => {
     const f = await checkFixture();
     f.backend.seed("website/reset.css.md", "---\nbase: off\n---\n\n```css\n.c { margin: 0; }\n```\n");
+    await copyTree(f.t, f.workspaceId);
     const sheet = (await check(f, EDITOR, "website/site.css.md"))!.inspected!;
     expect(sheet.output).not.toContain("Context's base sheet");
     expect(sheet.output).not.toContain("--bg: #ffffff");
