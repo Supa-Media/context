@@ -31,6 +31,7 @@ import {
   unsupportedState,
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
 import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
@@ -199,9 +200,18 @@ export const observe = internalMutation({
     const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
     const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
     if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
+    // A listing of path objects: in a keyed workspace it adopts nothing (`observe.ts`).
+    const keyed = await keyedWorkspace(ctx.db, args.workspaceId);
     const result = await applyObservation(
       table,
-      { at: args.at, rows: args.rows, gone: args.gone, vanishedUnder: args.vanishedUnder },
+      {
+        at: args.at,
+        rows: args.rows,
+        gone: args.gone,
+        vanishedUnder: args.vanishedUnder,
+        source: "bucket",
+        keyedWorkspace: keyed,
+      },
       args.vanishCursor ?? { index: 0 },
     );
     return { more: result.more, vanishCursor: result.next };
@@ -225,6 +235,8 @@ export const prune = internalMutation({
   args: { workspaceId: v.id("workspaces"), startedAt: v.number() },
   returns: v.object({ more: v.boolean() }),
   handler: async (ctx, { workspaceId, startedAt }): Promise<{ more: boolean }> => {
+    // A keyed workspace is not pruned: the sweep finishes as ready and keeps every row.
+    if (await keyedWorkspace(ctx.db, workspaceId)) return { more: false };
     const table = convexNodeTable(ctx, workspaceId);
     const { more } = await pruneUnobserved(table, startedAt);
     return { more };
@@ -249,10 +261,11 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     // `begin` cleared `dirty`, so a mark now is a sweep asked for while this
     // one held the lease (an email capture names no path, so a sweep is its
     // only re-check). Started here, or it waits for the hourly cron.
-    if (next.dirty && nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+    if (next.dirty && nodeSweepDue(next, Date.now(), keyed) && !(await migrationPaused(ctx.db))) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -268,7 +281,8 @@ export const finish = internalMutation({
     // one a single in-flight write made differ fell back to the bucket for
     // ever, both until staff pressed Check. Since 2026-10-13 the check is an
     // alarm for staff and serves nobody differently.
-    if (nodeParityDue(row?.parity, at)) {
+    // A keyed workspace is not checked: its keyed rows are the store seam's, and a listing cannot prove them.
+    if (!keyed && nodeParityDue(row?.parity, at)) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -351,7 +365,7 @@ export const requestSweep = internalMutation({
     const next = dirtyState(row === null ? null : toState(row));
     await saveTree(ctx, workspaceId, row, next);
     // Paused: the tree stays dirty, and resuming starts the sweep.
-    if (nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+    if (nodeSweepDue(next, Date.now(), await keyedWorkspace(ctx.db, workspaceId)) && !(await migrationPaused(ctx.db))) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -360,6 +374,13 @@ export const requestSweep = internalMutation({
     }
     return null;
   },
+});
+
+/** Whether the workspace is keyed (`lib/noteIds/keyedState.ts`), for the tree's runs to check before they sweep or check it. INTERNAL. */
+export const isKeyed = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }): Promise<boolean> => keyedWorkspace(ctx.db, workspaceId),
 });
 
 /** The store can be listed neither in key order nor by token: not served, tried again a day later. */

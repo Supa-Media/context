@@ -23,6 +23,7 @@ import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { requestSmallDataSync } from "./lib/smallData/state";
 
 /**
@@ -236,8 +237,9 @@ async function startSweeps(ctx: MutationCtx, ids: readonly Id<"workspaces">[]): 
   let started = 0;
   for (const workspaceId of ids) {
     const state = stateOf(await treeOf(ctx, workspaceId));
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     // An unlistable store is tried again only once its day has passed (`nodeSweepDue`).
-    if (state?.status === "unsupported" && !nodeSweepDue(state, now)) continue;
+    if (state?.status === "unsupported" && !nodeSweepDue(state, now, keyed)) continue;
     // A pass that holds the lease is already running; a second would only double the work.
     if (state?.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) continue;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
@@ -305,7 +307,8 @@ async function startDueSweeps(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
   const due: Id<"workspaces">[] = [];
   for (const workspaceId of ids) {
-    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now)) due.push(workspaceId);
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
+    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now, keyed)) due.push(workspaceId);
   }
   return await startSweeps(ctx, due);
 }

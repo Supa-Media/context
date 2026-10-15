@@ -43,7 +43,7 @@ export const report = query({
   args: {},
   returns: v.object({
     paused: v.boolean(),
-    mode: v.union(v.literal("paths"), v.literal("ids")),
+    mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
     totals: v.object({ files: v.number(), copied: v.number(), failed: v.number() }),
     workspaces: v.array(rowValidator),
     truncated: v.boolean(),
