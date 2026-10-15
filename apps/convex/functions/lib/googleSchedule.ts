@@ -123,15 +123,35 @@ export const ENGINE_PRODUCTS = ["gmail", "calendar", "chat"] as const;
 
 type SyncableProduct = (typeof ENGINE_PRODUCTS)[number];
 
+type ProductTurns = { lastSyncedAt?: number; lastAttemptAt?: number };
+
 function lastSyncedAtFor(
   connection: {
-    gmail?: { lastSyncedAt?: number };
-    calendar?: { lastSyncedAt?: number };
-    chat?: { lastSyncedAt?: number };
+    gmail?: ProductTurns;
+    calendar?: ProductTurns;
+    chat?: ProductTurns;
   },
   product: SyncableProduct,
 ): number | undefined {
   return connection[product]?.lastSyncedAt;
+}
+
+/**
+ * When the product last had a turn, successful or not.
+ *
+ * Scheduling reads this; "has it ever synced" keeps reading `lastSyncedAt`. A
+ * product that fails every pass would otherwise never stop being the oldest
+ * and would take every turn from its siblings (`schema/google.ts`).
+ */
+export function lastTurnAtFor(
+  connection: Parameters<typeof lastSyncedAtFor>[0],
+  product: SyncableProduct,
+): number | undefined {
+  const synced = connection[product]?.lastSyncedAt;
+  const attempted = connection[product]?.lastAttemptAt;
+  if (synced === undefined) return attempted;
+  if (attempted === undefined) return synced;
+  return Math.max(synced, attempted);
 }
 
 /**
@@ -169,9 +189,9 @@ export function syncableProductsOf(connection: { products: string[] }): Syncable
 export function isDue(
   connection: {
     products: string[];
-    gmail?: { lastSyncedAt?: number };
-    calendar?: { lastSyncedAt?: number };
-    chat?: { lastSyncedAt?: number };
+    gmail?: ProductTurns;
+    calendar?: ProductTurns;
+    chat?: ProductTurns;
     lastSyncAt?: number;
     syncIntervalMinutes?: number;
     syncCatchUp?: boolean;
@@ -198,7 +218,7 @@ export function isDue(
     return true;
   }
   const products = syncableProductsOf(connection);
-  const completedAt = products.map((product) => lastSyncedAtFor(connection, product));
+  const completedAt = products.map((product) => lastTurnAtFor(connection, product));
   // A product newly added to an already-running Google account has never had
   // a chance to establish its own cursor. The account's recent Gmail pass
   // must not make that new Chat product look current.
@@ -263,10 +283,11 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
 /**
  * Which product one claimed pass syncs. One account owns one claim, but each
  * product owns its own cursor: a product Google has just pushed goes first,
- * then the least-recently-synced, so a Gmail pass cannot starve Chat on a row
- * that carries both grants. A missing timestamp wins, which lets a newly-added
- * product establish its baseline before the already-running sibling is polled
- * again.
+ * then the one whose last turn is oldest, so a Gmail pass cannot starve Chat on
+ * a row that carries both grants. A turn is a success or a failure: a product
+ * that fails every pass still goes to the back of the line. A missing
+ * timestamp wins, which lets a newly-added product establish its baseline
+ * before the already-running sibling is polled again.
  */
 export function nextProductToSync<P extends SyncableProduct>(
   connection: Parameters<typeof lastSyncedAtFor>[0] & {
@@ -275,6 +296,6 @@ export function nextProductToSync<P extends SyncableProduct>(
   products: readonly P[],
 ): P {
   const pushed = products.filter((product) => connection.push?.pending?.[product] !== undefined);
-  const last = (product: P) => lastSyncedAtFor(connection, product) ?? Number.NEGATIVE_INFINITY;
+  const last = (product: P) => lastTurnAtFor(connection, product) ?? Number.NEGATIVE_INFINITY;
   return [...(pushed.length > 0 ? pushed : products)].sort((left, right) => last(left) - last(right))[0]!;
 }
