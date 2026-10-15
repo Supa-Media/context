@@ -24,6 +24,8 @@
  *   `turnAttachments` not calling `hearVoiceMessages` → "a texted voice
  *     message reaches the model as what was said" fails (readAttachments'
  *     audio passes through as data and no transcript block is built).
+ *   hearing voice messages before `openProvider` → "a turn refused for the
+ *     daily cap spends no transcription" fails.
  *   `attachmentsLine` dropping the `heard` lines → the same check fails on
  *     the saved conversation.
  */
@@ -239,6 +241,19 @@ test("a voice message nobody could transcribe is named as such, and the turn sti
     const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
     assert.equal(asked.status, 200, JSON.stringify(asked.body));
     assert.match(lastUser(world.model.requests.at(-1)).content.at(-1).text, /could not be opened\. It is a voice message, and transcribing it failed/);
+  } finally {
+    world.restore();
+  }
+});
+
+test("a turn refused for the daily cap spends no transcription", async () => {
+  const world = await createEgressWorld();
+  try {
+    const sent = installTranscriber(world);
+    world.controlPlane.setBuiltinVerdict("ws_egress", { allowed: false, reason: "daily_cap" });
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
+    assert.equal(asked.status, 429);
+    assert.equal(sent.length, 0, "the audio was never sent");
   } finally {
     world.restore();
   }

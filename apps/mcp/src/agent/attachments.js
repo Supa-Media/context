@@ -107,17 +107,20 @@ export function readAttachments(raw) {
   });
 }
 
-/** `readAttachments` for one `/agent` turn: none on a routine's run, a refusal as its sentence, voice messages heard. */
-export async function turnAttachments(raw, runner, { transcribe = null, callerId = "" } = {}) {
+/**
+ * `readAttachments` for one `/agent` turn: none on a routine's run, and a
+ * refusal as its sentence. Voice messages are still audio here: they are heard
+ * (`hearVoiceMessages`) only once the turn is allowed, so a refused turn
+ * spends no transcription.
+ */
+export function turnAttachments(raw, runner) {
   if (runner) return { attachments: [], refusal: null };
-  let attachments;
   try {
-    attachments = readAttachments(raw);
+    return { attachments: readAttachments(raw), refusal: null };
   } catch (error) {
     if (!(error instanceof AttachmentRefusal)) throw error;
     return { attachments: [], refusal: error.message };
   }
-  return { attachments: await hearVoiceMessages(attachments, transcribe, callerId), refusal: null };
 }
 
 const isAudio = (attachment) => typeof attachment.data === "string" && attachment.mediaType.startsWith("audio/");
