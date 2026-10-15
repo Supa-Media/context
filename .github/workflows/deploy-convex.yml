@@ -133,6 +133,9 @@ jobs:
           # Absent: they poll, as before. Calendar push needs neither.
           GOOGLE_PUSH_TOPIC: ${{ secrets.GOOGLE_PUSH_TOPIC }}
           GOOGLE_PUSH_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PUSH_SERVICE_ACCOUNT }}
+          # Optional: a custom push audience, and `off` as the brake.
+          GOOGLE_PUSH_AUDIENCE: ${{ secrets.GOOGLE_PUSH_AUDIENCE }}
+          GOOGLE_PUSH: ${{ secrets.GOOGLE_PUSH }}
           # The transcription Worker `functions/meetings/transcribe.ts` posts a
           # chunk of meeting audio to, and the shared secret that proves the
           # post came from this control plane. Both or neither: the action
@@ -231,6 +234,7 @@ jobs:
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
             GOOGLE_PUSH_TOPIC GOOGLE_PUSH_SERVICE_ACCOUNT \
+            GOOGLE_PUSH_AUDIENCE GOOGLE_PUSH \
             TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
             PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
             MANAGED_R2_ACCOUNT_ID \

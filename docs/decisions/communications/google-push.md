@@ -72,7 +72,8 @@ side.
 **Configuration.** `GOOGLE_PUSH_TOPIC` (`projects/<project>/topics/<topic>`)
 and `GOOGLE_PUSH_SERVICE_ACCOUNT` turn on Gmail and Chat; both or neither.
 `GOOGLE_PUSH_AUDIENCE` overrides the token audience, which defaults to the
-push URL. `GOOGLE_PUSH=off` stops registering anything. A self-hosted
+push URL. `GOOGLE_PUSH=off` stops registering anything. All four sync from
+the vault like any other deploy setting. A self-hosted
 deployment with none of these polls exactly as before.
 
 **The one-time Google Cloud setup** for a deployment's project: enable the

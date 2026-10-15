@@ -105,7 +105,7 @@ test('Google push settings sync in both deployments', () => {
   const production = read('.github/workflows/deploy-convex.yml');
   const productionSync = production.split('node scripts/convex-env-sync.mjs')[1]?.split('\n\n')[0];
   assert.ok(productionSync);
-  for (const name of ['GOOGLE_PUSH_TOPIC', 'GOOGLE_PUSH_SERVICE_ACCOUNT']) {
+  for (const name of ['GOOGLE_PUSH_TOPIC', 'GOOGLE_PUSH_SERVICE_ACCOUNT', 'GOOGLE_PUSH_AUDIENCE', 'GOOGLE_PUSH']) {
     assert.ok(backendKeys.includes(name));
     assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
     assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
