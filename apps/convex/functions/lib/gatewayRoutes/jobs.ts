@@ -22,11 +22,18 @@ export async function gatewayJobsCreateHandler(
   const job = body.job && typeof body.job === "object" && !Array.isArray(body.job)
     ? body.job as Record<string, unknown>
     : null;
-  const kind = job?.kind === "materialize_move" ? "materialize_move" : null;
+  const kind = job?.kind === "materialize_move" || job?.kind === "image_upload" ? job.kind : null;
   const moveId = typeof job?.moveId === "string" ? job.moveId : undefined;
   if (accessToken === null || expected === null || kind === null) {
     return json({ ticket: null });
   }
+  // Checked again, and bounded, in `createGatewayJobHandler`.
+  const image = kind === "image_upload"
+    ? {
+        imageSha256: typeof job?.sha256 === "string" ? job.sha256 : undefined,
+        imageBytes: typeof job?.bytes === "number" ? job.bytes : undefined,
+      }
+    : {};
 
   const ticket = randomOpaqueToken();
   const created = await ctx.runMutation(internal.functions.controlPlane.createGatewayJob, {
@@ -35,6 +42,7 @@ export async function gatewayJobsCreateHandler(
     hashedTicket: await hashToken(ticket),
     kind,
     moveId,
+    ...image,
   });
   return json(created === "already_active"
     ? { ticket: null, alreadyActive: true }
@@ -47,8 +55,10 @@ export async function gatewayJobsOpenHandler(
 ): Promise<Response> {
   const ticket = stringField(body, "ticket");
   if (ticket === null) return json({ job: null });
+  const contentSha256 = stringField(body, "contentSha256");
   const opened = await ctx.runAction(internal.functions.controlPlane.openGatewayJob, {
     hashedTicket: await hashToken(ticket),
+    ...(contentSha256 === null ? {} : { contentSha256 }),
   });
   return json({ job: opened });
 }

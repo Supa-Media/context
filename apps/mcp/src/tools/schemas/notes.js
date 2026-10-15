@@ -47,7 +47,8 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png), or in a site's HTML and CSS as src=\"chart.png\" or url(chart.png). " +
         "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
         "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
-        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead." +
+        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead. " +
+        "A picture you have as a FILE and a shell to run commands in (too big to send as base64): pass upload: [{ name, sha256, bytes }] with the file's SHA-256 and size, and no content; you get a curl command per file that sends it once, then write the note with images: [{ name, sha256 }]." +
         "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
         "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
@@ -148,8 +149,12 @@ export function noteWriteToolDefinitions() {
               type: "object",
               properties: {
                 name: { type: "string", description: "The file name the content embeds this image as, e.g. chart.png" },
-                data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
-                url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
+                data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this, url or sha256." },
+                url: { type: "string", description: "An https URL to fetch the image from once. Pass this, data or sha256." },
+                sha256: {
+                  type: "string",
+                  description: "The SHA-256 of a picture already sent with an upload link (see upload). Pass this, data or url.",
+                },
                 alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
                 label: {
                   type: "string",
@@ -158,6 +163,22 @@ export function noteWriteToolDefinitions() {
                 },
               },
               required: ["name"],
+              additionalProperties: false,
+            },
+          },
+          upload: {
+            type: "array",
+            maxItems: 10,
+            description:
+              "Get upload links instead of writing: one curl command per picture file, each sending that exact file once within 10 minutes. Pass with the note's path and no content, then write the note with images: [{ name, sha256 }].",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "The file's name, e.g. chart.png" },
+                sha256: { type: "string", description: "The file's SHA-256 in hex (sha256sum or shasum -a 256 prints it)" },
+                bytes: { type: "integer", description: "The file's size in bytes, at most 5,000,000" },
+              },
+              required: ["name", "sha256", "bytes"],
               additionalProperties: false,
             },
           },

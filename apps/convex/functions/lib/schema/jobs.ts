@@ -106,8 +106,11 @@ export const jobTables = {
     actorUserId: v.id("users"),
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
-    kind: v.union(v.literal("materialize_move")),
+    kind: v.union(v.literal("materialize_move"), v.literal("image_upload")),
     moveId: v.optional(v.string()),
+    /** An image upload's ticket names the bytes it takes: their SHA-256 and length. Never the bytes. */
+    imageSha256: v.optional(v.string()),
+    imageBytes: v.optional(v.number()),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
