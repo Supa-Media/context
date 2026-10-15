@@ -485,3 +485,33 @@ export const publishedRows = internalQuery({
     return found;
   },
 });
+
+/**
+ * Which of `paths` the tree holds as a live note `clearance` may see: existence
+ * as the bucket read answered it, from the tree alone and never a note's bytes.
+ * Null when the tree is not served or its rules cannot be read, so a caller
+ * says "can't tell" rather than guess.
+ */
+export const visibleNotes = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paths: v.array(v.string()),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    names: v.array(v.string()),
+  },
+  returns: v.union(v.null(), v.array(v.string())),
+  handler: async (ctx, { workspaceId, paths, scope, names }) => {
+    if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
+    if (!(await treeServesNow(ctx.db, workspaceId))) return null;
+    const mirror = await readMirror(ctx.db, workspaceId);
+    if (mirror?.invalid === true) return null;
+    const { rules, overrides } = await mirrorRules(mirror);
+    const granted = new Set(names);
+    const found = [];
+    for (const path of new Set(paths)) {
+      if (!canSee(path, scope, rules, overrides, granted)) continue;
+      if ((await liveNode(ctx.db, workspaceId, path)) !== null) found.push(path);
+    }
+    return found;
+  },
+});

@@ -599,6 +599,7 @@ describe("website route index", () => {
 
   test("the unattended reconciler repairs one legacy missing starter, then respects later deletion", async () => {
     const f = await fixture("atlas-starter-repair");
+    await copyTree(f.t, f.workspaceId);
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {
         workspaceId: f.workspaceId,
@@ -643,6 +644,7 @@ describe("website route index", () => {
     const f = await fixture("atlas-starter-failure", {
       refuseWrite: (key) => key === "website/index.md",
     });
+    await copyTree(f.t, f.workspaceId);
     await f.t.run(async (ctx) => {
       await ctx.db.insert("websiteStates", {
         workspaceId: f.workspaceId,

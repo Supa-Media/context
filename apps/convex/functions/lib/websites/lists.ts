@@ -15,6 +15,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import { websiteTextRestricts } from "./changes";
 import { websiteHrefFor, type WebsiteLinkCatalogEntry } from "./links";
+import { treeRows, type RowFacts, type TreeRow } from "./treeFacts";
 
 type ViewerAudience = "public" | "members";
 type ListConfig = {
@@ -155,71 +156,6 @@ export async function releasedTexts(
   return texts;
 }
 
-/** A list row's facts as the tree holds them: what `propsOf` read. */
-type RowFacts = {
-  properties: Record<string, unknown>;
-  inlineTags: string[];
-  heading: string | null;
-  site: { draft: boolean; restricts: boolean };
-};
-
-/** A note the tree knows, at the publication clearance, with its facts when they can be trusted. */
-type TreeRow = {
-  etag: string | null;
-  updatedAt: number | null;
-  facts: RowFacts | null;
-};
-
-function factsOf(props: string | null): RowFacts | null {
-  if (props === null) return null;
-  try {
-    const parsed = JSON.parse(props) as Partial<RowFacts>;
-    const site = parsed.site;
-    if (typeof site?.draft !== "boolean" || typeof site.restricts !== "boolean") return null;
-    return {
-      properties: parsed.properties ?? {},
-      inlineTags: Array.isArray(parsed.inlineTags) ? parsed.inlineTags : [],
-      heading: typeof parsed.heading === "string" ? parsed.heading : null,
-      site,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Each listed note as the tree holds it, never its bytes (Dev2, 2026-10-14):
- * absent where the publication clearance cannot see it or the tree has no
- * such note, and with no facts where they were read at another version, are
- * sealed, or predate the website flags — such a note is left out of the list
- * until the facts fill reads it, never shown from a guess.
- */
-async function treeRows(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  paths: readonly string[],
-): Promise<Map<string, TreeRow>> {
-  const wanted = [...new Set(paths)];
-  const rows = new Map<string, TreeRow>();
-  for (let at = 0; at < wanted.length; at += ROWS_PER_QUERY) {
-    const answer = await ctx.runQuery(internal.functions.nodeFacts.publishedRows, {
-      workspaceId,
-      paths: wanted.slice(at, at + ROWS_PER_QUERY),
-    });
-    if (answer === null) throw new Error("folder list tree not served");
-    for (const row of answer) {
-      rows.set(row.path, {
-        etag: row.etag,
-        updatedAt: row.uploaded,
-        facts: row.current && !row.sealed ? factsOf(row.props) : null,
-      });
-    }
-  }
-  return rows;
-}
-
-const ROWS_PER_QUERY = 100;
-
 /**
  * Whether a route still publishes to the audience it was indexed for, by its
  * facts: a draft never, and a public route only while nothing in its front
@@ -275,6 +211,7 @@ export async function renderPublicWebsiteLists(
         .map((entry) => entry.objectKey)
         .filter((path) => !cache.has(path));
       const rows = await treeRows(ctx, args.workspaceId, missing);
+      if (rows === null) throw new Error("folder list tree not served");
       for (const path of missing) cache.set(path, rows.get(path) ?? null);
 
       // An edit waits for Publish, so a route whose live version changed but

@@ -24,6 +24,8 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 
+import { copyTree } from "./fixtures.helpers";
+
 afterEach(() => vi.unstubAllGlobals());
 
 async function fixture() {
@@ -46,6 +48,7 @@ const reconcileJobs = async (f: Awaited<ReturnType<typeof fixture>>) =>
 describe("website index freshness", () => {
   test("turning a site on serves its homepage without waiting for the sweep", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });
@@ -60,6 +63,7 @@ describe("website index freshness", () => {
 
   test("an invalidation queues one rebuild shortly after, and a burst shares it", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });
@@ -83,6 +87,7 @@ describe("website index freshness", () => {
 
   test("an open page can watch its site's revision, which a save leaves alone", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const revision = () => f.t.query(api.functions.websites.siteRevision, { handle: "@Atlas" });
     await expect(revision()).resolves.toBeNull();
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
@@ -113,6 +118,7 @@ describe("website index freshness", () => {
 
   test("only the latest save in an autosave burst may rescan", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });

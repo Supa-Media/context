@@ -258,6 +258,7 @@ describe("making a published page private takes it off the site", () => {
 describe("turning a website on writes the folder rule to privacy.md", () => {
   test("enabling marks website/ as team, and the homepage serves", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });
@@ -270,6 +271,7 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
 
   test("a website/ rule the owner already set to private is left alone, and nothing is served", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "website",

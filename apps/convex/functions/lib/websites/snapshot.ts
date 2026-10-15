@@ -37,8 +37,8 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
-import { websiteTextRestricts } from "./changes";
 import { readBatches, releasedTexts } from "./lists";
+import { treeRows } from "./treeFacts";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { normalizedHandle } from "./resolver";
 import { readPublishedEmoji } from "./emoji";
@@ -172,31 +172,39 @@ export async function websiteSnapshot(
   const published = [...home.pages]
     .sort((left, right) => left.objectKey.localeCompare(right.objectKey))
     .slice(0, MAX_SNAPSHOT_PAGES);
-  // The live files are read only to learn whether they still publish their
-  // pages; what goes out is what was published.
-  const live = await readBatches(
+  // The tree answers whether each page still publishes, and whether its copy is
+  // the live file: neither is read from storage. A page the tree cannot judge
+  // is left out, as a page with no tree row is.
+  const rows = await treeRows(ctx, home.workspaceId, published.map((page) => page.objectKey));
+  const still = published.flatMap((page) => {
+    const row = rows?.get(page.objectKey);
+    if (row === undefined || row.sealed || row.facts === null) return [];
+    return row.facts.site.draft || row.facts.site.restricts ? [] : [{ page, row }];
+  });
+  // Storage is opened only for the words of a page whose live file is the copy.
+  const unchanged = still
+    .filter(({ page, row }) => row.etag === page.sourceEtag)
+    .map(({ page }) => page.objectKey);
+  const live = await readBatches(ctx, home.workspaceId, PUBLICATION_CLEARANCE.scope, unchanged);
+  // Words come from the live file only while the file itself is the copy
+  // Publish kept, by its own etag as the tree's agreeing is not enough.
+  const liveIsCopy = (page: { objectKey: string; sourceEtag: string }) =>
+    live.get(page.objectKey)?.etag === page.sourceEtag;
+  const copies = await releasedTexts(
     ctx,
     home.workspaceId,
-    PUBLICATION_CLEARANCE.scope,
-    published.map((page) => page.objectKey),
+    still.map(({ page }) => page).filter((page) => !liveIsCopy(page)),
   );
-  const still = published.filter((page) => {
-    const note = live.get(page.objectKey);
-    if (note === undefined || isEncryptedNote(note.text) || websiteTextRestricts(note.text)) {
-      return false;
-    }
-    const parsed = parseWebsitePage(note.text);
-    return !parsed.draft && parsed.audience === "public";
-  });
-  const changed = still.filter((page) => live.get(page.objectKey)!.etag !== page.sourceEtag);
-  const copies = await releasedTexts(ctx, home.workspaceId, changed);
+  const texts = new Map<string, string>(copies);
+  for (const { page } of still) {
+    if (liveIsCopy(page)) texts.set(page.objectKey, live.get(page.objectKey)!.text);
+  }
 
   const listed: Array<
     WebsiteSnapshotPage & { nav: number | null; description: string | null; folder: boolean; referenced: boolean }
   > = [];
-  for (const page of still) {
-    const note = live.get(page.objectKey)!;
-    const text = note.etag === page.sourceEtag ? note.text : copies.get(page.objectKey);
+  for (const { page } of still) {
+    const text = texts.get(page.objectKey);
     if (text === undefined || isEncryptedNote(text)) continue;
     const parsed = parseWebsitePage(text);
     // Invalid frontmatter could be a draft or members-only line the parser

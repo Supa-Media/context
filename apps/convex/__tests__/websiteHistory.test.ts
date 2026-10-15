@@ -102,6 +102,21 @@ describe("a site keeps its last five published versions", () => {
     ).resolves.toMatchObject({ kind: "unavailable" });
   });
 
+  test("a deleted page's copies are judged by the tree, never by opening the deleted page", async () => {
+    const f = await fixture();
+    f.backend.seed("website/index.md", HOME);
+    f.backend.seed("website/old.md", "---\ntitle: Old\n---\n\nWords worth keeping\n");
+    await publish(f);
+    f.backend.objects.delete("website/old.md");
+    await copyTree(f.t, f.workspaceId);
+    f.backend.requests.length = 0;
+
+    await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId, publish: true });
+
+    expect(f.backend.requests.filter((request) => request.method === "GET" && request.key === "website/old.md")).toEqual([]);
+    expect(releases(f).bytes).toContain("Words worth keeping");
+  });
+
   test("a page privacy.md holds back leaves every kept version at once", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
