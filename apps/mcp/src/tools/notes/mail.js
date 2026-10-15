@@ -152,6 +152,7 @@ function joinedText(path, mailbox, events, again) {
 
 /** `read_note`'s `mail` argument: the note's mail instead of its text. */
 export async function toolReadMail(store, scope, rules, overrides, args) {
+  if (args.mail === "true") args = { ...args, mail: true };
   if (args.mail !== true && args.mail !== "all" && args.mail !== "new") {
     return toolError('mail must be true (new mail, or all of it without a mailbox), "new" or "all"');
   }
