@@ -109,9 +109,9 @@ export function createSessionMethods({ post, required }) {
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
         // The layout the bytes are read from: `"ids"` while staff have switched
-        // to the id copies (`store/idLayout.js`), `null` for paths. Only that
-        // one value counts; anything else is paths.
-        idLayout: parsed.idLayout === "ids" ? "ids" : null,
+        // to the id copies, `"keys"` once notes may live only at their id keys
+        // (`store/idLayout.js`), `null` for paths. Anything else is paths.
+        idLayout: parsed.idLayout === "ids" || parsed.idLayout === "keys" ? parsed.idLayout : null,
       };
     },
 

@@ -403,7 +403,8 @@ describe("the staff surface", () => {
 
     const report = await staff.query(api.functions.noteIds.report, {});
     expect(report).toMatchObject({ paused: false, mode: "paths", truncated: false });
-    expect(report.totals).toEqual({ files: 1, copied: 1, failed: 0 });
+    // Keys fields are counted only in keys mode, so they read zero here (`keyedFlip.test.ts`).
+    expect(report.totals).toMatchObject({ files: 1, copied: 1, failed: 0, liveFiles: 0, keyed: 0 });
     expect(report.workspaces.find((row) => row.handle === "reported")).toMatchObject({ status: "done", files: 1, copied: 1 });
     expect(JSON.stringify(report)).not.toMatch(/secret|1-projects|\.md|bucket-/);
 

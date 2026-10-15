@@ -69,11 +69,29 @@ export async function namesFor(ctx: ActionCtx, body: Record<string, unknown>): P
 
 /** The workspace this token may write, chosen from its grant's own set, or null. */
 export async function writableWorkspace(ctx: ActionCtx, accessToken: string, expected: string): Promise<Id<"workspaces"> | null> {
+  return await writableWith(ctx, accessToken, expected, ["owner", "editor"]);
+}
+
+/**
+ * As `writableWorkspace`, for a write the gateway has already decided and only
+ * records: any live member may do it, since members write form answers. A
+ * grant that names the workspace with `context:write` and any role, or null.
+ */
+export async function memberWritableWorkspace(ctx: ActionCtx, accessToken: string, expected: string): Promise<Id<"workspaces"> | null> {
+  return await writableWith(ctx, accessToken, expected, ["owner", "editor", "member"]);
+}
+
+async function writableWith(
+  ctx: ActionCtx,
+  accessToken: string,
+  expected: string,
+  roles: readonly string[],
+): Promise<Id<"workspaces"> | null> {
   const session = await ctx.runQuery(internal.functions.controlPlane.resolveGrantByAccessToken, {
     hashedAccessToken: await hashToken(accessToken),
   });
   if (session === null || !session.scopes.includes(SCOPE_WRITE)) return null;
   const entry = session.workspaces.find((workspace) => workspace.workspaceId === expected);
-  if (entry === undefined || (entry.role !== "owner" && entry.role !== "editor")) return null;
+  if (entry === undefined || !roles.includes(entry.role)) return null;
   return entry.workspaceId as Id<"workspaces">;
 }

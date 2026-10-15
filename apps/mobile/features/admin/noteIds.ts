@@ -26,13 +26,19 @@ export type NoteIdsWorkspace = {
   status: NoteIdsStatus;
   error: string | null;
   diagnosis: NoteIdsDiagnosis | null;
+  /** Keys mode only (0 otherwise): live, non-plumbing files, and how many of them are keyed. */
+  liveFiles: number;
+  keyed: number;
+  /** When the flip to keyed rows started, and when it found none left; null until then. */
+  keyedAt: number | null;
+  keyedDoneAt: number | null;
 };
 
-export type NoteIdsTotals = { files: number; copied: number; failed: number };
+export type NoteIdsTotals = { files: number; copied: number; failed: number; liveFiles: number; keyed: number };
 
 export type NoteIdsReport = {
   paused: boolean;
-  mode: "paths" | "ids";
+  mode: "paths" | "ids" | "keys";
   totals: NoteIdsTotals;
   workspaces: NoteIdsWorkspace[];
 };
@@ -134,17 +140,28 @@ export type NoteIdsMode = NoteIdsReport["mode"];
 
 /** Which keys reads use right now, in plain words. */
 export function modeLabel(mode: NoteIdsMode): string {
+  if (mode === "keys") return "Reading from notes/ only";
   return mode === "ids" ? "Reading from notes/" : "Reading from paths";
 }
 
-/** The mode the switch button moves to. */
+/**
+ * The mode the switch button moves to. Keys mode is one-way and has no switch
+ * (the card hides the button there), so it stays keys.
+ */
 export function nextMode(mode: NoteIdsMode): NoteIdsMode {
+  if (mode === "keys") return "keys";
   return mode === "ids" ? "paths" : "ids";
 }
 
 /** The button's words: what pressing it does. */
 export function switchLabel(mode: NoteIdsMode): string {
+  if (mode === "keys") return "Reads come from notes/ only";
   return mode === "ids" ? "Switch back to paths" : "Switch to notes/";
+}
+
+/** `12 of 40 on notes/ only`: live files already keyed, in keys mode. */
+export function keyedLine(keyed: number, liveFiles: number): string {
+  return `${count(keyed)} of ${count(liveFiles)} on notes/ only`;
 }
 
 /**
@@ -154,6 +171,7 @@ export function switchLabel(mode: NoteIdsMode): string {
  * back loses nothing.
  */
 export function switchNote(mode: NoteIdsMode): string {
+  if (mode === "keys") return "Reads come from notes/ only. Keys mode has no switch back from here.";
   if (mode === "ids") {
     return "Notes will be read from their paths again. Nothing is deleted, and the copies in notes/ stay where they are.";
   }

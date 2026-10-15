@@ -96,7 +96,7 @@ import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
-import { gatewayNoteIdsLookupHandler, gatewayNoteIdsWroteHandler } from "./functions/lib/noteIds/http";
+import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsWroteHandler } from "./functions/lib/noteIds/http";
 import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
@@ -904,6 +904,8 @@ http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTre
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
 http.route({ path: "/gateway/note-ids/lookup", method: "POST", handler: gatewayNoteIdsLookup });
 http.route({ path: "/gateway/note-ids/wrote", method: "POST", handler: gatewayNoteIdsWrote });
+http.route({ path: "/gateway/note-ids/adopt", method: "POST", handler: gatewayRoute(gatewayNoteIdsAdoptHandler) });
+http.route({ path: "/gateway/note-ids/removed", method: "POST", handler: gatewayRoute(gatewayNoteIdsRemovedHandler) });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });

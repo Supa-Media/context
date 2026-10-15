@@ -27,6 +27,31 @@ export interface NodeRow {
   size?: number;
   /** Epoch ms. */
   uploaded?: number;
+  /**
+   * Set on a seam observation's rows (`source: "seam"`): the note the key
+   * now holds and the key its bytes live at. Bucket rows never carry it.
+   */
+  keyed?: KeyedAt;
+}
+
+/** A keyed row's identity: its note, and the one key its bytes live at. */
+export interface KeyedAt {
+  noteId: string;
+  storageKey: string;
+}
+
+/** The id copy a row records (`convex/schema`'s `nodes.idCopy`). */
+export interface IdCopyRecord {
+  key: string;
+  etag: string;
+  copiedAt: number;
+  keyEtag?: string;
+}
+
+/** The versions a flipped row had when it was keyed (`nodes.keyedFrom`). */
+export interface KeyedFrom {
+  pathEtag: string;
+  keyEtag: string;
 }
 
 /** One stored node, as `NodeTable` hands it back. */
@@ -42,6 +67,14 @@ export interface StoredNode {
   uploaded?: number;
   observedAt: number;
   goneAt?: number;
+  /** The note's stable id (`lib/nodes/noteIds.ts`). */
+  noteId?: string;
+  /** Set on a keyed row: where its bytes live, and nowhere else (`keyed`). */
+  storageKey?: string;
+  /** The id-keyed copy of an unkeyed row's bytes. */
+  idCopy?: IdCopyRecord;
+  /** A flipped row's versions at the flip (`KeyedFrom`). */
+  keyedFrom?: KeyedFrom;
 }
 
 /**
@@ -64,6 +97,18 @@ export interface Observation {
    * it, so a `gone` row narrows to this (`convexTable.ts`, `logChange`).
    */
   left?: LeftAudiences[];
+  /**
+   * Who wrote the observation. `bucket` (the default): a look at path objects
+   * (a listing, a re-check, a move). `seam`: the store reporting its own keyed
+   * writes, every row carrying `keyed`. The two obey different rules
+   * (`observe.ts`): only a seam observation writes a keyed row.
+   */
+  source?: "bucket" | "seam";
+  /**
+   * Set by the caller of a bucket observation when the workspace is keyed
+   * (`lib/noteIds/keyedState.ts`): a path with no row is then not adopted.
+   */
+  keyedWorkspace?: boolean;
 }
 
 /** A key a change took away and the audiences that could see it before. */
@@ -78,12 +123,13 @@ export interface LeftAudiences {
  */
 export interface NodeTable {
   byPath(path: string): Promise<StoredNode | null>;
+  /** A new row. `noteId` is minted when absent; `storageKey` makes the row keyed. */
   insert(node: Omit<StoredNode, "id">): Promise<string>;
   patch(id: string, fields: Partial<Omit<StoredNode, "id" | "path" | "kind">>): Promise<void>;
   remove(id: string): Promise<void>;
   /** Rows whose path starts with `prefix`, in the table's path order, from just after `after`. At most `limit`. */
   underPrefix(prefix: string, options: { after?: string; limit: number }): Promise<StoredNode[]>;
-  /** Rows with `observedAt < before`, oldest first. At most `limit`. */
+  /** Rows with `observedAt < before`, oldest first, never a keyed row (`storageKey`). At most `limit`. */
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
@@ -198,8 +244,14 @@ export const NODE_PRIVACY_KEY = "privacy.md";
 /** How long a store found unlistable waits before a sweep tries it again. */
 export const NODE_UNSUPPORTED_RETRY_MS = 24 * 60 * 60 * 1000;
 
-/** Whether a walk of the tree in this state should start (or continue) a sweep. */
-export function nodeSweepDue(state: NodeTreeState | null, now: number): boolean {
+/**
+ * Whether a walk of the tree in this state should start (or continue) a sweep.
+ * `keyed` says the workspace is keyed (`keyedWorkspace`): never due.
+ */
+export function nodeSweepDue(state: NodeTreeState | null, now: number, keyed = false): boolean {
+  // A keyed workspace is never swept: its keyed rows are written by the store
+  // seam, and a listing of path objects would only ever disagree with them.
+  if (keyed) return false;
   if (state === null) return true;
   // Tried again a day after it was found unlistable; a tree marked so before
   // the sweep could page by token (no `leaseAt`) is tried at once.
@@ -238,6 +290,11 @@ export function nodeKey(value: unknown): string | null {
   if (path === null) return null;
   if (value === path) return path;
   return value === `${path}/` ? value : null;
+}
+
+/** A keyed row: its bytes live at `storageKey` and nowhere else (`lib/schema/nodes.ts`). */
+export function isKeyed(node: { storageKey?: string }): boolean {
+  return node.storageKey !== undefined;
 }
 
 /** `a/b/c.md` → `["a", "a/b"]`: the folders a key lives under, outermost first. */

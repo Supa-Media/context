@@ -88,6 +88,19 @@ export const nodeTables = {
         keyEtag: v.optional(v.string()),
       }),
     ),
+    /**
+     * Set on a keyed row (`lib/nodes/table.ts`, `keyed`): the note's bytes live
+     * ONLY at this key, and `etag`/`size` are that key's. The path object the
+     * bucket still holds is a frozen old copy, never read or written again.
+     * Absent on every row of a workspace that is not keyed.
+     */
+    storageKey: v.optional(v.string()),
+    /**
+     * For a row keyed by the flip: the path etag and
+     * the key etag it had at that moment, so a client still holding the old
+     * path etag can save once. Absent on rows keyed by a write.
+     */
+    keyedFrom: v.optional(v.object({ pathEtag: v.string(), keyEtag: v.string() })),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])
@@ -342,6 +355,16 @@ export const nodeTables = {
     ),
     /** A page in flight holds the pass; another one waits. */
     leaseAt: v.optional(v.number()),
+    /**
+     * The workspace's flip to keyed rows started at this time (`keys` mode).
+     * With the switch at `keys`, this makes the workspace keyed for good
+     * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
+     */
+    keyedAt: v.optional(v.number()),
+    /** The flip found no live file row left unkeyed: every row a copy covers is keyed. */
+    keyedDoneAt: v.optional(v.number()),
+    /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
+    flipped: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 
@@ -352,7 +375,7 @@ export const nodeTables = {
    */
   noteIdLayout: defineTable({
     paused: v.boolean(),
-    mode: v.union(v.literal("paths"), v.literal("ids")),
+    mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
     updatedAt: v.number(),
     updatedBy: v.optional(v.string()),
   }),

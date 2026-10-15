@@ -11,7 +11,8 @@
  * while the row's etag still equals that one, so an edit makes it stale
  * without anything having to find the copy.
  *
- * Nothing reads the copies yet. Paths stay the keys people use.
+ * Once a row is keyed (`storageKey`), its bytes live only at that key and the
+ * row owes no copy at all.
  */
 
 import type { Doc } from "../../../_generated/dataModel";
@@ -52,36 +53,9 @@ export interface NoteIdItem {
   size?: number;
 }
 
-/**
- * A UUIDv7: 48 bits of milliseconds, then random bits, so ids sort roughly by
- * creation and never repeat in practice. Built from Web Crypto, which is what
- * the Convex runtime and the test runtime both have.
- */
-export function newNoteId(now: number = Date.now()): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  let millis = Math.floor(now);
-  for (let index = 5; index >= 0; index -= 1) {
-    bytes[index] = millis % 256;
-    millis = Math.floor(millis / 256);
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x70;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-/**
- * The id key a note's body is copied to. `.md` is a note; anything else keeps
- * its lowercased extension (a name's last dot after its first character, as
- * `path.extname` reads it), and a name with none keeps none.
- */
-export function idKeyFor(noteId: string, path: string): string {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  const extension = dot > 0 ? name.slice(dot).toLowerCase() : "";
-  return extension === ".md" ? `notes/${noteId}.md` : `files/${noteId}${extension}`;
-}
+// One implementation for the control plane and the gateway's store seam, which
+// mints a note's id itself before writing its bytes (`store/noteIdKeys.js`).
+export { idKeyFor, isNoteId, newNoteId } from "../../../../mcp/src/store/noteIdKeys.js";
 
 /**
  * Whether the copy the row records was made from the version the row has now,
@@ -99,9 +73,13 @@ export function copyMatches(row: Pick<Doc<"nodes">, "etag" | "idCopy">): boolean
   );
 }
 
-/** A live file whose copy is still true: the only rows a copy is not owed for. */
-export function copyIsFresh(row: Pick<Doc<"nodes">, "kind" | "goneAt" | "etag" | "idCopy">): boolean {
-  return row.kind === "file" && row.goneAt === undefined && copyMatches(row);
+/**
+ * A live file whose copy is still true, or that is keyed and so owes none: the
+ * rows a copy is not owed for. A keyed row's path object is a frozen old copy,
+ * and copying it would overwrite the note.
+ */
+export function copyIsFresh(row: Pick<Doc<"nodes">, "kind" | "goneAt" | "etag" | "idCopy" | "storageKey">): boolean {
+  return row.kind === "file" && row.goneAt === undefined && (row.storageKey !== undefined || copyMatches(row));
 }
 
 /** Whether a row is too big to copy through the mover: reported as failed `too_large`. */

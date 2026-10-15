@@ -228,6 +228,11 @@ export async function runNodesOperation(
     }
   }
 
+  // A keyed workspace is not checked against its bucket: its keyed rows are
+  // the store seam's, and a listing of path objects cannot prove them.
+  if (await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId })) {
+    return { kind: "nodesKept", complete: true };
+  }
   // While a queued move copies, rows and bucket change under the check; a
   // mismatch then is the copy in flight, and must not raise the alarm over
   // the move it is drawing. The check runs again at the next clearance.
@@ -338,7 +343,8 @@ export async function requestNodesSweep(ctx: ActionCtx, workspaceId: Id<"workspa
 export async function startNodesSweepIfDue(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<void> {
   try {
     const state = await ctx.runQuery(internal.functions.nodes.state, { workspaceId });
-    if (!nodeSweepDue(state, Date.now())) return;
+    const keyed = await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId });
+    if (!nodeSweepDue(state, Date.now(), keyed)) return;
     if (await ctx.runQuery(internal.functions.nodes.paused, {})) return;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId,

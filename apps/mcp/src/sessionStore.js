@@ -17,7 +17,6 @@ import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
 import { withPendingMoves } from "./moves/queued.js";
-import { withIdLayout } from "./store/idLayout.js";
 
 /**
  * Build the storage adapter for one session.
@@ -105,7 +104,12 @@ export async function storeForSession(session, env, controlPlane) {
       ? () => treeNoteCount((request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request))
       : null;
   const store = withPrivacyAuthority(
-    storeForBinding(binding, env, { noteCap, noteCount, managedEncryption: managedEncryptionForStore(opened, binding) }),
+    storeForBinding(binding, env, {
+      noteCap,
+      noteCount,
+      managedEncryption: managedEncryptionForStore(opened, binding),
+      idLayout: idLayoutHooks(opened.idLayout, session, controlPlane),
+    }),
     authority,
   );
   // The backend's name, for the search trace and nothing else. Latency is a
@@ -229,22 +233,34 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  // While staff have switched the layout to ids, reads and writes also go to
-  // each note's id copy (`store/idLayout.js`). Wrapped after the properties
-  // above, which it carries across, and before the moves, so a pending move
-  // still resolves a name first. Absent, there is no wrapper at all.
-  const layered =
-    opened.idLayout === "ids" &&
-    typeof controlPlane.noteIdLookup === "function" &&
-    typeof controlPlane.noteIdWrote === "function"
-      ? withIdLayout(store, {
-          lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
-          wrote: (copy) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, copy),
-        })
-      : store;
-  return storeThroughMoves(layered, opened.pendingMoves, (moved) =>
+  return storeThroughMoves(store, opened.pendingMoves, (moved) =>
     controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
   );
+}
+
+/**
+ * The id layer's hooks for one session (`store/idLayout.js`), bound to its own
+ * access token: `null` while the layout is paths, or when this control plane
+ * cannot answer for ids. The "keys" layout needs all four; "ids" needs the
+ * first two.
+ */
+function idLayoutHooks(layout, session, controlPlane) {
+  if (layout !== "ids" && layout !== "keys") return null;
+  if (typeof controlPlane.noteIdLookup !== "function" || typeof controlPlane.noteIdWrote !== "function") return null;
+  const hooks = {
+    mode: layout,
+    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
+    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
+  };
+  if (layout === "ids") return hooks;
+  if (typeof controlPlane.noteIdAdopt !== "function" || typeof controlPlane.noteIdRemoved !== "function") {
+    throw new StorageUnavailable("the keys layout needs a control plane that adopts notes");
+  }
+  return {
+    ...hooks,
+    adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
+    removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
+  };
 }
 
 /**

@@ -83,7 +83,7 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[]; log(): { 
 
     async observedBefore(before, limit) {
       return all()
-        .filter((node) => node.observedAt < before)
+        .filter((node) => node.observedAt < before && node.storageKey === undefined)
         .sort((a, b) => a.observedAt - b.observedAt || byPathOrder(a, b))
         .slice(0, limit)
         .map(copy);

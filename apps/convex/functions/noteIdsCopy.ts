@@ -14,12 +14,14 @@ import { internalAction, internalMutation, internalQuery } from "../_generated/s
 import { productionDeps } from "./lib/noteIds/deps";
 import { BACKFILL_BATCH, ID_ITEMS_MAX, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
 import { OBSERVE_BATCH, nodePath } from "./lib/nodes/table";
-import { recordCheckPage, runCheckChain } from "./lib/noteIds/checkPass";
+import { recordCheckPage, recordKeyedCheckPage, runCheckChain } from "./lib/noteIds/checkPass";
 import { runCopyChain } from "./lib/noteIds/copyPass";
 import { claimCopyRun, failCopyRun, recordCopyPage, releaseCopyRun } from "./lib/noteIds/copyRecord";
+import { flipPage } from "./lib/noteIds/flip";
 import {
   carryIdentity,
   copyRowOf,
+  ensureCopyRow,
   idCopyPaused,
   nodeAt,
   scanCopiedFiles,
@@ -31,6 +33,7 @@ import {
   copyPageValidator,
   copyResultValidator,
   itemValidator,
+  keyedCheckItemValidator,
   refusedValidator,
 } from "./lib/noteIds/validators";
 
@@ -217,6 +220,7 @@ export const checkPage = internalQuery({
     return {
       paused: await idCopyPaused(ctx.db),
       items: scan.items,
+      keyed: scan.keyed,
       ...(scan.next === undefined ? {} : { next: scan.next }),
       done: scan.done,
     };
@@ -228,6 +232,44 @@ export const recordCheck = internalMutation({
   args: { workspaceId: v.id("workspaces"), answers: v.array(checkItemValidator) },
   returns: v.object({ checked: v.number(), missing: v.number(), differs: v.number() }),
   handler: async (ctx, args) => await recordCheckPage(ctx, args.workspaceId, args.answers),
+});
+
+/** The bucket's answers for keyed rows: what the key's HEAD says now, or none when it is absent. */
+export const recordKeyedCheck = internalMutation({
+  args: { workspaceId: v.id("workspaces"), answers: v.array(keyedCheckItemValidator) },
+  returns: v.object({ checked: v.number(), missing: v.number(), differs: v.number() }),
+  handler: async (ctx, args) => await recordKeyedCheckPage(ctx, args.workspaceId, args.answers),
+});
+
+/**
+ * Key the rows of a workspace whose copy's pass has finished (`lib/noteIds/flip.ts`), a page at a time.
+ * Only in keys mode with the tree ready; the first page starts the workspace's keyed state (`keyedAt`),
+ * and a walk that finds no row still owed a key sets `keyedDoneAt`. Every page schedules the next.
+ */
+export const flip = internalMutation({
+  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()), left: v.optional(v.boolean()) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, after, left }): Promise<null> => {
+    const layout = await ctx.db.query("noteIdLayout").first();
+    if (layout?.mode !== "keys") return null;
+    const tree = await ctx.db
+      .query("nodeTrees")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (tree?.status !== "ready") return null;
+    const copies = await ensureCopyRow(ctx, workspaceId);
+    if (copies.keyedDoneAt !== undefined) return null;
+    const now = Date.now();
+    if (copies.keyedAt === undefined) await ctx.db.patch(copies._id, { keyedAt: now, updatedAt: now });
+    const page = await flipPage(ctx, workspaceId, after, left === true);
+    if (page.flipped > 0) await ctx.db.patch(copies._id, { flipped: (copies.flipped ?? 0) + page.flipped });
+    if (!page.done) {
+      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId, after: page.next, left: page.left });
+      return null;
+    }
+    if (!page.left) await ctx.db.patch(copies._id, { keyedDoneAt: Date.now(), updatedAt: Date.now() });
+    return null;
+  },
 });
 
 export const finishDiagnosis = internalMutation({

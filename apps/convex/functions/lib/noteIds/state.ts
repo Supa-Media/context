@@ -140,9 +140,14 @@ export async function scanCopies(
   return scan;
 }
 
-/** The live file rows that hold a copy, after `after`, for the diagnosis to check. */
+/**
+ * The live file rows that hold a copy, after `after`, for the diagnosis to check:
+ * `items` are unkeyed rows with a copy (checked against their path), `keyed` are
+ * keyed rows (checked by their key's own HEAD, `lib/noteIds/checkPass.ts`).
+ */
 export interface CheckScan {
   items: NoteIdItem[];
+  keyed: { path: string; key: string; etag: string }[];
   next?: string;
   done: boolean;
 }
@@ -153,7 +158,7 @@ export async function scanCopiedFiles(
   after: string | undefined,
   limit: number,
 ): Promise<CheckScan> {
-  const scan: CheckScan = { items: [], done: true };
+  const scan: CheckScan = { items: [], keyed: [], done: true };
   const rows = db.query("nodes").withIndex("by_workspace_path", (q) =>
     after === undefined ? q.eq("workspaceId", workspaceId) : q.eq("workspaceId", workspaceId).gt("path", after),
   );
@@ -162,10 +167,12 @@ export async function scanCopiedFiles(
   for await (const row of rows) {
     read += 1;
     last = row.path;
-    if (row.kind === "file" && row.goneAt === undefined && row.idCopy !== undefined && row.etag !== undefined) {
+    if (row.kind === "file" && row.goneAt === undefined && row.storageKey !== undefined && row.etag !== undefined) {
+      scan.keyed.push({ path: row.path, key: row.storageKey, etag: row.etag });
+    } else if (row.kind === "file" && row.goneAt === undefined && row.idCopy !== undefined && row.etag !== undefined) {
       scan.items.push({ path: row.path, key: row.idCopy.key, etag: row.etag, ...(row.size === undefined ? {} : { size: row.size }) });
     }
-    if (scan.items.length >= limit || read >= COPY_SCAN) {
+    if (scan.items.length + scan.keyed.length >= limit || read >= COPY_SCAN) {
       scan.done = false;
       scan.next = last;
       break;

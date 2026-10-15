@@ -126,6 +126,9 @@ export async function runCopyChain(ctx: ActionCtx, args: ChainArgs, deps: CopyDe
       await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId, found: step.found, streak: 0 });
     } else if (step.next === "restart") {
       await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId, found: false, streak: 0 });
+    } else if (step.next === "done") {
+      // Nothing is left to copy: the flip keys what is fresh (`lib/noteIds/flip.ts`). It does nothing outside keys mode.
+      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
     }
   } catch {
     // The workspace and the run only: a path or a provider's text never reaches a log.

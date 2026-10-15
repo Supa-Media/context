@@ -16,7 +16,23 @@ import { readMirror } from "./listing";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 import { newNoteId } from "./noteIds";
 
-const PATCHABLE = ["parentId", "name", "etag", "size", "uploaded", "observedAt", "goneAt"] as const;
+/**
+ * The fields a patch may set. A key passed as `undefined` clears the field
+ * (`patch` below), so a row leaves keyed state by `storageKey: undefined`.
+ */
+const PATCHABLE = [
+  "parentId",
+  "name",
+  "etag",
+  "size",
+  "uploaded",
+  "observedAt",
+  "goneAt",
+  "noteId",
+  "storageKey",
+  "idCopy",
+  "keyedFrom",
+] as const;
 
 function toStored(doc: Doc<"nodes">): StoredNode {
   return {
@@ -30,6 +46,10 @@ function toStored(doc: Doc<"nodes">): StoredNode {
     uploaded: doc.uploaded,
     observedAt: doc.observedAt,
     goneAt: doc.goneAt,
+    noteId: doc.noteId,
+    storageKey: doc.storageKey,
+    idCopy: doc.idCopy,
+    keyedFrom: doc.keyedFrom,
   };
 }
 
@@ -115,8 +135,10 @@ export function convexNodeTable(
       if (!writable) throw new Error("insert on a read-only node table");
       const id = await writer.db.insert("nodes", {
         workspaceId,
-        // Every row a Convex write makes has its id from the start (`noteIds.ts`).
-        noteId: newNoteId(),
+        // Every row has its id from the start (`noteIds.ts`): a seam write brings the
+        // note's own, a bucket row mints one.
+        noteId: node.noteId ?? newNoteId(),
+        storageKey: node.storageKey,
         path: node.path,
         parentId: node.parentId as Id<"nodes"> | undefined,
         name: node.name,
@@ -195,9 +217,12 @@ export function convexNodeTable(
     },
 
     async observedBefore(before, limit) {
+      // A keyed row is never pruned by an observation's age (`observe.ts`), so it is
+      // not read here at all: a page of only keyed rows would otherwise never end.
       const docs = await ctx.db
         .query("nodes")
         .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).lt("observedAt", before))
+        .filter((q) => q.eq(q.field("storageKey"), undefined))
         .take(limit);
       return docs.map(toStored);
     },

@@ -122,7 +122,7 @@ export function chain(
   t: T,
   workspaceId: Id<"workspaces">,
   store: Store,
-  overrides: { copyHere?: CopyDeps["copyHere"]; checkHere?: CheckDeps["checkHere"] } = {},
+  overrides: { copyHere?: CopyDeps["copyHere"]; checkHere?: CheckDeps["checkHere"]; keyHeads?: CheckDeps["keyHeads"] } = {},
 ): Chain {
   const pending: { name: string; args: Record<string, unknown> }[] = [];
   const buckets = storeWithHead(store) as never;
@@ -135,6 +135,14 @@ export function chain(
     origin: null,
     credential: async () => CREDENTIAL,
     checkHere: overrides.checkHere ?? ((page) => runIdCheckPage(page, { buildStore: () => buckets })),
+    // The HEAD of each key, answered from the bytes the way the production store's head is.
+    keyHeads:
+      overrides.keyHeads ??
+      (async (_ctx, _workspaceId, keys) => {
+        const heads = [];
+        for (const key of keys) heads.push(await (buckets as unknown as { head(k: string): Promise<unknown> }).head(key));
+        return heads as { etag: string; size?: number }[];
+      }),
   };
   const ctx = {
     runQuery: (ref: unknown, args: unknown) => (t.query as unknown as (r: unknown, a: unknown) => Promise<unknown>)(ref, args),
@@ -165,6 +173,8 @@ export async function drain(c: Chain, limit = 200): Promise<number> {
       await runCheckChain(c.ctx, next.args as never, c.check);
     } else if (next.name.endsWith("noteIdsCopy:backfill")) {
       await c.t.mutation(internal.functions.noteIdsCopy.backfill, next.args as never);
+    } else if (next.name.endsWith("noteIdsCopy:flip")) {
+      await c.t.mutation(internal.functions.noteIdsCopy.flip, next.args as never);
     } else {
       throw new Error(`unexpected scheduled function ${next.name}`);
     }

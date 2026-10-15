@@ -77,6 +77,7 @@ import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
 import { DropboxStore } from "./dropbox.js";
 import { withLogicalDelete } from "./logicalDelete.js";
+import { withIdLayout } from "./idLayout.js";
 import { withNoteCap } from "./noteCap.js";
 import { managedEncryptionFor, withManagedEncryption } from "./managedEncryption.js";
 
@@ -133,7 +134,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, sealedObjects?: boolean, noteCap?: number|null, noteCount?: (() => Promise<number|null>)|null, idLayout?: object|null, managedEncryption?: {workspaceId: string, mode: "migrating"|"encrypted"|"decrypting", current: string, keys: Record<string,string>}|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -160,7 +161,9 @@ export function storeForBinding(binding, env, options = {}) {
   // and a plain object it wrote into a sealed bucket is refused on every read
   // that follows. Absent for every bucket a customer owns, and absent on the
   // probe itself, which writes and removes its own object with this store.
-  if (options.probeCapabilities === true) return withEncryption(store, options.managedEncryption);
+  // The scaffolder writes a new workspace's first notes through this branch,
+  // so it crosses the id layer too when its builder passes one.
+  if (options.probeCapabilities === true) return withNoteLayout(withEncryption(store, options.managedEncryption), options.idLayout);
   // The managed-encryption walk's view: probed capabilities, and bytes exactly
   // as stored, sealed or not. Only the walk asks for this; it must see which
   // objects are still plain (`managedEncryptionWalk.js`).
@@ -179,7 +182,20 @@ export function storeForBinding(binding, env, options = {}) {
   // escape hatches above never see it: a connect probe writes no notes, and a
   // storage-layout migration only moves what is already there.
   // Counted from the Convex tree by whoever built the store (`noteCount`).
-  return withNoteCap(withLogicalDelete(probed), options.noteCap, options.noteCount ?? null);
+  // The id layer (`idLayout.js`) sits inside the cap, so the cap still sees
+  // the path a person wrote and counts it, and the keys the layer writes
+  // underneath are never mistaken for notes of their own.
+  return withNoteCap(withNoteLayout(withLogicalDelete(probed), options.idLayout), options.noteCap, options.noteCount ?? null);
+}
+
+/**
+ * The id layer, when whoever built the store passed its hooks (`idLayout.js`):
+ * a session's store and the console's, bound to that request's grant. Absent,
+ * the store reads and writes paths, as every store did before ids.
+ */
+function withNoteLayout(store, hooks) {
+  if (hooks === null || hooks === undefined) return store;
+  return withIdLayout(store, hooks);
 }
 
 /**
