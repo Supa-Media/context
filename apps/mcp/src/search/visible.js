@@ -255,6 +255,12 @@ export function splitReducedRecallNotes(paths, limit = RENDERED_RECALL_NOTE_LIMI
  * @param {object} [options.budget] a `createSearchBudget` counter to share
  *   with the caller's other storage work; one is made if absent
  * @param {number} [options.limit]
+ * @param {boolean} [options.readSnippets] whether each hit's note is opened to
+ *   cut its title and snippets. `false` opens none: the hits are the notes the
+ *   index ranks, by key, with `title` empty and no snippets. For a caller that
+ *   takes the keys and reads everything else from somewhere other than the
+ *   bucket (the tree's facts), so a search never opens a candidate it did not
+ *   need to. Default `true`.
  * @param {boolean} [options.refreshOnMiss] whether an empty answer over an
  *   index that believes it is converged may buy one listing and ask again.
  *   Off by default: the module stays maintenance-free for anyone composing it,
@@ -360,6 +366,7 @@ async function answerFromIndex(store, options) {
     prefix = "",
     budget,
     limit = SEARCH_RESULT_LIMIT,
+    readSnippets = true,
   } = options;
 
   // One op, and the only thing between a caller and an answer. `null` is every
@@ -558,7 +565,12 @@ async function answerFromIndex(store, options) {
     if (!budget.take()) break;
     wanted.push(hit);
   }
-  const read = await inWaves(
+  // `readSnippets: false` opens no body at all: each hit is its notePath, with
+  // no title and no snippet, for a caller that reads the answer's keys and asks
+  // the Convex tree for everything else (`meetings/notes.js`).
+  const read = !readSnippets
+    ? wanted.map(({ path, notePath }) => ({ key: notePath ?? path, title: "", snippets: [] }))
+    : await inWaves(
     wanted,
     SNIPPET_READ_CONCURRENCY,
     async ({ path, matchedTerms, notePath, anchor }) => {
