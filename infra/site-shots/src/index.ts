@@ -62,7 +62,7 @@ const json = (body: unknown, status = 200) =>
 
 /** One per person, by owner tag: their browser's five-minute idle alarm (./idle.ts). */
 export class BrowserIdle extends DurableObject<Env> {
-  private timer = new IdleTimer(this.ctx.storage, this.env);
+  private timer = new IdleTimer(this.ctx.storage, this.env, fetch, Date.now, (fn) => this.ctx.blockConcurrencyWhile(fn));
   async touch(owner: string): Promise<void> {
     await this.timer.touch(owner);
   }

@@ -26,6 +26,9 @@ export interface IdleStorage {
   setAlarm(at: number): Promise<void>;
 }
 
+/** Runs `fn` with no other event let in until it is done (blockConcurrencyWhile). */
+export type Exclusive = <T>(fn: () => Promise<T>) => Promise<T>;
+
 /** What the Durable Object does, apart from the runtime so it can be tested. */
 export class IdleTimer {
   constructor(
@@ -33,6 +36,7 @@ export class IdleTimer {
     private env: BrowserbaseEnv,
     private fetcher: typeof fetch = fetch,
     private now: () => number = Date.now,
+    private exclusive: Exclusive = (fn) => fn(),
   ) {}
 
   async touch(owner: string): Promise<void> {
@@ -40,16 +44,24 @@ export class IdleTimer {
     await this.storage.setAlarm(this.now() + IDLE_MS);
   }
 
+  /**
+   * No touch is let in while the browser is looked up and released, so a step
+   * at the five-minute mark waits, then finds no browser and starts a new one,
+   * rather than running on one being released under it. A failed lookup or
+   * release throws, which has the runtime retry the alarm: only a browser
+   * known to be gone, or released, ends the timer.
+   */
   async alarm(): Promise<void> {
-    const owner = await this.storage.get<string>("owner");
-    const session = owner ? await findSession(this.env, owner, this.fetcher).catch(() => null) : null;
-    // A touch that landed while the browser was being looked up set a new
-    // alarm: the browser is in use again, so it stays.
-    const next = await this.storage.getAlarm();
-    if (next !== null && next > this.now()) return;
-    if (session) await releaseSession(this.env, session.id, this.fetcher).catch(() => undefined);
-    console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: session !== null }));
-    await this.storage.deleteAll();
+    await this.exclusive(async () => {
+      const owner = await this.storage.get<string>("owner");
+      const session = owner ? await findSession(this.env, owner, this.fetcher) : null;
+      // Touched again since this alarm was due: the browser is in use, so it stays.
+      const next = await this.storage.getAlarm();
+      if (next !== null && next > this.now()) return;
+      if (session) await releaseSession(this.env, session.id, this.fetcher);
+      console.log(JSON.stringify({ event: "site_shots_browserbase_idle_release", released: session !== null }));
+      await this.storage.deleteAll();
+    });
   }
 }
 

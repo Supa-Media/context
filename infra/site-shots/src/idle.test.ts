@@ -92,16 +92,56 @@ describe("a Browserbase browser ends five minutes after its last use", () => {
     expect(store.data.get("owner")).toBe(OWNER);
   });
 
-  it("is touched by every Browserbase step, for the owner's tag", async () => {
+  it("keeps its state and throws when Browserbase cannot be asked, so the runtime retries the alarm", async () => {
+    const store = fakeStorage();
+    let now = 0;
+    const down = (async () => new Response("", { status: 500 })) as typeof fetch;
+    const timer = new IdleTimer(store.storage, ENV, down, () => now);
+    await timer.touch(OWNER);
+    now += IDLE_MS;
+    store.clearAlarm();
+    await expect(timer.alarm()).rejects.toThrow();
+    expect(store.data.get("owner")).toBe(OWNER);
+  });
+
+  it("looks up and releases with no touch let in between", async () => {
+    const store = fakeStorage();
+    const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);
+    const order: string[] = [];
+    const exclusive = async <T,>(fn: () => Promise<T>) => {
+      order.push("lock");
+      const out = await fn();
+      order.push("unlock");
+      return out;
+    };
+    const logged = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      order.push(init?.method === "POST" ? "release" : "lookup");
+      return await api.fetcher(input, init);
+    }) as typeof fetch;
+    let now = 0;
+    const timer = new IdleTimer(store.storage, ENV, logged, () => now, exclusive);
+    await timer.touch(OWNER);
+    now += IDLE_MS;
+    store.clearAlarm();
+    await timer.alarm();
+    expect(order).toEqual(["lock", "lookup", "release", "unlock"]);
+  });
+
+  it("is touched by every Browserbase step, for the owner's tag, before the browser is looked up", async () => {
     const touched: string[] = [];
     const namespace: IdleNamespace = {
       idFromName: (name) => ({ name }) as unknown as DurableObjectId,
       get: (id) => ({ touch: async (owner) => void touched.push(`${(id as unknown as { name: string }).name}:${owner}`) }),
     };
     const api = fakeApi([{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }]);
+    const lookedUp = api.fetcher;
+    api.fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("?status=RUNNING")) touched.push(`lookup after ${touched.length} touch`);
+      return await lookedUp(input, init);
+    }) as typeof fetch;
     // The connect fails (no socket in this fake); the browser was still in use.
     await browseOnBrowserbase({ ...ENV, BROWSER_IDLE: namespace }, "/browse", { owner: OWNER, steps: [{ do: "read" }] }, api.fetcher);
-    expect(touched).toEqual([`${OWNER}:${OWNER}`]);
+    expect(touched).toEqual([`${OWNER}:${OWNER}`, "lookup after 1 touch"]);
   });
 
   it("never fails a step when the timer cannot be reached", async () => {
