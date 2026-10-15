@@ -41,7 +41,7 @@ import { storeForOpenedBinding } from "../session.js";
 import { createControlPlane } from "../controlPlane.js";
 import { json } from "../http/responses.js";
 import { imageRefFor } from "../tools/readImage.js";
-import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_IMAGE_BYTES, SHA256_PATTERN, sha256Hex, uploadLeaf } from "./uploadedImages.js";
+import { MAX_IMAGES_PER_WRITE, MAX_UPLOADED_IMAGE_BYTES, SHA256_PATTERN, sha256Hex, uploadLinkLeaf } from "./uploadedImages.js";
 
 export const IMAGE_UPLOAD_PATH = "/api/image-upload";
 
@@ -164,7 +164,7 @@ export async function handleImageUpload(request, env, deps = {}) {
   const type = sniffImageType(bytes);
   if (!type) return json({ error: "not a PNG, JPEG, GIF, WebP or HEIC image (SVG is never stored)" }, 415);
   const sha256 = await sha256Hex(bytes);
-  const leaf = uploadLeaf(sha256, type.extension);
+  const leaf = uploadLinkLeaf(sha256, type.extension);
   if (imageRefFor(leaf)?.mimeType !== type.contentType) return json({ error: "could not name the picture" }, 415);
 
   const controlPlane = deps.controlPlane ?? createControlPlane(env);

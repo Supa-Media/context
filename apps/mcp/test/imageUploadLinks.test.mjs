@@ -23,7 +23,8 @@ const NOTE = "1-projects/portable/uploaded-picture.md";
 
 const text = (result) => result?.content?.[0]?.text ?? "";
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const leafOf = (bytes) => `upload-${sha(bytes).slice(0, 16)}.png`;
+/** An upload link stores a picture under its whole hash, so a lookup by hash is exact. */
+const leafOf = (bytes) => `upload-${sha(bytes)}.png`;
 
 /** The ticket and URL out of an answer's curl line, the way an agent would run it. */
 function commandIn(answer) {
@@ -121,6 +122,18 @@ export async function runImageUploadLinkChecks() {
     upload: [{ name: "a'; rm -rf ~; '.png", sha256: sha(PNG), bytes: PNG.byteLength }],
   });
   check("a file name that would break out of the shell quoting is refused", quoted?.isError === true);
+
+  // -- a near miss is a miss: the whole hash names the picture, not a prefix of it
+  const nearMiss = await call("priv-token", "write_note", {
+    path: "1-projects/portable/near-miss.md",
+    content: "# Near\n\n![[near.png]]\n",
+    // The stored picture's first 16 hex characters, and 48 that are not its own.
+    images: [{ name: "near.png", sha256: sha(PNG).slice(0, 16) + "f".repeat(48) }],
+  });
+  check(
+    "a sha256 sharing only the stored picture's first 16 hex characters is refused",
+    nearMiss?.isError === true && (await contextStore.get("1-projects/portable/near-miss.md")) === null,
+  );
 
   // -- a hash nobody uploaded here embeds nothing
   const never = await call("priv-token", "write_note", {
