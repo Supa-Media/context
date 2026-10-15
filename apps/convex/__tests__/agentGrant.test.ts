@@ -316,6 +316,32 @@ describe("how often the console may mint", () => {
     }
   });
 
+  /*
+    Why the listing has to defend itself (`grants.test.ts`): inside the hour
+    nothing has expired, so neither reuse branch matches a fresh instance id
+    and every load inserts a row. The rows are real, and they are the newest
+    ones the connections screen sees.
+  */
+  test("each fresh page load inside the hour leaves its own grant row", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, ownerId, "seyi");
+    const client = asUser(t, ownerId);
+    const loads = 120;
+    for (let load = 0; load < loads; load++) {
+      await client.action(api.functions.agentGrant.mintConsoleGrant, {
+        workspaceId,
+        consoleInstanceId: `note-${load}`,
+      });
+    }
+    const rows = await t.run(async (ctx) =>
+      (await ctx.db.query("oauthGrants").collect()).filter(
+        (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active",
+      ),
+    );
+    expect(rows).toHaveLength(loads);
+  });
+
   test("a runaway loop is still refused once the hour's budget is spent", async () => {
     const t = setupTest();
     const ownerId = await createUser(t, "owner@example.invalid");
