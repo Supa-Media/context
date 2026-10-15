@@ -39,6 +39,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Dropbox workspaces are told support is ending, without a date
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
+- Deleting an account erases the storage we ran for it
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys

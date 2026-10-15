@@ -110,6 +110,32 @@ export function runCommentFormatChecks(check) {
     check("comments: the anchor spans exactly the words", DEMO.slice(range.from, range.to) === "free, you cheapo");
   }
 
+  // --- every comments block goes, not only the last --------------------------
+  {
+    // Two blocks happen: somebody pastes one, a hand-edit adds one, two
+    // writers each start one. `stripComments` is what keeps a conversation
+    // about a note out of its share link and its website, so it has to
+    // remove all of them — the one it leaves behind is published verbatim.
+    const twoBlocks = [
+      "# Launch",
+      "",
+      "Body the owner is happy to publish.",
+      "",
+      "```comments",
+      "<!-- c1 --> seyi: hold this until legal clears it",
+      "```",
+      "",
+      "```comments",
+      "<!-- c2 --> kola: agreed",
+      "```",
+      "",
+    ].join("\n");
+    const published = stripComments(twoBlocks);
+    check("comments: an earlier comments block is not published either", !published.includes("legal clears it"));
+    check("comments: the last comments block still goes", !published.includes("agreed"));
+    check("comments: the note's own words survive both", published.includes("Body the owner is happy to publish."));
+  }
+
   // --- a note with no comments is untouched ----------------------------------
   {
     const plain = "# Title\n\nSome text with <!-- an ordinary comment --> in it.\n\n```js\nconst a = 1;\n```\n";
