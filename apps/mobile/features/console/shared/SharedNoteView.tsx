@@ -12,6 +12,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { editorReducer, emptyEditor } from "../files/editor";
 import { NoteEditor } from "../files/NoteEditor";
 import { PersonFace } from "../faces/PersonFace";
+import { ReportLink } from "../../report/ReportLink";
 import { itemTitle, sharedLinkHref, sharerFace, sharerLabel, shortWhen, type SharedItem } from "./sharedInbox";
 
 export type Loaded =
@@ -169,6 +170,11 @@ export function SharedNoteShown({
           </Text>
           {` shared this with you · ${when}`}
         </Text>
+        <ReportLink
+          target={{ kind: "share", token }}
+          person={{ handle: item.sharedByHandle, name: item.sharedByName }}
+          testID="shared-note-report"
+        />
       </View>
     );
 

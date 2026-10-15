@@ -111,6 +111,7 @@ export function SiteRoot({ hostname }: { hostname: string }) {
       <WebsitePage
         name={view.siteName ?? binding.handle}
         view={view}
+        handle={binding.handle}
         navigate={navigate}
         prefetch={prefetch}
         signIn={(path) => void Linking.openURL(`${PLATFORM_ORIGIN}${path}`)}

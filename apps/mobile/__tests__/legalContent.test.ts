@@ -1,6 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 
-import { privacyContent } from "../features/legal/content";
+import { privacyContent, supportContent, termsContent } from "../features/legal/content";
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
@@ -71,5 +71,27 @@ describe("the privacy policy matches what the phone app collects", () => {
   test("points to in-app account deletion rather than a request by email", () => {
     expect(text).toContain("You can delete your account yourself in Settings, under Profile");
     expect(text).not.toContain("contact us to request account deletion");
+  });
+});
+
+describe("the terms and support page cover objectionable content (App Store guideline 1.2)", () => {
+  test("the terms say there is no tolerance, how to report, and what happens within 24 hours", () => {
+    expect(termsContent.updated).toBe("October 15, 2026");
+    const section = termsContent.sections.find((entry) => entry.title === "Objectionable content and abuse");
+    const text = section?.body.join(" ") ?? "";
+    expect(text).toContain("no tolerance for objectionable or abusive content or behaviour");
+    expect(text).toContain("report a note, an invitation, or a public page from inside the app");
+    expect(text).toContain("block a person");
+    expect(text).toContain("within 24 hours");
+    expect(text).toContain("remove the accounts");
+  });
+
+  test("support says how to report and block, and where to unblock", () => {
+    const section = supportContent.sections.find((entry) => entry.title === "Reporting and blocking");
+    const text = section?.body.join(" ") ?? "";
+    expect(text).toContain("Report or block");
+    expect(text).toContain("context@supa.media");
+    expect(text).toContain("unblock people in Settings, under Profile");
+    expect(text).toContain("within 24 hours");
   });
 });
