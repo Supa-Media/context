@@ -20,8 +20,18 @@ So, still one tool and new arguments
    `Authorization: Bearer`, the file as the body. The gateway measures the
    body, sniffs its type, hashes it, and spends the ticket for that hash.
 3. `write_note` with `images: [{ name, sha256 }]` embeds it, exactly as an
-   attached picture: the same content-hashed leaf in the opaque image store,
-   the same embed rewrite, the note's visibility.
+   attached picture: a content-hashed leaf in the opaque image store, the
+   same embed rewrite, the note's visibility.
+
+**A looked-up name is the whole hash.** A picture attached in the call is
+stored under the first sixteen hex characters of its SHA-256, which is enough
+for the only thing that name decides there — dedupe — and is what notes
+already written point at. A picture sent through a link is different: its
+name is later *asked for* by hash, and a sixteen-character name answers a
+caller naming sixty-four about something agreeing with only its first 64
+bits. So a link stores under the whole hash, and finding one is the check:
+there is nothing to compare and no body to read. The cost is one duplicate
+object when the same picture arrives both ways.
 
 **The ticket is a capability for one set of bytes, not a credential.** It is a
 `gatewayJobs` row of kind `image_upload`, minted only through a live grant

@@ -55,9 +55,32 @@ export const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 /** Every extension the sniffer names, in the order a stored upload is looked for. */
 export const UPLOAD_EXTENSIONS = ["png", "jpg", "gif", "webp", "heic", "heif"];
 
-/** The leaf a picture is stored at, named from its own content: a repeat is one object. */
+/**
+ * The leaf a picture attached in the call itself is stored at, named from its
+ * own content: a repeat is one object. Sixteen hex characters, which is the
+ * name notes already written point at, so it does not change.
+ *
+ * Enough for dedupe, which is all it decides here: the bytes arrived in the
+ * call, so nothing is looked up by this name. An upload link is the other
+ * way round — there the name is the lookup — and uses the whole hash.
+ */
 export function uploadLeaf(sha256, extension) {
   return `upload-${sha256.slice(0, 16)}.${extension}`;
+}
+
+/**
+ * The leaf a picture sent through an upload link is stored at: the **whole**
+ * SHA-256.
+ *
+ * This name is asked for by hash later (`findUploadedImage`), and a truncated
+ * one cannot answer that question honestly — a caller naming a full hash
+ * would be answered from an object agreeing with only its first 64 bits. The
+ * whole hash makes a hit proof of the bytes, with nothing to compare and no
+ * body to read. The two paths therefore store the same picture under two
+ * names, which costs one duplicate object and buys an exact answer.
+ */
+export function uploadLinkLeaf(sha256, extension) {
+  return `upload-${sha256}.${extension}`;
 }
 
 export async function sha256Hex(bytes) {
@@ -70,11 +93,15 @@ export async function sha256Hex(bytes) {
  * (`notes/imageUploads.js`), by its SHA-256, or null. Only this workspace's
  * own store is asked, so a picture uploaded to another context is not found
  * here, whoever knows its hash.
+ *
+ * The leaf is the whole hash (`uploadLinkLeaf`), so finding one *is* the
+ * check: there is no shorter name that another picture could also answer to,
+ * and a caller naming 64 hex characters is answered about those 64.
  */
 export async function findUploadedImage(store, sha256) {
   if (typeof sha256 !== "string" || !SHA256_PATTERN.test(sha256)) return null;
   for (const extension of UPLOAD_EXTENSIONS) {
-    const leaf = uploadLeaf(sha256, extension);
+    const leaf = uploadLinkLeaf(sha256, extension);
     // `get`, not `head`: a session store answers `head` from the file tree,
     // which names notes and never the opaque image store. `read_image` reads
     // the same way. The body is not read.
