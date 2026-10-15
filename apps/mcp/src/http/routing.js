@@ -41,6 +41,19 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
+  // read back only by the grant that joined.
+  Object.defineProperty(store, "mail", {
+    value: {
+      workspaceId: session.workspaceId,
+      join: (path, name) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name),
+      get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
+      read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

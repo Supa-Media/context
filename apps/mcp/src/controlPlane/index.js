@@ -10,6 +10,7 @@ import { createVaultMethods } from "./vault.js";
 import { createTreeMethods } from "./tree.js";
 import { createNoteIdMethods } from "./noteIds.js";
 import { createPrivacyMethods } from "./privacy.js";
+import { createMailMethods } from "./mail.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -36,5 +37,6 @@ export function createControlPlane(env, options = {}) {
     ...createTreeMethods({ post }),
     ...createNoteIdMethods({ post, required }),
     ...createPrivacyMethods({ post }),
+    ...createMailMethods({ post }),
   };
 }

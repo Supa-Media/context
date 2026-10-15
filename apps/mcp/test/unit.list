@@ -87,6 +87,7 @@ test/staleClientArguments.test.mjs
 test/storeHead.test.mjs
 test/texComputer.test.mjs
 test/toolNews.test.mjs
+test/noteMail.test.mjs
 test/toolTitles.test.mjs
 test/treeFacts.test.mjs
 test/treeLinks.test.mjs

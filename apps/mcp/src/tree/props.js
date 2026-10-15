@@ -25,6 +25,7 @@ import { inlineTags } from "../lists/inlineTags.js";
 import { noteLede } from "../lists/lede.js";
 import { isEncryptedNote } from "../encryption/format.js";
 import { countLines } from "../chaos/rubric.js";
+import mail from "../../../../packages/shared/src/mail.cjs";
 import { siteFlagsOf } from "./siteFlags.js";
 
 /**
@@ -46,7 +47,8 @@ export function propsOf(text) {
     heading: noteHeading(text),
     lede: noteLede(text),
     // The chaos score's long-note rule (`chaos/rubric.js`).
-    lines: countLines(text),
+    // Mail between agents is a conversation about the note, not its length.
+    lines: countLines(mail.stripMail(text)),
     // Whether a website may still publish it (`siteFlags.js`): a public list
     // asks the tree this rather than opening the page.
     site: siteFlagsOf(text),

@@ -77,7 +77,7 @@ function agentName(raw) {
  * collaboration document are resolved at equal cost for every refusal, and a
  * second reader here would be a second opinion about all of it.
  */
-function parseRead(result) {
+export function parseRead(result) {
   const text = result?.content?.[0]?.text;
   if (typeof text !== "string") return null;
   const split = text.indexOf("\n\n");
