@@ -49,13 +49,48 @@ export const MAX_UPLOADED_BYTES_PER_WRITE = 15_000_000;
 /** Base64 of the ceiling, with room for padding and stray whitespace. */
 const MAX_BASE64_CHARS = Math.ceil(MAX_UPLOADED_IMAGE_BYTES / 3) * 4 + 1024;
 
-async function contentHash(bytes) {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 16);
+/** A full SHA-256, lowercase hex: how an upload link names the bytes it takes. */
+export const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
+/** Every extension the sniffer names, in the order a stored upload is looked for. */
+export const UPLOAD_EXTENSIONS = ["png", "jpg", "gif", "webp", "heic", "heif"];
+
+/** The leaf a picture is stored at, named from its own content: a repeat is one object. */
+export function uploadLeaf(sha256, extension) {
+  return `upload-${sha256.slice(0, 16)}.${extension}`;
 }
+
+export async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The stored leaf for a picture an agent sent with an upload link
+ * (`notes/imageUploads.js`), by its SHA-256, or null. Only this workspace's
+ * own store is asked, so a picture uploaded to another context is not found
+ * here, whoever knows its hash.
+ */
+export async function findUploadedImage(store, sha256) {
+  if (typeof sha256 !== "string" || !SHA256_PATTERN.test(sha256)) return null;
+  for (const extension of UPLOAD_EXTENSIONS) {
+    const leaf = uploadLeaf(sha256, extension);
+    // `get`, not `head`: a session store answers `head` from the file tree,
+    // which names notes and never the opaque image store. `read_image` reads
+    // the same way. The body is not read.
+    const found = await store.get(IMAGE_PREFIX + leaf);
+    if (found) {
+      try {
+        await found.body?.cancel?.();
+      } catch {
+        // An unread body is let go either way.
+      }
+      return { leaf, ref: imageRefFor(leaf) };
+    }
+  }
+  return null;
+}
+
 
 function decodeBase64(value) {
   // A data: URI is what most clients have to hand; its header is not trusted,
@@ -113,7 +148,7 @@ function cleanLabel(value) {
  * A `![[name]]` embed has no title, so a label on one is refused; a picture
  * named only in code is stored and reported as unlabelled (`labelLost`).
  */
-export async function prepareNoteImages(content, images) {
+export async function prepareNoteImages(content, images, store = null) {
   if (images === undefined) return { content, images: [] };
   if (!Array.isArray(images)) return { error: "images must be a list" };
   if (images.length > MAX_IMAGES_PER_WRITE) {
@@ -133,7 +168,21 @@ export async function prepareNoteImages(content, images) {
     names.add(name);
     const hasData = typeof image.data === "string";
     const hasUrl = typeof image.url === "string";
-    if (hasData === hasUrl) return { error: `${label}: pass exactly one of data (base64) or url` };
+    const hasUpload = typeof image.sha256 === "string";
+    if (Number(hasData) + Number(hasUrl) + Number(hasUpload) !== 1) {
+      return { error: `${label}: pass exactly one of data (base64), url, or the sha256 of a picture sent with an upload link` };
+    }
+    if (hasUpload) {
+      // Already in this workspace's store, put there by an upload link: found, never re-stored.
+      const found = store ? await findUploadedImage(store, image.sha256.toLowerCase()) : null;
+      if (!found) {
+        return {
+          error: `${label}: no picture with that sha256 was uploaded to this workspace; ask write_note for an upload link and run it first`,
+        };
+      }
+      prepared.push({ name, leaf: found.leaf, key: IMAGE_PREFIX + found.leaf, stored: true, alt: cleanAlt(image.alt), label: cleanLabel(image.label) });
+      continue;
+    }
 
     let bytes;
     if (hasData) {
@@ -160,7 +209,7 @@ export async function prepareNoteImages(content, images) {
     if (!type) {
       return { error: `${label}: not a PNG, JPEG, GIF, WebP or HEIC image (SVG is never stored)` };
     }
-    const leaf = `upload-${await contentHash(bytes)}.${type.extension}`;
+    const leaf = uploadLeaf(await sha256Hex(bytes), type.extension);
     // The name this produces must be one `read_image` resolves, or the bytes
     // could never be read back out. Asserted rather than assumed.
     const ref = imageRefFor(leaf);
@@ -235,6 +284,7 @@ function rewriteCodeReferences(content, byName, embedded) {
 /** Put every prepared image in the opaque store. Content-addressed, so a repeat is a no-op in effect. */
 export async function storeNoteImages(store, images) {
   for (const image of images) {
+    if (image.stored) continue;
     await store.put(image.key, image.bytes, { contentType: image.contentType });
   }
 }

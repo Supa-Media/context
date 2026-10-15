@@ -20,8 +20,9 @@ export function createJobMethods({ post, required }) {
       return ticket;
     },
 
-    async openGatewayJob(ticket) {
-      const parsed = await post("/gateway/jobs/open", { ticket });
+    /** `contentSha256`: an image upload's ticket opens only for the bytes it was minted for. */
+    async openGatewayJob(ticket, { contentSha256 } = {}) {
+      const parsed = await post("/gateway/jobs/open", { ticket, ...(contentSha256 ? { contentSha256 } : {}) });
       const job = required(parsed, "job");
       if (job === null) return null;
       if (!job || typeof job !== "object") throw new ControlPlaneError("malformed job");
