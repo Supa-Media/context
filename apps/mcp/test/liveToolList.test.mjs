@@ -238,6 +238,11 @@ test("orient addressed to another workspace lists this connection's tools", asyn
   assert.deepEqual(listedNames(text), offered);
 });
 
+test("tools sent as text by a client that does not know its type still works", async () => {
+  // How Claude Code sent it on production, holding an orient with no `tools`.
+  assert.ok((await orient(CURRENT, { tools: "true" })).includes(HEADING));
+});
+
 test("tools must be a boolean", async () => {
   const body = await rpc(CURRENT, "tools/call", { name: "orient", arguments: { tools: "yes" } });
   assert.equal(body?.result?.isError, true);
