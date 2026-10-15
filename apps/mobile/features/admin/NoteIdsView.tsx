@@ -29,6 +29,7 @@ import {
   formatPercent,
   handleLabel,
   isFailing,
+  keyedLine,
   modeLabel,
   nextMode,
   pauseLabel,
@@ -100,7 +101,9 @@ export function NoteIdsView() {
 
   const switchMode = () =>
     act("switch", async () => {
+      // Keys mode has no switch (the button is hidden there); this only moves between paths and ids.
       const target = nextMode(report.mode);
+      if (target === "keys") return "Reads come from notes/ only.";
       await setMode({ mode: target });
       setConfirmingSwitch(false);
       return target === "ids" ? "Reading from notes/ now." : "Reading from paths again.";
@@ -139,6 +142,11 @@ export function NoteIdsView() {
           <View style={styles.overallBar}>
             <Bar share={share} tone={report.totals.failed > 0 ? "crit" : share >= 1 ? "ok" : "warn"} wide />
             <Text variant="meta">{countsLine(report.totals)}</Text>
+            {report.mode === "keys" ? (
+              <Text variant="meta" testID="admin-noteids-keyed">
+                {keyedLine(report.totals.keyed, report.totals.liveFiles)}
+              </Text>
+            ) : null}
           </View>
         </View>
         <View style={styles.actions}>
@@ -160,7 +168,7 @@ export function NoteIdsView() {
             onPress={() => void diagnoseEverything()}
             testID="admin-noteids-diagnose-all"
           />
-          {confirmingSwitch ? null : (
+          {confirmingSwitch || report.mode === "keys" ? null : (
             <View style={styles.switchCell}>
               <Button
                 label={switchLabel(report.mode)}
@@ -200,6 +208,7 @@ export function NoteIdsView() {
             <WorkspaceRow
               key={entry.workspaceId}
               row={entry}
+              keys={report.mode === "keys"}
               first={index === 0}
               busy={busy}
               onRestart={() => void restartOne(entry.workspaceId)}
@@ -214,12 +223,15 @@ export function NoteIdsView() {
 
 function WorkspaceRow({
   row,
+  keys,
   first,
   busy,
   onRestart,
   onDiagnose,
 }: {
   row: NoteIdsWorkspace;
+  /** Keys mode: the row says how many of its files are keyed. */
+  keys: boolean;
   first: boolean;
   busy: string | null;
   onRestart: () => void;
@@ -251,6 +263,11 @@ function WorkspaceRow({
         <Text variant="rowSub" style={row.status === "failed" ? styles.bad : null} numberOfLines={2}>
           {statusLabel(row)}
         </Text>
+        {keys ? (
+          <Text variant="meta" style={styles.num} testID={`admin-noteids-keyed-${row.workspaceId}`}>
+            {keyedLine(row.keyed, row.liveFiles)}
+          </Text>
+        ) : null}
         {diagnosis ? (
           <Text variant="meta" style={styles.num}>
             {diagnosis}

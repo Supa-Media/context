@@ -14,6 +14,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
+import { countKeyed } from "./lib/noteIds/flip";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
@@ -36,6 +37,12 @@ const rowValidator = v.object({
   /** A fixed, path-free label. */
   error: v.union(v.string(), v.null()),
   diagnosis: v.union(v.null(), diagnosisValidator),
+  /** Keys mode only (0 otherwise): live, non-plumbing files, and how many of them are keyed (`notes/` only). */
+  liveFiles: v.number(),
+  keyed: v.number(),
+  /** When the workspace's flip to keyed rows started, and when it found none left; null until then. */
+  keyedAt: v.union(v.null(), v.number()),
+  keyedDoneAt: v.union(v.null(), v.number()),
 });
 
 /** Where the id copy is, for every workspace with storage. Counts and labels only. */
@@ -44,7 +51,7 @@ export const report = query({
   returns: v.object({
     paused: v.boolean(),
     mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
-    totals: v.object({ files: v.number(), copied: v.number(), failed: v.number() }),
+    totals: v.object({ files: v.number(), copied: v.number(), failed: v.number(), liveFiles: v.number(), keyed: v.number() }),
     workspaces: v.array(rowValidator),
     truncated: v.boolean(),
   }),
@@ -52,7 +59,7 @@ export const report = query({
     await staffOnly(ctx);
     const layout = await ctx.db.query("noteIdLayout").first();
     const { ids, truncated } = await boundWorkspaces(ctx);
-    const totals = { files: 0, copied: 0, failed: 0 };
+    const totals = { files: 0, copied: 0, failed: 0, liveFiles: 0, keyed: 0 };
     const workspaces: Array<{
       workspaceId: Id<"workspaces">;
       handle: string | null;
@@ -62,15 +69,23 @@ export const report = query({
       status: "idle" | "copying" | "done" | "failed";
       error: string | null;
       diagnosis: { checkedAt: number; checked: number; missing: number; differs: number } | null;
+      liveFiles: number;
+      keyed: number;
+      keyedAt: number | null;
+      keyedDoneAt: number | null;
     }> = [];
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
       if (workspace === null) continue;
       const row = await copyRowOf(ctx.db, workspaceId);
       const counts = { files: row?.files ?? 0, copied: row?.copied ?? 0, failed: row?.failed ?? 0 };
+      // Counted only in keys mode: the count reads every row of the workspace, and nothing is keyed before it.
+      const keys = layout?.mode === "keys" ? await countKeyed(ctx.db, workspaceId) : { liveFiles: 0, keyed: 0 };
       totals.files += counts.files;
       totals.copied += counts.copied;
       totals.failed += counts.failed;
+      totals.liveFiles += keys.liveFiles;
+      totals.keyed += keys.keyed;
       workspaces.push({
         workspaceId,
         handle: workspace.slug ?? null,
@@ -78,6 +93,9 @@ export const report = query({
         status: row?.status ?? "idle",
         error: row?.error ?? null,
         diagnosis: row?.diagnosis ?? null,
+        ...keys,
+        keyedAt: row?.keyedAt ?? null,
+        keyedDoneAt: row?.keyedDoneAt ?? null,
       });
     }
     return { paused: layout?.paused === true, mode: layout?.mode ?? "paths", totals, workspaces, truncated };

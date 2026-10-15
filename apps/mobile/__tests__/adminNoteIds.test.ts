@@ -6,6 +6,7 @@ import {
   formatPercent,
   handleLabel,
   isFailing,
+  keyedLine,
   modeLabel,
   nextMode,
   pauseLabel,
@@ -34,6 +35,10 @@ const row = (fields: Partial<NoteIdsWorkspace> & { workspaceId: string }): NoteI
   status: "idle",
   error: null,
   diagnosis: null,
+  liveFiles: 0,
+  keyed: 0,
+  keyedAt: null,
+  keyedDoneAt: null,
   ...fields,
 });
 
@@ -72,8 +77,9 @@ describe("percent copied", () => {
 
 describe("counts line", () => {
   test("says how many of how many, with the failures only when there are some", () => {
-    expect(countsLine({ files: 12_500, copied: 12_034, failed: 3 })).toBe("12,034 of 12,500 files copied · 3 failed");
-    expect(countsLine({ files: 12_500, copied: 12_500, failed: 0 })).toBe("12,500 of 12,500 files copied");
+    const totals = { liveFiles: 0, keyed: 0 };
+    expect(countsLine({ files: 12_500, copied: 12_034, failed: 3, ...totals })).toBe("12,034 of 12,500 files copied · 3 failed");
+    expect(countsLine({ files: 12_500, copied: 12_500, failed: 0, ...totals })).toBe("12,500 of 12,500 files copied");
   });
 });
 
@@ -161,6 +167,21 @@ describe("labels", () => {
   test("the toggle says what pressing it does", () => {
     expect(pauseLabel(false)).toBe("Pause");
     expect(pauseLabel(true)).toBe("Resume");
+  });
+});
+
+describe("keys mode", () => {
+  test("says how many live files are on notes/ only, in plain words", () => {
+    expect(keyedLine(12, 40)).toBe("12 of 40 on notes/ only");
+    expect(keyedLine(0, 0)).toBe("0 of 0 on notes/ only");
+    expect(keyedLine(1_200, 12_500)).toBe("1,200 of 12,500 on notes/ only");
+  });
+
+  test("reads from notes/ only, and has no switch back: the mode stays keys", () => {
+    expect(modeLabel("keys")).toBe("Reading from notes/ only");
+    expect(nextMode("keys")).toBe("keys");
+    expect(switchLabel("keys")).toBe("Reads come from notes/ only");
+    expect(switchNote("keys")).toMatch(/no switch back/);
   });
 });
 

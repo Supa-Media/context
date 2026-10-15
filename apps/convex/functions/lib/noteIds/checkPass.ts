@@ -3,7 +3,13 @@
  * rows record is compared with its source, a page at a time, through the same
  * mover ticket the copy uses (`idCheck`) or here when there is no mover. A copy
  * the bucket says is missing or differs is cleared from its row, so the next
- * pass copies it again. Nothing else is written.
+ * pass copies it again.
+ *
+ * A keyed row has no copy to compare: its bytes are its key's. Its key's HEAD
+ * is read instead (`keyHeads`, metadata only). A key that is missing is only
+ * counted, because the path it came from is a frozen old copy and must not be
+ * copied again. A key whose etag differs from the row's means a write's report
+ * was lost, so the row takes the key's version through a seam observation.
  */
 
 import { internal } from "../../../_generated/api";
@@ -11,6 +17,8 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import type { GatewayCredential } from "../storage/shapes";
 import { CHECK_FAILED_LABEL, COPY_PAGE, COPY_RETRY_MS, COPY_STREAK_MAX, ID_BYTE_BUDGET, ID_LANES, type NoteIdItem } from "../nodes/noteIds";
+import { applyObservation } from "../nodes/observe";
+import { convexNodeTable } from "../nodes/convexTable";
 import { runNoteIdPageOnMover } from "../storageMover";
 import { nodeAt } from "./state";
 
@@ -30,6 +38,8 @@ export interface CheckArgs {
 export interface CheckDeps {
   origin: string | null;
   credential(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<GatewayCredential | null>;
+  /** The HEAD of each key, in order: `null` when the key is absent. Reads metadata only, never bytes. */
+  keyHeads(ctx: ActionCtx, workspaceId: Id<"workspaces">, keys: string[]): Promise<({ etag: string; size?: number } | null)[]>;
   checkHere(page: {
     kind: "idCheck";
     workspaceId: string;
@@ -44,6 +54,49 @@ export interface CheckAnswer {
   key: string;
   etag: string;
   state: string;
+}
+
+/** A keyed row's answer: the key's etag and size now, or none when the key is absent. */
+export interface KeyedAnswer {
+  path: string;
+  key: string;
+  etag: string;
+  headEtag?: string;
+  headSize?: number;
+}
+
+/**
+ * Apply one page's keyed answers. A row is counted only while it still has the
+ * key and etag it was read at. A missing key is counted and nothing else; a key
+ * whose etag differs is taken as the row's new version, through a seam
+ * observation, so the row's note, key and last-observation rule are a write's.
+ */
+export async function recordKeyedCheckPage(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  answers: KeyedAnswer[],
+): Promise<{ checked: number; missing: number; differs: number }> {
+  const counted = { checked: 0, missing: 0, differs: 0 };
+  for (const answer of answers) {
+    const node = await nodeAt(ctx.db, workspaceId, answer.path);
+    if (node === null || node.kind !== "file" || node.goneAt !== undefined || node.noteId === undefined) continue;
+    if (node.storageKey !== answer.key || node.etag !== answer.etag) continue;
+    counted.checked += 1;
+    if (answer.headEtag === undefined) {
+      counted.missing += 1;
+      continue;
+    }
+    if (answer.headEtag === node.etag) continue;
+    counted.differs += 1;
+    await applyObservation(convexNodeTable(ctx, workspaceId), {
+      at: Date.now(),
+      source: "seam",
+      rows: [{ path: answer.path, etag: answer.headEtag, size: answer.headSize, keyed: { noteId: node.noteId, storageKey: answer.key } }],
+      gone: [],
+      vanishedUnder: [],
+    });
+  }
+  return counted;
 }
 
 /** What the bucket said about each item: an item it did not answer for is left out, never guessed. */
@@ -106,6 +159,13 @@ export async function runCheckChain(ctx: ActionCtx, args: CheckArgs, deps: Check
       missing += counted.missing;
       differs += counted.differs;
     }
+    if (page.keyed.length > 0) {
+      const answers = await keyedAnswers(ctx, args, page.keyed, deps);
+      const counted = await ctx.runMutation(internal.functions.noteIdsCopy.recordKeyedCheck, { workspaceId, answers });
+      checked += counted.checked;
+      missing += counted.missing;
+      differs += counted.differs;
+    }
     if (page.done) {
       await ctx.runMutation(internal.functions.noteIdsCopy.finishDiagnosis, {
         workspaceId,
@@ -160,4 +220,25 @@ async function checkItems(
     limits: { lanes: ID_LANES, byteBudget: ID_BYTE_BUDGET },
   });
   return normalizeCheck(items, page.results);
+}
+
+/** Each keyed row's key HEAD, through the check's own seam (metadata only), answered in order. */
+async function keyedAnswers(
+  ctx: ActionCtx,
+  args: CheckArgs,
+  keyed: { path: string; key: string; etag: string }[],
+  deps: CheckDeps,
+): Promise<KeyedAnswer[]> {
+  const heads = await deps.keyHeads(ctx, args.workspaceId, keyed.map((item) => item.key));
+  return keyed.map((item, index): KeyedAnswer => {
+    const head = heads[index];
+    if (head === null || head === undefined) return { path: item.path, key: item.key, etag: item.etag };
+    return {
+      path: item.path,
+      key: item.key,
+      etag: item.etag,
+      headEtag: head.etag,
+      ...(head.size === undefined ? {} : { headSize: head.size }),
+    };
+  });
 }

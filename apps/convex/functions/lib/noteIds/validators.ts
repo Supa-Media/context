@@ -30,9 +30,13 @@ export const copyPageValidator = v.object({
   done: v.boolean(),
 });
 
+/** A keyed row the diagnosis checks: its path, its key, and the etag the row had when it was read. */
+export const keyedItemValidator = v.object({ path: v.string(), key: v.string(), etag: v.string() });
+
 export const checkPageValidator = v.object({
   paused: v.boolean(),
   items: v.array(itemValidator),
+  keyed: v.array(keyedItemValidator),
   next: v.optional(v.string()),
   done: v.boolean(),
 });
@@ -42,4 +46,13 @@ export const checkItemValidator = v.object({
   key: v.string(),
   etag: v.string(),
   state: v.string(),
+});
+
+/** What the bucket says about a keyed row's key: its HEAD now, or no `headEtag` when the key is absent. */
+export const keyedCheckItemValidator = v.object({
+  path: v.string(),
+  key: v.string(),
+  etag: v.string(),
+  headEtag: v.optional(v.string()),
+  headSize: v.optional(v.number()),
 });

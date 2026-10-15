@@ -105,6 +105,8 @@ export async function recordCopyPage(
   for (const result of args.results) {
     const node = await nodeAt(ctx.db, args.workspaceId, result.path);
     if (node === null || node.kind !== "file" || node.goneAt !== undefined || node.noteId === undefined) continue;
+    // A keyed row's bytes live at its key alone: a copy made from its frozen path object marks nothing.
+    if (node.storageKey !== undefined) continue;
     if (!result.ok) {
       failWith(node.noteId, result.reason ?? "copy_failed");
       continue;
