@@ -14,6 +14,8 @@ import {
 import { deleteWithLegacyFallback } from "../../storageLayout.js";
 import { isPlumbing } from "../../privacy/engine.js";
 import { listAllKeys } from "../../notes/storage.js";
+import { isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
+import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { recordChange } from "../../activity/record.js";
 import { toolError, toolText } from "../results.js";
 
@@ -149,7 +151,34 @@ export async function toolRotateEncryptionKeys(store, scope) {
   */
   const boundary = Date.now();
 
-  const allKeys = await listAllKeys(store, "");
+  /*
+    WHICH KEYS THE WALK NAMES.
+
+    A whole-bucket rotation has to reach every note's bytes. In an unkeyed
+    workspace those are the raw listing's keys, and that stays as it was. In a
+    KEYED workspace the object at a note's path is a frozen copy nothing reads
+    again, and the note's bytes are at its id key, which the raw walk never
+    names (it is plumbing to the layer). So the walk takes the tree's names
+    and routes each one through the id layer, which reads and writes the live
+    bytes and reports each rewrap to the tree. The raw listing would still
+    reach the live bytes through the frozen path, but it takes each note's
+    "uploaded" time from that frozen copy, which a write to the live bytes
+    never moves: a note written behind the cursor would be skipped and the
+    generation retired over it. A keyed workspace whose tree cannot be walked
+    is refused, not listed.
+  */
+  let listing = store;
+  if (await isKeyedWorkspace(store)) {
+    if (typeof store.treeManifest !== "function") return toolError(KEYED_PATH_REFUSAL);
+    listing = servedListingStore(store);
+  }
+  let allKeys;
+  try {
+    allKeys = await listAllKeys(listing, "");
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return toolError(error.message);
+    throw error;
+  }
   const noteKeys = allKeys
     .filter(({ key }) => key.endsWith(".md") && !isPlumbing(key))
     .map(({ key, uploaded }) => ({ key, uploadedMs: new Date(uploaded).getTime() }))

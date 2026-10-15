@@ -169,6 +169,9 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/ingest/resolve": "gatewayIngestResolve",
     "/gateway/ingest/binding": "gatewayIngestBinding",
     "/gateway/ingest/record": "gatewayIngestRecord",
+    "/gateway/ingest/note-ids/lookup": "gatewayIngestNoteIdsLookup",
+    "/gateway/ingest/note-ids/wrote": "gatewayIngestNoteIdsWrote",
+    "/gateway/ingest/note-ids/adopt": "gatewayIngestNoteIdsAdopt",
   };
 
   function httpModule(): AnalyzedModule {
@@ -336,12 +339,10 @@ describe("the gateway's HTTP routes", () => {
       "siteHome", "siteHomeRevision", "siteRevisionRoute", "sitePage",
     ]);
 
-    const source = httpModule().source;
-    const start = source.indexOf("export const sharePreview");
-    expect(start, "sharePreview is enumerated but not defined").toBeGreaterThan(
-      -1,
-    );
-    const body = source.slice(start, source.indexOf("\n});", start));
+    // Read from the routed source, not `http.ts` alone: the handler lives in
+    // `publicRoutes/sharePreviews.ts` now, and `http.ts` only declares it.
+    const source = routedSource();
+    const body = routeImplementation(source, "sharePreview");
 
     /**
      * **Two fields wide now, and the second one had to be argued for.**
@@ -435,13 +436,9 @@ describe("the gateway's HTTP routes", () => {
   });
 
   test("the readable team link's route returns three fields and no more", () => {
-    const source = httpModule().source;
-    const start = source.indexOf("export const shareNotePreview");
-    expect(
-      start,
-      "shareNotePreview is enumerated but not defined",
-    ).toBeGreaterThan(-1);
-    const body = source.slice(start, source.indexOf("\n});", start));
+    // Routed source, as above: the handler is in `publicRoutes/sharePreviews.ts`.
+    const source = routedSource();
+    const body = routeImplementation(source, "shareNotePreview");
 
     expect(body).toContain("previewForNote");
     for (const field of ["title:", "cardToken:", "children:"]) {

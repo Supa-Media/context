@@ -28,6 +28,7 @@ import { pruneSearchIndex } from "../functions/lib/fileOps/projection";
 import { runPrunePass } from "../functions/lib/filesFns/prunePass";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { copyTree } from "./fixtures.helpers";
 import { stubD1 } from "./searchBackfill.helpers";
 import { cancelPendingJobs, opted, row } from "./searchBackfill.trigger.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
@@ -160,6 +161,8 @@ async function prunesQueued(t: TestConvex) {
 describe("the daily check", () => {
   test("runs through the barrier against a ready database", async () => {
     const { t, workspaceId, d1 } = await opted({ status: "ready" });
+    // The census is the tree's names (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
     await strandRow(d1.client, "0-inbox/search-freshness-probe.md");
     await strandRow(d1.client, "1-projects/note-0.md");
 

@@ -1,4 +1,5 @@
 import { inWaves } from "../maintain.js";
+import { servedListingStore } from "../../tree/served.js";
 import { LIST_PAGE_LIMIT, MANIFEST_WRITE_RESERVE, FETCH_FLOOR, LIST_CONCURRENCY } from "./constants.js";
 
 // -- the listing walk ------------------------------------------------------
@@ -63,6 +64,28 @@ async function listPaged(store, { prefix, delimiter }, budget, reserve, onObject
 }
 
 /**
+ * The listing the census reads, which is never the bucket's where a control
+ * plane exists. In a keyed workspace (`notes-by-id.md`) the bucket lists uuid
+ * keys, so a census built from it names notes `notes/<uuid>.md`, and the tree
+ * is the only place the names and each row's etag are.
+ *
+ * - The Convex barrier attaches the tree as `treeListing` (`namesListing`,
+ *   `lib/fileOps/walk.ts`), and that is what it reads.
+ * - A gateway session carries `treeManifest`, and `servedListingStore` answers
+ *   its listings from the tree.
+ * - A store with neither has no control plane (the single-tenant token
+ *   deployment, a self-hosted gateway, a unit test's in-memory bucket), so its
+ *   own listing is the only one there is.
+ *
+ * A tree that is still loading or cannot be asked throws `TreeUnavailable`
+ * rather than falling back to the bucket, as every other tree listing does.
+ */
+export function namesOf(store) {
+  if (store.treeListing) return store.treeListing;
+  return typeof store.treeManifest === "function" ? servedListingStore(store) : store;
+}
+
+/**
  * Every indexable note key with the token to diff it by.
  *
  * Delimited at the root, then flat inside each real folder — not an
@@ -71,6 +94,7 @@ async function listPaged(store, { prefix, delimiter }, budget, reserve, onObject
  * the history and reports zero notes for the biggest contexts there are.
  */
 export async function listNoteObjects(store, budget, reserve, isIndexable) {
+  const names = namesOf(store);
   const entries = new Map();
   const folders = new Set();
   const listingReserve = reserve + MANIFEST_WRITE_RESERVE + FETCH_FLOOR;
@@ -94,7 +118,7 @@ export async function listNoteObjects(store, budget, reserve, isIndexable) {
   };
 
   const rootComplete = await listPaged(
-    store,
+    names,
     { prefix: "", delimiter: "/" },
     budget,
     listingReserve,
@@ -118,7 +142,7 @@ export async function listNoteObjects(store, budget, reserve, isIndexable) {
   // time; nothing here is re-entered mid-statement.
   const folderComplete = new Map();
   const completions = await inWaves(realFolders, LIST_CONCURRENCY, (prefix) =>
-    listPaged(store, { prefix }, budget, listingReserve, record)
+    listPaged(names, { prefix }, budget, listingReserve, record)
   );
   realFolders.forEach((prefix, at) => folderComplete.set(prefix, completions[at]));
 

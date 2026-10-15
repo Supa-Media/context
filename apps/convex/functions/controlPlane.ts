@@ -608,6 +608,15 @@ export const openGatewayJob = internalAction({
       .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
       .then((held) => held ?? undefined);
 
+    // Keyed (`lib/noteIds/keyedStore.ts`): a path-based job in a keyed workspace is refused by
+    // the gateway. Not knowing is not "unkeyed": the job waits for the next delivery instead.
+    let keyed: boolean;
+    try {
+      keyed = await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId: claimed.workspaceId });
+    } catch {
+      return { retryAfterMs: 30_000 };
+    }
+
     if (credential.provider === "dropbox") {
       return {
         job: claimed,
@@ -625,6 +634,7 @@ export const openGatewayJob = internalAction({
         rotation,
         managedEncryption,
         privacy,
+        keyed,
       };
     }
     return {
@@ -648,6 +658,7 @@ export const openGatewayJob = internalAction({
       rotation,
       managedEncryption,
       privacy,
+      keyed,
     };
   },
 });

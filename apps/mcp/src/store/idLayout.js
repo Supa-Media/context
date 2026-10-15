@@ -42,6 +42,29 @@ import { idKeyFor, newNoteId } from "./noteIdKeys.js";
 /** Options that make a read or write about one particular version or byte range. */
 const CONDITIONAL_OPTIONS = ["onlyIf", "range", "ifMatch", "ifNoneMatch", "ifModifiedSince", "ifUnmodifiedSince"];
 
+/**
+ * What a path-based operation says in a keyed workspace, where the path holds
+ * a frozen copy and not the note. Shared by every caller that refuses.
+ */
+export const KEYED_PATH_REFUSAL =
+  "this workspace keeps its notes under their ids, and this operation works on paths, so it is not available in a keyed workspace yet. Nothing was changed.";
+
+/** The path a keyed question is asked with. The answer is the workspace's, whatever the path. */
+const KEYED_PROBE = ".context/keyed-probe";
+
+/**
+ * Whether the store's workspace is keyed. `false` for any store with no id
+ * layer, since nothing above it can be keyed without one. A layer that cannot
+ * answer throws, and the caller refuses.
+ *
+ * @param {object} store
+ * @returns {Promise<boolean>}
+ */
+export async function isKeyedWorkspace(store) {
+  if (typeof store?.keyedWorkspace !== "function") return false;
+  return (await store.keyedWorkspace()) === true;
+}
+
 /** A path the id layer may answer for: a note or file a person can name. */
 function mirroredPath(path) {
   return typeof path === "string" && path !== "" && !isPlumbing(path);
@@ -154,6 +177,18 @@ function underPathEtag(object, etag) {
   });
 }
 
+/**
+ * Thrown when an ordinary delete reaches a keyed note. Retiring the row and its
+ * key is what emptying the trash does; a delete of a keyed note is a trash
+ * (`rowTrash.ts`, Convex), which this gateway cannot make. Nothing is removed.
+ */
+export class KeyedRetireRefused extends Error {
+  constructor() {
+    super("a keyed note is trashed, not deleted: nothing was removed");
+    this.name = "KeyedRetireRefused";
+  }
+}
+
 /** Thrown when a keyed write's name turned out to be taken by something this layer cannot write over. */
 export class NoteNameTaken extends Error {
   constructor() {
@@ -255,6 +290,15 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
     return result;
   };
 
+  /*
+    Whether this workspace is keyed (`keyed` on the lookup answer). A keyed
+    workspace's path objects are frozen copies, so a caller that lists or moves
+    by path must refuse it. Asked of the tree with a probe path: the answer is
+    the workspace's, not the path's. A failed lookup fails the question, as it
+    fails every read in this layout.
+  */
+  wrapped.keyedWorkspace = async () => strict && (await lookup([KEYED_PROBE]))?.keyed === true;
+
   if (!strict) {
     /* ------------- "ids": the path is home; the copy is a mirror ------------- */
 
@@ -333,6 +377,19 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
   if (typeof store.head === "function") wrapped.head = routedRead("head");
   if (typeof store.exists === "function") wrapped.exists = routedRead("exists");
 
+  /**
+   * The id of the live row at `path`, for the collaboration engine: a head is
+   * made for one note, and a note at a name whose row now names another id
+   * does not inherit that head (`packages/collaboration/src/load.js`). A path
+   * with no keyed row answers `null`, and so does a row the lookup did not
+   * name an id for.
+   */
+  wrapped.noteIdAt = async (path) => {
+    if (!mirroredPath(path)) return null;
+    const { entry } = await resolve(path);
+    return keyedEntry(entry) && typeof entry.noteId === "string" ? entry.noteId : null;
+  };
+
   /** A write to a keyed note: its key, compared against the key's version, then reported. */
   const keyedPut = async (path, entry, body, options) => {
     if (options?.onlyIf?.absent === true) return null;
@@ -395,8 +452,11 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
       const resolved = await resolve(path);
       const { entry } = resolved;
       if (keyedEntry(entry)) {
+        // Only the trash's emptying retires a keyed row (`retire: true`). Any other delete must not
+        // reach `removed`: the row would be tombstoned and its key discarded, which is not recoverable.
         const expected = keyedExpectation(entry, rest[0]?.onlyIf?.etagMatches);
         if (expected !== undefined && expected !== entry.etag) return null;
+        if (rest[0]?.retire !== true) throw new KeyedRetireRefused();
         // The row first: once it is gone the note is gone, whatever happens to its bytes.
         await removed({ path, key: entry.key, at: now() });
         await discard(entry.key);

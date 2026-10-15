@@ -133,6 +133,8 @@ export async function runUsageReportingChecks(check) {
 
   controlPlane.addWorkspace(WS, "usage", s3Binding("usage-bucket", "AA"));
   controlPlane.addWorkspace("ws_other", "other", s3Binding("usage-other", "BB"));
+  // The census is the tree's names, never the bucket's listing (`search/shards/listing.js`).
+  controlPlane.serveTreesFrom(null, { s3 });
   await controlPlane.addGrant({
     accessToken: TOKEN,
     workspaceId: WS,

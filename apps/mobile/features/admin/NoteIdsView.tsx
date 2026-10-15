@@ -30,6 +30,9 @@ import {
   handleLabel,
   isFailing,
   keyedLine,
+  keysLabel,
+  keysNote,
+  keysSwitch,
   modeLabel,
   nextMode,
   pauseLabel,
@@ -54,6 +57,7 @@ export function NoteIdsView() {
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
   const [confirmingSwitch, setConfirmingSwitch] = useState(false);
+  const [confirmingKeys, setConfirmingKeys] = useState(false);
 
   const rows = useMemo(() => (report === undefined ? null : sortWorkspaces(report.workspaces)), [report]);
 
@@ -108,6 +112,15 @@ export function NoteIdsView() {
       setConfirmingSwitch(false);
       return target === "ids" ? "Reading from notes/ now." : "Reading from paths again.";
     });
+
+  const makeKeys = () =>
+    act("keys", async () => {
+      await setMode({ mode: "keys" });
+      setConfirmingKeys(false);
+      return "Every note now lives only under notes/.";
+    });
+
+  const keysButton = keysSwitch(report.mode, report.workspaces);
 
   const diagnoseEverything = () =>
     act("diagnose-all", async () => {
@@ -178,6 +191,22 @@ export function NoteIdsView() {
               />
             </View>
           )}
+          {keysButton.shown && !confirmingKeys ? (
+            <View style={styles.keysCell}>
+              <Button
+                label={busy === "keys" ? "Making…" : keysLabel()}
+                variant="danger"
+                disabled={busy !== null || !keysButton.enabled}
+                onPress={() => setConfirmingKeys(true)}
+                testID="admin-noteids-keys"
+              />
+              {keysButton.reason ? (
+                <Text variant="meta" testID="admin-noteids-keys-reason">
+                  {keysButton.reason}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
         {confirmingSwitch ? (
           <View style={styles.inline} role="alert" testID="admin-noteids-switch-confirm">
@@ -189,6 +218,21 @@ export function NoteIdsView() {
                 disabled={busy !== null}
                 onPress={() => void switchMode()}
                 testID="admin-noteids-switch-go"
+              />
+            </View>
+          </View>
+        ) : null}
+        {confirmingKeys ? (
+          <View style={styles.inline} role="alert" testID="admin-noteids-keys-confirm">
+            <Text variant="check">{keysNote()}</Text>
+            <View style={styles.actions}>
+              <Button label="Cancel" disabled={busy !== null} onPress={() => setConfirmingKeys(false)} />
+              <Button
+                label={busy === "keys" ? "Making…" : keysLabel()}
+                variant="danger"
+                disabled={busy !== null || !keysButton.enabled}
+                onPress={() => void makeKeys()}
+                testID="admin-noteids-keys-go"
               />
             </View>
           </View>
@@ -324,6 +368,7 @@ const makeStyles = (colors: Colors) =>
     overallBar: { flexGrow: 1, flexBasis: 220, gap: space.x2 },
     actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2, paddingTop: space.x2 },
     switchCell: { marginLeft: "auto" },
+    keysCell: { marginLeft: "auto", gap: space.x1, alignItems: "flex-end" },
     inline: { gap: space.x2, paddingTop: space.x2 },
     row: {
       flexDirection: "row",

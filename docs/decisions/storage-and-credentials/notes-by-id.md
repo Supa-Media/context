@@ -59,3 +59,101 @@ history until the code they describe is deleted.
 What a "simplification" would cost: reading a name, a folder or a rule from
 the bucket again brings back a second answer that disagrees with the rows,
 and keying bytes by path brings back copies on every move.
+
+## Moves in a keyed workspace are row changes
+
+*Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (switch at
+`keys` and the flip started, `lib/noteIds/keyedState.ts`) a move, rename or
+archive of a file or folder rewrites `nodes` rows and copies nothing:
+`lib/nodes/rowMove.ts` (`applyRowMove`), entered from `startQueuedMove`
+(`lib/nodes/moveStart.ts`), which is the one place every move is decided.
+
+- **Refused, nothing written:** a queued byte move still pending; a
+  destination, or a path a moved row would take, held by a live row; a file
+  under the name with no key yet; a stale expected etag; more than
+  `ROW_MOVE_MAX` (500) live rows, answered `FOLDER_TOO_LARGE`. Above the cap
+  there is **no** queued byte fallback: the queue would move the frozen path
+  copies the bucket still holds, which are not the notes.
+- **Refused, not moved, when the caller cannot see the whole name:** a folder
+  holding a note the caller may not see cannot move in one step.
+- **Carried:** the change log (gone at the old path, present at the new one),
+  `nodeLinks` sources, and what a queued move already carried (pins, website
+  routes, meaning search). Privacy is carried before the rows move and released
+  after it, exactly as a queued move does.
+- **Collaboration history is carried** (`renameDocument`, `packages/collaboration`).
+  After a row move the gateway renames each moved note's heads and state to
+  the new name, without reading or writing its bytes: the state's path moves,
+  the new name's head is claimed and activated, and the old name's head is
+  fenced `moved` with its destination, so an offline editor's commits follow
+  it. A note with no history costs one read. The old name's live room is told
+  with `moved`; the new name is sent to that room only where the team tier may
+  see it, so a move that narrows a note discloses nothing to its members.
+  Recovery is journaled: once the new name is claimed, any read of it finishes
+  an interrupted rename. A failure before the claim needs a retry of
+  `renameDocument`, which nothing makes yet.
+- **Not carried yet:** body links are not rewritten (forwarding covers them);
+  shares and routines are not re-keyed.
+
+**Known gap.** A rename can fail before the new name is claimed (the journal
+and the state freeze come first). Then the row has moved, the old head is still
+active, and nothing names the new one, so a reader of the new name before any
+retry starts a new document over the note. The old history stays in the bucket, but the
+editors on it are stranded. Nothing retries it yet, and no reconcile rebinds
+the new name to the old identity from the forwarding record. Until one does,
+staff should not switch a workspace with live collaborative notes to `keys`.
+- **Archive** of a note is a move into the archive root, so it is a row change
+  too.
+- **A batch `move_notes`** (apply, not dry run) is one control-plane call,
+  `POST /gateway/moves/batch` (`lib/nodes/rowMoveBatch.ts`), and lands whole or
+  not at all. Every move's rules are carried before the rows move, once for the
+  batch; the rows move in one mutation (`nodeRowMoves.rowMoveBatch`), whose
+  refused move throws, which takes back every move before it. A refusal says
+  which move failed and why, as a single move's would. The batch's rows are
+  capped together at `ROW_MOVE_MAX`, so two folders each within the cap can
+  still be refused. Sequential moves with partial reporting were the
+  alternative: a part-applied batch is worse than a refused one, and an agent
+  cannot tell from a partial answer what is now in the tree.
+- **Trash** in a keyed workspace is a row move too (`lib/nodes/rowTrash.ts`,
+  built on 2026-10-15). A note or folder's rows move to
+  `.context/trash/<stamp>/<path>`, the destination the queued trash names, so
+  the bytes stay at their keys. A second trash in the same millisecond takes
+  `<stamp>-2`, `-3`, and so on. The rows carry no privacy rule: the note keeps
+  its rules at its own name for Restore. Its links and pins stay where they
+  were, as a trash made in one go leaves them. Restore moves the rows back: a
+  note, one note out of a trashed folder, or the whole folder, with each row's
+  id, key and bytes. The row cap applies (`FOLDER_TOO_LARGE`, nothing moved): no
+  byte fallback. The `trash` flag on `rowMove` is refused unless one end of the
+  move is under `.context/trash`.
+- **Trash, Restore and the history.** A trash carries each moved note's heads
+  to its trash location, and a Restore carries them back (`renameDocument` with
+  `internalTrash`, called from `lib/nodes/rowHistory.ts`), so the trashed note's
+  history follows it. A head records the note id of the row it was made for. A
+  note opened at a name whose head names another id starts a document of its
+  own and leaves the old state untouched (`load.js`, `noteIdAt` from the keyed
+  store). So a note created at a trashed note's name never inherits its live
+  history, even when the carry failed. The carry is best-effort and never fails
+  the row change. A failure before the claim leaves the head at the old name, and
+  nothing retries it; a Restore then finds the history where it was. A Restore
+  whose carry fails leaves the note with a fresh document.
+- **Undo of a new folder, and a plugin's delete,** in a keyed workspace trash the
+  rows (`trashKeyedRows`) instead of being refused. Undo still checks that the
+  folder holds only its about note, but in a keyed workspace it cannot read that
+  note's text (the path holds a frozen copy), so the "edited about note keeps the
+  folder" check is not made there: the folder goes to the trash, and Restore
+  brings back whatever was typed.
+- **The cap counts the name.** `ROW_MOVE_MAX` (500) is the live rows a move
+  renames, the folder or note itself included. A folder of 501 rows is refused.
+
+What a "simplification" would cost: a byte move in a keyed workspace moves
+frozen copies and leaves the live note where it was, and a trash that moves
+bytes leaves the note in place. `keyedTrash.test.ts` (the trash, restore, cap
+and name-collision cases) and the cap cases in `keyedRowMove.test.ts` fail if
+either is reversed.
+
+**Open:** collaboration heads are still path-keyed. They now record the note id
+they were made for, so a name cannot pass one note's history to another, but
+keying the heads by note id would remove the carry entirely. A head created
+before this change has no id and is not checked: a trashed note whose head was
+left at its name before this change can still pass its history to a note later
+created there. The rename gap in the section above is the other open item for a
+workspace with live collaborative notes.

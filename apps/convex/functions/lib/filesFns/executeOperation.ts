@@ -44,10 +44,12 @@ import {
   setFolderVisibility,
   setVisibility,
   syncManifest as syncManifestOp,
+  trashKeyedRows,
   trashPath,
   writeFile,
   writeImage,
 } from "../fileOps";
+import { isKeyedStore } from "../noteIds/keyedStore";
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
@@ -426,6 +428,11 @@ export async function executeOperation(
         return { kind: "moved", ...moved };
       }
       case "pluginDelete": {
+        // A keyed workspace's file is at its id key, which this store's reads do not reach: the version is
+        // checked by the row move, and the file is trashed as its row (restorable), not deleted.
+        if (await isKeyedStore(store)) {
+          return { kind: "deleted", ...(await trashKeyedRows(store, { path: operation.path, clearance, now, expectedEtag: operation.expectedEtag })) };
+        }
         const current = await readFile(store, { path: operation.path, clearance });
         if (current.etag !== operation.expectedEtag) {
           throw new FileOpError(
@@ -561,7 +568,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveBatch": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

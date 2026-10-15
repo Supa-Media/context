@@ -246,8 +246,8 @@ index 9d9b3748..7460b8e5 100644
 +      : writePermissionError("archive destination");
 +  }
  
-   if (collaborationBase) {
-     if (store.capabilities?.conditionalDelete !== true) {
+   // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
+   const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
 diff --git a/apps/mcp/src/tools/moves/folder.js b/apps/mcp/src/tools/moves/folder.js
 index 374b182..29e46fb 100644
 --- a/apps/mcp/src/tools/moves/folder.js

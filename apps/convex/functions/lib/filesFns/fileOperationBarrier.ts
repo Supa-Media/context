@@ -17,7 +17,6 @@ import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
@@ -45,6 +44,7 @@ import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation,
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
+import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
 import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
@@ -72,6 +72,7 @@ import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
 import { toConvexError } from "./operationErrors";
+import { afterMaintenance } from "./maintenanceFollowUps";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
@@ -358,7 +359,8 @@ export async function runFileOperationHandler(
     return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
   }
 
-  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId); // the app reads and saves by id, as an AI client does
+  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
+  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
@@ -422,7 +424,11 @@ export async function runFileOperationHandler(
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
-  if (args.operation.kind === "pruneIndex") return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
+  if (args.operation.kind === "pruneIndex") {
+    // Its census decides which rows are gone, so it reads the tree's names too: a bucket listing of uuid keys would delete every keyed row.
+    attachTreeListing(ctx, args.workspaceId, store);
+    return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
+  }
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;
@@ -439,6 +445,8 @@ export async function runFileOperationHandler(
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
+    // Its census is the tree's names, as every other listing here is (`namesListing`).
+    attachTreeListing(ctx, args.workspaceId, store);
     return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);
   }
 
@@ -476,8 +484,9 @@ export async function runFileOperationHandler(
   // from the trash and a move in from another context all add one, and stay
   // capped.
   const listing = await manifestSource(ctx, args, store);
-  attachQueueMove(ctx, args, listing.store, bucket);
+  attachQueueMove(ctx, args, listing.store, bucket, undefined, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
+  attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(
@@ -608,93 +617,6 @@ export async function runFileOperationHandler(
     return answer;
   }
 
-  // A maintenance pass that got somewhere and is not finished schedules the
-  // next one. Here rather than in a job of its own because a second internal
-  // action that opens a bucket credential is a second credential barrier,
-  // and `CREDENTIAL_BARRIERS` holding one entry with a long warning attached
-  // is the point of it — see CLAUDE.md, "Credential barriers are enumerated,
-  // never inferred". Scheduling from inside the barrier propagates no taint.
-  if (
-    args.operation.kind === "maintainIndex" &&
-    result.kind === "indexMaintained" &&
-    result.changed &&
-    !result.complete
-  ) {
-    const passes = Math.floor(args.operation.passes ?? 0);
-    if (passes > 0) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: args.scope,
-        operation: { kind: "maintainIndex", passes: passes - 1 },
-      });
-    }
-  }
-  if (args.operation.kind === "migrateStorage" && result.kind === "storageMigrated") {
-    /*
-      WHAT THE BUCKET SAID, WRITTEN DOWN WHERE A QUERY CAN REACH IT.
-
-      The bucket stays authoritative — `migrateStorageLayout` keeps its own
-      state under `.context/` and short-circuits on `complete`. This is the
-      copy the console reads, and it is recorded on **every** pass rather
-      than only at the end, so an owner watching a long migration sees
-      `copying` rather than nothing at all.
-
-      Before this, nothing outside the bucket knew the migration had ever
-      run. The console's offer to run it was therefore answered by a flag on
-      one device, and came back on the next browser and the next phone for a
-      bucket already migrated — which is the nag this is here to end.
-    */
-    await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
-      workspaceId: args.workspaceId,
-      state: result.state,
-    });
-    const continuing =
-      (args.operation.cleanup && result.state === "cleaning") ||
-      (!args.operation.cleanup && result.state === "copying");
-    if (continuing) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: "private",
-        operation: {
-          kind: "migrateStorage",
-          cleanup: args.operation.cleanup,
-        },
-      });
-    } else if (!args.operation.cleanup && result.state === "copied") {
-      await ctx.scheduler.runAfter(
-        STORAGE_LAYOUT_ROLLBACK_MS + 5_000,
-        internal.functions.files.runFileOperation,
-        {
-          workspaceId: args.workspaceId,
-          scope: "private",
-          operation: { kind: "migrateStorage", cleanup: true },
-        },
-      );
-    }
-  }
-  if (args.operation.kind === "readStorageLayout" && result.kind === "storageLayoutRead") {
-    /*
-      THE QUESTION NOBODY WAS ASKING.
-
-      `migrateStorage` records what the bucket said, but only a context that
-      ran the migration *after* that recording existed ever had anything
-      recorded. Every context migrated before it kept a `complete` in its own
-      bucket and an empty column here, and the console reads an empty column
-      as "nobody has run this" — so it offered the update again on every
-      device, for ever, to the people who had already run it.
-
-      This is the same write from the other direction: ask, and write down
-      the answer, without running anything. `observed: false` is not an
-      answer — a bucket that would not talk to us teaches us nothing, and
-      recording a timestamp for it would claim otherwise and close the offer
-      on a context that may genuinely still need it.
-    */
-    if (result.observed) {
-      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
-        workspaceId: args.workspaceId,
-        ...(result.state === null ? {} : { state: result.state }),
-      });
-    }
-  }
+  await afterMaintenance(ctx, args, result);
   return result;
 }

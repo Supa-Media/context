@@ -123,8 +123,23 @@ export function createSessionMethods({ post, required }) {
      *
      * @returns {Promise<{queued: true, count: number}|{queued: false}|{queued: false, error: string, message: string}>}
      */
-    async startQueuedMove(accessToken, expectedWorkspaceId, from, to) {
-      return required(await post("/gateway/moves/start", { accessToken, expectedWorkspaceId, from, to }), "move");
+    async startQueuedMove(accessToken, expectedWorkspaceId, from, to, expectedEtag) {
+      const body = { accessToken, expectedWorkspaceId, from, to };
+      // A note asked against the version the caller read; absent for a folder or an online press.
+      if (typeof expectedEtag === "string") body.expectedEtag = expectedEtag;
+      return required(await post("/gateway/moves/start", body), "move");
+    },
+
+    /**
+     * Ask the control plane to make several note moves in a keyed workspace,
+     * whole or not at all (`/gateway/moves/batch`). The same proofs as
+     * `startQueuedMove`. Each move may carry the version the caller read.
+     *
+     * @param {{from: string, to: string, expectedEtag?: string}[]} moves
+     * @returns {Promise<{ok: true, moves: {from: string, to: string}[]}|{ok: false, error: string, message: string}>}
+     */
+    async startMoveBatch(accessToken, expectedWorkspaceId, moves) {
+      return required(await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }), "move");
     },
 
     /**

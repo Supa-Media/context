@@ -171,7 +171,7 @@ describe("the app's store and the id switch", () => {
     expect(await rowAt(t, ws, "1-projects/new.md")).toMatchObject({ etag: saved.etag, storageKey: row.storageKey });
   });
 
-  test("on keys, an app delete retires the row and removes the note's key", async () => {
+  test("on keys, an ordinary app delete is refused: the row and its key stay", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "console-keys-delete");
     const store = bucket({});
@@ -179,7 +179,21 @@ describe("the app's store and the id switch", () => {
     const wrapped = await appStore(t, ws, storeWithHead(store));
     await wrapped.put("1-projects/new.md", "# New\n");
     const { storageKey } = (await rowAt(t, ws, "1-projects/new.md"))!;
-    await wrapped.delete("1-projects/new.md");
+    await expect(wrapped.delete("1-projects/new.md")).rejects.toMatchObject({ name: "KeyedRetireRefused" });
+    expect((await rowAt(t, ws, "1-projects/new.md"))!.goneAt).toBeUndefined();
+    expect(store.bytesOf(storageKey!)).not.toBeNull();
+  });
+
+  test("on keys, only the trash's emptying (`retire: true`) retires the row and removes the note's key", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "console-keys-retire");
+    const store = bucket({});
+    await keyedWorkspace(t, ws);
+    const wrapped = await appStore(t, ws, storeWithHead(store));
+    await wrapped.put("1-projects/new.md", "# New\n");
+    const { storageKey } = (await rowAt(t, ws, "1-projects/new.md"))!;
+    // The trash's emptying is the only caller that passes `retire` (`idLayout.js`); the app's own type does not name it.
+    await (wrapped.delete as (path: string, options: object) => Promise<unknown>)("1-projects/new.md", { retire: true });
     expect((await rowAt(t, ws, "1-projects/new.md"))!.goneAt).toBeDefined();
     expect(store.bytesOf(storageKey!)).toBeNull();
   });

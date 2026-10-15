@@ -13,6 +13,7 @@ import {
 } from "./records.js";
 import { purgeDocumentState, scrubStructural } from "./purge.js";
 import { finishAbortedMove, recoverMove } from "./moveRecovery.js";
+import { recoverRename } from "./rename.js";
 
 async function recoverDelete(store, operationId) {
   const opRecord = await readStructural(store, operationId);
@@ -222,5 +223,6 @@ export async function recoverStructural(store, operationId) {
   if (op.kind === "delete") return recoverDelete(store, operationId);
   if (op.kind === "restore") return recoverRestore(store, operationId);
   if (op.kind === "seal") return recoverSeal(store, operationId);
+  if (op.kind === "rename") return recoverRename(store, operationId);
   throw fail("CORRUPT_STATE", "unsupported structural operation");
 }

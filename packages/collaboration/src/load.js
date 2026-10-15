@@ -29,7 +29,20 @@ import {
 import { assertEligible, isEncryptedEnvelope } from "./admission.js";
 import { recoverStructural } from "./structuralRecovery.js";
 
-async function initialize(store, path, note, head) {
+/**
+ * The note id of the live row at `path`, when the store can say (a keyed
+ * workspace's gateway store does; any other store answers `null`, and the
+ * check in `load` is skipped). A head records the id it was made for, so a
+ * note created at a name a trashed note left behind does not inherit that
+ * note's history (`notes-by-id.md`).
+ */
+export async function rowNoteId(store, path) {
+  if (typeof store?.noteIdAt !== "function") return null;
+  const noteId = await store.noteIdAt(path);
+  return typeof noteId === "string" && noteId !== "" ? noteId : null;
+}
+
+async function initialize(store, path, note, head, noteId = null) {
   if (head) {
     if (head.status !== "active") throw fail("GENERATION_MISMATCH", "document generation is unavailable");
     let stored = await readState(store, head);
@@ -82,6 +95,7 @@ async function initialize(store, path, note, head) {
     initialText: note.text,
     initialSnapshot: snapshotOf(seed),
     status: "active",
+    ...(noteId === null ? {} : { noteId }),
   };
   const writtenHead = await put(store, await headKey(path), JSON.stringify(candidate), { absent: true });
   if (!writtenHead) return null;
@@ -95,7 +109,7 @@ async function initialize(store, path, note, head) {
   return initialize(store, path, note, { ...candidate, etag: writtenHead.etag });
 }
 
-async function recreateGeneration(store, path, note, tombstone) {
+async function recreateGeneration(store, path, note, tombstone, noteId = null) {
   const seed = newDoc();
   seed.getText("note").insert(0, note.text);
   const documentId = randomId("doc");
@@ -109,14 +123,26 @@ async function recreateGeneration(store, path, note, tombstone) {
     initialText: note.text,
     initialSnapshot: snapshotOf(seed),
     status: "active",
+    ...(noteId === null ? {} : { noteId }),
   };
   const written = await put(store, await headKey(path), JSON.stringify(candidate), { etagMatches: tombstone.etag });
   if (!written) return load(store, path);
-  return initialize(store, path, note, { ...candidate, etag: written.etag });
+  return initialize(store, path, note, { ...candidate, etag: written.etag }, noteId);
 }
 
 async function load(store, path) {
   const head = await readHead(store, path);
+  const noteId = await rowNoteId(store, path);
+  // An active head made for another note: the name's row is a different note now (the one the head was
+  // made for was trashed, and its head was not carried with it). That head is not this note's, so the
+  // new note starts its own document. The old document's state is left as it is.
+  if (head?.status === "active" && noteId !== null && head.noteId !== undefined && head.noteId !== noteId) {
+    const replacement = await readObject(store, path);
+    if (!replacement) throw fail("DOCUMENT_MISSING", "collaboration requires an existing Markdown note");
+    assertEligible(path, replacement.text);
+    assertTextSize(replacement.text);
+    return recreateGeneration(store, path, replacement, head, noteId);
+  }
   if (head?.status === "sealed") {
     const sealed = await readObject(store, path);
     if (!sealed) throw fail("DOCUMENT_MISSING", "sealed Markdown note is missing");
@@ -126,14 +152,14 @@ async function load(store, path) {
     if (isEncryptedEnvelope(sealed.text)) throw fail("INELIGIBLE_DOCUMENT", "encrypted notes are not eligible for collaboration");
     assertEligible(path, sealed.text);
     assertTextSize(sealed.text);
-    return recreateGeneration(store, path, sealed, head);
+    return recreateGeneration(store, path, sealed, head, noteId);
   }
   if (head?.status === "moved") {
     const recreated = await readObject(store, path);
     if (!recreated) throw Object.assign(fail("MOVED", "document moved; reauthorize the destination"), { destination: head.destination });
     assertEligible(path, recreated.text);
     assertTextSize(recreated.text);
-    return recreateGeneration(store, path, recreated, head);
+    return recreateGeneration(store, path, recreated, head, noteId);
   }
   if (head?.status === "deleted") {
     if (head.operationId) {
@@ -144,7 +170,7 @@ async function load(store, path) {
     if (!recreated) throw fail("DELETED", "document generation is deleted");
     assertEligible(path, recreated.text);
     assertTextSize(recreated.text);
-    return recreateGeneration(store, path, recreated, head);
+    return recreateGeneration(store, path, recreated, head, noteId);
   }
   if (head && ["moving", "prepared", "deleting", "restoring", "sealing"].includes(head.status)) {
     await recoverStructural(store, head.operationId);
@@ -158,7 +184,7 @@ async function load(store, path) {
   if (!note) throw fail("DOCUMENT_MISSING", "collaboration requires an existing Markdown note");
   assertEligible(path, note.text);
   assertTextSize(note.text);
-  const initialized = await initialize(store, path, note, head);
+  const initialized = await initialize(store, path, note, head, noteId);
   if (initialized) return initialized;
   return load(store, path);
 }

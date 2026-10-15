@@ -72,6 +72,8 @@ export interface OpenedGatewayJob {
   rotation?: GatewayKeyRotation;
   /** Managed-storage encryption mode, as on `OpenedGatewayBinding`. */
   managedEncryption?: { mode: "migrating" | "encrypted" | "decrypting" };
+  /** Whether the workspace is keyed (`lib/noteIds/keyedStore.ts`). A path-based job is refused when it is. */
+  keyed?: boolean;
   /** The privacy rules while they are the authority, as on `/gateway/binding` (phase 3). */
   privacy?: {
     etag: string;

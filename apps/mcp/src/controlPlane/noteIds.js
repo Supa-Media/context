@@ -22,7 +22,7 @@ function text(value) {
  * layer reads as "no row" in a workspace that is not keyed and refuses in one
  * that is (the lookup then names no note there, so a read finds nothing).
  */
-function narrowNote(entry) {
+export function narrowNote(entry) {
   if (!entry || typeof entry !== "object") return null;
   switch (entry.state) {
     case "keyed": {
@@ -93,7 +93,7 @@ export function createNoteIdMethods({ post, required }) {
       }
       // `keyed` and `notes` arrive from a control plane that knows keyed rows;
       // an older one sends `copies` only, which the layer reads as before.
-      if (parsed.notes === undefined) return { copies: narrowed };
+      if (parsed.notes === undefined) return { copies: narrowed, ...(parsed.keyed === true ? { keyed: true } : {}) };
       if (!parsed.notes || typeof parsed.notes !== "object" || Array.isArray(parsed.notes)) {
         throw new ControlPlaneError("malformed note id entries");
       }

@@ -33,6 +33,7 @@ import type { FileStore } from "../fileOps/store";
 import type { OperationResult } from "../filesFns/operationTypes";
 import { PRIVACY_KEY } from "../privacy";
 import { releasePrivacy } from "./movePrivacy";
+import { isKeyedStore } from "../noteIds/keyedStore";
 import { type StepOptions, moveOneObject } from "./moveSteps";
 import { touchNodesNow } from "./run";
 import { rowFromObject } from "./sweep";
@@ -63,6 +64,8 @@ export const MOVE_FAILED_CONFLICT = "A note changed or a name was taken while mo
 export const MOVE_FAILED_STORAGE = "Storage refused a move; retrying";
 export const MOVE_FAILED_FINISH = "Finishing the move failed; retrying";
 export const MOVE_FAILED_TOO_LARGE = "A file is too large to move on this storage";
+export const MOVE_FAILED_KEYED =
+  "Moving these notes by name is not available in a keyed workspace yet; nothing was moved";
 
 type Claimed = NonNullable<Awaited<ReturnType<typeof claimMove>>>;
 
@@ -289,6 +292,14 @@ export async function runMoveWork(
   const started = Date.now();
   const claimed = await claimMove(ctx, workspaceId, started);
   if (claimed === null) return { kind: "nodesKept", complete: true };
+  // In a keyed workspace the bytes are not at their old names, so the old-name
+  // walk would move frozen copies. Renames there are row-only; a byte move is
+  // refused here, before any walk, and the move is left failed with its reason.
+  if (await isKeyedStore(store)) {
+    console.error("nodes.move_failed", { workspaceId, label: MOVE_FAILED_KEYED });
+    await ctx.runMutation(internal.functions.nodeMoves.failed, { id: claimed.id, label: MOVE_FAILED_KEYED, now: Date.now() });
+    return { kind: "nodesKept", complete: false };
+  }
   const deadline = started + (options.budgetMs ?? PASS_BUDGET_MS);
   let rules: Promise<PrivacyState> | null = null;
   const steps: StepOptions = {

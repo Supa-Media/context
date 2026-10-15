@@ -126,6 +126,8 @@ export async function runSearchIntegrationBrokenAndRecallChecks(check, harness) 
       NATIVE_BINDINGS: "RECALL_BUCKET",
       RECALL_BUCKET: recall,
     };
+    // The census is the tree's names, never the bucket's listing, so the tree must serve this bucket too.
+    controlPlane.serveTreesFrom(recallEnv);
 
     await searchText(recallEnv, RECALL_OWNER, { query: "teamword" });
     const recallManifest = await loadIndexManifest(recall, createSearchBudget(10), 0);

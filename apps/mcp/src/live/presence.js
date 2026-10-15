@@ -69,6 +69,44 @@ export function presenceDisplayName(session) {
 }
 
 /**
+ * Tell the room that held a note's old name that the note now lives at `to`.
+ *
+ * A byte move already leaves the old name's head forwarding (`moved`), so an
+ * HTTP save follows it. A socket open on the old name has no such
+ * forwarding, so the room is told directly: it passes `t: "moved"` to its
+ * members and closes them to reconnect. `to` is the new name, or `null` where
+ * the room must not learn it (`keyedCollaboration.js` decides). Best-effort, as
+ * the other room notices are: the engine already moved, and a member that
+ * missed it finds no note at the old name, as it does after a byte move.
+ */
+export async function announceMovedToPresence(store, from, to) {
+  const rooms = store.presenceRooms;
+  const workspaceId = store.actor?.workspaceId;
+  if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
+  const run = async () => {
+    try {
+      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, from)));
+      await room.fetch("https://presence.invalid/moved", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to }),
+      });
+    } catch {
+      // A room that cannot be reached reconnects later and learns the destination then.
+    }
+  };
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(run());
+      return;
+    } catch {
+      // Fall through for self-hosted shims without a working waitUntil.
+    }
+  }
+  await run();
+}
+
+/**
  * Keep a ready Fast Search database current when this gateway writes a note.
  *
  * The initial backfill and periodic reconciliation remain the repair path for

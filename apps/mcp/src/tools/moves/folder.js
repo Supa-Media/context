@@ -34,6 +34,7 @@ import { collaborationHead } from "../../live/collaborationHttp.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { isEncryptedNote } from "../../encryption.js";
 import { listAllKeys } from "../../notes/storage.js";
+import { isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
 import { destinationRefusal } from "./destination.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
 import { LOGICAL_FOLDER_MOVE_THRESHOLD } from "../../moves/limits.js";
@@ -60,6 +61,11 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
   ) {
     return toolError("source and destination folders must be separate, non-reserved trees");
   }
+  // A keyed workspace's notes live at their id keys; the objects at their
+  // paths are frozen copies, so a move by path would move the wrong bytes and
+  // leave the rows naming them. Refused here, dry run included, so a preflight
+  // never says "ok" to a move the apply would refuse. Nothing is listed or moved.
+  if (await isKeyedWorkspace(store)) return toolError(KEYED_PATH_REFUSAL);
   // The folder playing a built-in role stays where every client expects it
   // (folderRoles.cjs); a duplicate of it is an ordinary folder, and the new
   // name may not twin a sibling (`tree/twins.js`). Both read the tree.
@@ -70,7 +76,7 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
 
   // Queued where the control plane takes it: one step, however big the folder.
   if (!dryRun) {
-    const queued = await startQueuedFolderMove(store, scope, source, destination);
+    const queued = await startQueuedFolderMove(store, scope, source, destination, { rules, overrides });
     if (queued !== null) return queued;
   }
 

@@ -157,3 +157,41 @@ describe("POST /gateway/note-ids/lookup", () => {
     expect(Object.keys((await bodyOf(response)).copies as object)).toEqual([PLAN]);
   });
 });
+
+describe("POST /gateway/note-ids/lookup in a keyed workspace", () => {
+  /** Keys mode with the flip started: the workspace is keyed for good (`keyedState.ts`). */
+  async function keyWorkspace(f: Fixture): Promise<void> {
+    await f.t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: now });
+      const copies = (await ctx.db.query("noteIdCopies").collect()).find((row) => row.workspaceId === f.ws) ?? null;
+      const row = {
+        status: "done" as const,
+        runId: 1,
+        files: 0,
+        copied: 0,
+        failed: 0,
+        failures: [],
+        keyedAt: now,
+        updatedAt: now,
+      };
+      if (copies === null) await ctx.db.insert("noteIdCopies", { workspaceId: f.ws, ...row });
+      else await ctx.db.patch(copies._id, { keyedAt: now });
+    });
+  }
+
+  test("answers keyed: true, so the gateway refuses path-based work there", async () => {
+    const f = await fixture();
+    await seedCopies(f);
+    await keyWorkspace(f);
+    const body = await bodyOf(await lookup(f, { accessToken: OWNER, workspaceId: f.ws, paths: [PLAN] }));
+    expect(body.keyed).toBe(true);
+  });
+
+  test("an unkeyed workspace's answer says keyed false", async () => {
+    const f = await fixture();
+    await seedCopies(f);
+    const body = await bodyOf(await lookup(f, { accessToken: OWNER, workspaceId: f.ws, paths: [PLAN] }));
+    expect(body.keyed).toBe(false);
+  });
+});

@@ -44,6 +44,8 @@ import { PRIVACY_KEY, canSee } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import type { PendingMove } from "./moveOverlay";
 import { touchNodesNow } from "./run";
+import { startRowMove } from "./rowMoveStart";
+import type { ProjectionClient } from "../fileOps/search";
 
 /** Rows one inventory page reads. */
 const ROWS_PAGE = 2_000;
@@ -119,9 +121,17 @@ export async function startQueuedMove(
     to: string;
     clearance: Clearance;
     now: number;
+    /** A move asked against one note's version (an offline rename). */
+    expectedEtag?: string;
+    projection?: ProjectionClient | null;
   },
 ): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
+  // A keyed workspace moves rows, for a file and a folder alike, and never queues bytes (`rowMoveStart.ts`).
+  const rowed = await startRowMove(ctx, args);
+  if (rowed !== null) return rowed;
+  // A move asked against a version is about one note, which never queues: the old way moves it.
+  if (args.expectedEtag !== undefined) return null;
   if (!storeCanQueue(store)) return null;
   const reserved = await ctx.runMutation(internal.functions.nodeMoves.reserve, {
     workspaceId,

@@ -11,6 +11,7 @@ import { createD1Client } from "./d1/client.js";
 import { DEFERRED_SYNC_FLOOR, FALLBACK_SCAN_CAP, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { isEncryptedNote } from "../encryption.js";
 import { listScannableNoteKeys } from "./maintenance.js";
+import { namesOf } from "./shards/listing.js";
 import { mapInBatches } from "../notes/storage.js";
 import comments from "../../../../packages/shared/src/comments.cjs";
 import { noteTitle, SEARCH_RESULT_LIMIT } from "./visible.js";
@@ -26,7 +27,10 @@ import { noteTitle, SEARCH_RESULT_LIMIT } from "./visible.js";
  */
 export async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget, reserve = 0) {
   const needle = query.toLowerCase();
-  const bounded = budget ? budgetedStore(store, budget, reserve) : store;
+  // The names come from the tree where there is one (`shards/listing.js`): in a keyed
+  // workspace the bucket lists uuid keys, and a scan of those would name notes by uuid.
+  const names = namesOf(store);
+  const bounded = budget ? budgetedStore(names, budget, reserve) : names;
   const listed = await listScannableNoteKeys(bounded, prefix);
   // `isPlumbing` explicitly, not as a side effect of which lister ran.
   // `canSee` answers *true* for `privacy.md` at private scope — deliberately,

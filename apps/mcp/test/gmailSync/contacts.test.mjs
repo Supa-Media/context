@@ -108,6 +108,28 @@ export async function runGmailContactChecks(check) {
       store.text("2-areas/people.md").includes("[[0-inbox/contacts/c/claire|Claire]]"));
   }
   {
+    // A keyed workspace (`notes-by-id.md`): the page's bytes live only at its id key,
+    // so the bucket's listing of the contacts folder finds nothing. The name comes
+    // from the tree, and the write goes to that name (the id layer routes it to the key).
+    const KEY = "notes/0192f1a2-3b4c-7d5e-8f60-0000000000c1.md";
+    const TREE_PATH = "0-inbox/contacts/people/claire-dubois.md";
+    const store = guardedStore({ [KEY]: page("Claire", "claire@example.invalid") });
+    const get = store.get.bind(store);
+    const put = store.put.bind(store);
+    const putPaths = [];
+    store.get = (path, ...rest) => get(path === TREE_PATH ? KEY : path, ...rest);
+    store.put = (path, ...rest) => {
+      putPaths.push(path);
+      return put(path === TREE_PATH ? KEY : path, ...rest);
+    };
+    store.keyedWorkspace = async () => true;
+    store.treeManifest = async () => ({ served: true, entries: [{ path: TREE_PATH, etag: "t1", size: 10 }], cursor: null });
+    const result = await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000 });
+    const contactPuts = putPaths.filter((path) => path !== CONTACT_INDEX_KEY);
+    check("a keyed workspace finds a contact page by the tree's name, and writes that page rather than a new one",
+      result.wrote && contactPuts.length === 1 && contactPuts[0] === TREE_PATH && store.text(KEY).includes("2026-10-12"));
+  }
+  {
     // A quota that the page does not fit in stops, as the day writer does.
     const store = guardedStore();
     const result = await writeContactDraft(store, claire({ wroteTo: true }), { remainingQuotaBytes: 10 });

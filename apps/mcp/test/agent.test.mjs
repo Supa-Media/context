@@ -218,6 +218,9 @@ export async function runAgentChecks(check) {
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     });
 
+    // The census is the tree's names, never the bucket's listing (`search/shards/listing.js`).
+    controlPlane.serveTreesFrom(null, { s3 });
+
     await controlPlane.addGrant({
       accessToken: TOKEN_OWNER,
       workspaceId: "ws_agent",

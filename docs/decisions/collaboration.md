@@ -108,6 +108,9 @@ cannot publish operations through a socket or the HTTP endpoint.
 A renamed note retains its identity. Deleting and recreating a filename must
 not attach an old device to the new note. Structural changes need recoverable
 ordering with content commits, not a best-effort sidecar copy after a move.
+In a keyed workspace a rename moves no bytes, so its heads and state are renamed
+as a journaled structural operation (`renameDocument`,
+[notes-by-id](./storage-and-credentials/notes-by-id.md)); the Markdown is never read.
 Encryption must never be downgraded to enable collaborative text editing.
 
 ## Safe deletion and filename reuse

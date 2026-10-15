@@ -107,6 +107,31 @@ describe("/gateway/binding: idLayout", () => {
     expect("idLayout" in back).toBe(false);
   });
 
+  test("keyed is sent beside the binding only for a keyed workspace (switch at keys, flip begun)", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });
+      await ctx.db.insert("noteIdCopies", {
+        workspaceId: aliceWs as never,
+        status: "done",
+        runId: 1,
+        files: 0,
+        copied: 0,
+        failed: 0,
+        failures: [],
+        updatedAt: 1,
+        keyedAt: 1,
+      });
+    });
+    const keyed = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));
+    expect(keyed.keyed).toBe(true);
+    // Keys is one-way: the switch cannot go back, so the workspace stays keyed.
+    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "paths" })).rejects.toThrow(/final/);
+    const still = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));
+    expect(still.keyed).toBe(true);
+  });
+
   test("a refused binding carries no idLayout at all", async () => {
     const { t, bobWs } = await twoConnectedTenants();
     const staff = t.withIdentity({ subject: await user(t, ADMIN) });
@@ -135,10 +160,11 @@ describe("the keys switch is one-way", () => {
     expect((await staff.query(api.functions.noteIds.report, {})).mode).toBe("keys");
   });
 
-  test("setMode does not offer keys: the switch is never set to it", async () => {
+  test("setMode refuses keys from an unswitched row: keys needs ids first and a copy done (keysSwitch.test.ts)", async () => {
     const t = tester();
     const staff = t.withIdentity({ subject: await user(t, ADMIN) });
-    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "keys" as "ids" })).rejects.toThrow();
+    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "keys" })).rejects.toThrow();
+    expect(await t.run((ctx) => ctx.db.query("noteIdLayout").first())).toBeNull();
   });
 
   test("an unswitched workspace has no idLayout, and ids reads as ids", async () => {
