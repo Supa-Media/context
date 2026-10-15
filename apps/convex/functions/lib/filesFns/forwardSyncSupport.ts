@@ -117,6 +117,21 @@ export class CalendarTimezoneMismatchError extends Error {
 }
 
 /**
+ * Calendar days are merged from every account that contributes to them, so
+ * they are written with `If-Match` and refused on storage that cannot honour it
+ * (`probeStore` records that at connect time; Dropbox is the common case).
+ * That refusal lasts until the workspace moves, which makes it a different
+ * sentence from "did not sync, the next pass will try again": the next pass
+ * will not, and only the person can fix it.
+ */
+export class StorageNotConflictSafeError extends Error {
+  constructor() {
+    super("Shared Calendar sync requires storage with conditional writes");
+    this.name = "StorageNotConflictSafeError";
+  }
+}
+
+/**
  * Turn whatever went wrong into a code and a sentence a person can act on.
  *
  * Trimmed from the classifier #388 removed with the historical backfill: the
@@ -126,6 +141,12 @@ export class CalendarTimezoneMismatchError extends Error {
  * was briefly unavailable" are still different sentences to show somebody.
  */
 export function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof StorageNotConflictSafeError) {
+    return {
+      code: "STORAGE_NOT_CONFLICT_SAFE",
+      message: "Calendar needs storage that stops two saves from overwriting each other. Move this workspace to Context storage or your own bucket in Settings › Storage.",
+    };
+  }
   if (error instanceof CalendarTimezoneMismatchError) {
     return {
       code: "CALENDAR_TIMEZONE_MISMATCH",

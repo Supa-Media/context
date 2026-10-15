@@ -61,6 +61,7 @@ import type { FileStore } from "../fileOps";
 import {
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
+  StorageNotConflictSafeError,
   type ForwardSyncJob,
   type ForwardSyncResult,
   timeoutFetch,
@@ -137,7 +138,7 @@ async function runGoogleCalendarForwardSync(
   accessToken: string,
 ): Promise<ForwardSyncResult> {
   if (store.capabilities?.conditionalWrite !== true) {
-    throw new Error("Shared Calendar sync requires storage with conditional writes");
+    throw new StorageNotConflictSafeError();
   }
   const calendarStore = store as unknown as Parameters<typeof persistCalendarContribution>[0]["store"];
   const previous = await loadCalendarContribution({
