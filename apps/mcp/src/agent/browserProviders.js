@@ -24,9 +24,19 @@
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
 let browserbaseMissing = false;
 
+/**
+ * How long this isolate leaves Browserbase alone after it refuses to start a
+ * browser for billing (402, 2026-10-14: every texted browser job failed on
+ * it). Long enough not to ask on every call, short enough that paying the bill
+ * brings it back without a deploy.
+ */
+export const BROWSERBASE_REFUSED_PAUSE_MS = 10 * 60 * 1000;
+let browserbaseRefusedAt = null;
+
 /** For tests: forget what an earlier Worker said. */
 export function resetBrowserbaseProbe() {
   browserbaseMissing = false;
+  browserbaseRefusedAt = null;
 }
 
 /** The person's browser tag, or null when this deployment cannot make one. */
@@ -59,12 +69,13 @@ async function browseResult(response) {
   throw new Error("browser unavailable");
 }
 
-export function siteShotsComputer(env, { owner = null, viewer = null } = {}) {
+export function siteShotsComputer(env, { owner = null, viewer = null, now = Date.now } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
   let onBrowserbase = false;
-  const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing;
+  const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
+  const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
   return {
     provider: "cloudflare",
@@ -82,13 +93,15 @@ export function siteShotsComputer(env, { owner = null, viewer = null } = {}) {
         // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
         // the person is being handed this browser; it asks Browserbase for nothing.
         const response = await post(binding, "/browse", { provider: "browserbase", owner, steps, ...(handoff ? { handoff: true } : {}) });
-        if (response.status !== 501) {
+        // 402: Browserbase won't start a browser until its bill is paid.
+        // Cloudflare's browser does this question; nothing can be handed over.
+        if (response.status === 402) browserbaseRefusedAt = now();
+        else if (response.status !== 501) {
           onBrowserbase = true;
           const result = await browseResult(response);
           // The person's own page, never a link to the browser itself.
           return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
-        }
-        browserbaseMissing = true;
+        } else browserbaseMissing = true;
       }
       return await browseResult(await post(binding, "/browse", session === null ? { steps } : { session, steps }));
     },

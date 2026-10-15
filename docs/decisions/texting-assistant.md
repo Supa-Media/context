@@ -490,6 +490,12 @@ never holds it, and it is kept out of the saved conversation. Since
 2026-10-11 that link is the person's own page, not Browserbase's live view:
 [Tex's computer](./texting-assistant/computer.md).
 
+A Browserbase billing refusal (402, every texted browser job from
+2026-10-13) is answered 402 by the screenshot Worker, which logs only the
+status; the gateway does that question on Cloudflare's browser, which cannot be
+handed over, and skips Browserbase for ten minutes
+(`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
+
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
 tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,

@@ -43,7 +43,13 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   let session;
   try {
     session = (await findSession(env, owner, fetcher)) ?? (await createSession(env, owner, fetcher));
-  } catch {
+  } catch (error) {
+    const status = /^browserbase (\d{3})$/.exec(error instanceof Error ? error.message : "")?.[1] ?? null;
+    // The status only: never the vendor's body, which can name the account.
+    console.log(JSON.stringify({ event: "site_shots_browserbase_refused", status }));
+    // 402: Browserbase will not start a browser until its bill is paid. The
+    // gateway takes Cloudflare's browser for this question rather than failing.
+    if (status === "402") return json({ error: "browserbase refused: payment required" }, 402);
     return json({ error: "no browser is free right now; try again in a minute" }, 503);
   }
   let cdp;
