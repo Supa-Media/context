@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from "react";
 import { useConvex } from "convex/react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { CopyField } from "../../../design/components/CopyField";
@@ -190,6 +190,10 @@ export function DomainPanel({
     <View>
       {domain !== null ? (
         <DomainCard domain={domain} actions={actions} view={view} onOpenPremium={onOpenPremium} />
+      ) : !settings.paying && Platform.OS !== "web" ? (
+        <Card><Text variant="rowTitle">No domain connected</Text>
+          <Text variant="rowSub">{`Links from this workspace open at context.lc/@${handle}/…`}</Text>
+        </Card>
       ) : !settings.paying ? (
         <Card testID="domain-upsell">
           <Row>
@@ -358,11 +362,11 @@ function DomainCard({
 
       {domain.status === "suspended" ? (
         <Notice tone="neutral" style={styles.block}>
-          <Text variant="rowTitle">Paused while Premium is off</Text>
+          <Text variant="rowTitle">{Platform.OS === "web" ? "Paused while Premium is off" : "Domain paused"}</Text>
           <Text variant="rowSub" style={styles.sub}>
-            {`${domain.hostname} isn't serving right now. Your links still work at context.lc, and nothing has been deleted. Turn Premium back on and it comes straight back.`}
+            {`${domain.hostname} isn't serving right now. Your links still work at context.lc, and nothing has been deleted.${Platform.OS === "web" ? " Turn Premium back on and it comes straight back." : ""}`}
           </Text>
-          {owner && onOpenPremium !== undefined ? (
+          {Platform.OS === "web" && owner && onOpenPremium !== undefined ? (
             <Button variant="mini" label="Open Premium" onPress={onOpenPremium} style={styles.noticeButton} />
           ) : null}
         </Notice>

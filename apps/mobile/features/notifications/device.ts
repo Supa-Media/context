@@ -9,16 +9,11 @@ function permission(value: Notifications.NotificationPermissionsStatus) {
   };
 }
 
-/** Register with APNs/FCM. Never log or persist the device token. */
+/** Register with APNs. Never log or persist the device token. */
 export function enableNotifications() {
+  if (Platform.OS !== "ios") return Promise.resolve("failed" as const);
   return registerNotifications({
-    prepare: async () => {
-      if (Platform.OS === "android") {
-        await Notifications.setNotificationChannelAsync("default", {
-          name: "Context", importance: Notifications.AndroidImportance.DEFAULT,
-        });
-      }
-    },
+    prepare: async () => {},
     permissions: async () => permission(await Notifications.getPermissionsAsync()),
     request: async () => permission(await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowBadge: true, allowSound: true },

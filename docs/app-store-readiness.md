@@ -20,12 +20,12 @@ app category, storefront rules, and any required entitlements.
 ## Notifications
 
 Account settings offers optional registration with the device's push service.
-The person must press Enable notifications; the app never prompts at launch
-and denial never blocks use. Android creates its channel before requesting
-permission. Registration failures are visible and retryable. Permission can be
+This release exposes registration only on iOS; Android needs FCM configuration
+before that control can be offered. The person must press Enable notifications; the app never prompts at launch
+and denial never blocks use. Registration failures are visible and retryable. Permission can be
 changed through the system-settings control.
 
-This prepares OS permission and native APNs/FCM registration only. There is no
+This prepares OS permission and native APNs registration only. There is no
 server token registry or delivery service in this change. Tokens are not stored,
 logged, associated with an account, or sent to the backend. A later delivery
 feature needs authenticated token ownership, revocation on sign-out and account

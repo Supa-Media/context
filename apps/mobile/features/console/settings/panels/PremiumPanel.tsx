@@ -238,7 +238,7 @@ export function PremiumBody({
       .finally(() => setWorking(false));
   };
 
-  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} />;
+  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} autoOrganize={autoOrganize} />;
 
   const status = view.status;
   const state = premiumStateOf(status?.status);

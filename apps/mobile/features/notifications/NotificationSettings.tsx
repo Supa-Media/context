@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Linking, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { Button } from "../design/components/Button";
 import { TextLink } from "../design/components/TextLink";
 import { Card } from "../design/components/Card";
@@ -11,6 +11,7 @@ import type { RegistrationState } from "./register";
 export function NotificationSettings() {
   const [state, setState] = useState<RegistrationState | "idle" | "working">("idle");
   const [settingsFailed, setSettingsFailed] = useState(false);
+  if (Platform.OS !== "ios") return null;
   return (
     <Card>
       <Text variant="rowTitle">Notifications</Text>
