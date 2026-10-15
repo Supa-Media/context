@@ -1,3 +1,4 @@
+import { NotificationSettings } from "../../notifications/NotificationSettings";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
@@ -188,6 +189,8 @@ export function AccountSection({
         Only a personal workspace has an address mail can be sent to. A shared one has
         none at all.
       </Text>
+
+      {data.demo ? null : <View style={styles.spaced}><NotificationSettings /></View>}
 
       {/* Every email this person signs in with (Dev2, 2026-10-09). */}
       <View style={styles.spaced}>

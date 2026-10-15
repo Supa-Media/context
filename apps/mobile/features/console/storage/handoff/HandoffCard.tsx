@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { FormError } from "../../../design/components/Input";
@@ -241,7 +241,7 @@ export function HandoffCard({
             onPress={onMove}
             testID="storage-own-move"
           />
-          {dropbox && onOpenPremium !== undefined ? (
+          {Platform.OS === "web" && dropbox && onOpenPremium !== undefined ? (
             <Button
               label={DROPBOX_ENDING.toContext}
               onPress={onOpenPremium}
