@@ -165,8 +165,8 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
       code: "STORAGE_CONDITIONAL_WRITES_REQUIRED",
       message:
         error.product === "calendar"
-          ? "Calendar needs storage that supports safe shared writes. This bucket does not, so Calendar is paused."
-          : "Chat needs storage that supports safe shared writes. This bucket does not, so Chat is paused.",
+          ? "Calendar needs storage that stops two saves from overwriting each other, and this workspace's storage cannot. Move it to Context storage or an S3 bucket in Settings › Storage."
+          : "Chat needs storage that stops two saves from overwriting each other, and this workspace's storage cannot. Move it to Context storage or an S3 bucket in Settings › Storage.",
     };
   }
   if (error instanceof CalendarCursorMissingError) {
