@@ -255,12 +255,7 @@ export function splitReducedRecallNotes(paths, limit = RENDERED_RECALL_NOTE_LIMI
  * @param {object} [options.budget] a `createSearchBudget` counter to share
  *   with the caller's other storage work; one is made if absent
  * @param {number} [options.limit]
- * @param {boolean} [options.readSnippets] whether each hit's note is opened to
- *   cut its title and snippets. `false` opens none: the hits are the notes the
- *   index ranks, by key, with `title` empty and no snippets. For a caller that
- *   takes the keys and reads everything else from somewhere other than the
- *   bucket (the tree's facts), so a search never opens a candidate it did not
- *   need to. Default `true`.
+ * @param {boolean} [options.readSnippets] `false` opens no hit: keys only, no title or snippets.
  * @param {boolean} [options.refreshOnMiss] whether an empty answer over an
  *   index that believes it is converged may buy one listing and ask again.
  *   Off by default: the module stays maintenance-free for anyone composing it,
@@ -369,15 +364,9 @@ async function answerFromIndex(store, options) {
     readSnippets = true,
   } = options;
 
-  // One op, and the only thing between a caller and an answer. `null` is every
-  // way the manifest can fail to arrive; the surface decides what to say about
-  // it, and both surfaces say something other than "no matches".
-  let manifest = null;
-  try {
-    manifest = await loadIndexManifest(store, budget, limit);
-  } catch {
-    manifest = null;
-  }
+  // One op, and the only thing between a caller and an answer. `null` is every way
+  // the manifest can fail to arrive; both surfaces say something other than "no matches".
+  const manifest = await loadIndexManifest(store, budget, limit).catch(() => null);
   const indexHasDocs = Boolean(manifest && manifest.stats.some((entry) => entry.docCount > 0));
   if (!indexHasDocs) return { indexed: false };
 
@@ -565,9 +554,6 @@ async function answerFromIndex(store, options) {
     if (!budget.take()) break;
     wanted.push(hit);
   }
-  // `readSnippets: false` opens no body at all: each hit is its notePath, with
-  // no title and no snippet, for a caller that reads the answer's keys and asks
-  // the Convex tree for everything else (`meetings/notes.js`).
   const read = !readSnippets
     ? wanted.map(({ path, notePath }) => ({ key: notePath ?? path, title: "", snippets: [] }))
     : await inWaves(
