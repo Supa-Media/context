@@ -7,6 +7,7 @@ import {
   findViolations,
   realModules,
 } from "./fixtures.helpers";
+import { routeImplementation, unauthenticatedRouteResponses } from "./httpRoutes.helpers";
 
 /**
  * Split out of the original `structure.test.ts`. See `fixtures.helpers.ts` for the
@@ -62,10 +63,21 @@ const SIGNED_ROUTE_FACTORIES: Record<string, string> = {
   stripeWebhookRoute: "stripeSignatureIsValid",
 };
 
-/** Every factory a route in `http.ts` may be built by, of either kind. */
+/**
+ * Google's push doors, defined in `lib/googlePush/routes.ts`: a Google-signed
+ * OIDC token, or a Calendar channel token checked against its stored hash.
+ * What each owes is proved in `__tests__/googlePush/routes.test.ts`.
+ */
+export const PUSH_ROUTE_FACTORIES: Record<string, string> = {
+  pubsubPushRoute: "pubsubTokenIsValid",
+  calendarChannelRoute: "acceptCalendarNotification",
+};
+
+/** Every factory a route in `http.ts` may be built by, of any kind. */
 const ALL_ROUTE_FACTORIES: Record<string, string> = {
   ...ROUTE_FACTORIES,
   ...SIGNED_ROUTE_FACTORIES,
+  ...PUSH_ROUTE_FACTORIES,
 };
 
 /**
@@ -104,71 +116,6 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "siteCard",
   "siteHome", "siteHomeRevision", "siteRevisionRoute", "sitePage",
 ]);
-
-/**
- * Every response an unauthenticated route can produce, as its field names.
- *
- * A handler has more than one `return` — the success path and an early answer
- * for a malformed body — and a field added to the quiet one reaches the same
- * anonymous crawler on every bad request. Pinning the last literal, or the
- * first, is pinning half a route: measured, `owner: "seyi", notes: 42` on
- * either handler's early return passed all 39 checks here and the whole 1543
- * convex suite.
- *
- * It also asserts that **every** `return` is one of those literals. Without
- * that, the loop is satisfied by a handler that keeps its two `json({…})`
- * calls and adds a third branch returning a bare `new Response` — which was
- * also measured green.
- */
-/**
- * A route's implementation, wherever `http.ts` keeps it.
- *
- * Most are written inline. Some are delegated to a module, the arrangement
- * `gatewayRoutes/` uses and which `publicRoutes/` now uses too, and a
- * delegated handler must not fall out of these checks just because it moved:
- * a guard that follows the declaration rather than the code is decor. So the
- * inline form is tried first and the delegated one second, and a name that
- * matches neither fails loudly rather than yielding an empty body — which is
- * the failure mode that would make every assertion below vacuous.
- */
-function routeImplementation(source: string, handlerName: string): string {
-  const inline = source.indexOf(`export const ${handlerName} = httpAction(async`);
-  if (inline > -1) return source.slice(inline, source.indexOf("\n});", inline));
-
-  const delegated = source.indexOf(`export async function ${handlerName}Handler(`);
-  expect(
-    delegated,
-    `${handlerName} is enumerated but defined neither inline nor as a delegated handler`,
-  ).toBeGreaterThan(-1);
-  return source.slice(delegated, source.indexOf("\n}\n", delegated));
-}
-
-function unauthenticatedRouteResponses(
-  source: string,
-  handlerName: string,
-): string[][] {
-  const body = routeImplementation(source, handlerName);
-
-  const returns = [...body.matchAll(/\breturn\s+([\s\S]{0,20}?)[({]/g)].map(
-    (m) => m[0].replace(/\s+/g, " "),
-  );
-  for (const statement of returns) {
-    expect(
-      statement,
-      `${handlerName} answers with something other than json(...): ${statement}`,
-    ).toMatch(/return json\(/);
-  }
-
-  const literals = [...body.matchAll(/json\(\{([^{}]*)\}\)/g)];
-  expect(
-    literals.length,
-    `${handlerName} should answer with flat object literals only`,
-  ).toBe(returns.length);
-
-  return literals.map(([, literal]) =>
-    [...literal.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]!).sort(),
-  );
-}
 
 /**
  * THE HTTP SURFACE.
@@ -607,7 +554,8 @@ describe("the gateway's HTTP routes", () => {
   /** And every factory really does check it — otherwise the rule above is decor. */
   test("every factory refuses a request that does not carry its secret", () => {
     const source = httpModule().source;
-    for (const [factoryName, guard] of Object.entries(ALL_ROUTE_FACTORIES)) {
+    // The push factories live in `lib/googlePush/routes.ts`; googlePush/routes.test.ts reads them there.
+    for (const [factoryName, guard] of Object.entries({ ...ROUTE_FACTORIES, ...SIGNED_ROUTE_FACTORIES })) {
       const start = source.indexOf(`function ${factoryName}(`);
       expect(
         start,

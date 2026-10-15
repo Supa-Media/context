@@ -748,6 +748,9 @@ export const disconnectGoogleConnection = mutation({
         ? { ...connection.calendar, syncToken: undefined }
         : connection.calendar,
       health: "error" as const,
+      // Notifications for this account stop finding it at once; revoking the
+      // grant below ends Google's side of every watch.
+      push: undefined,
       disconnectedAt: Date.now(),
       updatedAt: Date.now(),
     });

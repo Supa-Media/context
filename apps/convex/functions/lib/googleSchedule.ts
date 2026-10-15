@@ -175,6 +175,7 @@ export function isDue(
     lastSyncAt?: number;
     syncIntervalMinutes?: number;
     syncCatchUp?: boolean;
+    push?: { pending?: { gmail?: number; calendar?: number; chat?: number } };
   },
   now: number,
 ): boolean {
@@ -186,6 +187,16 @@ export function isDue(
     last record walked.
   */
   if (connection.syncCatchUp === true) return true;
+  /*
+    Google said something changed. When to act on it is `nextSyncAt`, which a
+    notification brings forward (`lib/googlePush/pending.ts`) and the sweep's
+    index range already enforces; this only says the interval is not the
+    reason to wait.
+  */
+  const pending = connection.push?.pending;
+  if (pending !== undefined && syncableProductsOf(connection).some((product) => pending[product] !== undefined)) {
+    return true;
+  }
   const products = syncableProductsOf(connection);
   const completedAt = products.map((product) => lastSyncedAtFor(connection, product));
   // A product newly added to an already-running Google account has never had
@@ -247,4 +258,23 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
     lastFailureCode: connection.lastSyncFailureCode,
     lastFailure: connection.lastSyncFailure,
   };
+}
+
+/**
+ * Which product one claimed pass syncs. One account owns one claim, but each
+ * product owns its own cursor: a product Google has just pushed goes first,
+ * then the least-recently-synced, so a Gmail pass cannot starve Chat on a row
+ * that carries both grants. A missing timestamp wins, which lets a newly-added
+ * product establish its baseline before the already-running sibling is polled
+ * again.
+ */
+export function nextProductToSync<P extends SyncableProduct>(
+  connection: Parameters<typeof lastSyncedAtFor>[0] & {
+    push?: { pending?: Partial<Record<SyncableProduct, number>> };
+  },
+  products: readonly P[],
+): P {
+  const pushed = products.filter((product) => connection.push?.pending?.[product] !== undefined);
+  const last = (product: P) => lastSyncedAtFor(connection, product) ?? Number.NEGATIVE_INFINITY;
+  return [...(pushed.length > 0 ? pushed : products)].sort((left, right) => last(left) - last(right))[0]!;
 }

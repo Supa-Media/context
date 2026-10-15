@@ -112,6 +112,13 @@ jobs:
       GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
       MAIL_CONNECT_ENABLED: ${{ secrets.MAIL_CONNECT_ENABLED }}
       CALENDAR_CONNECT_ENABLED: ${{ secrets.CALENDAR_CONNECT_ENABLED }}
+      # Google push for Gmail and Chat (`functions/lib/googlePush/config.ts`).
+      # Absent: they poll, as before. Calendar push needs neither.
+      GOOGLE_PUSH_TOPIC: ${{ secrets.GOOGLE_PUSH_TOPIC }}
+      GOOGLE_PUSH_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PUSH_SERVICE_ACCOUNT }}
+      # Optional: a custom push audience, and `off` as the brake.
+      GOOGLE_PUSH_AUDIENCE: ${{ secrets.GOOGLE_PUSH_AUDIENCE }}
+      GOOGLE_PUSH: ${{ secrets.GOOGLE_PUSH }}
       DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
       DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
       PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}

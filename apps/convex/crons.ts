@@ -315,10 +315,12 @@ crons.interval(
  * the next message for that person brings the page back.
  *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
- * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
- * Google's push path is deliberately not built (`docs/decisions/communications.md`)
- * — and the gateway's `scheduled()` handler has no trigger configured. A
- * person connected Gmail and their mail never arrived.
+ * grant and a `historyId` and then nothing advanced it: no cron, no webhook,
+ * and the gateway's `scheduled()` handler has no trigger configured. A person
+ * connected Gmail and their mail never arrived. Google's push notifications
+ * (`functions/googlePush.ts`) now bring a pass forward, but only by making a
+ * connection due sooner; this sweep is still what claims it, and what notices
+ * a notification that never came.
  *
  * **Five minutes because that is the floor**, not because every account is
  * polled that often. `syncIntervalMinutes` is per connection and defaults to

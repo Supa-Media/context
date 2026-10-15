@@ -261,7 +261,8 @@ Both are rejected for now, and not because they are hard:
   avoided — and latency is what the interval is for.
 
 So: a pull now, and push later as an *accelerator* that pokes the same pass
-rather than as a second path into the bucket. What that costs is honest and
+rather than as a second path into the bucket. (Push was added on those terms on
+2026-10-15, for Gmail, Chat and Calendar: [Google push](./google-push.md).) What that costs is honest and
 worth stating: mail is late by up to one interval. It is never lost, because
 every pass rebuilds each touched day from Gmail's live state.
 
