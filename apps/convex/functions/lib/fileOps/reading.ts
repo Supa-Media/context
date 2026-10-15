@@ -98,7 +98,7 @@ export async function readFile(
   } catch (error) {
     if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
     const forwarded = forwardPath(await readForwarding(store), path);
-    if (forwarded === path) throw error;
+    if (forwarded === null || forwarded === path) throw error;
     return await readVisibleFile(store, state, forwarded, options.clearance);
   }
 }

@@ -22,6 +22,8 @@
  * `content` block or an OpenAI `tool_calls` entry.
  */
 
+import { anthropicAttachmentBlocks, plainAttachmentText } from "./attachments.js";
+
 export class ProviderError extends Error {
   /**
    * @param {string} reason a short phrase written for an operator's log, never
@@ -65,12 +67,25 @@ export function anthropicMessages(messages) {
       continue;
     }
     if (message.role === "assistant") {
+      // A round that thought is handed back as it came, thinking blocks and
+      // all: changing a byte of one, or dropping one from the middle, makes
+      // the API refuse it or lose the reasoning (`turn.js` drops them all at once).
+      if (Array.isArray(message.content) && message.content.length > 0) {
+        out.push({ role: "assistant", content: message.content });
+        continue;
+      }
       const content = [];
       if (message.text) content.push({ type: "text", text: message.text });
       for (const call of message.toolCalls || []) {
         content.push({ type: "tool_use", id: call.id, name: call.name, input: call.args });
       }
       if (content.length > 0) out.push({ role: "assistant", content });
+      continue;
+    }
+    // What the person sent with their words (`attachments.js`): pictures and
+    // documents as the API's own blocks.
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+      out.push({ role: "user", content: anthropicAttachmentBlocks(message.attachments, message.text) });
       continue;
     }
     out.push({ role: "user", content: [{ type: "text", text: message.text }] });
@@ -107,7 +122,13 @@ export function openAiMessages(system, messages) {
       });
       continue;
     }
-    out.push({ role: "user", content: message.text });
+    out.push({
+      role: "user",
+      content:
+        Array.isArray(message.attachments) && message.attachments.length > 0
+          ? plainAttachmentText(message.attachments, message.text)
+          : message.text,
+    });
   }
   return out;
 }

@@ -23,6 +23,7 @@ import { managedBucketName } from "../../functions/lib/managedStorage";
 import { FREE_MANAGED_NOTE_CAP } from "../../functions/lib/premium";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import {
+  copyTree,
   FAKE_STORAGE,
   asUser,
   captureError,
@@ -88,10 +89,13 @@ async function freeContext(notes: number, status: "none" | "active" = "none"): P
       updatedAt: Date.now(),
     });
   });
+  // The tree copied, as a bound workspace's is: writes ask it which names are taken.
+  await copyTree(t, workspaceId);
   return { t, owner, workspaceId, backend };
 }
 
-describe("the console at the free tier's note cap", () => {
+// A thousand notes copied into the tree first, as a bound workspace's are.
+describe("the console at the free tier's note cap", { timeout: 30_000 }, () => {
   test("a new note is refused, with the sentence that says what still works", async () => {
     const f = await freeContext(FREE_MANAGED_NOTE_CAP);
     try {

@@ -56,6 +56,18 @@ export interface Observation {
   rows: NodeRow[];
   gone: string[];
   vanishedUnder: string[];
+  /**
+   * Who could see a key before the change that took it away, as its writer
+   * judged it. A move clears the source's exception before the tree hears of
+   * it, so a `gone` row narrows to this (`convexTable.ts`, `logChange`).
+   */
+  left?: LeftAudiences[];
+}
+
+/** A key a change took away and the audiences that could see it before. */
+export interface LeftAudiences {
+  path: string;
+  audiences: string[];
 }
 
 /**
@@ -152,13 +164,44 @@ export const NODE_SWEEP_STALE_MS = 60 * 60_000;
 export const NODE_TOUCH_PATHS = 50;
 /** List pages one folder's re-check may walk; more marks the tree dirty. */
 export const NODE_TOUCH_FOLDER_PAGES = 10;
+/** How long a save's re-check waits, so a burst of typing pauses is one re-check. */
+export const NODE_EDIT_SETTLE_MS = 3_000;
+/** A gathered flush due longer ago than this was lost; the next save schedules another. */
+export const NODE_EDIT_LOST_MS = 5 * 60_000;
+/**
+ * A tree proved equal to its bucket longer ago than this is checked again when
+ * its next sweep finishes. Parity is what lets the tree serve, so a proof that
+ * is never renewed is a guess about today from the day it was made.
+ */
+export const NODE_PARITY_STALE_MS = 24 * 60 * 60_000;
+/** A check that found differences is run once more after this, before it raises the staff alarm. */
+export const NODE_PARITY_CONFIRM_MS = 30_000;
+
+/**
+ * Whether a sweep finishing at `at` should check the tree against its bucket:
+ * never checked, last check differed, or the last proof is a day old.
+ */
+export function nodeParityDue(
+  parity: { checkedAt: number; mismatches: number; privacyMatches: boolean } | undefined,
+  at: number,
+): boolean {
+  if (parity === undefined) return true;
+  if (parity.mismatches > 0 || !parity.privacyMatches) return true;
+  return at - parity.checkedAt >= NODE_PARITY_STALE_MS;
+}
+
 /** The bucket key of the privacy manifest. */
 export const NODE_PRIVACY_KEY = "privacy.md";
+
+/** How long a store found unlistable waits before a sweep tries it again. */
+export const NODE_UNSUPPORTED_RETRY_MS = 24 * 60 * 60 * 1000;
 
 /** Whether a walk of the tree in this state should start (or continue) a sweep. */
 export function nodeSweepDue(state: NodeTreeState | null, now: number): boolean {
   if (state === null) return true;
-  if (state.status === "unsupported") return false;
+  // Tried again a day after it was found unlistable; a tree marked so before
+  // the sweep could page by token (no `leaseAt`) is tried at once.
+  if (state.status === "unsupported") return state.leaseAt === undefined || now - state.leaseAt >= NODE_UNSUPPORTED_RETRY_MS;
   if (state.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) return false;
   if (state.cursor !== undefined) return true;
   if (state.status !== "ready" || state.dirty) return true;

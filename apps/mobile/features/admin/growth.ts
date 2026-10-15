@@ -132,6 +132,8 @@ export interface RosterRow {
   aiSpendPartial: boolean;
   /** When staff let this address in from the waitlist; `null` when they never did. */
   letInAt?: number | null;
+  /** The texting-linked phone, else the confirmed sign-in phone. */
+  phone?: string | null;
 }
 
 // -- the waitlist ---------------------------------------------------------

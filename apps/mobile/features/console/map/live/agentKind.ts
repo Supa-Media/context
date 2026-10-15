@@ -35,7 +35,19 @@ export type AgentTintColors = Pick<
  * identifier the phone can see. `apps/mobile/__tests__/liveMapAgentKind.test.ts`
  * fails if the two drift apart.
  */
-export const TEXTS_CLIENT_NAME = "Texts (iMessage)";
+export const TEXTS_CLIENT_NAME = "Tex";
+
+/**
+ * What the texting assistant's client was called before it took Tex's name
+ * (owner, 2026-10-14). History lines written before then still name it, so it
+ * is read as Tex and drawn as Tex.
+ */
+export const LEGACY_TEXTS_CLIENT_NAME = "Texts (iMessage)";
+
+/** A client name as people should read it: the texting assistant's old name is Tex. */
+export function displayToolName(tool: string): string {
+  return tool === LEGACY_TEXTS_CLIENT_NAME ? TEXTS_CLIENT_NAME : tool;
+}
 
 /**
  * The name the app's own console is registered under
@@ -68,7 +80,7 @@ export function agentKindOf(actor: { kind: "person" | "agent"; name: string }): 
   if (actor.kind !== "agent") return null;
   const tool = toolNameOf(actor.name);
   if (tool === CONSOLE_CLIENT_NAME) return null;
-  if (tool === TEXTS_CLIENT_NAME) return "context";
+  if (tool === TEXTS_CLIENT_NAME || tool === LEGACY_TEXTS_CLIENT_NAME) return "context";
   if (/claude/i.test(tool)) return "claude";
   if (/codex/i.test(tool)) return "codex";
   if (/chatgpt|openai/i.test(tool)) return "chatgpt";

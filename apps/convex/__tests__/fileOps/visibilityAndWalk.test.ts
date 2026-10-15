@@ -273,27 +273,26 @@ describe("resetting a privacy.md that cannot be read", () => {
   });
 
   test("a folder whose name cannot be a rule is dropped, not written into the file", async () => {
-    // Bucket keys are far more permissive than a manifest line. A colon breaks
-    // `parsePrivacyManifest`'s rule pattern outright, so one such folder would
-    // make the repair write a file that does not parse — leaving the bucket
-    // exactly as broken as it found it, with the person's one exit spent.
+    // Bucket keys are far more permissive than a manifest line. A `#` is cut
+    // off by the parser's comment stripper, so `  2026#notes: private` reads as
+    // `2026` with no colon on it and the parser rejects the file outright: one
+    // such folder would make the repair write a file that does not parse —
+    // leaving the bucket exactly as broken as it found it, with the person's
+    // one exit spent. Only asking the real parser catches every such name.
     const store = memoryStore() as MemoryStore & FileStore;
     store.seed(PRIVACY_KEY, "# broken\n");
-    store.seed("2026: notes/a.md", "# a\n");
-    // The second name is here to keep the guard honest about *how* it decides.
-    // A colon blacklist would pass every other assertion in this file, and it
-    // would let this one through: `  2026#notes: private` loses everything
-    // after the `#` to the parser's comment stripper, leaving `2026` with no
-    // colon on it, which the parser rejects outright. Only asking the real
-    // parser catches both.
     store.seed("2026#notes/a.md", "# a\n");
+    // A colon used to be one of these too (the value was read from the first
+    // colon). It is an ordinary rule now, and the repair keeps it.
+    store.seed("2026: notes/a.md", "# a\n");
     store.seed("1-projects/a.md", "# a\n");
 
     const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
-    expect(result.folders).toEqual(["1-projects"]);
+    expect([...result.folders].sort()).toEqual(["1-projects", "2026: notes"]);
     expect(result.partial).toBe(true);
-    expect(() => parsePrivacyManifest(store.snapshot()[PRIVACY_KEY])).not.toThrow();
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(parsed.rules.find((rule) => rule.prefix === "2026: notes")?.vis).toBe("private");
   });
 
   test("a folder name cannot inject rules into the manifest", async () => {

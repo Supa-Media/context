@@ -60,3 +60,25 @@ drawn by what is happening, not by what exists:
 
 Reversing any of these brings back the clutter Dev2 asked to remove; tests:
 `liveMapHub.test.ts` ("an idle tool is not drawn", "no You or roads") and `liveMapArchive.test.ts`.
+
+## The controls around the map (Dev2, 2026-10-14)
+
+Dev2 called the old chrome confusing and not compact: nine pills in a bar that
+ran off the right edge, a breadcrumb whose "All workspaces" repeated two of
+those pills, a slider wider than a third of the canvas for what scrolling
+already does, and "Folders" meaning a layout in one place and a zoom level in
+another. From four boards Dev2 picked the bottom dock (C):
+
+- **Top left is one workspace menu** (`WorkspaceMenu` in `ui/MapDock.tsx`):
+  every workspace, then "All my workspaces". It stands for the breadcrumb and
+  the scope pills; the camera's trail follows it ("seyi ▾ › Areas").
+- **Everything else is one dock at the bottom**, as a video player keeps its
+  controls: Live, Replay (Past 24 hours, Past week, Pick dates… in a menu),
+  Map or Columns, and − +. While a replay plays, the replay bar opens inside
+  the dock. No top bar and no footer line, so the map gets the full height.
+- **The Folders layout is called Columns**, so "Folders" is never two things.
+
+The phone keeps its two rows of tracks (only the word changes). Reversing
+this brings back the overflowing bar; tests: `liveMapRangePicker.test.ts`
+("the desktop dock", "the workspace menu") and `liveMapCamera.test.ts` ("the
+trail beside the workspace menu").

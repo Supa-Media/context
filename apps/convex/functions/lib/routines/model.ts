@@ -7,14 +7,25 @@
  */
 
 import {
+  ROUTINES_FOLDER,
+  TEX_ROUTINES_FOLDER,
+  isRoutinePath,
   nextRunAt as nextRunOf,
   routineFromPath,
   routineSettings,
   type RoutineCadence,
 } from "@context/shared/src/routines.cjs";
 
-/** Where a person's routines live. Matched case-insensitively, like the shared module. */
-export const ROUTINES_ROOT = "routines";
+/**
+ * The folders a scan lists, both of them every time (the owner, 2026-10-14):
+ * `routines/`, where routines lived first and keep running, then
+ * `tex/routines/`, where new ones go. The old root first, so a workspace at
+ * `MAX_ROUTINES_PER_WORKSPACE` keeps the routines it already had running and a
+ * new one past the cap is the one left out.
+ */
+export const ROUTINE_SCAN_ROOTS: readonly string[] = [ROUTINES_FOLDER, TEX_ROUTINES_FOLDER].map((root) =>
+  root.replace(/\/$/, ""),
+);
 
 /** The zone a routine runs in when neither its file nor its writer names one. */
 export const DEFAULT_ROUTINE_TIME_ZONE = "America/New_York";
@@ -33,6 +44,10 @@ export const ROUTINE_GRANT_TTL_MS = ROUTINE_LEASE_MS;
 
 /** Most runs one `/agent-texts/routines/due` call hands out. */
 export const MAX_DUE_RUNS = 20;
+
+/** How long after its time a failed one-off is still tried again, and how often. */
+export const ONE_OFF_RETRY_MS = 30 * 60 * 1000;
+export const ONE_OFF_RETRY_EVERY_MS = 5 * 60 * 1000;
 
 /** Most routines one workspace keeps rows for; the scan refuses past it. */
 export const MAX_ROUTINES_PER_WORKSPACE = 200;
@@ -79,10 +94,14 @@ export function isRoutineOutcome(value: unknown): value is RoutineOutcome {
   return typeof value === "string" && (ROUTINE_OUTCOMES as readonly string[]).includes(value);
 }
 
-/** Whether a path is `routines/` or anything under it (scheduled or not). */
+/**
+ * Whether a path is a routine root, the folder holding one (`tex`, whose move
+ * or deletion takes `tex/routines/` with it), or anything under a root,
+ * scheduled or not. The shared module's answer, so the gateway's signal and
+ * this agree. Case-insensitive, like the shared module.
+ */
 export function isUnderRoutines(path: string): boolean {
-  const normalized = path.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
-  return normalized === ROUTINES_ROOT || normalized.startsWith(`${ROUTINES_ROOT}/`);
+  return isRoutinePath(path);
 }
 
 /** The schedule a routine file carries, as stored. No body, no `until`, no problems. */
@@ -92,6 +111,8 @@ export interface RoutineSchedule {
   at?: { hour: number; minute: number };
   days?: number[];
   monthDay?: number;
+  /** A one-off's day. */
+  date?: { year: number; month: number; day: number };
   timeZone?: string;
   paused: boolean;
   send: "text" | "note" | "both";
@@ -113,6 +134,7 @@ export function scheduleFromNote(path: string, text: string): RoutineSchedule | 
     ...(settings.at === null ? {} : { at: { hour: settings.at.hour, minute: settings.at.minute } }),
     ...(settings.days === null ? {} : { days: [...settings.days] }),
     ...(settings.monthDay === null ? {} : { monthDay: settings.monthDay }),
+    ...(settings.date === null ? {} : { date: { year: settings.date.year, month: settings.date.month, day: settings.date.day } }),
     ...(settings.timeZone === null ? {} : { timeZone: settings.timeZone }),
     paused: settings.paused,
     send: settings.send,
@@ -139,7 +161,7 @@ export function effectiveTimeZone(fileZone: string | undefined, accountZone: str
 
 /** When a stored schedule next runs after `afterMs`, or null if paused or never. */
 export function nextRunFor(
-  schedule: Pick<RoutineSchedule, "cadence" | "at" | "days" | "monthDay" | "paused">,
+  schedule: Pick<RoutineSchedule, "cadence" | "at" | "days" | "monthDay" | "date" | "paused">,
   timeZone: string,
   afterMs: number,
 ): number | null {
@@ -151,6 +173,7 @@ export function nextRunFor(
         at: schedule.at ?? null,
         days: schedule.days ?? null,
         monthDay: schedule.monthDay ?? null,
+        date: schedule.date ?? null,
         timeZone,
       },
       timeZone,
@@ -161,4 +184,25 @@ export function nextRunFor(
     // rather than running at a guessed time.
     return null;
   }
+}
+
+/**
+ * The front matter a routine's schedule is read from, rebuilt from the props
+ * its tree row holds (`tree/props.js`), in the lines `routineSettings` reads:
+ * a list is written back as the flow list it was most likely written as.
+ * `""` for a note with none, or one whose props are sealed.
+ */
+export function frontMatterFromProps(props: string | null): string {
+  if (props === null) return "";
+  let properties: unknown;
+  try {
+    properties = (JSON.parse(props) as { properties?: unknown }).properties;
+  } catch {
+    return "";
+  }
+  if (properties === null || typeof properties !== "object" || Array.isArray(properties)) return "";
+  const lines = Object.entries(properties as Record<string, unknown>).map(
+    ([key, value]) => `${key}: ${Array.isArray(value) ? `[${value.map(String).join(", ")}]` : String(value)}`,
+  );
+  return lines.length === 0 ? "" : `---\n${lines.join("\n")}\n---\n`;
 }

@@ -102,6 +102,9 @@ test("a line it can't read is a problem in words, never a silent default", () =>
     until: "it lands",
     paused: true,
     timeZone: "Europe/London",
+    // Only a one-off (`routines/once/`) has a date, and only a one-off that ran is done.
+    date: null,
+    done: null,
   });
 
   assert.match(routineSettings("---\ntimezone: Mars/Base\n---\n", daily).problems[0], /isn't a time zone/);
@@ -181,4 +184,44 @@ test("the schedule is said in words", () => {
 
 test("run history lives in Context's own space, named after the routine", () => {
   assert.equal(routineRunsKey("routines/daily/morning-brief.md"), ".context/agent/routines/daily/morning-brief.json");
+});
+
+test("a one-off runs once, at the date and time its file names", () => {
+  assert.deepEqual(cadenceFromFolder("once"), { unit: "once", every: 1 });
+  const found = routineFromPath("routines/once/call-sam.md");
+  assert.equal(found.kind, "routine");
+  const { settings, problems } = routineSettings("---\nat: 2026-10-15 9:00 am\n---\nCall Sam.", found.cadence);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(settings.date, { year: 2026, month: 10, day: 15 });
+  assert.deepEqual(settings.at, { hour: 9, minute: 0 });
+  const before = Date.parse("2026-10-14T12:00:00Z");
+  assert.equal(iso(nextRunAt(found.cadence, settings, NY, before)), "2026-10-15T13:00:00.000Z");
+  // Once its time has passed, it never runs again.
+  assert.equal(nextRunAt(found.cadence, settings, NY, Date.parse("2026-10-15T13:00:00Z")), null);
+  assert.equal(describeSchedule(found.cadence, settings), "Once on Oct 15, 2026 at 9 am");
+});
+
+test("a one-off may say its day with on: and its time with at:, and needs a date", () => {
+  const once = { unit: "once", every: 1 };
+  const split = routineSettings("---\non: 2026-10-15\nat: 7:30 pm\n---\nx", once);
+  assert.deepEqual(split.problems, []);
+  assert.deepEqual(split.settings.date, { year: 2026, month: 10, day: 15 });
+  assert.deepEqual(split.settings.at, { hour: 19, minute: 30 });
+  // A date alone runs at the default time.
+  const dayOnly = routineSettings("---\nat: 2026-10-15\n---\nx", once);
+  assert.equal(iso(nextRunAt(once, dayOnly.settings, "UTC", 0)), "2026-10-15T08:00:00.000Z");
+  // No date is said out loud, and never runs.
+  const noDate = routineSettings("---\nat: 9:00 am\n---\nx", once);
+  assert.match(noDate.problems.join(" "), /needs a date/);
+  assert.equal(nextRunAt(once, noDate.settings, "UTC", 0), null);
+  // A date that doesn't exist is a problem, not a guess.
+  assert.match(routineSettings("---\nat: 2026-02-30 9 am\n---\nx", once).problems.join(" "), /isn't a date and time/);
+});
+
+test("a one-off marked done: never runs again", () => {
+  const once = { unit: "once", every: 1 };
+  const { settings } = routineSettings("---\nat: 2026-10-15 9:00 am\ndone: 2026-10-15 09:00 (UTC)\n---\nx", once);
+  assert.equal(settings.paused, true);
+  assert.equal(settings.done, "2026-10-15 09:00 (UTC)");
+  assert.equal(describeSchedule(once, settings), "Ran once on Oct 15, 2026 at 9 am");
 });

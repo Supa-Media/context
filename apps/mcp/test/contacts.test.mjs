@@ -221,6 +221,7 @@ export async function runContactsChecks(check) {
       NATIVE_BINDINGS: "CONTACTS_BUCKET",
       CONTACTS_BUCKET: bucket,
     };
+    controlPlane.serveTreesFrom(env);
 
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
     bucket.seed("index.md", "# The front page");
@@ -283,15 +284,26 @@ export async function runContactsChecks(check) {
 
     /* -------------------------------- listing ----------------------------- */
 
+    /*
+      Listed from the Convex tree's props of each page, never by opening it
+      (2026-10-13). So the line names the person, their organization and when
+      the page was last updated, and no longer counts identifiers or names the
+      last activity, which live in the body and `read_contact` shows; those
+      two checks are replaced by the read count below.
+    */
+    const originalGet = bucket.get;
+    let opened = 0;
+    bucket.get = async function (key) {
+      if (key.startsWith("0-inbox/contacts/") && !controlPlane.treeReading()) opened += 1;
+      return await originalGet.call(this, key);
+    };
     const ownerList = await callTool(env, OWNER_TOKEN, "list_contacts");
+    bucket.get = originalGet;
     check("list_contacts lists a generated contact page", ownerList.includes(adam));
     check("...under the person's name, not its filename slug", ownerList.includes("Adam Okonkwo"));
     check("...with the organization the page carries", ownerList.includes("Example Ltd"));
-    check("...and how many identifiers it holds", ownerList.includes("2 identifiers"));
-    check(
-      "...and when they were last in touch, with the channel",
-      ownerList.includes("last google-chat 2026-09-05")
-    );
+    check("...and when the page was last updated", ownerList.includes("Adam Okonkwo · Example Ltd · updated 2026-09-08"));
+    check("...and opens no contact page to list them", opened === 0);
     check(
       "most recently touched first, not alphabetically by key",
       ownerList.indexOf(mine) < ownerList.indexOf(dara) &&
@@ -442,7 +454,7 @@ export async function runContactsChecks(check) {
     check("a page filed under a letter is listed as a contact",
       listedLettered.includes(lettered) && listedLettered.includes("Claire Dubois"));
     check("...and an imported page is read as one wherever it was filed, not only under imessage/",
-      listedLettered.includes(importedElsewhere) && listedLettered.includes("Mum · 1 identifier"));
+      listedLettered.includes(importedElsewhere) && /^Mum\n  0-inbox\/contacts\/m\/mum\.md$/m.test(listedLettered));
     check("...but a page two folders down is not a contact", !listedLettered.includes(deep));
     check("read_contact reads a lettered page",
       (await callTool(env, OWNER_TOKEN, "read_contact", { path: lettered })).includes("# Claire Dubois"));
@@ -452,34 +464,41 @@ export async function runContactsChecks(check) {
     await bucket.delete(importedElsewhere);
     await bucket.delete(deep);
 
+    /*
+      A contact an old-style move job (`.context/moves/`) is still copying is
+      where the bucket holds it: listings and reads no longer look through the
+      job (2026-10-13), and the drain brings it to its new path. This replaces
+      "appears at its logical Inbox path" and "serves an imported contact
+      before physical copying finishes", which read the job.
+    */
     const importedSource = "2-areas/communications/contacts/alex.md";
     const importedPath = "0-inbox/contacts/imessage/alex.md";
     const importedText = "---\ntitle: \"Alex\"\nrole: communication-contact\n---\n\n" +
       "# Alex\n\n## Identities\n\n- iMessage: `+15551234567`\n\n" +
       "## iMessage threads\n\n- [2026-08](<../sources/imessage/alex/2026-08.md>)\n";
-    bucket.seed(importedSource, importedText, new Date("2026-09-01T10:00:00.000Z"));
+    bucket.seed(importedPath, importedText, new Date("2026-09-01T10:00:00.000Z"));
     const importedMoveId = "move-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     bucket.seed(`.context/moves/${importedMoveId}.json`, JSON.stringify({
       version: 1,
       id: importedMoveId,
       status: "copying",
-      source: "2-areas/communications/contacts",
-      destination: "0-inbox/contacts/imessage",
-      objects: [{ source: importedSource, destination: importedPath }],
+      source: "0-inbox/contacts/imessage",
+      destination: "2-areas/communications/contacts",
+      objects: [{ source: importedPath, destination: importedSource }],
     }));
     const importedList = await callTool(env, OWNER_TOKEN, "list_contacts");
-    check("an imported iMessage contact appears at its logical Inbox path",
-      importedList.includes(importedPath) && importedList.includes("Alex · 1 identifier"));
+    check("an imported iMessage contact is listed where the bucket holds it, whatever a move job says",
+      importedList.includes(importedPath) && /^Alex\n/m.test(importedList));
     check("a team connection cannot infer a private imported contact",
       !(await callTool(env, TEAM_TOKEN, "list_contacts")).includes(importedPath));
     const importedRead = await callTool(env, OWNER_TOKEN, "read_contact", { path: importedPath });
-    check("read_contact serves an imported contact before physical copying finishes",
+    check("read_contact serves an imported contact",
       importedRead.includes("# Alex") && importedRead.includes("+15551234567") &&
         importedRead.includes(`path: ${importedPath}`));
     check("read_contact masks that imported contact from a team connection",
       (await callTool(env, TEAM_TOKEN, "read_contact", { path: importedPath })) === "not found");
     await bucket.delete(`.context/moves/${importedMoveId}.json`);
-    await bucket.delete(importedSource);
+    await bucket.delete(importedPath);
 
     /* ------------------------------ the switch ---------------------------- */
 

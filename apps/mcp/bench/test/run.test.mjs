@@ -106,6 +106,16 @@ test("shards cover every conversation exactly once, and the shard count has a ce
   assert.equal(parallelFor({ parallel: "12" }, 5), 5, "never more shards than conversations");
 });
 
+test("the texting assistant runs its core set unless a test is named, and a folder without one runs the job's own", async () => {
+  const { testFor } = await import("../run.mjs");
+  const both = { core: {}, "texting-assistant": {}, tasks: {} };
+  assert.equal(testFor({ job: "texting-assistant" }, both), "core", "decided by the owner, 2026-10-14");
+  assert.equal(testFor({ job: "texting-assistant", test: "texting-assistant" }, both), "texting-assistant", "the long set, by name");
+  assert.equal(testFor({ job: "texting-assistant", test: "tasks" }, both), "tasks");
+  assert.equal(testFor({ job: "texting-assistant" }, { "texting-assistant": {} }), "texting-assistant", "an older folder");
+  assert.equal(testFor({ job: "search" }, both), "search", "another job keeps its own");
+});
+
 test("the played person answers YES when the gateway held a call for their OK, and is otherwise played", async () => {
   const { personAnswers } = await import("../run.mjs");
   assert.equal(personAnswers({ asked: 1, answer: "Shall I?\n\nBefore I do that, I need your OK: write x into @y. Reply YES to go ahead, or NO to drop it." }), "YES");

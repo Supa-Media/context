@@ -47,7 +47,7 @@ export function PhoneMap({ page, camera, peek, onOpenNote }: { page: MapPageStat
     >
       <MapCanvas page={page} camera={camera} peek={peek} inset={inset} />
       <View style={styles.top} onLayout={(e) => setBar(Math.round(e.nativeEvent.layout.height))} pointerEvents="box-none">
-        <MapBar page={page} compact />
+        <MapBar page={page} />
         {page.replaying && page.replay !== null ? (
           <View style={styles.badge} pointerEvents="none" testID="map-replay-badge">
             <Text style={styles.badgeText}>{replayBadge(page.replay)}</Text>

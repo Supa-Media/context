@@ -11,6 +11,7 @@ import {
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { isEncryptedNote } from "../encryption.js";
 import { listAllKeys } from "../notes/storage.js";
+import { servedListingStore, TreeUnavailable } from "../tree/served.js";
 import {
   loadPrivacyState,
   persistExactVisibility,
@@ -108,9 +109,17 @@ export async function toolSetFolderVisibility(store, scope, args) {
 
   const beforeDefault = visibilityOf(path, state.rules);
   const afterDefault = visibilityOf(path, nextRules);
-  const noteObjects = (await listAllKeys(store, `${path}/`)).filter(
-    ({ key }) => key.endsWith(".md") && !isPlumbing(key)
-  );
+  // Which notes the rule reaches is a question about which notes exist, so
+  // the Convex tree answers it, never a bucket listing (`tree/served.js`).
+  // This tool is a private connection's, so the tree lists every note.
+  let listed;
+  try {
+    listed = await listAllKeys(servedListingStore(store), `${path}/`);
+  } catch (error) {
+    if (error instanceof TreeUnavailable) return toolError(error.message);
+    throw error;
+  }
+  const noteObjects = listed.filter(({ key }) => key.endsWith(".md") && !isPlumbing(key));
   const nextOverrides = new Map(state.overrides);
   const compacted = [];
   for (const [notePath, visibility] of nextOverrides) {

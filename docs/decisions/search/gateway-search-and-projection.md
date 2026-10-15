@@ -268,3 +268,30 @@ mint and which this control plane would then have to create, store, rotate and
 revoke per context. That is a design decision with a real cost, not an
 implementation detail to invent quietly. `SEARCH_D1_READ_TOKEN` — the `D1:Read`
 half `lib/d1.ts` already names — is the other half of the same conversation.
+
+### A context with a search database is answered by it alone, never by the bucket
+
+Decided by the owner, 2026-10-13: only opening or editing a note reads
+storage. So a context with a search database — every hosted one, since fast
+search reached everyone — answers `search_notes`, `search` and the console's
+search from that database and nothing else, whether it is `ready`, still
+filling, or failing to answer. A database still filling answers from what it
+has copied; one that cannot answer returns no hits and says the index is
+still catching up, never "no notes". Neither falls through to the shard index
+under `.context/search/` or to the literal scan.
+
+That replaces "off is a working state" for a context that has a database: a
+refused or slow database now costs a search its answer for as long as it
+lasts, rather than costing it seconds of bucket reads. The bucket's own index
+and the scan remain only for a gateway with no search database (self-hosted,
+or a deployment with no Cloudflare credential), and the passes that keep the
+shard index current still run behind the response until the projection is fed
+without it.
+
+**What fails if reversed:** `searchProjection/serve.test.mjs` ("a search
+during the backfill opens no note and no index file in the bucket", "the
+bucket's index does not answer instead"), `searchProjection/endToEnd.test.mjs`
+("never falls back to the bucket"), and in the control plane
+`consoleSearch.test.ts` ("a refused projection leaves a working search that
+says it is behind") and `searchBackfill.test.ts` ("a search reads the
+projection while it fills").

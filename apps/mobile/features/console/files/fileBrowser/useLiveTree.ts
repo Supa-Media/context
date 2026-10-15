@@ -8,10 +8,11 @@
  * listing and it lands here as the server's answer for that folder, with no
  * walk of the bucket and no "something changed" hint to chase.
  *
- * `null` from the server means the tree does not serve this workspace yet (or
- * staff paused it), and then nothing here does anything: the console keeps
- * reading the bucket as it always has. `served` says which, so the caller can
- * stop asking for bucket walks when the tree is answering.
+ * `null` from the server means the workspace's first copy into the tree has
+ * not finished, and then nothing here does anything: the root load says the
+ * files are still loading (`TREE_LOADING`), never lists the bucket instead,
+ * and the first live root listing clears that line (`useListings`). `served`
+ * says which.
  *
  * A refusal (membership taken away) clears the folder, for the reason
  * `refresh` gives: a listing kept after a refusal shows what was withheld.

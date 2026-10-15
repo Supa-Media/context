@@ -36,6 +36,11 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   setDictateAsked: (at: number | null) => void;
   docWidth: number;
   setDocWidth: (width: number) => void;
+  /** Where the web editor's property chips are drawn; null on native. */
+  chipHost: HTMLElement | null;
+  /** Bumped to open the Properties card on its Add row. */
+  addAsked: number;
+  setAddAsked: (asked: number) => void;
   controls: { current: EditorControls | null };
   padding: ReturnType<typeof useSurfacePadding>;
   barUp: boolean;

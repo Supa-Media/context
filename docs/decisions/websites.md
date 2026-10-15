@@ -50,8 +50,47 @@ Consequences that follow and are intended:
   group and privacy-reset operations under `website/`, and any write to
   `privacy.md`, mark the index stale and unsafe, so the menu is withheld until
   the rebuild lands.
+- **A change outside `website/` can narrow too** (2026-10-13). A page
+  publishes the notes of a folder it names with `folder:`, so a privacy
+  change, move or delete there, a write of `privacy.md` through the gateway,
+  and a queued move being drawn, undone or finished are website changes when
+  one of their paths is `website/`, `privacy.md`, or holds a note the route
+  index publishes (`lib/websites/routeChangeAt.ts`). They mark the index stale
+  and unsafe. The gateway names those paths to `/gateway/website` (paths it
+  already sends the tree touch), since only the index knows which folders a
+  page names. Before this, a folder a page named could be made private or
+  renamed and the menu kept its notes' titles until the quarter-hourly sweep.
 - **The release fallback is not used while a restriction is pending.** An
   unreadable source cannot say the page is still meant to be published.
+
+## A scan while a folder move is queued reads the tree's names
+
+_Decided 2026-10-13, with phase 4 of
+[convex-tree](./app-and-console/convex-tree.md)._
+
+While a queued move is pending, a page can sit at its old key while every
+reader by name has it at its new one, and a read of the old key answers "not
+found". A scan that listed the bucket therefore dropped every page under a
+moving folder without a word: renaming `website/blog` and pressing Publish
+before the copy finished put the site up without its blog. So while moves are
+pending the scan lists the Convex tree, which draws them, and reads each page
+at the name it now has (the read moves the object there first, as opening the
+note would). Where the tree cannot draw them yet (its first copy is still
+running) the scan stops at the tree's own "still loading" (`TREE_LOADING`,
+since 2026-10-13: no reader of which notes exist lists the bucket instead).
+Where a move started or was undone under the scan, and the move reaches a
+folder the scan walked, the scan fails as incomplete and the person is told
+to try again (`lib/websites/movingScan.ts`). A partial listing is never
+evidence that a page is gone.
+
+The serving side does **not** fall back to a moved page's old key. A page a
+queued move carries away is off its old address at once, as it is after a move
+made in one go; serving it from the old key would keep publishing a page just
+moved into a private folder. The moved page is published at its new address by
+the next Publish. `websiteQueuedMoves.test.ts` fails if a mid-move Publish
+loses a page, if a scan that could not draw a move publishes, if the moved-out
+page is served from its old key, or if a finished move, or a privacy change or
+move of a folder a page names, leaves the index fresh.
 
 `websitePrivacy.test.ts` pins it on both serving paths — the fresh index and
 the bucket probe — and reverting either path's read clearance fails it.

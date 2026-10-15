@@ -187,6 +187,31 @@ describe("opening a different note while a room is bound", () => {
     screen.unmount();
   });
 
+  test("renaming the open note keeps it in its room, so typing after the rename is kept", () => {
+    /*
+      "I rename and start typing … it deletes everything i typed already"
+      (owner, 2026-10-14). The document now goes with the note across a
+      rename (`retarget`), so the room never changes — and the editor, taken
+      out of it on the path change, was never put back: what was typed after
+      the rename reached no room, and the next room text overwrote it.
+    */
+    const room = createSharedDoc({ onLocalUpdate: () => {} });
+    seedSharedDoc(room, ALPHA);
+    // The durable document answers to its note's name, and follows it.
+    let at = "features/alpha.md";
+    room.notePath = () => at;
+    const screen = console_({ value: ALPHA, notePath: "features/alpha.md", shared: room });
+
+    at = "features/Renamed.md";
+    screen.show({ notePath: "features/Renamed.md" });
+    act(() => {
+      const view = screen.view();
+      view.dispatch({ changes: { from: view.state.doc.length, insert: " typed after" }, userEvent: "input.type" });
+    });
+    expect(room.text.toString()).toBe(`${ALPHA} typed after`);
+    screen.unmount();
+  });
+
   test("a room re-created for the same note is bound for real, not in name", () => {
     /*
       The same note, a second room: a reconnect, a re-auth, an endpoint that

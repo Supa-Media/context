@@ -29,6 +29,7 @@ import {
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { sqliteProjection } from "./sqliteProjection.helpers";
 
 async function indexed(): Promise<MemoryStore & FileStore> {
   const store = memoryStore() as MemoryStore & FileStore;
@@ -75,5 +76,55 @@ describe("indexing on save", () => {
       written: [],
       gone: ["2-areas/older.md"],
     });
+  });
+});
+
+/*
+ * AND THE SAME CHANGE REACHES A `ready` FAST SEARCH DATABASE.
+ *
+ * Measured on production on 2026-10-13: a moved note was found by search at
+ * its old path, which no longer opens, and not at its new one, minutes later.
+ * A ready projection's miss is the answer, and a console rename or move only
+ * ever touched the R2 index. These run `indexChangedNotes` with a projection
+ * over real SQLite (`node:sqlite`, the FTS5 D1 runs), seeded as a converged
+ * database would be.
+ *
+ * Sabotage: `indexChangedNotes` ignoring its projection fails the first two;
+ * `movedBy` dropping its `queued` check fails the last.
+ */
+describe("following a change into a ready fast search database", () => {
+  test("a renamed note leaves its old path and is projected at its new one", async () => {
+    const store = await indexed();
+    const database = sqliteProjection();
+    database.seed("2-areas/older.md", "# Older\n\nA narwhalist was here once.\n");
+    const operation = { kind: "move" as const, from: "2-areas/older.md", to: "2-areas/renamed.md" };
+    const moved = await movePath(store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    const change = indexChangeOf(operation, { kind: "moved", ...moved });
+    expect(change?.moved).toEqual([["2-areas/older.md", "2-areas/renamed.md"]]);
+    await indexChangedNotes(store, change!, database.client);
+    expect(database.paths()).toEqual(["2-areas/renamed.md"]);
+  });
+
+  test("a moved folder's notes are renamed in place", async () => {
+    const store = await indexed();
+    store.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
+    const database = sqliteProjection();
+    database.seed("2-areas/older.md", "# Older\n\nA narwhalist was here once.\n");
+    database.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
+    const operation = { kind: "move" as const, from: "2-areas/trip", to: "2-areas/journey" };
+    const moved = await movePath(store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    await indexChangedNotes(store, indexChangeOf(operation, { kind: "moved", ...moved })!, database.client);
+    expect(database.paths()).toEqual(["2-areas/journey/day.md", "2-areas/older.md"]);
+  });
+
+  test("a queued folder move is not followed until its copy lands", async () => {
+    const store = await indexed();
+    const database = sqliteProjection();
+    database.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
+    const operation = { kind: "move" as const, from: "2-areas/trip", to: "2-areas/journey" };
+    const change = indexChangeOf(operation, { kind: "moved", from: "2-areas/trip", to: "2-areas/journey", paths: ["2-areas/journey"], queued: 1 });
+    expect(change?.queued).toBe(true);
+    await indexChangedNotes(store, change!, database.client);
+    expect(database.paths()).toEqual(["2-areas/trip/day.md"]);
   });
 });

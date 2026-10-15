@@ -103,6 +103,21 @@ describe("browseOnBrowserbase", () => {
     expect(JSON.stringify(result.body)).not.toContain("live.example");
   });
 
+  it("says when Browserbase refuses for billing, so the gateway can use Cloudflare's browser", async () => {
+    const api = fakeApi();
+    const refusing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/sessions") && init?.method === "POST") return new Response("{\"error\":\"usage limit\"}", { status: 402 });
+      return await api.fetcher(input, init);
+    }) as typeof fetch;
+    const response = await browseOnBrowserbase(ENV, "/browse", { owner: OWNER, steps: [{ do: "read" }] }, refusing);
+    expect(response.status).toBe(402);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.session).toBeUndefined();
+    // The vendor's own words never travel on.
+    expect(JSON.stringify(body)).not.toContain("usage limit");
+  });
+
   it("refuses an owner that is not a tag", async () => {
     expect((await call(ENV, { owner: "user_123", steps: [{ do: "read" }] })).status).toBe(400);
   });

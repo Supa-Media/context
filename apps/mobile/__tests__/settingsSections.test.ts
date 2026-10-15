@@ -171,11 +171,11 @@ describe("two scopes in one list", () => {
     expect(matchSettingsSections(all, "sign out").map((s) => s.key)).toEqual(["profile"]);
   });
 
-  test("appearance is a sentence on Profile, not a section of its own", () => {
+  test("appearance is a row on Profile, not a section of its own", () => {
     /*
-      "Follow the device" is the whole of the feature now, so there is nothing
-      to navigate to — but "dark mode" is exactly what somebody types when they
-      cannot find the setting, and a search that matches nothing reads as a
+      Light / Dark / Device is one row of three chips on Profile, so there is
+      no page of its own — but "dark mode" is exactly what somebody types when
+      they cannot find it, and a search that matches nothing reads as a
       product that lost it.
     */
     const all = settingsSectionsFor("personal");

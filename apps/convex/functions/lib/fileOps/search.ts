@@ -12,11 +12,13 @@ import { type Clearance } from "../clearance";
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
-import { loadDocmapPaths, syncShardedIndex } from "../../../../mcp/src/search/shards.js";
+import { syncShardedIndex } from "../../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../../mcp/src/search/visible.js";
 import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
+import { followChange } from "../../../../mcp/src/search/d1/follow.js";
+import { effectiveVisibility } from "../privacy";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
-import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
+import { atTreeNames, meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
@@ -157,17 +159,11 @@ export interface SearchResults {
  * be wrong. What is injected is this runtime's own `canSee`, bound to the
  * caller's scope, exactly as it is into `searchIndexedNotes` below.
  *
- * `null` from it means **not answered** and never "no results": a projection
- * is a disposable derivative that can be behind, and reporting its silence as
- * an empty context is the failure this whole surface is built to avoid. So a
- * miss costs the R2 answer as well and the person waits what they waited
- * before; only a hit is fast. That is what makes it safe to consult on every
- * search rather than behind a second switch.
- *
- * `projection` is `null` unless the caller opened one, which it does only for
- * a row the control plane calls `ready` — the same gate the gateway applies,
- * because a projection that is still filling answers a query about a note it
- * has not copied with a silence this path would read as a miss.
+ * A context with a database answers from it alone, ready or still filling,
+ * and an answer it could not give says the index is catching up rather than
+ * that the context is empty. `projection` is `null` only for a context with no
+ * database, or a deployment with no Cloudflare credential; the R2 index below
+ * answers those.
  *
  * The one exception is `refreshOnMiss`, and it is the reason a member's search
  * can still cause a write under `.index/` whatever their role — worth saying
@@ -182,42 +178,37 @@ export interface SearchResults {
  * Every note path this scope may see, for link resolution in the editor —
  * `docs/decisions/app-and-console.md`, "L1".
  *
- * A bare `[[name]]` and the `[[` completion both need the whole bucket's note
- * paths, and the console's file tree only knows the folders somebody has
- * expanded. Rather than a second index — a full bucket listing paid for on
- * the customer's request quota, which is exactly the cost
- * `1-projects/context-lc-search-performance/overview.md` spent Phase 2
- * removing from the search path — this reads the search index's own docmap,
- * which is already maintained behind every search's response.
+ * A bare `[[name]]` and the `[[` completion both need the whole workspace's
+ * note paths, and the console's file tree only knows the folders somebody has
+ * expanded. This reads the Convex tree's rows, which hold every note's name
+ * (decided by the owner, 2026-10-13; it read the search index's docmap from
+ * the bucket before).
  *
- * **Filtered through the caller's own `canSee`, the same as every hit a
- * search returns.** The docmap holds every note in the bucket regardless of
- * who asks, so skipping this filter would leak a private note's *existence* —
- * its path — to a team member who could not open it, through a completion
- * list rather than a listing. That is exactly the existence oracle rule #2 at
- * the top of this file exists to prevent, reached through a different door.
+ * **Filtered through the caller's own `canSee`.** The rows hold every note in
+ * the workspace regardless of who asks, so skipping this filter would leak a
+ * private note's *existence* — its path — to a team member who could not
+ * open it, through a completion list rather than a listing. That is exactly
+ * the existence oracle rule #2 at the top of this file exists to prevent,
+ * reached through a different door.
  *
- * `null` for every way the index is not there to answer from — nothing has
- * indexed this bucket, the docmap could not be read, no budget was left —
- * and deliberately not a partial or wrong answer instead: a link that stays
- * undrawn until the index catches up is dishonest about *timing*, never about
- * *destination*.
+ * `null` for a store that is not the tree's, and deliberately not a partial
+ * or wrong answer instead: a link that stays undrawn is dishonest about
+ * *timing*, never about *destination*.
  */
 export async function notePathIndex(
   store: FileStore,
   clearance: Clearance,
-  budget: number = CONSOLE_SEARCH_BUDGET,
 ): Promise<{ paths: string[] } | null> {
   const state = await loadPrivacyState(store);
   const isVisible = (path: string) =>
     canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
-  // Where the Convex tree serves, its rows are the paths (folded through
-  // pending moves): exact now, rather than as of the index's last sync.
-  const found = isServedStore(store)
-    ? { paths: (await servedKeys(store)).filter((path) => isIndexableNote(path)) }
-    : await loadDocmapPaths(store as unknown as Parameters<typeof loadDocmapPaths>[0], createSearchBudget(budget), 0);
-  if (found === null) return null;
-  return { paths: found.paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
+  // The Convex tree's rows are the paths (folded through pending moves),
+  // exact now. Any other store answers `null`, "not indexed yet": the search
+  // index's docmap is no longer read for this (decided by the owner,
+  // 2026-10-13), and the app only ever asks with the tree's store.
+  if (!isServedStore(store)) return null;
+  const paths = (await servedKeys(store)).filter((path) => isIndexableNote(path));
+  return { paths: paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
 
 export async function searchNotes(
@@ -318,59 +309,58 @@ export async function searchNotes(
     const wordsMs = Date.now() - started;
     // `evidence` (the word rank and closeness behind each hit) is for the
     // gateway's search across workspaces; a console answer carries hits only.
-    const { meaning: _meaning, evidence: _evidence, ...results } = await withMeaning(store, found, await meaningPending, {
-      keyField: "path",
-    });
+    // Shown at the names the tree draws while a queued folder move copies,
+    // judged again there, as `search_notes` answers (`atTreeNames`).
+    const withMoves = atTreeNames(
+      await withMeaning(store, found, await meaningPending, { keyField: "path", isVisible }),
+      (store as { pendingMoves?: unknown }).pendingMoves,
+      { isVisible, prefix: underFolder, keyField: "path" },
+    );
+    const { meaning: _meaning, evidence: _evidence, ...results } = withMoves;
     return { ...(results as SearchResults), timing: timed(wordsMs) };
   };
 
+  /*
+   * A context with a search database answers from it and nothing else, ready
+   * or still filling (decided by the owner, 2026-10-13: only opening or
+   * editing a note reads storage). A database still filling, or one that
+   * cannot answer, says the index is catching up rather than "no notes"; the
+   * bucket's index below is for a deployment with no search database.
+   */
   if (projection !== null) {
+    const filling = projection.filling === true;
+    let fast: Awaited<ReturnType<typeof answerFromProjection>> = null;
     try {
-      const fast = await answerFromProjection(projection, {
+      fast = await answerFromProjection(projection, {
         query,
         prefix: underFolder,
         tier: options.clearance.scope,
         isVisible,
         limit,
-        // The projection is only handed over `ready`, and its miss is the
-        // answer, never a fall-through to the bucket index.
         missIsAnswer: true,
       });
-      if (fast) {
-        return await merged({
-          hits: fast.hits.map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
-            path: hit.key,
-            title: hit.title,
-            snippets: hit.snippets,
-            ...(hit.loose ? { loose: true } : {}),
-          })),
-          matchCount: fast.matchCount,
-          matchCountIsFloor: fast.matchCountIsFloor,
-          // The projection is filled from the R2 index's own docmap, so a note
-          // that index has not reached is a note the projection cannot hold
-          // either. Reading the manifest to say so would cost the object read
-          // this path exists to avoid, and the answer it would give is the one
-          // the caller gets on its next miss anyway — so this reports what it
-          // knows, which is that the answer came from a complete projection.
-          indexIncomplete: false,
-          indexMissing: false,
-          // `false`, unconditionally: the projection holds one row per message
-          // with no shard byte cap for a mailbox to cross, so a channel-day
-          // note is never reduced here the way it can be in the R2 index. See
-          // `SearchResults.reducedRecall`.
-          reducedRecall: false,
-          reducedRecallNotes: [],
-          answeredBy: "fast",
-        });
-      }
     } catch {
-      // Every D1 failure is one of `d1/client.js`'s closed-set codes, and none
-      // is a reason to fail a search somebody is watching a spinner for: the
-      // R2 index answers below exactly as it does with fast search off. A bare
-      // catch also swallows a bug in this block, which is the honest cost of
-      // that rule — the alternative is a console search that fails outright
-      // when it had a good answer one call away.
+      // Every D1 failure is one of `d1/client.js`'s closed-set codes; the
+      // answer below says it is catching up rather than failing the search.
     }
+    return await merged({
+      hits: (fast?.hits ?? []).map((hit: { key: string; title: string; snippets: string[]; loose?: boolean }) => ({
+        path: hit.key,
+        title: hit.title,
+        snippets: hit.snippets,
+        ...(hit.loose ? { loose: true } : {}),
+      })),
+      matchCount: fast?.matchCount ?? 0,
+      matchCountIsFloor: filling || !fast || Boolean(fast.matchCountIsFloor),
+      indexIncomplete: filling || !fast,
+      indexMissing: false,
+      // `false`, unconditionally: the projection holds one row per message
+      // with no shard byte cap for a mailbox to cross. See
+      // `SearchResults.reducedRecall`.
+      reducedRecall: false,
+      reducedRecallNotes: [],
+      answeredBy: fast ? "fast" : "none",
+    });
   }
 
   const found = await searchIndexedNotes(store as unknown as SearchStore, {
@@ -534,8 +524,10 @@ export async function maintainSearchIndex(
  */
 export async function indexChangedNotes(
   store: FileStore,
-  change: { written: string[]; gone: string[] },
+  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean },
+  projection: ProjectionClient | null = null,
 ): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
+  if (projection !== null && change.queued !== true) await followInProjection(store, change, projection);
   const only = new Map<string, { version: string; uploaded: string } | null>();
   const uploaded = new Date().toISOString();
   for (const path of change.gone) only.set(path, null);
@@ -556,6 +548,37 @@ export async function indexChangedNotes(
   };
 }
 
+/**
+ * The same change, followed into a `ready` fast search database: a moved
+ * note's old rows out and its new path projected, a moved folder renamed in
+ * place, a gone note removed (`search/d1/follow.js`, shared with the gateway).
+ * A queued folder move is skipped by the caller: the bucket has not moved yet,
+ * and the move's worker follows it here when its copy lands (`nodes/moveWork.ts`).
+ * Never throws: the database is a derivative, and the sweep repairs it.
+ */
+export async function followInProjection(
+  store: FileStore,
+  change: { written: string[]; gone: string[]; moved?: string[][] },
+  projection: ProjectionClient,
+): Promise<void> {
+  try {
+    const moved = (change.moved ?? []).filter(
+      (pair): pair is [string, string] => pair.length === 2 && pair.every((path) => typeof path === "string"),
+    );
+    const sources = new Set(moved.map(([from]) => from));
+    const destinations = new Set(moved.map(([, to]) => to));
+    const state = await loadPrivacyState(store);
+    await followChange(store as unknown as Parameters<typeof followChange>[0], projection, {
+      moved,
+      written: change.written.filter((path) => !destinations.has(path)),
+      gone: change.gone.filter((path) => !sources.has(path)),
+      visibilityOf: (path: string) => effectiveVisibility(path, state.rules, state.overrides),
+    });
+  } catch {
+    console.error("search.projection_follow_failed");
+  }
+}
+
 /** Enough for a move's two paths in two shards, with room to spare. */
 const INDEX_NOTES_BUDGET = 40;
 
@@ -573,4 +596,6 @@ export interface ProjectionClient {
     statements: readonly { sql: string; params?: unknown[] }[],
     options?: { budget?: unknown; reserve?: number },
   ): Promise<{ applied: number; skipped: boolean }>;
+  /** Set on a search's client while the database is still being filled. */
+  filling?: boolean;
 }

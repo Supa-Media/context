@@ -25,6 +25,10 @@
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
+ *   models.effort  optional low|medium|high|xhigh|max: how hard `main` thinks
+ *                  (Claude's `output_config.effort`; the model's own default,
+ *                  medium, when absent)
+ *   models.think_effort optional, with `think`: the same for `think`
  *   models.fallback optional: the model a turn goes on with when the one it
  *                  was on failed after its retry (decided by the owner,
  *                  2026-10-09; another model than `main`, or it is no fallback)
@@ -39,6 +43,12 @@
  *   open_web       optional `yes`: the assistant may open any public https
  *                  address it chooses (`trustedSites.js` `onOpenWeb`)
  *   tools          names the setup was proved with (recorded; not yet offered)
+ *   core_tools     optional `[a, b]`: the tools a turn is handed; every other
+ *                  one is named in the prompt and loaded with `find_tools`
+ *                  (`toolShelf.js`; owner, 2026-10-14). Absent: all of them.
+ *   history        optional 0-40: how many earlier texts (questions and
+ *                  answers each count) a turn is shown; the rest are read with
+ *                  `earlier_texts` (`conversation.js`). Absent: 12.
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
  *                  (`progress.js`) may go past it
@@ -59,6 +69,9 @@ import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
+import { readCoreTools } from "./toolShelf.js";
+import { readHistoryTurns } from "./conversation.js";
+import { EFFORTS } from "./aiGateway.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
 export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
@@ -111,6 +124,14 @@ async function parse(raw) {
     }
     router = { model: models.router, think: models.think, routeAt };
   } else if (models.route_at !== undefined) return null;
+  // How hard each model thinks, by model name, so the turn looks it up for
+  // whichever model the router picked. A word that isn't one refuses the file.
+  const efforts = {};
+  for (const [key, name] of [["effort", models.main], ["think_effort", router?.think]]) {
+    if (models[key] === undefined) continue;
+    if (typeof models[key] !== "string" || !EFFORTS.has(models[key]) || typeof name !== "string") return null;
+    efforts[name] = models[key];
+  }
   let fallback = null;
   if (models.fallback !== undefined) {
     if (typeof models.fallback !== "string" || !isBuiltinModelName(models.fallback) || models.fallback === models.main) return null;
@@ -135,6 +156,11 @@ async function parse(raw) {
   const openWeb = readOpenWeb(front.open_web);
   if (openWeb === null) return null;
 
+  const coreTools = readCoreTools(front.core_tools);
+  if (coreTools === null) return null;
+  const history = readHistoryTurns(front.history);
+  if (history === null) return null;
+
   let maxSteps = null;
   if (front.max_steps !== undefined) {
     if (typeof front.max_steps !== "string" || !/^[1-9]\d?$/.test(front.max_steps)) return null;
@@ -150,12 +176,15 @@ async function parse(raw) {
     job: typeof front.job === "string" ? front.job : null,
     model: models.main,
     router,
+    efforts,
     fallback,
     search,
     skills,
     trustedSites,
     openWeb,
     tools,
+    coreTools: coreTools ?? null,
+    history: history ?? null,
     maxSteps,
     prompt,
     version: await versionOf(raw),

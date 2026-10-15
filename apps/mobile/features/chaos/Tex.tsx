@@ -37,8 +37,8 @@ export const Tex = memo(function Tex({
   /** A page that is one scheme whatever the device's (the homepage is light only). */
   scheme?: Scheme;
   /**
-   * Tex stressed, tugging at its yarn: 0 slack to 1 hauling (`useTug` moves
-   * it). Left out, Tex stands as always.
+   * Tex stressed, tugging at its yarn: 0 slack to 1 hauling. Left out, Tex
+   * stands as always. Nothing draws the pose since the app dropped Tex.
    */
   tug?: number;
   testID?: string;

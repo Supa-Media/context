@@ -56,6 +56,7 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
@@ -201,6 +202,7 @@ async function fixture(rule: { folder: string; name: string }): Promise<Fixture>
       updatedAt: Date.now(),
     }),
   );
+  await copyTree(t, workspaceId);
 
   return {
     t,

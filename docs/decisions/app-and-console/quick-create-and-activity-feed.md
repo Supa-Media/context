@@ -29,11 +29,19 @@ What a "simplification" of this would cost, in the order the mistakes are likely
 - **Put the prompt back for "safety".** It is not safety. It is a modal in front
   of the product's primary verb, and it is what made the widget link — one press
   from anywhere — end in a text field.
-- **Rename on every heading edit rather than once.** The path is what every note
-  link, share row and offline copy is keyed by. A file that moves whenever its
-  title is edited is a file whose links rot while somebody writes. The adoption
-  happens **once**, and after that the heading and the filename are two things
-  the person owns separately, like every other note in the bucket.
+- **Rename on every keystroke of the heading.** The path is what every note
+  link, share row and offline copy is keyed by, so a rename is once per edit of
+  the title, on leaving it, never while somebody types.
+  *Superseded in part (owner, 2026-10-14):* the heading and the file name are
+  no longer two things owned separately after adoption. "They should just be
+  linked together": a note's first heading **is** its name, always — edit the
+  title and the file follows on leaving it; rename the file (tree, dialog, the
+  header's name field) and the heading follows. Opening a note never moves it:
+  a pair that differs, such as an Obsidian `2026-09-12.md` headed "Friday", is
+  linked from the first edit a person makes to either side. A note with no
+  heading shows its name above the body as an editable title instead.
+  `files/linkedTitle.ts` holds the rule; `linkedTitleRename.test.ts` fails if
+  it goes back to "only while they match".
 - **Rename on the keystroke, or on `dirty`.** `performSave` captures the path
   when it is called, so a `moveEntry` that lands mid-write leaves a conditional
   write aimed at a name the bucket no longer has. It waits for `clean` or
@@ -221,8 +229,9 @@ What a simplification of any of this costs, and the test that fails:
 
 **A line points at a note, not at a path it once had.** An entry written on
 Tuesday names where the note was on Tuesday, so every path is forwarded through
-`.context/forwarding.json` — the ledger "A move leaves a forwarding address"
-added, the same trail a share link follows — before a row is drawn or filtered.
+the forwarding ledger — the one "A move leaves a forwarding address" added,
+held in Convex since 2026-10-14 ([convex-small-data](./convex-small-data.md)),
+the same trail a share link follows — before a row is drawn or filtered.
 Following a row then lands on the note rather than on a gone path, and `canSee`
 is asked about where the note *is*, so one moved into a private folder drops
 out of lines written while it was shared. The historical path is not lost:

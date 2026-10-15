@@ -133,9 +133,8 @@ row's name is grey. A row with no status gets nothing but keeps the dot's
 room, so names line up. A row opens what it names, exactly as in Notes.
 
 There is no search, filter bar, status groups, Backlog band, "+ Add" line or
-Notes section on the List any more, and nothing on it writes; statuses,
-owners, priority and the rest are set on the Board and in the side panel,
-which are unchanged. The extras reach the rows through a context
+Notes section on the List any more. Priority, tags and the rest are set on
+the Board and in the side panel, which are unchanged. The extras reach the rows through a context
 (`folderPage/rowExtras.tsx`) rather than a second row component, so List and
 Notes cannot come to list different things. Reversing this means bringing a
 second row back; `__tests__/folderPageList.test.ts` fails first, on "is the
@@ -144,20 +143,20 @@ describe the List's groups, filter bar, row cells and add lines record the
 List before this decision; where they describe the Board or the panel they
 still hold.
 
+## Notes and List are one view, and its dot and face are its controls
+
+Its own file: [one List view](./one-list-view.md), from the owner's
+2026-10-14 decisions: List · Board, the row dot and face as controls, a
+task's dot in its icon's place, and the arrow that opens a folder in place.
+
 ## A folder page shows its children by status
 
 A folder's own page is where projects are seen and set, with no block to write.
-Every projects folder page offers **Notes · List · Board** on its title's row:
-Notes is the listing as it always was (called Files until 2026-09-28: "files"
-is a word for the storage, not for what is in it), List draws the same rows
-with a status dot, a count and faces (see above), Board draws the tasks as
-columns.
-A folder opens in List once anything in it has a status, and in Notes
-otherwise; what each viewer picks is remembered per folder in that browser's
-storage, never shared and never required. When two or more subfolders exist
-and nothing has a status yet, one quiet line offers an owner or editor the
-list, and closing it is per viewer too; a member, who could set nothing
-there, is not offered it.
+Every projects folder page offers **List · Board** on its title's row (it was
+Notes · List · Board until 2026-10-14; see above): List draws the listing's
+rows with a status dot, a count and faces, Board draws the tasks as columns.
+A folder opens in List; what each viewer picks is remembered per folder in
+that browser's storage, never shared and never required.
 
 It differs from `rows: projects` on purpose. A list block shows what already
 *is* a project; a folder page is where something becomes one. So every folder
@@ -437,7 +436,7 @@ says rather than keeping a second copy.
   from and reads back, so merged there, the first edit of a note's tags would
   copy every `#tag` into its front matter. The side panel draws them with
   their `#` and no remove button, since only the text can take one away.
-  `inlineTags.test.mjs` and `folderNotesTable.test.ts` fail if a link,
+  `inlineTags.test.mjs` and `nodes/servedReaders.test.ts` fail if a link,
   heading or code holds a tag, if a list stops counting them, or if a props
   row parsed before them is never read again.
 - **`due: 2026-10-03`** is a calendar day, read in the reader's own calendar:

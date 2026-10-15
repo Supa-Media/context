@@ -71,11 +71,6 @@ export const imageValidator = v.object({
   bytes: v.bytes(),
 });
 
-export const emojiListValidator = v.object({
-  kind: v.literal("emojiList"),
-  emoji: v.array(v.object({ name: v.string(), leaf: v.string() })),
-});
-
 export const emojiImageValidator = v.object({
   kind: v.literal("emojiImage"),
   bytes: v.bytes(),
@@ -89,12 +84,6 @@ export const emojiStoredValidator = v.object({
 });
 
 export const emojiRemovedValidator = v.object({ kind: v.literal("emojiRemoved") });
-
-/** Pairs rather than a record: a Convex record key cannot be every folder name. */
-export const folderIconsValidator = v.object({
-  kind: v.literal("folderIcons"),
-  icons: v.array(v.object({ path: v.string(), icon: v.string() })),
-});
 
 export const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
@@ -181,14 +170,14 @@ export const manifestValidator = v.object({
   /** The walk could not finish: the pages so far are a floor, not a total. */
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
-  /** Where the keys came from: the tree table, or a walk of the bucket. */
+  /** Where the keys came from: the Convex tree (`nodes`) or a walk of the bucket. `tree`, the retired D1 table, is no longer sent. */
   source: v.optional(v.union(v.literal("tree"), v.literal("bucket"), v.literal("nodes"))),
   /** Where a catch-up after this walk starts. See `TreeChangesResult`. */
   since: v.optional(v.number()),
   privacy: v.optional(v.union(v.string(), v.null())),
 });
 
-/** One page of a folder List's notes from the tree's properties table. See `folderNotes.ts`. */
+/** One page of a folder List's notes from the Convex tree's facts. See `folderNotes.ts`. */
 export const folderNotesValidator = v.object({
   kind: v.literal("folderNotes"),
   available: v.boolean(),
@@ -307,7 +296,7 @@ export const contextMoveExportedValidator = v.object({
   })),
   skipped: v.array(v.object({
     path: v.string(),
-    reason: v.literal("encrypted"),
+    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
   })),
   remaining: v.boolean(),
 });
@@ -341,6 +330,26 @@ export const contextMoveRemovedValidator = v.object({
 
 export const contextMoveFinishedValidator = v.object({
   kind: v.literal("contextMoveFinished"),
+});
+
+/** A batch for the gateway's mover: names, sizes and tiers, never a byte. */
+export const contextMovePlannedValidator = v.object({
+  kind: v.literal("contextMovePlanned"),
+  objects: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    size: v.number(),
+    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+  })),
+  skipped: v.array(v.object({
+    path: v.string(),
+    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
+  })),
+  remaining: v.boolean(),
+});
+
+export const contextMoveSettledValidator = v.object({
+  kind: v.literal("contextMoveSettled"),
 });
 
 export const visibilityResultValidator = v.object({

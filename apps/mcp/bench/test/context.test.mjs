@@ -64,6 +64,10 @@ function fakeGateway({ notes = {} } = {}) {
         return answer(`etag: e-1\npath: ${params.arguments.path}\nvisibility: team\n\n${text}`);
       }
       if (params.name === "write_note") {
+        // Like the gateway: replacing a note needs the etag read from it.
+        if (notes[params.arguments.path] !== undefined && params.arguments.expected_etag !== "e-1") {
+          return answer("conflict: a collaboratively edited note already exists; re-read it and include expected_etag to update it", true);
+        }
         state.written.push(params.arguments);
         return answer(`saved ${params.arguments.path}`);
       }
@@ -227,6 +231,17 @@ test("publishResult writes the scores note beside the results in Context", async
   assert.equal(state.written[0].path, path);
   assert.match(state.written[0].content, /run: https:\/\/github.example\/actions\/runs\/3/);
   assert.match(state.written[0].summary, /gh-3/);
+});
+
+test("publishResult replaces a scores note already there, as a re-judged run does", async () => {
+  const path = "ai/results/2026-10-10 texting-assistant gh-3 scores.md";
+  const { fetchImpl, state } = fakeGateway({ notes: { [path]: "---\nrole: benchmark-scores\n---\n\nthe first judging\n" } });
+  const dir = await mkdtemp(join(tmpdir(), "bench-publish-"));
+  const result = join(dir, "2026-10-10 texting-assistant gh-3.md");
+  await writeFile(result, SCORED);
+  assert.equal(await publishResult({ result, runUrl: null, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl }), path);
+  assert.equal(state.written.length, 1);
+  assert.equal(state.written[0].expected_etag, "e-1");
 });
 
 test("callTool throws on a transport failure and returns a refusal as isError", async () => {

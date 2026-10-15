@@ -128,6 +128,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
+- A note shared with a named person opens for them wherever it lives
 
 ## [Per-note encryption](./encryption.md)
 
@@ -201,6 +202,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
 - The List is the Notes rows, with three thin extras
+- Notes and List are one view, and its dot and face are its controls — see below
 - A folder page shows its children by status
 - Tasks and notes
 - A row's name takes the room
@@ -230,6 +232,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - Any row opens beside the list (amended: editable, through the same editing session)
 
+## [One List view](./one-list-view.md)
+
+- Notes and List are one view, and its dot and face are its controls
+- In a projects folder, everything is a project item
+
 ## [A project folder fetches its own notes](./project-folder-fetch.md)
 
 - A project folder fetches its own notes
@@ -248,6 +255,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes
+- A scan while a folder move is queued reads the tree's names
 - An edit is a candidate; the last complete release is the fallback
 - Edits wait for Publish
 - [An agent can publish, the draft it checked and nothing newer](./websites/agent-tools.md)
@@ -289,6 +297,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A database we own holds a copy of somebody's notes only where they asked
 - A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding
+- A context with a search database is answered by it alone, never by the bucket
 - Progress is reported to the control plane, which owns the row
 - The backfill percentage is derived, and inherits the census's owner-only gate
 - The switch lives in a context's settings, and the server owns who may throw it
@@ -338,6 +347,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A front matter change is a hint too, and an open project page fetches what moved
 - A workspace's tree is a table in its own database, and the bucket stays the truth
 - [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
+- [A write asks the Convex tree whether a name is taken](./app-and-console/convex-tree-writes.md) (2026-10-14)
+- [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
+- [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
+- [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
+- [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
+- [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
@@ -391,6 +406,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
+- [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
+- [A note's common properties are chips under its name, a new note's included](./app-and-console/property-chips.md) (2026-10-14)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)
@@ -611,10 +628,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Routines](./routines.md)
 
 - A routine is a note, and the folder it sits in says how often
+- Routines live in Tex's own folder, and the old folder keeps running
+- A one-off reminder is a routine in `routines/once/`, marked `done:` when it has run
 - A line the format can't read is said out loud, never defaulted
 - Intervals count from a fixed epoch, never from when the file was saved
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
+- A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)
 
@@ -625,6 +645,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Only iMessage is answered, because the sender number is the login
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
+- [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
@@ -638,6 +659,15 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
+- [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
 - The assistant's setup is one production note per job in `ai/production/`
@@ -647,6 +677,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
+- [A short core set is the default run; the long sets stay for rounds (2026-10-14)](./texting-assistant/golden-tasks.md)
 - [How Tex does a job lives in a skill note, read when it applies (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A skill Tex read vouches for its addresses and its marked values (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)

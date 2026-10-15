@@ -133,4 +133,14 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
   "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
+  // The mover's door (`/gateway/mover/open`, owner 2026-10-14: no file passes
+  // through Convex on a whole-bucket move). The argument made again: the
+  // gateway secret, plus a ticket this deployment minted for one page of one
+  // workspace's running move, hashed at rest, five minutes long and deleted
+  // when spent. The request carries the ticket and nothing else; workspace,
+  // page and rules come off the ticket and the migration row, and a ticket
+  // for a page the move has passed opens nothing. A stolen gateway secret
+  // alone opens nothing; with a live ticket, one page of one move already
+  // under way.
+  "http.gatewayMoverOpen",
 ]);

@@ -115,10 +115,61 @@ test("a recorded change naming more than 50 paths is reported dirty", async () =
   assert.deepEqual(touches[0].body, { workspaceId: "ws_recorded", paths: [], files: [], dirty: true, moves });
 });
 
-test("a change that moves nothing in the tree is not reported as a touch", async () => {
+test("a save of a note's text is reported as edited, never as a re-check of its path", async () => {
+  // Without this the Convex rows kept the version from the last sweep, and
+  // the desktop and phone apps (which follow the tree's change log) never
+  // heard of an edit made on the web until the next hourly sweep.
+  for (const action of ["update_note", "encrypt_note", "decrypt_note"]) {
+    const { calls, methods } = controlPlaneRecorder();
+    const { store, settle } = storeWith(methods, "ws_recorded");
+    await recordChange(store, action, "private", ["1-projects/a.md"], {});
+    await settle();
+    const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+    assert.equal(touches.length, 1, `${action} was not reported to the tree`);
+    assert.deepEqual(
+      touches[0].body,
+      { workspaceId: "ws_recorded", paths: [], files: [], dirty: false, edited: ["1-projects/a.md"] },
+      action,
+    );
+  }
+});
+
+test("a form answer is reported as an edit of its response note", async () => {
+  // The four form tools rewrite the response note and nothing else of the
+  // tree; without this the Convex tree kept its old version until a sweep.
+  for (const action of ["submit_form", "update_submission", "retract_submission", "vote_form"]) {
+    const { calls, methods } = controlPlaneRecorder();
+    const { store, settle } = storeWith(methods, "ws_recorded");
+    await recordChange(store, action, "team", ["1-projects/feedback-responses.md"], { form_id: "bugs" });
+    await settle();
+    const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+    assert.equal(touches.length, 1, `${action} was not reported to the tree`);
+    assert.deepEqual(touches[0].body.edited, ["1-projects/feedback-responses.md"], action);
+  }
+});
+
+test("a save that changed front matter is re-checked by path, and not also as edited", async () => {
   const { calls, methods } = controlPlaneRecorder();
   const { store, settle } = storeWith(methods, "ws_recorded");
-  await recordChange(store, "update_note", "private", ["1-projects/a.md"], {});
+  await recordChange(store, "update_note", "private", ["1-projects/a.md"], { front_matter_changed: true });
+  await settle();
+  const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+  assert.equal(touches.length, 1);
+  assert.deepEqual(touches[0].body.paths, ["1-projects/a.md"]);
+  assert.equal(touches[0].body.edited, undefined);
+});
+
+test("more than 50 edited notes is sent dirty with no names", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const many = Array.from({ length: 51 }, (_, index) => `1-projects/e${index}.md`);
+  await methods.reportTreeTouch("ws_touch", { edited: many });
+  assert.deepEqual(calls[0].body, { workspaceId: "ws_touch", paths: [], files: [], dirty: true });
+});
+
+test("a change that touches no note is not reported as a touch", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  const { store, settle } = storeWith(methods, "ws_recorded");
+  await recordChange(store, "approve_action", "private", [], {});
   await settle();
   assert.equal(calls.filter((call) => call.path === "/gateway/tree/touch").length, 0);
 });
@@ -149,4 +200,37 @@ test("a change that did not rewrite privacy.md does not name it", async () => {
   await settle();
   const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
   assert.deepEqual(touches[0].body.files, []);
+});
+
+test("a one-note move says who could see the note before it moved, so its old path is not told wider", async () => {
+  // The move clears the source's private exception before the tree is
+  // re-checked, so the control plane's rules alone would judge the old path by
+  // the team folder's default and tell every member's device it left. The
+  // tree's gone rows narrow to `left` (`apps/convex/functions/lib/nodes/convexTable.ts`).
+  for (const [visibility, audiences] of [["private", ["private"]], ["team", ["private", "team"]]]) {
+    for (const action of ["move_note", "archive_note"]) {
+      const { calls, methods } = controlPlaneRecorder();
+      const { store, settle } = storeWith(methods, "ws_recorded");
+      await recordChange(store, action, "private", ["1-projects/a.md", "4-archive/a.md"], {
+        source_visibility: visibility,
+      });
+      await settle();
+      const touches = calls.filter((call) => call.path === "/gateway/tree/touch");
+      assert.equal(touches.length, 1);
+      assert.deepEqual(touches[0].body.left, [{ path: "1-projects/a.md", audiences }], `${action} ${visibility}`);
+    }
+  }
+});
+
+test("left is checked like any name: malformed entries are dropped, and a dirty touch carries none", async () => {
+  const { calls, methods } = controlPlaneRecorder();
+  await methods.reportTreeTouch("ws_touch", {
+    paths: ["a.md"],
+    left: [{ path: "a.md", audiences: ["private", 4] }, { path: 5, audiences: [] }, null],
+  });
+  assert.deepEqual(calls[0].body.left, [{ path: "a.md", audiences: ["private"] }]);
+  calls.length = 0;
+  const many = Array.from({ length: 51 }, (_, index) => `1-projects/n${index}.md`);
+  await methods.reportTreeTouch("ws_touch", { paths: many, left: [{ path: "a.md", audiences: ["private"] }] });
+  assert.equal(calls[0].body.left, undefined);
 });

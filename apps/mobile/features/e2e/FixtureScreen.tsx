@@ -11,7 +11,9 @@ import { ProjectsFixture } from "./projects/ProjectsFixture";
 import { CastStudioFixture } from "./CastStudioFixture";
 import { LiveMapFixture } from "./LiveMapFixture";
 import { SharedLinkFixture } from "./SharedLinkFixture";
+import { SharedInboxFixture } from "./SharedInboxFixture";
 import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
+import { PaletteFilterFixture } from "./PaletteFilterFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -39,6 +41,8 @@ export interface FixtureParams {
   anyone?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
+  /** No `screen`: `1` draws the open note as moved to the trash. */
+  trashed?: string | string[];
   /**
    * Which of the visual board's optional surfaces to draw.
    *
@@ -53,6 +57,7 @@ export interface FixtureParams {
   at?: string | string[];
   /** `screen=domain`: which website switch state to draw above the domain card. */
   site?: string | string[];
+  /** `screen=projects`: how many milliseconds a note's words take to arrive, as the bucket's do. */
   slow?: string | string[];
   failed?: string | string[];
   available?: string | string[];
@@ -69,7 +74,10 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
-  if (first(params.screen) === "projects") return <ProjectsFixture member={first(params.role) === "member"} />;
+  if (first(params.screen) === "projects") {
+    const slow = Number(first(params.slow) ?? "0");
+    return <ProjectsFixture member={first(params.role) === "member"} slowBodies={Number.isFinite(slow) ? slow : 0} />;
+  }
   // The cast studio over a fixed scene; its stage is the real homepage.
   if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
@@ -81,6 +89,9 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "phone-check") {
     return <PhoneCheckScreen initialSentTo={first(params.at) === "code" ? "+15555550100" : undefined} />;
   }
+  // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
+  if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;
+  if (first(params.screen) === "shared") return <SharedInboxFixture at={first(params.at)} />;
   if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
 
   /*
@@ -129,6 +140,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     <E2EFixtureScreen
       returned={checkoutOutcomeFrom(first(params[CHECKOUT_PARAM]))}
       note={first(params.note) ?? null}
+      trashed={first(params.trashed) === "1"}
     />
   );
 }

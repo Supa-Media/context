@@ -6,14 +6,15 @@
  *
  * Sabotage: schedule the re-check instead (drop the `store` argument in
  * `announceTreeChange`) and the first case fails; drop the `PRIVACY_KEY`
- * re-read and the second does.
+ * re-read and the second does; drop `left` from `keepTreeAndAnnounce`'s
+ * `nodesChange` and the moved-private-note case does.
  */
 
 import { getFunctionName } from "convex/server";
 import { describe, expect, test, vi } from "vitest";
 import type { Id } from "../../_generated/dataModel";
 import type { FileStore } from "../../functions/lib/fileOps";
-import { announceTreeChange } from "../../functions/lib/filesFns/treeTableOps";
+import { announceTreeChange } from "../../functions/lib/filesFns/treeOps";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 
 const ARGS = { workspaceId: "w1" as Id<"workspaces">, scope: "private" as const };
@@ -93,5 +94,33 @@ describe("a console change and the Convex tree", () => {
       before as never,
     );
     expect(calls.some((call) => call.name.endsWith("nodes:savePrivacy"))).toBe(false);
+  });
+
+  test("a moved note's old path is logged with who could see it before the move, not by the rules after", async () => {
+    // A move clears the source's exact exception before the tree is re-checked;
+    // the rules then say the folder's default, and would name a private note to the team.
+    const { ctx, calls } = recordingCtx();
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed("2-areas/a.md", "# A\n");
+    const before = {
+      rules: [{ prefix: "1-projects/", vis: "team" }],
+      overrides: new Map([["1-projects/a.md", "private"]]),
+      text: null,
+      etag: null,
+      invalid: false,
+    };
+    await announceTreeChange(
+      ctx,
+      store,
+      ARGS,
+      { paths: [], narrows: false },
+      { kind: "moved", from: "1-projects/a.md", to: "2-areas/a.md" } as never,
+      before as never,
+    );
+    const left = calls
+      .filter((call) => call.name.endsWith("nodes:observe") && (call.args.gone as string[]).includes("1-projects/a.md"))
+      .map((call) => call.args.left);
+    expect(left.length).toBeGreaterThan(0);
+    for (const entry of left) expect(entry).toEqual([{ path: "1-projects/a.md", audiences: ["private"] }]);
   });
 });

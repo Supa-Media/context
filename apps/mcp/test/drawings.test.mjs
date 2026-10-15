@@ -221,6 +221,7 @@ export async function runDrawingChecks(check) {
       NATIVE_BINDINGS: "DRAW_BUCKET",
       DRAW_BUCKET: bucket,
     };
+    controlPlane.serveTreesFrom(env); // write_note asks the tree whether the note exists
 
     const DRAWING = "1-projects/plan.excalidraw.md";
     const BIG_DRAWING = "1-projects/big.excalidraw.md";

@@ -24,7 +24,7 @@
  * It is a disposable derivative (CLAUDE.md, "Plain files stay canonical"):
  * every row is rebuilt from the bucket by `backfill.js`, and deleting the
  * database loses nothing. It lives in the per-context database, never a shared
- * one, for the reason the notes and tree tables do: one database per context
+ * one, for the reason the notes table does: one database per context
  * is the tenancy boundary.
  *
  * ## Three sources, one row shape

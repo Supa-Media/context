@@ -55,8 +55,8 @@ The rules, all the owner's:
 Tests: `apps/mcp/test/chaosRubric.test.mjs`, one per rule; the A to Z and
 contacts rules are "folders named A to Z are one run" and "contacts are scored
 on hygiene, not on how many there are". "a contact page's review: question
-reaches the score" in `chaosTable.test.mjs` proves the flag travels from
-frontmatter through the tree database.
+reaches the score" travels from frontmatter through the Convex facts
+(`apps/convex/__tests__/nodes/nodeFacts.test.ts`, `servedChaos.test.ts`).
 
 ## It reports; it never tidies
 
@@ -64,32 +64,39 @@ The score replaced the "Tidy up" tab of What changed, which the owner removed
 on 2026-10-10 as not useful. Keeping a workspace organized is the person's job,
 or an agent's they asked. So nothing acts on the score by itself: `orient`
 shows it and the biggest wins, every write and move answer shows the score
-before and after, the app shows the number and the figure, and none of them
+before and after, the app shows the number in words, and none of them
 carry a "tidy now" button. A "simplification" that brings automatic tidying
 back is the feature the owner just removed.
 
 One surface gives advice, because the owner asked for it (2026-10-13): a
-crowded or thin folder's page has Tex beside its title, and pressing Tex has
-it say how that folder could be calmer, in words from this rubric ("find two
-to five themes", "move these notes up into the folder above"). Words only:
-nothing it says comes with a button that moves a note, and it speaks only
-when pressed. The tree's foot is Tex alone, its score in its label and in
-the panel it opens (the owner's pick of board 04, "Showing the chaos
-score").
+crowded or thin folder's page has one muted line beside its title ("14
+things in here · calm is 4 or 5"), and pressing it says how that folder
+could be calmer, in words from this rubric ("find two to five themes",
+"move these notes up into the folder above"). Words only: nothing it says
+comes with a button that moves a note, and it speaks only when pressed. The
+tree's foot has no chaos line.
+
+## No figure in the app
+
+The owner took Tex out of the app on 2026-10-14 ("looks awful"): the
+folder page, the tree's foot, the panel and the phone's Home are words only.
+The foot's line was the figure alone, so it went with it; the panel is
+reached from a folder's advice ("The whole workspace's score") and from the
+phone's Home card. `chaosRender.test.ts` checks that no chaos surface in the
+app draws an svg. Bringing Tex back to the app is the owner's call, not a
+polish pass.
 
 ## The figure is Tex, drawn once
 
-Every chaos score in the app (web, desktop and phone) and the homepage's
-mascot draw the same component, `apps/mobile/features/chaos/Tex.tsx`, from
+The homepage's mascot, and any chaos figure drawn again later, use the same
+component, `apps/mobile/features/chaos/Tex.tsx`, from
 `figureGeometry.ts`: the brand-blue scribble that untangles into the app
 icon's #, with googly eyes at every score, calm included (Dev2, 2026-10-12:
 the app had drifted to a thinner black variant with dots at 0, and the
 character "is not consistent"). A per-surface variant is that drift again;
-`chaosFigure.test.ts` pins the brush and the eyes. On a folder's page Tex
-moves: stressed, one hand on its head, hauling a strand of its own yarn in
-two pulls and a rest (`figureParts`' `tug`, timed by `useTug`; still under
-reduced motion). That is the same drawing in motion, not a variant: without
-`tug` it is the figure every other surface draws.
+`chaosFigure.test.ts` pins the brush and the eyes. `figureParts` keeps a
+`tug` pose (stressed, hauling a strand of its own yarn) that a folder's page
+drew until 2026-10-14; it is the same drawing in motion, not a variant.
 
 ## Every write answers with the change
 
@@ -103,14 +110,17 @@ nothing rather than holding the agent up.
 
 ## Kept incrementally, proven equal to a full pass
 
-The score lives in the tree database (`tree_chaos`, one row per folder).
-A change rescores only the folders it touched and walks up while a folder
-appears, vanishes or changes team presence; the properties fill pass rescores
-everything once it has read something new. The property test "rescoring only
-what each change touched always lands where a full pass would" in
-`apps/mcp/test/chaosTable.test.mjs` runs sixty random creates, moves, folder
-moves and deletes and compares each step with a full recompute. Sabotaged: it
-fails without the parent walk and without carrying a moved note's length.
+The score is counted from the Convex tree's keys and facts whenever it is
+asked (`apps/mcp/src/chaos/live.js`), with the closing number per day kept in
+`nodeChaosDays` for "a week ago". It was kept in the search database
+(`tree_chaos`) and rescored per change until phase 7 of
+[convex-tree](./app-and-console/convex-tree.md) retired that table
+(2026-10-13). A write's report counts the tree's keys from before the change
+and the same keys with the change applied (`apps/mcp/src/chaos/change.js`),
+and names the folders it touched and the parents above any folder that
+appeared or vanished; `apps/mcp/test/chaosChange.test.mjs` covers a created
+note, a moved note and a moved folder, and a change the tree already shows
+counted once.
 
 ## Two audiences, and a member learns nothing held back
 
@@ -120,7 +130,8 @@ names, so it fails closed). A member is answered from the team numbers, and a
 folder is named to them only where a note they may open sits beneath it. A
 score that counted held-back notes would let a member watch it move and learn
 that something exists. Test: "a team member never counts, sees or is named a
-private folder or note" in `apps/convex/__tests__/chaosScore.test.ts`.
+private folder or note", now in `apps/convex/__tests__/nodes/servedChaos.test.ts`
+and, for a write's report, `apps/mcp/test/chaosChange.test.mjs`.
 
 ## A derivative, like every index
 

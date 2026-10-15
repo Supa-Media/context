@@ -13,8 +13,9 @@ import type { ObjectType } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
-import { identifiersForUser } from "../identities";
+import { handleForUser, identifiersForUser } from "../identities";
 import { getMembership, roleAtLeast } from "../workspaceAuth";
+import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 
 export const resolveShareArgs = { token: v.string() };
@@ -94,8 +95,21 @@ export const listSharedWithMeReturns = v.array(
     workspaceId: v.id("workspaces"),
     slug: v.string(),
     displayName: v.string(),
+    /** Whether the note lives in somebody's own context or a shared one. */
+    workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
     entryPath: v.string(),
     sharedBy: v.id("users"),
+    /**
+     * The sharer's handle, without the `@`, so the list can draw their face
+     * and name them. `null` for an account with none. The sharer chose to
+     * address the reader, and the reader can already see who sent the link
+     * on the share page, so naming them here discloses nothing new.
+     */
+    sharedByHandle: v.union(v.string(), v.null()),
+    /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
+    sharedByName: v.union(v.string(), v.null()),
+    /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
+    title: v.union(v.string(), v.null()),
     createdAt: v.number(),
   }),
 );
@@ -141,19 +155,42 @@ export async function listSharedWithMeHandler(
     rows.push(...found.filter((row) => isLive(row, now)));
   }
 
+  // Newest first, so that when one note reached this person twice — once by
+  // `@handle`, once by email — the row kept below is the latest share.
+  rows.sort((a, b) => b.createdAt - a.createdAt);
+
   const summaries = [];
+  const seen = new Set<string>();
+  const sharers = new Map<Id<"users">, { handle: string | null; name: string | null }>();
+  // Per context, not per row: see `shareableRules`.
+  const rules = new Map<Id<"workspaces">, Awaited<ReturnType<typeof shareableRules>>>();
   for (const row of rows) {
+    const key = `${row.workspaceId}\u0000${row.entryPath}`;
+    if (seen.has(key)) continue;
     // The authority, not the gathering above — and the same predicate the
     // link path answers, so this inbox can never be the softer of the two.
     const workspace = await shareStillStands(ctx, row, userId, now);
     if (workspace === null) continue;
+    seen.add(key);
+    if (!sharers.has(row.createdBy)) {
+      sharers.set(row.createdBy, {
+        handle: await handleForUser(ctx, row.createdBy),
+        name: await sharerName(ctx, row.createdBy),
+      });
+    }
+    const sharer = sharers.get(row.createdBy);
+    if (!rules.has(workspace._id)) rules.set(workspace._id, await shareableRules(ctx, workspace._id));
     summaries.push({
       token: row.token,
       workspaceId: workspace._id,
       slug: workspace.slug,
       displayName: workspace.displayName,
+      workspaceKind: workspace.kind,
       entryPath: row.entryPath,
       sharedBy: row.createdBy,
+      sharedByHandle: sharer?.handle ?? null,
+      sharedByName: sharer?.name ?? null,
+      title: await sharedNoteTitle(ctx, workspace._id, row.entryPath, rules.get(workspace._id) ?? null),
       createdAt: row.createdAt,
     });
   }
@@ -209,6 +246,17 @@ export const authorizeShareReadReturns = v.union(
      * gets one of the two wrong whichever way it is written.
      */
     openToAnyone: v.boolean(),
+    /**
+     * Whether this share names one person — an `@handle` or an email —
+     * rather than an audience.
+     *
+     * The read path reads the entry note of such a share at the owner's
+     * clearance instead of `team`, because naming the person *is* the owner
+     * saying yes to that person for that note (decided by the owner,
+     * 2026-10-14; docs/decisions/privacy-and-sharing/name-rules-and-grants.md).
+     * Links (`members`, `anyone`) keep narrowing through the live manifest.
+     */
+    addressedToPerson: v.boolean(),
     /**
      * The context's slug, for a caller who may **edit** this note there.
      *
@@ -284,6 +332,8 @@ export async function authorizeShareReadHandler(
     // Absent means `read`, which is every row written before collect mode.
     collecting: share.mode === "collect",
     openToAnyone: share.recipientKind === "anyone",
+    addressedToPerson:
+      share.recipientKind === "name" || share.recipientKind === "email",
     editableInContext,
   };
 }

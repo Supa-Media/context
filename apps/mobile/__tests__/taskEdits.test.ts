@@ -42,6 +42,7 @@ function item(path: string, kind: "note" | "folder", label: string, properties: 
     lede: null,
     updatedAt: 1,
     status,
+    noted: false,
     priority: null,
     progress: null,
   };

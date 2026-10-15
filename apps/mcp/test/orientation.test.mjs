@@ -1,14 +1,14 @@
 /**
- * Orientation: the budgeted walk, and the handshake that must not depend on it.
+ * Orientation: the survey's counts, and the handshake that must not depend on it.
  *
  * `orient` is the first thing a connected agent calls and the only thing that
  * tells it what is in here, so it has two failure modes that matter and neither
  * is a privacy bug (those live in `test.mjs`, against the shared fixture):
  *
- * 1. **It lies about size.** The walk is bounded — it runs against a bucket we
- *    do not own, on the customer's request quota — so a context bigger than the
- *    budget must report a floor. A precise-looking number that is not the truth
- *    is the bug this repository has already shipped twice.
+ * 1. **It lies about size.** The survey lists the Convex tree in one answer, so
+ *    every count is exact; where the tree cannot answer yet, orient says the
+ *    workspace is still loading and draws no map, rather than walking the
+ *    bucket. (It used to walk the bucket on a page budget and report floors.)
  * 2. **It takes the connection down with it.** The connect-time instructions
  *    now carry a live sketch of the context, which means a slow bucket, a
  *    revoked key, or a `privacy.md` somebody broke in Obsidian is suddenly on
@@ -23,14 +23,11 @@
  *
  * Run as temporary local edits and reverted:
  *
- * 1. **`listBoundedKeys` given no page cap** (walk everything, never truncate).
- *    2 checks failed: the floor markers on the folder line and on its children.
- *    The *total* stayed honest, because a second folder here cannot be walked
- *    at all — which is why the floor has two independent causes and both are
- *    asserted.
- * 2. **The per-folder `try` widened to one outer `try`**, as it was in the
- *    first draft of the note census. 9 checks failed: one folder with a
- *    backslash in its name emptied the entire survey.
+ * 1. **The survey's `TreeUnavailable` catch removed** (2026-10-13): "a
+ *    workspace still loading is told so, with its front page and no map"
+ *    fails, because orient then fails whole instead of drawing its front page.
+ * 2. **The tree's refusal read as an empty listing**: the same check and
+ *    "...and list_notes says it is still loading" fail.
  * 3. **`instructionsForSession` allowed to throw** (the `catch` removed). 2
  *    checks failed — but only after the handshake check was tightened from
  *    "HTTP 200" to "carries a result". A thrown handler is answered with a

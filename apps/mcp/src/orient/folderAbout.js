@@ -1,11 +1,11 @@
 /**
  * The one-line description `orient` draws beside each folder in its map: the
- * first prose line of that folder's front note.
+ * first sentence of the first paragraph of that folder's front note.
  *
  * A folder explains what it is for in a note inside it — `about.md`, or one of
  * the older names in `FRONT_NOTES` — so an agent learns the purpose of a folder
  * from the map without opening it. Three rules keep that from becoming a leak
- * or an unbounded bill:
+ * or a bill:
  *
  * **Only a note this connection can see is a candidate.** `surveyContext`
  * chooses the candidates from the same visibility filter the listing uses, so a
@@ -15,24 +15,19 @@
  *
  * **Candidates come from a listing, never from guessing.** Every name is checked
  * against keys the survey already holds, so a folder with no front note costs
- * no read at all, and a read is never spent on a name the bucket does not have.
+ * nothing, and no name is asked for that the tree does not have.
  *
- * **A fixed read budget.** The reads are spent in the order the map shows its
- * folders, top level first, and stop at `FOLDER_ABOUT_READ_CAP`. A folder past
- * the budget is drawn with no description rather than with one that was
- * guessed at, and a context with a great many folders degrades to the map it
- * had before this existed.
+ * **No note is opened.** The first paragraph comes from the Convex tree's
+ * props for each candidate (`factProps`, `tree/facts.js`), one request per
+ * hundred folders, so every folder the map draws can be described. A front
+ * note the facts have not read yet, or a request that fails, costs its folder
+ * the description, and the map stands.
  */
 
-import { isEncryptedNote } from "../encryption.js";
 import { FRONT_NOTES } from "../lists/grammar.js";
-import { mapInBatches } from "../notes/storage.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
+import { factProps } from "../tree/facts.js";
 import { ORIENT_CHILDREN_LIMIT } from "./render.js";
 
-/** Subrequests one `orient` may spend on folder descriptions, in total. */
-export const FOLDER_ABOUT_READ_CAP = 24;
-const FOLDER_ABOUT_CONCURRENCY = 6;
 /** Long enough to say what a folder is for; short enough to keep the map a map. */
 export const FOLDER_ABOUT_CHARS = 120;
 /** What the old auto-written `README.md` placeholders began with. */
@@ -54,103 +49,46 @@ export function frontNotesAmong(prefix, keys, isVisible) {
  *
  * Mutates the survey in place: each node that has a `front` candidate gets a
  * `description` when one of its candidates yields a line. Nothing here can
- * throw into `orient` — a note that cannot be read costs its folder the
- * description, and the map stands.
+ * throw into `orient`.
  */
 export async function describeFolders(store, survey) {
-  // The order the map draws in, so the budget goes to what is shown first. A
-  // child past the render limit is never drawn, so it is never read.
+  // Only what the map draws: a child past the render limit is never asked about.
   const nodes = [
     ...survey.folders,
     ...survey.folders.flatMap((folder) => folder.children.slice(0, ORIENT_CHILDREN_LIMIT)),
   ].filter((node) => node.front.length > 0);
-
-  // Checked and spent before each read rather than counted afterwards. Batches
-  // run one after another, so a read is never issued past the cap, and within
-  // a batch the counter is only ever bumped synchronously.
-  let reads = 0;
-  await mapInBatches(nodes, FOLDER_ABOUT_CONCURRENCY, async (node) => {
+  if (nodes.length === 0) return;
+  const found = await factProps(store, nodes.flatMap((node) => node.front)).catch(() => null);
+  if (found === null) return;
+  for (const node of nodes) {
     for (const key of node.front) {
-      if (reads >= FOLDER_ABOUT_READ_CAP) return;
-      reads += 1;
-      const line = await readAboutLine(store, key);
+      const line = aboutLine(key, found.get(key));
       if (line) {
         node.description = line;
-        return;
+        break;
       }
     }
-  });
-}
-
-async function readAboutLine(store, key) {
-  try {
-    const object = await getWithLegacyFallback(store, key);
-    if (!object) return null;
-    return aboutLine(key, await object.text());
-  } catch {
-    // A storage failure on one front note must not take the whole map with it.
-    return null;
   }
 }
 
 /**
- * The description a front note gives, or `null` when it gives none.
+ * The description a front note's props give, or `null` when they give none.
  *
- * An encrypted note is skipped whole: its body is a sealed envelope, and even a
- * prefix of it would be ciphertext in the map. The `README.md` placeholders are
- * skipped by their opening sentence, because they were written by us to fill a
- * folder that had nothing in it and describe nothing the owner said.
+ * A sealed note gives none: its text is ciphertext, and the facts kept nothing
+ * of it. The `README.md` placeholders are skipped by their opening sentence,
+ * because they were written by us to fill a folder that had nothing in it and
+ * describe nothing the owner said.
  */
-export function aboutLine(key, text) {
-  if (typeof text !== "string" || isEncryptedNote(text)) return null;
-  const body = bodyAfterFrontmatter(text);
-  if (key.endsWith("/README.md") && body.trimStart().startsWith(PLACEHOLDER_START)) return null;
-  return firstProseSentence(body);
-}
-
-function bodyAfterFrontmatter(text) {
-  const source = text.replace(/^\uFEFF/, "");
-  if (!source.startsWith("---")) return source;
-  const end = source.indexOf("\n---", 3);
-  // An unclosed `---` is more likely a rule than a header, so it is left as is.
-  if (end < 0) return source;
-  const lineEnd = source.indexOf("\n", end + 1);
-  return lineEnd < 0 ? "" : source.slice(lineEnd + 1);
-}
-
-/**
- * The first sentence of the first line of prose, as plain text.
- *
- * Headings are skipped because they name the folder again, and fenced code,
- * HTML comments, tables and rules are not prose. Markdown is stripped down to
- * its words: a list marker, a quote marker, a link's label and a wiki link's
- * alias are what a person reads, and the emphasis characters around them are
- * not.
- */
-function firstProseSentence(body) {
-  let inFence = false;
-  for (const raw of body.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (/^(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence || !line || /^(#|<|\||---|\*\*\*)/.test(line)) continue;
-    const plain = line
-      .replace(/^(?:>\s*|[-*+]\s+|\d+[.)]\s+)+/, "")
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_, target, alias) => alias || target)
-      .replace(/\*\*|__|[*`]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!plain) continue;
-    // "e.g." ends a sentence early here. A description that stops at the first
-    // full stop is still the right kind of thing to show, and it is cheaper than
-    // a tokenizer that would have to be right about every abbreviation.
-    const sentence = plain.match(/^(.+?[.!?])(?=\s|$)/)?.[1] ?? plain;
-    return capDescription(sentence);
-  }
-  return null;
+export function aboutLine(key, fact) {
+  if (!fact || fact.sealed || typeof fact.props?.lede !== "string") return null;
+  const lede = fact.props.lede.trim();
+  if (lede === "") return null;
+  if (key.endsWith("/README.md") && lede.startsWith(PLACEHOLDER_START)) return null;
+  // "e.g." ends a sentence early here. A description that stops at the first
+  // full stop is still the right kind of thing to show, and it is cheaper than
+  // a tokenizer that would have to be right about every abbreviation.
+  const sentence = lede.match(/^(.+?[.!?])(?=\s|$)/)?.[1] ?? lede;
+  return capDescription(sentence);
 }
 
 function capDescription(text) {

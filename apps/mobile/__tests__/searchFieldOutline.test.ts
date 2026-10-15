@@ -6,18 +6,22 @@ import { darkColors, darkShadows } from "../features/design/tokens";
 
 /**
  * Search fields draw their own frame, so the browser's focus ring must not
- * draw a second one inside it. The owner called the blue box Chrome drew in
- * the quick-search panel "super ugly" (2026-10-07); RN-Web turns
- * `outlineWidth: 0` into the inline style that stops it.
+ * draw a second one inside it. The owner called the blue box drawn in the
+ * quick-search panel "super ugly" (2026-10-07), and it was still there on
+ * 2026-10-14 ("not needed ever"): `outlineWidth: 0` stops Chrome's ring but
+ * not Safari's, which draws an `auto` outline at its own width. Only
+ * `outlineStyle: "none"` stops both.
  */
 describe("search fields carry no browser focus ring", () => {
   test("quick search, on a desk and on a phone", () => {
     const styles = paletteStyles(darkColors);
     expect(styles.input.outlineWidth).toBe(0);
+    expect((styles.input as { outlineStyle?: string }).outlineStyle).toBe("none");
   });
 
   test("the file tree's filter field", () => {
     const styles = explorerStyles(darkColors, darkShadows);
     expect(styles.filter.outlineWidth).toBe(0);
+    expect((styles.filter as { outlineStyle?: string }).outlineStyle).toBe("none");
   });
 });

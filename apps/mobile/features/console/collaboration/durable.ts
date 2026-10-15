@@ -255,10 +255,13 @@ export function keepsEveryWord(draft: string, note: string): boolean {
   return body === "" || draft.includes(body);
 }
 
+/** The longest a rename may keep a note's typing from being sent. */
+const HOLD_LIMIT_MS = 30_000;
+
 export class DurableCollaborationController {
-  private readonly options: DurableControllerOptions;
+  private options: DurableControllerOptions;
   private readonly store: ReturnType<typeof openStore>;
-  private readonly key: string;
+  private key: string;
   private readonly now: () => number;
   private readonly doc: SharedDoc;
   private record = emptyRecord();
@@ -268,6 +271,11 @@ export class DurableCollaborationController {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private repairTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  /** A rename of this note is on its way; see `hold`. */
+  private held = false;
+  private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Where the note is now, which `retarget` catches the writes up to. */
+  private target: string;
   private flushing = false;
   private persistFailed = false;
   private reading: Promise<void> | null = null;
@@ -280,6 +288,8 @@ export class DurableCollaborationController {
     this.key = scopedKeyFor("collaboration", options.scope, options.workspaceId, options.path);
     this.now = options.now ?? Date.now;
     this.doc = createSharedDoc({ onLocalUpdateBytes: (update) => this.localUpdate(update) });
+    this.target = options.path;
+    this.doc.notePath = () => this.target;
   }
 
   get state(): DurableCollaboration {
@@ -301,6 +311,78 @@ export class DurableCollaborationController {
       subscribeLiveUpdates: (listener) => this.subscribeLiveUpdates(listener),
       receiveLiveUpdate: (documentId, update) => this.receiveLiveUpdate(documentId, update),
     };
+  }
+
+  /** The note this controller writes to. */
+  get path(): string {
+    return this.options.path;
+  }
+
+  /**
+   * Stop talking to the gateway while this note is being renamed.
+   *
+   * Typing goes on: it lands in the document and the queue as always, and is
+   * kept on the device. It is not sent, and the note is not read, while the
+   * gateway is moving it — a write or a read caught by the move is refused,
+   * and a refused write used to end the queue in an error nothing retried.
+   * `retarget` (the rename landed) or `release` (it was refused) sends it.
+   */
+  hold(): void {
+    this.held = true;
+    // A rename that never says how it ended must not keep this note's typing
+    // on the device for good.
+    if (this.holdTimer !== null) clearTimeout(this.holdTimer);
+    this.holdTimer = setTimeout(() => this.release(), HOLD_LIMIT_MS);
+  }
+
+  release(): void {
+    if (this.holdTimer !== null) clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+    if (!this.held) return;
+    this.held = false;
+    // Straight away: what was typed during the rename has waited long enough.
+    if (this.flushTimer !== null) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    this.scheduleFlush(0);
+  }
+
+  /**
+   * The same note, at its new name: the same document, the same queue, the
+   * same editor binding, now sent to `path`.
+   *
+   * **This is the fix for "I rename and start typing … it deletes everything
+   * I typed already"** (owner, 2026-10-14). Rebuilding the controller for the
+   * new path threw away what had not been sent yet, under the old path's
+   * key, and the new one's first read put the bucket's older text over the
+   * editor. The gateway moves a note's document with it (same id, same
+   * history), so nothing about the document changes but where it is written.
+   */
+  /**
+   * Say the new name now, before `retarget` moves the writes there.
+   *
+   * Called while the hook renders, because the editor decides whether to stay
+   * in this room in its own effect, and a child's effects run before the
+   * hook's: by then the document has to answer to the name the editor has.
+   * Only a field: idempotent, and nothing is sent.
+   */
+  follow(path: string): void {
+    this.target = path;
+  }
+
+  retarget(path: string): void {
+    this.target = path;
+    if (this.stopped || path === this.options.path) {
+      this.release();
+      return;
+    }
+    const from = this.key;
+    this.options = { ...this.options, path };
+    this.key = scopedKeyFor("collaboration", this.options.scope, this.options.workspaceId, path);
+    void this.persist().then((saved) => {
+      if (saved) return this.store.remove(from).catch(() => {});
+    });
+    this.release();
+    this.scheduleFlush(0);
   }
 
   changeForHook(text: string): void {
@@ -446,6 +528,7 @@ export class DurableCollaborationController {
     this.liveListeners.clear();
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     if (this.repairTimer !== null) clearTimeout(this.repairTimer);
+    if (this.holdTimer !== null) clearTimeout(this.holdTimer);
   }
 
   private id(): string {
@@ -601,7 +684,7 @@ export class DurableCollaborationController {
   }
 
   private scheduleFlush(delay = 120): void {
-    if (this.flushTimer !== null || this.stopped) return;
+    if (this.flushTimer !== null || this.stopped || this.held) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.flush();
@@ -633,7 +716,7 @@ export class DurableCollaborationController {
   }
 
   private async readRemoteOnce(): Promise<void> {
-    if (this.stopped || this.statusState === "revoked") return;
+    if (this.stopped || this.held || this.statusState === "revoked") return;
     if (this.record.recovery !== undefined) {
       await this.replaceRecovery();
       return;
@@ -682,7 +765,7 @@ export class DurableCollaborationController {
   }
 
   private async flush(): Promise<void> {
-    if (this.flushing || this.stopped || this.record.pending.length === 0 || this.statusState === "revoked" || this.options.canWrite?.() === false) return;
+    if (this.flushing || this.stopped || this.held || this.record.pending.length === 0 || this.statusState === "revoked" || this.options.canWrite?.() === false) return;
     if (this.options.online?.() === false) {
       this.emit("offline");
       return;

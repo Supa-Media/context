@@ -41,6 +41,9 @@ import {
   argument sitting in the same module.
 */
 jest.mock("@convex-dev/auth/server", () => ({ getAuthUserId: () => null }), { virtual: true });
+// The same shim for `@supa-media/convex/auth`, which `files.ts` now reaches
+// through the website rebuild its file operations announce.
+jest.mock("@supa-media/convex/auth", () => ({ requireAuthId: async () => null }), { virtual: true });
 
 /** Every role the control plane can store. Exhaustive by its own type. */
 const EVERY_ROLE: WorkspaceRole[] = ["owner", "editor", "member"];

@@ -22,8 +22,18 @@ this folder: it is public, like the rest of the repository.
   in to a site, save a login, find something on a site, set up a website,
   buy or connect its domain. Run it with
   `--test tasks`. Every task is a gate, and its `must call`, `must reach`,
-  `must hand off`, `must type`, `must choose`, `must set`, `must publish` and `must connect` lines are checked
+  `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect` and `must write` lines are checked
   from the run's record (`bench/checks.mjs`), not by the judge.
+- `tests/core.md`: the core set (decided by the owner 2026-10-14), fifteen
+  basics Tex must do, each a gate like a golden task: a lookup, two facts, a
+  lookup across workspaces, a missing fact, a to-do list, a write, a tick-off,
+  a correction, a greeting, "are you a bot", a web lookup, connecting ChatGPT,
+  saving a login, a one-off reminder and a weekday routine. It is what
+  `pnpm ai run texting-assistant` and the Action run when no test is named;
+  `--test texting-assistant` (59 questions) and `--test tasks` are the long
+  sets, kept for rounds. Its `must write: maya/tex/routines/once/ with at:
+  2026-10-09 9:00 am` lines are checked from the run's record too: a note
+  written at that path (under it when it ends in `/`) with that front matter.
 - `sites/`: the scripted web a test with `web: scripted` runs on, one file per
   site (`bench/sites.mjs` says the format). Invented sites use `.example`.
 - `setups/<job>/`: written by `pnpm ai pull <job>` and ignored by git. A

@@ -198,6 +198,34 @@ describe("what a text can reach", () => {
     expect(JSON.stringify(grants)).not.toContain(answer.accessToken as string);
   });
 
+  test("the texting client is called Tex, and a row made under its old name takes it", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    await link(t, PHONE, (await startLink(t, userId)).code);
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("oauthClients").withIndex("by_clientId", (q) => q.eq("clientId", TEXTS_CLIENT_ID)).unique();
+      if (row === null) {
+        await ctx.db.insert("oauthClients", {
+          clientId: TEXTS_CLIENT_ID,
+          clientName: "Texts (iMessage)",
+          redirectUris: [],
+          hashedClientSecret: null,
+          tokenEndpointAuthMethod: "none",
+          grantTypes: [],
+          responseTypes: [],
+          createdAt: Date.now(),
+        });
+      } else {
+        await ctx.db.patch(row._id, { clientName: "Texts (iMessage)" });
+      }
+    });
+
+    const resolved = await resolves(t, (await session(t, PHONE)).accessToken as string);
+    expect(resolved?.clientName).toBe("Tex");
+    const rows = await t.run(async (ctx) => await ctx.db.query("oauthClients").collect());
+    expect(rows.filter((row) => row.clientId === TEXTS_CLIENT_ID).map((row) => row.clientName)).toEqual(["Tex"]);
+  });
+
   test("it reaches what its person can, and nothing of anyone else's", async () => {
     const t = setupTest();
     const ada = await person(t, "a@example.invalid", "ada");
@@ -244,5 +272,27 @@ describe("what a text can reach", () => {
       ...(await ctx.db.query("phoneLinkCodes").collect()),
     ]);
     expect(left).toEqual([]);
+  });
+});
+
+describe("the clock a text is answered by", () => {
+  // Tex asked for the phone's time before "remind me in 2 minutes" (owner,
+  // 2026-10-14): a session carries the zone their reminders run in.
+  test("a linked phone's session carries its account's time zone, else the routines' default", async () => {
+    const t = setupTest();
+    const { userId } = await person(t, "a@example.invalid", "ada");
+    const { code } = await startLink(t, userId);
+    expect(await link(t, PHONE, code)).toBe("linked");
+    expect((await session(t, PHONE)).timeZone).toBe("America/New_York");
+
+    await asUser(t, userId).mutation(api.functions.routines.setMyTimeZone, { timeZone: "Europe/London" });
+    const opened = await session(t, PHONE);
+    expect(opened).toMatchObject({ status: "linked", timeZone: "Europe/London" });
+    expect(typeof opened.accessToken).toBe("string");
+  });
+
+  test("an unlinked phone learns no zone", async () => {
+    const t = setupTest();
+    expect(await session(t, PHONE)).toEqual({ status: "unlinked" });
   });
 });

@@ -13,7 +13,8 @@
  * 3. **`withInlineTags` dropped from `selectListRows`** — the list check failed.
  * 4. **Inline tags left out of `extractFields`** — the search field check failed.
  * 5. **The props refill rule without `$.inlineTags`** — the Convex
- *    `folderNotesTable` refill check failed.
+ *    props refill check failed (then `folderNotesTable.test.ts`, retired with
+ *    the search database's tree in phase 7).
  */
 import test from "node:test";
 import assert from "node:assert/strict";

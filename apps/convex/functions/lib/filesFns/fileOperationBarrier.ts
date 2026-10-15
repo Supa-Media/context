@@ -19,6 +19,9 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
+import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
+import { storePrivacyAuthority } from "../nodes/storeAuthority";
+import { attachSmallData } from "../smallData/attach";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -27,29 +30,21 @@ import { messageFor } from "../d1";
 import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
 import { recordTreeChange, recordWrites } from "../treeAnnounce";
-import { indexChangeOf, treeChangeOf } from "./access";
-import {
-  operationMayRestrictWebsite,
-  operationTouchesWebsite,
-} from "../websites/changes";
+import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
+import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
-import {
-  announceTreeChange,
-  manifestSource,
-  runTreeOperation,
-  searchDatabaseClient,
-  type TreeOperation,
-  treeOperationClient,
-  noTreeTable,
-  treeStateOf,
-} from "./treeTableOps";
+import { announceTreeChange, manifestSource } from "./treeOps";
+import { searchDatabaseClient } from "../fastSearchFns/client";
 import { recordProjectionOutcome } from "./projectionOutcome";
-import { isNodesOperation, runNodesOperation } from "../nodes/run";
-import { servedReadAnswer } from "../nodes/servedReads";
+import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
+import { isTreeRead, treeReadAnswer } from "../nodes/treeReads";
+import { TreeUnbound } from "../nodes/treeLoading";
 import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
+import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
+import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
   IDLE_MEANING,
@@ -69,9 +64,13 @@ import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
   type FileOperation,
   IDLE_PROJECTION,
+  IDLE_PRUNE,
   type OperationResult,
 } from "./operationTypes";
 import { operationValidator } from "./operationValidators";
+import { runPrunePass } from "./prunePass";
+import { readTrashedText } from "../fileOps/trashedReading";
+import { toConvexError } from "./operationErrors";
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
@@ -111,13 +110,8 @@ export async function runFileOperationHandler(
    * This context's search database, if the row is in the state the caller
    * needs and this deployment is configured.
    *
-   * Two callers now and they want opposite states, which is the whole reason
-   * this is a parameter rather than a constant: a projection pass may only
-   * run against a row that is still `backfilling`, and a search may only
-   * READ one the control plane has called `ready` — the same gate the
-   * gateway applies, because a projection that is still filling answers a
-   * query about a note it has not copied with a silence a reader would take
-   * for a miss.
+   * A projection pass may only run against a row that is still
+   * `backfilling`; a search opens its own target below, ready or filling.
    *
    * `null` for every way of saying no, and they are deliberately
    * indistinguishable to the caller: not opted in, not provisioned, wrong
@@ -139,7 +133,7 @@ export async function runFileOperationHandler(
    * and a missing Cloudflare credential is a reported failure for a pass and
    * a silent fall-through for a search.
    */
-  // Both or neither secret, as `provisionIndex` reads them (`treeTableOps.ts`).
+  // Both or neither secret, as `provisionIndex` reads them (`fastSearchFns/client.ts`).
   const clientFor = (target: { databaseId: string; state: string }) => searchDatabaseClient(ctx, target);
 
   /*
@@ -151,19 +145,35 @@ export async function runFileOperationHandler(
    * to explain why is the bug that whole path exists to close. A search must
    * do the opposite: somebody typed a word, and a deployment whose
    * Cloudflare credential is missing must not have their search flip a
-   * provisioning row to `failed` as a side effect. It falls through to the
-   * R2 index, which is what every context without fast search does anyway.
+   * provisioning row to `failed` as a side effect.
    */
   // Search by meaning is asked beside it, on the same terms: a `null` is
   // "words only", never a row written (`meaningSearchDescriptor`).
   let meaningSearch: MeaningSearchDescriptor | null = null;
   if (args.operation.kind === "search") {
+    // Ready or still filling: a context with a database answers from it alone
+    // (`searchNotes`), so a filling one is read too and says it is behind.
     const [target, meaningTarget] = await Promise.all([
-      projectionTarget("ready"),
+      ctx.runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId }),
       meaningSearchDescriptor(ctx, args.workspaceId),
     ]);
-    if (target !== null) projection = await clientFor(target);
+    if (target !== null && (target.state === "ready" || target.state === "backfilling")) {
+      const client = await clientFor(target);
+      if (client !== null) projection = Object.assign(client, { filling: target.state !== "ready" });
+    }
     meaningSearch = meaningTarget;
+  }
+
+  // A change re-indexed behind its operation is followed into a `ready`
+  // projection too, so a rename or move is found at its new path at once
+  // (`search/d1/follow.js`). Silent on every no, as a search is.
+  // So is a queued folder move when its copy lands, and the daily check of a
+  // `ready` database removes rows for notes that are gone (`prunePass.ts`).
+  if (args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+    // Never fails the operation it rides on: a move's copy must not stop over a derivative.
+    const target = await projectionTarget("ready").catch(() => null);
+    if (target !== null) projection = await clientFor(target).catch(() => null);
+    if (args.operation.kind === "pruneIndex" && projection === null) return IDLE_PRUNE;
   }
 
   if (args.operation.kind === "projectIndex") {
@@ -265,13 +275,20 @@ export async function runFileOperationHandler(
     }
   }
 
-  // A tree operation asks for its database before the bucket's credential, as a projection pass does.
-  const treeOperation = await treeOperationClient(ctx, args);
-  if (treeOperation !== null && treeOperation.client === null) return noTreeTable(args.operation as TreeOperation);
-  if (treeOperation?.client && args.operation.kind === "treeState") return await treeStateOf(treeOperation.client);
-  // A one-folder listing the Convex tree serves needs no bucket credential (`lib/nodes/servedReads.ts`).
-  const served = await servedReadAnswer(ctx, args);
-  if (served !== null) return served;
+  // Which notes exist, and what their facts say, is answered from the Convex
+  // tree with no bucket credential decrypted at all, or "still loading"
+  // (`lib/nodes/treeReads.ts`; decided by the owner, 2026-10-13).
+  if (isTreeRead(args.operation)) {
+    try {
+      return await treeReadAnswer(ctx, args);
+    } catch (error) {
+      if (!(error instanceof TreeUnbound)) throw error;
+      throw new ConvexError({
+        code: "STORAGE_NOT_CONNECTED",
+        message: "This context has no bucket connected yet. Connect storage before browsing files.",
+      });
+    }
+  }
 
   /*
     The three lookups a store is built from, asked together. Each is its own
@@ -370,6 +387,8 @@ export async function runFileOperationHandler(
     store = storeForBinding(credential, undefined, {
       fetchImpl: timeoutFetch,
       noteCap,
+      // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
+      noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
     }) as unknown as FileStore;
   } catch {
@@ -391,12 +410,16 @@ export async function runFileOperationHandler(
     });
   }
 
-  if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
-  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store);
+  // `privacy.md` decided by the rules held as the authority, where they are
+  // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
+  // below goes through this, the console's and the gateway's alike.
+  store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
+  // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
+  attachSmallData(ctx, args.workspaceId, store);
 
-  if (treeOperation?.client) {
-    return await runTreeOperation(ctx, { ...args, operation: args.operation as TreeOperation }, store, treeOperation.client);
-  }
+  if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
+  if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
+  if (args.operation.kind === "pruneIndex") return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;
@@ -405,6 +428,12 @@ export async function runFileOperationHandler(
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
   if (meaningSearch !== null) attachMeaningIndex(store, meaningSearch, null);
+
+  // A read, through the pending moves and nothing after this (`fileOps/trashedReading.ts`).
+  if (args.operation.kind === "readTrashed") {
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    return await readTrashedText(store, { ...args.operation, clearance }).catch((error) => rethrowUnreadable(toConvexError(error)));
+  }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
     return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);
@@ -447,6 +476,7 @@ export async function runFileOperationHandler(
   attachQueueMove(ctx, args, listing.store, bucket);
   attachTreeListing(ctx, args.workspaceId, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
+  if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -473,25 +503,12 @@ export async function runFileOperationHandler(
   ).catch(rethrowUnreadable);
   if (result.kind === "manifest") Object.assign(result, { source: listing.source }, listing.since === undefined ? {} : { since: listing.since, privacy: listing.privacy ?? null });
 
-  // Website rows are a derivative of bucket bytes. Mark a complete snapshot
-  // stale after the canonical write lands; failure here never rewrites the
-  // already-successful storage answer, and the periodic reconciler repairs it.
-  if (
-    operationTouchesWebsite(args.operation as FileOperation, result)
-  ) {
-    await ctx
-      .runMutation(internal.functions.websites.recordRouteChange, {
-        workspaceId: args.workspaceId,
-        unsafe: operationMayRestrictWebsite(
-          args.operation as FileOperation,
-          result,
-        ),
-      })
-      .catch(() => {});
-  }
+  // Website rows are a derivative of bucket bytes: mark them stale after the
+  // canonical write lands. Best effort; the periodic reconciler repairs a miss.
+  await markWebsiteAfterOperation(ctx, args.workspaceId, args.operation as FileOperation, result);
 
-  // Routine rows are a derivative of `routines/` too. The person who acted is
-  // named by `actorName`, the handle `authorizeFileAccess` resolved from live
+  // Routine rows are a derivative of the routine roots (`routines/` and
+  // `tex/routines/`) too. The person who acted is named by `actorName`, the handle `authorizeFileAccess` resolved from live
   // membership; `recordRoutineSignal` keeps them as the writer only if they
   // can write here now. Best effort, like the website mark above.
   const routinePaths = routinePathsTouched(args.operation as FileOperation, result);
@@ -533,8 +550,10 @@ export async function runFileOperationHandler(
       .catch(() => {});
   }
 
-  const indexChange = indexChangeOf(args.operation as FileOperation);
-  await announceTreeChange(ctx, store, args, organizerChange?.() ?? treeChange, result, privacyBefore, indexChange?.written);
+  const indexChange = indexChangeOf(args.operation as FileOperation, result);
+  const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
+  await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
+  if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();
 
   /*

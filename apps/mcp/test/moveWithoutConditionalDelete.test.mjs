@@ -79,6 +79,8 @@ import {
   createControlPlaneStub,
   createS3Backend,
 } from "./controlPlaneStub.mjs";
+import { seedLegacyFolderMoveInMap } from "./legacyMoveJob.mjs";
+import { moveFinished } from "../src/moves/jobs.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 
@@ -257,6 +259,7 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
   };
+  controlPlane.serveTreesFrom(env, { s3 });
 
   /* ------------------------------ 1. one note ----------------------------- */
 
@@ -480,17 +483,25 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
       etag: `b${n}`,
     });
   }
+  /*
+    `move_folder` no longer writes a move job for a folder this size: the
+    Convex move queue carries it, and with no queue (this harness) it is
+    refused (2026-10-13). A job an older gateway left behind on this storage
+    still has to finish, so the drain is driven from one seeded as that
+    gateway wrote it. Replaces "a folder of thousands cuts over logically
+    instead of refusing" and "...and names the move it can be resumed with".
+  */
   const folder = await callTool(env, TOKEN_OWNER, "move_folder", {
     source: "3-teams/big",
     destination: "3-teams/moved",
   });
-  const folderText = textOf(folder);
   check(
-    "a folder of thousands cuts over logically instead of refusing",
-    !folder?.isError && /logical move active/.test(folderText)
+    "a folder of thousands the queue cannot take is refused, and nothing moves",
+    folder?.isError === true &&
+      /could not queue this move/.test(textOf(folder)) &&
+      ![...primary.keys()].some((key) => key.startsWith("3-teams/moved/") || key.startsWith(".context/moves/"))
   );
-  const moveId = /move_id: (\S+)/.exec(folderText)?.[1];
-  check("...and names the move it can be resumed with", Boolean(moveId));
+  const moveId = seedLegacyFolderMoveInMap(primary, "3-teams/big", "3-teams/moved");
 
   // Bounded passes, exactly as an owner or the background worker would drive
   // them. Allow copy, cleanup, checkpointed source verification, and the
@@ -501,9 +512,9 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: moveId });
     last = textOf(pass);
     passes += 1;
-    if (pass?.isError || /complete|no active work/.test(last)) break;
+    if (pass?.isError || moveFinished(last)) break;
   }
-  check("...and materializes to completion in bounded batches", /complete/.test(last));
+  check("a legacy job left on this storage materializes to completion in bounded batches", /: complete$/m.test(last));
   check("...taking more than one pass, so the batching is real", passes > 1);
 
   const arrived = [...primary.keys()].filter((key) => key.startsWith("3-teams/moved/"));
@@ -565,12 +576,7 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
       etag: n === COLLIDE - 1 ? COLLIDE_ETAG : `c${n}`,
     });
   }
-  const collideMove = await callTool(env, TOKEN_OWNER, "move_folder", {
-    source: "3-teams/collide",
-    destination: "3-teams/collided",
-  });
-  const collideId = /move_id: (\S+)/.exec(textOf(collideMove))?.[1];
-  check("the colliding folder cuts over logically too", Boolean(collideId));
+  const collideId = seedLegacyFolderMoveInMap(primary, "3-teams/collide", "3-teams/collided");
 
   // Somebody else's note lands at the first destination key, carrying the etag
   // the plan recorded for the source. Only the bytes disagree.
@@ -589,7 +595,7 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
       collideRefused = true;
       break;
     }
-    if (/complete|no active work/.test(collideLast)) break;
+    if (moveFinished(collideLast)) break;
   }
   check(
     "a destination whose etag matches but whose bytes differ is refused, not adopted",

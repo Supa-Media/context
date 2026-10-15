@@ -299,27 +299,55 @@ describe("a path cannot inject rules into privacy.md", () => {
   /**
    * THE SECOND LAYER, WITH NO CONTROL CHARACTER IN SIGHT.
    *
-   * `2-areas/pay: team` is a legal S3 key. Rendered as `  <path>: private` the
-   * parser's `[^:]+?` stops at the first colon, so the rule names
-   * `2-areas/pay` — a different note — and reads back fine. A character
-   * blacklist cannot see this; rendering and re-parsing can.
+   * `2-areas/pay #2.md` is a legal S3 key. Rendered as `  <path>: team`, the
+   * parser's comment stripper cuts it at the `#`, so the line names
+   * `2-areas/pay` with no visibility at all. A character blacklist is a guess
+   * about that parser; rendering and re-parsing asks it.
+   *
+   * A colon used to be this case — the visibility was read from the FIRST
+   * colon, so `2-areas/pay: team.md` named `2-areas/pay` — and one meeting
+   * filed under `1:1s/ana:ben/` made a whole workspace's manifest unreadable
+   * in production. The visibility is now what follows the LAST colon, so such
+   * a path is recorded as itself, and nothing else.
    */
   test("a path the rule grammar would read as a different path is refused", async () => {
     const store = await bucket();
     await expect(
       setVisibility(store, {
-        path: "2-areas/pay: team.md",
-        visibility: "private",
+        path: "2-areas/pay #2.md",
+        visibility: "team",
         clearance: clearanceOf("private"),
       }),
     ).rejects.toThrow(FileOpError);
     await expect(
       setFolderVisibility(store, {
-        path: "2-areas/pay: team",
-        visibility: "private",
+        path: "2-areas/pay #2",
+        visibility: "team",
         clearance: clearanceOf("private"),
       }),
     ).rejects.toThrow(FileOpError);
+    expect(teamVisible(store, "2-areas/pay")).toBe(false);
+  });
+
+  test("a path with colons in it is recorded as itself", async () => {
+    const store = await bucket();
+    await setVisibility(store, {
+      path: "2-areas/pay: team.md",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    await setFolderVisibility(store, {
+      path: "2-areas/1:1s/ana:ben",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]!);
+    expect([...parsed.overrides.keys()]).toContain("2-areas/pay: team.md");
+    expect(parsed.rules.some((rule) => rule.prefix === "2-areas/1:1s/ana:ben" && rule.vis === "team")).toBe(true);
+    expect(teamVisible(store, "2-areas/pay: team.md")).toBe(true);
+    expect(teamVisible(store, "2-areas/pay")).toBe(false);
+    expect(teamVisible(store, "2-areas/1:1s/ana:ben/notes.md")).toBe(true);
+    expect(teamVisible(store, "2-areas/1:1s/other.md")).toBe(false);
   });
 
   /**

@@ -87,6 +87,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`).
+  Object.defineProperty(store, "treeFacts", {
+    value: (request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
 }
 
 export function attachGatewayJobQueue(store, session, controlPlane, env) {

@@ -9,10 +9,10 @@
  * clients cache tool lists, so a capability arrives on the tools they have
  * (`docs/decisions/gateway-protocol.md`).
  *
- * The rescore itself starts in `recordChange` (`tree/record.js`); this file
- * waits for it, briefly, and words it. A rescore slower than `WAIT_MS` is
- * left to finish behind the response and the answer says nothing about it,
- * rather than holding the agent up.
+ * The count itself starts in `recordChange` (`activity/record.js`,
+ * `change.js`); this file waits for it, briefly, and words it. A count slower
+ * than `WAIT_MS` is left to finish behind the response and the answer says
+ * nothing about it, rather than holding the agent up.
  */
 
 import { chaosWord, folderChaos } from "./rubric.js";

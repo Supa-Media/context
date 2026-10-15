@@ -12,6 +12,10 @@ import {
   runTurn,
 } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
+import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
+import { readTexNotes } from "./jobs.js";
+import { openTranscript } from "./transcript.js";
+import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { searchSettingsOf } from "../search/settings.js";
@@ -25,8 +29,17 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
+import { attachmentsLine, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { toolsForSession } from "../tools/advertised.js";
-import { appendConversation, conversationPath, historyIsTainted, readConversation } from "./conversation.js";
+import {
+  SHOWN_HISTORY_TURNS,
+  appendConversation,
+  conversationPath,
+  earlierTextsTool,
+  historyIsTainted,
+  readConversation,
+  shownHistory,
+} from "./conversation.js";
 import {
   loadRoutine,
   readRuns,
@@ -38,6 +51,7 @@ import {
   routineTimeZone,
   runOutcome,
   stopRoutine,
+  finishOnce,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
@@ -124,15 +138,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     The routine is re-read now, before any model is opened, so a paused or
     vanished one costs nobody a turn from their daily allowance.
   */
+  // A tool call through the client's own dispatcher, under this session.
+  const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
   let runs = [];
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (runner) {
     try {
-      routine = await loadRoutine(
-        (name, args) => callToolForSession({ name, arguments: args }, store, session),
-        routinePathFrom(body.routine),
-      );
+      routine = await loadRoutine(dispatch, routinePathFrom(body.routine));
     } catch (error) {
       if (!(error instanceof RoutineRefusal)) throw error;
       return json({ error: error.code, error_description: error.message }, error.code === "routine_gone" ? 404 : 400);
@@ -145,17 +158,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
   }
-  if (question.length === 0) {
+  // What came with the question (`attachments.js`). A routine's run has none.
+  const { attachments, refusal } = turnAttachments(body.attachments, runner);
+  if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
+  if (question.length === 0 && attachments.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
   if (question.length > MAX_QUESTION_LENGTH) {
-    return json(
-      {
-        error: "invalid_request",
-        error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.`,
-      },
-      400,
-    );
+    return json({ error: "invalid_request", error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.` }, 400);
   }
 
   /*
@@ -170,10 +180,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     through `/approvals`.
   */
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    const verdict = approvalVerdict(question);
+    const verdict = attachments.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
     if (verdict !== null) {
       const settled = await settleByText(store, session, verdict);
-      if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
+      if (settled !== null) {
+        // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
+        const noted = openTranscript(dispatch, { now: received, timeZone: readTimeZone(body.timeZone), question }).finish({ answer: settled });
+        await deferred(store, noted);
+        return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
+      }
     }
     /*
       A text that goes to the model is not the answer to an ask made before it:
@@ -244,8 +259,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
-  // A previous answer written after a read from outside still carries it.
-  if (historyIsTainted(history)) markUntrusted(ledger);
 
   /*
     The computer is the texting assistant's for now (the owner's decision is
@@ -323,6 +336,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
+  // What of the conversation this turn is shown: the setup's `history:`, else the default.
+  const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
+  // A previous answer written after a read from outside still carries it.
+  if (historyIsTainted(shown)) markUntrusted(ledger);
+  if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
+  // The rest is read on request, and carries its own mark when it is read.
+  const earlier = conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
@@ -373,18 +393,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     }
   };
 
-  /*
-    Work that is ours rather than the person's runs after the answer has gone,
-    where the host lets it, rather than before.
-  */
-  const afterAnswer = async (work) => {
-    try {
-      if (typeof store.defer !== "function") throw new Error("no defer");
-      store.defer(work);
-    } catch {
-      await work;
-    }
-  };
+  // Ours, not the person's: after the answer has gone (`deferred`).
+  const afterAnswer = (work) => deferred(store, work);
 
   /*
     Every turn goes to the turn log (`apps/convex/functions/agentTurns.ts`) and
@@ -426,6 +436,21 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     })();
   };
 
+  // Their zone: a routine's own, else the one the texting Worker sent (`localNow.js`).
+  const timeZone = runner ? routineTimeZone(routine.settings, body.routine.timeZone) : readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE;
+  // Today's transcript (`transcript.js`), under a ledger of its own: what it reads, the model never does.
+  const unseen = { ...session, egress: { ...session.egress, ledger: newLedger() } };
+  Object.defineProperty(unseen, "accessToken", { value: session.accessToken, enumerable: false }); // as `sessionForContext`
+  const transcript = texting
+    ? openTranscript((name, args) => callToolForSession({ name, arguments: args }, store, unseen), {
+        now: received,
+        timeZone,
+        question,
+        attachments: attachmentsLine(attachments),
+        routine: runner ? routine.path : null,
+      })
+    : null;
+
   try {
     const turn = await runTurn({
       question,
@@ -444,10 +469,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
-      callTool: withSkills(
-        skills,
-        textingAwareCallTool((name, args) => callToolForSession({ name, arguments: args }, store, session), textingWriting),
-      ),
+      callTool: withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting))),
+      attachments,
       env,
       providerOptions: {
         ai: env.AI,
@@ -462,11 +485,19 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         },
       },
       web,
-      history,
+      history: shown,
+      local: earlier,
+      coreTools: production?.coreTools ?? null,
+      // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
+      ...(texting ? await readTexNotes(dispatch) : {}),
+      localNow: { now: Date.now(), timeZone },
+      observe: transcript?.record ?? null,
+      workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting,
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
       router,
+      efforts: production?.efforts ?? null,
       fallback,
       maxRounds: production?.maxSteps ?? undefined,
       // A browser call can open a page and settle it (`infra/site-shots`
@@ -481,6 +512,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (runner) {
       const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*
         A routine that texts the person is a message they may answer with a bare
@@ -488,8 +520,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       */
       if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
       // A routine whose `until:` came true stops itself, recoverably.
-      if (ran.outcome === "finished") {
-        await stopRoutine((name, args) => callToolForSession({ name, arguments: args }, store, session), routine.path);
+      if (ran.outcome === "finished" && routine.cadence.unit !== "once") {
+        await stopRoutine(dispatch, routine.path);
+      }
+      // A one-off has run: it stays where it is, marked done (`finishOnce`).
+      if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
+        await finishOnce(dispatch, routine.path, {
+          now: Date.now(),
+          timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
+        });
       }
       return json({
         outcome: ran.outcome,
@@ -516,10 +555,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     */
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
+    if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        await appendConversation(store, conversation, history, question, answer, {
+        const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
+        await appendConversation(store, conversation, history, saved, answer, {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
         });
@@ -541,6 +582,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
   } catch (error) {
     if (opened !== null) await afterAnswer(opened.close());
+    if (transcript !== null) await afterAnswer(transcript.finish({ answer: "", outcome: "the turn failed" }));
     await meter(null, true);
     /*
       An ask the person was never told about (the turn failed before its ask
@@ -571,29 +613,16 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 }
 
 /**
- * A trace entry as the turn log takes it (`apps/convex/functions/agentTurns.ts`):
- * kinds, names, numbers and flags, never a word the router or a provider
- * wrote. The router's own word (`pick`) and a fallback's `from` stay in this
- * worker's log line; the status a provider answered is a number and goes, as
- * does the router's confidence in a think pick (a number from 0 to 1).
+ * Work that is ours rather than the person's runs after the answer has gone,
+ * where the host lets it, rather than before.
  */
-/** The router's confidence as the turn log takes it: 0 to 1, or nothing. A number Clef got wrong never costs the turn its log. */
-function confidenceOf(entry) {
-  const value = entry.confidence;
-  if (typeof value !== "number" || !Number.isFinite(value)) return {};
-  return { confidence: Math.min(1, Math.max(0, value)) };
-}
-
-function wireTraceEntry(entry) {
-  const base = { kind: entry.kind, ok: entry.ok !== false, ms: entry.ms ?? 0 };
-  if (entry.kind === "tool") return { ...base, tool: entry.tool, ...(entry.held ? { held: true } : {}) };
-  if (entry.kind === "router") return { ...base, tier: entry.tier, model: entry.model, ...confidenceOf(entry) };
-  if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
-  return {
-    ...base,
-    ...(entry.retried ? { retried: true } : {}),
-    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
-  };
+async function deferred(store, work) {
+  try {
+    if (typeof store.defer !== "function") throw new Error("no defer");
+    store.defer(work);
+  } catch {
+    await work;
+  }
 }
 
 /**

@@ -384,7 +384,7 @@ export async function runSearchV2IntegrationChecks(check) {
       "# Vault\n\nNARWHAL-PRIVATE-MARKER is filed here and must never leave.\n"
     );
     main.seed("2-areas/handbook.md", "# Handbook\n\nHouse rules for everyone.\n");
-    main.seed("3-resources/reading/list.md", "# Reading\n\nBooks about the sea.\n");
+    for (const name of ["list", "shelf", "loans"]) main.seed(`3-resources/reading/${name}.md`, `# Reading\n\nBooks about the sea: ${name}.\n`);
     // Plumbing seeded beside the notes rather than assumed absent.
     main.seed("scopes.yml", "legacy: true\n");
     main.seed(".obsidian/app.json", "{}");
@@ -429,9 +429,9 @@ export async function runSearchV2IntegrationChecks(check) {
         )
     );
 
-    // (d) v1's object is dead weight the moment a manifest exists. Logical
-    // deletion leaves a content-free marker in the physical bucket, so assert
-    // the logical outcome and the one marker write rather than raw absence.
+    // (d) v1's object is dead weight once a manifest exists: retired (a marker) by the pass
+    // with room for it, the second here, as the reading notes keep the first pass short.
+    // (Without them it finished the index and spent its last op first: v1 was left.)
     check(
       "v1's object is deleted on the pass that first creates a manifest, and not probed again",
       isLogicalDeleteMarker(main.objects.get(LEGACY_V1_KEY)?.body) &&

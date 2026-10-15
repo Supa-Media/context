@@ -165,3 +165,7 @@ workspace, or a non-owner can route at all.
 ### An AI client never widens who can see something without a person saying yes
 
 Moved to [An AI client never widens who can see something without a person saying yes](./privacy-and-sharing/agent-egress.md#an-ai-client-never-widens-who-can-see-something-without-a-person-saying-yes-decided-by-the-owner-2026-10-09).
+
+### A note shared with a named person opens for them wherever it lives
+
+Moved to [A note shared with a named person opens for them wherever it lives](./privacy-and-sharing/name-rules-and-grants.md#a-note-shared-with-a-named-person-opens-for-them-wherever-it-lives-decided-by-the-owner-2026-10-14).

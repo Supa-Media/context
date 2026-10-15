@@ -6,6 +6,7 @@ import { baseName, joinPath, requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { renderNewFolderAbout } from "./folders";
+import { namesListing } from "./walk";
 import { DELETE_CONFIRMATION, deletePath, type DeleteResult } from "./deleting";
 
 /**
@@ -40,8 +41,11 @@ export async function removeNewFolder(
   if (!folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) throw notFound();
 
   const about = joinPath(folder, "about.md");
-  // Two keys are enough to know it is not only the about note.
-  const listing = await store.list({ prefix: `${folder}/`, limit: 2 });
+  // Two keys are enough to know it is not only the about note. The tree's
+  // names (`namesListing`): a note filed seconds ago that it has not heard of
+  // yet is not lost, since only the about note is deleted, and only at the
+  // version read below.
+  const listing = await namesListing(store).list({ prefix: `${folder}/`, limit: 2 });
   const keys = (listing.objects ?? []).map((object) => object.key);
   if (keys.length === 0) throw notFound();
   const kept = new FileOpError("FOLDER_NOT_EMPTY", `${baseName(folder)} has something in it now, so it was kept.`);

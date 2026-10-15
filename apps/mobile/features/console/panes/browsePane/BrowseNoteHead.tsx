@@ -7,6 +7,7 @@ import type { useConsoleNav } from "../../ConsoleNavContext";
 import { Breadcrumb } from "../../files/Breadcrumb";
 import type { FileBrowser } from "../../files/browser";
 import { noteHeading } from "../../files/frontmatter";
+import { noteNameEdit } from "./nameEdit";
 import { PresencePile } from "../../presence/PresencePile";
 import type { MeetingSummary } from "../../../meetings/useMeetingSummary";
 import { RedoSummary } from "./RedoSummary";
@@ -14,6 +15,7 @@ import type { Presence } from "../../presence/usePresence";
 import { setReadMode } from "../../files/readMode";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
+import { InTrashPill, RestoreButton, trashedViewOf } from "../../files/noteEditor/trashed";
 import { castPreviewButton, paceWriter, scenePageReader, scriptWriter, soundStorage, soundsWriter } from "./castPreviewButton";
 import type { FolderListingState } from "./useFolderListing";
 
@@ -48,6 +50,8 @@ export function BrowseNoteHead({
   summary?: MeetingSummary;
 }) {
   const styles = useThemedStyles(makeStyles);
+  // The open note in the trash: "In trash" by the path, Restore in Share's place.
+  const trashed = selected.kind === "file" && files.editor.path === selected.path ? trashedViewOf(files) : undefined;
   return (
     /*
       THE PAGE'S OWN HEADER, NOT A TOOLBAR ACROSS THE TOP OF THE REGION.
@@ -72,7 +76,7 @@ export function BrowseNoteHead({
       style={styles.noteHead}
       onLayout={(event) => setHeadWidth(event.nativeEvent.layout.width)}
     >
-      <View style={[styles.crumb, { paddingLeft: noteGutterFor(headWidth) }]}>
+      <View style={[styles.crumb, trashed !== undefined && styles.crumbTrashed, { paddingLeft: noteGutterFor(headWidth) }]}>
         <Breadcrumb
           path={selected.path}
           /*
@@ -109,7 +113,20 @@ export function BrowseNoteHead({
           }
           onSelectFolder={files.select}
           onFolderMenu={openCrumbMenu}
+          /*
+            The note's name, renamed where it is drawn: click it, type,
+            Enter. Through `rename`, the dialog's own path, so a taken or
+            invalid name is refused with the same notice. Not for a folder,
+            whose page has its own heading, and not for anything this person
+            may not rename (`privacy.md`, a viewer's console).
+          */
+          rename={
+            selected.kind === "file" && trashed === undefined
+              ? noteNameEdit(files, selected.path, selected.readOnly === true)
+              : undefined
+          }
         />
+        {trashed === undefined ? null : <InTrashPill style={styles.trashedPill} />}
       </View>
       {/*
         Share is here, beside the note, and not only in the row's menu.
@@ -214,7 +231,7 @@ export function BrowseNoteHead({
             presence?.members,
           )
         : null}
-      {selected.kind === "file" ? (
+      {selected.kind === "file" && trashed === undefined ? (
         <FrameIconButton
           icon={reading ? "pencil" : "eye"}
           label={reading ? "Edit this note" : "Read this note"}
@@ -222,7 +239,9 @@ export function BrowseNoteHead({
           testID="browse-read"
         />
       ) : null}
-      {onShare !== undefined && !selected.readOnly ? (
+      {trashed !== undefined ? (
+        <RestoreButton trashed={trashed} />
+      ) : onShare !== undefined && !selected.readOnly ? (
         <FrameIconButton
           icon="share"
           label="Share this"

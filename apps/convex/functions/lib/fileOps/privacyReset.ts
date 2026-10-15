@@ -19,6 +19,7 @@ import { LIST_PAGE_CAP, RECOVER_PREFIX, type FileStore } from "./store";
 import { FileOpError } from "./errors";
 import { timestampSlug } from "./paths";
 import { loadPrivacyState } from "./privacyState";
+import { namesListing } from "./walk";
 
 /* -------------------------------------------------------------------------- */
 /*                        repairing a broken privacy.md                       */
@@ -186,7 +187,8 @@ async function rootFolders(
   let partial = false;
 
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix: "", delimiter: "/", cursor, limit: 1000 });
+    // The tree's root (`namesListing`), never the bucket's listing.
+    const listing = await namesListing(store).list({ prefix: "", delimiter: "/", cursor, limit: 1000 });
     for (const raw of listing.delimitedPrefixes ?? []) {
       const folder = raw.replace(/\/+$/, "");
       if (!folder) continue;

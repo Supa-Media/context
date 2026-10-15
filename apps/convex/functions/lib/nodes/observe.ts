@@ -302,7 +302,13 @@ export function beginState(
   at: number,
 ): { state: NodeTreeState; cursor: string; startedAt: number } {
   const base = state ?? emptyTreeState();
-  if (base.status === "unsupported") throw new NodeTreeUnsupportedError();
+  // A store once found unable to list is tried again (`nodeSweepDue` waits a
+  // day): the sweep now pages a store that ignores key order by its own
+  // continuation token (`sweep.ts`), so most such trees fill on this try.
+  if (base.status === "unsupported") {
+    const retry: NodeTreeState = { status: "filling", cursor: "", startedAt: at, leaseAt: at, dirty: false, files: base.files };
+    return { state: retry, cursor: "", startedAt: at };
+  }
   const fresh = base.cursor === undefined || base.startedAt === undefined;
   const cursor = fresh ? "" : (base.cursor as string);
   const startedAt = fresh ? at : Math.min(base.startedAt as number, at);
@@ -337,10 +343,21 @@ export function finishState(state: NodeTreeState | null, at: number, files: numb
   return { status: "ready", sweptAt: at, dirty: base.dirty, files };
 }
 
-/** The store cannot resume a listing in key order: never served, never swept again. */
-export function unsupportedState(state: NodeTreeState | null): NodeTreeState {
+/**
+ * The store can be listed neither in key order nor by a continuation token
+ * (a listing that says there is more and gives no way to ask for it): not
+ * served, and tried again a day later (`nodeSweepDue`), from `at`.
+ */
+export function unsupportedState(state: NodeTreeState | null, at?: number): NodeTreeState {
   const base = state ?? emptyTreeState();
-  return { status: "unsupported", dirty: base.dirty, files: base.files, sweptAt: base.sweptAt, error: base.error };
+  return {
+    status: "unsupported",
+    dirty: base.dirty,
+    files: base.files,
+    sweptAt: base.sweptAt,
+    error: base.error,
+    ...(at === undefined ? {} : { leaseAt: at }),
+  };
 }
 
 /** A change too big to re-check key by key: the next due check starts a sweep. */

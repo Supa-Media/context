@@ -136,3 +136,13 @@ let a sentence in an email archive or reassign any project; letting a card be
 applied without a press would make that automatic. The tests that fail are in
 `apps/convex/__tests__/organizerChanges.test.ts`; the score against the real
 models is `organizerChanges.live.test.ts`, run by "Organizer Eval (live)".
+
+## Meaning fingerprints for the icon picker (`/embed`)
+
+Added 2026-10-14 for the suggested emoji (see
+[custom-emoji](../app-and-console/custom-emoji.md)). The same Worker, secret
+and rules: texts in flight only, counts in the log, nothing echoed in an
+error. What it is sent is narrower than `/decide`: a folder or note name's
+words, or our own emoji descriptions, never a note's text, at most 32 texts of
+512 characters a request. The model is search by meaning's
+(`@cf/baai/bge-m3`), so its fingerprints and the product's share one meaning.

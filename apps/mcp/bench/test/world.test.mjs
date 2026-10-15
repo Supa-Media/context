@@ -367,3 +367,14 @@ test("a setup with no fallback records the error with the status the provider ga
     world.close();
   }
 });
+
+test("the world runs the egress gate the way the deployed gateway does", async () => {
+  const { DEPLOYED_EGRESS_APPROVALS, deployedVar } = await import("../world.mjs");
+  const { readFile } = await import("node:fs/promises");
+  const toml = await readFile(new URL("../../wrangler.toml", import.meta.url), "utf8");
+  // A held write in the bench and none in production made "tick off the to-do"
+  // fail on a YES round trip production never has (2026-10-14).
+  assert.equal(DEPLOYED_EGRESS_APPROVALS, /^\[vars\][\s\S]*?^EGRESS_APPROVALS = "off"$/m.test(toml) ? "off" : undefined);
+  assert.equal(deployedVar('[vars]\nEGRESS_APPROVALS = "off"\n[env.staging.vars]\nEGRESS_APPROVALS = "on"\n', "EGRESS_APPROVALS"), "off");
+  assert.equal(deployedVar('[vars]\nOTHER = "x"\n[env.staging.vars]\nEGRESS_APPROVALS = "off"\n', "EGRESS_APPROVALS"), undefined);
+});

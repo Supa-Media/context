@@ -270,3 +270,46 @@ link*, which is now asserted against `stepsTo`, the model the sheet actually
 drives, where reaching `anyone` from `private` is two steps and the public one
 is confirmed in words. `accessSummary` went the same way, replaced by the shared
 vocabulary rather than left beside it.
+
+### A note shared with a named person opens for them wherever it lives (decided by the owner, 2026-10-14)
+
+Until now a share addressed to a person read its note at `team` scope with no
+granted names, so it opened only if the workspace already published that note
+to its own members. A personal workspace scaffolds everything `private`, so
+sharing a note from your own workspace with a friend produced a link that
+refused them, every time. The owner was asked whether a named person should be
+able to read a note shared with them even when it is private, and answered
+"yeah, lets use google drive behavior, people are used to that".
+
+So, Drive's rule, and exactly as far as Drive goes:
+
+- **Only the entry note widens, and only for a share addressed to a person**
+  (`recipientKind` `name` or `email`). It is read at `private` scope, the
+  owner's own clearance, because the owner pointed that one note at that one
+  account. `shareStillStands` still decides that the share is live and the
+  caller is the identity it names, so nobody else holding the token gets
+  anything.
+- **Everything the note links to is still read at `team` scope.** Sharing a
+  note is not sharing what it mentions; a private note linked from it stays
+  absent, as it would in Drive.
+- **Links never widen.** A team link, an anyone-with-the-link share, a folder
+  link and a short link are not addressed to anybody, so they keep reading
+  through the live `privacy.md` exactly as before, and a note moved into a
+  private folder is absent through them.
+- **Plumbing never opens.** `privacy.md` and everything under a dot-folder are
+  refused on the live path, after forwarding, whatever the share says.
+- **Moving the note keeps the share; revoking ends it.** A share follows its
+  note (see "A share follows the note"), now into a private folder too, because
+  filing a note is not taking back a share. Revoking is.
+
+`team` still never means public: this is one named reader, minted and
+revocable by the owner, never a setting and never a third word in
+`privacy.md`. The person finds what was shared with them in @shared, the
+account-wide list beside their workspaces (`shares.listSharedWithMe`).
+
+A "simplification" back to one scope for every share would make sharing from a
+personal workspace impossible again. `apps/convex/__tests__/shareRead.test.ts`
+("a note shared with a named person opens wherever it lives") fails if the
+entry note refuses its named reader, if a stranger with the token gets it, or
+if a private note linked from it opens; `shareSurvivesMove.test.ts` fails if a
+link follows a note into a private folder.

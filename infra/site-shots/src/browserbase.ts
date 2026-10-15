@@ -13,22 +13,30 @@
  *   a tag cannot be guessed from the id it was made from.
  * - **No live-view link.** Browserbase's debugger URL drives the browser for
  *   whoever holds it; the person watches and takes over through ./view.ts.
- * - **It ends itself.** `timeout` caps a session's whole life, so a browser
- *   left for a sign-in is gone within `SESSION_LIFETIME_S` whatever happens.
+ * - **It ends itself.** A browser is released five minutes after its last
+ *   use (./idle.ts), and `timeout` caps a session's whole life, so even a busy
+ *   one is gone within `SESSION_LIFETIME_S` whatever happens.
  *
  * The key and project id are this Worker's secrets (`BROWSERBASE_API_KEY`,
  * `BROWSERBASE_PROJECT_ID`); with either missing, `/browse` answers that
  * Browserbase is not configured and the gateway keeps Cloudflare's browser.
  */
 
+import type { IdleNamespace } from "./idle";
+
 const API = "https://api.browserbase.com/v1";
 
-/** A browser's whole life: long enough to sign in and carry on, then gone. */
-export const SESSION_LIFETIME_S = 15 * 60;
+/**
+ * A browser's longest life, however busy. It ends sooner: five minutes after
+ * its last use (./idle.ts), which Browserbase cannot do on its own.
+ */
+export const SESSION_LIFETIME_S = 30 * 60;
 
 export interface BrowserbaseEnv {
   BROWSERBASE_API_KEY?: string;
   BROWSERBASE_PROJECT_ID?: string;
+  /** Ends a browser five minutes after its last use (./idle.ts). */
+  BROWSER_IDLE?: IdleNamespace;
 }
 
 export interface BrowserbaseSession {
@@ -69,6 +77,17 @@ export async function findSession(env: BrowserbaseEnv, owner: string, fetcher: t
     if (full) return full;
   }
   return null;
+}
+
+/**
+ * Every running browser of this person's, by id. Two first questions at once
+ * can each start one; the idle release (./idle.ts) ends them all.
+ */
+export async function ownerSessionIds(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<string[]> {
+  const running = await api<RawSession[]>(env, "/sessions?status=RUNNING", { method: "GET" }, fetcher);
+  return (Array.isArray(running) ? running : [])
+    .filter((raw) => raw?.userMetadata?.owner === owner && typeof raw.id === "string")
+    .map((raw) => String(raw.id));
 }
 
 export async function createSession(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<BrowserbaseSession> {

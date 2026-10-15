@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNoteRoom } from "../../../../features/console/presence/useNoteRoom";
+import { roomPathOf } from "../../../../features/console/files/noteEditor/trashed";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
   anchorFromQuery,
@@ -127,7 +128,8 @@ export default function ContextBrowseRoute() {
   const { presence, drawingCollaboration } = useNoteRoom({
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
-    notePath: data.files.editor.path,
+    // None for a note in the trash: read-only, and its room is not joined (`roomPathOf`).
+    notePath: roomPathOf(data.files),
     conflicted: data.files.editor.status === "conflict",
     /*
       A function rather than a value: it is read once, by whichever client
@@ -162,6 +164,7 @@ export default function ContextBrowseRoute() {
     canEdit: data.files.canEdit,
     scope: visibilityTierForRole(viewedContext?.role) === "private" ? "private" : "team",
     onCollaborationOwned: data.files.setCollaborationOwned,
+    renamed: data.files.renamed,
     onCollaborationText: data.files.setCollaborationDraft,
     onCollaborationState: data.files.setCollaborationState,
   });

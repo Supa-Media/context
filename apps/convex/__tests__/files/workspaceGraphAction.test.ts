@@ -11,19 +11,25 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { asUser, type TestConvex } from "../fixtures.helpers";
+import { asUser, copyTree, type TestConvex } from "../fixtures.helpers";
 import { fixture, share } from "./fixtures.helpers";
 
-async function indexBucket(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+/**
+ * What was written straight into the bucket reaches the Convex tree (a sweep),
+ * and its links are read (the facts fill): the map draws from those and from
+ * nothing in the bucket (decided by the owner, 2026-10-13).
+ */
+async function readLinks(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await copyTree(t, workspaceId);
   for (let pass = 0; pass < 12; pass += 1) {
-    const result = await t.action(internal.functions.files.runFileOperation, {
+    await t.action(internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "private" as const,
-      operation: { kind: "maintainIndex" as const },
+      operation: { kind: "nodesFactFill" as const },
     });
-    if (result.kind === "indexMaintained" && result.complete) return;
+    if (await t.query(internal.functions.nodeFacts.ready, { workspaceId })) return;
   }
-  throw new Error("the index never converged");
+  throw new Error("the facts never filled");
 }
 
 describe("files.workspaceGraph", () => {
@@ -34,7 +40,7 @@ describe("files.workspaceGraph", () => {
     f.backend.seed("2-areas/private-note.md", "# Private\n\nSee [[../1-projects/shared]].\n");
     f.backend.seed("1-projects/shared.md", "# Shared\n\nFrom [[../2-areas/private-note]] and [[README]].\n");
     await share(f);
-    await indexBucket(f.t, f.workspaceId);
+    await readLinks(f.t, f.workspaceId);
 
     const owner = await asUser(f.t, f.owner).action(api.functions.files.workspaceGraph, {
       workspaceId: f.workspaceId,
@@ -57,20 +63,13 @@ describe("files.workspaceGraph", () => {
     expect(JSON.stringify(member)).not.toContain("2-areas");
   });
 
-  test("a bucket nothing has indexed says so rather than drawing an empty map", async () => {
+  test("links not read yet: every note is drawn from the tree, and the map says it is behind", async () => {
     const f = await fixture();
     const graph = await asUser(f.t, f.owner).action(api.functions.files.workspaceGraph, {
       workspaceId: f.workspaceId,
     });
-    expect(graph).toEqual({
-      kind: "workspaceGraph",
-      nodes: [],
-      edges: [],
-      truncated: false,
-      noteCount: 0,
-      linksCut: false,
-      behind: true,
-      indexMissing: true,
-    });
+    expect(graph.nodes.map((node) => node.path)).toContain("1-projects/shared.md");
+    expect(graph.indexMissing).toBe(false);
+    expect(graph.behind).toBe(true);
   });
 });

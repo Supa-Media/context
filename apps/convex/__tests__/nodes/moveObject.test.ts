@@ -121,20 +121,38 @@ describe("the store a request reads through", () => {
     expect(store.snapshot()["2-areas/a/pic.png"]).toBe("v2");
   });
 
-  test("an old name still holding its object reads and writes as it is; once emptied, a write there is refused", async () => {
+  /*
+    A READ OF AN OLD NAME ANSWERS NOT FOUND, EVEN WHILE THE OBJECT IS THERE.
+
+    Every listing draws a pending move at once and judges each name by the
+    rules at the name it draws, while the bucket catches up behind it. A move
+    that narrows would otherwise go on serving each note at its old key,
+    judged by the old key's rules — which are kept on purpose, so the worker
+    can carry the object — for as long as the move takes, while every screen
+    says the move is done.
+
+    A read of the name the tree draws promotes and answers, as it always did,
+    and a miss at an old name is forwarded, where `canSee` is asked again at
+    the destination. `put` is unchanged: an object still sitting at its old
+    key is still written there, and a write to an old name it has left is
+    refused.
+  */
+  test("an old name answers not found while a move carries it away; a write there is refused once it is empty", async () => {
     const store = r2();
     store.seed("1-projects/a/pic.png", "v1");
     const view = withPendingMoves(store, moves) as Store;
-    expect(await (await view.get("1-projects/a/pic.png"))?.text()).toBe("v1");
+    expect(await view.get("1-projects/a/pic.png")).toBeNull();
+    // Answered without touching the bucket: the object is where it was.
     expect(keys(store)).toEqual(["1-projects/a/pic.png"]);
     await view.put("1-projects/a/pic.png", "v2");
     expect(store.snapshot()["1-projects/a/pic.png"]).toBe("v2");
-    await view.get("2-areas/a/pic.png");
+    // The name the tree draws reads it, and moves it there.
+    expect(await (await view.get("2-areas/a/pic.png"))?.text()).toBe("v2");
     await expect(view.put("1-projects/a/new.png", "x")).rejects.toBeInstanceOf(MovingPathError);
     expect(keys(store)).toEqual(["2-areas/a/pic.png"]);
   });
 
-  test("a walk of the bucket moves nothing: old names are read where they are", async () => {
+  test("a walk of the bucket moves nothing: no old name it lists is promoted", async () => {
     const store = r2();
     for (let index = 0; index < 5; index += 1) store.seed(`1-projects/a/${index}.png`, `${index}`);
     const view = withPendingMoves(store, moves) as Store;

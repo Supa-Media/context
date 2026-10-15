@@ -11,7 +11,9 @@
  *    there before it is read or written, and opening one at its old name moves
  *    it on first, so the read follows the forwarding entry like any moved note.
  *  - `attachQueueMove` lets `movePath` queue a folder move (the console's move
- *    and archive, and the organizer, which moves through `movePath` too).
+ *    and archive, and the organizer, which moves through `movePath` too), and
+ *    lets `trashPath` queue a trash and `restoreTrashedPath` turn a queued one
+ *    around (`trashStart.ts`).
  */
 
 import { internal } from "../../../_generated/api";
@@ -20,12 +22,15 @@ import type { ActionCtx } from "../../../_generated/server";
 import { promotePath, withPendingMoves } from "../../../../mcp/src/moves/queued.js";
 import { clearanceOf } from "../clearance";
 import { FileOpError } from "../fileOps/errors";
-import { assertNotMainFolder, requirePath } from "../fileOps/paths";
+import { requirePath } from "../fileOps/paths";
+import { assertNoNameTwin, assertNotProtectedFolder } from "../fileOps/nameTwins";
 import { assertWritablePath } from "../fileOps/writing";
+import type { ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import type { PendingMove } from "./moveOverlay";
 import { startQueuedMove } from "./moveStart";
+import { restoreQueuedTrash, startQueuedTrash } from "./trashStart";
 import { runMoveWork } from "./moveWork";
 import { rowFromObject } from "./sweep";
 import { attachTreeListing } from "./treeNames";
@@ -54,11 +59,16 @@ export function pendingMovesLookup(ctx: ActionCtx, workspaceId: Id<"workspaces">
   return lookup;
 }
 
-export async function runMoveOperation(ctx: ActionCtx, args: BarrierArgs & { operation: MoveOperation }, store: FileStore): Promise<OperationResult> {
+export async function runMoveOperation(
+  ctx: ActionCtx,
+  args: BarrierArgs & { operation: MoveOperation },
+  store: FileStore,
+  projection: ProjectionClient | null = null,
+): Promise<OperationResult> {
   if (args.operation.kind === "nodesMoveWork") {
     // The finishing link rewrite lists the tree's notes, not the bucket's.
     attachTreeListing(ctx, args.workspaceId, store);
-    return await runMoveWork(ctx, args.workspaceId, store);
+    return await runMoveWork(ctx, args.workspaceId, store, projection);
   }
   let moved;
   try {
@@ -67,16 +77,21 @@ export async function runMoveOperation(ctx: ActionCtx, args: BarrierArgs & { ope
     const to = requirePath(args.operation.to);
     assertWritablePath(from);
     assertWritablePath(to);
-    assertNotMainFolder(from);
+    // Asked of the tree, on a store of its own so the move's walks below are unchanged.
+    const named = Object.create(store) as FileStore;
+    attachTreeListing(ctx, args.workspaceId, named);
+    const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
+    await assertNotProtectedFolder(named, from, clearance);
     if (from === to || to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {
       throw new FileOpError("PATH_INVALID", "A folder cannot be moved into, onto or over itself.");
     }
+    await assertNoNameTwin(named, to, clearance, "folder", from);
     moved = await startQueuedMove(ctx, {
       workspaceId: args.workspaceId,
       store,
       from,
       to,
-      clearance: clearanceOf(args.scope, args.grantedNames ?? []),
+      clearance,
       now: Date.now(),
     });
   } catch (error) {
@@ -127,7 +142,35 @@ export async function storeWithMoves(
  * Let `movePath` queue a folder move through this store. Non-enumerable, as
  * the barrier's other seams are, so nothing that walks the store carries it.
  */
-export function attachQueueMove(ctx: ActionCtx, args: BarrierArgs, store: FileStore, bucket: FileStore): void {
+export function attachQueueMove(
+  ctx: ActionCtx,
+  args: BarrierArgs,
+  store: FileStore,
+  bucket: FileStore,
+  /** How Restore waits on a queued trash; tests run the worker in it. */
+  wait?: (ms: number) => Promise<void>,
+): void {
+  if (args.operation.kind === "trash") {
+    Object.defineProperty(store, "queueTrash", {
+      value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
+        startQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, ...trash }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  if (args.operation.kind === "restoreTrash") {
+    Object.defineProperty(store, "restoreQueuedTrash", {
+      value: async (restore: { trash: string; path: string }): Promise<boolean | FileStore> => {
+        const answer = await restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore, ...(wait === undefined ? {} : { wait }) });
+        if (answer !== "landed") return answer === "undone";
+        // The trash landed while Restore waited: the moves this request read through are over, and a
+        // store still folding them would refuse to write the note back at a name they carried away.
+        return await storeWithMoves(ctx, args, bucket, await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: args.workspaceId }));
+      },
+      enumerable: false,
+      configurable: true,
+    });
+  }
   if (!QUEUEING.has(args.operation.kind)) return;
   Object.defineProperty(store, "queueMove", {
     value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>

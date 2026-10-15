@@ -12,7 +12,7 @@ import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { isTimeZone, scheduleFromNote } from "./model";
 
 export type RoutineView = {
-  cadence: { unit: "minute" | "hour" | "day" | "week" | "month"; every: number };
+  cadence: { unit: "minute" | "hour" | "day" | "week" | "month" | "once"; every: number };
   at: { hour: number; minute: number } | null;
   days: number[] | null;
   monthDay: number | null;

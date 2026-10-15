@@ -6,7 +6,7 @@
  * first use: nobody who never types `:` pays for it.
  */
 
-import { STANDARD_EMOJI_TABLE } from "./standardEmoji.generated";
+import { STANDARD_EMOJI_TABLE } from "@context/shared/src/standardEmoji.generated";
 
 export interface StandardEmoji {
   /** The character itself, which is what a note stores. */

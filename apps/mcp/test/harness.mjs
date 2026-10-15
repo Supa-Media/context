@@ -167,6 +167,9 @@ controlPlane.addWorkspace(WORKSPACE_ID, "primary", {
   capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
   status: "active",
 });
+// The workspace's tree in the control plane, copied from this bucket: the
+// listing tools list nothing else (`src/tree/served.js`).
+controlPlane.serveTree(WORKSPACE_ID, contextStore);
 
 /**
  * Real tokens are long and opaque; the labels are not. Anything short would be

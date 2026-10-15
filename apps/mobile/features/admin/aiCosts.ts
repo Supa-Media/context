@@ -56,6 +56,7 @@ const FEATURE_NAMES: Readonly<Record<string, string>> = {
   transcription: "Meeting transcription",
   meaning: "Search by meaning",
   meetingSummary: "Meeting summaries",
+  iconSuggest: "Icon suggestions",
 };
 
 /** Features no account pays for: Cloudflare meters them, nobody's plan does. */

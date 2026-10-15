@@ -7,16 +7,19 @@ and the design proposals beside it (2026-10-07)._
 ### A routine is a note, and the folder it sits in says how often
 
 Decided by the owner, 2026-10-07. A routine is one Markdown note at
-`routines/<how-often>/<name>.md`. Adding the file starts it, deleting it stops
+`tex/routines/<how-often>/<name>.md` (its home since 2026-10-14, see "Routines
+live in Tex's own folder" below), or at `routines/<how-often>/<name>.md`, where
+it lived first and still runs. Adding the file starts it, deleting it stops
 it, and moving it to another folder changes how often it runs. The body is the
 instruction in plain words; optional front matter fine-tunes it (`at`, `on`,
 `send`, `to`, `until`, `paused`, `timezone`).
 
-Folder names: `hourly`, `daily`, `weekly`, `bi-weekly` (or `every-2-weeks`),
+Folder names: `once` (see below), `hourly`, `daily`, `weekly`, `bi-weekly` (or `every-2-weeks`),
 `monthly`, `quarterly`, `yearly`, and `every-N-minutes|hours|days|weeks|months`
-for anything else. `routines/` sits at the top of the workspace, beside
+for anything else. The routine folder sits at the top of the workspace, beside
 `website/`, because it has to work in a workspace that isn't sorted into
-inbox, projects and areas. The owner chose files over a Settings list: there is
+inbox, projects and areas: `tex/routines/` inside Tex's own `tex/` folder, and
+`routines/` for the routines made before that. The owner chose files over a Settings list: there is
 no Settings › Routines, and a routine note shows its own schedule and recent
 runs where it is read.
 
@@ -28,6 +31,71 @@ has one answer.
 Settings list that can disagree with the folder, means the files stop being the
 whole truth, and an export or an AI client editing the note no longer carries
 what the routine does. Tests: `apps/mcp/test/routines.test.mjs`.
+
+### Routines live in Tex's own folder, and the old folder keeps running
+
+Decided by the owner (Dev2), 2026-10-14, on a decision card. Routines move
+into a `tex/` folder at the top of each workspace: new routines and reminders
+go in `tex/routines/<how-often>/<name>.md` (one-offs in `tex/routines/once/`),
+beside `tex/about-me.md`, the note Tex reads about the person
+(`apps/mcp/src/agent/aboutMe.js`). Every existing `routines/<how-often>/` note
+keeps running exactly as before, and **nothing is moved for anyone**: no
+migration, no rewritten key, no copy. Both roots are first-class everywhere a
+routine path is recognised, from the one reading of the format
+(`ROUTINE_ROOTS`, `routineRootOf`, `isRoutinePath` in
+`packages/shared/src/routines.cjs`):
+
+- **The scan lists both roots every time**, `routines/` first, and counts both
+  toward one `MAX_ROUTINES_PER_WORKSPACE`, so a workspace at the cap keeps the
+  routines it already had and a new one past it is what is left out. A root
+  that is not there lists as empty, so a workspace with only one scans as it
+  always did.
+- **A change under either root, or to the `tex` folder itself** (moving or
+  trashing it takes `tex/routines/` with it), is a routine signal, from the
+  gateway's write and the console's barrier alike. A move from one root to the
+  other is a move like any other: the old row goes, the new one runs as the
+  person who moved it. `tex/about-me.md` beside the root is not a routine.
+- **Run history never collides.** `routines/daily/x.md` keeps
+  `.context/agent/routines/daily/x.json`, byte for byte, because that is a
+  stable on-bucket key; `tex/routines/daily/x.md` keeps
+  `.context/agent/tex/routines/daily/x.json`. A moved routine's history stays
+  under the path it ran at, as it always has for a move between schedule
+  folders.
+- **The texting assistant is told to write new routines and reminders in
+  `tex/routines/`**, and that old ones still run where they are; a malformed
+  path under either root is refused. The app's run bar draws on both.
+
+**What a simplification would cost:** moving everyone's `routines/` into
+`tex/routines/` rewrites user-authored keys and breaks the dual-read promise
+for a stable format; recognising only the new root stops every existing
+routine; one history prefix for both roots makes two different routines read
+each other's answers. Tests: `apps/mcp/test/routinesTexRoot.test.mjs`,
+`agentRoutineTex.test.mjs` and the `tex/routines/` tests in
+`routineSignal.test.mjs` (gateway); `apps/convex/__tests__/routinesTexRoot.test.ts`
+(control plane); "the bar in Tex's own folder" in
+`apps/mobile/__tests__/routineBar.test.ts`.
+
+### A one-off reminder is a routine in `routines/once/`, marked `done:` when it has run
+
+Decided by the owner, 2026-10-14, after the texting assistant answered "remind
+me to…" with "I can't". A one-off is the same note as any routine, in
+`tex/routines/once/` (or `routines/once/`; see above), with its date and time in `at:` (`at: 2026-10-15 9:00 am`, or
+the day in `on:` and the time in `at:`). A one-off with no date is a problem in
+words, never "today". It runs once at that wall-clock moment in the routine's
+time zone; after a run that did not fail the gateway writes `done: <when>` into
+the file (with the etag it read, so a concurrent edit is kept), and `done:` is
+read as paused, so it never runs again and stays as the record of what was
+sent. A run that failed is tried again every five minutes until thirty minutes
+after the moment it was set for, then left: a reminder that arrives hours late
+is worse than one that says it didn't run.
+
+**What a simplification would cost:** deleting the file after it runs loses the
+record and makes "did it remind me?" unanswerable from the notes; keeping a
+one-off in a database row breaks "the files are the whole truth". Tests: "a
+one-off runs once, at the date and time its file names" and "a one-off marked
+done: never runs again" (`apps/mcp/test/routines.test.mjs`), "a one-off texts
+its reminder, then stays where it is, marked done:"
+(`apps/mcp/test/agentRoutine.test.mjs`), and `apps/convex/__tests__/routinesOnce.test.ts`.
 
 ### A line the format can't read is said out loud, never defaulted
 
@@ -57,7 +125,8 @@ fastest is every five minutes. Test: "a folder name says how often".
 ### A run's history is Context's plumbing in the customer's bucket
 
 What a run did, and what it texted, is note-derived text, so it is kept in the
-person's own bucket under `.context/agent/routines/<folder>/<name>.json`, like
+person's own bucket under `.context/agent/routines/<folder>/<name>.json` (and
+`.context/agent/tex/routines/<folder>/<name>.json` for a `tex/routines/` note), like
 the texting conversation history, and never in the control plane. Test:
 "run history lives in Context's own space, named after the routine".
 
@@ -107,7 +176,7 @@ outcome is a code from a closed list (`answered`, `skipped`, `finished`,
 `failed`, `paused`, `routine_gone`, `not_a_routine`, `daily_limit`,
 `no_provider`, `no_chat`, plus its own `writer_gone`): the result route refuses
 anything else and ignores every other field. The rows are a derivative: a scan
-of `routines/` (on a gateway signal, `POST /gateway/routines`, on a console
+of `tex/routines/` and `routines/` (on a gateway signal, `POST /gateway/routines`, on a console
 write through the barrier, debounced per workspace, and every six hours as a
 safety net) rebuilds them, and a row whose file is gone is deleted only when
 the listing was complete. Tests: `routinesSync.test.ts` "keeps the schedule,
@@ -149,8 +218,8 @@ The owner decided on 2026-10-07 that texting "every morning tell me..." makes
 the routine file and says where it is. Since 2026-10-08 a text edits any note
 directly ([texting-assistant](./texting-assistant.md), "A text has every
 MCP tool"), so routines are no longer the only write; what stays from this
-decision is that a path under `routines/` must be exactly
-`routines/<schedule>/<name>.md`, in the person's own context (no `context`
+decision is that a path under `tex/routines/` or `routines/` must be exactly
+`<root><schedule>/<name>.md`, in the person's own context (no `context`
 argument), checked in `src/agent/textingWrites.js`. The routine's own run is
 never offered a write, so a routine cannot rewrite itself or another one. A
 routine whose `until:` came true is archived, recoverably, and paused in place
@@ -161,7 +230,7 @@ recoverably".
 
 ### A routine note shows its schedule and its recent runs, and Pause is a line in the file
 
-The app draws a bar on any note under `routines/<schedule>/`: the schedule in
+The app draws a bar on any note under `tex/routines/<schedule>/` or `routines/<schedule>/`: the schedule in
 words (read from the note as it is typed), when it last ran, Run now, and
 Pause, which writes `paused: yes` into the file through the editor's normal
 save, so the file stays the whole truth. There is no Settings list (the
@@ -173,3 +242,23 @@ every other `.context/` read stays refused. Tests (`routinesHistory.test.ts`):
 "a member cannot read the runs of a routine they cannot see", "only a
 routine's history, never another plumbing key or a note's". The app also
 saves the device's time zone (`setMyTimeZone`) so routines run at local time.
+
+### A routine's schedule is read from the tree's front matter, never the note
+
+Decided by the owner, 2026-10-14: names and front matter come from the
+Convex tree, and storage is read only for a note's content. The scan lists the
+routine folders from the tree and takes each schedule (`at:`, `on:`,
+`to:`, `paused:`) from the front matter the tree's facts already hold
+(`nodeFacts.propsNow`), rather than opening every routine note.
+
+A routine whose facts were read before its latest write is **waiting**. The
+scan leaves its row alone, so nothing is deleted or rescheduled from stale
+words, and it keeps the writer its signal named. When the facts land
+(`nodeFacts.record`), another scan is scheduled. That scan is how a routine
+written a second ago gets scheduled, and the writer is kept so that the
+owner's private reach never stands in for an editor.
+
+**What fails if reversed:** `routinesSync.test.ts`, "a scan reads the tree,
+never the bucket" (no GET during a scan) and "a routine whose front matter
+the tree has not read yet waits, and keeps its writer". Removing either the
+facts hook or the writer hold turns the second one red.

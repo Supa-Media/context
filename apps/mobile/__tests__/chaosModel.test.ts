@@ -10,9 +10,9 @@ import {
   chaosToT,
   chaosWord,
   askYourAi,
-  folderTexShows,
-  texLine,
-  texSays,
+  folderAdvice,
+  folderLine,
+  folderLineShows,
   folderHint,
   folderLabel,
   itemsLabel,
@@ -98,34 +98,34 @@ describe("a folder's hint", () => {
   });
 });
 
-describe("the folder page's Tex", () => {
+describe("the folder page's line", () => {
   test("only past fine, or thin", () => {
-    expect(folderTexShows(null)).toBe(false);
-    expect(folderTexShows({ folder: "a", items: 12, chaos: 33 })).toBe(true);
-    expect(folderTexShows({ folder: "a", items: 10, chaos: 25 })).toBe(false);
-    expect(folderTexShows({ folder: "a", items: 2, chaos: 20 })).toBe(true);
-    expect(folderTexShows({ folder: "a", items: 2, chaos: 0 })).toBe(false);
-    expect(folderTexShows({ folder: "a", items: 5, chaos: 0 })).toBe(false);
+    expect(folderLineShows(null)).toBe(false);
+    expect(folderLineShows({ folder: "a", items: 12, chaos: 33 })).toBe(true);
+    expect(folderLineShows({ folder: "a", items: 10, chaos: 25 })).toBe(false);
+    expect(folderLineShows({ folder: "a", items: 2, chaos: 20 })).toBe(true);
+    expect(folderLineShows({ folder: "a", items: 2, chaos: 0 })).toBe(false);
+    expect(folderLineShows({ folder: "a", items: 5, chaos: 0 })).toBe(false);
   });
-  test("the words that roll in: how many things, and what calm is, in plain words", () => {
-    expect(texLine({ folder: "a", items: 14, chaos: 45 })).toEqual({ lead: "14 things in here", tail: "calm is 4 or 5" });
-    expect(texLine({ folder: "a", items: 1, chaos: 40 }).lead).toBe("Only 1 thing in here");
-    expect(texLine({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here");
+  test("the line: how many things, and what calm is, in plain words", () => {
+    expect(folderLine({ folder: "a", items: 14, chaos: 45 })).toEqual({ lead: "14 things in here", tail: "calm is 4 or 5" });
+    expect(folderLine({ folder: "a", items: 1, chaos: 40 }).lead).toBe("Only 1 thing in here");
+    expect(folderLine({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here");
   });
-  test("what Tex says fits the folder: split a crowded one, fold up a thin one", () => {
-    const crowded = texSays({ folder: "a", items: 14, chaos: 45 });
-    expect(crowded.lead).toBe("I'm holding 14 things. Folders feel calm with 4 or 5.");
+  test("the advice fits the folder: split a crowded one, fold up a thin one", () => {
+    const crowded = folderAdvice({ folder: "a", items: 14, chaos: 45 });
+    expect(crowded.lead).toBe("14 things in here. Folders feel calm with 4 or 5.");
     expect(crowded.tips.join(" ")).toContain("two to five themes");
     expect(crowded.tips.join(" ")).toContain("Archive never counts");
-    const thin = texSays({ folder: "a", items: 1, chaos: 40 });
-    expect(thin.lead).toContain("only holding 1 thing");
+    const thin = folderAdvice({ folder: "a", items: 1, chaos: 40 });
+    expect(thin.lead).toBe("Only 1 thing in here. Folders feel calm with 4 or 5.");
     expect(thin.tips[0]).toBe("Move this note up into the folder above.");
-    expect(texSays({ folder: "a", items: 2, chaos: 20 }).tips[0]).toBe("Move these notes up into the folder above.");
-    expect(texSays({ folder: "a", items: 0, chaos: 60 }).lead).toBe("All I'm holding is my about note.");
+    expect(folderAdvice({ folder: "a", items: 2, chaos: 20 }).tips[0]).toBe("Move these notes up into the folder above.");
+    expect(folderAdvice({ folder: "a", items: 0, chaos: 60 }).lead).toBe("Only an about note in here.");
   });
-  test("advice, never a nag: nothing Tex says tells anyone they should", () => {
+  test("advice, never a nag: nothing it says tells anyone they should", () => {
     for (const items of [0, 1, 2, 14, 40]) {
-      const says = texSays({ folder: "a", items, chaos: 60 });
+      const says = folderAdvice({ folder: "a", items, chaos: 60 });
       expect([says.lead, ...says.tips].join(" ").toLowerCase()).not.toMatch(/you should|tidy|clean up/);
     }
   });

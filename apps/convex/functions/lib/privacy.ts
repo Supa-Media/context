@@ -208,7 +208,11 @@ export function parsePrivacyManifest(text: string): PrivacyManifest {
       section = "notes";
       continue;
     }
-    const match = line.match(/^([^:]+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
+    // The visibility is what follows the LAST colon: a bucket key may hold
+    // colons (`1:1s/ana:ben/notes.md`) and a visibility never does. Reading up
+    // to the first colon made one such rule unreadable, and with it the whole
+    // manifest, so every note in the workspace failed closed.
+    const match = line.match(/^(.+?)\/?\s*:\s*(team|private|@[^\s:]+)$/);
     if (!match || !section) throw new Error(`invalid privacy rule: ${line}`);
     // A group rule is validated here rather than waved through, for the reason
     // the whole parser throws: an unusable manifest makes everything private,
@@ -295,11 +299,28 @@ export function replacePrivacyRulesBlock(
   if (begin < 0 || end < begin) {
     throw new Error("privacy.md is missing its managed rules block");
   }
-  return (
+  const next =
     text.slice(0, begin) +
     renderPrivacyRulesBlock(rules, overrides) +
-    text.slice(end + PRIVACY_RULES_END.length)
-  );
+    text.slice(end + PRIVACY_RULES_END.length);
+  // The one door every rewrite passes: a manifest that would not read back is
+  // never written. Written, it turns the whole workspace private and blocks
+  // every share until someone resets it; refused, one move or visibility
+  // change fails and says why.
+  try {
+    parsePrivacyManifest(next);
+  } catch (error) {
+    throw new UnreadableManifestError(error instanceof Error ? error.message : String(error));
+  }
+  return next;
+}
+
+/** A rewrite refused because the manifest it would write does not parse. */
+export class UnreadableManifestError extends Error {
+  constructor(reason: string) {
+    super(`privacy.md would not read back after this change, so it was not written: ${reason}`);
+    this.name = "UnreadableManifestError";
+  }
 }
 
 /* -------------------------------------------------------------------------- */

@@ -81,9 +81,12 @@
  * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { Reveal } from "../../design/components/Reveal";
 import { Text } from "../../design/components/Text";
+import { useArrivals } from "../../design/useArrivals";
+import { useDepartures } from "../../design/useDepartures";
 import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
@@ -92,6 +95,7 @@ import type { DragModifier } from "./dnd";
 import { FolderPage, type FolderPageHost } from "./folderPage/FolderPage";
 import { phoneSections, type PhoneRows } from "../home/folderRows";
 import { FolderRow } from "./FolderRow";
+import { NestedRows, useOpenRows, type RowNesting } from "./NestedRows";
 import { FolderSelectBar, useFolderSelection } from "./folderSelect";
 import { showSelectBar, type BulkActions } from "./selectActions";
 import { useListingOrder } from "./listingOrder";
@@ -197,6 +201,7 @@ export function FolderView({
   iconOf,
   askSelect = false,
   onAskTaken,
+  nesting,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -249,6 +254,8 @@ export function FolderView({
   phoneRows?: PhoneRows;
   /** A folder's own emoji, from "Set icon…". Absent draws every folder with the plain icon. */
   iconOf?: (path: string) => string | null;
+  /** Other folders' listings, so a row's arrow can open its folder in place (`NestedRows.tsx`). Absent: the arrow only marks a folder. */
+  nesting?: RowNesting;
   /** "Select notes" was chosen from this folder's ••• (board 16): enter select mode, then say so. */
   askSelect?: boolean;
   onAskTaken?: () => void;
@@ -284,12 +291,22 @@ export function FolderView({
   const contacts = contactsIndex(entry.path, rows);
   const listedRows = contacts?.rest ?? rows;
   /*
+    A note added or deleted while the folder is open eases in or out, as the
+    tree's rows do (`Reveal`), rather than the rows under it leaping by a
+    row's height (the owner, 2026-10-14). A folder opened, switched or
+    renamed in is drawn at once; see `useArrivals` and `useDepartures`.
+  */
+  const arrived = useArrivals(listedRows.map((row) => row.path));
+  const shown = useDepartures(listedRows, pathOfRow);
+  /*
     The phone's select mode: a Select button over the listing and a long
     press on a row as the way in. Only on a phone — a pointer layout has the
     tree beside this, with its own multi-selection — and only where there is a
     selection menu to act through. See `folderSelect.tsx`.
   */
   const selection = useFolderSelection(rows, entry.path);
+  // Folders opened in place by their arrow, on a pointer layout only.
+  const opened = useOpenRows(entry.path, compact ? undefined : nesting);
   const onSelection = menu?.onSelection;
   const canSelect = compact && onSelection !== undefined && rows.length > 0;
   const selecting = canSelect && selection.selecting;
@@ -439,7 +456,7 @@ export function FolderView({
                 {contacts === null ? null : (
                   <ContactsIndex letters={contacts.letters} onSelect={onSelect} compact={compact} />
                 )}
-                {groupsOf(listedRows, compact ? phoneRows : undefined).map((group) => (
+                {groupsOf(shown.items, compact ? phoneRows : undefined).map((group) => (
                 <View key={group.label ?? "all"} style={group.label === null ? undefined : styles.group}>
                 {group.label === null ? null : (
                   <Text variant="eyebrow" style={styles.groupLabel} accessibilityRole="header">
@@ -448,7 +465,7 @@ export function FolderView({
                 )}
                 <View style={compact ? styles.card : undefined}>
                   {group.rows.map((row, index) => (
-                    <Fragment key={row.path}>
+                    <Reveal key={row.path} open={!shown.leaving.has(row.path)} appear={arrived.has(row.path)}>
                       {/*
                         The separator is its own element, not a border on the row.
 
@@ -477,8 +494,30 @@ export function FolderView({
                         }
                         phone={compact ? phoneRows?.(row) : undefined}
                         folderIcon={iconOf?.(row.path) ?? null}
+                        expanded={opened.paths.has(row.path)}
+                        onToggle={opened.toggle === undefined || row.kind !== "folder" ? undefined : () => opened.toggle?.(row.path)}
                       />
-                    </Fragment>
+                      {/* A folder opened in place by its arrow eases open, and shut. */}
+                      <Reveal open={nesting !== undefined && opened.toggle !== undefined && row.kind === "folder" && opened.paths.has(row.path)}>
+                      {nesting !== undefined && opened.toggle !== undefined ? (
+                        <NestedRows
+                          parent={row.path}
+                          depth={1}
+                          nesting={nesting}
+                          open={opened.paths}
+                          onToggle={opened.toggle}
+                          descending={descending}
+                          rowProps={(child) => ({
+                            onSelect,
+                            menu,
+                            drag,
+                            sync: child.kind === "file" ? (pendingStateFor?.(child.path) ?? null) : null,
+                          })}
+                          {...(iconOf === undefined ? {} : { iconOf })}
+                        />
+                      ) : null}
+                      </Reveal>
+                    </Reveal>
                   ))}
                 </View>
                 </View>
@@ -615,6 +654,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 });
 
 /** One unlabelled card, or a phone's Folders then Notes (board 07), empty ones left out. */
+const pathOfRow = (row: FileEntry) => row.path;
+
 function groupsOf(rows: readonly FileEntry[], phoneRows: PhoneRows | undefined) {
   if (phoneRows === undefined) return [{ label: null, rows }];
   const { folders, notes } = phoneSections(rows, phoneRows);

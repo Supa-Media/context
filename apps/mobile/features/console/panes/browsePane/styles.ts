@@ -58,6 +58,13 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * rather than being guarded against.
    */
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  /** The crumb with "In trash" after it, on the path's own line. */
+  crumbTrashed: { flexDirection: "row", alignItems: "center" },
+  /**
+   * On the path's own line: the crumb's bar pads 16 above and 8 below, so the
+   * pill comes down to its text, and back over the bar's trailing padding.
+   */
+  trashedPill: { marginTop: space.x3, marginLeft: -space.x4, flexShrink: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
   /**
    * The pointer layout's page scroller, and its content.

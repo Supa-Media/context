@@ -431,7 +431,7 @@ describe("the trigger", () => {
    * miss, so a search over one costs a D1 round trip on every keystroke and
    * returns nothing for it.
    */
-  test("a search reads the projection once the row is ready, and not before", async () => {
+  test("a search reads the projection while it fills, and says it is behind until ready", async () => {
     const { t, workspaceId, d1 } = await opted({ notes: 3 });
     await project(t, workspaceId);
     expect(d1.paths()).toContain("1-projects/note-0.md");
@@ -439,8 +439,8 @@ describe("the trigger", () => {
     const asked = () =>
       d1.statements.filter((sql) => /^\s*SELECT[\s\S]*FROM notes_(private|team)_fts/i.test(sql));
 
-    // The row is `ready` after that pass. First the negative, from the state
-    // it was in before: a backfilling row is not read from.
+    // The row is `ready` after that pass. First the state it was in before: a
+    // backfilling row is read from, and its answer says it is still behind.
     await t.run(async (ctx) => {
       const existing = await ctx.db
         .query("searchIndexes")
@@ -454,10 +454,9 @@ describe("the trigger", () => {
       scope: "private" as const,
       operation: { kind: "search" as const, query: "quokkaplan" },
     });
-    expect(asked()).toHaveLength(0);
-    // And it still answers, from the R2 index, which is what every context
-    // without fast search does.
+    expect(asked().length).toBeGreaterThan(0);
     expect(whileFilling.kind).toBe("searchResults");
+    expect((whileFilling as { indexIncomplete?: boolean }).indexIncomplete).toBe(true);
 
     await t.run(async (ctx) => {
       const existing = await ctx.db

@@ -27,7 +27,7 @@ import {
 } from "../_generated/server";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { isEncryptedNote } from "./lib/noteEncryption";
+import { notServed, readinessAndKick } from "./lib/nodes/treeLoading";
 import {
   checkFolderSharePath,
   checkSharePath,
@@ -190,54 +190,26 @@ async function mintUnlistedLink(
 
     // The courtesy check. `team` scope, not the owner's own `private` — the
     // question is what the link's readers will be able to see, and they read at
-    // `team` like every other share.
-    try {
-      const visible = await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: "team",
-        operation: { kind: "read", path: pathCheck.path },
-      });
-      if (visible.kind !== "file") throw notTeamVisible();
-      /*
-        AN UNLISTED LINK IS NOT MINTED OVER AN ENCRYPTED NOTE.
+    // `team` like every other share. Asked of the tree's rows and rules mirror,
+    // never by opening the note (decided by the owner, 2026-10-14). A note the
+    // manifest hides and one that is not there answer identically, by design:
+    // that is what stops a team-scoped reader enumerating private paths.
+    const shareable = await ctx.runQuery(internal.functions.nodes.teamShareable, {
+      workspaceId: args.workspaceId,
+      path: pathCheck.path,
+    });
+    if (shareable === null) throw notServed(await readinessAndKick(ctx, args.workspaceId));
+    if (!shareable.visible) throw notTeamVisible();
+    /*
+      AN UNLISTED LINK IS NOT MINTED OVER AN ENCRYPTED NOTE.
 
-        `docs/decisions/encryption.md`, "Sharing": both features are
-        defensible and their composition is not. An unlisted link is the one
-        audience in this product with no name and no session, and an encrypted
-        note is one the owner was told is stored unreadable. The owner's model
-        of "encrypted" and their model of "anyone with this link" cannot both
-        be true of one note, and the product does not get to pick which one
-        they meant.
-
-        Refused here for the same reason the visibility check above is here: a
-        link that silently resolves to "not available" for everyone who opens
-        it is indistinguishable, from the owner's side, from having published
-        something. And exactly as with that check, this is a courtesy and never
-        the thing the read path relies on — `readThroughShare` refuses again,
-        live, because a note encrypted *after* a link was minted is the case a
-        creation-time check cannot see.
-
-        On the marker, not on a successful parse: a note whose envelope is
-        malformed is one nobody can read either, and it is the case where
-        publishing a link over it helps least.
-      */
-      if (isEncryptedNote(visible.text)) throw notLinkableEncrypted();
-    } catch (error) {
-      // A note the manifest hides and a note that is not there answer
-      // identically at `team` scope, by design — that indistinguishability is
-      // what stops a team-scoped reader enumerating private paths, and it is
-      // not something to unpick for the owner's convenience. So one refusal
-      // covers both, worded to cover both. Anything else — a bucket that is
-      // unreachable, a binding that is gone — is passed through, because
-      // telling an owner their note is private during an outage would send
-      // them to fix a manifest that is fine.
-      const code =
-        error instanceof ConvexError
-          ? (error.data as { code?: string } | undefined)?.code
-          : undefined;
-      if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID") throw notTeamVisible();
-      throw error;
-    }
+      `docs/decisions/encryption.md`, "Sharing": an unlisted link is the one
+      audience with no name and no session, and an encrypted note is one the
+      owner was told is stored unreadable. A courtesy, read off the tree's
+      facts: `readThroughShare` refuses again, live, which also covers a note
+      encrypted after its facts were last read.
+    */
+    if (shareable.sealed) throw notLinkableEncrypted();
 
     return await ctx.runMutation(internal.functions.shares.mintLinkShare, {
       workspaceId: args.workspaceId,

@@ -21,8 +21,14 @@ breaking one, stop and say so rather than working around it.
    control plane holds metadata only — accounts, workspaces, bindings, grants,
    audit, and each workspace's file tree (file and folder names, versions) and
    privacy rules (decided by the owner, 2026-10-12;
-   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)) — and
-   **never** note content. Who holds the bucket's key is a billing
+   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)), plus, as
+   rebuildable derivatives on each note's row, its links and the front
+   matter, heading and first paragraph a List shows (decided by the owner,
+   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md)),
+   and its folder icons, emoji names and forwarding ledger, whose bucket files
+   are written from those rows for the exit (decided by the owner, 2026-10-14;
+   [convex-small-data](./docs/decisions/app-and-console/convex-small-data.md))
+   — and **never** a note's body or the only copy of anything. Who holds the bucket's key is a billing
    question: on the free plan it is the customer's own bucket and revoking our
    credential leaves them a complete, usable context; on **managed storage** we
    create and pay for the bucket, and the equivalent guarantee is that
@@ -131,13 +137,16 @@ address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
 apps/convex/     control plane: accounts, workspaces, usernames, storage
                  bindings, OAuth clients + grants, audit events, the file
                  tree (names only) and privacy rules
-apps/mobile/     Expo (iOS/Android/web): onboarding, dashboard, health
-apps/web/        landing page
+apps/mobile/     Expo (iOS/Android/web): the one app UI, also hosted by desktop
+apps/desktop/    Electron shell for macOS: menu bar, meeting capture
 apps/agent/      Cloudflare Worker: the assistant people text (Linq iMessage
                  webhook → per-sender queue → gateway /agent)
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
-packages/shared/ types and constants shared across apps
+infra/           edge Workers: router (context.lc), email, transcription,
+                 site screenshots, egress, Sentry inbox
+packages/        shared, collaboration, meetings, communications, drawings,
+                 desktop-bridge, obsidian-runtime, encryption-decryptor
 plugins/context/ the `context` agent plugin (skills, MCP entry, session hooks,
                  one manifest per plugin format) and, in the same folder, the
                  `npx @supa-media/context` CLI that installs it
@@ -292,6 +301,10 @@ checked is not a guard.**
 ## Working style
 
 - Ask all questions up front, then execute.
+- Write in the caveman voice ([`.claude/skills/caveman`](./.claude/skills/caveman/SKILL.md),
+  loaded at session start): terse chat and tool chatter, payload verbatim.
+  Anything persisted (code, docs, commits, PRs) or read by a person elsewhere
+  stays plain.
 - Surface architectural decisions rather than making them silently — auth
   provider, billing, retention defaults, attachment policy, index location,
   client compatibility targets.

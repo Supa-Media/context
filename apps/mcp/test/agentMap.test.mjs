@@ -263,6 +263,8 @@ export async function runAgentMapChecks(check) {
       MAP_OTHER: otherBucket,
       PRESENCE_ROOM: rooms,
     };
+    // Writes ask the Convex tree whether a name is taken (`src/tree/names.js`).
+    controlPlane.serveTreesFrom(env);
     const ask = async (token, params = {}) =>
       (await activityRequest(env, token, { query: `?${new URLSearchParams(params)}` })).body ?? {};
 

@@ -470,6 +470,7 @@ async function runWiredChecks(check) {
     NATIVE_BINDINGS: "CONTEXT_BUCKET",
     CONTEXT_BUCKET: bucket,
   };
+  controlPlane.serveTreesFrom(env);
 
   let id = 0;
   async function call(token, name, args = {}) {
@@ -645,9 +646,8 @@ async function runWiredChecks(check) {
   }
   check(
     "a folder move left one forwarding entry, not one per note it carried",
-    JSON.parse(read(".context/forwarding.json") ?? '{"entries":[]}').entries.filter(
-      (entry) => entry.kind === "folder"
-    ).length === 1
+    // Held by the control plane since 2026-10-14, which writes the file behind it.
+    controlPlane.ledgerOf("ws_links").filter((entry) => entry.kind === "folder").length === 1
   );
 
   /*

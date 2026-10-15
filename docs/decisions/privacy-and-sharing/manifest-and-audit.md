@@ -55,6 +55,23 @@ blocking the repair, so it inherits `default_visibility: private`, and
 `partial` says the list is short — a short list is never printed as a complete
 one, the rule `noteCountTruncated` already follows.
 
+**A colon belongs to the path** (2026-10-14). The rule's visibility is what
+follows the *last* colon on its line, in both parsers, because a key may hold
+colons and a visibility never does. Reading up to the first colon refused
+`2-areas/meetings/1:1s/ana:ben/<note>.md: private`, and a refused line is a
+refused file: one private meeting made a whole shared workspace private in
+production and offered its owner a Reset that would have rewritten every
+folder as private. The round trip above was guarding the doors that set a
+visibility, and a move that carries an exception was not one of them. So
+`replacePrivacyRulesBlock`, which every rewrite of the file passes through,
+now parses what it is about to write and refuses it if it does not read back
+(`PATH_INVALID` in the console). What it costs to simplify: drop the last-colon
+reading and `privacyEngine/colonPaths.test.ts` fails; drop the guard and the
+same file's "never written" cases do. A held mirror that did not parse is
+re-read by the sweep even when the etag has not moved
+(`nodes/sweepTouch.test.ts`), so a parser fix reaches a broken workspace
+without anyone touching its file.
+
 The gateway still cannot repair a manifest, and that is fine but should be
 deliberate: `privacy.md` is `isPlumbing` there, so an AI client can neither
 write it nor be tricked into rewriting one. The console — a person, signed in,

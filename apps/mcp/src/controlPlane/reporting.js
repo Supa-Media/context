@@ -182,7 +182,16 @@ export function createReportingMethods({ post }) {
      * simply stop showing.
      *
      * @param {string} workspaceId
-     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[]}} touch
+     * `edited` are notes whose text alone changed (a save in the editor):
+     * the control plane gathers them for a few seconds and re-checks them
+     * together, so their new versions reach the tree, and the devices that
+     * follow its change log, without a re-check per typing pause.
+     *
+     * `left` says who could see each key a move took away, before it: the
+     * move clears the source's exception first, so the tree's gone rows
+     * narrow to this rather than the rules after the move.
+     *
+     * @param {{paths?: string[], files?: string[], moves?: {from: string, to: string}[], edited?: string[], left?: {path: string, audiences: string[]}[]}} touch
      */
     async reportTreeTouch(workspaceId, touch) {
       if (typeof workspaceId !== "string" || !workspaceId || !touch) return null;
@@ -192,14 +201,22 @@ export function createReportingMethods({ post }) {
         ? touch.moves.filter((move) => typeof move?.from === "string" && typeof move?.to === "string")
           .map(({ from, to }) => ({ from, to }))
         : [];
-      if (paths.length === 0 && files.length === 0) return null;
-      const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES;
+      const edited = Array.isArray(touch.edited) ? touch.edited.filter((file) => typeof file === "string") : [];
+      const left = Array.isArray(touch.left)
+        ? touch.left.filter((entry) => typeof entry?.path === "string" && Array.isArray(entry.audiences))
+          .map(({ path, audiences }) => ({ path, audiences: audiences.filter((audience) => typeof audience === "string") }))
+        : [];
+      if (paths.length === 0 && files.length === 0 && edited.length === 0) return null;
+      const dirty = paths.length > TREE_TOUCH_NAMES || files.length > TREE_TOUCH_NAMES || edited.length > TREE_TOUCH_NAMES;
       return await post("/gateway/tree/touch", {
         workspaceId,
         paths: dirty ? [] : paths,
         files: dirty ? [] : files,
         dirty,
         ...(moves.length === 0 || moves.length > TREE_TOUCH_NAMES ? {} : { moves }),
+        ...(dirty || edited.length === 0 ? {} : { edited }),
+        // Only narrows the gone rows of what left; a sweep judges by the rules alone.
+        ...(dirty || left.length === 0 || left.length > TREE_TOUCH_NAMES ? {} : { left }),
       });
     },
 
@@ -218,17 +235,26 @@ export function createReportingMethods({ post }) {
      * safe, but the menu beside it is drawn from the index and is handed to
      * anyone who asks for any address on the site.
      *
+     * A move or a privacy change outside the folder names its `paths` as
+     * well, the names the tree touch already carries: a page can publish a
+     * folder it names with `folder:`, and only the control plane's index
+     * knows which.
+     *
      * @param {string} workspaceId
+     * @param {string[]} [paths]
      */
-    async reportWebsiteChange(workspaceId) {
+    async reportWebsiteChange(workspaceId, paths) {
       if (typeof workspaceId !== "string" || !workspaceId) return null;
-      return await post("/gateway/website", { workspaceId });
+      return await post("/gateway/website", {
+        workspaceId,
+        ...(Array.isArray(paths) && paths.length > 0 ? { paths } : {}),
+      });
     },
 
     /**
-     * That a write touched `routines/`, the paths it touched and who wrote
-     * them. Paths and an id, never text: the control plane re-reads the folder
-     * through the bucket before it schedules anything
+     * That a write touched a routine root (`tex/routines/` or `routines/`),
+     * the paths it touched and who wrote them. Paths and an id, never text:
+     * the control plane re-reads the roots before it schedules anything
      * (`docs/decisions/routines.md`).
      *
      * @param {string} workspaceId

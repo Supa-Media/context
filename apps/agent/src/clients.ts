@@ -16,6 +16,8 @@
  * quote the request, and the request is somebody's message.
  */
 
+import type { GatewayAttachment } from "./attachments";
+
 export type Fetch = typeof fetch;
 
 const TIMEOUT_MS = 30_000;
@@ -164,7 +166,8 @@ export async function shareLinqContactCard(fetcher: Fetch, apiKey: string, chatI
 
 // ── Control plane ─────────────────────────────────────────────────────────
 
-export type SessionAnswer = { status: "linked"; accessToken: string } | { status: "unlinked" };
+/** `timeZone` is the person's own (their reminders run in it), when the control plane sent one. */
+export type SessionAnswer = { status: "linked"; accessToken: string; timeZone?: string } | { status: "unlinked" };
 
 export async function openSession(
   fetcher: Fetch,
@@ -178,7 +181,8 @@ export async function openSession(
   if (status !== 200) throw new ServiceError("control_plane", status);
   const body = record(json);
   if (body.status === "linked" && typeof body.accessToken === "string" && body.accessToken) {
-    return { status: "linked", accessToken: body.accessToken };
+    const zone = typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {};
+    return { status: "linked", accessToken: body.accessToken, ...zone };
   }
   if (body.status === "unlinked") return { status: "unlinked" };
   throw new ServiceError("control_plane", status);
@@ -232,8 +236,18 @@ export async function askAgent(
   accessToken: string,
   question: string,
   onProgress?: (text: string) => Promise<void>,
+  timeZone?: string,
+  attachments: GatewayAttachment[] = [],
 ): Promise<AgentAnswer> {
-  if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, question, onProgress);
+  // The person's zone, so the turn knows the time where they are, and what
+  // they sent with the text (`attachments.ts`).
+  const ask = {
+    question,
+    conversation: "texts",
+    ...(timeZone ? { timeZone } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+  if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
   try {
     result = await post(
@@ -241,7 +255,7 @@ export async function askAgent(
       "gateway",
       `${gatewayOrigin}/agent`,
       accessToken,
-      { question, conversation: "texts" },
+      ask,
       AGENT_TIMEOUT_MS,
     );
   } catch {
@@ -275,7 +289,7 @@ async function askAgentStreaming(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
-  question: string,
+  ask: { question: string; conversation: string; timeZone?: string; attachments?: GatewayAttachment[] },
   onProgress: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
@@ -294,7 +308,7 @@ async function askAgentStreaming(
         "content-type": "application/json",
         accept: "application/x-ndjson",
       },
-      body: JSON.stringify({ question, conversation: "texts" }),
+      body: JSON.stringify(ask),
       signal: abort.signal,
     });
     const type = response.headers.get("content-type") ?? "";

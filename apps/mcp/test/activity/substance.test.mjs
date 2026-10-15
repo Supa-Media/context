@@ -117,6 +117,12 @@ export async function runActivitySubstanceChecks(check) {
   );
 
   check(
+    "Tex's own transcript of a day's texts is never a line",
+    entryFor(change("update_note", ["tex/transcripts/2026-10-15.md"], { team_visible: false })) === null &&
+      entryFor(change("update_note", ["tex/about-me.md"], { team_visible: false })) !== null,
+  );
+
+  check(
     "plumbing under a dot segment is never a line",
     entryFor(change("create_note", [".context/audit/x.json"], { team_visible: true })) ===
       null,

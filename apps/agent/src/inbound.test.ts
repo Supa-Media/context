@@ -40,6 +40,7 @@ describe("parseInbound", () => {
       ],
     }));
     expect(parsed).toMatchObject({ kind: "message", text: "one\ntwo" });
+    expect(parsed).not.toHaveProperty("attachments");
   });
 
   it("ignores every event that is not an inbound message", () => {
@@ -77,6 +78,37 @@ describe("parseInbound", () => {
     expect(parseInbound(event({}, {
       sender_handle: { handle: "+15555550100" },
     }))).toEqual({ kind: "ignored", reason: "service" });
+  });
+
+  it("carries Linq's media parts as attachments, with or without words", () => {
+    const media = {
+      type: "media",
+      id: "att_1",
+      url: "https://cdn.linqapp.com/a/b.png?X-Amz-Signature=abc%2Fdef",
+      mime_type: "Image/PNG",
+      filename: "meme.png",
+      size_bytes: 1234,
+    };
+    expect(parseInbound(event({}, { parts: [media] }))).toMatchObject({
+      kind: "message",
+      text: "",
+      attachments: [{ url: media.url, mimeType: "image/png", filename: "meme.png", size: 1234 }],
+    });
+    expect(parseInbound(event({}, { parts: [{ type: "text", value: "what's this" }, media] }))).toMatchObject({
+      text: "what's this",
+      attachments: [{ filename: "meme.png" }],
+    });
+  });
+
+  it("drops a media part with no https URL, and keeps at most eight", () => {
+    for (const url of ["http://cdn.linqapp.com/x.png", "javascript:alert(1)", "not a url", 7]) {
+      expect(parseInbound(event({}, { parts: [{ type: "media", url, mime_type: "image/png" }] }))).toEqual({
+        kind: "ignored", reason: "empty",
+      });
+    }
+    const many = Array.from({ length: 12 }, (_, i) => ({ type: "media", url: `https://cdn.linqapp.com/${i}.jpg` }));
+    const parsed = parseInbound(event({}, { parts: many }));
+    expect(parsed.kind === "message" && parsed.attachments?.length).toBe(8);
   });
 
   it("ignores a message with no text", () => {

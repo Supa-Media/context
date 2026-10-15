@@ -24,7 +24,7 @@ jobs:
     name: Text Tex on staging
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 25
+    timeout-minutes: 32
     env:
       APP_ENV: staging
       STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}

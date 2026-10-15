@@ -176,6 +176,88 @@ function rolesIn(names) {
   return roles;
 }
 
+/**
+ * Is this path the protected folder for its role, given the workspace's
+ * top-level folder names?
+ *
+ * One folder per main role is protected: the one `rolesIn` picks, which is
+ * the one orient, the organizer and `archive_note` file into. A second folder
+ * claiming the same role (an agent's `projects` beside `Projects`, a
+ * `9-archive` beside `4-archive`) is an ordinary folder, so it can be emptied
+ * into the real one and removed (decided by the owner, 2026-10-14).
+ *
+ * `names` should be what the caller can see. A role-mate the caller cannot
+ * see is left out, which only ever keeps a folder protected: the safe side.
+ */
+function isProtectedFolder(path, names) {
+  if (!isMainFolder(path)) return false;
+  const name = path.replace(/^\/+|\/+$/g, "");
+  const role = topLevelRole(name);
+  return rolesIn([...names, name])[role] === name;
+}
+
+/**
+ * Characters that draw as nothing: zero-width spaces and joiners, the soft
+ * hyphen, the byte-order mark, and the direction marks and isolates
+ * (`displayText.cjs` adds isolates around names it draws).
+ */
+const INVISIBLE = /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+/**
+ * Dashes that draw as a hyphen: the Unicode hyphens (an AI client writing
+ * "kings‑1" with a non-breaking hyphen is the case that found this,
+ * 2026-10-14), the figure, en and em dashes, the minus sign, and their
+ * small and fullwidth forms.
+ */
+const DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * How sibling names are compared: as a person reads them. Case-blind, blind
+ * to how an accent was typed, blind to compatibility forms (fullwidth
+ * letters), to characters that draw as nothing, and to which dash was used.
+ * Two names that fold alike look like one name in the tree, and the second is
+ * refused (`siblingTwin`).
+ */
+function foldName(name) {
+  return String(name).normalize("NFKC").replace(INVISIBLE, "").replace(DASHES, "-").toLowerCase();
+}
+
+/**
+ * The existing sibling a new name would sit beside as a twin, or null.
+ *
+ * Two names in one folder that differ only by case read as one folder to a
+ * person and are two to the bucket, so the second is refused (decided by the
+ * owner, 2026-10-14). At the workspace root a new folder also may not claim a
+ * built-in role another folder already plays: `1-projects` beside `Projects`
+ * is the same twin by its other spelling. The name itself never twins itself.
+ *
+ * @param {string} name the new name (one segment)
+ * @param {Iterable<string>} siblings names already in that folder
+ * @param {{ topLevelFolder?: boolean }} [options] the new name is a folder at the root
+ */
+function siblingTwin(name, siblings, options = {}) {
+  const folded = foldName(name);
+  const role = options.topLevelFolder ? folderRole(name) : null;
+  for (const sibling of siblings) {
+    if (sibling === name) continue;
+    if (foldName(sibling) === folded) return sibling;
+    if (role !== null && folderRole(sibling) === role) return sibling;
+  }
+  return null;
+}
+
+/**
+ * The refusal both engines give a twin, so an agent reads one rule whichever
+ * door it used: what is already there, and the path to write instead.
+ */
+function twinMessage(name, twin, instead, topLevel) {
+  const role = topLevel ? folderRole(twin) : null;
+  if (role !== null && foldName(name) !== foldName(twin)) {
+    return `${twin} is already this workspace's ${ROLE_LABEL[role]} folder, so use ${instead} instead of making ${name}.`;
+  }
+  return `${twin} is already here, and names in one folder can't differ only by case. Use ${instead} instead.`;
+}
+
 /** The main roles a workspace's top-level folders do not cover yet. */
 function missingMainRoles(names) {
   const roles = rolesIn(names);
@@ -242,6 +324,10 @@ module.exports = {
   compareListingEntries,
   rolesIn,
   missingMainRoles,
+  isProtectedFolder,
+  foldName,
+  siblingTwin,
+  twinMessage,
   INDEXING_PRIORITIES,
   indexingPriority,
   compareIndexingOrder,

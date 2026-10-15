@@ -541,6 +541,15 @@ describe("classifying what a write threw", () => {
     });
   });
 
+  test("a note a folder move carried away is parked as a conflict, never retried", () => {
+    // `MOVED` (a queued folder move took the note from this name while the
+    // edit waited). Sabotage: drop the branch and it is "rejected", which the
+    // conflict screen never offers to place.
+    expect(
+      classifyWriteFailure({ code: "MOVED", message: "This note just moved. Open it again from its new place." }),
+    ).toEqual({ kind: "conflict", message: "This note just moved. Open it again from its new place." });
+  });
+
   test("only an enumerated code is retried; anything unknown is parked", () => {
     /*
       The allowlist direction is the cheap one to be wrong in. "These codes are

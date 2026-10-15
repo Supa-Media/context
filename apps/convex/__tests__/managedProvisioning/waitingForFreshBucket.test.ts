@@ -369,12 +369,21 @@ describe("waiting for a managed bucket that has only just been made", () => {
           status: 200,
           text: async () =>
             '<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>' +
-            "<Contents><Key>big.md</Key><Size>99999999</Size>" +
+            // Listed small; read, it has grown past the file limit. A file
+            // listed over the limit is skipped instead (managedHandoffControls).
+            "<Contents><Key>big.md</Key><Size>40</Size>" +
             "<LastModified>2026-01-01T00:00:00.000Z</LastModified></Contents></ListBucketResult>",
           headers: new Headers(),
         };
       }
-      return { ok: true, status: 200, text: async () => "x", headers: new Headers({ etag: '"a"' }) };
+      const grown = new ArrayBuffer(21 * 1024 * 1024);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => "x",
+        arrayBuffer: async () => grown,
+        headers: new Headers({ etag: '"a"', "content-length": String(grown.byteLength) }),
+      };
     });
     try {
       await t.action(

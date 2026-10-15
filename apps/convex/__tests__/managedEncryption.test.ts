@@ -81,6 +81,13 @@ describe("the walk", () => {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
     }
     expect(JSON.stringify(backend.snapshot())).not.toContain("The words people typed");
+    // Sealing rewrote every object, so the Convex tree is swept for their new
+    // versions once the walk ends. Sabotage: drop the `requestSweep` in
+    // `runWalkHandler` and no sweep runs here.
+    const tree = await t.run(async (ctx) =>
+      await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ours)).unique(),
+    );
+    expect(tree?.sweptAt).toBeTypeOf("number");
 
     const status = await asUser(t, staff).query(api.functions.managedEncryption.rolloutStatus, {});
     expect(status).toMatchObject({ state: "complete", counts: { encrypted: 1, notStarted: 1 } });

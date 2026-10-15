@@ -154,6 +154,14 @@ export const storageTables = {
     ),
     lastVerifiedAt: v.optional(v.number()),
     /**
+     * Files over the file limit the move onto this binding left in the bucket
+     * it came from (names only, up to 50, and the count), until the owner
+     * dismisses the notice. Never a body.
+     */
+    leftBehind: v.optional(
+      v.object({ bucket: v.string(), keys: v.array(v.string()), count: v.number(), at: v.number() }),
+    ),
+    /**
      * Provider-side failure text, truncated and scrubbed on the way in by
      * `recordVerification` — see the redaction there for exactly what is
      * enforced and what is only convention. Any member of the workspace can

@@ -12,6 +12,8 @@ import { NoteRoutineBar, type NoteEdit } from "../../routines/RoutineBar";
 import { ContactHeader } from "../../communications/ContactHeader";
 import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
+import { ChipsPlacement } from "./chips/ChipsPlacement";
+import { chipsFit } from "./chips/chipModel";
 import type { NoteView } from "./view";
 
 /**
@@ -88,6 +90,9 @@ export function noteDocument(view: NoteView) {
     folderLists,
     onTitleCaret,
     titleNote,
+    chipHost,
+    addAsked,
+    setAddAsked,
   } = view;
   /*
     The native editor says focus and nothing finer, so there "in the title"
@@ -118,6 +123,20 @@ export function noteDocument(view: NoteView) {
           return null;
         }
       : undefined;
+  /*
+    The common properties as chips under the note's name (`chips/`), on every
+    note somebody writes in — a new one with no front matter included — and
+    not on a website page or `privacy.md` (`chipsFit`), a drawing, the
+    activity list, or a locked or encrypted note.
+  */
+  const chipsOn =
+    state.path !== null &&
+    !passphraseLocked &&
+    !state.encrypted &&
+    !drawing &&
+    !activityList &&
+    chipsFit(state.path);
+  const adding = addAsked > 0 && wholeEdit !== undefined;
   // Where the note's own first character is — see the Properties call below.
   const gutter = compact ? layout.readingMargin : noteGutterFor(docWidth);
   const localTitleEdit = (text: string) => {
@@ -126,7 +145,8 @@ export function noteDocument(view: NoteView) {
   };
   return (
     <View
-      style={compact ? undefined : styles.document}
+      // A note in the trash is dimmed, and reads as one that is not being written.
+      style={[compact ? undefined : styles.document, view.trashed !== undefined && styles.trashedDocument]}
       /*
         The column's width, so the Properties row can start where the note's
         own first character does. Measured rather than derived from the
@@ -170,10 +190,11 @@ export function noteDocument(view: NoteView) {
         {passphraseLocked || drawing || activityList ? null : (
           <ContactHeader path={state.path} text={presence?.collaboration?.text ?? state.draft} gutter={gutter} />
         )}
-        <Reveal open={!passphraseLocked && frontmatter !== ""}>
-        {!passphraseLocked && frontmatter !== "" ? (
+        <Reveal open={!passphraseLocked && (frontmatter !== "" || adding)}>
+        {!passphraseLocked && (frontmatter !== "" || adding) ? (
           <Properties
             frontmatter={frontmatter}
+            addAsked={addAsked}
             /*
               A phone pays the note's reading margin; a pointer layout pays
               whatever puts this at the same character as the first line of
@@ -291,6 +312,19 @@ export function noteDocument(view: NoteView) {
           />
         ) : (
         <>
+        {chipsOn ? (
+          <ChipsPlacement
+            host={chipHost}
+            gutter={gutter}
+            compact={compact}
+            text={presence?.collaboration?.text ?? state.draft}
+            path={state.path!}
+            now={openedAt}
+            edit={wholeEdit}
+            source={folderLists}
+            onOther={wholeEdit === undefined ? undefined : () => setAddAsked(addAsked + 1)}
+          />
+        ) : null}
         <LiveEditor
           /*
             The body alone on a phone, and the whole file everywhere else.
@@ -374,6 +408,7 @@ export function noteDocument(view: NoteView) {
           }}
           onTitleCaret={onTitleCaret}
           titleNote={titleNote}
+          propertyHost={chipsOn ? chipHost : null}
           /*
             The caret went under the keyboard and the editor cannot reach it.
             Compact only, because the editor scrolls itself everywhere else —

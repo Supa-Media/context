@@ -203,12 +203,14 @@ export async function toolOrient(store, scope, rules, overrides) {
       surveyOtherContexts(store, open.openContext),
     ]);
 
-  const total = `${survey.total}${survey.truncated ? "+" : ""}`;
   const parts = [
-    `# Orientation\n\n${total} notes visible to this connection across ` +
-      `${survey.folders.length} folders. This is the user's own context: their projects, ` +
-      "decisions, people and writing. Assume the answer to a question about their work is " +
-      "already in here somewhere, and look before you ask them to repeat it.",
+    survey.loading
+      ? "# Orientation\n\nThis is the user's own context: their projects, decisions, people and writing. " +
+        `Its map is not drawn below because ${survey.loading}`
+      : `# Orientation\n\n${survey.total} notes visible to this connection across ` +
+        `${survey.folders.length} folders. This is the user's own context: their projects, ` +
+        "decisions, people and writing. Assume the answer to a question about their work is " +
+        "already in here somewhere, and look before you ask them to repeat it.",
   ];
   // First, ahead of the person's own front page: it is short by construction
   // and it is the one thing Context.LC's staff can say to every agent at once.
@@ -246,29 +248,19 @@ export async function toolOrient(store, scope, rules, overrides) {
         (survey.captured.length
           ? " Mail, meetings and saved sessions arrive automatically and are collapsed to one " +
             "line per kind above — list_notes or search_notes on the folder for the individual notes."
-          : "") +
-        // Object storage cannot be listed by modification time, so this is
-        // ranked from what the bounded walk actually saw. In a context small
-        // enough to walk that is everything; past the budget it is a sample,
-        // and saying "recently updated" about a sample without saying so would
-        // let an agent conclude a silent project is a finished one.
-        (survey.truncated
-          ? " This context is larger than one orientation walks, so this ranks the part " +
-            "of it this call reached — not every folder is represented."
           : "")
     );
   }
 
   parts.push(
-    `## Structure\n${renderStructure(survey)}\n\n` +
-      (renderBuiltInFolders(survey) ? `${renderBuiltInFolders(survey)}\n\n` : "") +
-      `${FOLDER_ABOUT_GUIDANCE}\n\n` +
-      (survey.truncated
-        ? "Counts marked `+` are floors: the folder was larger than one orientation walks. "
-        : "") +
-      "Go deeper with list_notes on a prefix, and search_notes before concluding something " +
-      "is not written down — a topic that is missing from this map is usually filed under a " +
-      "name you did not guess."
+    survey.loading
+      ? `## Structure\n\nNot drawn: ${survey.loading}`
+      : `## Structure\n${renderStructure(survey)}\n\n` +
+        (renderBuiltInFolders(survey) ? `${renderBuiltInFolders(survey)}\n\n` : "") +
+        `${FOLDER_ABOUT_GUIDANCE}\n\n` +
+        "Go deeper with list_notes on a prefix, and search_notes before concluding something " +
+        "is not written down — a topic that is missing from this map is usually filed under a " +
+        "name you did not guess."
   );
 
   if (chaos) parts.push(chaos);

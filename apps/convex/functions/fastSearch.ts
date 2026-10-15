@@ -42,6 +42,7 @@ import {
   enableHandler,
   releaseForStorageHandler,
 } from "./lib/fastSearchFns/toggle";
+import { schedulePrunes } from "./lib/fastSearchFns/prune";
 import { searchableContextsForHandler, searchableContextsHandler } from "./lib/fastSearchFns/scope";
 import {
   bindingForWorkspaceHandler,
@@ -428,6 +429,8 @@ export const sweepStalledBackfills = internalMutation({
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
     const { started } = await sweepStalledBackfillsHandler(ctx);
+    // And the daily check of databases already serving (`fastSearchFns/prune.ts`).
+    await schedulePrunes(ctx);
     // Then one step of "on for everyone" (`fastSearchFns/rollout.ts`).
     return { started: started + (await rolloutFastSearchStep(ctx)) };
   },

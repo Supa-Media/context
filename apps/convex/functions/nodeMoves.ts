@@ -15,9 +15,14 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { migrationPaused } from "./lib/nodes/pause";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
+import { blendRate } from "./lib/nodes/moveLag";
+import { scheduleStorageLagAlert } from "./storageLag";
+import { freshenMeaningAfterActivity } from "./lib/meaningFns/rows";
 import { followMovesForMembers } from "./lib/placesFollow";
+import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
 
 const ruleListValidator = v.object({
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
@@ -102,6 +107,8 @@ export const reserve = internalMutation({
     scope: v.union(v.literal("private"), v.literal("team")),
     grantedNames: v.array(v.string()),
     actorUserId: v.optional(v.id("users")),
+    /** A move into the hidden trash (`lib/nodes/trashStart.ts`). */
+    trash: v.optional(v.boolean()),
     now: v.number(),
   },
   returns: v.union(
@@ -114,7 +121,8 @@ export const reserve = internalMutation({
     // layout rather than the tree's. It waits instead.
     const overlaps = queue.some((row) => movesOverlap(row, args));
     const refuse = (reason: "not_served" | "busy") => ({ ok: false as const, reason: overlaps ? "reserved" as const : reason });
-    if (!(await treeServesNow(ctx.db, args.workspaceId))) return refuse("not_served");
+    // Staff's Pause stops background copying, so a folder moves in one go while it holds.
+    if (!(await treeServesNow(ctx.db, args.workspaceId)) || (await migrationPaused(ctx.db))) return refuse("not_served");
     if (queue.length >= MOVES_PER_WORKSPACE) return refuse("busy");
     // A move still being prepared is not drawn yet, so nothing may be moved into or out of its names.
     // A drawn one may be moved onward from where it now is (a chain), but nothing may be moved
@@ -133,6 +141,7 @@ export const reserve = internalMutation({
       kind: "file",
       state: "preparing",
       ...(args.actorUserId === undefined ? {} : { actorUserId: args.actorUserId }),
+      ...(args.trash === true ? { trash: true } : {}),
       scope: args.scope,
       grantedNames: args.grantedNames,
       total: 0,
@@ -178,7 +187,8 @@ export const activate = internalMutation({
     const row = await ctx.db.get(args.id);
     if (row === null || row.state !== "preparing") return false;
     const mirror = await readMirror(ctx.db, row.workspaceId);
-    const rulesCurrent = (mirror?.etag ?? null) === args.privacyEtag;
+    // A trash writes no rules: its names are hidden plumbing nobody is shown.
+    const rulesCurrent = row.trash === true || (mirror?.etag ?? null) === args.privacyEtag;
     if (!rulesCurrent || !(await treeServesNow(ctx.db, row.workspaceId))) {
       await ctx.db.delete(args.id);
       return false;
@@ -192,7 +202,10 @@ export const activate = internalMutation({
       updatedAt: args.now,
     });
     // Every screen draws the new name from here, so pins and recents go there now (`placesFollow.ts`).
-    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
+    // A trashed note's stay at its name, as a trash made in one go leaves them, for Restore to find.
+    if (row.trash !== true) await followMovesForMembers(ctx, row.workspaceId, [{ from: row.from, to: row.to }], mirror);
+    // The pages it carries are at new names for every reader now, the site's scan included.
+    await markWebsiteMoved(ctx, row.workspaceId, row);
     await scheduleWork(ctx, row.workspaceId);
     return true;
   },
@@ -206,6 +219,7 @@ const claimValidator = v.union(
     to: v.string(),
     kind: v.union(v.literal("file"), v.literal("folder")),
     undone: v.boolean(),
+    trash: v.boolean(),
     scope: v.union(v.literal("private"), v.literal("team")),
     grantedNames: v.array(v.string()),
     added: ruleListValidator,
@@ -235,6 +249,7 @@ export const claim = internalMutation({
       to: oldest.to,
       kind: oldest.kind,
       undone: oldest.undone === true,
+      trash: oldest.trash === true,
       scope: oldest.scope,
       grantedNames: oldest.grantedNames,
       added: oldest.added,
@@ -243,15 +258,60 @@ export const claim = internalMutation({
   },
 });
 
+/**
+ * Restore asked for a note whose trash is still queued (`trash` to `path`):
+ * the move is turned around, as staff's Undo turns a move around, and the
+ * tree draws the note back at once. `busy` while a pass holds it (the caller
+ * waits a moment and asks again); `none` when no such move is queued, and the
+ * trash is restored from the bucket the usual way. A note restored on its own
+ * out of a folder whose trash is still queued is `busy` until that move lands.
+ */
+export const undoTrash = internalMutation({
+  args: { workspaceId: v.id("workspaces"), trash: v.string(), path: v.string(), now: v.number() },
+  returns: v.union(v.literal("undone"), v.literal("busy"), v.literal("none")),
+  handler: async (ctx, { workspaceId, trash, path, now }) => {
+    const row = (await queueOf(ctx, workspaceId)).find(
+      (candidate) => candidate.trash === true && candidate.undone !== true && candidate.from === path && candidate.to === trash,
+    );
+    if (row === undefined) {
+      // One note out of a folder whose trash is still queued: the bucket has not carried it into the trash
+      // yet, and the folder's move cannot leave one note behind. Waited out, and then restored from the trash.
+      const carrying = (await queueOf(ctx, workspaceId)).some(
+        (candidate) =>
+          candidate.trash === true && candidate.undone !== true && path.startsWith(`${candidate.from}/`) &&
+          trash === `${candidate.to}${path.slice(candidate.from.length)}`,
+      );
+      return carrying ? "busy" as const : "none" as const;
+    }
+    if (row.state !== "moving" || (row.leaseAt !== undefined && now - row.leaseAt < MOVE_LEASE_MS)) return "busy" as const;
+    await ctx.db.patch(row._id, {
+      from: row.to,
+      to: row.from,
+      undone: true,
+      moved: 0,
+      attempts: 0,
+      lastError: undefined,
+      nextAt: now,
+      updatedAt: now,
+    });
+    await markWebsiteMoved(ctx, workspaceId, { from: row.to, to: row.from });
+    await scheduleWork(ctx, workspaceId);
+    return "undone" as const;
+  },
+});
+
 /** A pass moved `moved` objects; the next one starts at once. */
 export const progress = internalMutation({
-  args: { id: v.id("moveQueue"), moved: v.number(), now: v.number() },
+  args: { id: v.id("moveQueue"), moved: v.number(), now: v.number(), ms: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx, { id, moved, now }): Promise<null> => {
+  handler: async (ctx, { id, moved, now, ms }): Promise<null> => {
     const row = await ctx.db.get(id);
     if (row === null) return null;
+    const count = Math.max(0, Math.floor(moved));
+    const rate = ms === undefined ? row.rate : blendRate(row.rate, count, ms);
     await ctx.db.patch(id, {
-      moved: row.moved + Math.max(0, Math.floor(moved)),
+      moved: row.moved + count,
+      ...(rate === undefined ? {} : { rate }),
       attempts: 0,
       lastError: undefined,
       leaseAt: undefined,
@@ -304,6 +364,12 @@ export const complete = internalMutation({
     const row = await ctx.db.get(id);
     if (row === null) return null;
     await ctx.db.delete(id);
+    // Staff were told it fell behind: tell them it caught up.
+    if (row.lateAt !== undefined) await scheduleStorageLagAlert(ctx, { kind: "recovered", workspaceId: row.workspaceId, tookMs: Date.now() - row.createdAt });
+    // The copy is done and the old name's rules are gone: the site is rebuilt from where its pages now sit.
+    await markWebsiteMoved(ctx, row.workspaceId, row);
+    // Search by meaning holds the notes at their old names, which it no longer folds: catch it up.
+    await freshenMeaningAfterActivity(ctx, row.workspaceId);
     const rest = (await queueOf(ctx, row.workspaceId)).filter((other) => other.state === "moving");
     if (rest.length > 0) await scheduleWork(ctx, row.workspaceId);
     return null;

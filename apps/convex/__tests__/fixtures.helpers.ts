@@ -14,7 +14,7 @@
 import { convexTest, type TestConvex as TestConvexFor } from "convex-test";
 import schema from "../schema";
 import { modules } from "../test.setup";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
@@ -247,20 +247,71 @@ export async function bindFakeStorage(
  * that way asserts on the state before verification and passes or fails for
  * reasons unrelated to the code. So: yield, drain, repeat until the queue is
  * empty, and fail loudly rather than silently proceeding if it never is.
+ *
+ * A job queued for later than `LATER_MS` from now is left alone: on real
+ * timers no drain could reach it, and the one that motivated this (the tree's
+ * parity re-check, half a minute after a write in flight made the first check
+ * differ) is a staff alarm no test is about.
  */
+const LATER_MS = 10_000;
 export async function drainScheduled(t: TestConvex): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
     const outstanding = jobs.filter(
-      (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
+      (job) =>
+        (job.state.kind === "pending" && job.scheduledTime <= Date.now() + LATER_MS) ||
+        job.state.kind === "inProgress",
     );
     if (outstanding.length === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
     await t.finishInProgressScheduledFunctions();
   }
   throw new Error("scheduled functions never drained");
+}
+
+/**
+ * The workspace's first copy into the Convex tree, run to its end against the
+ * bucket it is bound to. Every reader of which notes exist reads that tree
+ * and never the bucket (decided by the owner, 2026-10-13; see
+ * `docs/decisions/app-and-console/convex-tree.md`), so a fixture that seeds a
+ * bucket copies it before anything lists it, as the first walk of a real
+ * workspace does. A change made through the app keeps the copy current on its
+ * own; one written straight into the bucket afterwards needs another call,
+ * as a real one waits for the next sweep.
+ */
+export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  for (let pass = 0; pass < 50; pass += 1) {
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "nodesSweep" },
+    });
+    const state = await t.query(internal.functions.nodes.state, { workspaceId });
+    if (state?.status === "ready" && state.cursor === undefined) return;
+  }
+  throw new Error("the tree's first copy never finished");
+}
+
+/**
+ * Run the scheduled jobs that are actually due, and leave the future alone.
+ *
+ * `drainScheduled` waits for the queue to empty, which never happens once a
+ * job is queued for later (a form digest an hour out, a parity re-check half
+ * a minute out). A test can still say "everything due has run".
+ */
+export async function drainDueScheduled(t: TestConvex): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const due = jobs.filter(
+      (job) => (job.state.kind === "pending" && job.scheduledTime <= Date.now()) || job.state.kind === "inProgress",
+    );
+    if (due.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+  }
+  throw new Error("due scheduled functions never drained");
 }
 
 /**

@@ -31,6 +31,8 @@ export interface FolderIconsValues {
    * server's error so the caller can say why.
    */
   setIcon: (path: string, icon: string | null) => Promise<void>;
+  /** The emoji the picker suggests for `path` from its name, or `null`. Never rejects. */
+  suggestIcon: (path: string) => Promise<string | null>;
   /** A folder (or a note) moved from `from` to `to`: its icon goes with it. */
   moved: (from: string, to: string) => void;
   /** A folder is gone for good: its icon goes too. */
@@ -41,6 +43,7 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const listIcons = useAction(api.functions.folderIcons.list);
   const setIconAction = useAction(api.functions.folderIcons.set);
+  const suggestAction = useAction(api.functions.folderIcons.suggest);
 
   const [icons, setIcons] = useState<IconMap>({});
   // The same map, readable synchronously by the writers below. `apply` is the
@@ -95,5 +98,18 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
 
   const iconOf = useCallback((path: string) => shownIcon(icons, path), [icons]);
 
-  return { iconOf, setIcon, moved, removed };
+  const suggestIcon = useCallback(
+    async (path: string) => {
+      if (workspaceId === null) return null;
+      try {
+        return await suggestAction({ workspaceId, path });
+      } catch {
+        // A suggestion is a nicety: a refusal or an outage is simply none.
+        return null;
+      }
+    },
+    [suggestAction, workspaceId],
+  );
+
+  return { iconOf, setIcon, suggestIcon, moved, removed };
 }

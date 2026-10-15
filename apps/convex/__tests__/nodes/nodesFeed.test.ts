@@ -10,7 +10,9 @@
  *  - hand back the last scanned `seq` to a team reader and the cursor case fails;
  *  - drop `resolveFileAccess` from `head` and the stranger case fails;
  *  - drop the rules-version comparison and the rules-changed case fails;
- *  - drop the log purge (`nodesPurge.ts`) and the forget case fails.
+ *  - drop the log purge (`nodesPurge.ts`) and the forget case fails;
+ *  - drop `movesMark` from `feedToken` and the queued-move cases fail;
+ *  - drop the `skip` of rows under a pending move and the copy-churn case fails.
  */
 
 import { describe, expect, test } from "vitest";
@@ -210,10 +212,20 @@ describe("catching up", () => {
     expect((await catchUp(t, ws, memberId, { privacy: "nodes:privacy-2" }))?.full).toBe(false);
   });
 
-  test("not served: null, so the D1 log or a walk answers", async () => {
+  test("staff's Pause changes nothing: the feed still answers", async () => {
     const { t, ws, memberId } = await fixture();
     await t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+    });
+    expect(await catchUp(t, ws, memberId)).not.toBeNull();
+    expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() })).not.toBeNull();
+  });
+
+  test("a first copy not finished: null, and the device walks", async () => {
+    const { t, ws, memberId } = await fixture();
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await catchUp(t, ws, memberId)).toBeNull();
     expect(await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() })).toBeNull();
@@ -227,7 +239,8 @@ describe("catching up", () => {
   test("the action answers a cursor from this log with a walk once the tree stops serving", async () => {
     const { t, ws, member } = await fixture();
     await t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     const result = await member.action(api.functions.treeChanges.syncTreeChanges, {
       workspaceId: ws,
@@ -268,7 +281,8 @@ describe("the live head", () => {
     const after = await member.query(api.functions.nodesFeed.head, { workspaceId: ws });
     expect(after?.token).not.toBe(before?.token);
     await t.run(async (ctx) => {
-      await ctx.db.insert("nodeMigration", { paused: true, updatedAt: 1 });
+      const row = await ctx.db.query("nodeTrees").first();
+      if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
     expect(await member.query(api.functions.nodesFeed.head, { workspaceId: ws })).toBeNull();
   });
@@ -277,5 +291,76 @@ describe("the live head", () => {
     const { t, ws, stranger } = await fixture();
     await expect(stranger.query(api.functions.nodesFeed.head, { workspaceId: ws })).rejects.toThrow();
     await expect(t.query(api.functions.nodesFeed.head, { workspaceId: ws })).rejects.toThrow();
+  });
+});
+
+describe("a queued folder move", () => {
+  /*
+    A queued move renames everything under it without a log row: the rows stay
+    where the bucket holds them until the copy lands. A device that only read
+    the log kept the old names for as long as the copy ran.
+  */
+  async function queueMove(t: T, workspaceId: Id<"workspaces">, state: "preparing" | "moving" = "moving") {
+    return await t.run(async (ctx) =>
+      await ctx.db.insert("moveQueue", {
+        workspaceId,
+        from: "1-projects/old",
+        to: "1-projects/new",
+        kind: "folder",
+        state,
+        scope: "private",
+        grantedNames: [],
+        total: 1,
+        moved: 0,
+        added: { folders: [], notes: [] },
+        attempts: 0,
+        nextAt: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      }));
+  }
+
+  test("starting, undoing and finishing one each moves the head and sends a copy to walk", async () => {
+    const { t, ws, member, memberId } = await fixture();
+    const head = async () => (await member.query(api.functions.nodesFeed.head, { workspaceId: ws }))?.token;
+    const walk = async () => (await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() }))?.privacy;
+    const before = await head();
+    await queueMove(t, ws, "preparing");
+    expect(await head()).toBe(before);
+    const id = await queueMove(t, ws);
+    const started = await head();
+    expect(started).not.toBe(before);
+    const moving = await walk();
+    expect(moving).not.toBe(TOKEN);
+    expect((await catchUp(t, ws, memberId))?.full).toBe(true);
+    expect((await catchUp(t, ws, memberId, { privacy: moving }))?.full).toBe(false);
+
+    await t.run(async (ctx) => await ctx.db.patch(id, { undone: true }));
+    expect(await head()).not.toBe(started);
+    expect((await catchUp(t, ws, memberId, { privacy: moving }))?.full).toBe(true);
+
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("moveQueue").collect()) await ctx.db.delete(row._id);
+    });
+    expect(await walk()).toBe(TOKEN);
+    expect((await catchUp(t, ws, memberId, { privacy: moving }))?.full).toBe(true);
+  });
+
+  test("the copy's own churn is passed over, and changes elsewhere still arrive", async () => {
+    const { t, ws, member, memberId } = await fixture();
+    await queueMove(t, ws);
+    const moving = (await t.query(internal.functions.nodesFeed.walkStart, { workspaceId: ws, now: Date.now() }))?.privacy;
+    const since = Math.max(...(await logRows(t)).map((row) => row.seq));
+    const quiet = (await member.query(api.functions.nodesFeed.head, { workspaceId: ws }))?.token;
+    await observe(t, ws, 40, ["1-projects/old/a.md"]);
+    await observe(t, ws, 50, ["1-projects/new/a.md"], ["1-projects/old/a.md"]);
+    expect((await member.query(api.functions.nodesFeed.head, { workspaceId: ws }))?.token).toBe(quiet);
+    await observe(t, ws, 60, ["1-projects/other.md"]);
+    const result = await catchUp(t, ws, memberId, { since, privacy: moving });
+    expect(result?.full).toBe(false);
+    expect(result?.entries.map((entry) => entry.path)).toEqual(["1-projects/other.md"]);
+    expect(result?.gone).toEqual([]);
+    // Passed over, not stuck on: the cursor moves past the skipped rows.
+    expect(result?.since).toBeGreaterThan(since);
   });
 });

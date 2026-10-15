@@ -2,7 +2,7 @@
  * A note's first paragraph, as plain words: what a folder page draws under a
  * project's title (spec A5). Read wherever a note's front matter is: the
  * device's copy (`offline/mirrorLists.ts`), a List read from the server, and
- * the tree's properties table (`tree/props.js`), so all three agree.
+ * the tree's properties (`tree/props.js`), so all three agree.
  *
  * Only prose counts. Frontmatter, headings, fenced blocks (a ```list among
  * them), tables, quotes, list items, images and HTML are passed over, so an

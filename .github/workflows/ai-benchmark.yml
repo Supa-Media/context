@@ -43,7 +43,7 @@ on:
         required: false
         default: "texting-assistant"
       test:
-        description: "The test to run (tests/<test>.md), e.g. tasks for the golden tasks; empty uses the job's own"
+        description: "The test to run (tests/<test>.md): empty runs the texting assistant's core set (core) or another job's own; texting-assistant or tasks for the long sets"
         required: false
         default: ""
       setups:
@@ -130,7 +130,10 @@ jobs:
       # argument that is not a number or a name is a mistake worth a clear
       # refusal rather than a stack trace twenty minutes in.
       BENCH_PARALLEL: ${{ inputs.parallel || '12' }}
-      BENCH_TEST: ${{ inputs.test }}
+      # Empty runs the texting assistant's core set (decided by the owner,
+      # 2026-10-14), named here so the result is named after it too; the long
+      # sets run by name. Another job runs its own test, as `pnpm ai run` does.
+      BENCH_TEST: ${{ inputs.test || ((inputs.job || 'texting-assistant') == 'texting-assistant' && 'core') || '' }}
       BENCH_SETUPS: ${{ inputs.setups }}
       BENCH_QUESTIONS: ${{ inputs.questions }}
       BENCH_RUNS: ${{ inputs.runs }}

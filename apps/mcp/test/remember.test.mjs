@@ -19,7 +19,9 @@
  * live editing: with it, `write_note` already refuses an overwrite, which is
  * why the inbox test runs on both.) In `packages/shared`, counting notes
  * instead of facts and refusing to merge across folders failed the
- * `remembered` checks in test/activity/remembered.test.mjs.
+ * `remembered` checks in test/activity/remembered.test.mjs. Dropping the
+ * `aboutMeTooLong` refusal from `write_note` failed "Tex's memory note holds at
+ * most 500 lines".
  */
 
 import assert from "node:assert/strict";
@@ -106,6 +108,8 @@ before(async () => {
   restore.push(s3.install());
   controlPlane = createControlPlaneStub();
   restore.push(controlPlane.install());
+  // Each workspace's tree, copied from its bucket: write_note asks it whether the note exists.
+  controlPlane.serveTreesFrom(null, { s3 });
   controlPlane.addWorkspace("ws_me", "me", binding("remember-me"));
   controlPlane.addWorkspace("ws_team", "team", binding("remember-team"));
   controlPlane.addWorkspace("ws_other", "other", binding("remember-other"));
@@ -405,4 +409,23 @@ test("the trail's description admits the provenance the trail stores", async () 
     "the record carries note content, so the description must not promise it does not",
   );
   assert.match(changes.description, /remember_fact/i, "the description should name what does carry content");
+});
+
+test("Tex's memory note holds at most 500 lines, from write_note and remember alike", async () => {
+  const lines = (n) => Array.from({ length: n }, (_, i) => `- fact ${i + 1}`).join("\n") + "\n";
+  const full = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(500) });
+  assert.equal(full.isError, false, full.text);
+
+  const over = await call(OWNER, "write_note", { path: "tex/about-me.md", content: lines(501) });
+  assert.equal(over.isError, true);
+  assert.match(over.text, /^too long: tex\/about-me\.md holds at most 500 lines/);
+  assert.equal((await read("tex/about-me.md")).trim().split("\n").length, 500);
+
+  const remembered = await remember({ fact: "Prefers mornings.", kind: "stated", note: "tex/about-me.md" });
+  assert.equal(remembered.isError, true);
+  assert.match(remembered.text, /too long/);
+
+  // Any other note is not held to it.
+  const other = await call(OWNER, "write_note", { path: "3-resources/long.md", content: lines(600) });
+  assert.equal(other.isError, false, other.text);
 });

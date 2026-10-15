@@ -223,6 +223,10 @@ export async function runAgentRoutineChecks(check) {
       body: "---\nuntil: the parcel has landed\n---\nIs the parcel here yet?\n",
       etag: "g4",
     });
+    bucket.set("routines/once/call-sam.md", {
+      body: "---\nat: 2026-10-15 9:00 am\n---\nRemind me to call Sam about the venue deposit.\n",
+      etag: "g8",
+    });
     bucket.set("1-projects/notes.md", { body: "# Notes\n", etag: "g5" });
     bucket.set("4-archive/old.md", { body: "# Old\n", etag: "g6" });
     bucket.set("routines/daily/watch.md", {
@@ -234,6 +238,7 @@ export async function runAgentRoutineChecks(check) {
       "https://evil.example/collect?d=SECRET-NOTE-TEXT": { title: "ok", text: "thanks", links: [] },
     });
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SITE_SHOTS: browser, ...AI_GATEWAY_ENV };
+    controlPlane.serveTreesFrom(env, { s3 });
     const runsOf = (name) => {
       const object = bucket.get(`.context/agent/routines/${name}.json`);
       return object ? JSON.parse(object.body).runs : [];
@@ -397,6 +402,24 @@ export async function runAgentRoutineChecks(check) {
         "moved_from: routines/every-5-minutes/landed.md",
       ) &&
         JSON.stringify(await readAs(env, TOKEN_CLIENT, "4-archive/")).includes("landed.md"),
+    );
+
+    model.install([{ text: "Call Sam about the venue deposit." }]);
+    const reminded = await ask(env, TOKEN_RUNNER, { routine: { path: "routines/once/call-sam.md", timeZone: "UTC" } });
+    const remindedNote = JSON.stringify(await readAs(env, TOKEN_CLIENT, "routines/once/call-sam.md"));
+    check(
+      "a one-off texts its reminder, then stays where it is, marked done:",
+      reminded.body?.outcome === "answered" &&
+        reminded.body?.answer === "Call Sam about the venue deposit." &&
+        userText(model.requests.at(-1)).includes("one-off reminder") &&
+        /done: \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(UTC\)/.test(remindedNote) &&
+        remindedNote.includes("Remind me to call Sam"),
+    );
+    before = model.requests.length;
+    const again = await ask(env, TOKEN_RUNNER, { routine: { path: "routines/once/call-sam.md", timeZone: "UTC" } });
+    check(
+      "and a one-off that has run is never run again, at no cost",
+      again.body?.outcome === "paused" && model.requests.length === before,
     );
 
     /* ---------------- a text edits notes, and never who can see them ---------------- */

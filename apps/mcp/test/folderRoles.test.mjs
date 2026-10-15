@@ -15,6 +15,8 @@ const {
   compareTopLevelFolders,
   rolesIn,
   missingMainRoles,
+  isProtectedFolder,
+  siblingTwin,
   indexingPriority,
   compareIndexingOrder,
   countByIndexingPriority,
@@ -97,4 +99,45 @@ test("indexing priority: everything else first, then the inbox, then the archive
     { priority: 2, indexed: 1, pending: 1 },
     { priority: 3, indexed: 0, pending: 2 },
   ]);
+});
+
+test("only one folder per main role is protected; its duplicate is an ordinary folder", () => {
+  // @shyoh's workspace, 2026-10-14: an agent made `projects` beside `Projects`.
+  const root = ["Projects", "projects", "Areas", "Resources", "Archive", "website"];
+  assert.equal(isProtectedFolder("Projects", root), true);
+  assert.equal(isProtectedFolder("projects", root), false);
+  assert.equal(isProtectedFolder("projects/", root), false);
+  // A numbered pair: the one rolesIn files into stays protected.
+  assert.equal(isProtectedFolder("4-archive", ["4-archive", "9-archive"]), true);
+  assert.equal(isProtectedFolder("9-archive", ["4-archive", "9-archive"]), false);
+  // Alone, it is protected whether or not the caller passed its own name.
+  assert.equal(isProtectedFolder("projects", ["Areas"]), true);
+  assert.equal(isProtectedFolder("projects", []), true);
+  // Never a folder without a main role, or one below the root.
+  assert.equal(isProtectedFolder("clients", ["clients", "Clients"]), false);
+  assert.equal(isProtectedFolder("Projects/projects", root), false);
+});
+
+test("a new name may not twin a sibling by case, nor a root folder's role", () => {
+  assert.equal(siblingTwin("projects", ["Projects", "Areas"]), "Projects");
+  assert.equal(siblingTwin("Pay.md", ["pay.md"]), "pay.md");
+  assert.equal(siblingTwin("café", ["Cafe\u0301"]), "Cafe\u0301");
+  assert.equal(siblingTwin("projects", ["Projects"], { topLevelFolder: true }), "Projects");
+  assert.equal(siblingTwin("1-projects", ["Projects"], { topLevelFolder: true }), "Projects");
+  assert.equal(siblingTwin("1-projects", ["Projects"]), null, "below the root a number is just a name");
+  assert.equal(siblingTwin("Projects", ["Projects"]), null, "the name itself is not its twin");
+  assert.equal(siblingTwin("project-x", ["Project-Y", "projects"]), null);
+});
+
+test("a new name may not twin a sibling it only looks like: another dash, an invisible character", () => {
+  // Two rows reading "kings-1" in one folder (2026-10-14): most likely a
+  // non-breaking hyphen beside an ASCII one. Every character is escaped so a
+  // reviewer can see which one is meant.
+  assert.equal(siblingTwin("kings\u20111.md", ["kings-1.md"]), "kings-1.md", "non-breaking hyphen");
+  assert.equal(siblingTwin("kings\u20131.md", ["kings-1.md"]), "kings-1.md", "en dash");
+  assert.equal(siblingTwin("kings-1.md", ["kings\u22121.md"]), "kings\u22121.md", "minus sign");
+  assert.equal(siblingTwin("kings-1\u200b.md", ["kings-1.md"]), "kings-1.md", "zero-width space");
+  assert.equal(siblingTwin("\u2068kings-1\u2069.md", ["kings-1.md"]), "kings-1.md", "display isolates");
+  assert.equal(siblingTwin("\uff4b\uff49\uff4e\uff47\uff53-1.md", ["kings-1.md"]), "kings-1.md", "fullwidth letters");
+  assert.equal(siblingTwin("kings-1.md", ["kings-10.md", "kings 1.md", "kings_1.md"]), null, "a different name is not a twin");
 });

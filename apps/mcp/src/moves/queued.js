@@ -33,6 +33,8 @@ import {
 import { isEncryptedNote } from "../encryption.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { LOGICAL_DELETE_CONTENT_TYPE, WRITABLE_CONTENT_TYPES } from "../store/contentTypes.js";
+import { notAMarker } from "../store/logicalDelete.js";
+import { TRASH_PREFIX } from "./limits.js";
 import { deleteCreatedDestination, retireMovedSource } from "./objects.js";
 
 /** `key` renamed by one move, or `null` when the move does not reach it. */
@@ -88,19 +90,63 @@ export function physicalCandidates(logical, moves) {
   return found.filter((path) => logicalPath(path, moves) === logical);
 }
 
+/** A key in the hidden trash, where a queued trash carries a note (`lib/nodes/trashStart.ts`). */
+export function isTrashKey(key) {
+  return typeof key === "string" && key.startsWith(TRASH_PREFIX);
+}
+
 /** A key a pending move is carrying away: its tree name is somewhere else. */
 export function relocated(key, moves) {
   return logicalPath(key, moves) !== key;
 }
 
-/** A conflict a move cannot settle by itself; the worker counts it and retries. */
+/**
+ * Whether a read of `key` is a read of a name a move has carried away, which
+ * is no longer an address for the note.
+ *
+ * Every listing draws a pending move at once and judges each name by the
+ * rules at the name it draws. The bucket catches up behind that, so a move
+ * that narrows — a `team` folder moved somewhere private — would otherwise go
+ * on serving each note at its old key, judged by the old key's rules, for as
+ * long as the move takes, while every screen says it is done. The rules at
+ * the old name are kept deliberately (`lib/nodes/movePrivacy.ts`): an object
+ * still sitting there has to be readable by the worker carrying it.
+ *
+ * The console never had that window, because its barrier promotes the path a
+ * read opens before the read (`storeWithMoves`), so the old key is gone and
+ * the miss is forwarded, where `canSee` is asked again at the destination.
+ * This is the same answer without the copy, and it is the one the move engine
+ * before this gives for a path under a job's source (`notes/visibleKeys.js`).
+ *
+ * Plumbing is excluded, as it is from promotion: the tree never carries it.
+ */
+function isOldName(key, moves) {
+  return typeof key === "string" && key !== "" && !isPlumbing(key) && relocated(key, moves);
+}
+
+/**
+ * What each read answers for a name a move has carried away: not found, in
+ * that method's own shape. `delete` is not a read and is absent, so it still
+ * reaches the object where it is.
+ */
+const AWAY_ANSWER = { get: null, head: null, exists: false, existsMetadata: false };
+
+/**
+ * A conflict a move cannot settle by itself. `clash` says which: `true` when a
+ * different object already sits at the destination (the worker can settle
+ * that by keeping both, `lib/nodes/moveSteps.ts`), `false` when the source
+ * changed while it was copied (the next try copies the newest version).
+ */
 export class MoveObjectConflict extends Error {
   constructor(reason) {
     super(`move conflict: ${reason}`);
     this.name = "MoveObjectConflict";
     this.code = "MOVE_CONFLICT";
+    this.clash = reason === DESTINATION_EXISTS;
   }
 }
+
+const DESTINATION_EXISTS = "destination exists";
 
 function bytesEqual(left, right) {
   const a = new Uint8Array(left);
@@ -129,6 +175,10 @@ function bytesEqual(left, right) {
  */
 export async function moveObject(store, source, destination) {
   if (source === destination) return { state: "already" };
+  if (serverCopies(store) && !source.endsWith("/") && !source.endsWith(".md") && !destination.endsWith(".md")) {
+    const fast = await moveByServerCopy(store, source, destination);
+    if (fast !== null) return fast;
+  }
   const object = await store.get(source);
   if (object === null || object === undefined) {
     const landed = await store.get(destination);
@@ -137,13 +187,18 @@ export async function moveObject(store, source, destination) {
   let body;
   if (!source.endsWith("/") && source.endsWith(".md") && destination.endsWith(".md") && collaborationSupported(store)) {
     const text = await object.text();
-    if (!isEncryptedNote(text) && collaborationEligible(source, text)) {
+    // A queued trash (or its undo) carries a note into or out of the hidden
+    // trash. Its document is judged at the note's own name, and the engine is
+    // told the trash layout is meant, as the console's trash and restore do.
+    const trash = isTrashKey(source) || isTrashKey(destination);
+    const notePath = isTrashKey(source) ? destination : source;
+    if (!isEncryptedNote(text) && collaborationEligible(notePath, text)) {
       try {
-        const moved = await moveCollaborationDocument(store, source, destination);
+        const moved = await moveCollaborationDocument(store, source, destination, ...(trash ? [{ internalTrash: true }] : []));
         return { state: "moved", ...(typeof moved?.etag === "string" ? { etag: moved.etag } : {}) };
       } catch (error) {
         if (error?.code === "MOVED") return { state: "already" };
-        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict("destination exists");
+        if (error?.code === "DESTINATION_EXISTS") throw new MoveObjectConflict(DESTINATION_EXISTS);
         if (error?.code === "CONFLICT" || error?.code === "BASE_MISSING" || error?.code === "GENERATION_MISMATCH") {
           throw new MoveObjectConflict("note changed while moving");
         }
@@ -157,7 +212,16 @@ export async function moveObject(store, source, destination) {
   // An image stays an image: the type it was stored as goes with it, where it is one a store may write.
   const type = object.contentType || object.httpMetadata?.contentType;
   const keepType = typeof type === "string" && type !== LOGICAL_DELETE_CONTENT_TYPE && WRITABLE_CONTENT_TYPES.has(type);
-  const created = await store.put(destination, body, { onlyIf: { absent: true }, ...(keepType ? { contentType: type } : {}) });
+  let created;
+  try {
+    created = await store.put(destination, body, { onlyIf: { absent: true }, ...(keepType ? { contentType: type } : {}) });
+  } catch (error) {
+    // The logical view refuses to bring a file that is not a note back over a
+    // deleted file's marker: the name is held, which is a clash the worker
+    // settles by keeping the file beside it, never a failure to retry for ever.
+    if (/over a logical tombstone/.test(String(error?.message))) throw new MoveObjectConflict(DESTINATION_EXISTS);
+    throw error;
+  }
   if (created === null || created === undefined) {
     // Something is at the destination already. Our own earlier copy (a pass
     // that died before retiring the source, or another request promoting the
@@ -166,7 +230,7 @@ export async function moveObject(store, source, destination) {
     // a bucket without conditional deletes leaves when its delete failed.
     const there = await store.get(destination);
     const ours = there && (body.byteLength === 0 || bytesEqual(await there.arrayBuffer(), body));
-    if (!ours) throw new MoveObjectConflict("destination exists");
+    if (!ours) throw new MoveObjectConflict(DESTINATION_EXISTS);
     const retired = await retireMovedSource(store, source, object.etag);
     if (retired !== "retired") {
       if ((await store.get(source)) === null) return { state: "already" };
@@ -182,6 +246,68 @@ export async function moveObject(store, source, destination) {
     throw new MoveObjectConflict("note changed while moving");
   }
   return { state: "moved", ...(typeof created.etag === "string" ? { etag: created.etag } : {}), size: body.byteLength };
+}
+
+/** Whether this bucket proved at connect that it copies server-side, preconditions and all. */
+function serverCopies(store) {
+  return store?.capabilities?.serverSideCopy === "same-store" &&
+    typeof store.copy === "function" && typeof store.head === "function";
+}
+
+/** Past this a clash is decided by size and etag alone; under it the bytes are compared. */
+const COMPARE_BYTES_MAX = 8 * 1024 * 1024;
+
+/**
+ * Move an object that is not a note by the bucket's own copy: a HEAD, a
+ * create-only copy pinned to that version, and the guarded retire. Its bytes
+ * never pass through here, whatever its size (`S3Store.copy` copies past
+ * 5 GiB in parts). Answers `null` where it cannot decide, and the caller
+ * takes the read-and-write path, which can: a HEAD that cannot rule out a
+ * deletion marker, or a small destination whose bytes need comparing.
+ */
+async function moveByServerCopy(store, source, destination) {
+  const meta = await store.head(source);
+  if (meta === undefined) return null;
+  if (meta === null) {
+    const landed = await store.head(destination);
+    return { state: landed ? "already" : "missing" };
+  }
+  if (!notAMarker(meta)) return null;
+  const moved = (etag) => ({ state: "moved", ...(typeof etag === "string" && etag ? { etag } : {}), size: meta.size });
+  const copied = await store.copy(source, destination, {
+    onlyIf: { absent: true },
+    sourceOnlyIf: { etagMatches: meta.etag },
+    size: meta.size,
+    ...(typeof meta.contentType === "string" ? { contentType: meta.contentType } : {}),
+  });
+  if (copied === null || copied === undefined) {
+    const there = await store.head(destination);
+    if (there === null || there === undefined) {
+      if ((await store.head(source)) === null) return { state: "already" };
+      throw new MoveObjectConflict("note changed while moving");
+    }
+    // Our own earlier copy (a pass that died before retiring the source): same size and the
+    // version it was copied from, as its etag or, for a copy made in parts, its stamp.
+    // A deleted file's marker holds the name: a clash, kept beside rather than written over.
+    if (!notAMarker(there)) throw new MoveObjectConflict(DESTINATION_EXISTS);
+    const ours = there.size === meta.size && (there.etag === meta.etag || there.copyOf === meta.etag);
+    if (!ours) {
+      if (meta.size <= COMPARE_BYTES_MAX) return null;
+      throw new MoveObjectConflict(DESTINATION_EXISTS);
+    }
+    const retired = await retireMovedSource(store, source, meta.etag);
+    if (retired !== "retired") {
+      if ((await store.head(source)) === null) return { state: "already" };
+      throw new MoveObjectConflict("note changed while moving");
+    }
+    return moved(there.etag);
+  }
+  const retired = await retireMovedSource(store, source, meta.etag);
+  if (retired !== "retired") {
+    await deleteCreatedDestination(store, destination, copied.etag);
+    throw new MoveObjectConflict("note changed while moving");
+  }
+  return moved(copied.etag);
 }
 
 /** Thrown for a write to an old name whose object a pending move already carried away. */
@@ -240,7 +366,9 @@ export function withPendingMoves(store, moves, options = {}) {
   for (const method of ["get", "head", "exists", "existsMetadata", "delete"]) {
     if (typeof store[method] !== "function") continue;
     const original = store[method].bind(store);
+    const away = AWAY_ANSWER[method];
     wrapped[method] = async (key, ...rest) => {
+      if (away !== undefined && isOldName(key, pending)) return away;
       await promoteDestination(key);
       return await original(key, ...rest);
     };
@@ -263,7 +391,40 @@ export function withPendingMoves(store, moves, options = {}) {
     };
   }
   Object.defineProperty(wrapped, "pendingMoves", { value: pending, enumerable: false, configurable: true });
+  // The object still sitting at an old name, read without moving it: for a
+  // reader that holds an index's bucket key and has already asked `canSee` at
+  // the name the tree draws (`readAtTreeName`). Never an address a person
+  // gave: that read goes through `get`, which answers "not found".
+  if (typeof store.get === "function") {
+    Object.defineProperty(wrapped, "getStillAt", { value: store.get.bind(store), enumerable: false, configurable: true });
+  }
   return wrapped;
+}
+
+/**
+ * Read what an index holds at bucket key `key`, judged at the name the tree
+ * draws it under: `null` when the caller may not see that name. A key no
+ * pending move carries is read as it always was. Search snippets come from
+ * here, so a note inside a folder whose queued move is still copying is found,
+ * shown at its new name, and never shown to anyone the move took it from.
+ *
+ * `isVisible` is the whole of the protection on that read, because
+ * `getStillAt` is the store's own `get` with the pending-move guard taken
+ * off. A caller that supplies none is therefore answered `null` rather than
+ * the bytes: the gate is shut by default, so adding a reader cannot quietly
+ * reopen the old name. A key no move is carrying needs no check and is read
+ * as it always was.
+ *
+ * @param {{ get: (key: string) => Promise<any>, getStillAt?: (key: string) => Promise<any>, pendingMoves?: unknown }} store
+ * @param {string} key
+ * @param {(path: string) => boolean} [isVisible] required for a key a move carries
+ */
+export async function readAtTreeName(store, key, isVisible) {
+  const pending = pendingMovesOf(store?.pendingMoves);
+  const named = pending.length > 0 ? logicalPath(key, pending) : key;
+  if (named === key) return await store.get(key);
+  if (typeof isVisible !== "function" || !isVisible(named)) return null;
+  return typeof store.getStillAt === "function" ? await store.getStillAt(key) : await store.get(key);
 }
 
 /**
@@ -275,6 +436,8 @@ export function withPendingMoves(store, moves, options = {}) {
 export async function promotePath(store, moves, path, onMoved) {
   const pending = pendingMovesOf(moves);
   if (typeof path !== "string" || isPlumbing(path) || !relocated(path, pending)) return false;
+  // A note on its way to the trash is not promoted there: opening it finds nothing, as after a trash.
+  if (isPlumbing(logicalPath(path, pending))) return false;
   await promoter(store, pending, onMoved)(path, logicalPath(path, pending));
   return true;
 }

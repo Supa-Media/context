@@ -15,6 +15,9 @@ import { densityFor } from "../app/frame";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { useReferralMenu } from "../referrals/useReferralMenu";
 import { WhatsNewHost, type WhatsNewEntry } from "./whatsNew/WhatsNewHost";
+import { SharedInboxHost, type SharedEntry } from "./shared/SharedInboxHost";
+import { SHARED_HREF } from "./shared/sharedInbox";
+import { onShared, sharedFrameSlots } from "./shared/sharedSlots";
 import { TimeZoneSync } from "./routines/TimeZoneSync";
 import { ConsoleDataProvider } from "./ConsoleDataContext";
 import { CustomEmojiProvider } from "./emoji/CustomEmojiProvider";
@@ -252,6 +255,7 @@ export function ConsoleFrame({
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  const sharedHere = onShared(route);
   const { search, paletteItems, recent, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
@@ -359,6 +363,9 @@ export function ConsoleFrame({
   const whatsNewShown = data.whatsNew === true && visitor === undefined && !data.demo;
   const [whatsNewEntry, setWhatsNewEntry] = useState<WhatsNewEntry | null>(null);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  // @shared's row, the same way: the host reports whether anything is new.
+  const sharedShown = data.sharedInbox === true && visitor === undefined && !data.demo;
+  const [sharedEntry, setSharedEntry] = useState<SharedEntry>({ unseen: 0 });
 
   /*
     One set of handlers, two triggers.
@@ -380,7 +387,7 @@ export function ConsoleFrame({
     onOpenApp: visitor.openApp,
   } : {
     data,
-    label: insideContext ? contextLabel : "Your context",
+    label: sharedHere ? "Shared with me" : insideContext ? contextLabel : "Your context",
     onOpenContext: (slug: string) => {
       const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
       if (sameRoute(next, route)) return;
@@ -424,6 +431,7 @@ export function ConsoleFrame({
       whatsNewShown && whatsNewEntry !== null
         ? { ...whatsNewEntry, onOpen: () => setWhatsNewOpen(true) }
         : undefined,
+    shared: sharedShown ? { unseen: sharedEntry.unseen, here: sharedHere, onOpen: () => router.push(SHARED_HREF) } : undefined,
   };
 
   return (
@@ -456,6 +464,7 @@ export function ConsoleFrame({
           onEntry={setWhatsNewEntry}
         />
       ) : null}
+      {sharedShown ? <SharedInboxHost onEntry={setSharedEntry} /> : null}
       {/* The time zone routines fall back to, kept in step with this device (`routines/TimeZoneSync.tsx`). */}
       {data.routines === true && visitor === undefined && !data.demo ? <TimeZoneSync /> : null}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
@@ -526,11 +535,10 @@ export function ConsoleFrame({
         aside={consoleAsidePanel({
           data, meetingsAt, router, approvals,
         })}
-        explorer={consoleExplorer({
-          browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
-          switcherProps, router,
+        {...(sharedHere ? sharedFrameSlots(sharedEntry, router, <SwitcherMenu {...switcherProps} />) : {
+          explorer: consoleExplorer({ browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, switcherProps, router }),
+          status: <Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />,
         })}
-        status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({
           browsing, data, setPaletteOpen, setSearchScope, canCreate, setBarDialog, mapOpen: mapRoute?.open === true,
           note: phone && selectedEntry?.kind === "file" ? { entry: selectedEntry, contextLabel } : null,
@@ -574,7 +582,7 @@ export function ConsoleFrame({
             phone, current, route, router, data, contextHrefFrom,
           })}
         >
-          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
+          <EditorRegion browse={browsing || sharedHere} failure={data.failure} phone={phone}>
             {children}
           </EditorRegion>
         </NavBandProvider>
@@ -656,7 +664,7 @@ export function ConsoleFrame({
           not the key.
         */}
         {meetingSheet}
-        {/* The chaos panel from a folder page's chip or the phone's Home; the tree's foot draws its own. */}
+        {/* The chaos panel, from a folder page's line or the phone's Home. */}
         <ChaosSheet />
       </AppFrame>
       </CustomEmojiProvider>

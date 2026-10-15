@@ -16,9 +16,6 @@ import { ACTIVITY_LIFT, AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
 import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
 import { changesCount } from "../../../organizer/rules";
 import type { ExplorerState } from "./useExplorer";
-import { useChaosView } from "../../../chaos/ChaosContext";
-import { ChaosFootPopover } from "../../../chaos/ChaosPopover";
-import { scoreShown } from "../../../chaos/chaosModel";
 
 /**
  * The two popovers the foot's lines open: what changed, and which agents are
@@ -57,10 +54,7 @@ export function ExplorerFootLists({
     covers the line.
   */
   const organizerLine = changesCount(organizer?.status ?? null) !== null;
-  // The chaos line is one more (`features/chaos`).
-  const chaos = useChaosView();
-  const lines = (organizerLine ? 1 : 0) + (chaos !== undefined && scoreShown(chaos.result) ? 1 : 0);
-  const lift = lines > 0 ? { bottom: (sheetLift?.bottom ?? ACTIVITY_LIFT) + lines * AGENTS_LINE_HEIGHT } : sheetLift;
+  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? ACTIVITY_LIFT) + AGENTS_LINE_HEIGHT } : sheetLift;
   return (
     <>
       {/*
@@ -123,8 +117,6 @@ export function ExplorerFootLists({
           </ScrollView>
         </View>
       ) : null}
-
-      <ChaosFootPopover lift={lift ?? undefined} />
     </>
   );
 }

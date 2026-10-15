@@ -48,6 +48,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 import { isLinkedTitle, proposeTitle, type TitleProposal } from "../linkedTitle";
 import { sharesBreakingWarning } from "../shares";
 import { isUntitled, titleFor } from "../untitled";
@@ -148,8 +149,8 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
   }, [awaitingTitle]);
 
   /*
-    What the note was when it was opened: whether its title is its name, and
-    what the title was. Reset whenever the editor moves to another path — a
+    What the note was when it was opened: whether its title renames it
+    (always, see `linkedTitle.ts`), and what the title was. Reset whenever the editor moves to another path — a
     rename landing is one of those, and the note then reads as linked again at
     its new name, which is what lets a second edit of the title follow too.
   */
@@ -350,10 +351,16 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     (path: string): boolean => {
       if (opened === null || opened.path !== path || !opened.linked) return false;
       if (editor.readOnly || editor.encrypted) return false;
+      // Only where there is a title to go to, and an editor that can put the
+      // caret in it. An untitled note is linked before it has any heading,
+      // and claiming Rename for one whose text never got a `# title` sent the
+      // caret nowhere: Rename did nothing (owner, 2026-10-14). The native
+      // editor has no `selectTitle` at all. Both get the dialog instead.
+      if (Platform.OS !== "web" || titleFor(editor.draft) === null) return false;
       setTitleFocus((last) => ({ path, id: (last?.id ?? 0) + 1 }));
       return true;
     },
-    [editor.encrypted, editor.readOnly, opened],
+    [editor.draft, editor.encrypted, editor.readOnly, opened],
   );
 
   return { titleEdit, setTitleCaret, titleFocus, focusTitle };

@@ -81,6 +81,42 @@ export function operationTouchesWebsite(
 }
 
 /**
+ * The paths of a successful operation that may narrow a site from outside
+ * `website/`: a privacy change, a move or a delete there can take away a note
+ * a page publishes through `folder:`. Path arithmetic cannot say whether one
+ * does, so the control plane asks its route index (`./routeChangeAt.ts`).
+ * Empty for everything else, and for an operation `operationTouchesWebsite`
+ * already answers.
+ */
+export function websiteNarrowingPaths(
+  operation: FileOperation,
+  result: OperationResult,
+): string[] {
+  if (operationTouchesWebsite(operation, result)) return [];
+  if (result.kind === "moved") return [result.from, result.to];
+  switch (operation.kind) {
+    case "setVisibility":
+    case "setNoteGroup":
+    case "setFolderVisibility":
+    case "setFolderGroup":
+    case "delete":
+    case "pluginDelete":
+    case "archive":
+    case "trash":
+      return [operation.path];
+    case "move":
+    case "pluginRename":
+      return [operation.from, operation.to];
+    case "contextMoveDelete":
+      return operation.sources.map((source) => source.path);
+    case "contextMoveFinish":
+      return [operation.from];
+    default:
+      return [];
+  }
+}
+
+/**
  * Whether these bytes ask for anything narrower than "serve this to anyone".
  *
  * Read the two controls that mean "stop publishing this" — `audience` and

@@ -236,6 +236,12 @@ export function ensureStyles(colors: Colors): void {
 }
 .cm-lp-root .cm-lp-title-note-problem { color: ${colors.critText}; }
 .cm-lp-root .cm-lp-title-note-held { color: ${colors.warnText}; }
+/*
+  The box under the title the property chips are drawn in (propertySlot.ts):
+  room above for the title's descent, more below so the chips read as the
+  name's and not the first paragraph's. The chips draw themselves.
+*/
+.cm-lp-root .cm-lp-property-slot { padding: 2px 0 12px; cursor: default; }
 ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
 `;

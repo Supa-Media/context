@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
-  defaultFolderView,
+  isNoteStatus,
   isProjectsFolder,
   folderItems,
   groupFolderItems,
@@ -111,6 +111,17 @@ describe("a folder's children as items", () => {
     expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
     expect(items.find((item) => item.path === "p/backlog")!.progress).toBeNull();
   });
+  test("status: note says only a note: no status, never a column word, and not counted as a part", () => {
+    const noted = [...notes, note("p/loose.md", { status: "Note" }), note("p/web/readme-ish.md", { status: "notes" })];
+    const { items } = folderItems("p", entries, noted.filter((each) => !(each.path === "p/loose.md" && each.properties.status === "paused")));
+    const loose = items.find((item) => item.path === "p/loose.md")!;
+    expect(loose).toMatchObject({ status: "", noted: true });
+    // No status written at all is not the same thing: a project item with none yet.
+    expect(items.find((item) => item.path === "p/do this")).toMatchObject({ status: "", noted: false });
+    expect(items.find((item) => item.path === "p/web")!.progress).toEqual({ done: 1, total: 2 });
+    expect(isNoteStatus(" NOTE ")).toBe(true);
+    expect(isNoteStatus("notable")).toBe(false);
+  });
 });
 
 describe("groups", () => {
@@ -152,15 +163,6 @@ describe("groups", () => {
       [note("p/old/overview.md", { status: "active" }, { updatedAt: 1 }), note("p/new/overview.md", { status: "active" }, { updatedAt: 9 })],
     ).items;
     expect(groupFolderItems(within, "status", defaultStatusList() as StatusList)[0].items.map((item) => item.path)).toEqual(["p/new", "p/old"]);
-  });
-});
-
-describe("the view a folder opens in", () => {
-  test("is the grouped list once anything in it has a status, and files otherwise", () => {
-    const withStatus = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "active" })]).items;
-    const without = folderItems("p", [folder("p/a"), folder("p/b")], []).items;
-    expect(defaultFolderView(withStatus)).toBe("list");
-    expect(defaultFolderView(without)).toBe("files");
   });
 });
 

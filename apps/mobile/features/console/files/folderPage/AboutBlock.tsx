@@ -14,19 +14,29 @@
  *   note: beside the page in the side panel where it fits (`AboutPanel.tsx`,
  *   where a writer types in it through the console's one editor), else in a
  *   sheet (`AboutSheet.tsx`). On a phone the words themselves are the button.
- * - **Edit**, for somebody who may write: the opening paragraph becomes a
- *   field in place (`LedeEditor.tsx`). An about that opens with a list or a
- *   heading is edited as a whole note instead, since its line is not a
- *   paragraph one could type back.
+ * - **The words are the way in**, for somebody who may write: pressing them
+ *   turns the opening paragraph into a field in place (`LedeEditor.tsx`).
+ *   There was an Edit button beside Read more until the owner, 2026-10-14:
+ *   "I don't like that I had to click on edit in order to edit an about".
+ *   An about that opens with a list or a heading opens the whole note
+ *   instead, since its line is not a paragraph one could type back.
+ * - **It never jumps in.** The words are read from the bucket, which answers
+ *   after the page has drawn, so until they arrive the block keeps their room:
+ *   the opening paragraph the device's copy already holds (`hint`), drawn as
+ *   is, else two invisible lines and the Read more line under them. What
+ *   arrives into an empty room fades in over `motion.layoutMs` rather than
+ *   pushing the list down a frame after the page appeared (the owner,
+ *   2026-10-14: "it's fine for the about to come in later, but we should
+ *   leave space for it").
  * - A folder with no words yet offers "Add a short description" to a writer
  *   and nothing to a reader; it creates `about.md` where there is none.
  */
 
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
-import { space } from "../../../design/tokens";
+import { motion, radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FolderListSource } from "../listBlock/model";
 import { aboutSnippet } from "./aboutSnippet";
@@ -39,6 +49,8 @@ export const LINES = { desk: 2, phone: 3 } as const;
 /** An average character of the body face, for whether the words fill their lines. */
 const CHARACTER = 7.6;
 const PROMPT = "Add a short description";
+/** A line's characters before the block has been measured: about a desktop column's. */
+const WIDE = 80;
 
 export function AboutBlock({
   path,
@@ -48,6 +60,7 @@ export function AboutBlock({
   create,
   setLede,
   onReadMore,
+  hint = null,
 }: {
   /** The about note, or null when the folder has none. */
   path: string | null;
@@ -62,14 +75,43 @@ export function AboutBlock({
   setLede: ((path: string, text: string) => Promise<string | null>) | null;
   /** Shows the whole note, editable where the page can lend its editor. */
   onReadMore: (path: string) => void;
+  /** The about's opening paragraph as the device's copy has it, drawn while the note itself is read. */
+  hint?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const body = usePanelBody(source, path);
   const [width, setWidth] = useState(0);
   const [typing, setTyping] = useState<string | null>(null);
+  const [hovered, setHovered] = useState(false);
+  // Whether this note's room was last held empty while it was read: what arrives then fades in.
+  const held = useRef<string | null>(null);
+  const lines = compact ? LINES.phone : LINES.desk;
 
   if (path === null) return create === null ? null : <Lede text={null} editing={create} prompt={PROMPT} />;
-  if (body.kind === "loading" || body.kind === "none") return null;
+  const perLine = width > 0 ? Math.floor(width / CHARACTER) : Infinity;
+  if (body.kind === "loading") {
+    const words = hint === null || hint.trim() === "" ? null : hint;
+    // What was last held decides: words already drawn are not faded in again.
+    held.current = words === null ? path : null;
+    // Read more's line is held too, unless the words to hand plainly fit their lines.
+    const moreLine = words === null || words.length > (width > 0 ? perLine : WIDE) * lines;
+    return (
+      <View style={styles.box} onLayout={(event) => setWidth(event.nativeEvent.layout.width)} aria-hidden testID="folder-about-waiting">
+        <Text variant="body" numberOfLines={lines} style={[styles.words, words === null && styles.unseen]}>
+          {words === null ? FILLER : isolateForDisplay(words)}
+        </Text>
+        {moreLine ? (
+          <View style={[styles.actions, styles.unseen]}>
+            <Text variant="treeMeta" style={styles.action}>
+              {"Read more ›"}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+  if (body.kind === "none") return null;
+  const fade = held.current === path;
   const text = body.kind === "text" ? body.text : "";
   const snippet = body.kind === "text" ? aboutSnippet(text, title) : null;
   const writable = setLede !== null && body.kind === "text";
@@ -86,8 +128,6 @@ export function AboutBlock({
     return <Lede text={snippet.text} editing={paragraph} autoOpen onClose={() => setTyping(null)} prompt={PROMPT} />;
   }
 
-  const lines = compact ? LINES.phone : LINES.desk;
-  const perLine = width > 0 ? Math.floor(width / CHARACTER) : Infinity;
   const more = snippet.more || snippet.text.length > perLine * lines;
   const readMore = () => onReadMore(path);
   const edit = () => (snippet.kind === "paragraph" ? setTyping(path) : readMore());
@@ -96,7 +136,7 @@ export function AboutBlock({
       <Text
         variant="body"
         numberOfLines={lines}
-        style={styles.words}
+        style={[styles.words, hovered && styles.wordsHover]}
         // Said to a screen reader, which would read cut words as if they were all of them.
         {...(more ? { accessibilityLabel: `${snippet.text} (continues)` } : {})}
         testID="folder-about-words"
@@ -106,24 +146,49 @@ export function AboutBlock({
     );
 
   return (
-    <View style={styles.box} onLayout={(event) => setWidth(event.nativeEvent.layout.width)} testID="folder-about">
-      {compact && more && words !== null ? (
-        <Pressable onPress={readMore} accessibilityRole="button" accessibilityLabel={`About ${title}, read all`} style={styles.tap} testID="folder-about-open">
-          {words}
-        </Pressable>
-      ) : (
-        words
-      )}
-      {more || writable ? (
-        <View style={styles.actions}>
-          {more ? (
+    <FadeIn on={fade}>
+      <View style={styles.box} onLayout={(event) => setWidth(event.nativeEvent.layout.width)} testID="folder-about">
+        {words !== null && writable ? (
+          // A writer's words are the field's way in: pressed, they become it, in place.
+          <Pressable
+            onPress={edit}
+            onHoverIn={() => setHovered(true)}
+            onHoverOut={() => setHovered(false)}
+            accessibilityRole="button"
+            accessibilityLabel={snippet.kind === "paragraph" ? `Edit description, ${snippet.text}` : `About ${title}, open to edit`}
+            style={[styles.press, compact && styles.tap]}
+            testID="folder-about-edit"
+          >
+            {words}
+          </Pressable>
+        ) : compact && more && words !== null ? (
+          <Pressable onPress={readMore} accessibilityRole="button" accessibilityLabel={`About ${title}, read all`} style={styles.tap} testID="folder-about-open">
+            {words}
+          </Pressable>
+        ) : (
+          words
+        )}
+        {more ? (
+          <View style={styles.actions}>
             <Action label={compact ? "More" : snippet.text === "" ? "About this folder ›" : "Read more ›"} onPress={readMore} accent testID="folder-about-more" />
-          ) : null}
-          {writable ? <Action label="Edit" onPress={edit} testID="folder-about-edit" /> : null}
-        </View>
-      ) : null}
-    </View>
+          </View>
+        ) : null}
+      </View>
+    </FadeIn>
   );
+}
+
+/** Two lines' worth of nothing: the room the words take, held while they are read. */
+const FILLER = "\u00a0\n\u00a0";
+
+/** Its children, faded in once over the console's one duration when `on`; drawn as they are otherwise. */
+function FadeIn({ on, children }: { on: boolean; children: ReactNode }) {
+  const opacity = useRef(new Animated.Value(on ? 0 : 1)).current;
+  useEffect(() => {
+    if (!on) return;
+    Animated.timing(opacity, { toValue: 1, duration: motion.layoutMs, useNativeDriver: false }).start();
+  }, [on, opacity]);
+  return on ? <Animated.View style={{ opacity }} testID="folder-about-fade">{children}</Animated.View> : <>{children}</>;
 }
 
 function Action({ label, onPress, accent = false, testID }: { label: string; onPress: () => void; accent?: boolean; testID: string }) {
@@ -150,6 +215,11 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     box: { marginTop: space.x1 },
     words: { color: colors.muted },
+    wordsHover: { color: colors.text2 },
+    // Held room: laid out, never seen.
+    unseen: { opacity: 0 },
+    // The hover tint and the field share the Lede's inset, so pressing moves no word.
+    press: { marginHorizontal: -6, paddingHorizontal: 6, borderRadius: radii.sm, cursor: "text" as never },
     tap: { minHeight: 44, justifyContent: "center" },
     actions: { flexDirection: "row", alignItems: "center", gap: space.x4, marginTop: space.x1 },
     action: { paddingVertical: 2 },

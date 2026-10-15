@@ -22,6 +22,21 @@
  * it is still the customer's (in their bucket, exported with everything else),
  * and it is plumbing (`.context/`), so no note and no AI client ever sees it.
  *
+ * ## Held in the control plane, and the file is the export
+ *
+ * Since 2026-10-14 (the owner's "Names only") the icons are rows in Convex
+ * (`folderIcons`, `apps/convex/functions/lib/schema/smallData.ts`), and every
+ * reader reads those. This file is still written, in this format, from the
+ * rows after every change, so the customer's export and their own bucket keep
+ * the icons; nothing on a request path reads it back. It is read once more,
+ * to import a workspace (`lib/smallData/sync.ts`).
+ *
+ * A store opened by the console's barrier or the gateway's session carries
+ * the rows as `store.folderIconsHeld` (`remap`, `drop`), and the helpers
+ * below change the rows through it. Only a store with no control plane at
+ * all (the gateway's in-memory test stub, a self-hosted gateway without one)
+ * keeps the file as the record, read and written here.
+ *
  * ## Paths, not ids
  *
  * A folder has no id, only a path, so a move has to carry its icon along:
@@ -30,11 +45,12 @@
  * `dropFolderIcons` after a folder or note is deleted for good. Both are best-effort by design. An icon is decoration; a move must
  * never fail, or half-happen, because the decoration could not be written.
  *
- * Pure parsing plus two store helpers that take any adapter with `get` and
+ * Pure parsing plus store helpers that take any adapter with `get` and
  * `put`, so the gateway and the control plane share one engine.
  */
 
 const { topLevelRole } = require("./folderRoles.cjs");
+const { cadenceFromFolder } = require("./routines.cjs");
 
 const FOLDER_ICONS_KEY = ".context/folder-icons.json";
 const FOLDER_ICONS_VERSION = 1;
@@ -92,10 +108,79 @@ const DEFAULT_FOLDER_ICONS = Object.freeze({
 const WEBSITE_FOLDER = "website";
 const WEBSITE_ICON = "🖥️";
 
-/** The default emoji for the folder at `path`, or `null` for one with none. */
+/**
+ * The folders the product itself files into inside the inbox, and what each
+ * shows when nobody chose an icon (decided by the owner, 2026-10-14). Matched
+ * by exact name one level under the inbox only, so `0-inbox/email` is ours and
+ * `1-projects/email` or `0-inbox/email/archive` are somebody's own.
+ */
+const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
+  calendar: "🗓️",
+  contacts: "📇",
+  email: "✉️",
+  forms: "📝",
+  "google-chat": "💬",
+  imessage: "📲",
+  meetings: "🎙️",
+  memories: "💭",
+  sessions: "🤖",
+  granola: "🥣",
+  inbox: "📨",
+  capture: "📨",
+});
+
+/**
+ * Tex's folder, the texting assistant's (decided by the owner, 2026-10-14):
+ * `tex/` itself, its `about-me.md`, `tex/routines/`, and each how-often
+ * folder under it by what its name means (`routines.cjs`'s
+ * `cadenceFromFolder`), so `every-3-hours` gets the hourly one. Only those
+ * exact paths: a folder somebody made inside `tex/routines/once/` is theirs.
+ */
+/**
+ * `tex/` draws Tex itself, calm (the owner, 2026-10-14: "the tex icon,
+ * organized version"), not an emoji. A default is drawn and never written, so
+ * this marker only ever reaches `EmojiGlyph`, which draws the figure for it.
+ * Not an emoji and not a `:name:`, so no workspace emoji can take its place.
+ */
+const TEX_FIGURE_ICON = "context:tex";
+
+const TEX_ICONS = Object.freeze({
+  tex: TEX_FIGURE_ICON,
+  "tex/about-me.md": "🪪",
+  "tex/routines": "🔁",
+});
+const CADENCE_ICONS = Object.freeze({
+  once: "📌",
+  minute: "⏱️",
+  hour: "⏳",
+  day: "☀️",
+  week: "📅",
+  month: "🌙",
+});
+const YEARLY_ICON = "🎆";
+
+function texIcon(path) {
+  if (Object.prototype.hasOwnProperty.call(TEX_ICONS, path)) return TEX_ICONS[path];
+  const segments = path.split("/");
+  if (segments.length !== 3 || segments[0] !== "tex" || segments[1] !== "routines") return null;
+  const cadence = cadenceFromFolder(segments[2]);
+  if (cadence === null) return null;
+  if (cadence.unit === "month" && cadence.every >= 12) return YEARLY_ICON;
+  return CADENCE_ICONS[cadence.unit] ?? null;
+}
+
+/** The default emoji for the folder (or built-in note) at `path`, or `null` for one with none. */
 function defaultFolderIcon(path) {
   if (typeof path !== "string") return null;
   if (path === WEBSITE_FOLDER) return WEBSITE_ICON;
+  const tex = texIcon(path);
+  if (tex !== null) return tex;
+  const segments = path.split("/");
+  if (segments.length === 2 && topLevelRole(segments[0]) === "inbox") {
+    return Object.prototype.hasOwnProperty.call(DEFAULT_INBOX_FOLDER_ICONS, segments[1])
+      ? DEFAULT_INBOX_FOLDER_ICONS[segments[1]]
+      : null;
+  }
   const role = topLevelRole(path);
   return role === null ? null : DEFAULT_FOLDER_ICONS[role] ?? null;
 }
@@ -193,13 +278,15 @@ async function updateFolderIcons(store, change) {
   return null;
 }
 
+/** The control plane's icon rows a store carries, or `null` for a store with none. */
+function heldIcons(store) {
+  const held = store?.folderIconsHeld;
+  return held && typeof held.remap === "function" && typeof held.drop === "function" ? held : null;
+}
+
 /** Carry icons along with a folder move. Never throws. */
 async function remapFolderIcons(store, from, to) {
-  try {
-    return await updateFolderIcons(store, (icons) => iconsAfterMove(icons, from, to));
-  } catch {
-    return null;
-  }
+  return await remapIcons(store, [{ from, to }]);
 }
 
 /**
@@ -210,6 +297,11 @@ async function remapFolderIcons(store, from, to) {
 async function remapIcons(store, moves) {
   if (!Array.isArray(moves) || moves.length === 0) return null;
   try {
+    const held = heldIcons(store);
+    if (held !== null) {
+      await held.remap(moves.map(({ from, to }) => ({ from, to })));
+      return null;
+    }
     return await updateFolderIcons(store, (icons) => {
       let next = icons;
       let changed = false;
@@ -230,6 +322,11 @@ async function remapIcons(store, moves) {
 /** Forget the icons of a folder deleted for good. Never throws. */
 async function dropFolderIcons(store, path) {
   try {
+    const held = heldIcons(store);
+    if (held !== null) {
+      await held.drop(path);
+      return null;
+    }
     return await updateFolderIcons(store, (icons) => iconsAfterDelete(icons, path));
   } catch {
     return null;
@@ -240,6 +337,8 @@ module.exports = {
   FOLDER_ICONS_KEY,
   FOLDER_ICONS_VERSION,
   DEFAULT_FOLDER_ICONS,
+  DEFAULT_INBOX_FOLDER_ICONS,
+  TEX_FIGURE_ICON,
   defaultFolderIcon,
   parseFolderIcons,
   serializeFolderIcons,

@@ -37,6 +37,12 @@
   "browser": {
     "binding": "BROWSER"
   },
+  // One per person: their owner tag and an alarm that releases their
+  // Browserbase browser five minutes after its last use (src/idle.ts).
+  "durable_objects": {
+    "bindings": [{ "name": "BROWSER_IDLE", "class_name": "BrowserIdle" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BrowserIdle"] }],
   "observability": {
     "enabled": true
   },
@@ -44,7 +50,10 @@
     "staging": {
       "name": "context-site-shots-staging",
       "workers_dev": false,
-      "browser": { "binding": "BROWSER" }
+      "browser": { "binding": "BROWSER" },
+      "durable_objects": {
+        "bindings": [{ "name": "BROWSER_IDLE", "class_name": "BrowserIdle" }]
+      }
     }
   }
 }

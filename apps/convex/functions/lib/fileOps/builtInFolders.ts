@@ -25,7 +25,8 @@ import { FileOpError, notFound } from "./errors";
 import { joinPath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope, listFolder } from "./listing";
-import { writeFile } from "./writing";
+import { writeNewAbout } from "./folders";
+import { treeView } from "./walk";
 
 const ROLES: readonly string[] = [...MAIN_ROLES, ...EXTRA_ROLES];
 
@@ -50,15 +51,14 @@ export async function addBuiltInFolder(
   const state = await loadPrivacyState(store);
   if (!folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) throw notFound();
 
-  const root = await listFolder(store, { path: "", clearance: options.clearance });
+  // The root as the tree draws it (`namesListing`), never the bucket's listing.
+  const root = await listFolder(treeView(store), { path: "", clearance: options.clearance });
   const names = root.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.name);
   const existing = rolesIn(names)[role];
   if (existing !== null) throw new FileOpError("DESTINATION_EXISTS", `${ROLE_LABEL[role]} is already in this workspace.`);
 
   const about = joinPath(folder, "about.md");
-  if ((await store.get(about)) !== null) {
-    throw new FileOpError("DESTINATION_EXISTS", `${ROLE_LABEL[role]} is already in this workspace.`);
-  }
-  await writeFile(store, { path: about, text: renderBuiltInAbout(role), clearance: options.clearance, now: options.now });
+  // Only the note being written is read (`writeNewAbout`).
+  await writeNewAbout(store, about, renderBuiltInAbout(role), options, `${ROLE_LABEL[role]} is already in this workspace.`);
   return { path: folder, readme: about };
 }
