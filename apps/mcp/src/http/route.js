@@ -549,6 +549,8 @@ export async function route(request, env, ctx) {
         attachChangeReporters(targetStore, target.workspaceId, controlPlane);
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
+        // The connection's own listing, wherever orient was addressed.
+        targetStore.offeredTools = store.offeredTools;
         // Against the context that was routed to, never the connection's own.
         // `targetStore.searchIndex` came from that context's own binding, so
         // the projection and the figure describing it name one workspace.
