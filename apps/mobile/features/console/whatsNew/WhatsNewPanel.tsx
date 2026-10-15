@@ -27,10 +27,13 @@ export function WhatsNewPanel({
   state,
   onClose,
   onRetry,
+  discordUrl = null,
 }: {
   state: WhatsNewState;
   onClose: () => void;
   onRetry: () => void;
+  /** The community's Discord join link from the admin console, or null for no button. */
+  discordUrl?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -120,6 +123,13 @@ export function WhatsNewPanel({
               onPress={() => void Linking.openURL(`${PLATFORM_ORIGIN}${DEVLOG_ROUTE}`)}
               testID="whats-new-full-week"
             />
+            {discordUrl ? (
+              <Link
+                label="Discuss on Discord"
+                onPress={() => void Linking.openURL(discordUrl).catch(() => {})}
+                testID="whats-new-discord"
+              />
+            ) : null}
           </View>
         ) : null}
       </View>
