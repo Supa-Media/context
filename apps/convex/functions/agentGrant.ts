@@ -107,13 +107,17 @@ const CONSOLE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 /**
  * How many of these one person may mint per hour.
  *
- * Generous, because a legitimate console re-mints on expiry and on a reload:
- * somebody with the app open all day across three contexts is the ordinary
- * case, not the abusive one. What it bounds is a loop, and — as
- * `lib/rateLimit.ts` says — a refusal rolls back with the transaction, so this
- * counts **successful** mints.
+ * Every page load is a new console instance and mints once for each context it
+ * opens, so the ordinary heavy case is not a person with one tab open all day:
+ * it is a browser agent working for them, opening one note per page load. At
+ * 40 an hour such an agent was refused after a few dozen notes (2026-10-15),
+ * and the refusal reached it as a server error on every note it opened after.
+ * 600 is one load every six seconds for a full hour, which no person or agent
+ * reading notes reaches; what it still bounds is a loop. As `lib/rateLimit.ts`
+ * says, a refusal rolls back with the transaction, so this counts
+ * **successful** mints.
  */
-const CONSOLE_MINT_LIMIT = 40;
+export const CONSOLE_MINT_LIMIT = 600;
 const CONSOLE_MINT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
