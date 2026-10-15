@@ -15,8 +15,8 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "../crypto";
 import { getMembership } from "../workspaceAuth";
-import { contextsForGrant, resolveLiveGrant } from "./liveGrants";
-import { gatewayOwnerClearance } from "./session";
+import { contextsForGrant, resolveLiveGrant, validateLiveGrantRecord } from "./liveGrants";
+import { gatewayEditorClearance, gatewayOwnerClearance } from "./session";
 import type {
   GatewayBinding,
   GatewayEncryptionKey,
@@ -30,8 +30,22 @@ export const GATEWAY_JOB_LEASE_MS = 15 * 60 * 1000;
 export const GATEWAY_JOB_ERROR_MAX = 240;
 export const MOVE_ID_PATTERN = /^move-[a-f0-9-]{12,}$/;
 
-export const gatewayJobKindValidator = v.union(v.literal("materialize_move"));
-export type GatewayJobKind = "materialize_move";
+/*
+ * An image upload (`apps/mcp/src/notes/imageUploads.js`): an agent that has a
+ * picture as a file, not as text, asks `write_note` for a ticket and sends the
+ * bytes with a plain HTTP PUT. The row is the ticket. It names the exact bytes
+ * (their SHA-256 and length) it will take, so whoever holds the ticket can put
+ * those bytes and nothing else, once, within ten minutes, into the opaque image
+ * store of the one context it was minted for, and only while the grant that
+ * minted it is still live and its person can still write there.
+ */
+export const IMAGE_UPLOAD_TTL_MS = 10 * 60 * 1000;
+/** `MAX_REMOTE_IMAGE_BYTES` in `packages/shared/src/remoteImage.cjs`, the ceiling every other way in has. */
+export const IMAGE_UPLOAD_MAX_BYTES = 5_000_000;
+export const IMAGE_SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
+export const gatewayJobKindValidator = v.union(v.literal("materialize_move"), v.literal("image_upload"));
+export type GatewayJobKind = "materialize_move" | "image_upload";
 
 export interface ClaimedGatewayJob {
   workspaceId: Id<"workspaces">;
@@ -40,6 +54,8 @@ export interface ClaimedGatewayJob {
   grantId: Id<"oauthGrants">;
   kind: GatewayJobKind;
   moveId?: string;
+  imageSha256?: string;
+  imageBytes?: number;
 }
 
 /** A redelivered Queue message must wait for the running pass's lease. */
@@ -75,6 +91,8 @@ export const createGatewayJobArgs = {
   hashedTicket: v.string(),
   kind: gatewayJobKindValidator,
   moveId: v.optional(v.string()),
+  imageSha256: v.optional(v.string()),
+  imageBytes: v.optional(v.number()),
 };
 
 export const createGatewayJobReturns = v.union(v.boolean(), v.literal("already_active"));
@@ -86,6 +104,7 @@ export async function createGatewayJobHandler(
   if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return false;
   if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
   if (args.kind === "materialize_move" && !MOVE_ID_PATTERN.test(args.moveId || "")) return false;
+  if (args.kind === "image_upload") return await createImageUpload(ctx, args);
 
   const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
   if (live === null) return false;
@@ -141,7 +160,54 @@ export async function createGatewayJobHandler(
   return true;
 }
 
-export const claimGatewayJobArgs = { hashedTicket: v.string() };
+/**
+ * An image upload's ticket. Writer clearance (owner or editor, `context:write`),
+ * not the owner clearance a move needs: putting a picture beside a note is what
+ * writing a note already allows. No dedupe, since two pictures are two tickets.
+ */
+async function createImageUpload(
+  ctx: MutationCtx,
+  args: ObjectType<typeof createGatewayJobArgs>,
+): Promise<boolean> {
+  if (args.moveId !== undefined) return false;
+  if (!IMAGE_SHA256_PATTERN.test(args.imageSha256 || "")) return false;
+  const bytes = args.imageBytes;
+  if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes < 1 || bytes > IMAGE_UPLOAD_MAX_BYTES) {
+    return false;
+  }
+  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+  if (live === null) return false;
+  const workspaceId = gatewayEditorClearance(
+    { scopes: live.grant.scopes, workspaces: await contextsForGrant(ctx, live) },
+    args.expectedWorkspaceId,
+  );
+  if (workspaceId === null) return false;
+  const now = Date.now();
+  await ctx.db.insert("gatewayJobs", {
+    hashedTicket: args.hashedTicket,
+    workspaceId,
+    actorUserId: live.grant.userId,
+    actorClientId: live.grant.clientId,
+    grantId: live.grant._id,
+    kind: "image_upload",
+    imageSha256: args.imageSha256,
+    imageBytes: bytes,
+    status: "queued",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: now + IMAGE_UPLOAD_TTL_MS,
+  });
+  return true;
+}
+
+/**
+ * `contentSha256` is the hash of the bytes the gateway is holding. An upload's
+ * ticket opens only for exactly the bytes it was minted for, and a mismatch
+ * leaves the ticket unspent: somebody who learned it cannot burn it with
+ * other bytes, and cannot open the bucket's credentials with them either.
+ */
+export const claimGatewayJobArgs = { hashedTicket: v.string(), contentSha256: v.optional(v.string()) };
 
 export const claimGatewayJobReturns = v.union(
   v.null(),
@@ -153,6 +219,8 @@ export const claimGatewayJobReturns = v.union(
     grantId: v.id("oauthGrants"),
     kind: gatewayJobKindValidator,
     moveId: v.optional(v.string()),
+    imageSha256: v.optional(v.string()),
+    imageBytes: v.optional(v.number()),
   }),
 );
 
@@ -175,7 +243,17 @@ export async function claimGatewayJobHandler(
   }
   if (job.status !== "queued" && !staleLease) return null;
   const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
-  if (membership === null || membership.role !== "owner") return null;
+  if (job.kind === "image_upload") {
+    // Exactly the bytes it was minted for, by a grant still live, for a
+    // person who can still write there. Never retried: a stale lease is spent.
+    if (job.status !== "queued" || args.contentSha256 !== job.imageSha256) return null;
+    if (membership === null || (membership.role !== "owner" && membership.role !== "editor")) return null;
+    const grant = await ctx.db.get(job.grantId);
+    if (grant === null || (await validateLiveGrantRecord(ctx, grant)) === null) return null;
+    if (!grant.scopes.includes("context:write")) return null;
+  } else if (membership === null || membership.role !== "owner") {
+    return null;
+  }
   await ctx.db.patch(job._id, {
     status: "running",
     attempts: job.attempts + 1,
@@ -190,6 +268,7 @@ export async function claimGatewayJobHandler(
     grantId: job.grantId,
     kind: job.kind,
     moveId: job.moveId,
+    ...(job.kind === "image_upload" ? { imageSha256: job.imageSha256, imageBytes: job.imageBytes } : {}),
   };
 }
 
@@ -269,8 +348,22 @@ export async function leasedGatewayJobWorkspace(
     .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", hashedTicket))
     .unique();
   const now = Date.now();
-  if (job === null || job.status !== "running" || job.expiresAt <= now) return null;
+  // A move's lease only: an image upload's ticket proves nothing beyond its own bytes.
+  if (job === null || job.kind !== "materialize_move" || job.status !== "running" || job.expiresAt <= now) return null;
   if (typeof job.leasedAt !== "number" || job.leasedAt + GATEWAY_JOB_LEASE_MS <= now) return null;
   const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
   return membership?.role === "owner" ? job.workspaceId : null;
+}
+
+export const IMAGE_UPLOAD_SWEEP_BATCH = 200;
+
+/** Delete image-upload tickets past their ten minutes, spent or not. They are tickets, not history. */
+export async function sweepImageUploadsHandler(ctx: MutationCtx): Promise<number> {
+  const expired = await ctx.db
+    .query("gatewayJobs")
+    .withIndex("by_expiresAt", (q) => q.lt("expiresAt", Date.now()))
+    .filter((q) => q.eq(q.field("kind"), "image_upload"))
+    .take(IMAGE_UPLOAD_SWEEP_BATCH);
+  for (const row of expired) await ctx.db.delete(row._id);
+  return expired.length;
 }

@@ -15,7 +15,18 @@ export function coreToolDefinitions() {
         "One cheap call returns their front page, what they touched most recently, and a map of " +
         "every folder with note counts — so you know what already exists instead of guessing. " +
         "Everything else here is easier to use well afterwards.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {
+          tools: {
+            type: "boolean",
+            description:
+              "true adds the live list of every tool you may call and its arguments, which can be newer " +
+              "than your app's copy. Shown anyway when your copy is out of date.",
+          },
+        },
+        additionalProperties: false,
+      },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     // ChatGPT's ordinary chats can invoke exactly two tools on a custom

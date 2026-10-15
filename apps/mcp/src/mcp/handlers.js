@@ -46,6 +46,13 @@ export async function handleMcp(request, store, session) {
    */
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
+  /*
+    What `tools/list` offers this connection, for `orient`'s live tool list
+    (`tools/liveList.js`). A function, so only the call that renders it pays
+    for the plugin-settings read. The listing is the connection's, never the
+    addressed context's, so `openContext` hands the same one along.
+  */
+  store.offeredTools = () => toolsForSession(session, store);
 
   let body;
   try {

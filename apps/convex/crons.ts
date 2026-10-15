@@ -279,6 +279,9 @@ crons.interval("check storage keeps up with the file tree", { minutes: 15 }, int
  */
 crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
 
+/** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
+crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",

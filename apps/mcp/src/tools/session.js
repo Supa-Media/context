@@ -32,7 +32,7 @@ import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { canonicalToolName, toolArgumentRefusal } from "./advertised.js";
+import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
@@ -310,7 +310,9 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  const supplied = params?.arguments;
+  // Read as the advertised types first: a stale client sends an argument its
+  // copy of the tool does not show as text (`advertised.js`).
+  const supplied = coercedArguments(params?.name, params?.arguments);
   const args =
     supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
 

@@ -44,6 +44,7 @@ import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
 import { toolWriteNote } from "./notes/write.js";
+import { toolImageUploadLinks } from "../notes/imageUploads.js";
 import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
 import { toolMailNote, toolReadMail } from "./notes/mail.js";
@@ -118,7 +119,7 @@ async function runTool(name, args, store, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(store, scope, rules, overrides);
+      return toolOrient(store, scope, rules, overrides, { tools: args.tools === true });
     case "scope_info":
       return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":
@@ -149,6 +150,7 @@ async function runTool(name, args, store, scope) {
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
       if (args.site !== undefined) return toolSiteAction(store, args);
+      if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
       if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
       return toolWriteNote(store, scope, rules, overrides, args);
