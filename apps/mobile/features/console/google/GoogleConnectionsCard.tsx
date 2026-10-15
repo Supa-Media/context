@@ -60,18 +60,24 @@ export interface GoogleConnection {
     destinationPath: string;
     historyCursorReady: boolean;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   calendar?: {
     destinationFolder: string;
     destinationPath: string;
     syncCursorReady: boolean;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   chat?: {
     destinationFolder: string;
     destinationPath: string;
     cursorCount: number;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   syncRun?: {
     runId: string;
@@ -371,6 +377,9 @@ function GoogleAccountRow({
                   ? "Waiting for the first sync."
                   : `Last synced: ${new Date(source.lastSyncedAt).toLocaleString()}`}
               </Text>
+              {source?.lastFailure === undefined ? null : (
+                <Text variant="foot">{`Didn't sync: ${source.lastFailure}`}</Text>
+              )}
             </View>
           );
         })}

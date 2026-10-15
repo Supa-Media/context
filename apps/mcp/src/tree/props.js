@@ -26,16 +26,19 @@ import { noteLede } from "../lists/lede.js";
 import { isEncryptedNote } from "../encryption/format.js";
 import { countLines } from "../chaos/rubric.js";
 import mail from "../../../../packages/shared/src/mail.cjs";
+import { siteFlagsOf } from "./siteFlags.js";
 
 /**
  * What one note's text becomes: its properties, first heading and first
  * paragraph, or `null` for an encrypted note.
  *
  * @param {string} text
- * @returns {{ properties: Record<string, unknown>, inlineTags: string[], heading: string | null, lede: string | null, lines?: number } | null}
+ * @returns {{ properties: Record<string, unknown>, inlineTags: string[], heading: string | null, lede: string | null, lines?: number, site?: { draft: boolean, restricts: boolean } } | null}
  */
 export function propsOf(text) {
-  if (typeof text !== "string") return { properties: {}, inlineTags: [], heading: null, lede: null, lines: 0 };
+  if (typeof text !== "string") {
+    return { properties: {}, inlineTags: [], heading: null, lede: null, lines: 0, site: { draft: false, restricts: false } };
+  }
   if (isEncryptedNote(text)) return null;
   return {
     properties: { ...noteProperties(text) },
@@ -46,5 +49,8 @@ export function propsOf(text) {
     // The chaos score's long-note rule (`chaos/rubric.js`).
     // Mail between agents is a conversation about the note, not its length.
     lines: countLines(mail.stripMail(text)),
+    // Whether a website may still publish it (`siteFlags.js`): a public list
+    // asks the tree this rather than opening the page.
+    site: siteFlagsOf(text),
   };
 }

@@ -295,6 +295,22 @@ export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Pr
 }
 
 /**
+ * What a product write leaves behind: the bucket's notes copied into the tree,
+ * and each note's front matter read into its facts. Tests that seed the bucket
+ * directly call this where production would have touched the tree.
+ */
+export async function readIntoTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await copyTree(t, workspaceId);
+  for (let pass = 0; pass < 4; pass += 1) {
+    await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private" as const,
+      operation: { kind: "nodesFactFill" as const },
+    });
+  }
+}
+
+/**
  * Run the scheduled jobs that are actually due, and leave the future alone.
  *
  * `drainScheduled` waits for the queue to empty, which never happens once a
