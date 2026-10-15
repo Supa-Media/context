@@ -21,7 +21,8 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { callerId } from "./lib/filesFns/access";
-import { suggestByMeaning } from "./lib/emojiMeaningLookup";
+import { emojiMeaningSet } from "@context/shared/src/emojiMeaning";
+import { nearestByMeaning, startFill } from "./lib/emojiMeaningLookup";
 import { withJev } from "./lib/jev/client";
 import { clearanceOf } from "./lib/clearance";
 import { loadPrivacyState } from "./lib/fileOps";
@@ -113,24 +114,32 @@ export const suggest = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args): Promise<string | null> => {
+    const started = Date.now();
     const userId = await getAuthUserId(ctx);
     if (userId === null) return null;
-    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const set = emojiMeaningSet();
+    const { open, state } = await ctx.runQuery(internal.functions.emojiMeaning.prepareSuggest, {
       actorUserId: userId,
       workspaceId: args.workspaceId,
-      minimum: "editor",
+      set,
     });
     const path = args.path.slice(0, 1024);
-    if (!nameSaysSomething(path)) return null;
-    return await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev, refusal): Promise<string | null> => {
-      // The day's cap counts Clef's questions. A lookup by meaning is one
-      // small embedding call, so a workspace past the cap still gets one;
-      // switched off, or with no inference Worker, it gets nothing.
-      if (!jev && refusal !== "daily_cap") return null;
-      const near = await suggestByMeaning(ctx, args.workspaceId, path);
-      if (near !== "unready") return near;
-      if (!jev) return null;
-      return await suggestIconFor(path, (request) => jev.decide(request));
-    });
+    if (!open || !nameSaysSomething(path)) return null;
+    if (state === "ready") {
+      const near = await nearestByMeaning(ctx, args.workspaceId, set, path);
+      if (near !== null) return logged(near, "meaning", started);
+    } else {
+      await startFill(ctx, set);
+    }
+    const asked = await withJev(ctx, { feature: "iconSuggest", workspaceId: args.workspaceId }, async (jev) =>
+      jev ? await suggestIconFor(path, (request) => jev.decide(request)) : null,
+    );
+    return logged(asked, "clef", started);
   },
 });
+
+/** One line per answered suggestion: which way it came and how long it took. Never the name or the emoji. */
+function logged(icon: string | null, via: "meaning" | "clef", started: number): string | null {
+  console.log(JSON.stringify({ event: "icon_suggest", via, answered: icon !== null, ms: Date.now() - started }));
+  return icon;
+}
