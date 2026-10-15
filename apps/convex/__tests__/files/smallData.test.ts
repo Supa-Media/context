@@ -100,7 +100,10 @@ describe("icons and emoji answer from Convex", () => {
     expect(f.backend.requests.some((request) => request.method === "LIST" || request.key === "")).toBe(false);
     expect(imageReads(f)).toBe(0);
     expect(parseFolderIcons(fileText(f, FOLDER_ICONS_KEY))).toEqual({ "1-projects": "🚀", "2-areas": "🌲" });
-  });
+    // A share, a sync and a settle of real work: about five seconds on a busy
+    // runner, so the default timeout cut it off and its writes landed in the
+    // next test.
+  }, 15_000);
 
   test("a stranger is answered as for a workspace that does not exist", async () => {
     const f = await fixture();
