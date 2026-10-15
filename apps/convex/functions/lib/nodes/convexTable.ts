@@ -50,6 +50,7 @@ function toStored(doc: Doc<"nodes">): StoredNode {
     storageKey: doc.storageKey,
     idCopy: doc.idCopy,
     keyedFrom: doc.keyedFrom,
+    access: doc.access,
   };
 }
 
@@ -219,10 +220,12 @@ export function convexNodeTable(
     async observedBefore(before, limit) {
       // A keyed row is never pruned by an observation's age (`observe.ts`), so it is
       // not read here at all: a page of only keyed rows would otherwise never end.
+      // The same holds for a row carrying its own access (`nodes.access`, the
+      // folder anchors and overrides `accessBackfill.ts` derives): a rule names it.
       const docs = await ctx.db
         .query("nodes")
         .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).lt("observedAt", before))
-        .filter((q) => q.eq(q.field("storageKey"), undefined))
+        .filter((q) => q.and(q.eq(q.field("storageKey"), undefined), q.eq(q.field("access"), undefined)))
         .take(limit);
       return docs.map(toStored);
     },

@@ -36,6 +36,7 @@ import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 import { folderChain, nameOf } from "./table";
 import { TRASH_ROOT } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
+import { refreshAccess } from "./accessBackfill";
 
 /** Live rows one row move may rename, the name itself included. Above this the caller refuses as too large. */
 export const ROW_MOVE_MAX = 500;
@@ -199,7 +200,7 @@ export async function applyRowMove(
   }
 
   // Writes. Nothing above wrote, so every refusal left the rows as they were.
-  for (const row of tombstones) await ctx.db.delete(row._id);
+  for (const row of tombstones) await removeReplaced(ctx, row);
 
   // The folders `to` needs, outermost first: revived where a tombstone held the name, created where nothing did.
   let parentId: Id<"nodes"> | undefined;
@@ -212,7 +213,7 @@ export async function applyRowMove(
       continue;
     }
     // A tombstone file where a folder must stand: the name is free, so it goes.
-    if (row !== null) await ctx.db.delete(row._id);
+    if (row !== null) await removeReplaced(ctx, row);
     parentId = await insertFolder(ctx, ws, path, parentId, now);
   }
   const oldParent = root.parentId;
@@ -253,6 +254,9 @@ export async function applyRowMove(
   if (!trash) await followMovesForMembers(ctx, ws, [{ from, to }], mirror);
   await markWebsiteMoved(ctx, ws, { from, to });
   await freshenMeaningAfterActivity(ctx, ws);
+  // The rows moved and the rules moved with them, so the access rows follow. A tombstone a rule named at the
+  // destination (`nodes.access`) was replaced above; the row now holding its name takes the rule's access here.
+  await refreshAccess(ctx, ws);
 
   return {
     ok: true,
@@ -261,6 +265,19 @@ export async function applyRowMove(
     files: files.map((pair) => ({ from: pair.from, to: pair.to })),
     ...(root.kind === "file" ? { etag: root.etag } : {}),
   };
+}
+
+/**
+ * Remove a row a move replaces, with the grants on it: they name a row that is gone. A tombstone a rule
+ * named is re-derived onto the row now holding its name (`refreshAccess`, at the end of the move).
+ */
+async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
+  const grants = await ctx.db
+    .query("nodeAccess")
+    .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+    .collect();
+  for (const grant of grants) await ctx.db.delete(grant._id);
+  await ctx.db.delete(row._id);
 }
 
 async function insertFolder(

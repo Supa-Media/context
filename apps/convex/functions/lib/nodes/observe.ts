@@ -206,6 +206,8 @@ export async function pruneUnobserved(
   let removedFiles = 0;
   for (const node of batch) {
     if (isKeyed(node)) continue;
+    // A row a privacy rule names is never pruned (`nodes.access`); the query above leaves it out too.
+    if (node.access !== undefined) continue;
     // A live file nobody saw leaves the tree here; a tombstone was logged when it was laid.
     if (node.kind === "file" && node.goneAt === undefined) await table.logChange?.(node.path, true);
     await table.remove(node.id);

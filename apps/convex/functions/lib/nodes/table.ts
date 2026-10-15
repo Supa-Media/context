@@ -75,6 +75,8 @@ export interface StoredNode {
   idCopy?: IdCopyRecord;
   /** A flipped row's versions at the flip (`KeyedFrom`). */
   keyedFrom?: KeyedFrom;
+  /** The row's own access, when a privacy rule names it (`nodes.access`). A row carrying it is never pruned. */
+  access?: { base: "private" | "team" };
 }
 
 /**
@@ -129,7 +131,7 @@ export interface NodeTable {
   remove(id: string): Promise<void>;
   /** Rows whose path starts with `prefix`, in the table's path order, from just after `after`. At most `limit`. */
   underPrefix(prefix: string, options: { after?: string; limit: number }): Promise<StoredNode[]>;
-  /** Rows with `observedAt < before`, oldest first, never a keyed row (`storageKey`). At most `limit`. */
+  /** Rows with `observedAt < before`, oldest first, never a keyed row (`storageKey`) nor one carrying `access`. At most `limit`. */
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
