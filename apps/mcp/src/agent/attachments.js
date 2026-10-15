@@ -10,6 +10,14 @@
  *     { name, mediaType, data }    a picture (JPEG, PNG, GIF, WebP) or a PDF, base64
  *     { name, mediaType, text }    a file's words (a text file, a contact card, a Word file)
  *     { name, mediaType, unread }  a file nobody could open, and why, in words for the model
+ *     { name, mediaType, data }    a voice message (audio/*), base64, transcribed HERE
+ *
+ * Audio is the one kind this side changes: the gateway already holds the
+ * transcription service (`ingestion/transcription.js`, the one meetings use,
+ * with its silence filtering), so a voice message is turned into its words
+ * before the model sees the turn, `{ name, mediaType, text, heard: true }`. A
+ * deployment without that service, or a transcription that fails, makes it an
+ * `unread` with the reason, so the model says so rather than guessing.
  *
  * This module checks each against what the model API takes (types and sizes),
  * builds the blocks, and lets the model keep a picture in a note without ever
@@ -26,6 +34,8 @@ export const MAX_ATTACHMENTS = 8;
 export const MAX_IMAGE_BYTES = 5_000_000;
 /** A PDF reads as text and a picture per page; past this it is a book, not a text. */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
+/** A voice message, at most: the transcription service's own ceiling (`infra/transcribe-worker`). */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 /** A file's words, at most. */
 export const MAX_TEXT_CHARS = 100_000;
 /** Everything one question carries, decoded. Under the model API's own request ceiling. */
@@ -89,19 +99,62 @@ export function readAttachments(raw) {
       if (bytes > MAX_PDF_BYTES) throw new AttachmentRefusal("A PDF is at most 10 MB.");
       return { name, mediaType, data: item.data };
     }
-    throw new AttachmentRefusal("Only pictures (JPEG, PNG, GIF, WebP) and PDFs are sent as data.");
+    if (mediaType.startsWith("audio/")) {
+      if (bytes > MAX_AUDIO_BYTES) throw new AttachmentRefusal("A voice message is at most 8 MB.");
+      return { name, mediaType, data: item.data };
+    }
+    throw new AttachmentRefusal("Only pictures (JPEG, PNG, GIF, WebP), PDFs and audio are sent as data.");
   });
 }
 
-/** `readAttachments` for one `/agent` turn: none on a routine's run, and a refusal as its sentence. */
-export function turnAttachments(raw, runner) {
+/** `readAttachments` for one `/agent` turn: none on a routine's run, a refusal as its sentence, voice messages heard. */
+export async function turnAttachments(raw, runner, { transcribe = null, callerId = "" } = {}) {
   if (runner) return { attachments: [], refusal: null };
+  let attachments;
   try {
-    return { attachments: readAttachments(raw), refusal: null };
+    attachments = readAttachments(raw);
   } catch (error) {
     if (!(error instanceof AttachmentRefusal)) throw error;
     return { attachments: [], refusal: error.message };
   }
+  return { attachments: await hearVoiceMessages(attachments, transcribe, callerId), refusal: null };
+}
+
+const isAudio = (attachment) => typeof attachment.data === "string" && attachment.mediaType.startsWith("audio/");
+
+/** What the transcription service heard, as one paragraph, or "" for nothing. */
+function heardText(payload) {
+  if (typeof payload?.text === "string" && payload.text.trim()) return payload.text.replace(/\s+/g, " ").trim();
+  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+  return segments
+    .map((segment) => (typeof segment?.text === "string" ? segment.text.trim() : ""))
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Every voice message replaced by its words (or by why there are none). The
+ * audio goes to the service and nowhere else: not logged, not kept, and the
+ * caller is named to it only as `callerId`, which the forwarder hashes.
+ */
+export async function hearVoiceMessages(attachments, transcribe, callerId) {
+  if (!attachments.some(isAudio)) return attachments;
+  return await Promise.all(
+    attachments.map(async (attachment) => {
+      if (!isAudio(attachment)) return attachment;
+      const { name, mediaType } = attachment;
+      if (typeof transcribe !== "function") {
+        return { name, mediaType, unread: "It is a voice message, and voice messages can't be transcribed on this server. Ask them to type it." };
+      }
+      try {
+        const text = heardText(await transcribe({ audioBase64: attachment.data, mimeType: mediaType, callerId: String(callerId) }));
+        if (!text) return { name, mediaType, unread: "It is a voice message with no words you could make out. Ask them to say it again or type it." };
+        return { name, mediaType, text: text.slice(0, MAX_TEXT_CHARS), heard: true };
+      } catch {
+        return { name, mediaType, unread: "It is a voice message, and transcribing it failed. Ask them to send it again or type it." };
+      }
+    }),
+  );
 }
 
 const isPicture = (attachment) => typeof attachment.data === "string" && IMAGE_TYPES.has(attachment.mediaType);
@@ -113,6 +166,7 @@ function describe(attachments) {
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
     if (isPicture(attachment)) return `${n}. ${attachment.name}: a picture, shown above.`;
     if (attachment.mediaType === PDF) return `${n}. ${attachment.name}: a PDF, shown above.`;
+    if (attachment.heard) return `${n}. ${attachment.name}: a voice message; what they said is transcribed above. Answer it as if they had typed it.`;
     return `${n}. ${attachment.name}: a file, its text shown above.`;
   });
   const pictures = attachments.filter(isPicture);
@@ -136,7 +190,8 @@ export function anthropicAttachmentBlocks(attachments, text) {
     } else if (attachment.mediaType === PDF && typeof attachment.data === "string") {
       blocks.push({ type: "document", source: { type: "base64", media_type: PDF, data: attachment.data }, title: attachment.name });
     } else if (typeof attachment.text === "string") {
-      blocks.push({ type: "document", source: { type: "text", media_type: "text/plain", data: attachment.text || "(empty)" }, title: attachment.name });
+      const title = attachment.heard ? `${attachment.name} (voice message, transcribed)` : attachment.name;
+      blocks.push({ type: "document", source: { type: "text", media_type: "text/plain", data: attachment.text || "(empty)" }, title });
     }
   }
   blocks.push({ type: "text", text: `${describe(attachments)}\n\n${text || "(No words, just the attachments.)"}` });
@@ -151,6 +206,7 @@ export function anthropicAttachmentBlocks(attachments, text) {
 export function plainAttachmentText(attachments, text) {
   const parts = attachments.map((attachment, index) => {
     const n = index + 1;
+    if (attachment.heard) return `${n}. ${attachment.name}, a voice message; they said:\n${attachment.text.slice(0, 20_000)}`;
     if (typeof attachment.text === "string") return `${n}. ${attachment.name}:\n${attachment.text.slice(0, 20_000)}`;
     if (typeof attachment.unread === "string") return `${n}. ${attachment.name}: could not be opened. ${attachment.unread}`;
     return `${n}. ${attachment.name}: you cannot see this one on this model; say so if they ask about it.`;
@@ -161,11 +217,19 @@ export function plainAttachmentText(attachments, text) {
 /**
  * The line the saved conversation keeps instead of the attachments, so a later
  * text ("what was in that photo?") knows something was sent, and the model can
- * say it no longer has it.
+ * say it no longer has it. A voice message is the exception: its words are the
+ * person's own message, said instead of typed, so they are kept as a typed one
+ * would be (bounded), and "what did I just say?" has an answer.
  */
+export const MAX_SAVED_VOICE_CHARS = 2000;
+
 export function attachmentsLine(attachments) {
   if (attachments.length === 0) return "";
-  return `[Sent with this text: ${attachments.map((attachment) => attachment.name).join(", ")}. Seen only on that turn.]`;
+  const line = `[Sent with this text: ${attachments.map((attachment) => attachment.name).join(", ")}. Seen only on that turn.]`;
+  const said = attachments
+    .filter((attachment) => attachment.heard)
+    .map((attachment) => `[Voice message ${attachment.name}: "${attachment.text.slice(0, MAX_SAVED_VOICE_CHARS)}"]`);
+  return [line, ...said].join("\n");
 }
 
 const REFERENCE = /^attachment:(\d+)$/;

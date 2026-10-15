@@ -56,6 +56,7 @@ import {
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
+import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /**
@@ -158,8 +159,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
   }
-  // What came with the question (`attachments.js`). A routine's run has none.
-  const { attachments, refusal } = turnAttachments(body.attachments, runner);
+  // What came with the question (`attachments.js`), voice messages already heard. A routine's run has none.
+  const { attachments, refusal } = await turnAttachments(body.attachments, runner, { transcribe: transcriptionForwarder(env), callerId: session.workspaceId });
   if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
   if (question.length === 0 && attachments.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);

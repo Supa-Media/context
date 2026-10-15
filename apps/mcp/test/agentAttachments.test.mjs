@@ -21,13 +21,18 @@
  *     kept in a note by reference" fails (the stored image is the literal text).
  *   `attachmentsLine` dropped from the saved conversation → "the saved
  *     conversation names what was sent, never its bytes" fails.
+ *   `turnAttachments` not calling `hearVoiceMessages` → "a texted voice
+ *     message reaches the model as what was said" fails (readAttachments'
+ *     audio passes through as data and no transcript block is built).
+ *   `attachmentsLine` dropping the `heard` lines → the same check fails on
+ *     the saved conversation.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { anthropicMessages, openAiMessages } from "../src/agent/providers.js";
-import { readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
+import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 // A 1x1 PNG.
@@ -178,4 +183,74 @@ test("a reference that names no picture is passed through for write_note to refu
   assert.equal(seen[0].images[2].data, `data:image/png;base64,${PNG}`);
   await call("read_note", { path: "a.md", images: [{ data: "attachment:1" }] });
   assert.equal(seen[1].images[0].data, "attachment:1");
+});
+
+const VOICE = { name: "Audio Message.caf", mediaType: "audio/x-caf", data: Buffer.from([0x63, 0x61, 0x66, 0x66, 0, 1, 0, 0, 7, 7]).toString("base64") };
+const TRANSCRIBER = "https://transcribe.example.test/";
+
+/** The transcription service, answering `answer` (or failing with `status`), and the bodies it was sent. */
+function installTranscriber(world, { answer = { text: " Pick up oat milk on the way home. ", segments: [] }, status = 200 } = {}) {
+  world.env.TRANSCRIBE_WORKER_URL = TRANSCRIBER;
+  world.env.TRANSCRIBE_WORKER_SECRET = "test-transcribe-secret";
+  const sent = [];
+  const through = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (!url.startsWith(TRANSCRIBER)) return through(input, init);
+    sent.push({ url, auth: new Headers(init.headers).get("Authorization"), body: JSON.parse(init.body) });
+    return Response.json(answer, { status });
+  };
+  return sent;
+}
+
+test("a texted voice message reaches the model as what was said, and is kept as said", async () => {
+  const world = await createEgressWorld();
+  try {
+    const sent = installTranscriber(world);
+    world.model.install([{ text: "Added oat milk." }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].url, `${TRANSCRIBER}transcribe`);
+    assert.equal(sent[0].auth, "Bearer test-transcribe-secret");
+    assert.deepEqual(Object.keys(sent[0].body).sort(), ["audioBase64", "mimeType"], "no ids travel with the audio");
+    assert.equal(sent[0].body.audioBase64, VOICE.data);
+    const content = lastUser(world.model.requests.at(-1)).content;
+    assert.deepEqual(content[0], {
+      type: "document",
+      source: { type: "text", media_type: "text/plain", data: "Pick up oat milk on the way home." },
+      title: "Audio Message.caf (voice message, transcribed)",
+    });
+    assert.match(content.at(-1).text, /1\. Audio Message\.caf: a voice message; what they said is transcribed above/);
+    assert.ok(!JSON.stringify(world.model.requests.at(-1)).includes(VOICE.data), "the audio itself never reaches the model");
+    const saved = world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
+    assert.match(saved, /Voice message Audio Message\.caf: \\"Pick up oat milk on the way home\.\\"/);
+    assert.ok(!saved.includes(VOICE.data));
+  } finally {
+    world.restore();
+  }
+});
+
+test("a voice message nobody could transcribe is named as such, and the turn still answers", async () => {
+  const world = await createEgressWorld();
+  try {
+    installTranscriber(world, { status: 502, answer: { error: "upstream" } });
+    world.model.install([{ text: "Could you type it?" }]);
+    const asked = await request(world.env, TOKEN_TEXTS, "/agent", { question: "", conversation: "texts", attachments: [VOICE] });
+    assert.equal(asked.status, 200, JSON.stringify(asked.body));
+    assert.match(lastUser(world.model.requests.at(-1)).content.at(-1).text, /could not be opened\. It is a voice message, and transcribing it failed/);
+  } finally {
+    world.restore();
+  }
+});
+
+test("voice messages: no service, silence, and the 8 MB ceiling", async () => {
+  const [none] = await hearVoiceMessages([VOICE], null, "ws");
+  assert.match(none.unread, /can't be transcribed on this server/);
+  const [quiet] = await hearVoiceMessages([VOICE], async () => ({ text: "", segments: [], refused: 2 }), "ws");
+  assert.match(quiet.unread, /no words you could make out/);
+  const [joined] = await hearVoiceMessages([VOICE], async () => ({ segments: [{ text: " One." }, { text: "Two. " }] }), "ws");
+  assert.equal(joined.text, "One. Two.");
+  const big = "A".repeat(Math.ceil((8.1 * 1024 * 1024) / 3) * 4);
+  assert.throws(() => readAttachments([{ name: "a.caf", mediaType: "audio/x-caf", data: big }]), /8 MB/);
 });
