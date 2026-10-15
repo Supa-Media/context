@@ -182,7 +182,7 @@ function Console(props: AdminPaneProps) {
         ) : null}
         {tab === "search" ? (
           <SearchSection
-            view={sub === "speed" ? "speed" : "indexes"}
+            view={sub === "speed" || sub === "notes" ? sub : "indexes"}
             onView={(view) => go({ tab: "search", sub: view === "indexes" ? null : view })}
           />
         ) : null}

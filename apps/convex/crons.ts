@@ -270,6 +270,15 @@ crons.interval(
  */
 crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
 
+/**
+ * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
+ * again, so an edit is copied, and a pass whose chain stopped is resumed. A
+ * third bucket-reaching job, so it owes the two paragraphs: it holds no
+ * decision, since every page re-reads its rows and re-checks each file's etag
+ * before a copy is marked, and it only decides when to look. Staff pause it.
+ */
+crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",

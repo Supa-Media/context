@@ -91,13 +91,18 @@ async function pool<T>(items: readonly T[], size: number, work: (item: T) => Pro
   await Promise.all(runners);
 }
 
-/** Tell the tree what one page moved: destinations seen, sources gone. */
+/**
+ * Tell the tree what one page moved: destinations seen, sources gone. Then
+ * each moved note's target takes its source's id and copy (`carryIdentity`),
+ * which can only follow the observation that created the target row.
+ */
 async function observeMoved(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   at: number,
   rows: NodeRow[],
   gone: string[],
+  moves: { from: string; to: string }[],
 ): Promise<void> {
   for (let index = 0; index < Math.max(rows.length, gone.length); index += OBSERVE_BATCH) {
     await ctx.runMutation(internal.functions.nodes.observe, {
@@ -106,6 +111,12 @@ async function observeMoved(
       rows: rows.slice(index, index + OBSERVE_BATCH),
       gone: gone.slice(index, index + OBSERVE_BATCH),
       vanishedUnder: [],
+    });
+  }
+  for (let index = 0; index < moves.length; index += OBSERVE_BATCH) {
+    await ctx.runMutation(internal.functions.noteIdsCopy.carryMoved, {
+      workspaceId,
+      moves: moves.slice(index, index + OBSERVE_BATCH),
     });
   }
 }
@@ -165,6 +176,7 @@ async function walkOldName(
     walk.listed += objects.length;
     const rows: NodeRow[] = [];
     const gone: string[] = [];
+    const moves: { from: string; to: string }[] = [];
     await pool(objects, serverCopy ? SERVER_COPY_POOL : POOL, async ({ key, size }) => {
       const bytes = typeof size === "number" ? size : 0;
       if (!serverCopy && bytes > BUFFERED_MAX_BYTES) {
@@ -182,11 +194,14 @@ async function walkOldName(
       if (outcome.state === "moved") {
         walk.moved += 1;
         const row = rowFromObject({ key: outcome.path, etag: outcome.etag, size: outcome.size });
-        if (row !== null) rows.push(row);
+        if (row !== null) {
+          rows.push(row);
+          moves.push({ from: key, to: row.path });
+        }
       }
       if (rowFromObject({ key }) !== null) gone.push(key);
     });
-    await observeMoved(ctx, workspaceId, at, rows, gone);
+    await observeMoved(ctx, workspaceId, at, rows, gone, moves);
     const { cursor: next, truncated } = listed as { cursor?: string; truncated?: boolean };
     if (truncated === false || typeof next !== "string" || next === "" || next === cursor) {
       walk.complete = true;

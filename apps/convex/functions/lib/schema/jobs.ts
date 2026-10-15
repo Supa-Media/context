@@ -163,6 +163,15 @@ export const jobTables = {
      */
     contextMoveId: v.optional(v.id("contextMoves")),
     objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
+    /**
+     * A page of the path-to-id copy (`id_copy`) or its check (`id_check`): the
+     * copy pass's run, and the items this ticket may copy or check, each with
+     * the row's etag and key when it was handed out (`lib/noteIds/mover.ts`).
+     */
+    idRunId: v.optional(v.number()),
+    idItems: v.optional(
+      v.array(v.object({ path: v.string(), key: v.string(), etag: v.string(), size: v.optional(v.number()) })),
+    ),
     /** The migration's (or the walk's) phase and cursor when the page was handed out; `carry` for a context move. */
     phase: v.union(
       v.literal("copy"),
@@ -173,6 +182,8 @@ export const jobTables = {
       v.literal("unseal"),
       v.literal("confirm"),
       v.literal("carry"),
+      v.literal("id_copy"),
+      v.literal("id_check"),
     ),
     expectedCursor: v.optional(v.string()),
     createdAt: v.number(),

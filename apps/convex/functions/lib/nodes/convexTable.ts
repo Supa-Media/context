@@ -14,6 +14,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from "./table";
 import { readMirror } from "./listing";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
+import { newNoteId } from "./noteIds";
 
 const PATCHABLE = ["parentId", "name", "etag", "size", "uploaded", "observedAt", "goneAt"] as const;
 
@@ -114,6 +115,8 @@ export function convexNodeTable(
       if (!writable) throw new Error("insert on a read-only node table");
       const id = await writer.db.insert("nodes", {
         workspaceId,
+        // Every row a Convex write makes has its id from the start (`noteIds.ts`).
+        noteId: newNoteId(),
         path: node.path,
         parentId: node.parentId as Id<"nodes"> | undefined,
         name: node.name,

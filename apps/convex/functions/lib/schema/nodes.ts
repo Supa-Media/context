@@ -67,8 +67,22 @@ export const nodeTables = {
      * score reads them by index instead of every row's props.
      */
     chaosNote: v.optional(v.boolean()),
+    /**
+     * The note's stable id (`lib/nodes/noteIds.ts`): assigned when the row is
+     * inserted, carried by a queued move to where the note lands, and
+     * backfilled for rows that predate it. Never a path, and never reused.
+     */
+    noteId: v.optional(v.string()),
+    /**
+     * The id-keyed copy of this file's bytes (phase "copy"): `key` is where
+     * the copy lives, and `etag` is the SOURCE row's etag it was made from.
+     * Fresh only while that equals `etag` above (`copyIsFresh`). Absent when
+     * no copy has been made, or one was cleared to be made again.
+     */
+    idCopy: v.optional(v.object({ key: v.string(), etag: v.string(), copiedAt: v.number() })),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_noteId", ["workspaceId", "noteId"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"]),
@@ -290,6 +304,46 @@ export const nodeTables = {
     all: v.number(),
     team: v.number(),
   }).index("by_workspace_day", ["workspaceId", "day"]),
+
+  /**
+   * One workspace's id-copy pass (phase "copy" of the move from path keys to
+   * id keys): how far it has got, what it found, and whether it is done.
+   * Counts, times and fixed labels only, never a path; `cursor` is the last
+   * path paged, read only by the pass. `runId` names one pass, so a page that
+   * was handed out before a restart records nothing.
+   */
+  noteIdCopies: defineTable({
+    workspaceId: v.id("workspaces"),
+    status: v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed")),
+    runId: v.number(),
+    cursor: v.optional(v.string()),
+    /** Live files the pass has scanned, and how many have a copy that is still true at the end. */
+    files: v.number(),
+    copied: v.number(),
+    failed: v.number(),
+    /** At most `FAILURES_MAX` path-free entries: the note's id and a fixed reason. */
+    failures: v.array(v.object({ noteId: v.string(), reason: v.string() })),
+    error: v.optional(v.string()),
+    /** The last check against the bucket: how many id copies were checked, and how many were missing or differed. */
+    diagnosis: v.optional(
+      v.object({ checkedAt: v.number(), checked: v.number(), missing: v.number(), differs: v.number() }),
+    ),
+    /** A page in flight holds the pass; another one waits. */
+    leaseAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The id copy's switch, a single row (absent means running and `paths`).
+   * `mode` says which keys reads use; nothing reads ids yet, so it stays
+   * `paths` until a later phase says otherwise.
+   */
+  noteIdLayout: defineTable({
+    paused: v.boolean(),
+    mode: v.union(v.literal("paths"), v.literal("ids")),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.string()),
+  }),
 
   /**
    * The migration's one switch, a single row (absent means running). Staff

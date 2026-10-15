@@ -219,6 +219,14 @@ describe("no public function can reach a storage secret", () => {
         // the move switched to. Internal-only, reached by one schedule edge
         // from the switch-over and by its own reschedules.
         "functions.moveCatchUp.runMoveCatchUp",
+        // The id copy's two passes (`functions/noteIdsCopy.ts`, `lib/noteIds/`).
+        // Each internalAction copies or checks one page of a workspace's files,
+        // by the gateway's mover when one is set, or here through the bucket's
+        // own credential when it is not. Reached only by schedule edges from the
+        // staff surface, the cron and themselves; nothing returns a credential,
+        // and each page records ids, etags and counts, never a path or a byte.
+        "functions.noteIdsCopy.run",
+        "functions.noteIdsCopy.runCheck",
         // THE THIRD KIND, AND THE WEAKEST ONE.
         //
         // Opens the parked PKCE verifier so the authorization code can be
