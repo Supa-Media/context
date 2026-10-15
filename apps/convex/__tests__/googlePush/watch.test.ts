@@ -25,7 +25,11 @@ type Call = { method: string; path: string; body?: Record<string, unknown> };
 /** Google's push endpoints in front of a sync fixture's own `fetchImpl`. */
 function withPushApis(
   inner: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>,
-  answers: { status?: number; chatCreate?: "done" | "conflict" } = {},
+  answers: {
+    status?: number;
+    /** The subscription Google already holds for this person, if any. */
+    existing?: { name: string; state?: string; notificationEndpoint?: { pubsubTopic: string } };
+  } = {},
 ) {
   const calls: Call[] = [];
   const json = (body: unknown, status = 200) =>
@@ -55,18 +59,39 @@ function withPushApis(
     }
     if (url.hostname === "workspaceevents.googleapis.com") {
       record();
-      const subscription = {
-        name: "subscriptions/example-sub",
+      const method = init.method ?? "GET";
+      const subscription = (name: string, extra: Record<string, unknown> = {}) => ({
+        name,
         expireTime: new Date(Date.now() + 7 * DAY).toISOString(),
         notificationEndpoint: { pubsubTopic: TOPIC },
         state: "ACTIVE",
-      };
-      if (init.method === "POST" && url.pathname === "/v1/subscriptions") {
-        if (answers.chatCreate === "conflict") return json({ error: { status: "ALREADY_EXISTS" } }, 409);
-        return json({ name: "operations/x", done: true, response: subscription });
+        ...extra,
+      });
+      const existing = answers.existing;
+      if (method === "POST" && url.pathname === "/v1/subscriptions") {
+        if (existing !== undefined) return json({ error: { status: "ALREADY_EXISTS" } }, 409);
+        return json({ name: "operations/x", done: true, response: subscription("subscriptions/example-sub") });
       }
-      if (init.method === "GET") return json({ subscriptions: [subscription] });
-      if (init.method === "PATCH") return json({ name: "operations/y", done: true, response: subscription });
+      if (method === "GET" && url.pathname === "/v1/subscriptions") {
+        return json({ subscriptions: existing === undefined ? [] : [subscription(existing.name, existing)] });
+      }
+      if (method === "GET") {
+        const name = url.pathname.slice("/v1/".length);
+        if (existing === undefined || existing.name !== name) return json({ error: {} }, 404);
+        return json(subscription(name, existing));
+      }
+      if (method === "DELETE") {
+        answers.existing = undefined;
+        return json({ name: "operations/z", done: true });
+      }
+      if (method === "POST" && url.pathname.endsWith(":reactivate")) {
+        if (existing !== undefined) existing.state = "ACTIVE";
+        return json({ name: "operations/r", done: false });
+      }
+      if (method === "PATCH") {
+        const name = url.pathname.slice("/v1/".length);
+        return json({ name: "operations/y", done: true, response: subscription(name, existing ?? {}) });
+      }
     }
     return await inner(input, init);
   };
@@ -164,34 +189,93 @@ describe("push registration from inside the pass", () => {
     });
   });
 
-  test.each([["created", "done"], ["adopted after Google says it exists", "conflict"]] as const)(
-    "Chat is subscribed across every space and %s",
-    async (_, chatCreate) => {
-      enablePush();
-      const { t, workspaceId, connectionId, backend } = await endToEnd();
-      await patchConnection(t, connectionId, {
-        products: ["chat"],
-        gmail: undefined,
-        chat: {
-          scopes: [],
-          nonceSeed: "fixture-chat-nonce-seed",
-          cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
-        },
-      });
-      const google = withPushApis(chatAndBucket({ backend }).fetchImpl, { chatCreate });
-      vi.stubGlobal("fetch", google.fetchImpl);
-      await runPass(t, workspaceId, connectionId);
-      const create = google.calls.find((call) => call.method === "POST")!;
-      expect(create.body).toEqual({
-        targetResource: "//chat.googleapis.com/spaces/-",
-        eventTypes: ["google.workspace.chat.message.v1.created"],
-        notificationEndpoint: { pubsubTopic: TOPIC },
-        payloadOptions: { includeResource: false },
-      });
-      expect((await readConnection(t, connectionId)).push?.chat).toMatchObject({
-        subscriptionName: "subscriptions/example-sub",
-        topic: TOPIC,
-      });
-    },
-  );
+  async function chatScenario() {
+    const scene = await endToEnd();
+    await patchConnection(scene.t, scene.connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: {
+        scopes: [],
+        nonceSeed: "fixture-chat-nonce-seed",
+        cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
+      },
+    });
+    return scene;
+  }
+  const mutating = (calls: Call[]) => calls.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.path}`);
+
+  test("Chat is subscribed across every space to our topic", async () => {
+    enablePush();
+    const { t, workspaceId, connectionId, backend } = await chatScenario();
+    const google = withPushApis(chatAndBucket({ backend }).fetchImpl);
+    vi.stubGlobal("fetch", google.fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+    expect(google.calls.find((call) => call.method === "POST")!.body).toEqual({
+      targetResource: "//chat.googleapis.com/spaces/-",
+      eventTypes: ["google.workspace.chat.message.v1.created"],
+      notificationEndpoint: { pubsubTopic: TOPIC },
+      payloadOptions: { includeResource: false },
+    });
+    expect((await readConnection(t, connectionId)).push?.chat).toMatchObject({
+      subscriptionName: "subscriptions/example-sub",
+      topic: TOPIC,
+    });
+  });
+
+  test("a subscription Google already holds on our topic is adopted and renewed", async () => {
+    enablePush();
+    const { t, workspaceId, connectionId, backend } = await chatScenario();
+    const google = withPushApis(chatAndBucket({ backend }).fetchImpl, {
+      existing: { name: "subscriptions/held" },
+    });
+    vi.stubGlobal("fetch", google.fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+    expect(mutating(google.calls)).toEqual([
+      "POST workspaceevents.googleapis.com/v1/subscriptions",
+      "PATCH workspaceevents.googleapis.com/v1/subscriptions/held",
+    ]);
+    expect((await readConnection(t, connectionId)).push?.chat?.subscriptionName).toBe("subscriptions/held");
+  });
+
+  test("one on a retired topic is deleted and replaced, not left blocking push forever", async () => {
+    enablePush();
+    const { t, workspaceId, connectionId, backend } = await chatScenario();
+    const google = withPushApis(chatAndBucket({ backend }).fetchImpl, {
+      existing: {
+        name: "subscriptions/old-topic",
+        notificationEndpoint: { pubsubTopic: "projects/example-project/topics/retired" },
+      },
+    });
+    vi.stubGlobal("fetch", google.fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+    expect(mutating(google.calls)).toEqual([
+      "POST workspaceevents.googleapis.com/v1/subscriptions",
+      "DELETE workspaceevents.googleapis.com/v1/subscriptions/old-topic",
+      "POST workspaceevents.googleapis.com/v1/subscriptions",
+    ]);
+    expect((await readConnection(t, connectionId)).push?.chat).toMatchObject({
+      subscriptionName: "subscriptions/example-sub",
+      topic: TOPIC,
+    });
+  });
+
+  test("a suspended subscription is reactivated, not merely given a longer life", async () => {
+    enablePush();
+    const { t, workspaceId, connectionId, backend } = await chatScenario();
+    // What a suspension lifecycle event leaves behind: a known name, expiry 0.
+    await patchConnection(t, connectionId, {
+      push: { chat: { subscriptionName: "subscriptions/held", topic: TOPIC, expiresAt: 0 } },
+    });
+    const google = withPushApis(chatAndBucket({ backend }).fetchImpl, {
+      existing: { name: "subscriptions/held", state: "SUSPENDED" },
+    });
+    vi.stubGlobal("fetch", google.fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+    expect(mutating(google.calls)).toEqual([
+      "POST workspaceevents.googleapis.com/v1/subscriptions/held:reactivate",
+      "PATCH workspaceevents.googleapis.com/v1/subscriptions/held",
+    ]);
+    expect((await readConnection(t, connectionId)).push?.chat?.expiresAt).toBeGreaterThan(Date.now());
+  });
+
 });

@@ -144,16 +144,18 @@ export async function stopCalendarChannel(input: {
   }
 }
 
-type ChatSubscription = { name: string; expiresAt?: number; state?: string };
+type ChatSubscription = { name: string; expiresAt?: number; state?: string; topic?: string };
 
 function subscriptionOf(value: unknown): ChatSubscription | undefined {
   if (value === null || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   if (typeof record.name !== "string" || !record.name.startsWith("subscriptions/")) return undefined;
+  const topic = (record.notificationEndpoint as { pubsubTopic?: unknown } | undefined)?.pubsubTopic;
   return {
     name: record.name,
     expiresAt: isoMs(record.expireTime),
     state: typeof record.state === "string" ? record.state : undefined,
+    topic: typeof topic === "string" ? topic : undefined,
   };
 }
 
@@ -162,11 +164,26 @@ function operationResult(operation: Record<string, unknown>): ChatSubscription |
   return operation.done === true ? subscriptionOf(operation.response) : undefined;
 }
 
-async function findChatSubscription(
+function isStatus(error: unknown, status: number): boolean {
+  return error instanceof GooglePushError && error.status === status;
+}
+
+async function getChatSubscription(
   fetchImpl: Fetch,
   accessToken: string,
-  topic: string,
+  name: string,
 ): Promise<ChatSubscription | undefined> {
+  try {
+    return subscriptionOf(await call(fetchImpl, accessToken, `${WORKSPACE_EVENTS}/${name}`, "chat_get", { method: "GET" }));
+  } catch (error) {
+    // Google deletes a subscription once it expires.
+    if (isStatus(error, 404)) return undefined;
+    throw error;
+  }
+}
+
+/** The subscription Google says this person already has on every space, whatever topic it names. */
+async function findChatSubscription(fetchImpl: Fetch, accessToken: string): Promise<ChatSubscription | undefined> {
   const filter = `event_types:"${CHAT_MESSAGE_CREATED}" AND target_resource="${CHAT_ALL_SPACES}"`;
   const body = await call(
     fetchImpl,
@@ -176,23 +193,17 @@ async function findChatSubscription(
     { method: "GET" },
   );
   const subscriptions = Array.isArray(body.subscriptions) ? body.subscriptions : [];
-  for (const candidate of subscriptions) {
-    const endpoint = (candidate as { notificationEndpoint?: { pubsubTopic?: unknown } })
-      .notificationEndpoint?.pubsubTopic;
-    const subscription = subscriptionOf(candidate);
-    if (subscription !== undefined && endpoint === topic) return subscription;
-  }
-  return undefined;
+  return subscriptions.map(subscriptionOf).find((subscription) => subscription !== undefined);
 }
 
 async function renewChatSubscription(
   fetchImpl: Fetch,
   accessToken: string,
   subscription: ChatSubscription,
-): Promise<ChatSubscription | undefined> {
+): Promise<ChatSubscription> {
   if (subscription.state === "SUSPENDED") {
-    // Google suspends a subscription when, say, the grant stopped covering
-    // it; a reactivate is the documented way back once it does again.
+    // A suspended subscription delivers nothing until it is reactivated;
+    // renewing its lifetime alone would record a watch that is not watching.
     await call(fetchImpl, accessToken, `${WORKSPACE_EVENTS}/${subscription.name}:reactivate`, "chat_reactivate", {
       method: "POST",
       body: {},
@@ -209,31 +220,19 @@ async function renewChatSubscription(
   return operationResult(operation) ?? { name: subscription.name };
 }
 
-/**
- * Make sure one Workspace Events subscription delivers this person's new Chat
- * messages, from every space they are in, to our topic: renew the one we know
- * of, or create one, or adopt the one Google says already exists.
- *
- * Answers the subscription's name, and its expiry when Google reported one in
- * the same call. Without an expiry the caller keeps the old one or none, which
- * only means the next pass checks again.
- */
-export async function ensureChatSubscription(input: {
-  fetchImpl: Fetch;
-  accessToken: string;
-  topic: string;
-  known?: string;
-}): Promise<ChatSubscription> {
-  const { fetchImpl, accessToken, topic } = input;
-  if (input.known !== undefined) {
-    try {
-      const renewed = await renewChatSubscription(fetchImpl, accessToken, { name: input.known });
-      if (renewed !== undefined) return renewed;
-    } catch (error) {
-      // An expired subscription is deleted by Google; anything else is real.
-      if (!(error instanceof GooglePushError && error.status === 404)) throw error;
-    }
+async function deleteChatSubscription(fetchImpl: Fetch, accessToken: string, name: string): Promise<void> {
+  try {
+    await call(fetchImpl, accessToken, `${WORKSPACE_EVENTS}/${name}`, "chat_delete", { method: "DELETE" });
+  } catch (error) {
+    if (!isStatus(error, 404)) throw error;
   }
+}
+
+async function createChatSubscription(
+  fetchImpl: Fetch,
+  accessToken: string,
+  topic: string,
+): Promise<ChatSubscription | "exists" | "pending"> {
   try {
     const operation = await call(fetchImpl, accessToken, `${WORKSPACE_EVENTS}/subscriptions`, "chat_create", {
       method: "POST",
@@ -244,16 +243,55 @@ export async function ensureChatSubscription(input: {
         payloadOptions: { includeResource: false },
       },
     });
-    const created = operationResult(operation);
-    if (created !== undefined) return created;
+    return operationResult(operation) ?? "pending";
   } catch (error) {
-    if (!(error instanceof GooglePushError && error.status === 409)) throw error;
+    if (isStatus(error, 409)) return "exists";
+    throw error;
   }
-  // Created but not finished, or already there: either way it is listable.
-  const existing = await findChatSubscription(fetchImpl, accessToken, topic);
-  if (existing === undefined) throw new GooglePushError(200, "chat_subscription_missing");
-  if (existing.state === "SUSPENDED" || existing.expiresAt === undefined) {
-    return (await renewChatSubscription(fetchImpl, accessToken, existing)) ?? existing;
+}
+
+/**
+ * Make sure one Workspace Events subscription delivers this person's new Chat
+ * messages, from every space they are in, to our topic.
+ *
+ * Google allows one such subscription per app, person and target, and its
+ * topic cannot be changed, so: one we know of is read back first, reactivated
+ * if Google suspended it, and renewed; one that names another topic (this
+ * deployment's topic was changed) is deleted and replaced; and a create that
+ * Google refuses because one exists adopts that one by the same rules.
+ *
+ * Answers the subscription's name, and its expiry when Google reported one in
+ * the same call. Without an expiry the caller tries again later.
+ */
+export async function ensureChatSubscription(input: {
+  fetchImpl: Fetch;
+  accessToken: string;
+  topic: string;
+  known?: string;
+}): Promise<ChatSubscription> {
+  const { fetchImpl, accessToken, topic } = input;
+  const adopt = async (existing: ChatSubscription | undefined): Promise<ChatSubscription | undefined> => {
+    if (existing === undefined) return undefined;
+    if (existing.topic === undefined || existing.topic === topic) {
+      return await renewChatSubscription(fetchImpl, accessToken, existing);
+    }
+    await deleteChatSubscription(fetchImpl, accessToken, existing.name);
+    return undefined;
+  };
+
+  if (input.known !== undefined) {
+    const kept = await adopt(await getChatSubscription(fetchImpl, accessToken, input.known));
+    if (kept !== undefined) return kept;
   }
-  return existing;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const created = await createChatSubscription(fetchImpl, accessToken, topic);
+    if (typeof created === "object") return created;
+    // Created but not finished, or already there: either way it is listable.
+    const existing = await findChatSubscription(fetchImpl, accessToken);
+    if (created === "pending" && existing !== undefined && existing.topic === topic) return existing;
+    const kept = await adopt(existing);
+    if (kept !== undefined) return kept;
+    // An old-topic subscription was deleted above: the second create replaces it.
+  }
+  throw new GooglePushError(200, "chat_subscription_missing");
 }
