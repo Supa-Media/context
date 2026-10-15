@@ -25,7 +25,8 @@
 
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
+import { resolveAddressedUser } from "./identities";
 import { consumeRateLimit } from "./rateLimit";
 
 /** The most people one account may block; also the cap on the list's read. */
@@ -47,6 +48,18 @@ export async function hasBlocked(
     .withIndex("by_blocker_blocked", (q) => q.eq("blockerId", blockerId).eq("blockedId", blockedId))
     .first();
   return row !== null;
+}
+
+/**
+ * Whether an invitation's addressee has blocked its inviter, for
+ * `claimInvitationEmail`: an invitation from a blocked inviter is not mailed.
+ */
+export async function inviteeBlockedInviter(
+  ctx: QueryCtx,
+  invitation: Doc<"workspaceInvitations">,
+): Promise<boolean> {
+  const invitee = await resolveAddressedUser(ctx, { kind: invitation.inviteeKind, value: invitation.invitee });
+  return invitee !== null && (await hasBlocked(ctx, invitee, invitation.invitedBy));
 }
 
 async function spendChange(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
