@@ -47,6 +47,7 @@ export function HandleSite({
     <WebsitePage
       name={view.siteName ?? handle}
       view={view}
+      handle={handle}
       navigate={(path) => router.push(`/@${handle}${path === "/" ? "" : path}`)}
       hrefFor={(path) => `/@${handle}${path === "/" ? "" : path}`}
       prefetch={prefetch}
