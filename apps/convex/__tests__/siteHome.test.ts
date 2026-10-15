@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { pageTitle, routePathFor } from "../functions/lib/websites/snapshot";
-import { asUser } from "./fixtures.helpers";
+import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
 beforeEach(() => vi.stubEnv("HOME_SITE_HANDLE", "atlas"));
@@ -136,6 +136,8 @@ describe("the copy the router keeps until the next Publish", () => {
 
     f.backend.seed("website/writing.md", "---\ntitle: Writing\nnav: 1\n---\n\nHalf a new essay.\n");
     f.backend.seed("website/brand-new.md", "# Brand new\n\nNot published yet.\n");
+    // The pages written straight into the bucket reach the tree, as a save's touch would have them.
+    await copyTree(f.t, f.workspaceId);
     await f.t.mutation(internal.functions.websites.recordRouteChange, { workspaceId: f.workspaceId });
     const saved = (await (await ask(f, { handle: "atlas" })).json()) as Answer;
     expect(JSON.stringify(saved)).toContain("Essays.");
