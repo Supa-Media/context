@@ -22,7 +22,7 @@ import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
 import { attachSmallData } from "../smallData/attach";
-import { withConsoleIdLayout } from "../noteIds/consoleLayer";
+import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -358,6 +358,8 @@ export async function runFileOperationHandler(
     return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
   }
 
+  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
+  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
@@ -391,6 +393,7 @@ export async function runFileOperationHandler(
       // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
+      idLayout,
     }) as unknown as FileStore;
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
@@ -415,8 +418,6 @@ export async function runFileOperationHandler(
   // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
   // below goes through this, the console's and the gateway's alike.
   store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
-  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
-  store = await withConsoleIdLayout(ctx, args.workspaceId, store);
   // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
   attachSmallData(ctx, args.workspaceId, store);
 

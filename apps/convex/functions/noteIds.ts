@@ -176,6 +176,10 @@ export const setPaused = mutation({
  * The switch between path keys and id keys: which keys reads use. Staff only,
  * and allowed while the copy is paused, since choosing the keys is not new
  * copy work. The gateway learns it from `/gateway/binding`'s `idLayout`.
+ *
+ * `keys` is not offered here: staff cannot set it from the UI yet. Once the
+ * switch is at `keys` it is one-way: any other mode is refused, and the row
+ * stays as it was.
  */
 export const setMode = mutation({
   args: { mode: v.union(v.literal("paths"), v.literal("ids")) },
@@ -183,6 +187,9 @@ export const setMode = mutation({
   handler: async (ctx, { mode }) => {
     const userId = await staffOnly(ctx);
     const existing = await ctx.db.query("noteIdLayout").first();
+    if (existing?.mode === "keys") {
+      throw new ConvexError({ code: "NOTE_IDS_KEYED", message: "The id keys are final once notes are keyed." });
+    }
     const fields = { mode, updatedAt: Date.now(), updatedBy: String(userId) };
     if (existing === null) await ctx.db.insert("noteIdLayout", { paused: false, ...fields });
     else await ctx.db.patch(existing._id, fields);
@@ -190,13 +197,18 @@ export const setMode = mutation({
   },
 });
 
-/** The switch as `/gateway/binding` carries it: `"ids"` only in ids mode, else null. INTERNAL. */
+/**
+ * The switch as `/gateway/binding` carries it: `"ids"` or `"keys"` (the
+ * gateway reads a note through its id key in both), else null. INTERNAL.
+ */
 export const idLayout = internalQuery({
   args: {},
-  returns: v.union(v.literal("ids"), v.null()),
+  returns: v.union(v.literal("ids"), v.literal("keys"), v.null()),
   handler: async (ctx) => {
     const layout = await ctx.db.query("noteIdLayout").first();
-    return layout?.mode === "ids" ? "ids" : null;
+    if (layout?.mode === "ids") return "ids";
+    if (layout?.mode === "keys") return "keys";
+    return null;
   },
 });
 
@@ -245,6 +257,13 @@ export const recordCopy = internalMutation({
   handler: async (ctx, { workspaceId, path, key, etag, keyEtag }) => {
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) return false;
+    // A row the flip keyed after the gateway's lookup: its path write was mirrored to the key, which is now the row's
+    // bytes. The row takes the key's version; nothing else about it changes (no `keyedFrom`: the bytes did not move).
+    if (row.storageKey !== undefined) {
+      if (row.storageKey !== key || keyEtag === undefined) return false;
+      await ctx.db.patch(row._id, { etag: keyEtag, observedAt: Date.now() });
+      return true;
+    }
     if (idKeyFor(row.noteId, path) !== key) return false;
     await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now(), ...(keyEtag === undefined ? {} : { keyEtag }) } });
     return true;

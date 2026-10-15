@@ -18,7 +18,7 @@
  */
 
 import { beforeEach, afterEach, describe, expect, test } from "vitest";
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { gatewayPost } from "../fixtures.helpers";
 import { ACCESS_A, bodyOf, twoConnectedTenants } from "../controlPlane/fixtures.helpers";
@@ -113,5 +113,38 @@ describe("/gateway/binding: idLayout", () => {
     await staff.mutation(api.functions.noteIds.setMode, { mode: "ids" });
     const refused = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: bobWs }));
     expect(refused).toEqual({ binding: null });
+  });
+});
+
+describe("the keys switch is one-way", () => {
+  test('idLayout is "keys" in keys mode, and /gateway/binding carries it', async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: Date.now() }));
+    expect(await t.query(internal.functions.noteIds.idLayout, {})).toBe("keys");
+    const bound = await bodyOf(await gatewayPost(t, "/gateway/binding", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs }));
+    expect(bound.idLayout).toBe("keys");
+  });
+
+  test("once keys, setMode refuses every other mode and leaves the row as it was", async () => {
+    const t = tester();
+    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: Date.now() }));
+    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "ids" })).rejects.toThrow();
+    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "paths" })).rejects.toThrow();
+    expect((await t.run((ctx) => ctx.db.query("noteIdLayout").first()))!.mode).toBe("keys");
+    expect((await staff.query(api.functions.noteIds.report, {})).mode).toBe("keys");
+  });
+
+  test("setMode does not offer keys: the switch is never set to it", async () => {
+    const t = tester();
+    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    await expect(staff.mutation(api.functions.noteIds.setMode, { mode: "keys" as "ids" })).rejects.toThrow();
+  });
+
+  test("an unswitched workspace has no idLayout, and ids reads as ids", async () => {
+    const t = tester();
+    expect(await t.query(internal.functions.noteIds.idLayout, {})).toBeNull();
+    await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: false, mode: "ids", updatedAt: Date.now() }));
+    expect(await t.query(internal.functions.noteIds.idLayout, {})).toBe("ids");
   });
 });
