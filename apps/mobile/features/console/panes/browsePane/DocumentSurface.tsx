@@ -149,7 +149,7 @@ export function DocumentSurface({
               together on the content, the whole inset scrolled away with the
               listing and the folder's rows rode up under the clock.
             */
-            <ScreenViewport padding={padding}>
+            <ScreenViewport padding={padding} style={styles.statusBand}>
               <ScrollView
                 style={styles.scroll}
                 contentContainerStyle={{
