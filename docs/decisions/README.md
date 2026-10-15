@@ -131,6 +131,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A team gets a new note from someone's inbox, never the meeting or email itself
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
+- [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -356,6 +357,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
+- [A public list block reads its rows from the facts, and the facts carry the website flags](./app-and-console/convex-facts.md) (2026-10-15)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker

@@ -88,6 +88,7 @@ export const listGoogleConnectionsReturns = v.array(
         destinationPath: v.string(),
         historyCursorReady: v.boolean(),
         lastSyncedAt: v.optional(v.number()),
+        lastFailure: v.optional(v.string()),
       }),
     ),
     calendar: v.optional(
@@ -96,6 +97,7 @@ export const listGoogleConnectionsReturns = v.array(
         destinationPath: v.string(),
         syncCursorReady: v.boolean(),
         lastSyncedAt: v.optional(v.number()),
+        lastFailure: v.optional(v.string()),
       }),
     ),
     chat: v.optional(
@@ -104,6 +106,7 @@ export const listGoogleConnectionsReturns = v.array(
         destinationPath: v.string(),
         cursorCount: v.number(),
         lastSyncedAt: v.optional(v.number()),
+        lastFailure: v.optional(v.string()),
       }),
     ),
     syncRun: v.optional(
@@ -209,6 +212,7 @@ export async function listGoogleConnectionsHandler(
             destinationPath: destinationPattern(gmailDestinationFolder!),
             historyCursorReady: gmail.historyId !== undefined,
             lastSyncedAt: gmail.lastSyncedAt,
+            lastFailure: gmail.lastFailure,
           }
         : undefined,
       calendar: calendar
@@ -217,6 +221,7 @@ export async function listGoogleConnectionsHandler(
             destinationPath: destinationPattern(calendarDestinationFolder!),
             syncCursorReady: calendar.syncToken !== undefined,
             lastSyncedAt: calendar.lastSyncedAt,
+            lastFailure: calendar.lastFailure,
           }
         : undefined,
       chat: chat
@@ -225,6 +230,7 @@ export async function listGoogleConnectionsHandler(
             destinationPath: destinationPattern(chatDestinationFolder!),
             cursorCount: Object.keys(chat.cursors ?? {}).length,
             lastSyncedAt: chat.lastSyncedAt,
+            lastFailure: chat.lastFailure,
           }
         : undefined,
       syncRun: visibleLatestRun
