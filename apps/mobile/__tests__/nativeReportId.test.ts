@@ -9,7 +9,7 @@ jest.mock("expo-crypto", () => ({
 }));
 // Metro selects this on iOS; this suite normally selects web implementations.
 jest.mock("../features/feedback/clientReportId", () =>
-  jest.requireActual("../features/feedback/clientReportId.native"), { virtual: true });
+  jest.requireActual("../features/feedback/clientReportId.native"));
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
