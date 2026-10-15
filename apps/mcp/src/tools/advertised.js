@@ -86,6 +86,62 @@ function advertisedSchemaFor(name) {
 }
 
 /**
+ * The arguments with each top-level value a stale client sent as text read
+ * as the type the advertised schema gives it, or `args` itself when nothing
+ * needs reading.
+ *
+ * A client builds a call from its own copy of a tool. A property that copy
+ * does not show has no type there, so a client such as Claude Code sends
+ * what the model wrote as a string: `orient { tools: true }` arrived as
+ * `tools: "true"` on 2026-10-15 and was refused. Every non-string argument
+ * added after a client connected would be refused the same way, which
+ * defeats `orient`'s live tool list (`tools/liveList.js`).
+ *
+ * Narrow on purpose. Only a top-level string, only where the schema's type
+ * has no `string` in it (so a path or a note body is never reinterpreted),
+ * and only text that is exactly that type: `true`/`false`, a whole number
+ * for an integer, a finite number, or JSON that parses to an object or an
+ * array. Anything else is left as sent, and `toolArgumentRefusal` refuses it
+ * exactly as before; the result is validated in full either way.
+ */
+export function coercedArguments(name, args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const properties = advertisedSchemaFor(name)?.properties;
+  if (!properties) return args;
+  let out = args;
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== "string" || !Object.hasOwn(properties, key)) continue;
+    const read = readAs(properties[key]?.type, value);
+    if (read === undefined) continue;
+    if (out === args) out = { ...args };
+    out[key] = read;
+  }
+  return out;
+}
+
+/** `text` as one of `type`'s non-string types, or `undefined` when it is not one. */
+function readAs(type, text) {
+  const types = Array.isArray(type) ? type : [type];
+  if (types.includes("string") || types.includes(undefined)) return undefined;
+  for (const each of types) {
+    if (each === "boolean" && (text === "true" || text === "false")) return text === "true";
+    if (each === "integer" && /^-?\d{1,15}$/.test(text)) return Number(text);
+    if (each === "number" && /^-?\d+(\.\d+)?$/.test(text)) return Number(text);
+    if (each === "object" || each === "array") {
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      const isArray = Array.isArray(parsed);
+      if (each === "array" ? isArray : parsed !== null && typeof parsed === "object" && !isArray) return parsed;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The refusal for a tool call whose arguments are not what we advertised, or
  * `null` if the call may proceed.
  *

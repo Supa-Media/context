@@ -58,3 +58,18 @@ of that would drift the first week.
 Reversing any of these fails `apps/mcp/test/liveToolList.test.mjs`; listing
 the registry instead of the connection's tools was sabotage-checked there and
 reddens five cases.
+
+## An argument a stale client sends as text is read as its advertised type
+
+Decided 2026-10-15, found on production the day the live list shipped: Claude
+Code, holding an `orient` with no `tools` property, sent `tools: true` as the
+string `"true"` and was refused. A client sends a property its copy does not
+type as text, so every non-string argument added after it connected failed.
+
+`coercedArguments` (`apps/mcp/src/tools/advertised.js`) reads a top-level
+string as the schema's type before validation, and only where that type has
+no `string` in it: `true`/`false`, a whole number, a finite number, or JSON
+that parses to an object or array. Anything else is left as sent and refused
+as before, and the result is still validated in full. Reversing it fails
+`apps/mcp/test/staleClientArguments.test.mjs` and the text case in
+`liveToolList.test.mjs`.
