@@ -24,7 +24,7 @@ export function createNoteIdMethods({ post, required }) {
      * @param {string} accessToken
      * @param {string} workspaceId
      * @param {string[]} paths
-     * @returns {Promise<{copies: Record<string, {key: string, etag: string|null, fresh: boolean}>}>}
+     * @returns {Promise<{copies: Record<string, {key: string, etag: string|null, keyEtag: string|null, fresh: boolean}>}>}
      */
     async noteIdLookup(accessToken, workspaceId, paths) {
       if (!Array.isArray(paths) || paths.length === 0 || paths.length > NOTE_ID_LOOKUP_MAX) {
@@ -48,6 +48,7 @@ export function createNoteIdMethods({ post, required }) {
         narrowed[path] = {
           key: copy.key,
           etag: typeof copy.etag === "string" && copy.etag !== "" ? copy.etag : null,
+          keyEtag: typeof copy.keyEtag === "string" && copy.keyEtag !== "" ? copy.keyEtag : null,
           fresh: copy.fresh === true,
         };
       }
@@ -61,7 +62,7 @@ export function createNoteIdMethods({ post, required }) {
      *
      * @param {string} accessToken
      * @param {string} workspaceId
-     * @param {{path: string, key: string, etag: string}} copy
+     * @param {{path: string, key: string, etag: string, keyEtag?: string}} copy
      * @returns {Promise<{recorded: boolean}>}
      */
     async noteIdWrote(accessToken, workspaceId, copy) {
@@ -70,6 +71,7 @@ export function createNoteIdMethods({ post, required }) {
         path: copy?.path,
         key: copy?.key,
         etag: copy?.etag,
+        ...(typeof copy?.keyEtag === "string" && copy.keyEtag !== "" ? { keyEtag: copy.keyEtag } : {}),
         accessToken,
         expectedWorkspaceId: workspaceId,
       });

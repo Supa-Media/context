@@ -191,14 +191,26 @@ export const idLayout = internalQuery({
 export const copiesFor = internalQuery({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
   returns: v.array(
-    v.object({ path: v.string(), key: v.string(), etag: v.union(v.string(), v.null()), fresh: v.boolean() }),
+    v.object({
+      path: v.string(),
+      key: v.string(),
+      etag: v.union(v.string(), v.null()),
+      keyEtag: v.union(v.string(), v.null()),
+      fresh: v.boolean(),
+    }),
   ),
   handler: async (ctx, { workspaceId, paths }) => {
     const found = [];
     for (const path of paths) {
       const row = await nodeAt(ctx.db, workspaceId, path);
       if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) continue;
-      found.push({ path, key: idKeyFor(row.noteId, path), etag: row.idCopy?.etag ?? null, fresh: copyIsFresh(row) });
+      found.push({
+        path,
+        key: idKeyFor(row.noteId, path),
+        etag: row.idCopy?.etag ?? null,
+        keyEtag: row.idCopy?.keyEtag ?? null,
+        fresh: copyIsFresh(row),
+      });
     }
     return found;
   },
@@ -211,13 +223,13 @@ export const copiesFor = internalQuery({
  * catch up later, and `copyIsFresh` judges it then. INTERNAL.
  */
 export const recordCopy = internalMutation({
-  args: { workspaceId: v.id("workspaces"), path: v.string(), key: v.string(), etag: v.string() },
+  args: { workspaceId: v.id("workspaces"), path: v.string(), key: v.string(), etag: v.string(), keyEtag: v.optional(v.string()) },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, path, key, etag }) => {
+  handler: async (ctx, { workspaceId, path, key, etag, keyEtag }) => {
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.kind !== "file" || row.goneAt !== undefined || row.noteId === undefined) return false;
     if (idKeyFor(row.noteId, path) !== key) return false;
-    await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now() } });
+    await ctx.db.patch(row._id, { idCopy: { key, etag, copiedAt: Date.now(), ...(keyEtag === undefined ? {} : { keyEtag }) } });
     return true;
   },
 });

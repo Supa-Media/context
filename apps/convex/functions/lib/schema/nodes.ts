@@ -79,7 +79,15 @@ export const nodeTables = {
      * Fresh only while that equals `etag` above (`copyIsFresh`). Absent when
      * no copy has been made, or one was cleared to be made again.
      */
-    idCopy: v.optional(v.object({ key: v.string(), etag: v.string(), copiedAt: v.number() })),
+    idCopy: v.optional(
+      v.object({
+        key: v.string(),
+        etag: v.string(),
+        copiedAt: v.number(),
+        /** The id key's own etag when it was written: a later write landing out of order is told apart by it. */
+        keyEtag: v.optional(v.string()),
+      }),
+    ),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])

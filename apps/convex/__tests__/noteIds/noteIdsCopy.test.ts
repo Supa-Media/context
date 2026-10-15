@@ -154,6 +154,8 @@ describe("the copy pass", () => {
     expect(new TextDecoder().decode(store.bytesOf(`notes/${a?.noteId}.md`)!)).toBe("# A\n");
     expect(new TextDecoder().decode(store.bytesOf(`files/${pic?.noteId}.png`)!)).toBe("png-bytes");
     for (const row of [a, pic, b]) expect(copyIsFresh(row!)).toBe(true);
+    // The key's own etag is kept, so a save that lands on the key out of order is told apart.
+    expect(a?.idCopy?.keyEtag).toBe((await store.get(`notes/${a?.noteId}.md`))?.etag);
 
     const state = await pass(c);
     expect(state).toMatchObject({ status: "done", files: 3, copied: 3, failed: 0, failures: [] });

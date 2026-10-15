@@ -59,9 +59,10 @@ export function normalizeCopy(items: readonly NoteIdItem[], answers: readonly un
     const answer = byPath.get(item.path);
     if (answer === undefined) return { path: item.path, ok: false, reason: "no_answer" };
     if (answer.ok === true) {
-      return answer.etag === item.etag
-        ? { path: item.path, ok: true, etag: item.etag }
-        : { path: item.path, ok: false, reason: "changed" };
+      if (answer.etag !== item.etag) return { path: item.path, ok: false, reason: "changed" };
+      return typeof answer.copiedEtag === "string" && answer.copiedEtag !== ""
+        ? { path: item.path, ok: true, etag: item.etag, keyEtag: answer.copiedEtag }
+        : { path: item.path, ok: true, etag: item.etag };
     }
     const reason = typeof answer.reason === "string" && COPY_REASONS.has(answer.reason) ? answer.reason : "copy_failed";
     return { path: item.path, ok: false, reason };

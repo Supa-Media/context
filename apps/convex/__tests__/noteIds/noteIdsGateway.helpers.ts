@@ -128,22 +128,18 @@ export async function fixture(): Promise<Fixture> {
 /** Patch the row at `path` in place (the tree assigned its id on insert; these tests pin it). */
 export async function patchRow(t: T, workspaceId: Id<"workspaces">, path: string, fields: Record<string, unknown>) {
   await t.run(async (ctx) => {
-    const row = await ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique();
+    const rows = await ctx.db.query("nodes").collect();
+    const row = rows.find((node) => node.workspaceId === workspaceId && node.path === path) ?? null;
     if (row === null) throw new Error("fixture row missing");
     await ctx.db.patch(row._id, fields as never);
   });
 }
 
 export async function rowOf(t: T, workspaceId: Id<"workspaces">, path: string) {
-  return await t.run((ctx) =>
-    ctx.db
-      .query("nodes")
-      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
-      .unique(),
-  );
+  return await t.run(async (ctx) => {
+    const rows = await ctx.db.query("nodes").collect();
+    return rows.find((row) => row.workspaceId === workspaceId && row.path === path) ?? null;
+  });
 }
 
 /**

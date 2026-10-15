@@ -63,7 +63,9 @@ export async function gatewayNoteIdsLookupHandler(ctx: ActionCtx, body: Record<s
     const found =
       seen.length === 0 ? [] : await ctx.runQuery(internal.functions.noteIds.copiesFor, { workspaceId: reader.workspaceId, paths: seen });
     // Object.fromEntries, not an assignment per path: a path named `__proto__` stays a key.
-    return json({ copies: Object.fromEntries(found.map(({ path, key, etag, fresh }) => [path, { key, etag, fresh }])) });
+    return json({
+      copies: Object.fromEntries(found.map(({ path, key, etag, keyEtag, fresh }) => [path, { key, etag, keyEtag, fresh }])),
+    });
   } catch {
     return json(NOT_SERVED);
   }
@@ -73,6 +75,7 @@ export async function gatewayNoteIdsWroteHandler(ctx: ActionCtx, body: Record<st
   const path = stringField(body, "path");
   const key = stringField(body, "key");
   const etag = stringField(body, "etag");
+  const keyEtag = stringField(body, "keyEtag");
   if (path === null || path.length > GATEWAY_PATH_LENGTH || key === null || etag === null) return badRequest();
   const accessToken = stringField(body, "accessToken");
   const workspaceId = stringField(body, "workspaceId");
@@ -81,7 +84,13 @@ export async function gatewayNoteIdsWroteHandler(ctx: ActionCtx, body: Record<st
     // Recording a copy is a write's bookkeeping, so only a grant that may write this workspace asks for it.
     const writable = await writableWorkspace(ctx, accessToken, workspaceId);
     if (writable === null) return json(NOT_SERVED);
-    const recorded = await ctx.runMutation(internal.functions.noteIds.recordCopy, { workspaceId: writable, path, key, etag });
+    const recorded = await ctx.runMutation(internal.functions.noteIds.recordCopy, {
+      workspaceId: writable,
+      path,
+      key,
+      etag,
+      ...(keyEtag === null ? {} : { keyEtag }),
+    });
     return json({ ok: true, recorded });
   } catch {
     return json(NOT_SERVED);

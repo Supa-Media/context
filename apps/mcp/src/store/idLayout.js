@@ -159,7 +159,10 @@ export function withIdLayout(store, { lookup, wrote } = {}) {
       const [copy, current] = await Promise.all([readableCopy(path), pathEtag(path)]);
       if (copy !== null && current === copy.etag) {
         const object = await idObject(() => store.get(copy.key));
-        if (object !== null) return underPathEtag(object, copy.etag);
+        // A copy written out of order (two saves racing) holds another version
+        // than the one recorded: the key's own etag tells them apart.
+        const same = typeof copy.keyEtag !== "string" || copy.keyEtag === "" || object?.etag === copy.keyEtag;
+        if (object !== null && same) return underPathEtag(object, copy.etag);
       }
       return await store.get(path, ...rest);
     };
@@ -175,7 +178,8 @@ export function withIdLayout(store, { lookup, wrote } = {}) {
       if (copy === null) return;
       const copied = await store.put(copy.key, body, unconditional(options));
       if (!copied) return;
-      await wrote({ path, key: copy.key, etag });
+      const keyEtag = typeof copied.etag === "string" && copied.etag !== "" ? copied.etag : undefined;
+      await wrote({ path, key: copy.key, etag, ...(keyEtag === undefined ? {} : { keyEtag }) });
     } catch {
       // Stale until the copy pass. Nothing about the path's write changes.
     }

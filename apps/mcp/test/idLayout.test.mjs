@@ -8,6 +8,7 @@
  * Sabotage, each confirmed to fail a case here:
  *  - drop the etag override on a read from the id copy: the fresh-copy case fails;
  *  - skip the path HEAD before a fresh copy answers: the moved-on case fails;
+ *  - skip the key etag check: the out-of-order case fails;
  *  - look the id copy up on a plumbing path: the plumbing case fails;
  *  - write the key before the path: the ordering case fails;
  *  - let a failed path put touch the key: the failed-put case fails;
@@ -214,6 +215,19 @@ test("a copy the tree calls fresh is not read once the path has moved on", async
   assert.notEqual(object.etag, "e2");
 });
 
+test("a copy whose key no longer holds the recorded write is not read", async () => {
+  // Two saves raced: the later save's record won, the earlier save's bytes landed on the key last.
+  const store = await withBothCopies();
+  const recorded = { key: "notes/id1.md", etag: "e2", keyEtag: "e-not-this-one", fresh: true };
+  const wrapped = withIdLayout(store, { lookup: lookupTo({ "1-projects/a.md": recorded }), wrote: NOWRITE });
+  assert.equal(await (await wrapped.get("1-projects/a.md")).text(), "PATH BODY");
+  const matching = withIdLayout(store, {
+    lookup: lookupTo({ "1-projects/a.md": { ...recorded, keyEtag: "e1" } }),
+    wrote: NOWRITE,
+  });
+  assert.equal(await (await matching.get("1-projects/a.md")).text(), "ID BODY");
+});
+
 /* -------------------------------- writes -------------------------------- */
 
 test("a put writes the path, then the id key, then records the path's new etag", async () => {
@@ -237,7 +251,7 @@ test("a put writes the path, then the id key, then records the path's new etag",
   assert.deepEqual(result, { etag: "e2" });
   const puts = store.log.filter((entry) => entry[0] === "put").map((entry) => entry[1]);
   assert.deepEqual(puts, ["1-projects/a.md", "notes/id1.md"]);
-  assert.deepEqual(events, [["wrote", { path: "1-projects/a.md", key: "notes/id1.md", etag: "e2" }]]);
+  assert.deepEqual(events, [["wrote", { path: "1-projects/a.md", key: "notes/id1.md", etag: "e2", keyEtag: "e3" }]]);
   assert.deepEqual(asked, [["1-projects/a.md"]]);
   assert.equal(store.objects.get("notes/id1.md").body, "NEW");
 });
@@ -515,8 +529,8 @@ test("noteIdLookup posts the paths with the same proofs as tree facts, and keeps
   });
   assert.deepEqual(answer, {
     copies: {
-      "a.md": { key: "notes/x.md", etag: "e1", fresh: true },
-      "b.md": { key: "notes/y.md", etag: null, fresh: false },
+      "a.md": { key: "notes/x.md", etag: "e1", keyEtag: null, fresh: true },
+      "b.md": { key: "notes/y.md", etag: null, keyEtag: null, fresh: false },
     },
   });
 });

@@ -62,6 +62,19 @@ describe("POST /gateway/note-ids/wrote", () => {
     expect(row!.idCopy).toEqual({ key, etag: NEW_ETAG, copiedAt: expect.any(Number) });
   });
 
+  test("records the key's own etag when the gateway sends it, and the lookup hands it back", async () => {
+    const f = await fixture();
+    await seedCopies(f);
+    const key = idKeyFor(NOTE_IDS.noCopy, NO_COPY);
+    await patchRow(f.t, f.ws, NO_COPY, { etag: NEW_ETAG });
+    await wrote(f, { ...writeOf(f, EDITOR, NO_COPY, key), keyEtag: "key-etag-1" });
+    expect((await rowOf(f.t, f.ws, NO_COPY))!.idCopy).toEqual({ key, etag: NEW_ETAG, keyEtag: "key-etag-1", copiedAt: expect.any(Number) });
+    const answer = await bodyOf(
+      await gatewayPost(f.t, "/gateway/note-ids/lookup", { accessToken: OWNER, workspaceId: f.ws, paths: [NO_COPY] }),
+    );
+    expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, keyEtag: "key-etag-1", fresh: true });
+  });
+
   test("once the row's etag is the one written, the lookup calls the copy fresh", async () => {
     const f = await fixture();
     await seedCopies(f);
@@ -71,7 +84,7 @@ describe("POST /gateway/note-ids/wrote", () => {
     const answer = await bodyOf(
       await gatewayPost(f.t, "/gateway/note-ids/lookup", { accessToken: OWNER, workspaceId: f.ws, paths: [NO_COPY] }),
     );
-    expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, fresh: true });
+    expect((answer.copies as Record<string, unknown>)[NO_COPY]).toEqual({ key, etag: NEW_ETAG, keyEtag: null, fresh: true });
   });
 
   test("a key that is not the row's id key is refused and nothing is recorded", async () => {
