@@ -73,10 +73,8 @@ export async function scanWebsiteRoutes(
     same clearance, so a note `privacy.md` holds back is absent from it exactly
     as it was from the whole-bucket walk.
   */
-  // The tree lists every folder (moves drawn), never the bucket: a page's
-  // name and existence are rows (Dev2, 2026-10-14), and a note's bytes may sit
-  // at `notes/<id>.md` (notes-by-id). A move starting under the scan still
-  // fails it (`./movingScan.ts`).
+  // Always the tree (moves drawn), never the bucket: names and existence are rows,
+  // bytes may sit at `notes/<id>.md`. A move starting mid-scan fails it (`./movingScan.ts`).
   const movesBefore = await pendingMovesNow(ctx, workspaceId);
   const listedFolders: ListedFolder[] = [];
   const list = async (folder: string) => {
