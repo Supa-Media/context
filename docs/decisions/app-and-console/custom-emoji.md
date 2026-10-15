@@ -169,7 +169,13 @@ person picks one. Opening the picker shows two quick picks above the grid:
   description names a new build (`emojiMeaningSet()`), which the first
   suggestion starts filling; Clef answers until it is ready, and whenever the
   model fails. `iconSuggest.meaning.live.test.ts` prints the closest three
-  for real names.
+  for real names. Asked again for speed the next day ("less than .5 seconds"):
+  the editor check, the feature's switch and the build's state are one read
+  (`prepareSuggest`) before the one embedding call, and the app asks as soon
+  as the pointer reaches an icon in the tree (or a finger goes down on it)
+  and keeps each name's answer for the session, so the picker usually opens
+  with it already there. Each answer logs which way it came and its time,
+  never the name.
 - **Random**: one from a shorter list of emoji that make a nice surprise,
   with Shuffle to roll again.
 

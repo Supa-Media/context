@@ -25,7 +25,8 @@
  *
  *   `insertBatch` without the present-row check                         1 failed
  *   `claimFill` ignoring a live fill's age                              1 failed
- *   `suggestByMeaning` sending the whole path                           1 failed
+ *   `nearestByMeaning` sending the whole path                           1 failed
+ *   `prepareSuggest` ignoring the feature switch                        1 failed
  *   `emojiMeaningTexts` dropping the description                        2 failed
  *   `suggest` refusing the lookup past the day's cap                    1 failed
  */

@@ -100,6 +100,7 @@ export function FileTree({
   workspaceId = null,
   iconOf,
   onIconPress,
+  onIconIntent,
   onIntent,
 }: {
   rows: readonly TreeRow[];
@@ -115,6 +116,8 @@ export function FileTree({
    * then part of the row like the name. See `TreeFolderGlyph`.
    */
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
+  /** The pointer is on a folder's icon: start what its picker will ask for. */
+  onIconIntent?: (path: string) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -204,6 +207,7 @@ export function FileTree({
         workspaceId={workspaceId}
         folderIcon={row.kind === "folder" || isNoteRow(row) ? (iconOf?.(row.path) ?? null) : null}
         onIconPress={onIconPress}
+        onIconIntent={onIconIntent}
         onIntent={onIntent}
       />
     );
@@ -244,6 +248,7 @@ function FileRow({
   workspaceId,
   folderIcon,
   onIconPress,
+  onIconIntent,
   onIntent,
 }: {
   row: TreeRow;
@@ -255,6 +260,7 @@ function FileRow({
    */
   folderIcon: string | null;
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
+  onIconIntent?: (path: string) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -369,6 +375,7 @@ function FileRow({
               icon={folderIcon}
               note={row.kind !== "folder"}
               onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
+              onIntent={onIconIntent === undefined ? undefined : () => onIconIntent(row.path)}
             />
           )}
         </View>
