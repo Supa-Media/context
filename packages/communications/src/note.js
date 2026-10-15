@@ -661,9 +661,6 @@ export function parseChannelDayNote(text) {
   return { frontmatter, title, messages, anchors: messages.map((entry) => entry.anchor) };
 }
 
-/** `## Thread — ` in a rendered note, standing alone so both readers agree with the renderer. */
-const THREAD_HEADING_PREFIX = "## Thread — ";
-
 /**
  * Attachment headings this reader understands.
  *
@@ -716,8 +713,8 @@ function attachmentFilename(rendered) {
  *   frontmatter: Record<string, string>,
  *   title: string,
  *   messages: Array<{
- *     anchor: string, thread: string, time: string, sender: string,
- *     subject: string, body: string,
+ *     anchor: string, thread: string, space: string, time: string,
+ *     sender: string, subject: string, body: string,
  *     attachments: Array<{filename: string, contentType: string, size: string}>,
  *   }>,
  * }}
@@ -753,6 +750,7 @@ export function parseChannelDayMessages(text) {
 
   const messages = [];
   let thread = "";
+  let space = "";
   let inFence = false;
   let inAttachments = false;
   /** @type {ReturnType<typeof messages[number]> | null} */
@@ -773,18 +771,29 @@ export function parseChannelDayMessages(text) {
     // merely look like one — the same rule `parseChannelDayNote` follows, and
     // for the same reason: only the renderer's own headings, outside every
     // fence, are real structure.
-    if (!inFence && line.startsWith(THREAD_HEADING_PREFIX)) {
+    // Both levels, as `parseChannelDayNote` reads them: email and iMessage
+    // write `## Thread — ` and `### … {#msg-…}`; a Google Chat day writes
+    // `### Thread — ` and `#### … {#msg-…}` under a `## ` space heading.
+    const heading = !inFence ? /^#{3,4}\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line) : null;
+    const threadHeading = !inFence && !heading ? /^#{2,3}\sThread\s—\s(.+)$/.exec(line) : null;
+    if (threadHeading) {
       flush();
-      thread = line.slice(THREAD_HEADING_PREFIX.length).trim();
+      thread = threadHeading[1].trim();
       continue;
     }
-    const heading = !inFence ? /^###\s(.*)\s\{#(msg-[0-9a-f]+)\}\s*$/.exec(line) : null;
+    const spaceHeading = !inFence && !heading ? /^##\s(.+)$/.exec(line) : null;
+    if (spaceHeading) {
+      flush();
+      space = spaceHeading[1].trim();
+      continue;
+    }
     if (heading) {
       flush();
       const fields = heading[1].split(" · ");
       current = {
         anchor: heading[2],
         thread,
+        space,
         time: fields[0] ?? "",
         sender: fields[1] ?? "",
         subject: fields.slice(2).join(" · "),

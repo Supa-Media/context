@@ -162,4 +162,30 @@ describe("shapeChannelDay", () => {
       size: "48213 bytes",
     });
   });
+
+  test("a Google Chat day shows every message, threads kept apart per space", () => {
+    const chat = (overrides: Record<string, unknown>) => ({
+      ...message({ channel: "google-chat", account: "chat-connection-1", from: { name: "Adam Okonkwo", address: "" }, to: [] }),
+      space: { key: "spaces/AAAA1111", displayName: "Engineering Team", type: "group_chat" },
+      ...overrides,
+    });
+    const chatDay = {
+      ...day({ channel: "google-chat", address: "chat-connection-1" }),
+      account: undefined,
+      events: [
+        chat({ messageId: "spaces/AAAA1111/messages/a1", threadId: "spaces/AAAA1111/threads/t1", subject: "Release", body: "Thursday?" }),
+        chat({ messageId: "spaces/AAAA1111/messages/a2", threadId: "spaces/AAAA1111/threads/t1", subject: "Release", body: "Works." }),
+        chat({
+          messageId: "spaces/BBBB2222/messages/b1",
+          threadId: "spaces/BBBB2222/threads/t2",
+          subject: "Release",
+          body: "Same subject, other space.",
+          space: { key: "spaces/BBBB2222", displayName: "Bea Lindqvist", type: "direct_message" },
+        }),
+      ],
+    };
+    const view = shapeChannelDay("google-chat", "", "2026-09-07", [{ part: 1, text: renderChannelDayNote(chatDay) }]);
+    expect(flattenDayMessages(view).map((entry) => entry.body)).toEqual(["Thursday?", "Works.", "Same subject, other space."]);
+    expect(view.threads.map((thread) => thread.messages.length)).toEqual([2, 1]);
+  });
 });
