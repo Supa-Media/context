@@ -324,7 +324,7 @@ function DomainCard({
         <>
           <CopyField value={domainUrl(domain.hostname)} label="Copy your domain's address" style={styles.block} />
           {owner ? <HomepageRow domain={domain} choices={view.homepageChoices} actions={actions} /> : null}
-          <Row divided>
+          <Row style={styles.block}>
             <Grow>
               <Text variant="rowSub" style={styles.sub}>
                 {`Links with a short name also open at ${domain.hostname}.`}

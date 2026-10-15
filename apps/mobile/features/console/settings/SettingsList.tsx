@@ -105,7 +105,11 @@ export function SettingsList({
       icon={entry.icon}
       label={entry.label}
       value={value(entry.key)}
-      selected={entry.key === active}
+      /*
+        A phone's list is a menu, not a sidebar beside the open page: nothing
+        is open while it is on screen, so no row is marked current.
+      */
+      selected={!compact && entry.key === active}
       compact={compact}
       testID={`settings-section-${entry.key}`}
       /*
