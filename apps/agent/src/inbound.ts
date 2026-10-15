@@ -1,6 +1,10 @@
 /**
  * The one shape of Linq's webhook this Worker acts on: a `message.received`
- * in a direct chat, from a phone number, with some text in it.
+ * in a direct chat, from a phone number, with some text or a file in it.
+ *
+ * A picture or file comes as a `media` part: a presigned download URL (an
+ * hour), its type, name and size. Only those are kept here; the bytes are
+ * fetched when the message is answered (`attachments.ts`).
  *
  * Everything else is answered 200 and dropped — Linq retries a non-2xx, and an
  * event we will never act on should not be retried. Group chats are dropped on
@@ -14,6 +18,12 @@ export const MAX_INBOUND_TEXT = 4000;
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 
+/** The most files one text carries forward; the gateway takes at most 8. */
+export const MAX_INBOUND_ATTACHMENTS = 8;
+
+/** A file sent with a text, as Linq described it. */
+export type InboundAttachment = { url: string; mimeType: string; filename: string; size: number | null };
+
 export type Inbound =
   | {
       kind: "message";
@@ -22,6 +32,8 @@ export type Inbound =
       from: string;
       messageId: string;
       text: string;
+      /** Absent on a text with no files, and on messages queued before files were read. */
+      attachments?: InboundAttachment[];
     }
   | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" }
   | { kind: "invalid" };
@@ -68,7 +80,26 @@ export function parseInbound(payload: unknown): Inbound {
     .map((part) => part.value)
     .join("\n")
     .trim();
-  if (text.length === 0) return { kind: "ignored", reason: "empty" };
+  const attachments = data.parts.flatMap((part): InboundAttachment[] => {
+    if (!isRecord(part) || part.type !== "media" || typeof part.url !== "string") return [];
+    let url: URL;
+    try {
+      url = new URL(part.url);
+    } catch {
+      return [];
+    }
+    if (url.protocol !== "https:") return [];
+    return [
+      {
+        // As sent: a presigned URL's signature covers its exact query.
+        url: part.url,
+        mimeType: typeof part.mime_type === "string" ? part.mime_type.toLowerCase() : "",
+        filename: typeof part.filename === "string" ? part.filename.slice(0, 200) : "",
+        size: typeof part.size_bytes === "number" && Number.isFinite(part.size_bytes) ? part.size_bytes : null,
+      },
+    ];
+  }).slice(0, MAX_INBOUND_ATTACHMENTS);
+  if (text.length === 0 && attachments.length === 0) return { kind: "ignored", reason: "empty" };
 
   return {
     kind: "message",
@@ -77,5 +108,6 @@ export function parseInbound(payload: unknown): Inbound {
     from: sender.handle,
     messageId: data.id,
     text: text.slice(0, MAX_INBOUND_TEXT),
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
 }

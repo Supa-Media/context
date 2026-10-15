@@ -27,6 +27,7 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
+import { AttachmentRefusal, attachmentsLine, readAttachments, withAttachmentImages } from "./attachments.js";
 import { toolsForSession } from "../tools/advertised.js";
 import {
   SHOWN_HISTORY_TURNS,
@@ -156,7 +157,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
   }
-  if (question.length === 0) {
+  // What came with the question (`attachments.js`). A routine's run has none.
+  let attachments = [];
+  try {
+    attachments = runner ? [] : readAttachments(body.attachments);
+  } catch (error) {
+    if (!(error instanceof AttachmentRefusal)) throw error;
+    return json({ error: "invalid_request", error_description: error.message }, 400);
+  }
+  if (question.length === 0 && attachments.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
   if (question.length > MAX_QUESTION_LENGTH) {
@@ -181,7 +190,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     through `/approvals`.
   */
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    const verdict = approvalVerdict(question);
+    // A yes sent with a photo is about the photo, not an ask.
+    const verdict = attachments.length > 0 ? null : approvalVerdict(question);
     if (verdict !== null) {
       const settled = await settleByText(store, session, verdict);
       if (settled !== null) return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
@@ -336,6 +346,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
+  // A forwarded PDF or a screenshot is someone else's words as much as a web page is.
+  if (attachments.length > 0) markUntrusted(ledger);
   // The rest is read on request, and carries its own mark when it is read.
   const earlier = conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
   // The setup's `search:` section, when it has one, over the deployment's
@@ -459,10 +471,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         scope refusal. An agent that reached past it would be a second authority
         decision with no tests behind it.
       */
-      callTool: withSkills(
-        skills,
-        textingAwareCallTool((name, args) => callToolForSession({ name, arguments: args }, store, session), textingWriting),
+      callTool: withAttachmentImages(
+        attachments,
+        withSkills(
+          skills,
+          textingAwareCallTool((name, args) => callToolForSession({ name, arguments: args }, store, session), textingWriting),
+        ),
       ),
+      attachments,
       env,
       providerOptions: {
         ai: env.AI,
@@ -549,7 +565,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        await appendConversation(store, conversation, history, question, answer, {
+        const saved = attachments.length === 0 ? question : [question, attachmentsLine(attachments)].filter(Boolean).join("\n");
+        await appendConversation(store, conversation, history, saved, answer, {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
         });

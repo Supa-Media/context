@@ -22,6 +22,8 @@
  * `content` block or an OpenAI `tool_calls` entry.
  */
 
+import { anthropicAttachmentBlocks, plainAttachmentText } from "./attachments.js";
+
 export class ProviderError extends Error {
   /**
    * @param {string} reason a short phrase written for an operator's log, never
@@ -80,6 +82,12 @@ export function anthropicMessages(messages) {
       if (content.length > 0) out.push({ role: "assistant", content });
       continue;
     }
+    // What the person sent with their words (`attachments.js`): pictures and
+    // documents as the API's own blocks.
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+      out.push({ role: "user", content: anthropicAttachmentBlocks(message.attachments, message.text) });
+      continue;
+    }
     out.push({ role: "user", content: [{ type: "text", text: message.text }] });
   }
   // `pendingTools` is this function's own bookkeeping and is not part of the
@@ -114,7 +122,13 @@ export function openAiMessages(system, messages) {
       });
       continue;
     }
-    out.push({ role: "user", content: message.text });
+    out.push({
+      role: "user",
+      content:
+        Array.isArray(message.attachments) && message.attachments.length > 0
+          ? plainAttachmentText(message.attachments, message.text)
+          : message.text,
+    });
   }
   return out;
 }
