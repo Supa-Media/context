@@ -67,12 +67,23 @@ export interface GrantedNode {
   names: string[];
 }
 
-/** One grant the caller holds, as the live rows confirm it. */
+/**
+ * One grant the caller holds, as the live rows confirm it.
+ *
+ * `at` and `grantedBy` come from the grant row itself, and `props` from the
+ * live node: what the Shared with me list titles it with (`./../shares/inboxTitle.ts`).
+ * Reading them does not widen anything: the node is already judged by `guestCanSee`.
+ */
 export interface OutsiderGrant {
   workspaceId: Id<"workspaces">;
+  nodeId: Id<"nodes">;
   noteId: string;
   path: string;
   kind: "file" | "folder";
+  props: string | undefined;
+  at: number;
+  /** The account that wrote the row, where the row records one. */
+  grantedBy: Id<"users"> | null;
 }
 
 /**
@@ -217,7 +228,16 @@ export async function outsiderGrantsFor(ctx: QueryCtx, userId: Id<"users">): Pro
       // The live rows must still name this caller on this very row, and the path must still open to them.
       if (!view.names.includes(viewNameFor(noteId))) continue;
       if (!guestCanSee(view, node.path)) continue;
-      out.push({ workspaceId, noteId, path: node.path, kind: node.kind });
+      out.push({
+        workspaceId,
+        nodeId: node._id,
+        noteId,
+        path: node.path,
+        kind: node.kind,
+        props: node.props,
+        at: grant.at,
+        grantedBy: grant.grantedBy ?? null,
+      });
     }
   }
   return out;
