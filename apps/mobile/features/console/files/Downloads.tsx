@@ -35,7 +35,8 @@ export function DownloadPillContent({ pill }: { pill: DownloadPill }) {
   return (
     <>
       <Svg width={20} height={20} viewBox="0 0 20 20" aria-hidden>
-        <Circle cx={10} cy={10} r={r} fill="none" stroke={colors.lineStrong} strokeWidth={2.5} />
+        {/* The track in `muted` at a third: `lineStrong` vanished on a dark pill. */}
+        <Circle cx={10} cy={10} r={r} fill="none" stroke={colors.muted} strokeOpacity={0.35} strokeWidth={2.5} />
         <Circle
           cx={10}
           cy={10}
@@ -48,7 +49,8 @@ export function DownloadPillContent({ pill }: { pill: DownloadPill }) {
           transform="rotate(-90 10 10)"
         />
       </Svg>
-      <Text variant="pill" numberOfLines={1}>
+      {/* `pill` carries no colour of its own; unset, it drew near-black on a dark pill. */}
+      <Text variant="pill" numberOfLines={1} style={{ color: colors.text }}>
         {pill.text}
       </Text>
     </>

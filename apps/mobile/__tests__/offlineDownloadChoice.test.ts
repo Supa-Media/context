@@ -15,6 +15,7 @@ import {
   setOnlineOnly,
 } from "../features/offline/downloadChoice";
 import { downloadPill, downloadRows, rowStatus } from "../features/offline/downloadSummary";
+import type { MirrorStatus } from "../features/offline/mirrorStatus";
 
 /**
  * What the phone downloads (owner, 2026-10-16): everything but Archive, and
@@ -215,7 +216,7 @@ describe("what the pill and the sheet say", () => {
   test("one pill across every workspace while anything downloads", () => {
     const rows = downloadRows(
       contexts,
-      new Map([
+      new Map<string, MirrorStatus>([
         ["a", syncing(340, 1204)],
         ["b", { state: "synced", notes: 50, bytes: 0, lastSyncedAt: 1, total: 50 }],
       ]),
@@ -230,12 +231,21 @@ describe("what the pill and the sheet say", () => {
   });
 
   test("no pill when nothing is coming down", () => {
-    const rows = downloadRows(contexts, new Map([["a", { state: "synced", notes: 3, bytes: 0, lastSyncedAt: 1, total: 3 }]]), new Set());
+    const rows = downloadRows(contexts, new Map<string, MirrorStatus>([["a", { state: "synced", notes: 3, bytes: 0, lastSyncedAt: 1, total: 3 }]]), new Set());
     expect(downloadPill(rows)).toBeNull();
   });
 
+  test("the pill stays between passes while notes are still missing", () => {
+    const rows = downloadRows(
+      contexts,
+      new Map<string, MirrorStatus>([["a", { state: "partial", notes: 2_828, bytes: 0, lastSyncedAt: 1, total: 2_831, remaining: 3 }]]),
+      new Set(),
+    );
+    expect(downloadPill(rows)?.text).toBe("2,828 / 2,831");
+  });
+
   test("a percentage once the numbers get long", () => {
-    const rows = downloadRows([{ id: "a", slug: "big" }], new Map([["a", syncing(2_500, 10_000)]]), new Set());
+    const rows = downloadRows([{ id: "a", slug: "big" }], new Map<string, MirrorStatus>([["a", syncing(2_500, 10_000)]]), new Set());
     expect(downloadPill(rows)?.text).toBe("25%");
   });
 });

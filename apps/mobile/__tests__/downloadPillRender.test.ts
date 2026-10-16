@@ -81,6 +81,15 @@ describe("downloads on the phone", () => {
     expect(find("download-pill")?.textContent).toBe("340 / 1,204");
   });
 
+  test("the count is drawn in the text colour, not left unset", () => {
+    publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
+    const find = mount(createElement(SyncPill, { sync: online, save: null, contexts, onPress: () => {} }));
+    const words = [...find("download-pill")!.querySelectorAll<HTMLElement>("div, span")].find(
+      (el) => el.textContent === "340 / 1,204" && el.children.length === 0,
+    )!;
+    expect(getComputedStyle(words).color).toBe("rgb(255, 255, 255)");
+  });
+
   test("being offline still wins the pill", () => {
     publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
     const find = mount(
