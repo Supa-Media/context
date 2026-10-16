@@ -15,6 +15,7 @@ import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
 import type * as functions_account from "../functions/account.js";
 import type * as functions_accountDeletion from "../functions/accountDeletion.js";
+import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
 import type * as functions_organizer from "../functions/organizer.js";
@@ -188,6 +189,7 @@ declare const fullApi: ApiFromModules<{
   "functions/admin": typeof functions_admin;
   "functions/account": typeof functions_account;
   "functions/accountDeletion": typeof functions_accountDeletion;
+  "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
   "functions/organizer": typeof functions_organizer;

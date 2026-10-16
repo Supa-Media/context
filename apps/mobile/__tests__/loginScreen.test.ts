@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 /**
  * A-01 and A-02, driven: an address becomes a code request, six digits become
@@ -24,10 +24,12 @@ let mockStart: { status: string; phone?: string; conversionId?: string } = { sta
 let mockSigningIn = true;
 const mockStarted: Array<Record<string, unknown>> = [];
 const mockRouter = { replace: jest.fn(), push: jest.fn() };
+// The route's search params; a test sets `next` to arrive the way a link does.
+const mockParams: Record<string, string> = {};
 
 jest.mock("expo-router", () => ({
   useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockParams,
 }));
 
 jest.mock("@convex-dev/auth/react", () => ({
@@ -367,6 +369,54 @@ describe("signing in with a phone", () => {
     expect(view.byId("login-phone-waitlist")).not.toBeNull();
     await view.press("login-use-email");
     expect(view.byId("login-email")).not.toBeNull();
+    view.unmount();
+  });
+});
+
+/*
+  A link to a note (2026-10-16, domain-shared notes): the sign-in says so, asks
+  for an email straight away, and offers the phone as the way out. Nothing is
+  looked up while signed out, so the page names no workspace, note or domain.
+*/
+describe("arriving from a shared note", () => {
+  afterEach(() => {
+    delete mockParams.next;
+  });
+
+  test("says someone shared a note, and opens on the email field", () => {
+    mockParams.next = "/console/@seyi?note=3-resources%2Fsetlist.md";
+    const view = mount({ phone: true });
+    expect(view.text()).toContain("Someone shared a note with you");
+    expect(view.text()).toContain("Sign in with your work email to open it.");
+    expect(view.text()).toContain("If you don't have an account yet, we'll make one next.");
+    expect(view.byId("login-email")).not.toBeNull();
+    view.unmount();
+  });
+
+  test("names nothing it could only know by looking up", () => {
+    mockParams.next = "/console/@public-worship?note=1-projects%2Fsunday-setlist.md";
+    const view = mount({ phone: true });
+    expect(view.text()).not.toContain("public-worship");
+    expect(view.text()).not.toContain("Sunday setlist");
+    expect(view.text()).not.toContain("publicworship");
+    view.unmount();
+  });
+
+  test("offers the phone instead, and that switches to the phone form", async () => {
+    mockParams.next = "/console/@seyi?note=3-resources%2Fsetlist.md";
+    const view = mount({ phone: true });
+    expect(view.byId("login-use-phone")?.textContent).toBe("Use my phone instead");
+    await view.press("login-use-phone");
+    expect(view.byId("login-email")).toBeNull();
+    expect(view.byId("login-phone")).not.toBeNull();
+    view.unmount();
+  });
+
+  test("an ordinary link keeps the phone-first page", () => {
+    mockParams.next = "/console";
+    const view = mount({ phone: true });
+    expect(view.text()).not.toContain("Someone shared a note with you");
+    expect(view.byId("login-use-phone")).toBeNull();
     view.unmount();
   });
 });

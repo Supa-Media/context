@@ -180,7 +180,11 @@ describe("a device signed in with only a texted code cannot", () => {
 
   test("add an email once the account has one", async () => {
     const t = setupTest();
+    // Older than the post-sign-up grace (`lib/freshSignup.ts`), which would
+    // otherwise let a brand-new one-address account add without proof.
+    vi.useFakeTimers({ toFake: ["Date"] });
     const ada = await createUser(t, "ada@home.example");
+    vi.setSystemTime(Date.now() + 31 * 60 * 1000);
     const { view } = await asPhoneOnly(t, ada);
     expect(errorCode(await captureError(() => view.action(api.functions.signInEmails.startAddEmail, { email: "thief@evil.example" })))).toBe(PROOF);
     expect(await t.run((ctx) => ctx.db.query("signInEmailCodes").collect())).toEqual([]);

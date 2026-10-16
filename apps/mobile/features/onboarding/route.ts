@@ -277,10 +277,18 @@ export function isWelcomePath(pathname: string): boolean {
 export function needsOnboarding({
   standing,
   pathname,
+  setupPending = false,
 }: {
   /** `undefined` while either subscription is outstanding. */
   standing: ContextStanding | undefined;
   pathname: string;
+  /**
+   * True while `mySetup` has not answered yet (domain sign-up,
+   * `features/auth/accountSetupModel.ts`). Somebody who joined through a
+   * domain owns nothing until that answer lands, and a redirect to `/welcome`
+   * in the meantime would drop the link they opened. Waits; never redirects.
+   */
+  setupPending?: boolean;
 }): RouteDecision {
   if (standing === undefined) return { action: "render" };
   // Both destinations answer for themselves; redirecting to a path somebody is
@@ -289,6 +297,7 @@ export function needsOnboarding({
   if (isInvitePath(pathname)) return { action: "render" };
 
   if (standing.owned > 0) return { action: "render" };
+  if (setupPending) return { action: "wait" };
   if (standing.reachable === 0 && standing.invitations > 0) {
     return { action: "redirect", href: INVITE_ROUTE };
   }
