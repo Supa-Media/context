@@ -15,6 +15,7 @@ import type { Doc } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
+import { livePending } from "./lib/nodes/pendingAccess";
 import { narrowRowForMove, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
@@ -29,7 +30,7 @@ const answerValidator = v.union(
   v.object({ ok: v.literal(true), version: v.number() }),
   v.object({
     ok: v.literal(false),
-    code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE")),
+    code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL")),
   }),
 );
 
@@ -48,6 +49,7 @@ export const setAccess = internalMutation({
     base: v.union(v.literal("private"), v.literal("team"), v.literal("inherit")),
     grantees: v.optional(v.union(v.array(granteeValidator), v.literal("inherit"))),
     expectedVersion: v.optional(v.number()),
+    kind: v.optional(v.union(v.literal("file"), v.literal("folder"))),
     actor: v.object({ userId: v.id("users"), role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")) }),
   },
   returns: answerValidator,
@@ -79,6 +81,12 @@ export const consoleAccess = internalMutation({
   ),
   handler: async (ctx, args) => {
     if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false as const, code: "NOT_ROWS_MODE" as const };
+    // The console changes what is in the tree: a path with no row does not exist, so nothing waits for one.
+    const exists = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
+      .unique();
+    if (exists === null) return { ok: false as const, code: "NOT_FOUND" as const };
     const rules = renderAccess(await scanAccessRows(ctx, args.workspaceId), "member");
     const inherited = visibilityOf(args.path, rules.rules) as string;
     const actor = { userId: args.actorUserId, role: "owner" as const };
@@ -150,7 +158,8 @@ async function ownerGranteesOf(ctx: MutationCtx, row: Doc<"nodes">): Promise<Gra
 /**
  * Website publication in rows mode (`lib/websites/publication.ts`): a folder with no base of its own takes
  * `team`, as the file's `onlyIfUnset` rule gives it; one that has a base keeps it. Its owner's list is kept.
- * A folder with no row is `NOT_FOUND`: a row is never made here.
+ * A folder with no row yet takes `team` as pending access, which its row gets when it is born (`pendingAccess.ts`),
+ * unless a base is already waiting for it, which is kept. No row is made here.
  */
 export const ensureFolderDefault = internalMutation({
   args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users"), path: v.string() },
@@ -158,7 +167,7 @@ export const ensureFolderDefault = internalMutation({
     v.object({ ok: v.literal(true), visibility: v.string(), changed: v.boolean() }),
     v.object({
       ok: v.literal(false),
-      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE")),
+      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL")),
     }),
   ),
   handler: async (ctx, args) => {
@@ -167,14 +176,32 @@ export const ensureFolderDefault = internalMutation({
       .query("nodes")
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
       .unique();
-    if (row === null) return { ok: false as const, code: "NOT_FOUND" as const };
+    const actor = { userId: args.actorUserId, role: "owner" as const };
+    if (row === null) {
+      const state = await ctx.db
+        .query("nodeAccessState")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .unique();
+      const waiting = livePending(state?.pending, Date.now()).find((entry) => entry.path === args.path);
+      if (waiting !== undefined) return { ok: true as const, visibility: waiting.base, changed: false };
+      const pending = await setAccessRow(ctx, {
+        workspaceId: args.workspaceId,
+        path: args.path,
+        base: "team",
+        grantees: [],
+        kind: "folder",
+        actor,
+      });
+      if (!pending.ok) return { ok: false as const, code: pending.code };
+      return { ok: true as const, visibility: "team", changed: true };
+    }
     if (row.access?.base !== undefined) return { ok: true as const, visibility: row.access.base, changed: false };
     const answer = await setAccessRow(ctx, {
       workspaceId: args.workspaceId,
       path: args.path,
       base: "team",
       grantees: await ownerGranteesOf(ctx, row),
-      actor: { userId: args.actorUserId, role: "owner" },
+      actor,
     });
     if (!answer.ok) return { ok: false as const, code: answer.code };
     return { ok: true as const, visibility: "team", changed: true };

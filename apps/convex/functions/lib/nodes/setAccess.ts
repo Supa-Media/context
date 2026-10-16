@@ -9,16 +9,20 @@
  * touched. In rows mode the `privacy.md` derived grants are dropped too,
  * since nothing derives them any more.
  *
- * Never creates a row: a path with no row is `NOT_FOUND`. Every change bumps
- * `nodeAccessState.version` and rebuilds the snapshot readers answer from.
+ * Never creates a row. A path with no row takes a base as pending access
+ * (`pendingAccess.ts`), which the row gets when it is born at that path; a list
+ * on such a path is `NOT_FOUND`. Every change bumps `nodeAccessState.version`
+ * and rebuilds the snapshot readers answer from (a pending change rebuilds nothing:
+ * readers render pending access from the state itself).
  */
 
 import { normalizeEmail } from "@context/shared";
-import type { Id } from "../../../_generated/dataModel";
+import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { effectiveVisibility, visibilityOf, narrowerVisibility, type Visibility } from "../privacy";
 import { refreshSnapshot } from "./accessBackfill";
 import { scanAccessRows } from "./accessRows";
+import { livePending, PENDING_MAX } from "./pendingAccess";
 import { renderAccess } from "./rowAccess";
 
 export type Role = "view" | "edit";
@@ -44,10 +48,12 @@ export interface SetAccessArgs {
   grantees?: GranteeInput[] | "inherit";
   /** The `nodeAccessState.version` the caller read; a different one is a `CONFLICT`. */
   expectedVersion?: number;
+  /** Only for a path with no row yet: which row the pending access is for. A file unless said. */
+  kind?: "file" | "folder";
   actor: Actor;
 }
 
-export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE";
+export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "PENDING_FULL";
 export type SetAccessAnswer = { ok: true; version: number } | { ok: false; code: SetAccessCode };
 
 /** A grant's identity for comparing two lists: who, and at what role. */
@@ -99,6 +105,39 @@ async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantee
   return out;
 }
 
+/**
+ * A base on a path with no row yet: kept as pending access until the row is born at that path
+ * (`pendingAccess.ts`). Only a base can wait; a list needs its row, so it is `NOT_FOUND`, as it always was.
+ * `inherit` drops a waiting entry. Every change moves the version, as a row's change does.
+ */
+async function setPendingAccess(
+  ctx: MutationCtx,
+  args: SetAccessArgs,
+  state: Doc<"nodeAccessState"> | null,
+): Promise<SetAccessAnswer> {
+  const { workspaceId, path, base } = args;
+  if (args.grantees !== undefined && args.grantees !== "inherit" && args.grantees.length > 0) {
+    return { ok: false, code: "NOT_FOUND" };
+  }
+  const now = Date.now();
+  const version = state?.version ?? 0;
+  const waiting = livePending(state?.pending, now);
+  const had = waiting.find((entry) => entry.path === path);
+  const others = waiting.filter((entry) => entry.path !== path);
+  const expired = (state?.pending?.length ?? 0) !== waiting.length;
+  let next = others;
+  if (base !== "inherit") {
+    if (had === undefined && others.length >= PENDING_MAX) return { ok: false, code: "PENDING_FULL" };
+    next = [...others, { path, kind: args.kind ?? "file", base, at: now }];
+  } else if (had === undefined && !expired) {
+    return { ok: true, version };
+  }
+  const nextVersion = version + 1;
+  if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version: nextVersion, orphans: [], pending: next });
+  else await ctx.db.patch(state._id, { version: nextVersion, pending: next });
+  return { ok: true, version: nextVersion };
+}
+
 /** Set one row's base and list, from the version the caller read (`expectedVersion`, when given). */
 export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promise<SetAccessAnswer> {
   const { workspaceId, path, base, actor } = args;
@@ -106,7 +145,6 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     .query("nodes")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
     .unique();
-  if (row === null) return { ok: false, code: "NOT_FOUND" };
 
   const state = await ctx.db
     .query("nodeAccessState")
@@ -114,6 +152,11 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     .unique();
   if (args.expectedVersion !== undefined && args.expectedVersion !== (state?.version ?? 0)) {
     return { ok: false, code: "CONFLICT" };
+  }
+  if (row === null) return await setPendingAccess(ctx, args, state);
+  // A row stands at the path now: an access still waiting for it is answered by the row's own base from here on.
+  if (state?.pending?.some((entry) => entry.path === path)) {
+    await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
   }
 
   const grants = await ctx.db

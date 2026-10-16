@@ -295,14 +295,28 @@ async function finishDerivation(ctx: MutationCtx, workspaceId: Id<"workspaces">,
 }
 
 /**
+ * A row an owner (or a share) has already decided: a base of its own, or a grant made by hand. `onlyUnset`
+ * derivation leaves these as they are.
+ */
+async function ownerDecided(ctx: MutationCtx, row: Doc<"nodes">): Promise<boolean> {
+  if (row.access !== undefined) return true;
+  const grants = await ctx.db
+    .query("nodeAccess")
+    .withIndex("by_node", (q) => q.eq("nodeId", row._id))
+    .collect();
+  return grants.some((grant) => grant.source !== ACCESS_SOURCE);
+}
+
+/**
  * One page of the derivation: the rows after `after` (`null` for the first
  * page), at most `pageSize` of them. Rules are read afresh on each page, so a
- * walk that spans a rules change finishes on the newer rules.
+ * walk that spans a rules change finishes on the newer rules. `onlyUnset` leaves
+ * the rows an owner has decided (`ownerDecided`) as they are.
  */
 export async function deriveAccessPage(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
-  options: { after: string | null; pageSize?: number },
+  options: { after: string | null; pageSize?: number; onlyUnset?: boolean },
 ): Promise<DerivePage> {
   const size = options.pageSize ?? DERIVE_PAGE;
   const after = options.after;
@@ -316,6 +330,7 @@ export async function deriveAccessPage(
     )
     .take(size);
   for (const row of rows) {
+    if (options.onlyUnset === true && (await ownerDecided(ctx, row))) continue;
     const desired = await desiredFor(ctx, workspaceId, visibilityOfRow(row, rules), cache);
     const base = desired === null ? undefined : desired.base;
     if (row.access?.base !== base) {
@@ -332,10 +347,10 @@ export async function deriveAccessPage(
 }
 
 /** The whole derivation in one call: every page, then the version bump. */
-export async function deriveAccess(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+export async function deriveAccess(ctx: MutationCtx, workspaceId: Id<"workspaces">, options: { onlyUnset?: boolean } = {}): Promise<void> {
   let after: string | null = null;
   for (;;) {
-    const step = await deriveAccessPage(ctx, workspaceId, { after });
+    const step = await deriveAccessPage(ctx, workspaceId, { after, onlyUnset: options.onlyUnset });
     if (step.done) return;
     after = step.next;
   }

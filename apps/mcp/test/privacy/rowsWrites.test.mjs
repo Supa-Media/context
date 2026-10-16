@@ -198,6 +198,38 @@ test("rows mode: clearing a row that is gone (moved away) is nothing to clear, a
   await assert.rejects(clearExactVisibility(refused, "1-projects/a.md"), (error) => error.code === "FORBIDDEN");
 });
 
+test("rows mode: a private new note asks for its tier before its row exists, and the ask is held, not refused", async () => {
+  const memory = new MemoryStore();
+  memory.seed(PRIVACY_KEY, FILE);
+  // The control plane keeps the ask as pending access for a path with no row, and answers ok at the next version.
+  const authority = rowsAuthority();
+  const store = withPrivacyAuthority(memory, authority);
+  const path = "1-projects/brand-new.md";
+  await persistExactVisibility(store, path, "private", (await loadPrivacyState(store)).rules);
+
+  assert.deepEqual(authority.calls.setAccess, [{ path, base: "private", expectedVersion: 7 }]);
+  assert.equal((await loadPrivacyState(store)).overrides.get(path), "private", "held for the rest of the request");
+});
+
+test("rows mode: a folder's tier with no row says it is a folder, so its pending access is the folder's", async () => {
+  const memory = new MemoryStore();
+  memory.seed(PRIVACY_KEY, FILE);
+  const authority = rowsAuthority();
+  const store = withPrivacyAuthority(memory, authority);
+  await store.rowAccess.setTier("3-site", "team", { folder: true });
+  assert.deepEqual(authority.calls.setAccess, [{ path: "3-site", base: "team", expectedVersion: 7, kind: "folder" }]);
+});
+
+test("rows mode: a waiting list that is full is refused with its code", async () => {
+  const memory = new MemoryStore();
+  memory.seed(PRIVACY_KEY, FILE);
+  const full = withPrivacyAuthority(memory, rowsAuthority(() => ({ ok: false, code: "PENDING_FULL" })));
+  await assert.rejects(
+    persistExactVisibility(full, "1-projects/a.md", "private", (await loadPrivacyState(full)).rules),
+    (error) => error instanceof RowsWriteRefused && error.code === "PENDING_FULL",
+  );
+});
+
 test("rows mode: set_visibility calls setAccess, answers the permission error on FORBIDDEN, and writes no file", async () => {
   const memory = new MemoryStore();
   memory.seed(PRIVACY_KEY, FILE);
@@ -236,7 +268,8 @@ test("rows mode: set_folder_visibility sets the folder's own row and writes no r
   assert.notEqual(result.isError, true, JSON.stringify(result));
   assert.deepEqual(authority.calls.write, []);
   assert.deepEqual(memory.puts.filter((key) => key === PRIVACY_KEY), []);
-  assert.deepEqual(authority.calls.setAccess, [{ path: "2-areas", base: "private", expectedVersion: 7 }]);
+  // A folder says so: a path with no row takes its pending access as the folder's row.
+  assert.deepEqual(authority.calls.setAccess, [{ path: "2-areas", base: "private", expectedVersion: 7, kind: "folder" }]);
 });
 
 test("file mode: the same writes edit privacy.md through the authority, and never call setAccess", async () => {

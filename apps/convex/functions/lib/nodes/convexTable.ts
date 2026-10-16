@@ -15,6 +15,7 @@ import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from ".
 import { readMirror } from "./listing";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 import { newNoteId } from "./noteIds";
+import { applyPendingAccess } from "./pendingAccess";
 
 /**
  * The fields a patch may set. A key passed as `undefined` clears the field
@@ -134,11 +135,11 @@ export function convexNodeTable(
 
     async insert(node) {
       if (!writable) throw new Error("insert on a read-only node table");
+      // Every row has its id from the start (`noteIds.ts`): a seam write brings the note's own, a bucket row mints one.
+      const noteId = node.noteId ?? newNoteId();
       const id = await writer.db.insert("nodes", {
         workspaceId,
-        // Every row has its id from the start (`noteIds.ts`): a seam write brings the
-        // note's own, a bucket row mints one.
-        noteId: node.noteId ?? newNoteId(),
+        noteId,
         storageKey: node.storageKey,
         path: node.path,
         parentId: node.parentId as Id<"nodes"> | undefined,
@@ -150,6 +151,10 @@ export function convexNodeTable(
         observedAt: node.observedAt,
         goneAt: node.goneAt,
       });
+      // A row born where access was asked for before it existed takes that access now, in this mutation.
+      if (node.goneAt === undefined) {
+        await applyPendingAccess(writer, workspaceId, { id, path: node.path, kind: node.kind, noteId }, Date.now());
+      }
       return id;
     },
 

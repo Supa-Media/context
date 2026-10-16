@@ -172,7 +172,12 @@ export function withPrivacyAuthority(store, authority) {
       held.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility })),
     );
     const base = !folder && tier !== "inherit" && tier === inherited ? "inherit" : tier;
-    const answer = await authority.setAccess({ path, base, expectedVersion: held.accessVersion });
+    const answer = await authority.setAccess({
+      path,
+      base,
+      expectedVersion: held.accessVersion,
+      ...(folder ? { kind: "folder" } : {}),
+    });
     if (answer?.ok !== true) return answer ?? { ok: false };
     const listKey = folder ? "folders" : "notes";
     const field = folder ? "prefix" : "path";

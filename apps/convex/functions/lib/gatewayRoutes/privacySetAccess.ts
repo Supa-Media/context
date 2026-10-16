@@ -42,7 +42,13 @@ function granteeOf(raw: unknown): Grantee | null {
 
 /** The `setAccess` body, parsed: `null` for anything malformed (refused, nothing written). */
 function parse(body: Record<string, unknown>):
-  | { path: string; base: "private" | "team" | "inherit"; grantees: Grantee[] | "inherit" | undefined; expectedVersion: number | undefined }
+  | {
+      path: string;
+      base: "private" | "team" | "inherit";
+      grantees: Grantee[] | "inherit" | undefined;
+      expectedVersion: number | undefined;
+      kind: "file" | "folder" | undefined;
+    }
   | null {
   const path = stringField(body, "path");
   const base = stringField(body, "base");
@@ -50,6 +56,8 @@ function parse(body: Record<string, unknown>):
   if (base !== "private" && base !== "team" && base !== "inherit") return null;
   const expected = body.expectedVersion;
   if (expected !== undefined && (typeof expected !== "number" || !Number.isInteger(expected) || expected < 0)) return null;
+  if (body.kind !== undefined && body.kind !== "file" && body.kind !== "folder") return null;
+  const kind = body.kind as "file" | "folder" | undefined;
   let grantees: Grantee[] | "inherit" | undefined;
   if (body.grantees === undefined) grantees = undefined;
   else if (body.grantees === "inherit") grantees = "inherit";
@@ -58,7 +66,7 @@ function parse(body: Record<string, unknown>):
     if (parsed.some((grantee) => grantee === null)) return null;
     grantees = parsed as Grantee[];
   } else return null;
-  return { path, base, grantees, expectedVersion: expected as number | undefined };
+  return { path, base, grantees, expectedVersion: expected as number | undefined, kind };
 }
 
 /**
@@ -79,6 +87,7 @@ export async function setAccessOp(
     base: args.base,
     ...(args.grantees === undefined ? {} : { grantees: args.grantees }),
     ...(args.expectedVersion === undefined ? {} : { expectedVersion: args.expectedVersion }),
+    ...(args.kind === undefined ? {} : { kind: args.kind }),
     actor,
   });
   return json(answer);
