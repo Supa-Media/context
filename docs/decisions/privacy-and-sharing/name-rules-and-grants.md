@@ -349,3 +349,24 @@ grantees are refused", "a missing account and a deleted one") and
 `setGrantees.test.ts` ("one refusal for every grantee that does not resolve")
 fail if either is reverted. The gateway's `setAccessBody.test.mjs` fails if
 it sends `grantees` for a tier.
+
+## An edit grant lets a member write one note's body
+
+*Built on 2026-10-16 (edit-grants, PR 2).* A workspace `member` who holds the
+edit name of the row that governs a note (`lib/nodes/governingRow.ts`, the walk
+`canSee` makes) may write that note's body through `writeNote`. Nothing else
+is opened: moves, renames, trash, archive, copies, sharing, groups, images,
+mail and creating a note stay `editor`. The new text may not carry a form
+block, since that creates response files. A path that is not canonical (`..`,
+`.`, empty segments, backslashes) is refused for a member, because the walk
+reads the path as written.
+
+Every refusal is the `INSUFFICIENT_ROLE` a member without a grant gets, so a
+member cannot tell an ungranted note from one that does not exist.
+
+What a "simplification" would cost: reading the grant from the rendered rules
+loses a team-base row's list, and a write that trusts the path text lets a
+`..` walk into another folder's notes. `__tests__/files/memberEditWrite.test.ts`
+fails if the grant is ignored, a form block is allowed, or a non-canonical path
+is not refused; `__tests__/files/memberWriteCoverage.test.ts` fails if any other
+console write takes the member path.

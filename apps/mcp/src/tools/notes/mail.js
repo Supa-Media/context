@@ -136,6 +136,19 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
   return toolError("conflict: note kept changing while the mail was being sent; try again");
 }
 
+/**
+ * How often an agent checks, said to every agent that joins (the owner,
+ * 2026-10-16: "we need to make sure that the agents know they need to set up
+ * a poll timer that cant be wiped"). The server cannot wake anyone, so a check
+ * that stops is mail nobody reads; a timer kept only in a session's memory
+ * stopped after one check when its session restarted.
+ */
+export const CHECK_RHYTHM =
+  "Check mail every 5 minutes with a timer that survives your session restarting: a timer kept only in your " +
+  "session's memory is wiped, and the checks silently stop. In Claude Code, run a background shell command " +
+  "(sleep 300) that wakes you and start it again at every check, with a scheduled task as a backup. If your app " +
+  "cannot wake itself, tell the person, so they can prompt you.";
+
 function joinedText(path, mailbox, events, again) {
   const earlier = events.filter((event) => event.kind === "mail").length;
   const id = JSON.stringify(mailbox.mailboxId);
@@ -145,8 +158,9 @@ function joinedText(path, mailbox, events, again) {
     `Read new mail: fetch { id: ${JSON.stringify(path)}, args: { mail: "new" }, mailbox: ${id} }. ` +
       `Send: write { path: ${JSON.stringify(path)}, action: "mail", args: { text, to }, mailbox: ${id} }, to "${EVERYONE}" or a name.`,
     earlier
-      ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }. The lead's first message usually says how often to check.`
-      : "No mail yet. If you lead this work, send the first message: what each of you does and how often you will check mail.",
+      ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }.`
+      : "No mail yet. If you lead this work, send the first message: what each of you does.",
+    CHECK_RHYTHM,
   ].join("\n");
 }
 

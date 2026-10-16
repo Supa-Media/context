@@ -231,16 +231,22 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
     const evidence = Object.fromEntries(found.hits.map((hit, rank) => [hit[keyField], { wordRank: rank, loose: hit.loose === true, meaningScore: null }]));
     return { ...found, hits, evidence, meaning: matches ? "none" : "off" };
   }
-  const out = [];
-  let reads = 0;
   // `every` of none is true: a word search that found nothing is the loosest.
   const readCap = found.hits.every((hit) => hit.loose === true) ? Math.max(most, MEANING_SNIPPET_READS_LOOSE) : most;
   const wordRanks = new Map(found.hits.map((hit, rank) => [hit[keyField], rank]));
+  const merged = mergeHits(found.hits, matches, keyField);
+  // The notes read for a snippet, all at once: one after another they were a
+  // read's wait each, up to six in a row per workspace.
+  const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
+  const reads = new Map(
+    await Promise.all(reading.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars, isVisible)])),
+  );
+  const out = [];
   // The evidence behind each hit, beside the hits rather than on them: a
   // search across workspaces (`tools/search.js`) ranks by it, since one
   // workspace's first word hit and another's are not the same strength.
   const evidence = {};
-  for (const entry of mergeHits(found.hits, matches, keyField)) {
+  for (const entry of merged) {
     evidence[entry.key] = {
       wordRank: wordRanks.get(entry.key) ?? null,
       loose: entry.word?.loose === true,
@@ -251,9 +257,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
       out.push({ ...word, meaningOnly: false });
       continue;
     }
-    if (reads >= readCap) continue;
-    reads += 1;
-    const read = await meaningSnippet(store, entry.meaning, chars, isVisible);
+    const read = reads.get(entry);
     if (read) out.push({ [keyField]: entry.key, title: read.title, snippets: read.snippets, meaningOnly: true });
   }
   const added = out.filter((hit) => hit.meaningOnly).length;

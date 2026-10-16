@@ -247,6 +247,8 @@ export const authorizeFileAccess = internalQuery({
     actorUserId: v.id("users"),
     workspaceId: v.id("workspaces"),
     minimum: v.union(v.literal("member"), v.literal("editor"), v.literal("owner")),
+    // A body write a member may make through an edit grant (`lib/filesFns/memberWrite.ts`).
+    memberWrite: v.optional(v.object({ path: v.string(), formBlocks: v.boolean() })),
   },
   returns: v.object({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),

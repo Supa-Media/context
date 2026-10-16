@@ -175,6 +175,8 @@ test("agents join under a name and get a mailbox; a held name is refused", async
   assert.match(joined.text, /Read new mail: fetch \{ id: "1-projects\/launch\/plan\.md", args: \{ mail: "new" \}/);
   assert.match(joined.text, /Send: write \{ path: "1-projects\/launch\/plan\.md", action: "mail", args: \{ text, to \}/);
   assert.doesNotMatch(joined.text, /read_note|write_note/);
+  // The owner, 2026-10-16: a check timer kept in a session's memory was wiped and the checks stopped.
+  assert.match(joined.text, /Check mail every 5 minutes with a timer that survives your session restarting/);
   const second = await call(TOKEN_BUILDER, "write_note", { path: PLAN, mail: { join: "builder" } });
   builder = mailboxOf(second.text);
   assert.ok(builder && builder !== lead);

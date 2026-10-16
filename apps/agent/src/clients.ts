@@ -217,6 +217,8 @@ export type AgentAnswer =
   | { kind: "answer"; text: string; pictures: OutgoingPicture[] }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
+  /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
+  | { kind: "not_started" }
   | { kind: "unavailable" };
 
 /**
@@ -273,6 +275,9 @@ function agentAnswer(status: number, json: unknown): AgentAnswer {
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };
+  // Only the gateway's own 503, sent before the turn runs (`apps/mcp/src/agent/route.js`):
+  // a platform 503 (a Worker over its limits) can come after tools ran.
+  if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
   return { kind: "unavailable" };
 }
 

@@ -18,6 +18,8 @@ import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow, type NodeDoc 
 
 export type CopyResult = {
   path: string;
+  /** The key the page wrote the bytes to (the item's key); a row whose id changed since does not take the copy. */
+  key?: string;
   ok: boolean;
   etag?: string;
   keyEtag?: string;
@@ -140,6 +142,8 @@ export async function recordCopyPage(
     if (node === null || node.kind !== "file" || node.goneAt !== undefined || node.noteId === undefined) continue;
     // A keyed row's bytes live at its key alone: a copy made from its frozen path object marks nothing.
     if (node.storageKey !== undefined) continue;
+    // The bytes went to the key the page was handed; a row that took another id since (a repair) does not own that copy.
+    if (result.key !== undefined && result.key !== idKeyFor(node.noteId, node.path)) continue;
     if (!result.ok) {
       if (result.reason === "changed" && result.currentEtag !== undefined && result.currentEtag !== node.etag) {
         // The bucket holds a version the row does not: a writer changed the object without the tree hearing of it,

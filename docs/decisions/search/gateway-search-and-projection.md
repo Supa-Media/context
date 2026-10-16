@@ -295,3 +295,26 @@ bucket's index does not answer instead"), `searchProjection/endToEnd.test.mjs`
 `consoleSearch.test.ts` ("a refused projection leaves a working search that
 says it is behind") and `searchBackfill.test.ts` ("a search reads the
 projection while it fills").
+
+### An assistant's turn holds its index passes until it ends
+
+Found on production, 2026-10-16, when Dev2 saw Tex's searches take over ten
+seconds. Every call of an assistant's turn (its model rounds, its searches,
+its reads) runs in one Worker invocation, which has six connections, and each
+search started an index pass behind it of up to `SEARCH_SUBREQUEST_BUDGET`
+calls in every workspace it reached. One turn issued about 2,000 subrequests
+whose median wait was a second, while D1, Vectorize and the embedding each
+answered in well under one.
+
+So `/agent` (and Try it, and the dream) runs its turn inside
+`withSearchPassesHeld` (`search/heldPasses.js`): a pass a search starts is
+kept, one per workspace, and started behind the response once the turn has
+answered. A search across workspaces holds its own the same way until every
+workspace has answered, and asks them all at once rather than its own
+workspace first. Nothing is skipped; the passes run later in the same
+invocation. A host that cannot defer still runs them inline and capped.
+
+**What fails if reversed:** `test/searchHeldPasses.test.mjs` ("a Tex turn's
+searches start no index pass until the model has answered", "a held pass
+starts on release, once per workspace").
+

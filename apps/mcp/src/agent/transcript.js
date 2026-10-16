@@ -54,8 +54,8 @@ export const TRANSCRIPTS_FOLDER = "tex/transcripts";
 
 /** What a texted turn is told about the notes, so it never mistakes them for the person's own. */
 export const TRANSCRIPTS_PROMPT =
-  `\n\n${TRANSCRIPTS_FOLDER}/ is your own record of these texts, kept for improving you. ` +
-  "It is not their notes: never cite it or file from it, and read it only when they ask about an earlier conversation.";
+  `\n\n${TRANSCRIPTS_FOLDER}/ in their personal workspace holds a transcript of these texts, one note a day; ` +
+  "they can open it like any note. Never cite it or file from it; read it only when they ask about it or an earlier conversation.";
 
 /** Past this, a day carries on in `YYYY-MM-DD-2.md`: the whole note is rewritten on every write. */
 export const MAX_DAY_CHARS = 200_000;

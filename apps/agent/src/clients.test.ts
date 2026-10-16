@@ -124,6 +124,8 @@ describe("askAgent", () => {
     expect(await askAgent(fake(429, { error: "daily_limit" }), "g", "t", "q")).toEqual({ kind: "daily_limit" });
     expect(await askAgent(fake(200, { answer: "  " }), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(fake(503, {}), "g", "t", "q")).toEqual({ kind: "unavailable" });
+    // The gateway's own 503 means the turn never started, so the text can be asked again.
+    expect(await askAgent(fake(503, { error: "model_unavailable" }), "g", "t", "q")).toEqual({ kind: "not_started" });
     expect(await askAgent(throwing, "g", "t", "q")).toEqual({ kind: "unavailable" });
   });
 });
