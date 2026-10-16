@@ -2,6 +2,7 @@
  * Shared fixtures for the pacing checks: the bucket model and the search helpers. See searchPacing.test.mjs for the checks they serve.
  */
 
+import { treeBacked } from "./treeBacking.mjs";
 import worker from "../src/index.js";
 import { createSearchBudget } from "../src/search/maintain.js";
 import { syncShardedIndex } from "../src/search/shards.js";
@@ -35,7 +36,7 @@ export const PRIVACY_MANIFEST =
  * round trips or fifty-seven. `peak` is what a sequential loop can never raise
  * above 1.
  */
-export function createBucket() {
+function rawBucket() {
   const objects = new Map();
   let etags = 0;
   const counts = { get: 0, put: 0, list: 0, delete: 0, getKeys: [] };
@@ -286,4 +287,31 @@ export async function captureLogs(run) {
  */
 export function visibleOnly(prefix) {
   return (key) => !key.startsWith(prefix);
+}
+
+/**
+ * The control plane's copy of the bucket, read straight from its objects: no
+ * counter, no round trip, no place in the in-flight peaks. The gateway pays
+ * nothing for the tree's answers in store ops (`treeBacking.mjs`).
+ */
+function treeSourceOf(objects) {
+  return {
+    async list({ prefix = "" } = {}) {
+      const keys = [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+      return {
+        objects: keys.map((key) => ({ key, etag: objects.get(key).etag, size: objects.get(key).body.length, uploaded: objects.get(key).uploaded })),
+        delimitedPrefixes: [],
+        truncated: false,
+      };
+    },
+    async get(key) {
+      const stored = objects.get(key);
+      return stored ? { etag: stored.etag, text: async () => stored.body } : null;
+    },
+  };
+}
+
+export function createBucket() {
+  const bucket = rawBucket();
+  return treeBacked(bucket, { source: treeSourceOf(bucket.objects) });
 }

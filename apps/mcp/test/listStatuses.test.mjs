@@ -18,6 +18,7 @@
  *    comma refusal.
  */
 
+import { treeBacked } from "./treeBacking.mjs";
 import { noteProperties, parseListBody, selectListRows, setNoteProperty } from "../src/lists.js";
 import {
   compareStatuses,
@@ -144,9 +145,14 @@ const MANIFEST =
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 function memoryStore(files) {
-  return {
+  return treeBacked({
     get: async (key) => (key in files ? { text: async () => files[key] } : null),
-  };
+    list: async ({ prefix = "" } = {}) => ({
+      objects: Object.keys(files).filter((key) => key.startsWith(prefix)).map((key) => ({ key, etag: `v-${key}`, size: 1, uploaded: new Date(0) })),
+      truncated: false,
+      delimitedPrefixes: [],
+    }),
+  });
 }
 
 export async function runStatusAdviceChecks(check) {

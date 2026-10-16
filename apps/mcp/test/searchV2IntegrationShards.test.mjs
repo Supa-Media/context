@@ -4,7 +4,7 @@
  * on converges under v2. The rest of the checks are in searchV2Integration.test.mjs.
  */
 
-import { R2Store } from "../src/store/r2.js";
+import { R2Store } from "./treeBacking.mjs";
 import { SEARCH_INDEX_KEY, createSearchBudget, syncIndex } from "../src/search/maintain.js";
 import { parseIndex } from "../src/search/indexer.js";
 import { MAX_RESULTS } from "../src/search/query.js";

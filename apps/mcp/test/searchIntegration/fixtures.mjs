@@ -5,7 +5,7 @@
  */
 
 import worker from "../../src/index.js";
-import { R2Store } from "../../src/store/r2.js";
+import { R2Store } from "../treeBacking.mjs";
 import {
   NOTE_INDEX_CHAR_CAP,
   SEARCH_INDEX_KEY,

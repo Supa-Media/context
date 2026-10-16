@@ -58,17 +58,21 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
     }
     const store = new R2Store(bucket);
     bucket.resetCounts();
-    const short = await syncShardedIndex(store, { budget: createSearchBudget(10) });
+    const short =await syncShardedIndex(store, { budget: createSearchBudget(10) });
+    // The spend is at least the store ops the pass made. It is more than that
+    // by design where the tree answers a listing: the budget charges one unit
+    // per listing call (`listing.js`), including calls answered from the
+    // tree the pass already read, so the spend is not an op count any more.
     check(
       "a pass that runs out of budget reports what it did not reach and never spends past the budget",
-      short.pending > 0 && bucket.ops <= 10 && short.spent === bucket.ops
+      short.pending > 0 && bucket.ops <= 10 && short.spent <= 10 && short.spent >= bucket.ops
     );
     const reserved = createSearchBudget(24);
     bucket.resetCounts();
-    const withReserve = await syncShardedIndex(store, { budget: reserved, reserve: 6 });
+    const withReserve =await syncShardedIndex(store, { budget: reserved, reserve: 6 });
     check(
       "and a reserve is store ops the pass may not touch, whatever it still has to do",
-      bucket.ops <= 24 - 6 && reserved.remaining >= 6 && withReserve.spent === bucket.ops
+      bucket.ops <= 24 - 6 && reserved.remaining >= 6 && withReserve.spent <= 24 && withReserve.spent >= bucket.ops
     );
     const converged = await converge(store);
     check(

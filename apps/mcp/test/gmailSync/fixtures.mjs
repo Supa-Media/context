@@ -1,3 +1,4 @@
+import { treeBacked } from "../treeBacking.mjs";
 // Shared fixtures for the Gmail sync suite: a tiny in-memory ContextStore and
 // a fake Gmail API, data-driven from a small mailbox.
 //
@@ -18,7 +19,7 @@
 /* A tiny in-memory ContextStore, per the contract in src/store/index.js      */
 /* -------------------------------------------------------------------------- */
 
-export function createMemoryStore({ conditionalWrite = true } = {}) {
+function rawMemoryStore({ conditionalWrite = true } = {}) {
   const objects = new Map();
   let nextEtag = 1;
   return {
@@ -178,4 +179,8 @@ export function createFixtureGmail(config) {
 
 export function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+export function createMemoryStore(options) {
+  return treeBacked(rawMemoryStore(options));
 }

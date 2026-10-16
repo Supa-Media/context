@@ -8,6 +8,7 @@
  */
 
 import { createS3Backend, createSearchBudget, storeForBinding, syncShardedIndex } from "./fixtures.mjs";
+import { treeBacked } from "../treeBacking.mjs";
 
 const SYNC_ENDPOINT = "https://s3.example-syncreport.test";
 
@@ -20,7 +21,7 @@ export async function runSyncReportChecks(check) {
     bucket.set("1-projects/two.md", { body: "# Two\n\nbeta\n", etag: "s2" });
     bucket.set("index.md", { body: "# Index\n\ngamma\n", etag: "s3" });
 
-    const store = storeForBinding(
+    const store = treeBacked(storeForBinding(
       {
         provider: "s3",
         endpoint: SYNC_ENDPOINT,
@@ -33,7 +34,7 @@ export async function runSyncReportChecks(check) {
         status: "active",
       },
       {},
-    );
+    ));
 
     const first = await syncShardedIndex(store, { budget: createSearchBudget(200) });
     check(

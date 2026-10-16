@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { withPrivacyAuthority } from "../../src/store/privacyAuthority.js";
+import { treeBacked } from "../treeBacking.mjs";
 import {
   clearExactVisibility,
   loadPrivacyState,
@@ -18,7 +19,8 @@ import {
 import { canSee, PRIVACY_KEY, PRIVACY_RULES_BEGIN, PRIVACY_RULES_END } from "../../src/privacy/engine.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "../../src/tools/visibility.js";
 
-class MemoryStore {
+/** The bucket's keys, as the fixture holds them: the tree is built from this listing. */
+class RawMemoryStore {
   constructor() {
     this.objects = new Map();
     this.counter = 0;
@@ -40,8 +42,11 @@ class MemoryStore {
     const item = this.objects.get(key);
     return item ? { etag: item.etag } : null;
   }
-  async list() {
-    return { objects: [], truncated: false };
+  async list({ prefix = "" } = {}) {
+    const objects = [...this.objects.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => ({ key, etag: this.objects.get(key).etag, size: this.objects.get(key).text.length, uploaded: new Date(0) }));
+    return { objects, truncated: false, delimitedPrefixes: [] };
   }
   async put(key, value) {
     this.puts.push(key);
@@ -52,6 +57,11 @@ class MemoryStore {
   async delete(key) {
     this.objects.delete(key);
   }
+}
+
+/** A bucket with the gateway's session tree attached (`treeBacking.mjs`). */
+function MemoryStore() {
+  return treeBacked(new RawMemoryStore());
 }
 
 const FILE = [

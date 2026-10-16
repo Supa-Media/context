@@ -4,7 +4,7 @@
  * overview and the sabotage-testing record.
  */
 
-import { R2Store } from "../../src/store/r2.js";
+import { R2Store } from "../treeBacking.mjs";
 import { NOTE_INDEX_CHAR_CAP, createSearchBudget } from "../../src/search/maintain.js";
 import {
   DOCMAP_KEY,
@@ -167,6 +167,34 @@ export function createBucket() {
       };
     },
   };
+  /**
+   * The same reads, not counted. The control plane keeps its own copy of the
+   * tree and reads this bucket to build it (`treeBacking.mjs`); that is not a
+   * store op the gateway spent, so a budget must not see it. The counters are
+   * incremented before the first `await` of each method, so restoring them
+   * straight after the call leaves exactly the calls the gateway made.
+   */
+  api.untracked = {
+    list: (options) => uncounted(() => api.list(options)),
+    get: (key) => uncounted(() => api.get(key)),
+  };
+  function uncounted(run) {
+    const saved = {
+      get: counts.get,
+      put: counts.put,
+      list: counts.list,
+      delete: counts.delete,
+      gets: counts.gets.length,
+      puts: counts.puts.length,
+      noteGets: counts.noteGets.length,
+    };
+    const result = run();
+    Object.assign(counts, { get: saved.get, put: saved.put, list: saved.list, delete: saved.delete });
+    counts.gets.length = saved.gets;
+    counts.puts.length = saved.puts;
+    counts.noteGets.length = saved.noteGets;
+    return result;
+  }
   return api;
 }
 

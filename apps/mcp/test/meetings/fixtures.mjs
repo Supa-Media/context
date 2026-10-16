@@ -4,6 +4,7 @@
  * sabotage-testing record.
  */
 
+import { treeBacked } from "../treeBacking.mjs";
 import worker from "../../src/index.js";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -274,7 +275,7 @@ export function keysIn(bucket, prefix) {
  * that **cannot** do a conditional write. B2 and Wasabi accept `If-Match` and
  * ignore it, and the rule is that the guarantee is never silently dropped.
  */
-export function fakeStore({ conditionalWrite }) {
+function rawFakeStore({ conditionalWrite }) {
   const objects = new Map();
   const puts = [];
   let counter = 0;
@@ -439,4 +440,8 @@ export async function createMeetingHarness() {
     restoreS3();
   };
   return harness;
+}
+
+export function fakeStore(options) {
+  return treeBacked(rawFakeStore(options));
 }

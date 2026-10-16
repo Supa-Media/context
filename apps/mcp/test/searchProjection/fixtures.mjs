@@ -83,6 +83,7 @@
  * quarter and why it is a share rather than a constant.
  */
 
+import { treeBacked } from "../treeBacking.mjs";
 import worker from "../../src/index.js";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -333,10 +334,13 @@ export const DESCRIPTOR = {
 };
 
 /** A store stub that holds note text and counts what was read. */
-export function noteStore(notes) {
+function rawNoteStore(notes) {
   const reads = [];
   return {
     reads,
+    async list({ prefix = "" } = {}) {
+      return { objects: Object.keys(notes).filter((key) => key.startsWith(prefix)).map((key) => ({ key, etag: `v-${key}`, size: 0, uploaded: new Date(0) })), truncated: false, delimitedPrefixes: [] };
+    },
     async get(path) {
       reads.push(path);
       if (!(path in notes)) return null;
@@ -394,4 +398,8 @@ export function s3Binding(bucket, searchIndex) {
  */
 export function longNote(term) {
   return `# A long log\n\n${"filler ".repeat(700)}\n\n${term} appears only down here.\n`;
+}
+
+export function noteStore(notes) {
+  return treeBacked(rawNoteStore(notes));
 }

@@ -12,6 +12,7 @@
 //   (the Chat pass: dropping its sweepDormant call fails the Chat
 //   archive test in apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts)
 
+import { treeBacked } from "../treeBacking.mjs";
 import { CONTACT_INDEX_KEY, renderContactNote } from "../../../../packages/communications/src/index.js";
 import { gmailMessageToEvent } from "../../src/communications/gmail/parsing.js";
 import { openContactLookup, writeContactDraft } from "../../src/communications/contactLookup.js";
@@ -20,7 +21,7 @@ import { runIncrementalSync } from "../../src/communications/gmail/sync.js";
 import { createFixtureGmail, fixtureMessage } from "./fixtures.mjs";
 
 /** A store with every guard a move asks for: conditional create, write and delete, and a paged list. */
-function guardedStore(seed = {}) {
+function rawGuardedStore(seed = {}) {
   const objects = new Map();
   let counter = 0;
   const set = (key, body) => {
@@ -242,4 +243,8 @@ export async function runGmailContactChecks(check) {
     check("a day's sync files a new page for somebody the owner wrote to under their letter",
       contactKeys(store).length === 1 && store.text("0-inbox/contacts/a/email-ann-example-invalid.md") !== null);
   }
+}
+
+function guardedStore(seed = {}) {
+  return treeBacked(rawGuardedStore(seed));
 }

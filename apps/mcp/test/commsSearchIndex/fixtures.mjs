@@ -5,6 +5,7 @@
 // Split out of commsSearchIndex.test.mjs; see that file's sections for the
 // checks built on these fixtures.
 
+import { treeBacked } from "../treeBacking.mjs";
 import { NOTE_INDEX_CHAR_CAP, createSearchBudget } from "../../src/search/maintain.js";
 import { syncShardedIndex } from "../../src/search/shards.js";
 import { renderChannelDayNote } from "../../../../packages/communications/src/note.js";
@@ -72,7 +73,7 @@ export const NOTE_PATH = "0-inbox/email/name-at-example-com/2026-09-07.md";
 /* An in-memory bucket, R2/S3-shaped: pages, delimits, reports an etag.       */
 /* -------------------------------------------------------------------------- */
 
-export function createBucket() {
+function rawBucket() {
   const objects = new Map();
   let etags = 0;
   const api = {
@@ -149,3 +150,7 @@ export async function converge(store, budget = 2000, options = {}) {
 // Re-exported so section files that need the char cap don't each import
 // `maintain.js` for one constant.
 export { NOTE_INDEX_CHAR_CAP };
+
+export function createBucket() {
+  return treeBacked(rawBucket());
+}

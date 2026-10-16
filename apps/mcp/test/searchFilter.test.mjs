@@ -56,6 +56,7 @@
  * asked a filter about a term it had been given.
  */
 
+import { treeBacked } from "./treeBacking.mjs";
 import {
   FILTER_MAX_BYTES,
   buildTermFilter,
@@ -85,7 +86,7 @@ const encoder = new TextEncoder();
 const SEEDED_AT = new Date("2026-06-01T00:00:00.000Z");
 
 /** The same in-memory bucket shape the other search fixtures use. */
-function createBucket() {
+function rawBucket() {
   const objects = new Map();
   let etags = 0;
   const counts = { gets: [], puts: [] };
@@ -481,4 +482,8 @@ export async function runSearchFilterChecks(check) {
         routed.matchCount === unfiltered.matchCount
     );
   }
+}
+
+function createBucket() {
+  return treeBacked(rawBucket());
 }

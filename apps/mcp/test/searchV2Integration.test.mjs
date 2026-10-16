@@ -91,7 +91,7 @@
  */
 
 import worker from "../src/index.js";
-import { R2Store } from "../src/store/r2.js";
+import { R2Store } from "./treeBacking.mjs";
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { createSearchBudget } from "../src/search/maintain.js";
 import { LEGACY_V1_KEY, MANIFEST_KEY, shardKey, syncShardedIndex } from "../src/search/shards.js";

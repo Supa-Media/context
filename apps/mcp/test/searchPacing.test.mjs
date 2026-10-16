@@ -454,9 +454,12 @@ export async function runSearchPacingChecks(check) {
 
     bucket.resetCounts();
     const warm = await request(bucket, { query: "narwhal", budget: 600 });
+    // Changed with the census reading the tree (`src/tree/served.js`): the old
+    // claim was that one bucket listing per folder ran in waves. A search now
+    // asks the tree for its listing, so the bucket is not listed at all.
     check(
-      "folder listings overlap rather than running one folder at a time",
-      bucket.peak.list > 1
+      "a search never lists the bucket: the tree answers the listing, in place of one listing per folder",
+      bucket.peak.list === 0
     );
     check(
       "shard objects are read in waves, bounded by the declared width",
