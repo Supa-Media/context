@@ -128,7 +128,7 @@ export function switchButtons(report: Pick<PrivacyRowsReport, "source" | "ready"
 }
 
 /** The confirm before Use rows, in plain words: what is true after it. */
-export function useRowsNote(): string {
+export function rowsSwitchNote(): string {
   return "After this, readers judge by the access rows. The rules are still kept and can be switched back at any time with Back to Off.";
 }
 

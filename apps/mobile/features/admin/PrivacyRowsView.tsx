@@ -30,7 +30,7 @@ import {
   summaryLine,
   switchButtons,
   switchedWords,
-  useRowsNote,
+  rowsSwitchNote,
   type PrivacyRowsRow,
 } from "./privacyRows";
 
@@ -50,7 +50,7 @@ export function PrivacyRowsView() {
   const report = useQuery(api.functions.privacyRows.report, {});
   const start = useMutation(api.functions.privacyRows.startKeeping);
   const check = useMutation(api.functions.privacyRows.checkAll);
-  const useRows = useMutation(api.functions.privacyRows.useRows);
+  const switchToRows = useMutation(api.functions.privacyRows.useRows);
   const backToOff = useMutation(api.functions.privacyRows.backToOff);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<Said>(null);
@@ -157,7 +157,7 @@ export function PrivacyRowsView() {
         ) : null}
         {confirmingRows ? (
           <View style={styles.inline} role="alert" testID="admin-rows-use-confirm">
-            <Text variant="check">{useRowsNote()}</Text>
+            <Text variant="check">{rowsSwitchNote()}</Text>
             <View style={styles.actions}>
               <Button label="Cancel" disabled={busy !== null} onPress={() => setConfirmingRows(false)} />
               <Button
@@ -165,7 +165,7 @@ export function PrivacyRowsView() {
                 disabled={busy !== null}
                 onPress={() =>
                   void act("rows", async () => {
-                    const { source } = await useRows({});
+                    const { source } = await switchToRows({});
                     setConfirmingRows(false);
                     return switchedWords(source);
                   })
