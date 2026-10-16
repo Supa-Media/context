@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ScrollView, View } from "react-native";
 import { ScreenViewport, type useSurfacePadding } from "../../../app/Screen";
 import { PageSlide } from "../../../design/components/PageSlide";
@@ -8,6 +8,7 @@ import { EdgeSwipeHome } from "../../home/EdgeSwipeHome";
 import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
+import { rememberScroll, usePageScroll } from "./pageScroll";
 
 /** The phone slide's key for the map: no path can be it (`phoneBack.ts` reads it). */
 export const MAP_PAGE_KEY = "\u0000map";
@@ -97,6 +98,11 @@ export function DocumentSurface({
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
+  const pageKey = selected?.path ?? "";
+  const restoredOffset = usePageScroll(pageKey);
+  // One object per offset: a fresh one each render could set the offset again under a scrolling thumb.
+  const startAt = useMemo(() => ({ x: 0, y: restoredOffset }), [restoredOffset]);
+
   if (fill) {
     return compact ? (
       <PageSlide pageKey={MAP_PAGE_KEY} directionOf={slideDirection} testID="page-slide">
@@ -144,7 +150,7 @@ export function DocumentSurface({
           slide can see (`PageSlide`).
         */
         <EdgeSwipeHome onHome={onSwipeHome}>
-          <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
+          <PageSlide pageKey={pageKey} directionOf={slideDirection} testID="page-slide">
             {!page && selected !== null && selected.kind === "file" ? (
               openDocument
             ) : (
@@ -156,6 +162,16 @@ export function DocumentSurface({
             */
               <ScreenViewport padding={padding} style={styles.statusBand}>
                 <ScrollView
+                  /*
+                    One scroller per page. It was one for every page, so a
+                    folder opened from halfway down Home arrived halfway down
+                    itself and then jumped to the top as it filled in. A page
+                    gone back to is where it was left (`pageScroll`).
+                  */
+                  key={pageKey}
+                  contentOffset={startAt}
+                  onScroll={(event) => rememberScroll(pageKey, event.nativeEvent.contentOffset.y)}
+                  scrollEventThrottle={64}
                   style={styles.scroll}
                   contentContainerStyle={{
                     paddingTop: padding.content.top,

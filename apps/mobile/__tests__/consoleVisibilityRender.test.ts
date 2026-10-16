@@ -21,11 +21,14 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
  * encryption -- so a stub that refuses if actually called is enough to let
  * the pane mount.
  */
+// One action for the whole run, as Convex's own `useAction` is stable across
+// renders: a source built from it (`useFolderLists`) keeps its identity.
+const mockAction = async () => {
+  throw new Error("not used in this test");
+};
 jest.mock("convex/react", () => ({
   useQueries: () => ({}),
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useAction: () => mockAction,
   /*
     The real `useConvex` returns `undefined` when there is no provider in the
     tree, which is exactly this harness. `PremiumPanel` asks the question and

@@ -255,7 +255,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
               (await offline.savedDraft(path)) !== null;
             if (copy !== null && !waiting && openRun.current === mine) {
               early = relabel(copy.value);
-              dispatch({ type: "opened", note: early, fromCache: true });
+              dispatch({ type: "opened", note: early, fromCache: true, checking: true });
               settleOpening(path);
             }
           }
@@ -268,12 +268,14 @@ export function useOpenNote(deps: OpenNoteDeps) {
               const shown = editorRef.current;
               if (shown.path === path && shown.status === "clean") {
                 dispatch({ type: "reloaded", note });
-              }
+              } else dispatch({ type: "checked", path });
               return;
             }
           } catch (error) {
             if (early !== null) {
               if (openRun.current !== mine) return;
+              // The copy stays, and from here it is plainly a copy: the bucket did not answer.
+              dispatch({ type: "checked", path });
               if (!isServerRefusal(error) || (await shownTrashed(error, path, () => openRun.current === mine))) return;
               if (openRun.current === mine) refuse(error, path);
               return;

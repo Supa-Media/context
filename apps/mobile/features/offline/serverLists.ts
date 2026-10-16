@@ -107,7 +107,8 @@ export async function serverFrontNotes(io: Pick<ServerListIO, "readNotes">, fold
     const batch = paths.slice(at, at + READ_BATCH);
     for (const result of await io.readNotes(batch)) {
       if (result.outcome !== "read" || !batch.includes(result.path) || result.note.encrypted === true) continue;
-      notes.push(parseListNote(result.path, result.note.text));
+      // The text comes along: the page draws the front note's words, and need not read it again.
+      notes.push({ ...parseListNote(result.path, result.note.text), text: result.note.text });
     }
   }
   return notes;

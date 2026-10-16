@@ -149,7 +149,7 @@ describe("shownEntry", () => {
   });
 
   test("with nothing on screen before, nothing is held", () => {
-    expect(shownEntry({ target: null, held: null, selectedPath: B.path, opening: B.path, editorPath: null })).toBeNull();
+    expect(shownEntry({ target: null, held: undefined, selectedPath: B.path, opening: B.path, editorPath: null })).toBeNull();
   });
 });
 

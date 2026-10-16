@@ -18,6 +18,7 @@ import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
 import { NoteLoading } from "./NoteLoading";
+import { preloadFronts } from "../../files/folderPage/pageCache";
 import { noteNameEdit } from "./nameEdit";
 import { isMarkdown, parentPath } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
@@ -73,6 +74,7 @@ export function BrowseDocument({
   notices,
   pathBar,
   layingOut,
+  holding = false,
 }: {
   data: ConsoleData;
   files: FileBrowser;
@@ -108,6 +110,12 @@ export function BrowseDocument({
   pathBar: ReactNode;
   /** The folders after "Start fresh": being written, or just written. */
   layingOut: BrowseNoticeState["layingOut"];
+  /**
+   * The page drawn is the one already on screen, kept while the selection is
+   * read (`useShownEntry`). With nothing selected that is a phone's Home, which
+   * stays rather than giving way to the loading bars.
+   */
+  holding?: boolean;
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
   // The homepage brings its own (the visitor's copy of the site), and asks nothing of a device or the server.
@@ -248,6 +256,8 @@ export function BrowseDocument({
       iconOf={files.iconOf}
       onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
       foot={contextFoot}
+      opening={holding ? files.selectedPath : null}
+      onPreload={(folders) => preloadFronts(folderLists, folders)}
     />
   );
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
@@ -364,7 +374,7 @@ export function BrowseDocument({
         clears on a failed read — so a note that genuinely will not open lands
         back here, under its notice, instead of on a blank page.
       */
-      pendingNote == null && files.opening === null ? (
+      (pendingNote == null && files.opening === null) || (holding && compact && landing !== null) ? (
         layingOut !== null ? (
           /*
             The folders "Start fresh" promised, being written — drawn here,
@@ -415,7 +425,8 @@ export function BrowseDocument({
         // `FolderView`'s header.
         foot={contextFoot}
         onSelect={files.select}
-        opening={files.opening}
+        // The row pressed shows it is opening while this page is kept for it (`useShownEntry`).
+        opening={holding ? files.selectedPath : files.opening}
         menu={folderMenuFor(selected.path)}
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}

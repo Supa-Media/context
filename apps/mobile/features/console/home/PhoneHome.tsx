@@ -51,6 +51,8 @@ export function PhoneHome({
   iconOf,
   onAddFolder,
   foot,
+  opening = null,
+  onPreload,
 }: {
   title: string;
   source: HomeSource;
@@ -77,6 +79,10 @@ export function PhoneHome({
   onAddFolder?: () => void;
   /** The workspace's storage line, as the root listing had it. */
   foot?: string;
+  /** The page being read while Home stays on screen: its row says so. */
+  opening?: string | null;
+  /** The folders Home names, so their pages are read ahead of a press (`pageCache.preloadFronts`). */
+  onPreload?: (folders: readonly string[]) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -94,6 +100,21 @@ export function PhoneHome({
     return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, recents, tag: null, now }) : built;
   }, [source, pins, opened, recents, tag, now]);
   const activeTag = home.tagged?.tag ?? null;
+  // Every folder Home names, read ahead so the one pressed arrives whole.
+  const named = useMemo(
+    () =>
+      [
+        ...home.pinned.filter((tile) => tile.kind === "folder").map((tile) => tile.path),
+        ...home.openMost.map((folder) => folder.path),
+        ...home.folders.map((folder) => folder.path),
+      ].join("\n"),
+    [home],
+  );
+  const preload = useRef(onPreload);
+  preload.current = onPreload;
+  useEffect(() => {
+    if (named !== "") preload.current?.(named.split("\n"));
+  }, [named]);
   const hold = (path: string) => (onHold === undefined ? undefined : (at: HoldPoint) => onHold(path, at));
 
   return (
@@ -167,6 +188,7 @@ export function PhoneHome({
                 ]}
                 onPress={() => onOpen(tile.path)}
                 onLongPress={hold(tile.path)}
+                opening={opening === tile.path}
                 style={styles.gridTile}
               />
             ))}
@@ -186,6 +208,7 @@ export function PhoneHome({
                 lines={[countLabel(folder.notes, 0), folder.label]}
                 onPress={() => onOpen(folder.path)}
                 onLongPress={hold(folder.path)}
+                opening={opening === folder.path}
                 style={styles.railTile}
               />
             ))}
@@ -203,6 +226,7 @@ export function PhoneHome({
                 when={whenOf(note.seenAt ?? note.updatedAt, now)}
                 onPress={() => onOpen(note.path)}
                 onLongPress={hold(note.path)}
+                opening={opening === note.path}
               />
             ))}
           </Card>
@@ -224,6 +248,7 @@ export function PhoneHome({
                 icon={iconOf?.(folder.path) ?? null}
                 onPress={() => onOpen(folder.path)}
                 onLongPress={hold(folder.path)}
+                opening={opening === folder.path}
               />
             ))}
             {onAddFolder === undefined || activeTag !== null ? null : <AddFolderLine onPress={onAddFolder} />}
@@ -241,6 +266,7 @@ export function PhoneHome({
                 when=""
                 onPress={() => onOpen(note.path)}
                 onLongPress={hold(note.path)}
+                opening={opening === note.path}
               />
             ))}
           </Card>

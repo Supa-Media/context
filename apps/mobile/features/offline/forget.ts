@@ -19,6 +19,7 @@ import { openMirrorStore } from "./mirrorStore";
 import { forgetMirrorStatus } from "./mirrorStatus";
 import { forgetDownloadChoices } from "./downloadChoice";
 import { forgetMirrorLists } from "./mirrorLists";
+import { forgetPageCache } from "../console/files/folderPage/pageCache";
 import { forgetMirrorSearch } from "./mirrorSearch";
 import type { MirrorStore } from "./mirrorStoreCore";
 
@@ -321,6 +322,8 @@ async function clearEverything(): Promise<ForgetResult> {
     // The device search's in-memory copy of the same bodies (`mirrorSearch.ts`).
     forgetMirrorSearch();
     forgetMirrorLists();
+    // And what folder pages were drawn from, held in memory (`pageCache.ts`).
+    forgetPageCache();
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
       (mirror) => mirror.clearAll(),
@@ -397,6 +400,7 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     forgetMirrorStatus(workspaceId);
     forgetMirrorSearch(workspaceId);
     forgetMirrorLists(workspaceId);
+    forgetPageCache();
     forgetServerTree(workspaceId);
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
