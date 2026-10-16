@@ -37,6 +37,7 @@ import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
+import { refreshAccess } from "./lib/nodes/accessBackfill";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
@@ -489,6 +490,7 @@ export const savePrivacy = internalMutation({
     const fields = { ...mirror, observedAt: at, fileAhead: undefined, exportedEtag: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
+    await refreshAccess(ctx, workspaceId);
     return null;
   },
 });

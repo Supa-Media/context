@@ -11,6 +11,7 @@
  */
 
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import { internalMutation, internalQuery } from "../_generated/server";
 import {
   EXPORT_RETRY_MS,
@@ -23,6 +24,7 @@ import {
 } from "./lib/nodes/privacyAuthority";
 import { privacyIsNewer } from "./lib/nodes/observe";
 import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
+import { accessDerived, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -84,6 +86,7 @@ export const write = internalMutation({
       observedAt: now,
       exportOwed: true,
     });
+    await refreshAccess(ctx, args.workspaceId);
     // The writer exports at once. This is the net under it, should the
     // writer stop between the two: it does nothing once the export settled.
     await scheduleExport(ctx, args.workspaceId, EXPORT_RETRY_MS);
@@ -118,6 +121,7 @@ export const written = internalMutation({
       if (args.previous !== null && args.previous === row.etag) {
         // Kept as the held version's successor: from here the rules are ours.
         await ctx.db.patch(row._id, { ...rules, exportedEtag: args.etag, observedAt: args.at, exportOwed: false });
+        await refreshAccess(ctx, args.workspaceId);
       } else if (!row.exportOwed) {
         await ctx.db.patch(row._id, { exportOwed: true });
         await scheduleExport(ctx, args.workspaceId, 0);
@@ -129,8 +133,10 @@ export const written = internalMutation({
     // the file made before the flip and not yet read is never written over.
     if (row === null) {
       await ctx.db.insert("nodePrivacy", { workspaceId: args.workspaceId, ...rules, observedAt: args.at });
+      await refreshAccess(ctx, args.workspaceId);
     } else if (privacyIsNewer(row.observedAt, args.at)) {
       await ctx.db.patch(row._id, { ...rules, exportedEtag: undefined, observedAt: args.at });
+      await refreshAccess(ctx, args.workspaceId);
     }
     return null;
   },
@@ -168,6 +174,48 @@ export const owed = internalMutation({
     if (!isAuthority(row, await privacyAuthorityOn(ctx.db))) return null;
     await ctx.db.patch(row._id, { exportOwed: true });
     await scheduleExport(ctx, workspaceId, EXPORT_RETRY_MS);
+    return null;
+  },
+});
+
+/**
+ * One page of the access derivation for a large tree (`lib/nodes/accessBackfill.ts`),
+ * scheduled by the dual write when the tree is too big to walk in its own
+ * transaction. Each page schedules the next until the walk is done.
+ */
+export const backfillAccessPage = internalMutation({
+  args: { workspaceId: v.id("workspaces"), after: v.union(v.null(), v.string()), pageSize: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, after, pageSize }): Promise<null> => {
+    const step = await deriveAccessPage(ctx, workspaceId, { after, pageSize });
+    if (!step.done) {
+      await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.backfillAccessPage, {
+        workspaceId,
+        after: step.next,
+        pageSize,
+      });
+    }
+    return null;
+  },
+});
+
+/**
+ * Staff's switch for access rows (`nodeMigration.accessSource`, the deployment's one switch). `file` derives
+ * nothing; `shadow` and `rows` derive on every rules write and move, and backfill the workspace now. The
+ * workspace argument scopes the backfill only: other workspaces derive when they next write or move.
+ */
+export const setAccessSource = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    source: v.union(v.literal("file"), v.literal("shadow"), v.literal("rows")),
+  },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, source }): Promise<null> => {
+    const row = await ctx.db.query("nodeMigration").first();
+    const fields = { accessSource: source, updatedAt: Date.now() };
+    if (row === null) await ctx.db.insert("nodeMigration", { paused: false, ...fields });
+    else await ctx.db.patch(row._id, fields);
+    if (accessDerived(source)) await backfillAccess(ctx, workspaceId);
     return null;
   },
 });

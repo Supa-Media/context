@@ -109,7 +109,14 @@ async function applySeamRow(
   // A folder emptied and retired earlier holds the name only as a tombstone:
   // it gives way to the note, or the name could never be written again in a
   // keyed workspace, which is never pruned.
-  if (existing !== null && existing.kind === "folder" && existing.goneAt !== undefined && !(await table.hasLiveChild(existing.id))) {
+  // A tombstone folder a privacy rule names keeps its row (`nodes.access`), so it is "taken" below rather than removed.
+  if (
+    existing !== null &&
+    existing.kind === "folder" &&
+    existing.goneAt !== undefined &&
+    existing.access === undefined &&
+    !(await table.hasLiveChild(existing.id))
+  ) {
     await table.remove(existing.id);
     cache.set(path, null);
     existing = null;

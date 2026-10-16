@@ -101,6 +101,14 @@ export const nodeTables = {
      * path etag can save once. Absent on rows keyed by a write.
      */
     keyedFrom: v.optional(v.object({ pathEtag: v.string(), keyEtag: v.string() })),
+    /**
+     * This row's own access, when a privacy rule names it: a folder rule on
+     * a folder row, or a note override on a note row. Absent means inherit.
+     * Grants are `nodeAccess` rows. Derived from the rules by
+     * `lib/nodes/accessBackfill.ts`; a row carrying it is never pruned
+     * (`lib/nodes/observe.ts`).
+     */
+    access: v.optional(v.object({ base: v.union(v.literal("private"), v.literal("team")) })),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])
@@ -393,6 +401,11 @@ export const nodeTables = {
      * the file is, and the rules follow it.
      */
     privacyAuthority: v.optional(v.boolean()),
+    /**
+     * Which store the tree's reads answer from (`nodeAccess`, PR 2 onward).
+     * Nothing reads it yet: absent or `file` is the only behaviour today.
+     */
+    accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),
