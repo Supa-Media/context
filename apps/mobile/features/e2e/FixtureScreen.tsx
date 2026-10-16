@@ -29,8 +29,6 @@ import { PaletteFilterFixture } from "./PaletteFilterFixture";
  * framework's own guardrails fail the build for it.
  */
 export interface FixtureParams {
-  /** `screen=ai`: `open` names an ai/ note to open in place. */
-  open?: string | string[];
   /**
    * `screen=collaboration`: which note. `screen=resume&surface=menu`: `0` draws
    * the console with no meeting note open. No `screen`: the console opened on
@@ -76,7 +74,7 @@ function first(value: string | string[] | undefined): string | undefined {
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
-  if (first(params.screen) === "ai") return <AiLibraryFixture at={first(params.at)} open={first(params.open)} />;
+  if (first(params.screen) === "ai") return <AiLibraryFixture at={first(params.at)} />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
   if (first(params.screen) === "projects") {
     const slow = Number(first(params.slow) ?? "0");
