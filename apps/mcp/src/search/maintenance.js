@@ -27,6 +27,7 @@ import {
 import { INTERACTIVE_BACKFILL_OPS } from "./visible.js";
 import { listBoundedKeys, listImmediateLayout } from "../notes/storage.js";
 import { syncShardedIndex } from "./shards.js";
+import { deferSearchPass } from "./heldPasses.js";
 
 /**
  * The fallback scan's key listing.
@@ -133,7 +134,7 @@ export async function maintainIndexAfter(store, budget, isIndexable, found, visi
       maintainNow(store, budget, isIndexable, await found(), visibilityOf, options);
     if (typeof store.defer === "function") {
       try {
-        store.defer(resolveThenMaintain({}));
+        deferSearchPass(store, () => resolveThenMaintain({}));
         return "deferred";
       } catch {
         // A host whose `waitUntil` refuses the work is a host that does not
@@ -177,7 +178,7 @@ export async function maintainIndexAfter(store, budget, isIndexable, found, visi
   const run = async (options) => maintainNow(store, budget, isIndexable, found, visibilityOf, options);
   if (typeof store.defer === "function") {
     try {
-      store.defer(run({}));
+      deferSearchPass(store, () => run({}));
       return "deferred";
     } catch {
       // A host whose `waitUntil` refuses the work is a host that does not
