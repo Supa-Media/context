@@ -16,7 +16,7 @@ export function AccountSetupJoined() {
   const styles = useThemedStyles(makeAccountSetupStyles);
   const switchAccount = useSwitchAccount();
   return (
-    <CenteredScroll testID="account-setup">
+    <CenteredScroll style={styles.screen} testID="account-setup">
       <View style={styles.form}>
         <Text role="heading" aria-level={1} style={styles.pitch}>
           {JOINED_TITLE}

@@ -127,7 +127,7 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
   if (joined) return <AccountSetupJoined />;
 
   return (
-    <CenteredScroll testID="account-setup">
+    <CenteredScroll style={styles.screen} testID="account-setup">
       <View style={styles.form}>
         <Text role="heading" aria-level={1} style={styles.pitch}>
           Make your account
@@ -182,19 +182,22 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
             <Text variant="rowSub" style={styles.body}>
               We sent a code to <Text style={styles.strong}>{phoneSentTo}</Text>.
             </Text>
-            <CodeBoxes
-              value={phoneCode}
-              editable={!busy}
-              onChange={(value) => {
-                setPhoneCode(value);
-                if (value.length === OTP_LENGTH) void confirmPhone(value);
-              }}
-              testID="account-setup-phone-code"
-            />
+            <View style={styles.codes}>
+              <CodeBoxes
+                value={phoneCode}
+                editable={!busy}
+                onChange={(value) => {
+                  setPhoneCode(value);
+                  if (value.length === OTP_LENGTH) void confirmPhone(value);
+                }}
+                testID="account-setup-phone-code"
+              />
+            </View>
             <View style={styles.row}>
               <Button label="Send a new code" variant="decision" disabled={busy} onPress={() => void sendPhone()} testID="account-setup-phone-resend" />
               <Button
                 label="Use a different number"
+                variant="decision"
                 disabled={busy}
                 onPress={() => {
                   setPhoneSentTo(null);
@@ -244,19 +247,22 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
             <Text variant="rowSub" style={styles.body}>
               We sent a code to <Text style={styles.strong}>{emailSentTo}</Text>. It expires in ten minutes.
             </Text>
-            <CodeBoxes
-              value={emailCode}
-              editable={!busy}
-              onChange={(value) => {
-                setEmailCode(value);
-                if (value.length === OTP_LENGTH) void confirmEmail(value);
-              }}
-              testID="account-setup-email-code"
-            />
+            <View style={styles.codes}>
+              <CodeBoxes
+                value={emailCode}
+                editable={!busy}
+                onChange={(value) => {
+                  setEmailCode(value);
+                  if (value.length === OTP_LENGTH) void confirmEmail(value);
+                }}
+                testID="account-setup-email-code"
+              />
+            </View>
             <View style={styles.row}>
               <Button label="Send a new code" variant="decision" disabled={busy} onPress={() => void sendEmail()} testID="account-setup-email-resend" />
               <Button
                 label="Use a different email"
+                variant="decision"
                 disabled={busy}
                 onPress={() => {
                   setEmailSentTo(null);
