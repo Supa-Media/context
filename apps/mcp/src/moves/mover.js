@@ -50,6 +50,7 @@ import { json } from "../http/responses.js";
 import { StorageUnavailable, storeForBinding } from "../store/factory.js";
 import { runContextMovePage } from "./contextMovePage.js";
 import { runIdCheckPage, runIdCopyPage } from "./idCopyPage.js";
+import { CLEANUP_DELETE_MAX, runCleanupDeletePage, runCleanupListPage, wellFormedKey } from "./cleanupPage.js";
 import { runMigrationPage } from "./migrationPage.js";
 import { WALK_PAGE_PHASES, runWalkPage } from "./walkPage.js";
 
@@ -218,6 +219,40 @@ async function runIdPage(opened, deps) {
   }
 }
 
+/**
+ * A cleanup page (`cleanupPage.js`): a list from a cursor, or a delete of the
+ * keys the control plane approved for this page. Any other shape is refused
+ * before anything is listed or deleted.
+ */
+function readOpenedCleanup(opened) {
+  const { workspaceId, source } = opened;
+  if (typeof workspaceId !== "string" || workspaceId === "") return null;
+  if (!source || typeof source !== "object" || source.workspaceId !== workspaceId) return null;
+  if (opened.kind === "cleanupList") {
+    if (opened.cursor !== undefined && opened.cursor !== null && typeof opened.cursor !== "string") return null;
+    return opened;
+  }
+  const { keys } = opened;
+  if (!Array.isArray(keys) || keys.length > CLEANUP_DELETE_MAX) return null;
+  if (!keys.every(wellFormedKey)) return null;
+  return opened;
+}
+
+async function runCleanup(opened, deps) {
+  const page = readOpenedCleanup(opened);
+  if (page === null) return json({ ok: false, error: "CLEANUP_FAILED" });
+  try {
+    if (page.kind === "cleanupList") {
+      return json({ ok: true, ...(await runCleanupListPage(page, deps)) });
+    }
+    return json({ ok: true, ...(await runCleanupDeletePage(page, deps)) });
+  } catch {
+    // The workspace and the kind only: never a key, never provider text.
+    console.error("mover.cleanup_failed", { workspaceId: page.workspaceId, kind: page.kind });
+    return json({ ok: false, error: "CLEANUP_FAILED" });
+  }
+}
+
 function failureCode(error) {
   if (error instanceof StorageUnavailable) return "SOURCE_UNAVAILABLE";
   const message = error instanceof Error ? error.message : "";
@@ -246,6 +281,9 @@ export async function handleMoverPage(request, env, deps = {}) {
   if (opened && typeof opened === "object" && opened.kind === "contextMove") return await runContextMove(opened, deps);
   if (opened && typeof opened === "object" && (opened.kind === "idCopy" || opened.kind === "idCheck")) {
     return await runIdPage(opened, deps);
+  }
+  if (opened && typeof opened === "object" && (opened.kind === "cleanupList" || opened.kind === "cleanupDelete")) {
+    return await runCleanup(opened, deps);
   }
   const page = readOpenedPage(opened);
   if (page === null) return json({ ok: false, error: "COPY_FAILED" });

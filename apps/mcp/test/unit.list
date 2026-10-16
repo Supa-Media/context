@@ -121,3 +121,4 @@ test/v2Actions.test.mjs
 test/v2SearchFetch.test.mjs
 test/orientV2.test.mjs
 test/controlPlaneRequired.test.mjs
+test/cleanupPage.test.mjs
