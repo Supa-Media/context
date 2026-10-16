@@ -7,14 +7,14 @@
  * actually leaks. Tenants on different providers would pass an isolation suite
  * that a one-character bug defeats.
  *
- * Two more are stood up on Dropbox, where that arrangement gets tighter still:
- * no bucket name and no per-tenant endpoint, so **the same two URLs and the
- * same customer-chosen folder, separated by the access token alone.**
+ * Two more are stood up on their own buckets with the same rootPrefix and key
+ * layout (`tenant-c` / `tenant-d`), so **nothing but the bucket and the key
+ * pair tells them apart.** They were Dropbox tenants until 2026-10-16, when
+ * Dropbox was removed as a store; a Dropbox binding now gets a refusal.
  *
  * Offline and dependency-free: the control plane is an in-memory server
- * speaking the documented HTTP contract, the object store is an in-memory S3
- * backend the real `S3Store` signs requests against, and the Dropbox tenants
- * run against an in-memory Dropbox the real `DropboxStore` calls.
+ * speaking the documented HTTP contract, and the object store is an in-memory S3
+ * backend the real `S3Store` signs requests against.
  *
  * ## Sabotage record
  *

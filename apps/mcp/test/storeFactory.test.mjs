@@ -48,10 +48,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { storeForBinding, StorageUnavailable } from "../src/store/factory.js";
+import { storeForBinding, StorageUnavailable, StorageUnsupported } from "../src/store/factory.js";
 import { S3Store } from "../src/store/s3.js";
 import { R2Store } from "../src/store/r2.js";
-import { DropboxStore } from "../src/store/dropbox.js";
+
+/** The copy a customer sees for a Dropbox binding. Pinned here so it cannot drift silently. */
+const DROPBOX_MESSAGE =
+  "This workspace's storage is Dropbox, which Context no longer supports. Move it to a bucket of your own or Context storage.";
 
 /** Obviously fake. This repository is public. */
 const S3_BINDING = {
@@ -123,19 +126,16 @@ export function runStoreFactoryChecks(check) {
   /* ---------------------------- the happy paths ---------------------------- */
 
   {
-    const { store } = attempt(DROPBOX_BINDING);
-    check("a dropbox binding builds a DropboxStore", store instanceof DropboxStore);
+    // Dropbox was removed (notes-by-id, 2026-10-16). A workspace still bound to
+    // one is refused whatever it carries, with a typed error the customer can
+    // act on, and nothing is built for it.
+    const { store, error } = attempt(DROPBOX_BINDING);
+    check("a dropbox binding builds no store at all", store === null);
+    check("it is refused as STORAGE_UNSUPPORTED", error?.code === "STORAGE_UNSUPPORTED");
+    check("with the customer-facing message", error?.message === DROPBOX_MESSAGE);
     check(
-      "the customer's folder becomes the rootPrefix, normalised",
-      store?.rootPrefix === "context/"
-    );
-    check(
-      "and the short-lived access token is the only credential it holds",
-      store?.accessToken === DROPBOX_BINDING.accessToken
-    );
-    check(
-      "a dropbox store still claims conditional writes, so the probe can test them",
-      store?.capabilities?.conditionalWrite === true
+      "as a StorageUnsupported, which is also a StorageUnavailable for every caller that catches that",
+      error instanceof StorageUnsupported && error instanceof StorageUnavailable
     );
   }
 
@@ -184,7 +184,6 @@ export function runStoreFactoryChecks(check) {
   */
   for (const [label, binding, env] of [
     ["s3", S3_BINDING, undefined],
-    ["dropbox", DROPBOX_BINDING, undefined],
     ["a native r2", NATIVE_BINDING, NATIVE_ENV],
   ]) {
     check(
@@ -290,20 +289,19 @@ export function runStoreFactoryChecks(check) {
   // Every one of these is refused by the *adapter*; what is asserted is that it
   // arrives as a typed `StorageUnavailable`, because `index.js` catches nothing
   // else and a raw throw is a 500 quoting somebody's configuration.
-  for (const [label, accessToken] of [
-    ["no access token", undefined],
-    ["an empty access token", ""],
-    ["an access token that is not a string", 12345],
+  // A dropbox binding is refused as unsupported before its fields are looked at,
+  // so no shape of it gets a store, a 401 loop, or a credential check.
+  for (const [label, binding] of [
+    ["an access token", DROPBOX_BINDING],
+    ["no access token", { ...DROPBOX_BINDING, accessToken: undefined }],
+    ["an empty access token", { ...DROPBOX_BINDING, accessToken: "" }],
+    ["a traversing folder", { ...DROPBOX_BINDING, rootPrefix: "../somebody-elses-folder" }],
   ]) {
     check(
-      `a dropbox binding with ${label} is refused, as StorageUnavailable`,
-      refused({ ...DROPBOX_BINDING, accessToken })
+      `a dropbox binding with ${label} is refused as STORAGE_UNSUPPORTED`,
+      attempt(binding).error?.code === "STORAGE_UNSUPPORTED"
     );
   }
-  check(
-    "a dropbox binding whose folder traverses is refused, not normalised",
-    refused({ ...DROPBOX_BINDING, rootPrefix: "../somebody-elses-folder" })
-  );
 
   // The exact failure this factory exists to prevent: an S3-shaped binding
   // wearing a dropbox provider used to fall through to the S3 branch, where
@@ -363,10 +361,6 @@ export function runStoreFactoryChecks(check) {
   /* --------------------- a credential nobody meant to send ------------------ */
 
   check(
-    "a dropbox binding carrying an S3 secret is refused",
-    refused({ ...DROPBOX_BINDING, secretAccessKey: S3_BINDING.secretAccessKey })
-  );
-  check(
     "an s3 binding carrying a dropbox access token is refused",
     refused({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken })
   );
@@ -376,15 +370,14 @@ export function runStoreFactoryChecks(check) {
   );
   check(
     "a cross-provider credential says so, so the log names the real bug",
-    attempt({ ...DROPBOX_BINDING, secretAccessKey: S3_BINDING.secretAccessKey }).error?.reason ===
+    attempt({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken }).error?.reason ===
       "cross-provider credential"
   );
   // A field explicitly absent is not a field carried. A control plane that
   // serializes its whole row with nulls is untidy, not compromised.
   check(
     "an explicitly null foreign credential is absence, not a refusal",
-    attempt({ ...DROPBOX_BINDING, secretAccessKey: null, accessKeyId: null }).store instanceof
-      DropboxStore
+    attempt({ ...S3_BINDING, accessToken: null }).store instanceof S3Store
   );
 
   /* ---------------------- the refresh token never arrives ------------------- */
@@ -399,13 +392,13 @@ export function runStoreFactoryChecks(check) {
     "dropboxRefreshToken",
   ]) {
     check(
-      `a dropbox binding carrying ${field} is refused outright`,
-      refused({ ...DROPBOX_BINDING, [field]: "rt.FAKE-long-lived" })
+      `an s3 binding carrying ${field} is refused outright`,
+      refused({ ...S3_BINDING, [field]: "rt.FAKE-long-lived" })
     );
   }
   check(
     "the refusal names the refresh token, so nobody has to guess which field",
-    attempt({ ...DROPBOX_BINDING, refreshToken: "rt.FAKE-long-lived" }).error?.reason ===
+    attempt({ ...S3_BINDING, refreshToken: "rt.FAKE-long-lived" }).error?.reason ===
       "refresh token in binding"
   );
   check(
@@ -429,7 +422,7 @@ export function runStoreFactoryChecks(check) {
   const refusals = [
     attempt({ ...DROPBOX_BINDING, accessToken: undefined }).error,
     attempt({ ...S3_BINDING, provider: "dropbox" }).error,
-    attempt({ ...DROPBOX_BINDING, refreshToken: "rt.FAKE-long-lived" }).error,
+    attempt({ ...S3_BINDING, refreshToken: "rt.FAKE-long-lived" }).error,
     attempt({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken }).error,
   ]
     .map((error) => `${error?.name}: ${error?.message} ${error?.reason}`)
@@ -453,7 +446,7 @@ export function runStoreFactoryChecks(check) {
         // `env` and then, optionally, the per-request options (the note cap,
         // managed-storage encryption), never a hand-built adapter.
         /storeForBinding\(binding, env[,)]/.test(source) &&
-        !/new (S3Store|R2Store|DropboxStore)\(/.test(source)
+        !/new (S3Store|R2Store)\(/.test(source)
       );
     })()
   );

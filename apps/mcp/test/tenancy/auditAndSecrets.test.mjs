@@ -3,7 +3,7 @@
  * every request, and always keyed by the caller's own token rather than a
  * workspace id (§13); and the whole-suite adversarial rollup — no response
  * anywhere in this file ever said the gateway secret, a storage credential,
- * a Dropbox token, or the control plane's own origin (§14).
+ * the second pair's secret key, or the control plane's own origin (§14).
  *
  * Split out of tenancy.test.mjs; see fixtures.mjs for the shared harness and
  * that file's module doc for the sabotage-testing record. §14 is the reason
@@ -11,11 +11,11 @@
  * `harness` — this is where all of them are read back at once.
  */
 
-import { CONTROL_PLANE_ORIGIN, DROPBOX_TOKEN_C, DROPBOX_TOKEN_D, GATEWAY_SECRET, TOKEN_A, callTool } from "./fixtures.mjs";
+import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SECRET_C, SECRET_D, TOKEN_A, callTool } from "./fixtures.mjs";
 
 export async function runTenancyAuditAndSecretChecks(check, harness) {
   const { env, controlPlane } = harness;
-  const { listA, listB, listC, tokenless, withRefresh, garbage, downstream, unbound, smuggled, mismatch, challenge, prmBody, asmBody, exchanged } = harness;
+  const { listA, listB, listC, tokenless, withRefresh, dropboxBound, garbage, downstream, unbound, smuggled, mismatch, challenge, prmBody, asmBody, exchanged } = harness;
 
   /* ------------------- 13. the credential is never cached -------------------- */
 
@@ -39,6 +39,7 @@ export async function runTenancyAuditAndSecretChecks(check, harness) {
     listC,
     tokenless.text,
     withRefresh.text,
+    dropboxBound.text,
     garbage.text,
     downstream.text,
     unbound.text,
@@ -58,9 +59,9 @@ export async function runTenancyAuditAndSecretChecks(check, harness) {
     !everythingSaid.includes("wJalrXUtnFEMI") && !everythingSaid.includes("AKIAEXAMPLE")
   );
   check(
-    "and none contains a Dropbox token of either life",
-    !everythingSaid.includes(DROPBOX_TOKEN_C) &&
-      !everythingSaid.includes(DROPBOX_TOKEN_D) &&
+    "and none contains a second-pair secret key, or a refresh token",
+    !everythingSaid.includes(SECRET_C) &&
+      !everythingSaid.includes(SECRET_D) &&
       !everythingSaid.includes("rt.FAKE")
   );
   check(
