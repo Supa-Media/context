@@ -62,6 +62,7 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { handleTryIt } from "../agent/tryIt.js";
+import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
 
@@ -560,6 +561,8 @@ export async function route(request, env, ctx) {
         attachLinkCalls(targetStore, target, controlPlane, env);
         attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;
+        // A turn's held index passes include the contexts it opens (`search/heldPasses.js`).
+        if (typeof store.holdSearchPass === "function") targetStore.holdSearchPass = store.holdSearchPass;
         // The same binding, keyed later by the *target's* workspace id: a
         // write routed into another context is announced in that context's
         // note room and recorded in its activity, never in the caller's.
@@ -610,18 +613,21 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") {
+        // A turn is one invocation: the index passes its searches start wait
+        // for it to end, or every later call queues behind them (`search/heldPasses.js`).
+        const held = (turn) => withSearchPassesHeld(store, turn);
         // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
-        if (session.actorClientId === DREAMS_CLIENT_ID) return await handleDream(request, env, store, session, controlPlane);
+        if (session.actorClientId === DREAMS_CLIENT_ID) return await held(() => handleDream(request, env, store, session, controlPlane));
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
-        if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);
-        return streamTurn((progress) => handleAgent(request, env, store, session, controlPlane, { progress }), {
+        if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));
+        return streamTurn((progress) => held(() => handleAgent(request, env, store, session, controlPlane, { progress })), {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }
       // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
       // setup an @context-lc editor picked, then a judge turn on its rules.
-      if (path === "/agent/try") return await handleTryIt(request, env, store, session, controlPlane);
+      if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
