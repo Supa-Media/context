@@ -43,9 +43,8 @@
  *   open_web       optional `yes`: the assistant may open any public https
  *                  address it chooses (`trustedSites.js` `onOpenWeb`)
  *   tools          names the setup was proved with (recorded; not yet offered)
- *   core_tools     optional `[a, b]`: the tools a turn is handed; every other
- *                  one is named in the prompt and loaded with `find_tools`
- *                  (`toolShelf.js`; owner, 2026-10-14). Absent: all of them.
+ *   core_tools     no longer read: the assistant holds the six tools, each
+ *                  listing only what it was granted (`sixTools.js`, 2026-10-16)
  *   history        optional 0-40: how many earlier texts (questions and
  *                  answers each count) a turn is shown; the rest are read with
  *                  `earlier_texts` (`conversation.js`). Absent: 12.
@@ -69,7 +68,6 @@ import { DEFAULT_ROUTE_AT, ROUTER_MODEL } from "./router.js";
 import { readSearchSettings } from "../search/settings.js";
 import { readSkillList, skillBody } from "./skills.js";
 import { readOpenWeb, readTrustedSites } from "./trustedSites.js";
-import { readCoreTools } from "./toolShelf.js";
 import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
@@ -156,8 +154,6 @@ async function parse(raw) {
   const openWeb = readOpenWeb(front.open_web);
   if (openWeb === null) return null;
 
-  const coreTools = readCoreTools(front.core_tools);
-  if (coreTools === null) return null;
   const history = readHistoryTurns(front.history);
   if (history === null) return null;
 
@@ -183,7 +179,6 @@ async function parse(raw) {
     trustedSites,
     openWeb,
     tools,
-    coreTools: coreTools ?? null,
     history: history ?? null,
     maxSteps,
     prompt,

@@ -38,6 +38,7 @@
  *     own run is never offered a write` fails.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -424,20 +425,21 @@ export async function runAgentRoutineChecks(check) {
 
     /* ---------------- a text edits notes, and never who can see them ---------------- */
 
-    const offeredTo = (request) => (request?.tools ?? []).map((tool) => tool.name);
+    const offeredTo = (request) => [...shown(request?.tools)];
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_RUNNER, { routine: { path: "routines/daily/morning-brief.md" } });
     check(
       "a routine's own run is never offered a write",
-      !offeredTo(model.requests.at(-1)).includes("write_note") &&
-        !offeredTo(model.requests.at(-1)).includes("archive_note") &&
-        !offeredTo(model.requests.at(-1)).includes("move_note"),
+      !offeredTo(model.requests.at(-1)).includes("write.save") &&
+        !offeredTo(model.requests.at(-1)).includes("manage.archive") &&
+        !offeredTo(model.requests.at(-1)).includes("manage.move") &&
+        offeredTo(model.requests.at(-1)).includes("fetch"),
     );
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_TEXTS_READ, { question: "every morning tell me what's due" });
     check(
       "a texting grant that cannot write is offered no write",
-      !offeredTo(model.requests.at(-1)).includes("write_note"),
+      !offeredTo(model.requests.at(-1)).includes("write.save") && !offeredTo(model.requests.at(-1)).includes("manage"),
     );
 
     const brief = "---\nat: 7:30 am\n---\nText me what's due today.\n";
@@ -456,12 +458,12 @@ export async function runAgentRoutineChecks(check) {
     ]);
     const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due, and note the tulips" });
     const madeRequest = model.requests.at(-2);
-    const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write_note");
+    const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write");
     check(
-      "a texting turn is offered a write_note that says how routines work, and each tool once",
+      "a texting turn is offered a write whose save says how routines work, and each tool once",
       writeTool !== undefined &&
         writeTool.description.includes("routines/<how-often>/<name>.md") &&
-        new Set(offeredTo(madeRequest)).size === offeredTo(madeRequest).length,
+        new Set((madeRequest?.tools ?? []).map((tool) => tool.name)).size === (madeRequest?.tools ?? []).length,
     );
     check(
       "and is told it edits directly, only because they asked",
@@ -479,13 +481,17 @@ export async function runAgentRoutineChecks(check) {
         bucket.get("1-projects/renamed.md")?.body.includes("Rename me"),
     );
 
-    const moveTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "move_note");
+    const manageTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "manage");
+    const saveLine = writeTool?.description.split("\n").find((line) => line.startsWith("- save:")) ?? "";
     check(
-      "a text is offered the MCP's own write tools, cross-workspace moves included",
-      ["remember", "move_notes", "move_folder", "set_visibility"].every((name) => offeredTo(madeRequest).includes(name)) &&
-        Object.keys(moveTool?.input_schema?.properties ?? {}).includes("destination_context") &&
-        ["content", "share", "site", "images"].every((key) => key in (writeTool?.input_schema?.properties ?? {})) &&
-        !offeredTo(madeRequest).includes("export_encryption_keys"),
+      "a text is offered the MCP's own write actions, cross-workspace moves included",
+      ["write.remember", "manage.move_many", "manage.move_folder", "manage.visibility", "manage.website"].every((name) =>
+        offeredTo(madeRequest).includes(name)
+      ) &&
+        /^- move:.*destination_context/m.test(manageTool?.description ?? "") &&
+        ["share", "images"].every((key) => saveLine.includes(key)) &&
+        "content" in (writeTool?.input_schema?.properties ?? {}) &&
+        !offeredTo(madeRequest).some((name) => name.includes("export_encryption_keys")),
     );
 
     model.install([
@@ -500,6 +506,11 @@ export async function runAgentRoutineChecks(check) {
           { name: "archive_note", args: { path: "privacy.md" } },
           { name: "move_note", args: { source: "1-projects/notes.md", destination: ".context/notes.md" } },
           { name: "move_notes", args: { moves: [{ source: "1-projects/notes.md", destination: ".context/n.md" }] } },
+          // The same, through the six: each becomes its carrying tool and meets the same guard.
+          { name: "write", args: { path: "privacy.md", content: "x" } },
+          { name: "write", args: { path: "routines/sneaky-six.md", content: "x" } },
+          { name: "manage", args: { action: "move", args: { source: "1-projects/notes.md", destination: ".context/six.md" } } },
+          { name: "manage", args: { action: "archive", args: { path: "privacy.md" } } },
         ],
       },
       { text: "Done." },
@@ -515,7 +526,9 @@ export async function runAgentRoutineChecks(check) {
         bucket.get("1-projects/notes.md")?.body === "# Notes\n" &&
         bucket.get(".context/notes.md") === undefined &&
         bucket.get(".context/n.md") === undefined &&
-        refusals.length === 9 &&
+        bucket.get("routines/sneaky-six.md") === undefined &&
+        bucket.get(".context/six.md") === undefined &&
+        refusals.length === 13 &&
         refusals.every((text) => /can't be used|can't be passed from a text|no such tool|Only a routine file|Routines are written/i.test(text)),
     );
 

@@ -64,7 +64,7 @@ const ROUTINE_HELP =
 
 /**
  * The routine help goes at the end of the description's first paragraph: a
- * setup with core tools hands the model only that paragraph (`toolShelf.js`),
+ * texting assistant's `write` shows only that paragraph for a save (`sixTools.js`),
  * and routines are what a text asks for most of what write_note does.
  */
 function withRoutineHelp(description) {

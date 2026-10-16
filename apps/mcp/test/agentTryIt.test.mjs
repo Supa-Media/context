@@ -21,6 +21,7 @@
  *     → "an editor tries a drafted setup, on the setup's own prompt" fails.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
@@ -229,21 +230,23 @@ test("a try changes nothing, whatever the model asks", async () => {
         { name: "propose_note", args: { path: "todo.md", content: "hijacked" } },
         { name: "write_note", args: { path: SETUP_PATH, content: "hijacked", context: "@context-lc" } },
         { name: "archive_note", args: { path: "todo.md" } },
+        { name: "write", args: { path: "todo.md", content: "hijacked" } },
+        { name: "manage", args: { action: "archive", args: { path: "todo.md" } } },
       ],
     },
     { text: "Done." },
   ];
   const answer = await tryIt(TOKEN_EDITOR, { question: "clear my list", setup: SETUP_PATH });
   assert.equal(answer.status, 200, JSON.stringify(answer.body));
-  const offered = (gatewayCalls[0].tools ?? []).map((tool) => tool.name);
-  assert.ok(offered.includes("read_note"), "reading is offered");
-  for (const name of ["write_note", "propose_note", "archive_note", "send_text"]) {
+  const offered = [...shown(gatewayCalls[0].tools)];
+  assert.ok(offered.includes("fetch") && offered.includes("search"), "reading is offered");
+  for (const name of ["write.save", "write.propose", "write.remember", "manage"]) {
     assert.ok(!offered.includes(name), `${name} is not offered`);
   }
   assert.equal(mineBucket.get("todo.md")?.body, TODO);
   assert.equal(pinnedBucket.get(SETUP_PATH)?.body, setupFile());
   const results = JSON.stringify(gatewayCalls[1].messages);
-  assert.equal(results.split('"is_error":true').length - 1, 4, "every refused call says so");
+  assert.equal(results.split('"is_error":true').length - 1, 6, "every refused call says so");
 });
 
 test("each reply is checked against the case's rules", async () => {
