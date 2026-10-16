@@ -48,6 +48,8 @@ export const nodeAccessTables = {
     workspaceId: v.id("workspaces"),
     version: v.number(),
     migratedFromEtag: v.optional(v.string()),
+    /** What those rules said (`lib/nodes/rulesDigest.ts`; null: none). Absent on a derivation before it was kept. */
+    migratedFromDigest: v.optional(v.union(v.string(), v.null())),
     migratedAt: v.optional(v.number()),
     orphans: v.array(
       v.object({
@@ -124,9 +126,13 @@ export const nodeAccessTables = {
     sample: v.array(v.object({ path: v.string(), clearance: v.string() })),
     orphans: v.optional(v.number()),
     /**
-     * The rules' version when the check began (null: the workspace has none), and the version the rows had
-     * then been derived from. A check stands across later derivations from the same rules (`checkStatus`).
+     * What the rules said when the check began (`lib/nodes/rulesDigest.ts`; null: the workspace has none), and
+     * what the rules the rows had then been derived from said. A check stands across later derivations from
+     * rules that still say the same (`checkStatus`).
      */
+    rulesDigest: v.optional(v.union(v.string(), v.null())),
+    derivedDigest: v.optional(v.union(v.string(), v.null())),
+    /** Written by checks of PR 1750, which compared versions rather than what the rules say. No longer read. */
     rulesEtag: v.optional(v.union(v.string(), v.null())),
     derivedEtag: v.optional(v.union(v.string(), v.null())),
   }).index("by_workspace", ["workspaceId"]),
