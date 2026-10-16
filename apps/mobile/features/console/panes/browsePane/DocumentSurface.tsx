@@ -4,6 +4,7 @@ import { ScreenViewport, type useSurfacePadding } from "../../../app/Screen";
 import { PageSlide } from "../../../design/components/PageSlide";
 import { useThemedStyles } from "../../../design/theme";
 import { slideDirection } from "../../home/phoneBack";
+import { EdgeSwipeHome } from "../../home/EdgeSwipeHome";
 import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
@@ -26,6 +27,7 @@ export function DocumentSurface({
   pathBar,
   page = false,
   fill = false,
+  onSwipeHome,
 }: {
   selected: ReturnType<typeof entryAt>;
   compact: boolean;
@@ -46,6 +48,8 @@ export function DocumentSurface({
    * under them, since a canvas cannot pay for chrome in content padding.
    */
   fill?: boolean;
+  /** A phone's swipe in from the left edge: straight Home. Absent on Home. */
+  onSwipeHome?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /**
@@ -139,41 +143,43 @@ export function DocumentSurface({
           a note — two different branches below — is still one navigation the
           slide can see (`PageSlide`).
         */
-        <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
-          {!page && selected !== null && selected.kind === "file" ? (
-            openDocument
-          ) : (
-            /*
+        <EdgeSwipeHome onHome={onSwipeHome}>
+          <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
+            {!page && selected !== null && selected.kind === "file" ? (
+              openDocument
+            ) : (
+              /*
               The status bar's band goes on the box *around* the scroller and our
               own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
               together on the content, the whole inset scrolled away with the
               listing and the folder's rows rode up under the clock.
             */
-            <ScreenViewport padding={padding} style={styles.statusBand}>
-              <ScrollView
-                style={styles.scroll}
-                contentContainerStyle={{
-                  paddingTop: padding.content.top,
-                  paddingBottom: padding.content.bottom,
-                }}
-                scrollIndicatorInsets={{
-                  top: padding.content.top,
-                  bottom: padding.content.bottom,
-                }}
-                testID="browse-scroll"
-              >
-                {/*
+              <ScreenViewport padding={padding} style={styles.statusBand}>
+                <ScrollView
+                  style={styles.scroll}
+                  contentContainerStyle={{
+                    paddingTop: padding.content.top,
+                    paddingBottom: padding.content.bottom,
+                  }}
+                  scrollIndicatorInsets={{
+                    top: padding.content.top,
+                    bottom: padding.content.bottom,
+                  }}
+                  testID="browse-scroll"
+                >
+                  {/*
                   `pathBar` was the folder path, and is now only who else is in
                   the note: the way up is the ‹ back button at the top left (see
                   `BrowsePathBar`, owner's review 2026-10-01).
                 */}
-                {pathBar}
-                {notices}
-                <View style={styles.bodyCompact}>{openDocument}</View>
-              </ScrollView>
-            </ScreenViewport>
-          )}
-        </PageSlide>
+                  {pathBar}
+                  {notices}
+                  <View style={styles.bodyCompact}>{openDocument}</View>
+                </ScrollView>
+              </ScreenViewport>
+            )}
+          </PageSlide>
+        </EdgeSwipeHome>
       ) : documentOwnsScroller ? (
         <>
           {notices}
@@ -195,11 +201,7 @@ export function DocumentSurface({
         */
         <>
           {notices}
-          <ScrollView
-            style={styles.page}
-            contentContainerStyle={styles.pageContent}
-            testID="document-scroll"
-          >
+          <ScrollView style={styles.page} contentContainerStyle={styles.pageContent} testID="document-scroll">
             {openDocument}
           </ScrollView>
         </>

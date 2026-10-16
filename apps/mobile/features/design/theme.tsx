@@ -5,7 +5,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Appearance } from "react-native";
+import { Appearance, useWindowDimensions } from "react-native";
 
 import {
   darkColors,
@@ -18,6 +18,8 @@ import {
   type GraphColors,
   type Shadows,
 } from "./tokens";
+import { layout } from "./tokens/layout";
+import { darkPhoneColors, lightPhoneColors } from "./tokens/phoneColors";
 import { currentAppearance, subscribeAppearance, type Appearance as AppearanceChoice } from "./appearance";
 
 /**
@@ -84,6 +86,28 @@ const THEMES: Record<Scheme, Theme> = {
     graphColors: lightGraphColors,
   },
 };
+
+/**
+ * Which palette draws: the scheme's own, or its phone variant.
+ *
+ * A phone draws Apple Notes contrast — true black or white ground, full ink,
+ * a stronger gray (`tokens/phoneColors.ts`; owner, 2026-10-16, "Phone only").
+ * "Phone" is the app's one narrow test, the width `densityFor` calls compact,
+ * so a laptop window dragged narrow gets it too, the way it gets the phone's
+ * layout.
+ */
+export type Palette = Scheme | "darkPhone" | "lightPhone";
+
+const PALETTES: Record<Palette, Theme> = {
+  ...THEMES,
+  darkPhone: { ...THEMES.dark, colors: darkPhoneColors },
+  lightPhone: { ...THEMES.light, colors: lightPhoneColors },
+};
+
+export function paletteFor(scheme: Scheme, width: number): Palette {
+  if (width >= layout.narrowBreakpoint) return scheme;
+  return scheme === "dark" ? "darkPhone" : "lightPhone";
+}
 
 /**
  * An explicit choice from a provider, or `null` for "follow the system".
@@ -174,13 +198,20 @@ export function useScheme(): Scheme {
   return resolveScheme(provided ?? pinned(chosen), system);
 }
 
+/** The palette in force for this subtree, at this window's width. */
+export function usePalette(): Palette {
+  const scheme = useScheme();
+  const { width } = useWindowDimensions();
+  return paletteFor(scheme, width);
+}
+
 export function useTheme(): Theme {
-  return THEMES[useScheme()];
+  return PALETTES[usePalette()];
 }
 
 /** The palette in force. The common case, and the only one most screens need. */
 export function useColors(): Colors {
-  return THEMES[useScheme()].colors;
+  return PALETTES[usePalette()].colors;
 }
 
 /**
@@ -209,20 +240,20 @@ export function useColors(): Colors {
  */
 export type StyleFactory<T> = (colors: Colors, shadows: Shadows) => T;
 
-const cache = new WeakMap<StyleFactory<unknown>, Partial<Record<Scheme, unknown>>>();
+const cache = new WeakMap<StyleFactory<unknown>, Partial<Record<Palette, unknown>>>();
 
 export function useThemedStyles<T>(factory: StyleFactory<T>): T {
-  const scheme = useScheme();
+  const palette = usePalette();
   return useMemo(() => {
-    let bySchema = cache.get(factory as StyleFactory<unknown>);
-    if (!bySchema) {
-      bySchema = {};
-      cache.set(factory as StyleFactory<unknown>, bySchema);
+    let byPalette = cache.get(factory as StyleFactory<unknown>);
+    if (!byPalette) {
+      byPalette = {};
+      cache.set(factory as StyleFactory<unknown>, byPalette);
     }
-    if (!(scheme in bySchema)) {
-      const theme = THEMES[scheme];
-      bySchema[scheme] = factory(theme.colors, theme.shadows);
+    if (!(palette in byPalette)) {
+      const theme = PALETTES[palette];
+      byPalette[palette] = factory(theme.colors, theme.shadows);
     }
-    return bySchema[scheme] as T;
-  }, [factory, scheme]);
+    return byPalette[palette] as T;
+  }, [factory, palette]);
 }

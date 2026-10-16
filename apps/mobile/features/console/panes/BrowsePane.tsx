@@ -451,6 +451,7 @@ export function BrowsePane({
         pathBar={pathBar}
         page={organizerPage}
         fill={mapPage}
+        onSwipeHome={selected !== null ? () => void files.deselect() : undefined}
       />
 
       {/*
