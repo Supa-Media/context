@@ -1,5 +1,5 @@
 /**
- * The case form in the middle of board 13's Golden cases tab: what the person
+ * The case form in the middle of board 19's Cases tab: what the person
  * texts, who is asking, what their notes say, a good reply as rules the judge
  * and the run's record check, and the example. Each field edits one line of
  * the note through the callbacks `./AiCases` hands it, so every other line of
@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
-import { Pill, Text, space, useThemedStyles, type Colors, type PillTone } from "../design";
+import { Pill, Text, space, useColors, useThemedStyles, type Colors, type PillTone } from "../design";
 import { pointerType } from "../design/tokens";
 import { useFieldFont } from "../design/fieldFont";
 import { LinkText, Quiet } from "./AiKit";
@@ -21,7 +21,7 @@ export const NEW_RULES = ["must", "must not", "may", "judge", "must call", "must
 /** The reply that stands for what the person texts first, when a case has one. */
 const PERSON_STARTS = "person starts";
 
-export function CaseForm({ item, runAs, path, onTitle, onLine, onRemove, onAdd }: {
+export function CaseForm({ item, runAs, path, onTitle, onLine, onRemove, onAdd, onDescription }: {
   item: TestCase;
   /** The list's `run_as:` front matter, shown when the case names no `as:` line of its own. */
   runAs: string | null;
@@ -31,8 +31,11 @@ export function CaseForm({ item, runAs, path, onTitle, onLine, onRemove, onAdd }
   onLine: (index: number, value: string) => void;
   onRemove: (index: number) => void;
   onAdd: (key: string) => void;
+  /** What their notes say: the case's description lines, replaced as typed. */
+  onDescription: (value: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const fieldFont = useFieldFont(pointerType.ui);
   const [adding, setAdding] = useState(false);
   const starts = item.replies.find((line) => line.key === PERSON_STARTS) ?? null;
@@ -41,6 +44,8 @@ export function CaseForm({ item, runAs, path, onTitle, onLine, onRemove, onAdd }
   const drafted = item.other.find((line) => line.key === DRAFTED_KEY) ?? null;
   // Held as typed: the note reads a heading with its trailing space trimmed.
   const [text, setText] = useState(starts?.value ?? item.title);
+  const [notes, setNotes] = useState(item.description);
+  const [notesHeight, setNotesHeight] = useState<number | null>(null);
 
   return (
     <View style={styles.form} testID="admin-ai-case-form">
@@ -61,11 +66,27 @@ export function CaseForm({ item, runAs, path, onTitle, onLine, onRemove, onAdd }
       {item.person ? (
         <RuleRow line={item.person} label="as" onLine={onLine} />
       ) : (
-        <Text variant="body" numberOfLines={1}>{runAs ?? "Nobody named yet"}</Text>
+        <View style={styles.unset}>
+          <Text variant="body" numberOfLines={1} style={styles.unsetText}>{runAs ? `${runAs}, for every case in this group` : "Nobody named yet"}</Text>
+          <LinkText label="+ Name who is asking" onPress={() => onAdd("as")} testID="admin-ai-case-add-person" />
+        </View>
       )}
 
       <Text variant="eyebrow" style={styles.section}>THEIR NOTES SAY</Text>
-      <Text variant="meta" numberOfLines={3} style={styles.notes}>{item.description || "Nothing noted."}</Text>
+      <TextInput
+        multiline
+        value={notes}
+        onChangeText={(value) => {
+          setNotes(value);
+          onDescription(value);
+        }}
+        onContentSizeChange={(event) => setNotesHeight(event.nativeEvent.contentSize.height)}
+        placeholder="What the person's notes say that matters here, one line each"
+        placeholderTextColor={colors.muted}
+        style={[styles.input, styles.inputBlock, fieldFont, { height: Math.max(56, notesHeight ?? 0) }]}
+        accessibilityLabel="Their notes say"
+        testID="admin-ai-case-notes"
+      />
 
       <Text variant="eyebrow" style={styles.section}>A GOOD REPLY</Text>
       {item.rules.map((line) => (
@@ -190,7 +211,8 @@ const makeStyles = (colors: Colors) =>
     title: { color: colors.text, fontSize: pointerType.lede, fontWeight: "600", borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: space.x3, paddingVertical: space.x2, backgroundColor: colors.ground, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null) },
     section: { marginTop: space.x3 },
     muted: { color: colors.muted },
-    notes: { color: colors.muted },
+    unset: { flexDirection: "row", alignItems: "center", gap: space.x3, flexWrap: "wrap" },
+    unsetText: { flexShrink: 1, minWidth: 0 },
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, borderBottomWidth: 1, borderBottomColor: colors.line, paddingVertical: 4, minWidth: 0 },
     pillSlot: { flexShrink: 0 },
     chip: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, maxWidth: 200, backgroundColor: colors.chipFill, flexShrink: 0 },

@@ -24,12 +24,12 @@ import { AiHelpers } from "./AiHelpers";
 import { AiJobPage } from "./AiJobPage";
 import { AiJobsHome } from "./AiJobsHome";
 import { AiOverview } from "./AiOverview";
+import { AiPhonePicker } from "./AiPhonePicker";
 import { AiSkills } from "./AiSkills";
 import { type AiCatalog } from "./aiCatalog";
 import { AI_HELPERS, activity } from "./aiModel";
 import { aiSub, parseAiPlace, type AiPlace, type AiViewKey } from "./aiPlace";
 import type { AiScreenProps } from "./aiScreen";
-import { Segments } from "./Segments";
 import { useAiCatalog } from "./useAiCatalog";
 import { useRuns } from "./useAiNote";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -164,13 +164,13 @@ export function AiTab({
   return (
     <View style={[styles.frame, compact && styles.frameCompact]} testID="admin-ai">
       {compact ? (
-        <Segments
-          options={[...RAIL.map((item) => ({ key: item.key as AiViewKey, label: item.label })), { key: "files" as AiViewKey, label: "Files" }]}
-          value={current}
-          onChange={(key) => go(railPlace(key))}
-          counts={(key) => counts[key] ?? null}
-          label="AI"
-          testID="admin-ai-view"
+        <AiPhonePicker
+          place={place}
+          jobs={catalog.jobs.map((row) => row.job)}
+          rail={RAIL}
+          counts={counts}
+          onView={(key) => go(railPlace(key))}
+          onJob={(job) => go({ view: "jobs", job, tab: "overview", compare: null })}
         />
       ) : (
         <View style={styles.rail} role="tablist" aria-label="AI">

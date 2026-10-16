@@ -131,7 +131,7 @@ describe("the jobs home", () => {
     expect(tex.textContent).toContain("93.3%");
     expect(tex.textContent).toContain("1 case fell");
     expect(tex.textContent).toContain("6.9k");
-    expect(tex.textContent).toContain("Review 1 candidate");
+    expect(tex.textContent).toContain("Review 1 experiment");
   });
 
   test("a job with no setup says so in its live column and offers its first test", async () => {
@@ -169,7 +169,7 @@ describe("needs your yes", () => {
     expect(byTestId("admin-ai-yes-count")!.textContent).toBe("1");
   });
 
-  test("Compare and promote opens the candidate, it does not promote", async () => {
+  test("Compare opens the experiment, it does not make it live", async () => {
     await render();
     await act(async () => byTestId("admin-ai-yes-live-6-compare")!.click());
     expect(mockGo).toHaveBeenLastCalledWith({ view: "jobs", job: "texting-assistant", tab: "setups", compare: "live-6" });

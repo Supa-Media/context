@@ -254,3 +254,77 @@ export function addCase(list: TestList, title: string): TestList {
   if (trailingNewline) body.push("");
   return reparse(body);
 }
+
+/** The list's name: its first `# ` heading after the front matter, else null. */
+export function groupTitle(list: TestList): string | null {
+  for (let i = list.frontEnd; i < list.lines.length; i++) {
+    const match = /^# (.+?)\s*$/.exec(list.lines[i]);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/** Renames the list: its first `# ` heading, or a new one above the first case when it has none. */
+export function setGroupTitle(list: TestList, title: string): TestList {
+  const clean = title.trim();
+  if (!clean) throw new Error("a case group needs a name");
+  assertSingleLine(clean, "name");
+  const lines = [...list.lines];
+  const at = lines.findIndex((line, i) => i >= list.frontEnd && /^# /.test(line));
+  if (at >= 0) lines[at] = `# ${clean}`;
+  else {
+    const first = list.cases[0]?.headingIndex ?? lines.length;
+    lines.splice(first, 0, `# ${clean}`, "");
+  }
+  return reparse(lines);
+}
+
+/**
+ * Removes a case and the blank lines after it. The other cases keep their
+ * numbers: a case's number is how every earlier round's scores name it.
+ */
+export function removeCase(list: TestList, caseNumber: number): TestList {
+  const testCase = findCase(list, caseNumber);
+  return reparse([...list.lines.slice(0, testCase.headingIndex), ...list.lines.slice(testCase.endIndex)]);
+}
+
+/** A case's lines, from its heading to the next, without trailing blank lines. */
+export function caseLines(list: TestList, caseNumber: number): string[] {
+  const testCase = findCase(list, caseNumber);
+  const block = list.lines.slice(testCase.headingIndex, testCase.endIndex);
+  while (block.length > 0 && block[block.length - 1].trim() === "") block.pop();
+  return block;
+}
+
+/** Appends a case's lines as this list's next case, numbered after its last. */
+export function appendCase(list: TestList, block: readonly string[]): TestList {
+  const heading = (block[0] ?? "").match(CASE_HEADING);
+  if (!heading) throw new Error("that is not a case");
+  const next = list.cases.reduce((max, c) => Math.max(max, c.number), 0) + 1;
+  const lines = [...list.lines];
+  const trailingNewline = lines[lines.length - 1] === "";
+  const body = trailingNewline ? lines.slice(0, -1) : lines;
+  if (body.length > 0 && body[body.length - 1] !== "") body.push("");
+  body.push(`## ${next}. ${heading[2]}`, ...block.slice(1));
+  if (trailingNewline) body.push("");
+  return reparse(body);
+}
+
+/** A case's "their notes say" text: its description lines, replaced by `text` (one line per line typed). */
+export function setDescription(list: TestList, caseNumber: number, text: string): TestList {
+  const testCase = findCase(list, caseNumber);
+  const kept: string[] = [];
+  for (let i = testCase.headingIndex + 1; i < testCase.endIndex; i++) {
+    const line = list.lines[i];
+    // Bullets and any `###` line under the case are kept as written, in order.
+    if (BULLET.test(line) || /^#/.test(line)) kept.push(line);
+  }
+  // Blank lines collapse to one between parts; the description sits right under the heading.
+  const bullets = kept;
+  const said = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "" && !/^-\s|^#/.test(line));
+  const section = [...(said.length > 0 ? ["", ...said] : []), ...(bullets.length > 0 ? ["", ...bullets] : []), ""];
+  const lines = [...list.lines.slice(0, testCase.headingIndex + 1), ...section, ...list.lines.slice(testCase.endIndex)];
+  // At the end of the file, keep exactly the one trailing newline the file had.
+  if (testCase.endIndex === list.lines.length && list.lines[list.lines.length - 1] !== "") lines.pop();
+  return reparse(lines);
+}

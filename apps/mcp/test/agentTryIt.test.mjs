@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { readOnlySession, readVerdicts, tryDispatcher, tryHistory, tryRules } from "../src/agent/tryIt.js";
+import { personaPrompt, readOnlySession, readVerdicts, tryDispatcher, tryHistory, tryPersona, tryRules } from "../src/agent/tryIt.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -244,6 +244,34 @@ test("a try changes nothing, whatever the model asks", async () => {
   assert.equal(pinnedBucket.get(SETUP_PATH)?.body, setupFile());
   const results = JSON.stringify(gatewayCalls[1].messages);
   assert.equal(results.split('"is_error":true').length - 1, 4, "every refused call says so");
+});
+
+test("as a case's person, the turn reads nothing and knows only what the case says", async () => {
+  script = [
+    { toolCalls: [{ name: "read_note", args: { path: "todo.md" } }] },
+    { text: "Sure, Ada." },
+  ];
+  const answer = await tryIt(TOKEN_EDITOR, {
+    question: "what's on my list?",
+    setup: SETUP_PATH,
+    as: { who: "Ada, a nurse", notes: "Shift Tuesday 7am." },
+  });
+  assert.equal(answer.status, 200, JSON.stringify(answer.body));
+  assert.deepEqual((gatewayCalls[0].tools ?? []).map((tool) => tool.name), [], "no tool is offered");
+  const system = systemText(gatewayCalls[0]);
+  assert.ok(system.includes(PROMPT), "the setup's own prompt still leads");
+  assert.ok(system.includes("Ada, a nurse") && system.includes("Shift Tuesday 7am."), "the case's person is named");
+  assert.ok(!JSON.stringify(gatewayCalls).includes("Pay rent"), "the caller's own notes never reach the model");
+});
+
+test("tryPersona bounds who and notes, and names nobody without a who", () => {
+  assert.equal(tryPersona(null), null);
+  assert.equal(tryPersona({ who: "  " }), null);
+  assert.equal(tryPersona({ notes: "x" }), null);
+  const long = tryPersona({ who: "a\nb".repeat(300), notes: "n".repeat(9_000) });
+  assert.ok(long.who.length <= 200 && !long.who.includes("\n"));
+  assert.equal(long.notes.length, 4_000);
+  assert.ok(personaPrompt("P", { who: "Ada", notes: "" }).includes("say nothing relevant"));
 });
 
 test("each reply is checked against the case's rules", async () => {

@@ -64,11 +64,13 @@ function pageWith(scores: string | null) {
 }
 
 describe("verdict", () => {
-  test("a candidate that fixes case 5 and breaks nothing says so, with the score, size, cost and speed beside live", () => {
+  test("a candidate that fixes case 5 and breaks nothing says so, with size, cost and speed beside live", () => {
     const { candidate, read } = pageWith(SCORES);
     const line = verdict(candidate, read, "live-5");
     expect(line.lead).toBe("live-6 fixes case 5 and breaks nothing.");
-    expect(line.rest).toBe(" 100% vs 93.3% on core · 10 tokens shorter · same cost and speed.");
+    // Runs passed are on "How sure"; the line does not repeat one group's percentage.
+    expect(candidate.livePassed).not.toBeNull();
+    expect(line.rest).toBe(" 10 tokens shorter · same cost and speed.");
   });
 
   test("a candidate that breaks a case says which", () => {

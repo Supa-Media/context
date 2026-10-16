@@ -29,7 +29,7 @@ export function splitFront(raw: string): { front: string[]; body: string } {
 }
 
 /** The front matter with each top-level key in `drop` removed, with its indented lines. */
-function withoutKeys(front: readonly string[], drop: ReadonlySet<string>): string[] {
+export function withoutKeys(front: readonly string[], drop: ReadonlySet<string>): string[] {
   const out: string[] = [];
   let skipping = false;
   for (const line of front) {
