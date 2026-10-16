@@ -64,7 +64,7 @@ export const openStorageBindingReturns = v.union(
   }),
 );
 
-export const openGatewayJobArgs = { hashedTicket: v.string() };
+export const openGatewayJobArgs = { hashedTicket: v.string(), contentSha256: v.optional(v.string()) };
 
 export const openGatewayJobReturns = v.union(
   v.null(),
@@ -77,6 +77,8 @@ export const openGatewayJobReturns = v.union(
       grantId: v.id("oauthGrants"),
       kind: gatewayJobKindValidator,
       moveId: v.optional(v.string()),
+      imageSha256: v.optional(v.string()),
+      imageBytes: v.optional(v.number()),
     }),
     binding: v.union(s3BindingValidator, dropboxBindingValidator),
     searchIndex: v.optional(searchIndexValidator),
@@ -85,5 +87,7 @@ export const openGatewayJobReturns = v.union(
     rotation: v.optional(keyRotationValidator),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
     privacy: v.optional(heldPrivacyValidator),
+    /** Whether the workspace is keyed (`lib/noteIds/keyedStore.ts`): a path-based job is refused. */
+    keyed: v.optional(v.boolean()),
   }),
 );

@@ -131,7 +131,8 @@ const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
 
 /**
  * Tex's folder, the texting assistant's (decided by the owner, 2026-10-14):
- * `tex/` itself, its `about-me.md`, `tex/routines/`, and each how-often
+ * `tex/` itself, its `about-me.md`, `tex/dreams/` (the nightly dream's logs,
+ * `apps/mcp/src/agent/dream.js`), `tex/routines/`, and each how-often
  * folder under it by what its name means (`routines.cjs`'s
  * `cadenceFromFolder`), so `every-3-hours` gets the hourly one. Only those
  * exact paths: a folder somebody made inside `tex/routines/once/` is theirs.
@@ -148,6 +149,7 @@ const TEX_ICONS = Object.freeze({
   tex: TEX_FIGURE_ICON,
   "tex/about-me.md": "🪪",
   "tex/routines": "🔁",
+  "tex/dreams": "💤",
 });
 const CADENCE_ICONS = Object.freeze({
   once: "📌",

@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -162,6 +163,7 @@ export function useManagedOffer(options: {
   }, [mode, slowAfter]);
 
   const choose = useCallback(() => {
+    if (Platform.OS !== "web") return;
     setFailure(undefined);
     setMode("confirm");
     /*
@@ -190,7 +192,7 @@ export function useManagedOffer(options: {
 
   const toggle = useCallback(
     (value: string, next: boolean) => {
-      if (workspaceId === null || status === null) return;
+      if (Platform.OS !== "web" || workspaceId === null || status === null) return;
       // Mid-checkout the control plane refuses an empty selection; the last
       // box is drawn locked, and this covers a status a moment stale.
       if (wouldEmptyRequiredSelection(status, value, next)) return;
@@ -208,6 +210,7 @@ export function useManagedOffer(options: {
   );
 
   const proceed = useCallback(() => {
+    if (Platform.OS !== "web") return;
     if (workspaceId === null) return;
     if (status?.stagingFreeStorage === true) {
       setOpening(true);
@@ -267,7 +270,7 @@ export function useManagedOffer(options: {
           : "choosing";
 
   return {
-    available: status?.managedStorageAvailable === true,
+    available: Platform.OS === "web" && status?.managedStorageAvailable === true,
     price: status === null ? "" : formatPrice(status),
     status,
     mode,

@@ -120,7 +120,9 @@ export type FileOperation =
     }
   | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
-  | { kind: "nodesMoveStart"; from: string; to: string }
+  | { kind: "nodesMoveStart"; from: string; to: string; expectedEtag?: string }
+  /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
+  | { kind: "nodesMoveBatch"; moves: { from: string; to: string; expectedEtag?: string }[] }
   | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
@@ -308,7 +310,7 @@ export type OperationResult =
       mainJs: string;
       stylesCss: string | null;
     }
-  | { kind: "notePaths"; paths: string[] | null }
+  | { kind: "notePaths"; paths: string[] | null; pathChunks?: string[][] }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
   | { kind: "visiblePaths"; paths: string[] }
   | {
@@ -398,7 +400,9 @@ export type OperationResult =
   /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
   | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
-  | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
+  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
+  /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */
+  | { kind: "moveBatch"; ok: boolean; moves?: { from: string; to: string }[]; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult

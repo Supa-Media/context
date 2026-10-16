@@ -16,7 +16,9 @@ import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
 import { runSearchShardsChecks } from "./searchShards.test.mjs";
 import { runSearchDocmapPathsChecks } from "./searchDocmapPaths.test.mjs";
 import { runSearchPacingChecks } from "./searchPacing.test.mjs";
+import { runSearchPacingControlPlaneChecks } from "./searchPacingControlPlane.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
+import { runSearchV2IntegrationShardChecks } from "./searchV2IntegrationShards.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
@@ -68,6 +70,7 @@ import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
+import { runAgentDreamChecks } from "./agentDream.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
@@ -93,6 +96,7 @@ import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
+import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
 
 /**
  * This file used to hold the ~4,100 lines of sequential checks below inline.
@@ -118,6 +122,7 @@ await runWebhooksAndCalendarChecks();
 await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
+await runImageUploadLinkChecks();
 
 await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.
@@ -158,6 +163,7 @@ await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
 await suite("runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check));
 // Tex's daily transcript in tex/transcripts/, written as a text is answered.
 await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
+await suite("runAgentDreamChecks", () => runAgentDreamChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 // The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).
@@ -220,10 +226,12 @@ await suite("runSearchDocmapPathsChecks", () => runSearchDocmapPathsChecks(check
 await suite("runSearchShardQueryChecks", () => runSearchShardQueryChecks(check));
 await suite("runSearchFilterChecks", () => runSearchFilterChecks(check));
 await suite("runSearchV2IntegrationChecks", () => runSearchV2IntegrationChecks(check));
+await suite("runSearchV2IntegrationShardChecks", () => runSearchV2IntegrationShardChecks(check));
 // What a search *costs*: the ops it reserves for its own answer, the share of
 // the backfill it does while somebody waits, and the round trips it no longer
 // serializes.
 await suite("runSearchPacingChecks", () => runSearchPacingChecks(check));
+await suite("runSearchPacingControlPlaneChecks", () => runSearchPacingControlPlaneChecks(check));
 
 // The Obsidian plugin compatibility check: the scan as pure functions, the
 // inventory against its own bucket stubs, and the phrasing of the report. No

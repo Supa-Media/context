@@ -103,8 +103,17 @@ export async function storeForSession(session, env, controlPlane) {
     typeof controlPlane.readTreeFacts === "function"
       ? () => treeNoteCount((request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request))
       : null;
+  const hooks = idLayoutHooks(opened.idLayout, session, controlPlane);
+  // A keyed workspace's path objects are frozen copies (`notes-by-id.md`): a store
+  // without the id layer would serve them as the note. Refused, never served paths.
+  if (opened.keyed === true && hooks === null) throw new StorageUnavailable("keyed workspace needs the id layer");
   const store = withPrivacyAuthority(
-    storeForBinding(binding, env, { noteCap, noteCount, managedEncryption: managedEncryptionForStore(opened, binding) }),
+    storeForBinding(binding, env, {
+      noteCap,
+      noteCount,
+      managedEncryption: managedEncryptionForStore(opened, binding),
+      idLayout: hooks,
+    }),
     authority,
   );
   // The backend's name, for the search trace and nothing else. Latency is a
@@ -222,8 +231,30 @@ export async function storeForSession(session, env, controlPlane) {
    * request's own session, as `rotateEncryptionKeys` is.
    */
   Object.defineProperty(store, "startQueuedMove", {
-    value: async (from, to) =>
-      await controlPlane.startQueuedMove(session.accessToken, session.workspaceId, from, to),
+    value: async (from, to, expectedEtag) =>
+      await controlPlane.startQueuedMove(session.accessToken, session.workspaceId, from, to, expectedEtag),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  /**
+   * Ask the control plane to make several note moves in a keyed workspace,
+   * whole or not at all (`tools/moves/queuedFolder.js`). Bound to this
+   * request's own session, as `startQueuedMove` is.
+   */
+  Object.defineProperty(store, "startMoveBatch", {
+    value: async (moves) => await controlPlane.startMoveBatch(session.accessToken, session.workspaceId, moves),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  /**
+   * Whether the workspace's notes live at their own keys (`idLayout` "keys"):
+   * then a note moves as a row change through `startQueuedMove`, and never as
+   * bytes (`tools/moves/queuedFolder.js`). Non-enumerable, as the seam is.
+   */
+  Object.defineProperty(store, "keyedLayout", {
+    value: opened.idLayout === "keys",
     enumerable: false,
     writable: false,
     configurable: true,
@@ -231,6 +262,31 @@ export async function storeForSession(session, env, controlPlane) {
   return storeThroughMoves(store, opened.pendingMoves, (moved) =>
     controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
   );
+}
+
+/**
+ * The id layer's hooks for one session (`store/idLayout.js`), bound to its own
+ * access token: `null` while the layout is paths, or when this control plane
+ * cannot answer for ids. The "keys" layout needs all four; "ids" needs the
+ * first two.
+ */
+function idLayoutHooks(layout, session, controlPlane) {
+  if (layout !== "ids" && layout !== "keys") return null;
+  if (typeof controlPlane.noteIdLookup !== "function" || typeof controlPlane.noteIdWrote !== "function") return null;
+  const hooks = {
+    mode: layout,
+    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
+    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
+  };
+  if (layout === "ids") return hooks;
+  if (typeof controlPlane.noteIdAdopt !== "function" || typeof controlPlane.noteIdRemoved !== "function") {
+    throw new StorageUnavailable("the keys layout needs a control plane that adopts notes");
+  }
+  return {
+    ...hooks,
+    adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
+    removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
+  };
 }
 
 /**

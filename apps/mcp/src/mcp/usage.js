@@ -45,6 +45,20 @@ export function reportSessionUsage(store, workspaceId) {
   }
 }
 
+/**
+ * That this connection just fetched our tool list. `orient` then names only
+ * the tool changes after this moment (`tools/news.js`). Fire and forget, like
+ * the counters: it may never fail the listing it describes.
+ */
+export function reportToolsListed(store) {
+  if (typeof store?.reportToolsListed !== "function") return;
+  try {
+    store.reportToolsListed();
+  } catch {
+    // Bookkeeping only.
+  }
+}
+
 export function reportToolUsage(store, toolName, workspaceId) {
   if (typeof store?.reportUsage !== "function") return;
   if (typeof workspaceId !== "string" || workspaceId === "") return;

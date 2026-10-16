@@ -211,6 +211,25 @@ export async function notePathIndex(
   return { paths: paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
 
+/**
+ * Convex refuses an array over 8,192 items in a function's return value, so a
+ * workspace of eleven thousand notes failed every `notePaths` call outright.
+ * Past `NOTE_PATHS_CHUNK` the paths go out in chunks, the way the map's graph
+ * already sends them, and `paths` is `null`: a client from before the chunks
+ * reads that as "not indexed yet", which leaves its links to the file tree
+ * rather than failing.
+ */
+export const NOTE_PATHS_CHUNK = 8_000;
+
+export function notePathsAnswer(paths: string[] | null): { paths: string[] | null; pathChunks?: string[][] } {
+  if (paths === null || paths.length <= NOTE_PATHS_CHUNK) return { paths };
+  const pathChunks: string[][] = [];
+  for (let start = 0; start < paths.length; start += NOTE_PATHS_CHUNK) {
+    pathChunks.push(paths.slice(start, start + NOTE_PATHS_CHUNK));
+  }
+  return { paths: null, pathChunks };
+}
+
 export async function searchNotes(
   store: FileStore,
   options: {

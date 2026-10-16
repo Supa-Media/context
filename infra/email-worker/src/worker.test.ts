@@ -22,251 +22,25 @@
  * Every test in this file runs offline. `fetch` is stubbed to throw, so a stray
  * network call fails loudly rather than silently succeeding.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleEmail, type Env, type InboundMessage } from "./index";
-import { REFUSAL } from "./refusal";
+import { describe, expect, it } from "vitest";
+import { handleEmail, type InboundMessage } from "./index";
 import { R2Store } from "../../../apps/mcp/src/store/r2.js";
 import { AUTHSERV, rawMessage, streamOf } from "./fixtures.test-helpers";
+import { REFUSAL } from "./refusal";
+import {
+  ENV,
+  bucketStub,
+  RESOLUTION,
+  BINDING,
+  Observed,
+  inbound,
+  fingerprint,
+  controlPlaneStub,
+  run,
+  offlineGuards,
+} from "./workerHarness.test-helpers";
 
-/* ------------------------------- the harness ------------------------------- */
-
-const ENV: Env = {
-  CONTROL_PLANE_URL: "https://control-plane.test",
-  EMAIL_WORKER_SECRET: "not-a-real-secret",
-  INGEST_DOMAIN: "context.lc",
-  AUTH_SERVICE_ID: AUTHSERV,
-  OPERATIONS_MAILBOX: "ops@example.com",
-  MAX_MESSAGE_BYTES: "5000000",
-  NATIVE_BINDINGS: "TEST_BUCKET",
-};
-
-/** An in-memory R2 binding, wrapped in the real adapter the Worker builds. */
-function bucketStub(overrides: { failPut?: boolean; failGet?: boolean } = {}) {
-  const objects = new Map<string, string>();
-  const types = new Map<string, string>();
-  return {
-    objects,
-    async get(key: string) {
-      if (overrides.failGet) throw new Error("get failed");
-      if (!objects.has(key)) return null;
-      return { etag: "e1", text: async () => objects.get(key)! };
-    },
-    // The content type is recorded, not ignored. R2 carries it in
-    // `httpMetadata` and the adapter always sets one, so a stub that drops the
-    // third argument cannot tell a stored PNG from a stored note — which is
-    // precisely how every emailed image came to be labelled markdown.
-    types,
-    async put(
-      key: string,
-      value: string | Uint8Array,
-      options?: { httpMetadata?: { contentType?: string } },
-    ) {
-      if (overrides.failPut) throw new Error("put failed");
-      objects.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
-      types.set(key, options?.httpMetadata?.contentType ?? "(none)");
-      return { etag: `e${objects.size}` };
-    },
-    async delete(key: string) {
-      objects.delete(key);
-    },
-    async list() {
-      return { objects: [], truncated: false };
-    },
-  };
-}
-
-const RESOLUTION = {
-  ticket: "ticket-1",
-  context: { kind: "personal" as const, path: "seyi" },
-  targetFolder: "0-inbox/",
-  attachmentPolicy: "list",
-  maxMessageBytes: 5_000_000,
-  policy: {
-    allowedSenders: ["alice@example.com"],
-    allowedDomains: [],
-    allowAnySender: false,
-  },
-};
-
-const BINDING = {
-  // The real `/gateway/binding` shape, unchanged: the workspace row IS the
-  // context, and a personal context is a workspace with one owner member.
-  workspaceId: "ws-1",
-  provider: "r2-binding",
-  bindingName: "TEST_BUCKET",
-  capabilities: { conditionalWrite: true },
-  status: "active",
-};
-
-interface Observed {
-  rejected: string[];
-  forwarded: string[];
-}
-
-/**
- * How many bytes of the message body the Worker actually pulled.
- *
- * `fingerprint` above covers what an SMTP peer can SEE. This covers what the
- * Worker DOES, which is the other half of the same question: two refusals that
- * are byte-identical to read and a different amount of work apart are still two
- * answers. Ingestion is on the apex, so the party doing the measuring here
- * needs no account at all.
- */
-function countingStream(bytes: Uint8Array, meter: { read: number }): ReadableStream<Uint8Array> {
-  const inner = streamOf(bytes);
-  const reader = inner.getReader();
-  // `highWaterMark: 0` so the stream pulls only on demand. With the default of
-  // 1 the queue is primed at construction and the meter reports one chunk the
-  // Worker never consumed — which understates the gap and is exactly the kind
-  // of instrument artifact that reads like a result.
-  return new ReadableStream<Uint8Array>(
-    {
-      async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
-        meter.read += value.byteLength;
-        controller.enqueue(value);
-      },
-    },
-    { highWaterMark: 0 },
-  );
-}
-
-function inbound(
-  raw: Uint8Array,
-  to = "seyi@context.lc",
-  from = "alice@example.com",
-  meter?: { read: number },
-) {
-  const observed: Observed = { rejected: [], forwarded: [] };
-  const message: InboundMessage = {
-    to,
-    from,
-    raw: meter ? countingStream(raw, meter) : streamOf(raw),
-    rawSize: raw.length,
-    setReject(reason) {
-      observed.rejected.push(reason);
-    },
-    async forward(rcptTo) {
-      observed.forwarded.push(rcptTo);
-    },
-  };
-  return { message, observed };
-}
-
-/**
- * Everything an SMTP peer can observe about how a message was handled.
- *
- * The email analogue of `responseFingerprint`. Two outcomes with the same
- * fingerprint are indistinguishable from outside — which is the property.
- */
-function fingerprint(observed: Observed): string {
-  return JSON.stringify({ rejected: observed.rejected, forwarded: observed.forwarded });
-}
-
-interface StubOptions {
-  /**
-   * Loosely typed on purpose. `IngestionResolution.context` is a union of one
-   * (`{ kind: "personal" }`), so a shared context is not expressible in the
-   * package's own types — which is the property. The tests still have to be
-   * able to hand the handler one, to prove it refuses.
-   */
-  resolution?: Record<string, unknown> | null;
-  binding?: Record<string, unknown> | null;
-  resolveThrows?: boolean;
-  bindingThrows?: boolean;
-  recordThrows?: boolean;
-}
-
-/** The shape the handler needs, plus the call log the assertions read. */
-type StubbedControlPlane = NonNullable<
-  NonNullable<Parameters<typeof handleEmail>[2]>["controlPlane"]
-> & { calls: string[] };
-
-function controlPlaneStub(options: StubOptions = {}): StubbedControlPlane {
-  const calls: string[] = [];
-  return {
-    calls,
-    async resolveIngestion() {
-      calls.push("resolve");
-      if (options.resolveThrows) throw new Error("control plane down");
-      return options.resolution === undefined ? RESOLUTION : options.resolution;
-    },
-    async getBinding() {
-      calls.push("binding");
-      if (options.bindingThrows) throw new Error("control plane down");
-      return options.binding === null ? null : { binding: options.binding ?? BINDING, noteCap: null };
-    },
-    async record() {
-      calls.push("record");
-      if (options.recordThrows) throw new Error("record failed");
-    },
-  } as unknown as StubbedControlPlane;
-}
-
-/**
- * Runs a message through the handler with the policy matcher forced on.
- *
- * ./policy.ts ships an unwired matcher that denies everything (deliberately —
- * an ingestion path whose only protection is a policy check must not run
- * without one). The suite injects a stand-in so the rest of the pipeline is
- * exercised; `describe("fail-closed")` below covers the unwired case itself.
- */
-async function run(
-  raw: Uint8Array,
-  {
-    env = ENV,
-    to = "seyi@context.lc",
-    from = "alice@example.com",
-    bucket = bucketStub(),
-    stub = {},
-    meter,
-  }: {
-    env?: Env;
-    to?: string;
-    from?: string;
-    bucket?: ReturnType<typeof bucketStub>;
-    stub?: StubOptions;
-    meter?: { read: number };
-  } = {},
-) {
-  const { message, observed } = inbound(raw, to, from, meter);
-  const controlPlane = controlPlaneStub(stub);
-  const fullEnv: Env = { ...env, TEST_BUCKET: bucket };
-  let threw: unknown = null;
-  try {
-    await handleEmail(message, fullEnv, {
-      controlPlane,
-      now: () => new Date("2026-08-26T09:00:00.000Z"),
-      nonce: () => "0123456789abcdef",
-    });
-  } catch (error) {
-    threw = error;
-  }
-  return { observed, bucket, threw, controlPlane };
-}
-
-let fetchSpy: ReturnType<typeof vi.fn>;
-let logs: string[];
-
-beforeEach(() => {
-  fetchSpy = vi.fn(() => {
-    throw new Error("network access attempted");
-  });
-  vi.stubGlobal("fetch", fetchSpy);
-  logs = [];
-  vi.spyOn(console, "log").mockImplementation((line: string) => {
-    logs.push(String(line));
-  });
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
+const guards = offlineGuards();
 
 /* --------------------------------- the tests ------------------------------- */
 
@@ -720,10 +494,10 @@ describe("a rejection is one answer", () => {
     await run(rawMessage(), {
       stub: { resolution: { ...RESOLUTION, context: { kind: "shared", path: "acme-board" } } },
     });
-    expect(logs.join("\n")).toContain("not_a_personal_context");
+    expect(guards.logs.join("\n")).toContain("not_a_personal_context");
     // And the name of the shared context is not in there either. Logging it
     // would move the roster from the SMTP channel into a log aggregator.
-    expect(logs.join("\n")).not.toContain("acme-board");
+    expect(guards.logs.join("\n")).not.toContain("acme-board");
   });
 });
 
@@ -768,7 +542,7 @@ describe("RFC 2142's mandatory mailboxes", () => {
       env: { ...ENV, OPERATIONS_MAILBOX: "" },
     });
     expect(observed.rejected).toEqual([REFUSAL]);
-    expect(logs.join("\n")).toContain("operations_mailbox_unset");
+    expect(guards.logs.join("\n")).toContain("operations_mailbox_unset");
   });
 });
 
@@ -807,7 +581,7 @@ describe("nothing about a message reaches the logs", () => {
     expect(observed.rejected).toEqual([]);
     expect(bucket.objects.size).toBeGreaterThan(0);
 
-    const written = logs.join("\n");
+    const written = guards.logs.join("\n");
     expect(written).not.toContain(SECRETS.subject);
     expect(written).not.toContain(SECRETS.body);
     expect(written).not.toContain(SECRETS.filename);
@@ -828,7 +602,7 @@ describe("nothing about a message reaches the logs", () => {
       body: SECRETS.body,
     });
     await run(raw, { from: "stranger@example.net" });
-    const written = logs.join("\n");
+    const written = guards.logs.join("\n");
     expect(written).not.toContain(SECRETS.subject);
     expect(written).not.toContain(SECRETS.body);
     expect(written).toContain('"event":"refused"');
@@ -841,7 +615,7 @@ describe("nothing about a message reaches the logs", () => {
     // never a sender string.
     const raw = rawMessage({ subject: SECRETS.subject, body: SECRETS.body, authResults: null });
     await run(raw);
-    const written = logs.join("\n");
+    const written = guards.logs.join("\n");
     expect(written).toContain('"authFailure":"no_authentication_results"');
     expect(written).toContain('"authMethod":"none"');
     expect(written).not.toContain(SECRETS.subject);
@@ -853,7 +627,7 @@ describe("nothing about a message reaches the logs", () => {
 describe("the suite cannot reach the network", () => {
   it("never calls fetch", async () => {
     await run(rawMessage());
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(guards.fetchSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -863,100 +637,5 @@ describe("the store the Worker builds is the gateway's adapter", () => {
     // that guards the gateway guards this Worker, because it is the same code.
     const store = new R2Store(bucketStub() as unknown as R2Bucket);
     await expect(store.put("../escape.md", "x")).rejects.toThrow(/unsafe storage key/);
-  });
-});
-
-/**
- * A Dropbox-backed context receives mail too.
- *
- * The bug this pins: `storeFor` was a hand-rolled subset of the gateway's
- * store factory that only knew `r2-binding` and S3-shaped credentials. A
- * Dropbox binding fell through to the S3 field check, failed it, and every
- * message to that context bounced as `storage_unavailable` — found live on
- * 2026-08-28 when agent@context.lc (Dropbox) bounced while seyi@context.lc
- * (R2) captured, both through the same deployed Worker. The factory in
- * apps/mcp/src/store/factory.js exists precisely so no switch forgets a
- * backend; `storeFor` now delegates to it, and this suite is what fails if
- * anyone hand-rolls the switch again.
- */
-describe("a Dropbox-backed context", () => {
-  const DROPBOX_BINDING = {
-    workspaceId: "ws-1",
-    provider: "dropbox",
-    accessToken: "short-lived-token",
-    capabilities: { conditionalWrite: true },
-    status: "active",
-  };
-
-  /** A fake of the two content endpoints the capture path touches. */
-  function dropboxApi() {
-    const uploads: Array<{ path: string; body: string }> = [];
-    fetchSpy.mockImplementation(async (url: unknown, init: unknown) => {
-      const target = String(url);
-      const request = init as { headers: Record<string, string>; body?: Uint8Array };
-      if (target.endsWith("/files/download")) {
-        // Dropbox says "no such path" as a tagged 409, never a 404 — and the
-        // tag is the part that decides. This fixture carried only the
-        // `error_summary` line, which satisfied a `String.includes` over the
-        // raw body and nothing else; an adapter reading the actual tag saw no
-        // tag at all and treated a missing file as a hard failure, so every
-        // capture refused. The nested union below is what Dropbox sends.
-        return new Response(
-          JSON.stringify({
-            error_summary: "path/not_found/.",
-            error: { ".tag": "path", path: { ".tag": "not_found" } },
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      if (target.endsWith("/files/upload")) {
-        const arg = JSON.parse(request.headers["Dropbox-API-Arg"]) as { path: string };
-        uploads.push({
-          path: arg.path,
-          body: new TextDecoder().decode(request.body ?? new Uint8Array()),
-        });
-        return new Response(JSON.stringify({ rev: "015a2b3c4d5e6f", path_display: arg.path }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`unexpected call from DropboxStore: ${target}`);
-    });
-    return uploads;
-  }
-
-  it("captures instead of bouncing", async () => {
-    const uploads = dropboxApi();
-    const { observed } = await run(rawMessage(), { stub: { binding: DROPBOX_BINDING } });
-    expect(observed.rejected).toEqual([]);
-    const paths = uploads.map((upload) => upload.path);
-    expect(paths.filter((path) => path.startsWith("/0-inbox/email/"))).toHaveLength(1);
-    expect(paths.filter((path) => path.startsWith("/.context/audit/"))).toHaveLength(1);
-  });
-
-  it("writes inside the folder the customer chose, and nowhere else", async () => {
-    // The `rootPrefix` seam, which the tests above do not reach because their
-    // binding has none. It matters more here than on any other backend: an S3
-    // credential is scoped to a bucket holding nothing but this context, so the
-    // prefix is a convenience, while a Dropbox token is scoped to an ACCOUNT.
-    // That makes this seam the only thing between an ingested note and the rest
-    // of somebody's Dropbox.
-    const uploads = dropboxApi();
-    const { observed } = await run(rawMessage(), {
-      stub: { binding: { ...DROPBOX_BINDING, rootPrefix: "Context" } },
-    });
-    expect(observed.rejected).toEqual([]);
-    const paths = uploads.map((upload) => upload.path);
-    // Not vacuous: assert something was written before asserting where.
-    expect(paths.length).toBeGreaterThan(0);
-    for (const path of paths) expect(path.startsWith("/Context/")).toBe(true);
-  });
-
-  it("still refuses a token-less binding, with the one frozen string", async () => {
-    const { observed } = await run(rawMessage(), {
-      stub: { binding: { ...DROPBOX_BINDING, accessToken: undefined } },
-    });
-    expect(observed.rejected).toEqual([REFUSAL]);
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

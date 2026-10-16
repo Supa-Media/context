@@ -149,14 +149,20 @@ function renderPrivacyRulesBlock(rules, overrides) {
   ].join("\n");
 }
 
-export function replacePrivacyRulesBlock(text, rules, overrides) {
+/**
+ * `text` with its managed block replaced by these rules, unchecked: the result is not parsed. Only for rules
+ * that never reach a file (`store/privacyAuthority.js` reads rows' rules this way); a write goes through
+ * `replacePrivacyRulesBlock`.
+ */
+export function spliceRulesBlock(text, rules, overrides) {
   const begin = text.indexOf(PRIVACY_RULES_BEGIN);
   const end = text.indexOf(PRIVACY_RULES_END);
   if (begin < 0 || end < begin) throw new Error("privacy.md is missing its managed rules block");
-  const next =
-    text.slice(0, begin) +
-    renderPrivacyRulesBlock(rules, overrides) +
-    text.slice(end + PRIVACY_RULES_END.length);
+  return text.slice(0, begin) + renderPrivacyRulesBlock(rules, overrides) + text.slice(end + PRIVACY_RULES_END.length);
+}
+
+export function replacePrivacyRulesBlock(text, rules, overrides) {
+  const next = spliceRulesBlock(text, rules, overrides);
   // Never write a manifest that would not read back: it makes the whole
   // workspace private until someone resets it (`lib/privacy.ts`).
   try {
@@ -166,6 +172,13 @@ export function replacePrivacyRulesBlock(text, rules, overrides) {
   }
   return next;
 }
+
+/**
+ * Set on a `privacy.md` object whose rules were read already parsed, by the authority, and holds a row token
+ * (`rowAccess.js`). The parser refuses that token in file text, so such rules cannot come back through
+ * `parsePrivacyManifest`; `loadPrivacyState` takes them from here instead. A bucket object cannot carry it.
+ */
+export const PRE_PARSED_RULES = Symbol("preParsedRules");
 
 /** Longest matching prefix rule wins; no rule → private. Segment-aware. */
 export function visibilityOf(key, rules) {
@@ -219,11 +232,28 @@ function foldPath(key) {
 }
 
 /** Dot-prefixed segments (.history, .obsidian, …) are plumbing, never notes. */
+/**
+ * An id-layout key (`notes/<noteId>.md`, `files/<noteId><.ext>`), never a note.
+ *
+ * While the move from path keys to id keys runs, a bucket holds every note at
+ * its path and a copy at its id key. The copies are not notes of their own:
+ * the tree sweep must not make them rows (the next copy pass would copy the
+ * copies), and no listing, search or tool may show them, so they are
+ * plumbing. Only names that are a UUIDv7 match, so a folder a person called
+ * `notes/` or `files/` stays theirs.
+ */
+const ID_KEY = /^(?:notes|files)\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[^/]*)?$/;
+
+export function isIdKey(key) {
+  return typeof key === "string" && ID_KEY.test(key);
+}
+
 export function isPlumbing(key) {
   const folded = foldPath(key);
   return (
     folded === PRIVACY_KEY ||
     folded === LEGACY_SCOPES_KEY ||
+    isIdKey(key) ||
     key.split("/").some((s) => s.startsWith("."))
   );
 }

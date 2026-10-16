@@ -8,7 +8,8 @@
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
-import { MAX_GRANTS_RETURNED } from "../functions/grants";
+import { MAX_CONSOLE_GRANTS_RETURNED, MAX_GRANTS_RETURNED } from "../functions/grants";
+import { CONSOLE_CLIENT_ID } from "../functions/agentGrant";
 import { MAX_ACCESS_TOKEN_TTL_MS } from "../functions/lib/consentScopes";
 import {
   addMember,
@@ -205,6 +206,41 @@ describe("listGrants", () => {
     for (let i = total - MAX_GRANTS_RETURNED; i < total; i += 1) {
       expect(clientIds.has(`client-${i}`)).toBe(true);
     }
+  });
+
+  /**
+   * One client's rows must not push every other client off the screen.
+   *
+   * The console is not a third-party client, but it mints like one: every
+   * page load is a new instance, and since 2026-10-15 a person may mint 600
+   * an hour (`CONSOLE_MINT_LIMIT`), which is what a browser agent opening one
+   * note per page load actually does. Nothing expires inside the hour, so
+   * each load inserts a row — and newest-first means a few hundred of them
+   * sit above every AI client the person has ever connected.
+   *
+   * That turns the cap against the screen's own purpose: the client somebody
+   * came here to revoke is the one that falls off. Revocability is the point
+   * of per-client grants, so the console gets a bounded share of the list and
+   * every other client keeps its place.
+   */
+  test("hundreds of console page loads do not hide a connected AI client", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, user, "atlas");
+
+    // Connected first, so it is the oldest row and the first to be crowded out.
+    await seedGrant(t, workspaceId, user, "claude", "hash-claude");
+    for (let load = 0; load < MAX_GRANTS_RETURNED; load += 1) {
+      await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, `hash-load-${load}`);
+    }
+
+    const grants = await asUser(t, user).query(api.functions.grants.listGrants, {
+      workspaceId,
+    });
+    expect(grants.some((g) => g.clientId === "claude")).toBe(true);
+    expect(
+      grants.filter((g) => g.clientId === CONSOLE_CLIENT_ID).length,
+    ).toBeLessThanOrEqual(MAX_CONSOLE_GRANTS_RETURNED);
   });
 
   /**

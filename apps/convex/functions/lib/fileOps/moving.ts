@@ -55,6 +55,17 @@ export interface MoveResult {
    * it. `paths` is then just `to`.
    */
   queued?: number;
+  /**
+   * Set when a keyed workspace moved it as a row change (`nodes/rowMoveStart.ts`):
+   * nothing was copied, and `queued` counts the files that moved.
+   */
+  rowed?: true;
+  /**
+   * The files a keyed row move renamed, each at its old and new path, so the
+   * gateway can carry their collaboration heads and state along
+   * (`notes-by-id.md`). Metadata only; set with `rowed`.
+   */
+  moved?: { from: string; to: string }[];
 }
 
 /**
@@ -63,11 +74,17 @@ export interface MoveResult {
  * non-enumerably, as the barrier's other seams are; a store without it (the
  * gateway's own, tests, self-hosting without the tree) moves the old way.
  */
-type QueueMove = (move: { from: string; to: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+type QueueMove = (move: {
+  from: string;
+  to: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult | null>;
 
 async function queuedMove(
   store: FileStore,
-  move: { from: string; to: string; clearance: Clearance; now: number },
+  move: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string },
 ): Promise<MoveResult | null> {
   const queue = (store as { queueMove?: QueueMove }).queueMove;
   return typeof queue === "function" ? await queue(move) : null;
@@ -157,11 +174,16 @@ export async function movePath(
   // `projects` beside `Projects` is refused by name before anything moves.
   await assertNoNameTwin(store, to, options.clearance, "folder", from);
 
-  // A move asked against a version is about one note, which never queues.
-  if (options.expectedEtag === undefined) {
-    const queued = await queuedMove(store, { from, to, clearance: options.clearance, now: options.now });
-    if (queued !== null) return queued;
-  }
+  // A keyed workspace moves a row here, even against a version (`rowMoveStart.ts`); anywhere else a
+  // move asked against a version is about one note and goes the old way.
+  const queued = await queuedMove(store, {
+    from,
+    to,
+    clearance: options.clearance,
+    now: options.now,
+    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+  });
+  if (queued !== null) return queued;
 
   const state = await loadPrivacyState(store);
   if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();

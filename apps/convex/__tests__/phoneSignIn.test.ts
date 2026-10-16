@@ -342,3 +342,73 @@ describe("limits", () => {
     expect(calls).toEqual([]);
   });
 });
+
+
+describe("the App Store review phone", () => {
+  const phone = "+12025550123";
+  beforeEach(() => vi.stubEnv("REVIEWER_SIGNIN_CODE", "482913"));
+
+  test("opens only the existing reviewer account without SMS or an email gate", async () => {
+    const t = setupTest();
+    const reviewer = await createUser(t, "connector-review@supa.media");
+    const other = await kayla(t);
+    expect(await start(t, "+1 (202) 555-0123")).toEqual({ status: "sent", phone });
+    expect((await signIn(t, phone, "000000")).tokens).toBeTruthy();
+    expect(await sessionUsers(t)).toEqual([reviewer]);
+    expect(await sessionUsers(t)).not.toContain(other);
+    expect(calls).toEqual([]);
+    expect(await asUser(t, reviewer).query(api.functions.phoneCheck.myPhoneCheck, {})).toMatchObject({ needsEmail: false, required: false });
+  });
+
+  test("refuses other codes even if Twilio would approve them", async () => {
+    const t = setupTest();
+    await createUser(t, "connector-review@supa.media");
+    expect((await signIn(t, phone, goodCode)).tokens).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  test("the fixed code never authenticates another phone", async () => {
+    const t = setupTest();
+    await kayla(t);
+    expect((await signIn(t, KAYLA_PHONE, "000000")).tokens).toBeNull();
+    expect(await sessionUsers(t)).toEqual([]);
+  });
+
+  test("never creates a reviewer or signs in to an account holding the fictional phone", async () => {
+    const t = setupTest();
+    const other = await kayla(t);
+    await t.run(ctx => ctx.db.patch(other, { phone, phoneVerificationTime: 1 }));
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect(await sessionUsers(t)).toEqual([]);
+    expect(await t.run(ctx => ctx.db.query("users").collect())).toHaveLength(1);
+  });
+
+  test("fails closed when disabled or the reviewer email is unverified", async () => {
+    const t = setupTest();
+    const reviewer = await createUser(t, "connector-review@supa.media");
+    vi.stubEnv("REVIEWER_SIGNIN_CODE", "");
+    expect((await start(t, phone)).status).toBe("unavailable");
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    vi.stubEnv("REVIEWER_SIGNIN_CODE", "482913");
+    await t.run(ctx => ctx.db.patch(reviewer, { emailVerificationTime: undefined }));
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  test("a conflicting phone holder cannot inherit the reviewer code", async () => {
+    const t = setupTest();
+    await createUser(t, "connector-review@supa.media");
+    const other = await kayla(t);
+    await t.run(ctx => ctx.db.insert("phoneLinks", { userId: other, phone, linkedAt: 1 }));
+    expect((await start(t, phone)).status).toBe("paused");
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+    expect(await sessionUsers(t)).toEqual([]);
+  });
+
+  test("keeps the ten-check limit for the fixed code", async () => {
+    const t = setupTest();
+    await createUser(t, "connector-review@supa.media");
+    for (let i = 0; i < 10; i++) expect((await signIn(t, phone, "999999")).tokens).toBeNull();
+    expect((await signIn(t, phone, "000000")).tokens).toBeNull();
+  });
+});

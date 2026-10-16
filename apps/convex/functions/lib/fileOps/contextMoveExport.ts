@@ -20,6 +20,7 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
 import { isFolder } from "./walk";
+import { refuseKeyedStore } from "../noteIds/keyedStore";
 
 /* -------------------------------------------------------------------------- */
 /*                       moving between two contexts                          */
@@ -263,6 +264,9 @@ async function listMoveCandidates(
   const to = requirePath(options.to);
   assertWritablePath(from);
   assertWritablePath(to);
+  // A move out of a keyed workspace would list its frozen copies and read and
+  // retire them by path. Refused before the first list or read, as below.
+  await refuseKeyedStore(store);
   // Before the first read, not after the first copy: a move that discovered
   // this on the way to retiring a source would already have written the
   // destination, and the only way out of that is a duplicate.

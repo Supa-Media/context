@@ -23,6 +23,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import { PUBLICATION_CLEARANCE } from "./publication";
+import { treeRows } from "./treeFacts";
 
 /** The files that could hold `routePath`: `about.md` or `about/index.md`. */
 export function websiteCandidateKeys(routePath: string): string[] {
@@ -47,30 +48,28 @@ export async function probeWebsitePage(
   args: { workspaceId: Id<"workspaces">; routePath: string },
 ): Promise<ProbedPage | null> {
   const keys = websiteCandidateKeys(args.routePath);
+  // Which candidates exist, are sealed or are drafts is the tree's answer; the
+  // file is opened only for the words of the one page that remains.
+  const rows = await treeRows(ctx, args.workspaceId, keys);
+  if (rows === null) return null;
+  const present = keys.filter((key) => rows.has(key));
+  // Both forms present is a clash even when one of them is a draft.
+  if (present.length !== 1) return null;
+  const row = rows.get(present[0]!)!;
+  if (row.sealed || row.facts === null || row.facts.site.draft) return null;
   const read = await ctx
     .runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       // What `privacy.md` does not publish is absent here, exactly as it is
       // absent from the index; see `publication.ts`.
       ...PUBLICATION_CLEARANCE,
-      operation: { kind: "readMany", paths: keys },
+      operation: { kind: "readMany", paths: present },
     })
     .catch(() => null);
   if (read?.kind !== "notes") return null;
-
-  const found: { objectKey: string; markdown: string }[] = [];
-  for (const result of read.results) {
-    if (result.outcome === "read") {
-      found.push({ objectKey: result.path, markdown: result.note.text });
-    } else if (result.outcome !== "error" || result.code !== "FILE_NOT_FOUND") {
-      // A deferred read or a refusal other than absence leaves a possible
-      // clash unseen, so nothing is served.
-      return null;
-    }
-  }
-  // Both forms present is a clash even when one of them is a draft.
-  if (found.length !== 1) return null;
-  const page = found[0]!;
+  const result = read.results.find((entry) => entry.path === present[0]);
+  if (result?.outcome !== "read") return null;
+  const page = { objectKey: result.path, markdown: result.note.text };
   if (isEncryptedNote(page.markdown)) return null;
 
   const status = buildWebsiteRouteStatuses([page])[0];

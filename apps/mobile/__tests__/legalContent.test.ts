@@ -1,10 +1,10 @@
 import { describe, expect, test } from "@jest/globals";
 
-import { privacyContent } from "../features/legal/content";
+import { privacyContent, supportContent, termsContent } from "../features/legal/content";
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("October 5, 2026");
+    expect(privacyContent.updated).toBe("October 15, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -42,5 +42,56 @@ describe("the privacy policy describes X ads' pixel", () => {
     expect(text).toContain("advertising pixels of X (Twitter) and Meta (Facebook and Instagram)");
     expect(text).toContain("never inside the app or on your notes");
     expect(text).toContain("one-way hash of your email address");
+  });
+});
+
+describe("the privacy policy matches what the phone app collects", () => {
+  const text = privacyContent.sections.flatMap((section) => section.body).join("\n");
+
+  test("names phone numbers, profile photos and meeting audio", () => {
+    expect(text).toContain("your phone number if you sign in with one");
+    expect(text).toContain("the profile photo you choose");
+    expect(text).toContain("If you record a meeting, the audio is sent to Context.lc to be transcribed");
+  });
+
+  test("says app signups are never reported to an advertising network", () => {
+    expect(text).toContain("Signups made in the iPhone or Android app are never reported to X, Meta or any other advertising network.");
+  });
+
+  test("names the AI built into Context.lc and the providers it uses", () => {
+    expect(privacyContent.sections.map((section) => section.title)).toContain("AI built into Context.lc");
+    expect(text).toContain("Anthropic and Cloudflare Workers AI");
+  });
+
+  test("says deletion erases Context-managed notes, with no request by email", () => {
+    expect(text).toContain("Notes and attachments in Context-managed storage for those workspaces are permanently erased");
+    expect(text).not.toContain("To have notes in Context-managed storage erased as well, email us");
+  });
+
+  test("points to in-app account deletion rather than a request by email", () => {
+    expect(text).toContain("You can delete your account yourself in Settings, under Profile");
+    expect(text).not.toContain("contact us to request account deletion");
+  });
+});
+
+describe("the terms and support page cover objectionable content (App Store guideline 1.2)", () => {
+  test("the terms say there is no tolerance, how to report, and what happens within 24 hours", () => {
+    expect(termsContent.updated).toBe("October 15, 2026");
+    const section = termsContent.sections.find((entry) => entry.title === "Objectionable content and abuse");
+    const text = section?.body.join(" ") ?? "";
+    expect(text).toContain("no tolerance for objectionable or abusive content or behaviour");
+    expect(text).toContain("report a note, an invitation, or a public page from inside the app");
+    expect(text).toContain("block a person");
+    expect(text).toContain("within 24 hours");
+    expect(text).toContain("remove the accounts");
+  });
+
+  test("support says how to report and block, and where to unblock", () => {
+    const section = supportContent.sections.find((entry) => entry.title === "Reporting and blocking");
+    const text = section?.body.join(" ") ?? "";
+    expect(text).toContain("Report or block");
+    expect(text).toContain("context@supa.media");
+    expect(text).toContain("unblock people in Settings, under Profile");
+    expect(text).toContain("within 24 hours");
   });
 });

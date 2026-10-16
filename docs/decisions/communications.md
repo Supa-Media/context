@@ -131,6 +131,10 @@ Moved to [The Gmail connection: control plane, sync algorithm, and what phase 1 
 
 Moved to [The forward sync loop: a pull, on a floor of five minutes](./communications/gmail-and-sync-loop.md#the-forward-sync-loop-a-pull-on-a-floor-of-five-minutes).
 
+### Push makes a pass due sooner; the loop still does everything
+
+Moved to [Push makes a pass due sooner; the loop still does everything](./communications/google-push.md#push-makes-a-pass-due-sooner-the-loop-still-does-everything).
+
 ## Calendar
 
 Moved to [Calendar](./communications/calendar.md#calendar).

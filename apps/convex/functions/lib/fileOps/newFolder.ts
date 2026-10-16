@@ -7,7 +7,8 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { renderNewFolderAbout } from "./folders";
 import { namesListing } from "./walk";
-import { DELETE_CONFIRMATION, deletePath, type DeleteResult } from "./deleting";
+import { DELETE_CONFIRMATION, deletePath, trashKeyedRows, type DeleteResult } from "./deleting";
+import { isKeyedStore } from "../noteIds/keyedStore";
 
 /**
  * Take back a folder that was just made: the Undo on "Created Hiring in Team"
@@ -28,6 +29,10 @@ import { DELETE_CONFIRMATION, deletePath, type DeleteResult } from "./deleting";
  * version just read where the store can hold a delete to one, so a write
  * into the about note between the read and the delete is not lost either.
  * With the about note gone, the prefix has no keys and the folder is gone.
+ *
+ * In a keyed workspace the folder is trashed as its rows instead (`trashKeyedRows`):
+ * the same emptiness check, made on the tree's names, and a folder that is
+ * restorable rather than gone.
  */
 export async function removeNewFolder(
   store: FileStore,
@@ -50,6 +55,15 @@ export async function removeNewFolder(
   if (keys.length === 0) throw notFound();
   const kept = new FileOpError("FOLDER_NOT_EMPTY", `${baseName(folder)} has something in it now, so it was kept.`);
   if (keys.length > 1 || listing.truncated || keys[0] !== about) throw kept;
+
+  // In a keyed workspace the about note's bytes are at its id key, and the path holds a frozen copy (or
+  // nothing) that this store cannot judge, so the check above is the tree's: the folder holds only its
+  // about note. The folder then moves to the trash as rows, which Restore reverses. The text typed into
+  // the about note is not compared here; it stays in the trash with the folder.
+
+  if (await isKeyedStore(store)) {
+    return await trashKeyedRows(store, { path: folder, clearance: options.clearance, now: Date.now() });
+  }
 
   const note = await store.get(about);
   if (note === null) throw notFound();

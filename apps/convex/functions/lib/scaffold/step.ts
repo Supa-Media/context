@@ -22,6 +22,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "../managedEncryptionFns/storeOption";
+import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
 import { redactSecrets } from "../verification";
 import { type CustomFolder, type ScaffoldStore, scaffoldContext } from "../scaffold";
 
@@ -56,9 +57,12 @@ export async function scaffoldStep(
   let sealing: Awaited<ReturnType<typeof managedEncryptionOption>> = null;
   try {
     sealing = await managedEncryptionOption(ctx, options.workspaceId);
+    // The layout is written through the id switch, as every other console write is (`lib/noteIds/consoleLayer.ts`).
+    const idLayout = await consoleIdLayoutHooks(ctx, options.workspaceId);
     store = storeForBinding(options.credential, undefined, {
       probeCapabilities: true,
       managedEncryption: sealing,
+      idLayout,
     }) as unknown as ScaffoldStore;
   } catch (error) {
     // A key that will not open is a refusal, never a plain write: the bucket

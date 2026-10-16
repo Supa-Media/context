@@ -15,6 +15,7 @@
  *   `scheduleXConversion` removed from `waitlist.enter`                3
  *   `scheduleXConversion` removed from `auth.ts`                       1
  *   `hashed_email` altered in `conversionBody`                         3
+ *   the `app: "native"` skip removed from `waitlist.enter`            1
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -204,6 +205,17 @@ describe("a new waitlist signup", () => {
     await drainScheduled(t);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.body.conversions[0]!.identifiers[0]).not.toHaveProperty("twclid");
+  });
+
+  test("a sign-up from the phone app is never reported to X", async () => {
+    // App Store tracking rule: a hashed address sent to an ad network from
+    // inside the app is tracking, which the app neither asks for nor declares.
+    const t = setupTest();
+    expect(await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", app: "native" })).toMatchObject({
+      status: "joined",
+    });
+    await drainScheduled(t);
+    expect(sent).toHaveLength(0);
   });
 
   test("without a token nothing is scheduled or sent", async () => {

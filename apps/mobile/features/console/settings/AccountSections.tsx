@@ -1,3 +1,4 @@
+import { NotificationSettings } from "../../notifications/NotificationSettings";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
@@ -11,11 +12,12 @@ import type { SetupAgent } from "../../agentSetup/guides";
 import { ConnectClients } from "../clients/ConnectClients";
 import { ClientGroupRow } from "../clients/ClientGroupRow";
 import { groupClients } from "../clients/grouped";
-import { DeleteAccountCard } from "./DeleteAccountCard";
+import { LiveDeleteAccountCard } from "./LiveDeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { MachinesCard } from "./panels/MachinesCard";
+import { BlockedPeopleCard } from "./panels/BlockedPeopleCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { AccountSafetyCard } from "./panels/AccountSafetyCard";
 import { PhoneCard } from "./panels/PhoneCard";
@@ -135,7 +137,7 @@ export function AccountSection({
       <YourPicture />
 
       <Card style={styles.spaced}>
-        <Row>
+        <Row style={styles.firstRow}>
           <Grow>
             <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
           </Grow>
@@ -189,6 +191,8 @@ export function AccountSection({
         none at all.
       </Text>
 
+      {data.demo ? null : <View style={styles.spaced}><NotificationSettings /></View>}
+
       {/* Every email this person signs in with (Dev2, 2026-10-09). */}
       <View style={styles.spaced}>
         <SignInEmailsCard />
@@ -209,6 +213,10 @@ export function AccountSection({
       <View style={styles.spaced}>
         <MachinesCard />
       </View>
+      {/* Who this person blocked, with Unblock. Drawn only when there is somebody. */}
+      <View style={styles.spaced}>
+        <BlockedPeopleCard />
+      </View>
 
       {/*
         The two ways out, side by side. Sign-out ends a session; delete ends
@@ -222,7 +230,7 @@ export function AccountSection({
           testID="settings-sign-out"
         />
         {/* Absent in the demo, where there is no account to delete. */}
-        {data.deleteAccount ? <DeleteAccountCard deleteAccount={data.deleteAccount} /> : null}
+        {data.deleteAccount ? <LiveDeleteAccountCard data={data} deleteAccount={data.deleteAccount} /> : null}
       </View>
       <Text variant="rowSub" style={styles.rowSub}>
         Signing out keeps everything, and the AI apps you connected keep working.
@@ -320,5 +328,7 @@ const makeStyles = (_colors: Colors) =>
     address: { marginTop: space.x2 },
     rowSub: { marginTop: 2, maxWidth: 520 },
     foot: { marginTop: space.x3 },
+    // Off the divider under it, as far as the divided rows below sit from theirs.
+    firstRow: { paddingBottom: 10 },
   });
 

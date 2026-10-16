@@ -170,6 +170,8 @@ export async function runServeChecks(check) {
   };
 
   controlPlane.addWorkspace(SERVE_WS, "serve", s3Binding("serve-bucket", DESCRIPTOR));
+  // The census is the tree's names, never the bucket's listing (`search/shards/listing.js`).
+  controlPlane.serveTreesFrom(null, { s3 });
   await controlPlane.addGrant({
     accessToken: SERVE_TOKEN_OWNER,
     workspaceId: SERVE_WS,

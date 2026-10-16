@@ -99,3 +99,16 @@ test('the pinned homepage seed repairs privacy through the dedicated operation',
   assert.equal(stagingContextLcNotes['privacy.md'], undefined);
   assert.match(read('scripts/staging-personas.mjs'), /functions\/files:resetPrivacy/);
 });
+
+test('Google push settings sync in both deployments', () => {
+  const staging = read('.github/workflows/deploy-staging.yml');
+  const production = read('.github/workflows/deploy-convex.yml');
+  const productionSync = production.split('node scripts/convex-env-sync.mjs')[1]?.split('\n\n')[0];
+  assert.ok(productionSync);
+  for (const name of ['GOOGLE_PUSH_TOPIC', 'GOOGLE_PUSH_SERVICE_ACCOUNT', 'GOOGLE_PUSH_AUDIENCE', 'GOOGLE_PUSH']) {
+    assert.ok(backendKeys.includes(name));
+    assert.ok(staging.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(production.includes(`${name}: \u0024{{ secrets.${name} }}`));
+    assert.ok(productionSync.includes(name));
+  }
+});

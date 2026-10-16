@@ -13,13 +13,14 @@ import {
   PRUNE_BATCH,
   VANISH_SCAN,
   folderChain,
-  nameOf,
+  isKeyed,
   nodeKey,
   type NodeTable,
   type NodeTreeState,
   type Observation,
   type StoredNode,
 } from "./table";
+import { applyRow } from "./observeRows";
 
 /** Rows one `underPrefix` page reads while a vanish scan walks a prefix. */
 const VANISH_PAGE = 500;
@@ -46,15 +47,33 @@ export class NodeTreeUnsupportedError extends Error {
 }
 
 /**
+ * What `applyObservation` answers: `more` means the vanish scan ran out of
+ * budget (call again with `next`, every write is idempotent); `taken` lists the
+ * paths a seam observation could not write because the tree holds something
+ * else at them (`applySeamRow`). Always present, `[]` when none.
+ */
+export interface ObserveResult {
+  more: boolean;
+  next?: VanishCursor;
+  taken: string[];
+}
+
+/**
  * Stores one observation. `more` means the vanish scan ran out of budget:
  * call again with `next` (every write is idempotent, so re-applying the rows
  * is harmless).
+ *
+ * Bucket and seam observations differ (`Observation.source`): a bucket one
+ * never changes a keyed row, and in a keyed workspace adopts no path; a seam
+ * one writes keyed rows and tombstones only keyed rows, and ignores
+ * `vanishedUnder`, which only a listing of path objects can claim.
  */
 export async function applyObservation(
   table: NodeTable,
   obs: Observation,
   from: VanishCursor = { index: 0 },
-): Promise<{ more: boolean; next?: VanishCursor }> {
+): Promise<ObserveResult> {
+  const seam = obs.source === "seam";
   // Folders looked up or created in this call, so a batch of files in one
   // folder reads that folder once. Keyed by path: a path names one node.
   const cache = new Map<string, StoredNode | null>();
@@ -66,6 +85,7 @@ export async function applyObservation(
   };
 
   const observed = new Set<string>();
+  const taken: string[] = [];
   // Folders a tombstone in this call may have left empty (`retireEmptyFolders`).
   const emptied = new Set<string>();
   const tombstone = (path: string) => {
@@ -76,7 +96,7 @@ export async function applyObservation(
     const path = nodeKey(row.path);
     if (path === null) continue;
     observed.add(path);
-    await applyRow(table, lookup, cache, obs.at, path, row);
+    if ((await applyRow(table, lookup, cache, obs, path, row)) === "taken") taken.push(path);
   }
 
   for (const key of obs.gone) {
@@ -86,6 +106,9 @@ export async function applyObservation(
     if (path === null || observed.has(path)) continue;
     const node = await lookup(path);
     if (node === null || node.kind !== "file" || node.goneAt !== undefined) continue;
+    // A bucket gone speaks for unkeyed rows only; a seam gone for keyed rows only.
+    const eligible = seam ? isKeyed(node) : !isKeyed(node);
+    if (!eligible) continue;
     if (node.observedAt > obs.at) continue;
     await table.patch(node.id, { goneAt: obs.at });
     await table.logChange?.(path, true);
@@ -94,7 +117,8 @@ export async function applyObservation(
   }
 
   let scanned = 0;
-  const prefixes = obs.vanishedUnder;
+  // Only a listing of path objects can say a prefix is empty now.
+  const prefixes = seam ? [] : obs.vanishedUnder;
   for (let index = from.index; index < prefixes.length; index += 1) {
     const prefix = prefixes[index];
     if (!prefix.endsWith("/")) continue;
@@ -103,13 +127,13 @@ export async function applyObservation(
       const budget = VANISH_SCAN - scanned;
       if (budget <= 0) {
         await retireEmptyFolders(table, lookup, cache, obs.at, emptied);
-        return { more: true, next: { index, after } };
+        return { more: true, next: { index, after }, taken };
       }
       const limit = Math.min(VANISH_PAGE, budget);
       const page = await table.underPrefix(prefix, { after, limit });
       scanned += page.length;
       for (const node of page) {
-        if (node.kind !== "file" || node.goneAt !== undefined) continue;
+        if (node.kind !== "file" || node.goneAt !== undefined || isKeyed(node)) continue;
         if (node.observedAt >= obs.at || observed.has(node.path)) continue;
         await table.patch(node.id, { goneAt: obs.at });
         await table.logChange?.(node.path, true);
@@ -121,7 +145,7 @@ export async function applyObservation(
     }
   }
   await retireEmptyFolders(table, lookup, cache, obs.at, emptied);
-  return { more: false };
+  return { more: false, taken };
 }
 
 /** Folder re-checks one observation may make while retiring emptied folders: a bound on work. */
@@ -163,99 +187,6 @@ async function retireEmptyFolders(
   }
 }
 
-/** Stores one row: creates its folder chain, then the file itself, under the observation rules. */
-async function applyRow(
-  table: NodeTable,
-  lookup: (path: string) => Promise<StoredNode | null>,
-  cache: Map<string, StoredNode | null>,
-  at: number,
-  path: string,
-  row: { etag?: string; size?: number; uploaded?: number },
-): Promise<void> {
-  let parentId: string | undefined;
-  for (const folder of folderChain(path)) {
-    parentId = await ensureFolder(table, lookup, cache, folder, parentId, at);
-    if (parentId === undefined) return; // a file occupies a folder's place: the row cannot be placed
-  }
-
-  const existing = await lookup(path);
-  if (existing === null) {
-    const id = await table.insert({
-      path,
-      parentId,
-      name: nameOf(path),
-      kind: "file",
-      etag: row.etag,
-      size: row.size,
-      uploaded: row.uploaded,
-      observedAt: at,
-    });
-    cache.set(path, { id, path, parentId, name: nameOf(path), kind: "file", etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at });
-    await table.logChange?.(path, false);
-    await reviveChain(table, lookup, cache, path);
-    return;
-  }
-  // A folder at this key: a marker key (`a/`) names the folder it already is.
-  if (existing.kind !== "file") return;
-  if (existing.observedAt > at) return;
-  if (existing.goneAt !== undefined && existing.goneAt > at) return;
-  const fields = { etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at, goneAt: undefined };
-  // Only a change is logged: a sweep that re-sees a file as it was writes nothing there.
-  const changed = existing.goneAt !== undefined || existing.etag !== row.etag || existing.size !== row.size;
-  await table.patch(existing.id, fields);
-  if (changed) await table.logChange?.(path, false);
-  cache.set(path, { ...existing, ...fields });
-  await reviveChain(table, lookup, cache, path);
-}
-
-/**
- * A live file sits under every folder in its chain, so none of them is gone,
- * whatever an emptier observation said about them.
- */
-async function reviveChain(
-  table: NodeTable,
-  lookup: (path: string) => Promise<StoredNode | null>,
-  cache: Map<string, StoredNode | null>,
-  path: string,
-): Promise<void> {
-  for (const folder of folderChain(path)) {
-    const node = await lookup(folder);
-    if (node === null || node.kind !== "folder" || node.goneAt === undefined) continue;
-    await table.patch(node.id, { goneAt: undefined });
-    cache.set(folder, { ...node, goneAt: undefined });
-  }
-}
-
-/**
- * The id of the folder at `path`, created if absent. `undefined` when a file
- * already sits at that key: a tree cannot hold both, and the caller skips the
- * row rather than guess which one the bucket means.
- */
-async function ensureFolder(
-  table: NodeTable,
-  lookup: (path: string) => Promise<StoredNode | null>,
-  cache: Map<string, StoredNode | null>,
-  path: string,
-  parentId: string | undefined,
-  at: number,
-): Promise<string | undefined> {
-  const existing = await lookup(path);
-  if (existing === null) {
-    const id = await table.insert({ path, parentId, name: nameOf(path), kind: "folder", observedAt: at });
-    cache.set(path, { id, path, parentId, name: nameOf(path), kind: "folder", observedAt: at });
-    return id;
-  }
-  if (existing.kind !== "folder") return undefined;
-  // Whether the folder is gone is decided by the row placed in it (`reviveChain`),
-  // never by the walk to it: an older observation of a file that has since
-  // gone must not bring its emptied folder back.
-  if (existing.observedAt < at) {
-    await table.patch(existing.id, { observedAt: at });
-    cache.set(path, { ...existing, observedAt: at });
-  }
-  return existing.id;
-}
-
 /**
  * Removes what nobody observed since `startedAt`: live files, tombstones and
  * folders whose last observation predates the sweep. Bounded by `PRUNE_BATCH`.
@@ -269,9 +200,14 @@ export async function pruneUnobserved(
   table: NodeTable,
   startedAt: number,
 ): Promise<{ more: boolean; removedFiles: number }> {
+  // `observedBefore` never returns a keyed row (`convexTable.ts`); a keyed row
+  // is the store seam's, so no age makes it stale here.
   const batch = await table.observedBefore(startedAt, PRUNE_BATCH);
   let removedFiles = 0;
   for (const node of batch) {
+    if (isKeyed(node)) continue;
+    // A row a privacy rule names is never pruned (`nodes.access`); the query above leaves it out too.
+    if (node.access !== undefined) continue;
     // A live file nobody saw leaves the tree here; a tombstone was logged when it was laid.
     if (node.kind === "file" && node.goneAt === undefined) await table.logChange?.(node.path, true);
     await table.remove(node.id);

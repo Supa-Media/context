@@ -129,6 +129,13 @@ jobs:
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           MAIL_CONNECT_ENABLED: ${{ secrets.MAIL_CONNECT_ENABLED }}
           CALENDAR_CONNECT_ENABLED: ${{ secrets.CALENDAR_CONNECT_ENABLED }}
+          # Google push for Gmail and Chat (`functions/lib/googlePush/config.ts`).
+          # Absent: they poll, as before. Calendar push needs neither.
+          GOOGLE_PUSH_TOPIC: ${{ secrets.GOOGLE_PUSH_TOPIC }}
+          GOOGLE_PUSH_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PUSH_SERVICE_ACCOUNT }}
+          # Optional: a custom push audience, and `off` as the brake.
+          GOOGLE_PUSH_AUDIENCE: ${{ secrets.GOOGLE_PUSH_AUDIENCE }}
+          GOOGLE_PUSH: ${{ secrets.GOOGLE_PUSH }}
           # The transcription Worker `functions/meetings/transcribe.ts` posts a
           # chunk of meeting audio to, and the shared secret that proves the
           # post came from this control plane. Both or neither: the action
@@ -206,6 +213,10 @@ jobs:
           # public origin rather than a secret; unset runs them here, as a
           # self-hosted deployment does.
           STORAGE_MOVER_ORIGIN: https://mcp.context.lc
+          # Where content reports are mailed (`functions/contentReports.ts`):
+          # the support address the Terms and /support name. Public, not a
+          # secret. Unset sends no mail; reports still list in /admin.
+          REPORTS_EMAIL: context@supa.media
           # The deployment the batched call goes to; checked against the key.
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
         # One request for every variable (scripts/convex-env-sync.mjs) rather
@@ -226,6 +237,8 @@ jobs:
             DROPBOX_APP_KEY DROPBOX_APP_SECRET \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
+            GOOGLE_PUSH_TOPIC GOOGLE_PUSH_SERVICE_ACCOUNT \
+            GOOGLE_PUSH_AUDIENCE GOOGLE_PUSH \
             TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
             PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
             MANAGED_R2_ACCOUNT_ID \
@@ -234,7 +247,7 @@ jobs:
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
             REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
-            STORAGE_MOVER_ORIGIN
+            STORAGE_MOVER_ORIGIN REPORTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or
       # cannot recognize its own gateway, is broken in a way no test catches and

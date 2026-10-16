@@ -44,7 +44,13 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
     .withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId))
     .take(PURGE_BATCH);
   for (const row of links) await ctx.db.delete(row._id);
-  if ([rows, logged, links].some((batch) => batch.length === PURGE_BATCH)) {
+  // And the grants on them (`nodeAccess`): each names a row this batch just removed.
+  const grants = await ctx.db
+    .query("nodeAccess")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(PURGE_BATCH);
+  for (const row of grants) await ctx.db.delete(row._id);
+  if ([rows, logged, links, grants].some((batch) => batch.length === PURGE_BATCH)) {
     await ctx.scheduler.runAfter(0, internal.functions.nodesPurge.purge, { workspaceId });
   }
 }
@@ -99,6 +105,12 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace_day", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of days) await ctx.db.delete(row._id);
+  // The access derivation's state goes with its rows (`lib/nodes/accessBackfill.ts`).
+  const accessState = await ctx.db
+    .query("nodeAccessState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of accessState) await ctx.db.delete(row._id);
   // The icons, emoji names and forwarding ledger (`lib/smallData/purge.ts`).
   if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
   else await purgeSmallDataBatch(ctx, workspaceId);

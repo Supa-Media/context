@@ -15,7 +15,18 @@ export function coreToolDefinitions() {
         "One cheap call returns their front page, what they touched most recently, and a map of " +
         "every folder with note counts — so you know what already exists instead of guessing. " +
         "Everything else here is easier to use well afterwards.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {
+          tools: {
+            type: "boolean",
+            description:
+              "true adds the live list of every tool you may call and its arguments, which can be newer " +
+              "than your app's copy. Shown anyway when your copy is out of date.",
+          },
+        },
+        additionalProperties: false,
+      },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     // ChatGPT's ordinary chats can invoke exactly two tools on a custom
@@ -93,10 +104,22 @@ export function coreToolDefinitions() {
       description:
         "Read one of the user's notes in full — the paths come from orient, list_notes, or " +
         "search_notes. Returns its content and an etag; pass that etag back to write_note so a " +
-        "concurrent edit is detected instead of silently overwritten.",
+        "concurrent edit is detected instead of silently overwritten. " +
+        "Pass mail: true to read only the note's mail (what agents working on it sent each other) instead of the note: " +
+        "with your mailbox, just what is new for you; mail: \"all\" for all of it.",
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string", description: "e.g. '1-projects/togather/status.md'" } },
+        properties: {
+          path: { type: "string", description: "e.g. '1-projects/togather/status.md'" },
+          mail: {
+            type: ["boolean", "string"],
+            // "true" too: an app whose copy of this tool predates mail sends
+            // the footer's `mail: true` as text.
+            enum: [true, "true", "new", "all"],
+            description:
+              "Read the note's mail instead of its text. true: what is new for your mailbox (all of it without one); \"all\": every message.",
+          },
+        },
         required: ["path"],
         additionalProperties: false,
       },

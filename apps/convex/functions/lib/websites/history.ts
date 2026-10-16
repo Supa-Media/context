@@ -27,7 +27,9 @@
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../../_generated/server";
+import { privateClearance } from "../clearance";
 import { READ_BATCH } from "./releases";
+import { visibleTreePaths } from "./treeFacts";
 
 export const KEPT_VERSIONS = 5;
 
@@ -127,39 +129,17 @@ export async function forgetKeptPagesHandler(
 }
 
 /**
- * The paths among `paths` that are still in the bucket, read at private
- * scope. A path the bucket could not answer for is counted as still there:
- * wiping a deleted page's copies costs a rollback, keeping a held-back one's
- * costs the promise.
+ * The paths among `paths` that are still in the bucket, by the tree's answer at
+ * private scope (existence, never bytes). A tree that cannot say counts every
+ * path as still there: wiping a deleted page's copies costs a rollback, keeping
+ * a held-back one's costs the promise.
  */
 async function stillInBucket(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   paths: string[],
 ): Promise<Set<string>> {
-  const present = new Set<string>();
-  for (let offset = 0; offset < paths.length; offset += READ_BATCH) {
-    let pending = paths.slice(offset, offset + READ_BATCH);
-    for (let round = 0; pending.length > 0 && round < 5; round += 1) {
-      const batch = await ctx
-        .runAction(internal.functions.files.runFileOperation, {
-          workspaceId,
-          scope: "private",
-          grantedNames: [],
-          operation: { kind: "readMany", paths: pending },
-        })
-        .catch(() => null);
-      if (batch === null || batch.kind !== "notes") break;
-      const deferred: string[] = [];
-      for (const result of batch.results) {
-        if (result.outcome === "deferred") deferred.push(result.path);
-        else if (result.outcome === "read" || result.code !== "FILE_NOT_FOUND") present.add(result.path);
-      }
-      pending = deferred;
-    }
-    for (const path of pending) present.add(path);
-  }
-  return present;
+  return (await visibleTreePaths(ctx, workspaceId, privateClearance(), paths)) ?? new Set(paths);
 }
 
 /**

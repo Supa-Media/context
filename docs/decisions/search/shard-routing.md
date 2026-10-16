@@ -148,6 +148,35 @@ clock above. Reversing this puts the minute-plus lag back for every saved note;
 `searchShards/writeTargeted.test.mjs`, `searchIntegration/writeThenSearch.test.mjs`
 and `apps/convex/__tests__/consoleIndexOnSave.test.ts` fail.
 
+### The census is the tree's names, never the bucket's listing
+
+Decided with the notes-by-id migration (2026-10-15). Once a workspace is keyed
+(`notes-by-id.md`), the bucket lists `notes/<uuid>.md`, so a census taken from a
+listing names every note by uuid and the index, the search database and the
+fallback scan would all file notes under keys nothing reads by name.
+
+So every census is the tree's listing, and the bucket's is never asked for one
+where a control plane exists: `listNoteObjects` (`search/shards/listing.js`)
+reads `treeListing` (the Convex barrier) or `servedListingStore` (the gateway),
+and the fallback scan (`search/scan.js`) reads the same. The etag a census
+records is the row's, which for a keyed row is the key's etag, so a re-index
+decision compares what the tree says against what the index holds. A body is
+read by name through the id layer, never at a census key. A tree still loading
+throws `TreeUnavailable` instead of falling back to the bucket, which is the
+owner's rule of 2026-10-13 applied to search. The Convex passes that decide
+which rows are gone (the census in `projectSearchIndex`, `pruneSearchIndex`,
+search by meaning) attach the tree before they list.
+
+Consequences, stated rather than hidden: a workspace whose first copy has not
+finished is not indexed, and a search over it falls to the scan's "still
+loading" answer; and in a keyed workspace a note another tool writes straight
+into the bucket is never adopted by the tree, so it is not indexed either
+(`observe.ts`: nothing outside the app is adopted there).
+
+Reversing it (listing the bucket for a census again) names every keyed note by
+uuid and deletes the projection's rows for them: `apps/mcp/test/searchKeyed/census.test.mjs`
+and `apps/convex/__tests__/fileOps/keyedCensus.test.ts` fail.
+
 ### …and it opens the shards that can answer it, not all of them
 
 v2 partitions by document, so a term can be in any shard and the walk read every

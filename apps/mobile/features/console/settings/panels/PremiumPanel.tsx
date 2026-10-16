@@ -1,6 +1,7 @@
+import { NativePlan } from "./NativePlan";
 import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
 import type { CheckoutOutcome } from "@context/shared";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -236,6 +237,8 @@ export function PremiumBody({
       )
       .finally(() => setWorking(false));
   };
+
+  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} autoOrganize={autoOrganize} />;
 
   const status = view.status;
   const state = premiumStateOf(status?.status);
@@ -569,7 +572,7 @@ function TakeEverything({ onDownload }: { onDownload?: () => void }) {
   const [showHow, setShowHow] = useState(false);
   return (
     <Card style={styles.notice} testID="premium-export-promise">
-      <Row style={styles.actions}>
+      <Row style={styles.takeEverythingRow}>
         <View style={styles.testCleanupCopy}>
           <Text variant="rowTitle">Download everything</Text>
           <Text variant="rowSub">Free on every plan, even after you cancel</Text>
@@ -617,6 +620,9 @@ const makeStyles = (colors: Colors) =>
     returnText: { flex: 1, minWidth: 0 },
     actions: { marginTop: 12, gap: 8 },
     testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
+    // No top margin: this is the card's first child, so the margin read as
+    // extra padding above "Download everything" and no other card has it.
+    takeEverythingRow: { gap: 8 },
     loadingRow: {
       flexDirection: "row",
       alignItems: "center",

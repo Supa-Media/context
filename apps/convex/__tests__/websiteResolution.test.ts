@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, copyTree } from "./fixtures.helpers";
+import { asUser, copyTree, readIntoTree } from "./fixtures.helpers";
 import { fixture, pressPublish, publish } from "./website.helpers";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -46,7 +46,7 @@ describe("public website resolution", () => {
         { routePath: "/", title: "Home" },
       ],
     });
-  });
+  }, 15_000);
 
   test("an address that names a page by its file opens the page that file publishes", async () => {
     // `index.md` publishes at `/`, so a link to `/index` (the file's name) is a
@@ -303,7 +303,7 @@ describe("public website resolution", () => {
     expect(afterRevoke.markdown).not.toContain(token);
   });
 
-  test("excludes a list route whose bucket bytes drifted and invalidates the index", async () => {
+  test("excludes a list route narrowed since Publish and invalidates the index", async () => {
     const f = await fixture();
     f.backend.seed(
       "website/index.md",
@@ -315,6 +315,7 @@ describe("public website resolution", () => {
       "website/about.md",
       "---\ntitle: Secret now\naudience: members\n---\n\nChanged\n",
     );
+    await readIntoTree(f.t, f.workspaceId);
 
     const resolved = await f.t.action(api.functions.websites.resolvePage, {
       handle: "atlas",

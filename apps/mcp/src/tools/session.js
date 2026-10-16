@@ -5,6 +5,7 @@
  * crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
+import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
@@ -31,7 +32,7 @@ import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { canonicalToolName, toolArgumentRefusal } from "./advertised.js";
+import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
@@ -309,12 +310,13 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  // Usage is measured around the whole dispatch, refusals and throws included (`measuredCall`).
   return measuredCall(store, session, params, (routed) => routeToolCall(params, store, session, routed));
 }
 
 async function routeToolCall(params, store, session, routed) {
-  const supplied = params?.arguments;
+  // Read as the advertised types first: a stale client sends an argument its
+  // copy of the tool does not show as text (`advertised.js`).
+  const supplied = coercedArguments(params?.name, params?.arguments);
   const args =
     supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
 
@@ -618,6 +620,8 @@ async function routeToolCall(params, store, session, routed) {
   }
   noteAgentActivity(targetStore, params?.name, args, result);
   result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
+  // When the caller joined a note's mail, the news rides on every answer.
+  result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would

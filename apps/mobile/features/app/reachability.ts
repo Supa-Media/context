@@ -339,6 +339,37 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       },
     ],
   },
+  {
+    route: "/support",
+    file: "app/support.tsx",
+    reachable: true,
+    from: [
+      {
+        surface: "the Support note in the homepage's Legal folder, which links to this page",
+        /*
+          The link is Markdown in the note (`legalMarkdown`), drawn and pressed
+          by the note renderer, and routed out of the shell because the path is
+          one of `APP_ROUTES`.
+        */
+        control: {
+          file: "features/share/NoteBody.tsx",
+          contains: ["siteLink?.(run.href)", "onPress"],
+        },
+        navigation: [
+          {
+            file: "features/home/homeSite.ts",
+            contains: ["legalMarkdown(supportContent, \"/support\")", "[its own page](${standalone})", '"/support"', "APP_ROUTES"],
+          },
+          {
+            file: "features/home/HomeShell.tsx",
+            contains: ['link.kind === "app"', "router.push(link.href"],
+          },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+    ],
+  },
   ...DELIBERATELY_UNREACHABLE,
   {
     route: "/console",
@@ -408,21 +439,6 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         ],
         region: "screen",
         densities: POINTER,
-      },
-      {
-        surface: "the live map, from its place on the phone's Home",
-        control: {
-          file: "features/console/home/homeRows.tsx",
-          contains: ['testID="phone-home-map"', "onPress={onPress}"],
-        },
-        navigation: [
-          {
-            file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
-          },
-        ],
-        region: "screen",
-        densities: PHONE,
       },
       {
         /*

@@ -28,6 +28,8 @@ import { readFrontPage, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { websiteGuideFor } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
+import { toolNewsSection } from "../tools/news.js";
+import { liveToolsSection } from "../tools/liveList.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
@@ -176,7 +178,7 @@ export async function surveyOtherContexts(store, openContext) {
   };
 }
 
-export async function toolOrient(store, scope, rules, overrides) {
+export async function toolOrient(store, scope, rules, overrides, { tools = false } = {}) {
   const open = openOnce(store);
   const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes, globalNote, chaos, otherContexts] =
     await Promise.all([
@@ -222,6 +224,14 @@ export async function toolOrient(store, scope, rules, overrides) {
         globalNote
     );
   }
+  // Then what changed in our tools since this client last loaded them: the
+  // one way to reach a client that never refreshes its copy (`tools/news.js`).
+  const toolNews = toolNewsSection(store.actor?.toolsListedAt);
+  if (toolNews) parts.push(toolNews);
+  // And what they are today: in full when the copy is behind or the agent
+  // asked, one line otherwise.
+  const liveTools = await liveToolsSection(store, { full: tools || toolNews !== null });
+  if (liveTools) parts.push(liveTools);
   parts.push(
     `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`
   );

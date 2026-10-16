@@ -215,3 +215,25 @@ permanent exemptions. The check's own tests, in the framework's
 `packages/scripts/__tests__/architecture-check.test.js`, fail if a 1,001-line
 file, legacy growth, a rename, an inflated baseline, a raised threshold or a
 new exclusion passes.
+
+## A list every branch adds to is one entry per line, merged by union
+
+On 2026-10-15 about six threads were landing at once, and the gateway's
+`test:unit` script held all of its test files on one line of
+`apps/mcp/package.json`: any two branches that added a test conflicted there,
+and a branch with a conflict gets no CI until someone merges `main` back in.
+That file and `docs/decisions/README.md` were each touched by 11 of the last
+50 merges. The test list now lives in `apps/mcp/test/unit.list`, one path per
+line, and both files carry `merge=union` in `.gitattributes`, so a local
+`git merge origin/main` keeps both sides' new lines without stopping.
+
+The cost of a union merge is that it never refuses: two edits to the same
+line both survive. That is fine for an index of titles and for a list of test
+files, and `test/run.mjs` drops duplicates and fails on a path that no longer
+exists, so a stale line is loud rather than silently skipped. Do not put a file
+where the order or the syntax matters (JSON, code) under `merge=union`. GitHub's
+own merge button does not read `.gitattributes`; the merge that matters is the
+one a branch makes when it brings `main` in.
+
+Reversing it (putting the list back on one line) brings the conflicts back,
+and `test/run.mjs` throws if `test/unit.list` is missing or empty.

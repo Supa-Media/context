@@ -16,16 +16,14 @@
  * `runFileOperation` — the one credential barrier — exactly as the historical
  * backfill drove them before #388 removed it.
  *
- * ## Why a pull, and not a webhook
+ * ## A pull, with push as an accelerator on top
  *
- * Google can push: `users.watch` posts Gmail changes to a Pub/Sub topic, and
- * Calendar has watch channels. Both are rejected here for now, and
- * `docs/decisions/communications.md` carries the argument in full — the short
- * version is that a push path needs a Google Cloud Pub/Sub topic in *our*
- * project, an internet-facing verified endpoint, and a re-registration every
- * seven days per mailbox, and it still needs this loop underneath it, because
- * a missed or expired watch is only ever noticed by something that polls. A
+ * Google can push, and since 2026-10-15 it does (`googlePush.ts`): a Gmail,
+ * Chat or Calendar notification marks the product pending and brings
+ * `nextSyncAt` forward, and this loop does the rest. The loop stays because a
+ * missed or expired watch is only ever noticed by something that polls; a
  * pull that works is worth more than a push that needs a pull to be correct.
+ * See `docs/decisions/communications/google-push.md`.
  *
  * ## Why the floor is five minutes, and how one cron serves many intervals
  *
@@ -87,9 +85,13 @@ import {
   SYNC_STALL_MS,
   failureBackoffMs,
   isDue,
+  lastTurnAtFor,
+  nextProductToSync,
   syncIntervalMinutesOf,
   syncableProductsOf,
 } from "./lib/googleSchedule";
+import { settlePushAfterPass } from "./lib/googlePush/pending";
+import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
 
 /** Connections one sweep may start, bounded like every other sweep here. */
 const SWEEP_BATCH = 50;
@@ -202,52 +204,6 @@ export const updateGoogleSyncInterval = mutation({
  * yet granted, a deployment that may not read mail should not be starting
  * scheduled work that opens a credential to discover that.
  */
-/**
- * The folder each product on this row is filing into, for the products that
- * never recorded one.
- *
- * A connect records its destination (`applyGmailConnectionBinding` always did;
- * Chat's and Calendar's bindings now do too), so this is only ever about rows
- * written before that — and it hands them exactly the folder they are already
- * using, so no key moves.
- *
- * WHY AN UNRECORDED FOLDER IS NOT MERELY UNTIDY. An absent value means
- * `defaultGoogleDestinationFolder` decides, in source, at the moment of each
- * pass. A Chat pass re-renders every day the contribution store still holds —
- * up to a year — so editing that constant rewrites a year of somebody's
- * conversations at new keys, with no action by them. Relocating notes is a
- * privacy operation in this product: `remapPrivacy` and `copyPrivacy` in
- * `lib/fileOps.ts` carry a note's `note_overrides` exception across a move and
- * across a copy, because an override names one exact path. A re-render goes
- * through neither, so a day its owner had marked `private` reappears under
- * whatever its new folder defaults to. Pinning is what keeps the folder a fact
- * about the connection rather than a value a deploy can change underneath it.
- */
-function recordedDestinations(
-  row: Doc<"googleConnections">,
-): Partial<Pick<Doc<"googleConnections">, "gmail" | "calendar" | "chat">> {
-  const patch: Partial<Pick<Doc<"googleConnections">, "gmail" | "calendar" | "chat">> = {};
-  if (row.gmail !== undefined && row.gmail.destinationFolder === undefined) {
-    patch.gmail = {
-      ...row.gmail,
-      destinationFolder: defaultGoogleDestinationFolder("gmail", row.gmail.mailboxSlug),
-    };
-  }
-  if (row.calendar !== undefined && row.calendar.destinationFolder === undefined) {
-    patch.calendar = {
-      ...row.calendar,
-      destinationFolder: defaultGoogleDestinationFolder("calendar", undefined),
-    };
-  }
-  if (row.chat !== undefined && row.chat.destinationFolder === undefined) {
-    patch.chat = {
-      ...row.chat,
-      destinationFolder: defaultGoogleDestinationFolder("chat", undefined),
-    };
-  }
-  return patch;
-}
-
 export const sweepDueGoogleSyncs = internalMutation({
   args: {},
   returns: v.object({ started: v.number(), examined: v.number() }),
@@ -450,18 +406,9 @@ export const googleForwardSyncJob = internalQuery({
       return { kind: "skip" as const, reason: "NO_SYNCABLE_PRODUCT" };
     }
 
-    /*
-     * One account owns one claim, but each product owns its own cursor. Pick
-     * the least-recently-synced product so a Gmail pass cannot starve Chat on
-     * a row that carries both grants. A missing timestamp wins, which lets a
-     * newly-added product establish its baseline before the already-running
-     * sibling is polled again.
-     */
-    const product = [...products].sort((left, right) => {
-      const last = (candidate: (typeof products)[number]) =>
-        connection[candidate]?.lastSyncedAt ?? Number.NEGATIVE_INFINITY;
-      return last(left) - last(right);
-    })[0]!;
+    // One claim, a cursor per product: Google's pushed product first, then
+    // the least-recently-synced one, so no product starves (`googleSchedule.ts`).
+    const product = nextProductToSync(connection, products);
 
     if (product === "calendar") {
       const calendar = connection.calendar!;
@@ -619,7 +566,11 @@ export const recordGoogleForwardSyncPass = internalMutation({
     if (args.status === "skipped") {
       // Nothing was read, so `lastSyncAt` does not move — a skipped pass must
       // not be able to make a connection that has never synced look synced.
+      // The product's turn is still spent, so a product that is skipped every
+      // pass does not keep its siblings waiting (`nextProductToSync`).
       await ctx.db.patch(args.connectionId, {
+        ...productTurnPatch(connection, args.product, { lastAttemptAt: now }),
+        push: connection.push && { ...connection.push, pending: undefined },
         syncStartedAt: undefined,
         nextSyncAt: now + intervalMs,
         // A skipped pass is no longer urgently draining anything. Keeping
@@ -634,6 +585,18 @@ export const recordGoogleForwardSyncPass = internalMutation({
     if (args.status === "failed") {
       const failures = (connection.syncFailures ?? 0) + 1;
       await ctx.db.patch(args.connectionId, {
+        /*
+          THE FAILED PRODUCT'S TURN IS SPENT, AND IT SAYS WHY.
+
+          Without this a product that failed every pass never had a turn on
+          record, stayed the oldest, and was picked again on every pass, so a
+          broken Calendar stopped Gmail and Chat on the same account too.
+        */
+        ...productTurnPatch(connection, args.product, {
+          lastAttemptAt: now,
+          lastFailureCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+          lastFailure: error ?? "This Google account did not sync.",
+        }),
         syncStartedAt: undefined,
         lastSyncAt: now,
         nextSyncAt: now + failureBackoffMs(intervalMs, failures, args.connectionId),
@@ -685,6 +648,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
           // A baseline or a re-baseline read no mail, so it does not claim to
           // have. `cursorReady` is what those passes make true.
           lastSyncedAt: args.baseline === true ? connection.gmail.lastSyncedAt : now,
+          // A baseline is still a successful turn: the failure is over.
+          lastAttemptAt: args.baseline === true ? now : undefined,
+          lastFailureCode: undefined,
+          lastFailure: undefined,
         }
       : connection.gmail;
     const chat = product === "chat" && connection.chat
@@ -692,6 +659,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           ...connection.chat,
           cursors: args.chatCursors ?? connection.chat.cursors,
           lastSyncedAt: now,
+          ...SUCCEEDED,
         }
       : connection.chat;
     const calendar = product === "calendar" && connection.calendar
@@ -701,6 +669,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastFullSyncDate:
             args.calendarLastFullSyncDate ?? connection.calendar.lastFullSyncDate,
           lastSyncedAt: now,
+          ...SUCCEEDED,
         }
       : connection.calendar;
     /*
@@ -716,9 +685,12 @@ export const recordGoogleForwardSyncPass = internalMutation({
     */
     const gap = args.gapDetected === true;
     const catchUp = args.catchUp === true;
+    const pushed = await settlePushAfterPass(ctx, connection, product, now, catchUp);
     const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
       if (candidate === product) return now;
-      return connection[candidate]?.lastSyncedAt;
+      // A sibling that failed a moment ago waits its interval like one that
+      // succeeded, rather than being due again at once.
+      return lastTurnAtFor(connection, candidate);
     });
     const nextProductDueAt = productCompletedAt.some((at) => at === undefined)
       ? now
@@ -732,7 +704,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
       // A pass that knows it left work behind is due at once; anything else
       // waits its interval. `syncCatchUp` is cleared either way, so a
       // connection that has caught up stops being due every tick.
-      nextSyncAt: catchUp ? now : nextProductDueAt,
+      nextSyncAt: catchUp ? now : Math.min(nextProductDueAt, pushed.dueAt),
+      push: pushed.push,
       syncCatchUp: catchUp ? true : undefined,
       syncFailures: undefined,
       syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),

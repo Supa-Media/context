@@ -28,13 +28,16 @@
  */
 
 import {
+  PRE_PARSED_RULES,
   PRIVACY_KEY,
   PRIVACY_RULES_BEGIN,
   PRIVACY_RULES_END,
   PrivacyOverrides,
   parsePrivacyManifest,
   replacePrivacyRulesBlock,
+  spliceRulesBlock,
 } from "../privacy/engine.js";
+import { hasRowToken } from "../privacy/rowAccess.js";
 
 /** What a workspace's `privacy.md` says when the bucket holds none, or one that will not parse. */
 const SKELETON = `# Privacy\n\n${PRIVACY_RULES_BEGIN}\n${PRIVACY_RULES_END}\n`;
@@ -82,14 +85,33 @@ function hasBlock(text) {
  * block at all (or none) becomes the skeleton.
  */
 export function renderWithRules(fileText, rules) {
+  const { base, folders, overrides } = baseAndBlock(fileText, rules);
+  return replacePrivacyRulesBlock(base, folders, overrides);
+}
+
+function baseAndBlock(fileText, rules) {
   const base = hasBlock(fileText) ? fileText : SKELETON;
   const overrides = new PrivacyOverrides();
   for (const note of rules.notes) overrides.set(note.path, note.visibility);
-  return replacePrivacyRulesBlock(
-    base,
-    rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })),
-    overrides,
-  );
+  const folders = rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility }));
+  return { base, folders, overrides };
+}
+
+/**
+ * `renderWithRules` for rules that hold a row token, which the parser refuses: the text is for reading only,
+ * and `exportNow` never writes it.
+ */
+function renderForReading(fileText, rules) {
+  const { base, folders, overrides } = baseAndBlock(fileText, rules);
+  return spliceRulesBlock(base, folders, overrides);
+}
+
+/** The rules already parsed, when they hold a row token; `undefined` otherwise, and the text is parsed as always. */
+function preParsedOf(rules) {
+  if (!hasRowToken(rules)) return undefined;
+  const overrides = new PrivacyOverrides();
+  for (const note of rules.notes) overrides.set(note.path, note.visibility);
+  return { rules: rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides };
 }
 
 function textOf(value) {
@@ -99,10 +121,11 @@ function textOf(value) {
   return null;
 }
 
-function objectFor(text, etag, file) {
+function objectFor(text, etag, file, preParsed) {
   const bytes = new TextEncoder().encode(text);
   return {
     etag,
+    ...(preParsed !== undefined ? { [PRE_PARSED_RULES]: preParsed } : {}),
     size: bytes.byteLength,
     ...(file?.uploaded !== undefined ? { uploaded: file.uploaded } : {}),
     ...(file?.contentType !== undefined ? { contentType: file.contentType } : {}),
@@ -127,14 +150,15 @@ export function withPrivacyAuthority(store, authority) {
   const render = async () => {
     const rules = held;
     const file = await store.get(PRIVACY_KEY);
-    const text = renderWithRules(file === null ? null : await file.text(), rules);
+    const fileText = file === null ? null : await file.text();
+    const text = hasRowToken(rules) ? renderForReading(fileText, rules) : renderWithRules(fileText, rules);
     return { text, file, rules };
   };
 
   wrapped.get = async (key, ...rest) => {
     if (key !== PRIVACY_KEY || held === null) return await store.get(key, ...rest);
     const { text, file, rules } = await render();
-    return objectFor(text, rules.etag, file);
+    return objectFor(text, rules.etag, file, preParsedOf(rules));
   };
 
   if (typeof store.head === "function") {
@@ -151,6 +175,8 @@ export function withPrivacyAuthority(store, authority) {
    */
   const exportNow = async (prose) => {
     if (held === null) return null;
+    // Rules that name a row's grants are never written into the bucket: a row token has no place in `privacy.md`.
+    if (hasRowToken(held)) throw new Error("privacy.md is not written from access rows: the rules name a row's grants");
     const { text, rules } =
       typeof prose === "string" ? { text: renderWithRules(prose, held), rules: held } : await render();
     let put;

@@ -3,14 +3,15 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 5, 2026",
+  updated: "October 15, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
     {
       title: "Information we collect",
       body: [
-        "We collect account information you provide when you sign in, such as your email address, authentication identifiers, workspace memberships, and settings.",
+        "We collect account information you provide when you sign in, such as your email address, your phone number if you sign in with one, authentication identifiers, the profile photo you choose, workspace memberships, and settings.",
+        "If you record a meeting, the audio is sent to Context.lc to be transcribed and is not kept once the words are written into your note. The transcript and its summary are saved in your workspace like any other note.",
         "When you connect storage or an integration, we store the configuration needed to operate that connection, including encrypted OAuth tokens or provider credentials where applicable.",
         "When you connect Google, Context.lc may receive your Google account identity, Gmail message metadata and content, Google Calendar event details, and Google Chat spaces and messages, depending on the scopes you approve and the sync features you enable.",
       ],
@@ -34,10 +35,10 @@ export const privacyContent: LegalPageContent = {
     {
       title: "Diagnostics and feedback",
       body: [
-        "Context.lc is in early beta. To find and fix problems, the app sends crash reports to Sentry and counts which screens are opened with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.",
+        "Context.lc is in early beta. To find and fix problems, the app sends crash reports and a sample of performance timings to Sentry, and counts which screens are opened and when the app is opened or closed with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.",
         "These never include your notes, their titles, your folder names, your links, your email address or your @handle. Addresses in the app are reduced to the kind of screen before they are sent.",
         "You can turn crash reports, screen counts and recordings off in Settings, under Feedback. The switches follow your account to every device you sign in on.",
-        "Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad's click id and their browser id, never the address itself.",
+        "Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account on the web, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad's click id and their browser id, never the address itself. Signups made in the iPhone or Android app are never reported to X, Meta or any other advertising network.",
         "When you send a feedback report, it goes through Context.lc to Sentry with what you typed and only the attachments you left ticked: the app version and your browser or system version, a log of the screens and errors from the last ten minutes, and a screenshot, whose words are hidden unless you choose to show them. We use reports only to fix Context.lc and to reply to you.",
       ],
     },
@@ -51,10 +52,17 @@ export const privacyContent: LegalPageContent = {
       ],
     },
     {
+      title: "AI built into Context.lc",
+      body: [
+        "Some features use AI models that Context.lc runs for you: meeting transcripts and summaries, search by meaning, organizing your inbox, and the assistant you can text. They read only the notes and recordings the feature needs, from the workspaces you can see.",
+        "These features use Anthropic and Cloudflare Workers AI, which process your content only to answer the request and do not train their models on it.",
+      ],
+    },
+    {
       title: "Sharing",
       body: [
         "Your private context is not shared with other users unless you explicitly share it, invite someone, publish a note, or move information into a workspace with broader access.",
-        "We may process data with service providers that help operate Context.lc, such as hosting, storage, observability, and authentication providers. They are permitted to process data only for the service we provide.",
+        "We process data with service providers that help operate Context.lc: Convex (accounts and workspace records), Cloudflare (hosting, storage, transcription and AI), Anthropic (AI), Sentry and PostHog (diagnostics), Resend (email), Twilio (text messages and sign-in codes) and Stripe (payments, on the web). They are permitted to process data only for the service we provide.",
       ],
     },
     {
@@ -68,7 +76,7 @@ export const privacyContent: LegalPageContent = {
       title: "Retention and deletion",
       body: [
         "We retain synced files and account records while your account, context, or connected integration remains active, unless you delete them sooner.",
-        "You can disconnect an integration, delete synced notes from your context, revoke provider access, or contact us to request account deletion.",
+        "You can disconnect an integration, delete synced notes from your context, or revoke provider access at any time. You can delete your account yourself in Settings, under Profile; that removes your account, your sign-in details and every workspace you are the only owner of. Notes in storage you own stay in your storage. Notes and attachments in Context-managed storage for those workspaces are permanently erased, and the storage credentials are revoked; the app offers a download of every note first. Erasure starts when you delete your account and is retried automatically until it completes.",
       ],
     },
     {
@@ -90,7 +98,7 @@ export const privacyContent: LegalPageContent = {
 export const termsContent: LegalPageContent = {
   eyebrow: "Terms",
   title: "Terms of Service",
-  updated: "September 13, 2026",
+  updated: "October 15, 2026",
   intro:
     "These terms govern your use of Context.lc, a personal context workspace operated by Supa Media.",
   sections: [
@@ -130,6 +138,14 @@ export const termsContent: LegalPageContent = {
       ],
     },
     {
+      title: "Objectionable content and abuse",
+      body: [
+        "There is no tolerance for objectionable or abusive content or behaviour on Context.lc. Do not share, invite, publish, or send anything that harasses, threatens, sexually exploits, or demeans another person, promotes violence or hate, or is otherwise illegal.",
+        "You can report a note, an invitation, or a public page from inside the app, and you can block a person so that nothing they share with you or invite you to reaches you.",
+        "We review reported content within 24 hours. We remove content that breaks these terms and remove the accounts of people who post it or behave abusively.",
+      ],
+    },
+    {
       title: "Availability",
       body: [
         "Context.lc is provided as-is. We work to keep the service reliable, but we do not guarantee uninterrupted availability, error-free syncing, or compatibility with every provider configuration.",
@@ -151,6 +167,39 @@ export const termsContent: LegalPageContent = {
     {
       title: "Contact",
       body: ["Questions about these terms can be sent to context@supa.media."],
+    },
+  ],
+};
+
+export const supportContent: LegalPageContent = {
+  eyebrow: "Support",
+  title: "Support",
+  updated: "October 15, 2026",
+  intro:
+    "Questions, problems, or something that doesn't work the way you expected? Email context@supa.media and a person will answer, usually within a day.",
+  sections: [
+    {
+      title: "Contact us",
+      body: [
+        "Email context@supa.media. Tell us what you were doing, what you expected, and what happened instead. Say which device you use and whether it was the app or the website.",
+        "You can also send a report from inside the app, in Settings under Feedback. It can attach the app version and a log of recent screens and errors, so we can find the problem faster.",
+      ],
+    },
+    {
+      title: "Reporting and blocking",
+      body: [
+        "To report a note someone shared with you, or an invitation, choose Report or block beside it. You can say what is wrong, and block the person in the same step. Public pages have a Report link at the bottom; if you are not signed in, it opens an email to context@supa.media.",
+        "Blocking someone means nothing they share with you or invite you to reaches you. They are not told. You can unblock people in Settings, under Profile.",
+        "We review every report within 24 hours.",
+      ],
+    },
+    {
+      title: "Your account and your notes",
+      body: [
+        "To download every note as plain Markdown folders, use Download everything in Settings. It is free on every plan, and it still works after you cancel.",
+        "To delete your account, open Settings, then Profile, then Delete account.",
+        "For privacy questions or data requests, see the Privacy Policy or email the same address.",
+      ],
     },
   ],
 };

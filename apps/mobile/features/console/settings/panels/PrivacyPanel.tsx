@@ -225,9 +225,10 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
           </Notice>
         ) : (
           <>
-            {root.folders.map((row) => (
+            {root.folders.map((row, index) => (
               <FolderBlock
                 key={row.path}
+                first={index === 0}
                 files={files}
                 row={row}
                 depth={0}
@@ -395,10 +396,13 @@ function FolderBlock({
   depth,
   opened,
   onToggle,
+  first = false,
 }: {
   files: FileBrowser;
   row: PrivacyFolderRow;
   depth: number;
+  /** The card's top row, which takes no rule above it: the card's edge is one. */
+  first?: boolean;
   opened: ReadonlySet<string>;
   onToggle: (path: string) => void;
 }) {
@@ -425,8 +429,12 @@ function FolderBlock({
   return (
     <View>
       <Row
-        style={StyleSheet.flatten([styles.folderRow, depth > 0 ? styles.nested : null])}
-        divided
+        style={StyleSheet.flatten([
+          styles.folderRow,
+          depth > 0 ? styles.nested : null,
+          first ? styles.firstRow : null,
+        ])}
+        divided={!first}
       >
         <PressRow
           accessibilityLabel={`${isOpen ? "Close" : "Open"} ${row.name}`}
@@ -555,6 +563,8 @@ function Exceptions({
 const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionHead: { marginBottom: 10 },
   folderRow: { flexWrap: "wrap" },
+  // Divided rows carry 10 above and below; the first has only the space under it.
+  firstRow: { paddingBottom: 10 },
   /**
    * The name and its sentence, with a floor under how narrow they may get.
    *

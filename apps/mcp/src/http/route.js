@@ -39,6 +39,7 @@ import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
@@ -63,6 +64,7 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
+import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -71,6 +73,9 @@ export async function route(request, env, ctx) {
     // workspace selector is ever read off it. It takes no person's token: the
     // gateway secret and a ticket the control plane minted (`moves/mover.js`).
     if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
+    // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
+    // workspace selector; the ticket in its header is the whole authority.
+    if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
 
     const origin = publicOrigin(request, env);
 
@@ -303,6 +308,7 @@ export async function route(request, env, ctx) {
       store.searchSettings = searchSettingsFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
+      attachImageUploads(store, session, controlPlane, origin);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -419,6 +425,19 @@ export async function route(request, env, ctx) {
           ...progress,
           workspaceId: session.workspaceId,
         });
+
+      // That this connection just fetched `tools/list`, against its own grant
+      // (the token is the proof, as for the session). Deferred and dropped
+      // where it cannot be, the trade `reportUsage` makes: a stamp that is
+      // lost only means `orient` repeats some tool news next time.
+      store.reportToolsListed = () => {
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(controlPlane.reportToolsListed(session.accessToken).catch(() => {}));
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
 
       /**
        * That something landed in this context's `activity.md`, and at which
@@ -539,6 +558,7 @@ export async function route(request, env, ctx) {
         targetStore.searchSettings = store.searchSettings;
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
+        attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;
         // The same binding, keyed later by the *target's* workspace id: a
         // write routed into another context is announced in that context's
@@ -549,6 +569,8 @@ export async function route(request, env, ctx) {
         attachChangeReporters(targetStore, target.workspaceId, controlPlane);
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
+        // The connection's own listing, wherever orient was addressed.
+        targetStore.offeredTools = store.offeredTools;
         // Against the context that was routed to, never the connection's own.
         // `targetStore.searchIndex` came from that context's own binding, so
         // the projection and the figure describing it name one workspace.
@@ -588,6 +610,8 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") {
+        // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
+        if (session.actorClientId === DREAMS_CLIENT_ID) return await handleDream(request, env, store, session, controlPlane);
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);

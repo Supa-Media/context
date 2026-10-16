@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
@@ -327,11 +328,11 @@ export function BrowseNotices({
                   onPress={() => onOpenSettings("storage")}
                   testID="browse-dropbox-to-bucket"
                 />
-                <Button
+                {Platform.OS === "web" ? <Button
                   label={DROPBOX_ENDING.toContext}
                   onPress={() => onOpenSettings("premium")}
                   testID="browse-dropbox-to-context"
-                />
+                /> : null}
               </>
             )}
             <Button label="Not now" onPress={dropboxEnding.dismiss} testID="browse-dropbox-dismiss" />

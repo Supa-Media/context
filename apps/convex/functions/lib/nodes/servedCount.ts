@@ -15,9 +15,11 @@
  * bucket: there is no tree for it yet.
  */
 
+import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { isNoteKey, type NoteCount } from "../noteCount";
+import { countNotes, isNoteKey, type NoteCount } from "../noteCount";
+import type { ScaffoldStore } from "../scaffold";
 import { NO_BUCKET } from "./gatewayManifest";
 import { servedKeys, servedNodesStore } from "./manifestStore";
 
@@ -33,4 +35,22 @@ export async function servedNoteCount(
   } catch {
     return null;
   }
+}
+
+/**
+ * The count a verification records (`provisioning.ts`, on connect and on an
+ * owner's re-verify).
+ *
+ * A keyed workspace's bucket still holds the frozen path copies beside the id
+ * keys (`lib/noteIds/keyedState.ts`), so walking it counts every note twice:
+ * the tree answers, and where it cannot the count is `null`, as it is for any
+ * capped read. Any other workspace is walked, exactly as before.
+ */
+export async function verifiedNoteCount(
+  ctx: Pick<ActionCtx, "runQuery">,
+  workspaceId: Id<"workspaces">,
+  store: Pick<ScaffoldStore, "list">,
+): Promise<NoteCount | null> {
+  const keyed = await ctx.runQuery(internal.functions.noteIds.keyedFor, { workspaceId });
+  return keyed ? await servedNoteCount(ctx, workspaceId) : await countNotes(store);
 }

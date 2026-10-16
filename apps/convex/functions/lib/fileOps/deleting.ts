@@ -25,6 +25,15 @@ import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
 import { createAbsent, fileInTree, filesInTree } from "./treeChecks";
 import { type MoveResult, movePath } from "./moving";
 import { forgetPrivacy } from "./privacyRewrite";
+import { isKeyedStore, KEYED_REFUSAL } from "../noteIds/keyedStore";
+
+/**
+ * A permanent delete in a keyed workspace. It would retire the note's row and
+ * key, and that is what emptying the trash may do, not an ordinary delete
+ * (`docs/decisions/storage-and-credentials/notes-by-id.md`). Nothing is removed.
+ */
+const KEYED_PERMANENT_REFUSAL =
+  "Permanent delete is not available in a keyed workspace yet. Move it to the trash instead, which keeps it restorable. Nothing was changed.";
 
 /* -------------------------------------------------------------------------- */
 /*                            archiving and deleting                          */
@@ -127,7 +136,12 @@ export async function archivePath(
  * store non-enumerably, as `queueMove` is; a store without it (tests, the
  * gateway, self-hosting without the tree) trashes the old way.
  */
-type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+type QueueTrash = (trash: {
+  path: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult | null>;
 /**
  * Turn a still-queued trash around: `true` when it was, `false` when the
  * bucket holds the trash, or the store to restore through when the bucket
@@ -160,11 +174,20 @@ export async function trashPath(
   await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
   // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
+  // In a keyed workspace the trash is always a row move (`rowTrash.ts`), an offline delete's version included:
+  // the row move checks that version, and a byte trash would move frozen copies and leave the note in place.
   const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
-  if (options.expectedEtag === undefined && typeof queue === "function") {
-    const queued = await queue({ path, clearance: options.clearance, now: options.now });
+  const keyed = await isKeyedStore(store);
+  if ((options.expectedEtag === undefined || keyed) && typeof queue === "function") {
+    const queued = await queue({
+      path,
+      clearance: options.clearance,
+      now: options.now,
+      ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+    });
     if (queued !== null) return queued;
   }
+  if (keyed) throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
@@ -272,6 +295,30 @@ export async function trashPath(
   const legacyPairs = pairs.filter((pair) => !collaborativePairs.has(pair.source));
   if (legacyPairs.length > 0) await movePairs(store, legacyPairs);
   return { from: path, to: destination, paths: pairs.map((pair) => pair.destination) };
+}
+
+type TrashKeyedRows = (trash: {
+  path: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult>;
+
+/**
+ * Trash a path in a keyed workspace as its rows (`lib/nodes/rowTrash.ts`), for
+ * the operations that would otherwise delete it permanently (`removeNewFolder`,
+ * a plugin's delete). The rows move to the trash and Restore brings them back,
+ * so nothing is lost. Only the barrier attaches the seam, as the trash's own
+ * does; a store without it stays refused.
+ */
+export async function trashKeyedRows(
+  store: FileStore,
+  options: { path: string; clearance: Clearance; now: number; expectedEtag?: string },
+): Promise<DeleteResult> {
+  const trash = (store as { trashKeyedRows?: TrashKeyedRows }).trashKeyedRows;
+  if (typeof trash !== "function") throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
+  const moved = await trash(options);
+  return { paths: moved.paths };
 }
 
 /** Restore one trash result to the original path encoded inside its key. */
@@ -445,6 +492,8 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
+  // Refused before anything is read or removed: a keyed row and its key are retired only by emptying the trash.
+  if (await isKeyedStore(store)) throw new FileOpError("KEYED_WORKSPACE", KEYED_PERMANENT_REFUSAL);
   await assertNotProtectedFolder(store, path, options.clearance);
   assertWritablePath(path);
 

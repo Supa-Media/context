@@ -19,6 +19,8 @@ import {
 import { moveSafetyRefusal } from "../moves/objects.js";
 import { listAllKeys } from "../notes/storage.js";
 import { loadPrivacyState } from "../privacy/state.js";
+import { isKeyedWorkspace } from "../store/idLayout.js";
+import { servedListingStore } from "../tree/served.js";
 import { toolMoveNote } from "../tools/moves/note.js";
 
 /** The snapshot is bounded so a corrupted or hostile one cannot become a large parse on every run. */
@@ -43,10 +45,15 @@ async function readSnapshot(store) {
 export async function openContactLookup(store, options = {}) {
   const loaded = await readSnapshot(store);
   let saved = loaded.text;
+  // In a keyed workspace a page's bytes sit at its id key, so the bucket's
+  // listing of the folder holds only frozen path copies. Its names come from the
+  // tree, as every agent listing does (`tree/served.js`); reads and writes by
+  // path already go through the id layer.
+  const listing = (await isKeyedWorkspace(store)) ? servedListingStore(store) : store;
   const lookup = createContactLookup({
     root: options.root,
     snapshot: loaded.snapshot,
-    list: async (prefix) => (await listAllKeys(store, prefix)).map(({ key, etag }) => ({ key, version: etag })),
+    list: async (prefix) => (await listAllKeys(listing, prefix)).map(({ key, etag }) => ({ key, version: etag })),
     read: async (path) => {
       const object = await store.get(path);
       return object ? object.text() : null;

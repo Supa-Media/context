@@ -162,6 +162,14 @@ test("a note is Markdown outside every dot-prefixed segment", () => {
   assert.equal(isCountedNoteKey(undefined), false);
 });
 
+test("a note's id copy is not a note, and a full context still writes one", async () => {
+  const id = "0192f1a2-3b4c-7d5e-8f60-0123456789ab";
+  assert.equal(isCountedNoteKey(`notes/${id}.md`), false);
+  assert.equal(isCountedNoteKey("notes/meeting.md"), true);
+  const store = capped(storeWithNotes(5), 5);
+  assert.ok(await store.put(`notes/${id}.md`, "x"));
+});
+
 test("the count is the tree's: the bucket is never listed to take it", async () => {
   const raw = storeWithNotes(5);
   const count = treeOf(raw);

@@ -19,6 +19,9 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { iconFor, iconMapOf, movedIcons, removedIcons, shownIcon, withIcon, type IconMap } from "../folderIcons";
 import type { FileBrowserOptions } from "./types";
 
+/** Suggestions kept for the session, oldest dropped first. */
+const SUGGESTIONS_KEPT = 200;
+
 export interface FolderIconsValues {
   /**
    * The emoji a folder or note was given, else a built-in folder's default,
@@ -98,15 +101,36 @@ export function useFolderIcons(options: FileBrowserOptions): FolderIconsValues {
 
   const iconOf = useCallback((path: string) => shownIcon(icons, path), [icons]);
 
+  /*
+    Each name's suggestion is asked once and kept for the session, so opening
+    the picker again, or opening it after the pointer came over the icon
+    (`onIconIntent`), shows the answer already there. A name with no answer is
+    asked again next time, since an outage should not stick.
+  */
+  const asked = useRef(new Map<string, Promise<string | null>>());
   const suggestIcon = useCallback(
-    async (path: string) => {
-      if (workspaceId === null) return null;
-      try {
-        return await suggestAction({ workspaceId, path });
-      } catch {
-        // A suggestion is a nicety: a refusal or an outage is simply none.
-        return null;
+    (path: string): Promise<string | null> => {
+      if (workspaceId === null) return Promise.resolve(null);
+      const key = `${workspaceId}\n${path}`;
+      const known = asked.current.get(key);
+      if (known !== undefined) return known;
+      const answer = suggestAction({ workspaceId, path }).then(
+        (icon) => {
+          if (icon === null) asked.current.delete(key);
+          return icon;
+        },
+        () => {
+          // A suggestion is a nicety: a refusal or an outage is simply none.
+          asked.current.delete(key);
+          return null;
+        },
+      );
+      if (asked.current.size >= SUGGESTIONS_KEPT) {
+        const oldest = asked.current.keys().next().value;
+        if (oldest !== undefined) asked.current.delete(oldest);
       }
+      asked.current.set(key, answer);
+      return answer;
     },
     [suggestAction, workspaceId],
   );

@@ -67,8 +67,51 @@ export const nodeTables = {
      * score reads them by index instead of every row's props.
      */
     chaosNote: v.optional(v.boolean()),
+    /**
+     * The note's stable id (`lib/nodes/noteIds.ts`): assigned when the row is
+     * inserted, carried by a queued move to where the note lands, and
+     * backfilled for rows that predate it. Never a path, and never reused.
+     */
+    noteId: v.optional(v.string()),
+    /**
+     * The id-keyed copy of this file's bytes (phase "copy"): `key` is where
+     * the copy lives, and `etag` is the SOURCE row's etag it was made from.
+     * Fresh only while that equals `etag` above (`copyIsFresh`). Absent when
+     * no copy has been made, or one was cleared to be made again.
+     */
+    idCopy: v.optional(
+      v.object({
+        key: v.string(),
+        etag: v.string(),
+        copiedAt: v.number(),
+        /** The id key's own etag when it was written: a later write landing out of order is told apart by it. */
+        keyEtag: v.optional(v.string()),
+      }),
+    ),
+    /**
+     * Set on a keyed row (`lib/nodes/table.ts`, `keyed`): the note's bytes live
+     * ONLY at this key, and `etag`/`size` are that key's. The path object the
+     * bucket still holds is a frozen old copy, never read or written again.
+     * Absent on every row of a workspace that is not keyed.
+     */
+    storageKey: v.optional(v.string()),
+    /**
+     * For a row keyed by the flip: the path etag and
+     * the key etag it had at that moment, so a client still holding the old
+     * path etag can save once. Absent on rows keyed by a write.
+     */
+    keyedFrom: v.optional(v.object({ pathEtag: v.string(), keyEtag: v.string() })),
+    /**
+     * This row's own access, when a privacy rule names it: a folder rule on
+     * a folder row, or a note override on a note row. Absent means inherit.
+     * Grants are `nodeAccess` rows. Derived from the rules by
+     * `lib/nodes/accessBackfill.ts`; a row carrying it is never pruned
+     * (`lib/nodes/observe.ts`).
+     */
+    access: v.optional(v.object({ base: v.union(v.literal("private"), v.literal("team")) })),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_noteId", ["workspaceId", "noteId"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"]),
@@ -276,6 +319,10 @@ export const nodeTables = {
     retryKind: v.optional(v.string()),
     /** Passes in a row that read and still failed some, so a hiccup is told from a note that never reads. */
     retryPasses: v.optional(v.number()),
+    /** The props version (`PROPS_VERSION`) every row has been read at: an older one re-reads the rows predating it. */
+    propsVersion: v.optional(v.number()),
+    /** How far that re-read has walked, by path (`""` before the first). */
+    upgradeAfter: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**
@@ -292,6 +339,56 @@ export const nodeTables = {
   }).index("by_workspace_day", ["workspaceId", "day"]),
 
   /**
+   * One workspace's id-copy pass (phase "copy" of the move from path keys to
+   * id keys): how far it has got, what it found, and whether it is done.
+   * Counts, times and fixed labels only, never a path; `cursor` is the last
+   * path paged, read only by the pass. `runId` names one pass, so a page that
+   * was handed out before a restart records nothing.
+   */
+  noteIdCopies: defineTable({
+    workspaceId: v.id("workspaces"),
+    status: v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed")),
+    runId: v.number(),
+    cursor: v.optional(v.string()),
+    /** Live files the pass has scanned, and how many have a copy that is still true at the end. */
+    files: v.number(),
+    copied: v.number(),
+    failed: v.number(),
+    /** At most `FAILURES_MAX` path-free entries: the note's id and a fixed reason. */
+    failures: v.array(v.object({ noteId: v.string(), reason: v.string() })),
+    error: v.optional(v.string()),
+    /** The last check against the bucket: how many id copies were checked, and how many were missing or differed. */
+    diagnosis: v.optional(
+      v.object({ checkedAt: v.number(), checked: v.number(), missing: v.number(), differs: v.number() }),
+    ),
+    /** A page in flight holds the pass; another one waits. */
+    leaseAt: v.optional(v.number()),
+    /**
+     * The workspace's flip to keyed rows started at this time (`keys` mode).
+     * With the switch at `keys`, this makes the workspace keyed for good
+     * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
+     */
+    keyedAt: v.optional(v.number()),
+    /** The flip found no live file row left unkeyed: every row a copy covers is keyed. */
+    keyedDoneAt: v.optional(v.number()),
+    /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
+    flipped: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The id copy's switch, a single row (absent means running and `paths`).
+   * `mode` says which keys reads use; nothing reads ids yet, so it stays
+   * `paths` until a later phase says otherwise.
+   */
+  noteIdLayout: defineTable({
+    paused: v.boolean(),
+    mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.string()),
+  }),
+
+  /**
    * The migration's one switch, a single row (absent means running). Staff
    * pause it from admin › Search › Indexes; while paused nothing new starts,
    * changes only mark trees dirty, and a running sweep stops at its next pass.
@@ -304,6 +401,11 @@ export const nodeTables = {
      * the file is, and the rules follow it.
      */
     privacyAuthority: v.optional(v.boolean()),
+    /**
+     * Which store the tree's reads answer from (`nodeAccess`, PR 2 onward).
+     * Nothing reads it yet: absent or `file` is the only behaviour today.
+     */
+    accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),

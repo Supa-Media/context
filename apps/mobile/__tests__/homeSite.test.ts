@@ -163,7 +163,7 @@ describe("the tree", () => {
       `${String(BUILT_IN_SITE.length + 1).padStart(2, "0")}-Roadmap.md`,
       "Legal",
     ]);
-    expect(tree.listings.Legal!.entries.map((entry) => entry.name)).toEqual(["Privacy.md", "Terms.md"]);
+    expect(tree.listings.Legal!.entries.map((entry) => entry.name)).toEqual(["Privacy.md", "Terms.md", "Support.md"]);
     expect(tree.defaultSelection).toBe("01-Welcome.md");
   });
 

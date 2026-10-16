@@ -106,8 +106,11 @@ export const jobTables = {
     actorUserId: v.id("users"),
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
-    kind: v.union(v.literal("materialize_move")),
+    kind: v.union(v.literal("materialize_move"), v.literal("image_upload")),
     moveId: v.optional(v.string()),
+    /** An image upload's ticket names the bytes it takes: their SHA-256 and length. Never the bytes. */
+    imageSha256: v.optional(v.string()),
+    imageBytes: v.optional(v.number()),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
@@ -163,6 +166,15 @@ export const jobTables = {
      */
     contextMoveId: v.optional(v.id("contextMoves")),
     objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
+    /**
+     * A page of the path-to-id copy (`id_copy`) or its check (`id_check`): the
+     * copy pass's run, and the items this ticket may copy or check, each with
+     * the row's etag and key when it was handed out (`lib/noteIds/mover.ts`).
+     */
+    idRunId: v.optional(v.number()),
+    idItems: v.optional(
+      v.array(v.object({ path: v.string(), key: v.string(), etag: v.string(), size: v.optional(v.number()) })),
+    ),
     /** The migration's (or the walk's) phase and cursor when the page was handed out; `carry` for a context move. */
     phase: v.union(
       v.literal("copy"),
@@ -173,6 +185,8 @@ export const jobTables = {
       v.literal("unseal"),
       v.literal("confirm"),
       v.literal("carry"),
+      v.literal("id_copy"),
+      v.literal("id_check"),
     ),
     expectedCursor: v.optional(v.string()),
     createdAt: v.number(),
@@ -243,6 +257,12 @@ export const jobTables = {
     bindingIssuedAt: v.optional(v.number()),
     /** Set the first time this ticket is used for accounting. */
     recordedAt: v.optional(v.number()),
+    /**
+     * The inbox folder (`0-inbox/` by default) the workspace's mail lands in,
+     * fixed at mint time. The id-layer routes (`lib/noteIds/ingestHttp.ts`)
+     * accept only paths under it, so a ticket can write its own mail and nothing else.
+     */
+    targetFolder: v.optional(v.string()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_expiresAt", ["expiresAt"]),

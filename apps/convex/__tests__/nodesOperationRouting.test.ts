@@ -124,13 +124,14 @@ describe("a paused migration", () => {
 
 describe("a parity check that finds differences", () => {
   // The bucket holds one note the tree has never heard of: a difference.
-  function parityCtx() {
+  function parityCtx(keyed = false) {
     const mutations: { name: string; args: unknown }[] = [];
     const scheduled: { delay: number; args: unknown }[] = [];
     const ctx = {
       runQuery: async (ref: unknown) => {
         const name = getFunctionName(ref as never);
         if (name.endsWith("nodeMoves:active")) return [];
+        if (name.endsWith("nodes:isKeyed")) return keyed;
         if (name.endsWith("nodes:listLive")) return { rows: [], cursor: null };
         if (name.endsWith("nodes:privacy")) return null;
         throw new Error(`unexpected query ${name}`);
@@ -150,6 +151,15 @@ describe("a parity check that finds differences", () => {
     return { ctx, store, mutations, scheduled };
   }
   const workspaceId = "w" as never;
+
+  test("a keyed workspace is not checked against its bucket: no listing, no record, no alarm", async () => {
+    const { ctx, store, mutations, scheduled } = parityCtx(true);
+    await store.put("1-projects/a.md", "# a");
+    const result = await runNodesOperation(ctx as never, { workspaceId, scope: "private", operation: { kind: "nodesParity" } }, store as never);
+    expect(result).toEqual({ kind: "nodesKept", complete: true });
+    expect(mutations).toEqual([]);
+    expect(scheduled).toEqual([]);
+  });
 
   test("is asked once more before it is recorded, so a write in flight never stops the tree serving", async () => {
     const { ctx, store, mutations, scheduled } = parityCtx();

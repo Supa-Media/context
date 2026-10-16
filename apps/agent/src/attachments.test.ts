@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accept, drain, MEDIA_WAIT_MS, type InboxDeps } from "./inbox";
-import { dimensions, prepareAttachments, sniff, MAX_DOWNLOAD_BYTES, type ImagesLike } from "./attachments";
+import { dimensions, prepareAttachments, sniff, MAX_AUDIO_BYTES, MAX_DOWNLOAD_BYTES, type ImagesLike } from "./attachments";
 import { officeText } from "./officeText";
 import type { Fetch } from "./clients";
 import type { InboundAttachment } from "./inbound";
@@ -149,7 +149,6 @@ describe("prepareAttachments", () => {
     }) as unknown as Fetch;
     const out = await prepareAttachments(
       [
-        att("https://cdn/a", "audio/x-caf", "Audio Message.caf"),
         att("https://cdn/v", "video/quicktime", "clip.mov"),
         att("https://cdn/big", "application/pdf", "huge.pdf", MAX_DOWNLOAD_BYTES + 1),
         att("https://cdn/gone", "image/png", "gone.png"),
@@ -157,7 +156,6 @@ describe("prepareAttachments", () => {
       { fetch },
     );
     expect(out.map((item) => "unread" in item && item.unread)).toEqual([
-      expect.stringMatching(/can't listen to audio/),
       expect.stringMatching(/can't watch videos/),
       expect.stringMatching(/over the 25 MB/),
       expect.stringMatching(/download failed/),
@@ -165,6 +163,28 @@ describe("prepareAttachments", () => {
     // Only the one it could have read was downloaded.
     expect(downloads).toBe(1);
     expect(await officeText(new TextEncoder().encode("not a zip"), "docx")).toBeNull();
+  });
+
+  it("sends a voice message on as audio for the gateway to transcribe, whatever Linq labels it", async () => {
+    const caf = new Uint8Array([0x63, 0x61, 0x66, 0x66, 0, 1, 0, 0, 9, 9, 9]);
+    const fetch = (async () => new Response(caf)) as unknown as Fetch;
+    const out = await prepareAttachments(
+      [
+        att("https://cdn/a", "application/octet-stream", "Audio Message.caf"),
+        att("https://cdn/b", "audio/mp4", "memo.mp4"),
+      ],
+      { fetch },
+    );
+    expect(out).toEqual([
+      { name: "Audio Message.caf", mediaType: "audio/x-caf", data: b64(caf) },
+      { name: "memo.mp4", mediaType: "audio/mp4", data: b64(caf) },
+    ]);
+  });
+
+  it("names a recording too long to transcribe instead of sending it", async () => {
+    const fetch = (async () => new Response(new Uint8Array(MAX_AUDIO_BYTES + 1))) as unknown as Fetch;
+    const [out] = await prepareAttachments([att("https://cdn/a", "audio/x-caf", "Audio Message.caf")], { fetch });
+    expect(out).toMatchObject({ name: "Audio Message.caf", unread: expect.stringMatching(/over the 8 MB Tex can listen to/) });
   });
 
   it("sends a picture over 8000 pixels on a side through the converter, however small its file", async () => {

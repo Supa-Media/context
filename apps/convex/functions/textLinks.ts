@@ -25,6 +25,7 @@ import { consumeRateLimit } from "./lib/rateLimit";
 import { getMembership } from "./lib/workspaceAuth";
 import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
+import { armDream } from "./lib/dreams/model";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -95,7 +96,7 @@ function newCode(): string {
   return Array.from(bytes, (byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
 }
 
-async function personalWorkspaceOf(
+export async function personalWorkspaceOf(
   ctx: QueryCtx,
   userId: Id<"users">,
 ): Promise<Id<"workspaces"> | null> {
@@ -521,6 +522,14 @@ export const applyTextsGrant = internalMutation({
     } else {
       await ctx.db.patch(reusable._id, token);
     }
+    // Tonight's dream reads this text (`lib/dreams/`).
+    await armDream(ctx, {
+      userId: link.userId,
+      workspaceId,
+      timeZone: effectiveTimeZone(undefined, await accountTimeZone(ctx, link.userId)),
+      now: Date.now(),
+      texted: true,
+    });
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: link.userId,
@@ -555,9 +564,9 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
   });
 }
 
-/** Account deletion: links and pending codes go with the person. */
+/** Account deletion: links, pending codes and Tex's dream schedule go with the person. */
 export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["phoneLinks", "phoneLinkCodes"] as const) {
+  for (const table of ["phoneLinks", "phoneLinkCodes", "texDreams"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))

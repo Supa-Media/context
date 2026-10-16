@@ -44,6 +44,7 @@
  * `scripts/check-exit-is-ungated.mjs` scans alongside this file.
  */
 
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
   internalAction,
@@ -500,6 +501,7 @@ export const openGatewayJob = internalAction({
       internal.functions.controlPlane.claimGatewayJob,
       {
         hashedTicket: args.hashedTicket,
+        contentSha256: args.contentSha256,
       },
     );
     if (claimed === null) return null;
@@ -606,6 +608,15 @@ export const openGatewayJob = internalAction({
       .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
       .then((held) => held ?? undefined);
 
+    // Keyed (`lib/noteIds/keyedStore.ts`): a path-based job in a keyed workspace is refused by
+    // the gateway. Not knowing is not "unkeyed": the job waits for the next delivery instead.
+    let keyed: boolean;
+    try {
+      keyed = await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId: claimed.workspaceId });
+    } catch {
+      return { retryAfterMs: 30_000 };
+    }
+
     if (credential.provider === "dropbox") {
       return {
         job: claimed,
@@ -623,6 +634,7 @@ export const openGatewayJob = internalAction({
         rotation,
         managedEncryption,
         privacy,
+        keyed,
       };
     }
     return {
@@ -646,6 +658,7 @@ export const openGatewayJob = internalAction({
       rotation,
       managedEncryption,
       privacy,
+      keyed,
     };
   },
 });
@@ -654,4 +667,11 @@ export const reportGatewayJob = internalMutation({
   args: gatewayJobs.reportGatewayJobArgs,
   returns: gatewayJobs.reportGatewayJobReturns,
   handler: gatewayJobs.reportGatewayJobHandler,
+});
+
+/** Image-upload tickets past their ten minutes (`gatewayJobs.sweepImageUploadsHandler`). */
+export const sweepImageUploads = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: gatewayJobs.sweepImageUploadsHandler,
 });

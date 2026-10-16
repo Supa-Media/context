@@ -273,3 +273,33 @@ describe("a folder's icon follows it", () => {
     expect(api.icons.iconOf("1-projects")).toBe("🏗️"); // the built-in default, back
   });
 });
+
+describe("the suggestion", () => {
+  test("each name is asked once, so the picker opened after a hover finds it answered", async () => {
+    answers[fn("suggest")] = async () => "💰";
+    const m = mount("w1");
+    unmount = m.unmount;
+    await settle();
+    // The hover asks; the picker opening asks again and is given the same answer.
+    const hovered = api.icons.suggestIcon("2-areas/finances");
+    expect(await api.icons.suggestIcon("2-areas/finances")).toBe("💰");
+    expect(await hovered).toBe("💰");
+    expect(listed("suggest")).toEqual([{ workspaceId: "w1", path: "2-areas/finances" }]);
+  });
+
+  test("a name with no answer, or a failed ask, is asked again next time", async () => {
+    let answer: () => Promise<string | null> = async () => null;
+    answers[fn("suggest")] = () => answer();
+    const m = mount("w1");
+    unmount = m.unmount;
+    await settle();
+    expect(await api.icons.suggestIcon("2-areas/finances")).toBeNull();
+    answer = async () => {
+      throw new Error("offline");
+    };
+    expect(await api.icons.suggestIcon("2-areas/finances")).toBeNull();
+    answer = async () => "💰";
+    expect(await api.icons.suggestIcon("2-areas/finances")).toBe("💰");
+    expect(listed("suggest")).toHaveLength(3);
+  });
+});

@@ -28,6 +28,10 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { treeChangesValidator } from "./lib/filesFns/validators";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { rulesForReaders } from "./lib/nodes/readerRules";
+import { accessSourceOf } from "./lib/nodes/accessBackfill";
+import { accessVersionOf } from "./lib/nodes/accessRows";
+import type { PrivacyMirror } from "./lib/nodes/table";
 import { MOVES_PER_WORKSPACE } from "./lib/nodes/moveOverlay";
 import {
   NODE_HEAD_SCAN,
@@ -35,7 +39,6 @@ import {
   feedToken,
   judgeRows,
   logReachesBack,
-  mirrorRules,
   movesMark,
   newestTold,
   seqAt,
@@ -68,6 +71,25 @@ async function nodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string
 }
 
 /**
+ * The feed token for this workspace's rules: the `privacy.md` version and the pending moves and, while rows
+ * judge, the access rows' version (`feedToken`). `null` as `feedToken` gives it.
+ */
+async function feedPrivacy(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  mirror: PrivacyMirror | null,
+  moves: FeedMove[],
+): Promise<string | null> {
+  return feedToken(mirror, movesMark(moves), await rowsVersionOf(ctx, workspaceId));
+}
+
+/** The access rows' version while rows judge the workspace, else `undefined`. */
+async function rowsVersionOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number | undefined> {
+  if ((await accessSourceOf(ctx.db)) !== "rows") return undefined;
+  return await accessVersionOf(ctx, workspaceId);
+}
+
+/**
  * What a device watches: a token that changes when a change this reader may
  * hear of lands, or the rules change. `null` while the tree does not serve
  * the workspace, and the device keeps its timed sync.
@@ -81,7 +103,7 @@ export const head = query({
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const mirror = await readMirror(ctx.db, workspaceId);
     const moves = await feedMoves(ctx, workspaceId);
-    const privacy = feedToken(mirror, movesMark(moves));
+    const privacy = await feedPrivacy(ctx, workspaceId, mirror, moves);
     if (privacy === null) return null;
     const newest = await ctx.db
       .query("nodeLog")
@@ -89,7 +111,7 @@ export const head = query({
       .order("desc")
       .take(NODE_HEAD_SCAN);
     const skip = (path: string) => underPendingMove(path, moves);
-    const told = newestTold(newest, clearanceOf(scope, grantedNames), await mirrorRules(mirror), skip);
+    const told = newestTold(newest, clearanceOf(scope, grantedNames), await rulesForReaders(ctx, workspaceId), skip);
     return { token: `${privacy}|${told ?? ""}` };
   },
 });
@@ -105,8 +127,8 @@ export const walkStart = internalQuery({
   returns: v.union(v.null(), v.object({ since: v.number(), privacy: v.string() })),
   handler: async (ctx, { workspaceId, now }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const moves = movesMark(await feedMoves(ctx, workspaceId));
-    const privacy = feedToken(await readMirror(ctx.db, workspaceId), moves);
+    const moves = await feedMoves(ctx, workspaceId);
+    const privacy = await feedPrivacy(ctx, workspaceId, await readMirror(ctx.db, workspaceId), moves);
     if (privacy === null) return null;
     return { since: seqAt(now - NODE_LOG_OVERLAP_MS), privacy };
   },
@@ -137,7 +159,7 @@ export const changes = internalQuery({
     if (!(await treeServesNow(ctx.db, args.workspaceId))) return null;
     const mirror = await readMirror(ctx.db, args.workspaceId);
     const moves = await feedMoves(ctx, args.workspaceId);
-    const privacy = feedToken(mirror, movesMark(moves));
+    const privacy = await feedPrivacy(ctx, args.workspaceId, mirror, moves);
     const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
     const full: TreeChangesResult = {
       kind: "treeChanges",
@@ -172,7 +194,7 @@ export const changes = internalQuery({
       );
     }
     const clearance = clearanceOf(scope, grantedNames);
-    const rules = await mirrorRules(mirror);
+    const rules = await rulesForReaders(ctx, args.workspaceId);
     const page = judgeRows({
       rows,
       current,

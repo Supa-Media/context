@@ -6,6 +6,7 @@ import { deleteUserPlaces } from "../places";
 import { deleteTextLinksOf } from "../../textLinks";
 import { deleteAccountTimeZoneOf } from "../routines/app";
 import { deleteEmailProofRowsOf } from "../emailProof";
+import { deleteBlocksOf } from "../blocks";
 
 /**
  * Everything `deleteAccount` removes that is the person's rather than a
@@ -123,6 +124,16 @@ export async function deletePersonalRows(
     .withIndex("by_user_created", (q) => q.eq("userId", userId))
     .collect();
   for (const row of feedbackReceipts) await ctx.db.delete(row._id);
+
+  // Reports they sent: their own words and ids.
+  const reports = await ctx.db
+    .query("contentReports")
+    .withIndex("by_reporter", (q) => q.eq("reporterId", userId))
+    .collect();
+  for (const row of reports) await ctx.db.delete(row._id);
+
+  // Who they blocked, and every block naming them: two ids and a time each.
+  await deleteBlocksOf(ctx, userId);
 
   // The user's own name claims. Nothing writes a `kind: "user"` row today
   // (see functions/invitations.ts), so this is usually a no-op — but the

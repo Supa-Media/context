@@ -30,10 +30,13 @@ import type { FileStore } from "../fileOps/store";
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
 import type { PendingMove } from "./moveOverlay";
 import { startQueuedMove } from "./moveStart";
+import { startRowMoveBatch } from "./rowMoveBatch";
 import { restoreQueuedTrash, startQueuedTrash } from "./trashStart";
+import { startRowTrash } from "./rowTrash";
 import { runMoveWork } from "./moveWork";
 import { rowFromObject } from "./sweep";
 import { attachTreeListing } from "./treeNames";
+import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
 
 type BarrierArgs = {
   workspaceId: Id<"workspaces">;
@@ -42,10 +45,44 @@ type BarrierArgs = {
   operation: { kind: string };
 };
 
-export type MoveOperation = Extract<FileOperation, { kind: "nodesMoveStart" | "nodesMoveWork" }>;
+export type MoveOperation = Extract<FileOperation, { kind: "nodesMoveStart" | "nodesMoveWork" | "nodesMoveBatch" }>;
 
 export function isMoveOperation(operation: { kind: string }): operation is MoveOperation {
-  return operation.kind === "nodesMoveStart" || operation.kind === "nodesMoveWork";
+  return operation.kind === "nodesMoveStart" || operation.kind === "nodesMoveWork" || operation.kind === "nodesMoveBatch";
+}
+
+/**
+ * A batch of note moves in a keyed workspace, made whole or refused whole
+ * (`rowMoveBatch.ts`). A refusal answers as a single move's does.
+ */
+async function runMoveBatch(
+  ctx: ActionCtx,
+  args: BarrierArgs,
+  moves: readonly { from: string; to: string; expectedEtag?: string }[],
+  store: FileStore,
+  projection: ProjectionClient | null,
+): Promise<OperationResult> {
+  try {
+    const checked = moves.map((move) => {
+      const from = requirePath(move.from);
+      const to = requirePath(move.to);
+      assertWritablePath(from);
+      assertWritablePath(to);
+      return { from, to, ...(move.expectedEtag === undefined ? {} : { expectedEtag: move.expectedEtag }) };
+    });
+    const made = await startRowMoveBatch(ctx, {
+      workspaceId: args.workspaceId,
+      store,
+      moves: checked,
+      clearance: clearanceOf(args.scope, args.grantedNames ?? []),
+      now: Date.now(),
+      projection,
+    });
+    return { kind: "moveBatch", ok: true, moves: made.map((move) => ({ from: move.from, to: move.to })) };
+  } catch (error) {
+    if (error instanceof FileOpError) return { kind: "moveBatch", ok: false, error: error.code, message: error.message };
+    throw error;
+  }
 }
 
 /** The operations that may queue a folder move: everything else moves in one go. */
@@ -65,9 +102,11 @@ export async function runMoveOperation(
   store: FileStore,
   projection: ProjectionClient | null = null,
 ): Promise<OperationResult> {
+  if (args.operation.kind === "nodesMoveBatch") return await runMoveBatch(ctx, args, args.operation.moves, store, projection);
   if (args.operation.kind === "nodesMoveWork") {
     // The finishing link rewrite lists the tree's notes, not the bucket's.
     attachTreeListing(ctx, args.workspaceId, store);
+    attachWorkspaceKeyed(ctx, args.workspaceId, store);
     return await runMoveWork(ctx, args.workspaceId, store, projection);
   }
   let moved;
@@ -93,13 +132,22 @@ export async function runMoveOperation(
       to,
       clearance,
       now: Date.now(),
+      projection,
+      ...(args.operation.expectedEtag === undefined ? {} : { expectedEtag: args.operation.expectedEtag }),
     });
   } catch (error) {
     // A refusal goes back to the agent as the console would word it; anything else fails the call.
     if (error instanceof FileOpError) return { kind: "moveQueued", queued: false, error: error.code, message: error.message };
     throw error;
   }
-  return moved === null ? { kind: "moveQueued", queued: false } : { kind: "moveQueued", queued: true, count: moved.queued ?? 0 };
+  if (moved === null) return { kind: "moveQueued", queued: false };
+  return {
+    kind: "moveQueued",
+    queued: true,
+    count: moved.queued ?? 0,
+    ...(moved.rowed === true ? { rowed: true } : {}),
+    ...(moved.moved === undefined ? {} : { moved: moved.moved }),
+  };
 }
 
 /** What an object moved early does to the tree: seen at its new name, gone from its old one, and counted. */
@@ -149,11 +197,13 @@ export function attachQueueMove(
   bucket: FileStore,
   /** How Restore waits on a queued trash; tests run the worker in it. */
   wait?: (ms: number) => Promise<void>,
+  /** The search index a keyed row move follows (`rowMoveStart.ts`). */
+  projection: ProjectionClient | null = null,
 ): void {
   if (args.operation.kind === "trash") {
     Object.defineProperty(store, "queueTrash", {
       value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
-        startQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, ...trash }),
+        startQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, projection, ...trash }),
       enumerable: false,
       configurable: true,
     });
@@ -161,7 +211,7 @@ export function attachQueueMove(
   if (args.operation.kind === "restoreTrash") {
     Object.defineProperty(store, "restoreQueuedTrash", {
       value: async (restore: { trash: string; path: string }): Promise<boolean | FileStore> => {
-        const answer = await restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, ...restore, ...(wait === undefined ? {} : { wait }) });
+        const answer = await restoreQueuedTrash(ctx, { workspaceId: args.workspaceId, store: bucket, ...restore, ...(wait === undefined ? {} : { wait }) });
         if (answer !== "landed") return answer === "undone";
         // The trash landed while Restore waited: the moves this request read through are over, and a
         // store still folding them would refuse to write the note back at a name they carried away.
@@ -171,10 +221,20 @@ export function attachQueueMove(
       configurable: true,
     });
   }
+  // A keyed workspace refuses a permanent delete of a path (`deletePath`); these two operations trash the
+  // rows instead, which keeps the note restorable (`trashKeyedRows` in `fileOps/deleting.ts`).
+  if (args.operation.kind === "removeNewFolder" || args.operation.kind === "pluginDelete") {
+    Object.defineProperty(store, "trashKeyedRows", {
+      value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number; expectedEtag?: string }) =>
+        startRowTrash(ctx, { workspaceId: args.workspaceId, store: bucket, projection, ...trash }),
+      enumerable: false,
+      configurable: true,
+    });
+  }
   if (!QUEUEING.has(args.operation.kind)) return;
   Object.defineProperty(store, "queueMove", {
-    value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number }) =>
-      startQueuedMove(ctx, { workspaceId: args.workspaceId, store: bucket, ...move }),
+    value: (move: { from: string; to: string; clearance: ReturnType<typeof clearanceOf>; now: number; expectedEtag?: string }) =>
+      startQueuedMove(ctx, { workspaceId: args.workspaceId, store: bucket, projection, ...move }),
     enumerable: false,
     configurable: true,
   });

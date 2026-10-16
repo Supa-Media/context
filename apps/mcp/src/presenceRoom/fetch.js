@@ -10,7 +10,7 @@ import {
 } from "../presence.js";
 import { pruneActivity, recordActivity, recordPersonActivity } from "../agentActivity.js";
 import { peopleForCaller, recordPerson } from "../peopleActive.js";
-import { PRESENCE_SOCKET_MAX_MS, json, publicMember } from "./wire.js";
+import { CLOSE_REAUTHORIZE, PRESENCE_SOCKET_MAX_MS, json, publicMember } from "./wire.js";
 
 /**
  * Open one socket into this room.
@@ -33,6 +33,36 @@ export async function fetchRoom(request) {
   */
   if (requestUrl.pathname === "/committed") {
     return await this.handleCommitted(request);
+  }
+
+  /*
+    **This room's note now lives at another name.**
+
+    Sent by the gateway after a keyed rename has carried the note's history to
+    `to` (`live/presence.js`, `announceMovedToPresence`). A socket open on the
+    old name has no forwarding of its own, so every member hears where the note
+    went and is closed with the reconnect code. A reconnect at the old name then
+    finds no note there, as it does after a byte move. Internal only: the
+    gateway is the sole caller.
+  */
+  if (requestUrl.pathname === "/moved") {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    let notice;
+    try {
+      notice = await request.json();
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+    // `to` is null where the new name may not be shared with this room (the gateway decides).
+    const named = notice?.to !== null && notice?.to !== undefined;
+    const to = named ? notice.to : null;
+    if (named && (typeof to !== "string" || !to.endsWith(".md") || to.length > 1024 || to.startsWith("/") || to.includes("\0"))) {
+      return new Response(null, { status: 400 });
+    }
+    const sockets = this.openSockets();
+    this.broadcast({ t: "moved", ...(to === null ? {} : { to }) });
+    for (const ws of sockets) this.dropSocket(ws, CLOSE_REAUTHORIZE, "moved");
+    return json({ moved: sockets.length });
   }
 
   /*

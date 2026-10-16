@@ -15,6 +15,7 @@ import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { ContextOverview } from "../overview/ContextOverview";
+import { ReportLink } from "../report/ReportLink";
 import { atName } from "../console/format";
 import {
   acceptanceLine,
@@ -346,6 +347,13 @@ function ReadyBody({
           testID="invite-decline"
         />
       </View>
+      <View style={styles.report}>
+        <ReportLink
+          target={{ kind: "invitation", token: invitation.token }}
+          person={{ handle: invitation.invitedByHandle ?? null, name: null }}
+          testID="invite-report"
+        />
+      </View>
 
       <Text variant="foot" style={styles.foot} testID="invite-foot">
         Nothing is created for you here. You can start a personal workspace of your own later,
@@ -482,6 +490,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   error: { marginTop: 14 },
 
   decisions: { marginTop: 20, flexDirection: "row", gap: 12 },
+  report: { marginTop: 12, alignItems: "flex-start" },
   // Both halves flex identically, so neither is the wider, more obvious click.
   decision: { flex: 1, alignSelf: "auto" },
 

@@ -8,6 +8,36 @@
  * anything here; if it and this disagree, one of them is a bug.
  *
  * ============================================================================
+ * THE INGEST ROUTES
+ * ============================================================================
+ *
+ * Three things about the routes themselves, which `http.ts` declares:
+ *
+ * 1. **A different secret.** They are built by `emailWorkerRoute`, not
+ *    `gatewayRoute`, and the two secrets do not substitute for one another. A
+ *    stolen email-worker secret must not become a working MCP gateway.
+ *
+ * 2. **They relax the two-proof rule, and that is a decision, not an
+ *    oversight.** An inbound email carries no user access token — nobody is
+ *    present and nothing was authorized just now — so proof #2 cannot exist in
+ *    the form `/gateway/binding` uses. What is kept is its important half:
+ *    `/gateway/ingest/resolve` takes a *name a sender typed* and mints a ticket
+ *    for whatever that name resolved to; `/gateway/ingest/binding` takes only
+ *    that ticket. No field in either request can name a context, so a holder of
+ *    the worker secret has no vocabulary for "give me the shared context
+ *    `acme-board`" — and no such context could answer anyway, because mail
+ *    lands in a personal context and nowhere else.
+ *
+ * 3. **`/gateway/ingest/binding` is the second internet-facing path to a
+ *    decrypted credential**, and it is enumerated as such in
+ *    `__tests__/structure.test.ts`. That file's `CREDENTIAL_HTTP_ROUTES`
+ *    comment says a second entry "means a second internet-facing path to other
+ *    people's bucket keys". It does. The residual risk is written out in full
+ *    in the worker's contract and is bounded by: personal contexts only,
+ *    ingestion-enabled owners only, a per-name rate limit on resolve, and a
+ *    ticket that expires in five minutes and buys exactly one credential.
+ *
+ * ============================================================================
  * MAIL LANDS IN A PERSONAL CONTEXT AND NOWHERE ELSE
  * ============================================================================
  *
@@ -63,7 +93,7 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalMutation } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { stampTreeAudiences } from "./treeSignals";
@@ -298,12 +328,14 @@ export const resolveForIngestion = internalMutation({
     }
 
     const now = Date.now();
+    const targetFolder = settings.targetFolder || DEFAULT_TARGET_FOLDER;
     await ctx.db.insert("ingestionTickets", {
       hashedTicket: args.hashedTicket,
       workspaceId: personal.workspace._id,
       sizeBytes: args.sizeBytes,
       createdAt: now,
       expiresAt: now + TICKET_TTL_MS,
+      targetFolder,
     });
 
     // The success line matters as much as the refusals: "the Worker has never
@@ -316,7 +348,7 @@ export const resolveForIngestion = internalMutation({
       // `"personal"` and that `path` is the name it asked about, so a control
       // plane that answered wrongly is caught on the other side too.
       context: { kind: "personal" as const, path: personal.workspace.slug },
-      targetFolder: settings.targetFolder || DEFAULT_TARGET_FOLDER,
+      targetFolder,
       // The owner's stored policy, not a constant. Storing bytes a stranger
       // chose into a bucket we do not own is exactly the separate decision the
       // hardcoded `"list"` here was deferring — and the answer is that the
@@ -333,6 +365,30 @@ export const resolveForIngestion = internalMutation({
         allowAnySender: settings.allowAnySender,
       },
     };
+  },
+});
+
+/**
+ * The workspace and inbox folder a live ticket opens, for the id-layer routes
+ * that write a capture's note (`lib/noteIds/ingestHttp.ts`).
+ *
+ * Read-only, unlike `spendIngestionTicket`: nothing is stamped, because one
+ * capture makes several id-layer calls on the same ticket. A ticket qualifies
+ * only once its credential has been issued, so those calls cannot run before
+ * the worker has spent the binding route. Expiry is enforced here too. INTERNAL.
+ */
+export const ticketInbox = internalQuery({
+  args: { hashedTicket: v.string() },
+  returns: v.union(v.object({ workspaceId: v.id("workspaces"), targetFolder: v.string() }), v.null()),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return null;
+    const ticket = await ctx.db
+      .query("ingestionTickets")
+      .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
+      .unique();
+    if (ticket === null || ticket.expiresAt <= Date.now()) return null;
+    if (ticket.bindingIssuedAt === undefined || ticket.targetFolder === undefined) return null;
+    return { workspaceId: ticket.workspaceId, targetFolder: ticket.targetFolder };
   },
 });
 

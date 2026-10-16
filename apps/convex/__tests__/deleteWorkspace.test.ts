@@ -324,7 +324,8 @@ describe("deleteWorkspace", () => {
       // Nothing was scheduled at their storage: an S3 binding is forgotten,
       // and their files stay exactly where they are.
       const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
-      expect(scheduled.filter((job) => job.name.includes("deleteManagedTestResources"))).toEqual([]);
+      expect(scheduled.filter((job) => job.name.includes("runManagedErasure"))).toEqual([]);
+      expect(await ctx.db.query("managedErasures").collect()).toEqual([]);
     });
   });
 

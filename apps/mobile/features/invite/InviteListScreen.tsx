@@ -14,6 +14,7 @@ import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { ContextOverview } from "../overview/ContextOverview";
+import { ReportLink } from "../report/ReportLink";
 import { DeadEnd, InvitePage, Title } from "./InviteScreen";
 import {
   acceptanceLine,
@@ -255,6 +256,13 @@ function InvitationRow({
             testID={`invite-accept-${invitation.token}`}
           />
         </View>
+        <View style={styles.report}>
+          <ReportLink
+            target={{ kind: "invitation", token: invitation.token }}
+            person={{ handle: invitation.invitedByHandle ?? null, name: null }}
+            testID={`invite-report-${invitation.token}`}
+          />
+        </View>
       </Card>
     </View>
   );
@@ -270,4 +278,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   overview: { marginTop: 26 },
   decisions: { marginTop: 6, flexDirection: "row", gap: 12 },
   decision: { flex: 1, alignSelf: "auto" },
+  report: { alignItems: "flex-start" },
 });

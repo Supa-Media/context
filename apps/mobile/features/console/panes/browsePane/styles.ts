@@ -101,6 +101,12 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   scroll: { flex: 1, minHeight: 0, backgroundColor: colors.chromeSurface },
   /**
+   * The phone's status-bar band above that scroller, in the scroller's own
+   * colour. Unpainted, it showed the frame's ground: a white forehead over a
+   * cream page on every iPhone (owner, 2026-10-15).
+   */
+  statusBand: { backgroundColor: colors.chromeSurface },
+  /**
    * No padding, and no `flex: 1`.
    *
    * The document runs to the edges of the glass and what padding there is

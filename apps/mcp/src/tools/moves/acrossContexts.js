@@ -18,6 +18,7 @@ import {
 import { collaborationHead } from "../../live/collaborationHttp.js";
 import { contextNameFor } from "../../context/identity.js";
 import { isEncryptedNote } from "../../encryption.js";
+import { isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
 import { normalizePath } from "../../notes/paths.js";
 import { recordChange } from "../../activity/record.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
@@ -38,6 +39,12 @@ export async function toolMoveNoteAcrossContexts(
     return toolError("invalid path (source and destination must end in .md)");
   }
   if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
+  // Either side keyed: this reads and retires paths, and a keyed note's bytes
+  // are not at its path. Each side would need its own id layer to move
+  // correctly, so neither is moved; refused before anything is read or written.
+  if ((await isKeyedWorkspace(sourceStore)) || (await isKeyedWorkspace(destinationStore))) {
+    return toolError(KEYED_PATH_REFUSAL);
+  }
 
   const sourcePrivacy = await loadPrivacyState(sourceStore);
   if (sourcePrivacy.error) {

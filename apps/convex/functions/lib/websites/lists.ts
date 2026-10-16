@@ -15,7 +15,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
 import { websiteTextRestricts } from "./changes";
 import { websiteHrefFor, type WebsiteLinkCatalogEntry } from "./links";
-import { PUBLICATION_SCOPE } from "./publication";
+import { treeRows, type RowFacts, type TreeRow } from "./treeFacts";
 
 type ViewerAudience = "public" | "members";
 type ListConfig = {
@@ -157,18 +157,25 @@ export async function releasedTexts(
 }
 
 /**
- * Whether a route's live bytes still publish it to the audience it was
- * indexed for. The live file is read at the publication clearance, so a note
- * `privacy.md` holds back never gets this far.
+ * Whether a route still publishes to the audience it was indexed for, by its
+ * facts: a draft never, and a public route only while nothing in its front
+ * matter narrows it. A note `privacy.md` holds back never gets this far.
  */
-function stillPublishes(entry: WebsiteLinkCatalogEntry, text: string): boolean {
-  if (isEncryptedNote(text)) return false;
+function stillPublishes(entry: WebsiteLinkCatalogEntry, facts: RowFacts): boolean {
+  if (facts.site.draft) return false;
+  return entry.audience !== "public" || !facts.site.restricts;
+}
+
+/** The list facts of a page as Publish kept it, read from that copy. */
+function releasedFacts(text: string): RowFacts | null {
+  if (isEncryptedNote(text)) return null;
   const parsed = parseWebsitePage(text);
-  if (parsed.draft) return false;
-  return (
-    entry.audience !== "public" ||
-    (parsed.audience === "public" && !websiteTextRestricts(text))
-  );
+  return {
+    properties: noteProperties(text),
+    inlineTags: inlineTags(text),
+    heading: noteHeading(text),
+    site: { draft: parsed.draft, restricts: websiteTextRestricts(text) },
+  };
 }
 
 export async function renderPublicWebsiteLists(
@@ -182,9 +189,9 @@ export async function renderPublicWebsiteLists(
   },
 ): Promise<string> {
   const byPath = canonicalEntries(args.catalog);
-  const cache = new Map<string, ReadNote | null>();
-  /** Each route's words as published; null when it no longer publishes. */
-  const published = new Map<string, string | null>();
+  const cache = new Map<string, TreeRow | null>();
+  /** Each route's facts as published; null when it no longer publishes. */
+  const published = new Map<string, RowFacts | null>();
   let foundStaleRoute = false;
 
   const rendered = await renderEvaluatedListBlocks(
@@ -198,65 +205,56 @@ export async function renderPublicWebsiteLists(
       if (entries.length > MAX_PUBLIC_LIST_CANDIDATES) {
         throw new Error("folder list candidate limit exceeded");
       }
-      const missingRoutes = entries
-        .filter(
-          (entry) => entry.kind === "route" && !cache.has(entry.objectKey),
-        )
-        .map((entry) => entry.objectKey);
-      const missingShares = entries
-        .filter(
-          (entry) => entry.kind === "share" && !cache.has(entry.objectKey),
-        )
-        .map((entry) => entry.objectKey);
-      const [routes, shares] = await Promise.all([
-        readBatches(ctx, args.workspaceId, PUBLICATION_SCOPE, missingRoutes),
-        readBatches(ctx, args.workspaceId, "team", missingShares),
-      ]);
-      for (const path of missingRoutes)
-        cache.set(path, routes.get(path) ?? null);
-      for (const path of missingShares)
-        cache.set(path, shares.get(path) ?? null);
+      // Routes and shares alike are read at the publication clearance: a
+      // shared note is shown to its link's readers, `team` with no names.
+      const missing = entries
+        .map((entry) => entry.objectKey)
+        .filter((path) => !cache.has(path));
+      const rows = await treeRows(ctx, args.workspaceId, missing);
+      if (rows === null) throw new Error("folder list tree not served");
+      for (const path of missing) cache.set(path, rows.get(path) ?? null);
 
-      // An edit waits for Publish, so a route whose live bytes changed but
-      // still publish it is listed by the copy Publish kept, as the page
-      // itself is served. A restriction is never answered from that copy.
+      // An edit waits for Publish, so a route whose live version changed but
+      // still publishes is listed by the copy Publish kept, as the page itself
+      // is served. A restriction is never answered from that copy.
       const edited: WebsiteLinkCatalogEntry[] = [];
       for (const entry of entries) {
         if (entry.kind !== "route" || published.has(entry.objectKey)) continue;
-        const note = cache.get(entry.objectKey) ?? null;
-        if (note === null) continue;
-        if (!stillPublishes(entry, note.text)) {
+        const row = cache.get(entry.objectKey) ?? null;
+        if (row === null || row.facts === null) continue;
+        if (!stillPublishes(entry, row.facts)) {
           published.set(entry.objectKey, null);
-        } else if (entry.sourceEtag !== null && note.etag === entry.sourceEtag) {
-          published.set(entry.objectKey, note.text);
+        } else if (entry.sourceEtag !== null && row.etag === entry.sourceEtag) {
+          published.set(entry.objectKey, row.facts);
         } else {
           edited.push(entry);
         }
       }
       const copies = await releasedTexts(ctx, args.workspaceId, edited);
-      for (const entry of edited)
-        published.set(entry.objectKey, copies.get(entry.objectKey) ?? null);
+      for (const entry of edited) {
+        const copy = copies.get(entry.objectKey);
+        published.set(entry.objectKey, copy === undefined ? null : releasedFacts(copy));
+      }
 
       const notes = [];
       for (const entry of entries) {
-        const note = cache.get(entry.objectKey) ?? null;
-        if (note === null) continue;
-        const text =
+        const row = cache.get(entry.objectKey) ?? null;
+        if (row === null || row.facts === null) continue;
+        const facts =
           entry.kind === "route"
             ? published.get(entry.objectKey) ?? null
-            : note.text;
-        if (text === null) {
+            : row.facts;
+        if (facts === null) {
           // Restricted since Publish, or no kept copy to list it by.
           if (entry.kind === "route") foundStaleRoute = true;
           continue;
         }
-        if (isEncryptedNote(text)) continue;
         notes.push({
           path: entry.objectKey,
-          updatedAt: note.updatedAt ?? null,
-          properties: noteProperties(text),
-          inlineTags: inlineTags(text),
-          heading: noteHeading(text),
+          updatedAt: row.updatedAt,
+          properties: facts.properties,
+          inlineTags: facts.inlineTags,
+          heading: facts.heading,
         });
       }
       const selection = selectListRows(config, notes, {

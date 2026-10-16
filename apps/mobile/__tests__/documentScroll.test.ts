@@ -293,3 +293,21 @@ describe("every document page has the same margins", () => {
     expect(px(column, "max-width")).toBe(noteColumnWidth);
   });
 });
+
+describe("the status bar's band on a phone", () => {
+  /*
+    The band above the scroller is held back for the status bar and the
+    Dynamic Island (`ScreenViewport`). Left unpainted it showed the frame's
+    white ground over a cream page: a white forehead across the top of every
+    folder page on an iPhone (owner, 2026-10-15). It is painted the page's
+    own colour, so the glass reads as one surface from the clock down.
+  */
+  test("is the same colour as the page under it", () => {
+    const container = mount(createElement(BrowsePane, { data: consoleWith({}) }), 375);
+    const scroll = container.querySelector('[data-testid="browse-scroll"]')!;
+    const band = scroll.parentElement!;
+    const colour = window.getComputedStyle(scroll).backgroundColor;
+    expect(colour).not.toBe("");
+    expect(window.getComputedStyle(band).backgroundColor).toBe(colour);
+  });
+});

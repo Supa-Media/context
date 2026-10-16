@@ -72,6 +72,13 @@ crons.interval(
  * bucket and writes nothing there, and decides nothing — whether a routine
  * runs, and as whom, is asked again when it is handed out.
  */
+/**
+ * Give everyone with a linked phone a first nightly dream if they have never
+ * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
+ * dream runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },
@@ -91,6 +98,21 @@ crons.interval(
   "keep the Convex copy of each file tree current",
   { minutes: 15 },
   internal.functions.nodesMigration.keepCurrent,
+  {},
+);
+
+/**
+ * Finish erasing managed buckets of deleted workspaces
+ * (`functions/managedErasure.ts`). The safety net under each job's own
+ * retries: a run that died holding its row, or a dropped scheduled function,
+ * is picked up here. It decides nothing: which bucket to erase was decided by
+ * the account deletion that queued it, and each run re-checks the bucket name
+ * and the token's name before it deletes anything.
+ */
+crons.interval(
+  "finish erasing deleted workspaces' managed storage",
+  { minutes: 15 },
+  internal.functions.managedErasure.sweepManagedErasures,
   {},
 );
 
@@ -277,6 +299,18 @@ crons.interval(
  */
 crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
 
+/**
+ * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
+ * again, so an edit is copied, and a pass whose chain stopped is resumed. A
+ * third bucket-reaching job, so it owes the two paragraphs: it holds no
+ * decision, since every page re-reads its rows and re-checks each file's etag
+ * before a copy is marked, and it only decides when to look. Staff pause it.
+ */
+crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
+
+/** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
+crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",
@@ -313,10 +347,12 @@ crons.interval(
  * the next message for that person brings the page back.
  *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
- * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
- * Google's push path is deliberately not built (`docs/decisions/communications.md`)
- * — and the gateway's `scheduled()` handler has no trigger configured. A
- * person connected Gmail and their mail never arrived.
+ * grant and a `historyId` and then nothing advanced it: no cron, no webhook,
+ * and the gateway's `scheduled()` handler has no trigger configured. A person
+ * connected Gmail and their mail never arrived. Google's push notifications
+ * (`functions/googlePush.ts`) now bring a pass forward, but only by making a
+ * connection due sooner; this sweep is still what claims it, and what notices
+ * a notification that never came.
  *
  * **Five minutes because that is the floor**, not because every account is
  * polled that often. `syncIntervalMinutes` is per connection and defaults to

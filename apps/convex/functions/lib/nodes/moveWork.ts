@@ -33,6 +33,7 @@ import type { FileStore } from "../fileOps/store";
 import type { OperationResult } from "../filesFns/operationTypes";
 import { PRIVACY_KEY } from "../privacy";
 import { releasePrivacy } from "./movePrivacy";
+import { isKeyedStore } from "../noteIds/keyedStore";
 import { type StepOptions, moveOneObject } from "./moveSteps";
 import { touchNodesNow } from "./run";
 import { rowFromObject } from "./sweep";
@@ -63,6 +64,8 @@ export const MOVE_FAILED_CONFLICT = "A note changed or a name was taken while mo
 export const MOVE_FAILED_STORAGE = "Storage refused a move; retrying";
 export const MOVE_FAILED_FINISH = "Finishing the move failed; retrying";
 export const MOVE_FAILED_TOO_LARGE = "A file is too large to move on this storage";
+export const MOVE_FAILED_KEYED =
+  "Moving these notes by name is not available in a keyed workspace yet; nothing was moved";
 
 type Claimed = NonNullable<Awaited<ReturnType<typeof claimMove>>>;
 
@@ -91,13 +94,18 @@ async function pool<T>(items: readonly T[], size: number, work: (item: T) => Pro
   await Promise.all(runners);
 }
 
-/** Tell the tree what one page moved: destinations seen, sources gone. */
+/**
+ * Tell the tree what one page moved: destinations seen, sources gone. Then
+ * each moved note's target takes its source's id and copy (`carryIdentity`),
+ * which can only follow the observation that created the target row.
+ */
 async function observeMoved(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   at: number,
   rows: NodeRow[],
   gone: string[],
+  moves: { from: string; to: string }[],
 ): Promise<void> {
   for (let index = 0; index < Math.max(rows.length, gone.length); index += OBSERVE_BATCH) {
     await ctx.runMutation(internal.functions.nodes.observe, {
@@ -106,6 +114,12 @@ async function observeMoved(
       rows: rows.slice(index, index + OBSERVE_BATCH),
       gone: gone.slice(index, index + OBSERVE_BATCH),
       vanishedUnder: [],
+    });
+  }
+  for (let index = 0; index < moves.length; index += OBSERVE_BATCH) {
+    await ctx.runMutation(internal.functions.noteIdsCopy.carryMoved, {
+      workspaceId,
+      moves: moves.slice(index, index + OBSERVE_BATCH),
     });
   }
 }
@@ -165,6 +179,7 @@ async function walkOldName(
     walk.listed += objects.length;
     const rows: NodeRow[] = [];
     const gone: string[] = [];
+    const moves: { from: string; to: string }[] = [];
     await pool(objects, serverCopy ? SERVER_COPY_POOL : POOL, async ({ key, size }) => {
       const bytes = typeof size === "number" ? size : 0;
       if (!serverCopy && bytes > BUFFERED_MAX_BYTES) {
@@ -182,11 +197,14 @@ async function walkOldName(
       if (outcome.state === "moved") {
         walk.moved += 1;
         const row = rowFromObject({ key: outcome.path, etag: outcome.etag, size: outcome.size });
-        if (row !== null) rows.push(row);
+        if (row !== null) {
+          rows.push(row);
+          moves.push({ from: key, to: row.path });
+        }
       }
       if (rowFromObject({ key }) !== null) gone.push(key);
     });
-    await observeMoved(ctx, workspaceId, at, rows, gone);
+    await observeMoved(ctx, workspaceId, at, rows, gone, moves);
     const { cursor: next, truncated } = listed as { cursor?: string; truncated?: boolean };
     if (truncated === false || typeof next !== "string" || next === "" || next === cursor) {
       walk.complete = true;
@@ -274,6 +292,14 @@ export async function runMoveWork(
   const started = Date.now();
   const claimed = await claimMove(ctx, workspaceId, started);
   if (claimed === null) return { kind: "nodesKept", complete: true };
+  // In a keyed workspace the bytes are not at their old names, so the old-name
+  // walk would move frozen copies. Renames there are row-only; a byte move is
+  // refused here, before any walk, and the move is left failed with its reason.
+  if (await isKeyedStore(store)) {
+    console.error("nodes.move_failed", { workspaceId, label: MOVE_FAILED_KEYED });
+    await ctx.runMutation(internal.functions.nodeMoves.failed, { id: claimed.id, label: MOVE_FAILED_KEYED, now: Date.now() });
+    return { kind: "nodesKept", complete: false };
+  }
   const deadline = started + (options.budgetMs ?? PASS_BUDGET_MS);
   let rules: Promise<PrivacyState> | null = null;
   const steps: StepOptions = {

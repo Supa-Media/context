@@ -28,6 +28,8 @@ export async function listDurableMovesHandler(
     .query("gatewayJobs")
     .withIndex("by_workspace_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
     .order("desc")
+    // Moves only: an image upload's ticket shares the table and is no move.
+    .filter((q) => q.eq(q.field("kind"), "materialize_move"))
     .take(20);
   const completedCutoff = Date.now() - 24 * 60 * 60 * 1_000;
   return rows

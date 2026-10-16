@@ -11,7 +11,7 @@
  *   /admin/estate · /activity · /credentials
  *   /admin/agent[/<turn id>]           one answer opened, step by step
  *   /admin/ai-costs[/<account id>]     one account's drawer
- *   /admin/search[/indexes|/speed]     bare = indexes
+ *   /admin/search[/indexes|/notes|/rows|/speed]     bare = indexes
  *   /admin/waitlist[/waiting|/let-in|/removed|/friends]   bare = waiting
  *   /admin/people
  *
@@ -39,7 +39,7 @@ export const DEFAULT_PLACE: AdminPlace = { tab: "growth", sub: null };
 const SLUGS: Partial<Record<AdminTab, string>> = { aiCosts: "ai-costs" };
 
 /** Views a tab names with a fixed word. Tabs absent here take an id, or nothing. */
-export const SEARCH_PLACES = ["indexes", "speed"] as const;
+export const SEARCH_PLACES = ["indexes", "notes", "rows", "speed"] as const;
 export const WAITLIST_PLACES = ["waiting", "let-in", "removed", "friends"] as const;
 
 const FIXED: Partial<Record<AdminTab, readonly string[]>> = {

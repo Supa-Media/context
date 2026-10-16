@@ -15,6 +15,7 @@ import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { stageOf } from "../../functions/nodesMigration";
+import { PROPS_VERSION } from "../../functions/lib/nodes/facts";
 
 const ADMIN = "staff@example.test";
 let previous: string | undefined;
@@ -225,10 +226,14 @@ describe("keeping every copy current", () => {
     const never = await serve("never-filled");
     const current = await serve("caught-up");
     const held = await serve("held");
+    const oldProps = await serve("old-props");
     await boundWorkspace(t, "not-served");
     await t.run(async (ctx) => {
-      await ctx.db.insert("nodeFactState", { workspaceId: current, ready: true, seq: Number.MAX_SAFE_INTEGER });
+      // Caught up, its rows read at today's props version.
+      await ctx.db.insert("nodeFactState", { workspaceId: current, ready: true, seq: Number.MAX_SAFE_INTEGER, propsVersion: PROPS_VERSION });
       await ctx.db.insert("nodeFactState", { workspaceId: held, ready: false, seq: 0, leaseAt: Date.now() });
+      // Caught up, but read before the props carried what readers now ask of them.
+      await ctx.db.insert("nodeFactState", { workspaceId: oldProps, ready: true, seq: Number.MAX_SAFE_INTEGER });
     });
     await t.mutation(internal.functions.nodesMigration.keepCurrent, {});
     const fills = await t.run(async (ctx) =>
@@ -236,7 +241,7 @@ describe("keeping every copy current", () => {
         .filter((job) => (job.args[0] as { operation?: { kind?: string } })?.operation?.kind === "nodesFactFill")
         .map((job) => (job.args[0] as { workspaceId: Id<"workspaces"> }).workspaceId),
     );
-    expect(fills).toEqual([never]);
+    expect([...fills].sort()).toEqual([never, oldProps].sort());
   });
 });
 

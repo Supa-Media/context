@@ -96,7 +96,7 @@ export function WorkspaceStorageStepBody({
 
   if (managed?.mode === "settling") {
     return <ManagedSettling
-      state={{ paid: managed.paid, stagingFreeStorage: managed.status?.stagingFreeStorage,
+      state={{ paid: managed.paid, free: managed.startedFree, stagingFreeStorage: managed.status?.stagingFreeStorage,
         storageReady: connectState.kind === "connected", slow: managed.slow, failure: managed.provisionFailure }}
       contextName={`@${slug}`} onUseOwnStorage={managed.back} onRetry={managed.retry}
     />;
@@ -133,6 +133,7 @@ export function WorkspaceStorageStepBody({
         <StorageChoice
           workspaceId={workspaceId}
           connect={connect}
+          free={managed?.free ? { cap: managed.free.cap, onChoose: managed.startFree } : undefined}
           managed={
             managed === null || !managed.available
               ? undefined
@@ -140,6 +141,8 @@ export function WorkspaceStorageStepBody({
           }
         />
       )}
+
+      {managed?.failure ? <FormError headline="Storage setup did not finish" next={managed.failure} /> : null}
 
       {progress ? (
         <Notice style={styles.progress}>

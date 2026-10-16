@@ -54,7 +54,7 @@ import { mutation, type MutationCtx } from "../_generated/server";
 import { requireEmailProof } from "./lib/emailProof";
 import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
-import { isProductionTestAccount } from "./lib/testAccount";
+import { queueManagedErasure } from "./lib/managedErasure/queue";
 import { managedBucketName } from "./lib/managedStorage";
 import { type GenericConnectAttemptQuery, INVITATION_STATUSES } from "./lib/account/cascadeShapes";
 import {
@@ -62,6 +62,7 @@ import {
   authorizeWorkspaceDeletion,
 } from "./lib/account/deletionGuards";
 import { deletePersonalRows } from "./lib/account/personalRows";
+import { soleOwnerOf } from "./lib/account/soleOwner";
 import { finalizeWorkspaceDeletion } from "./lib/account/finalizeWorkspaceDeletion";
 import { disableMeaningHandler } from "./lib/meaningFns/rows";
 
@@ -170,18 +171,7 @@ export const deleteAccount = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     for (const membership of memberships) {
-      let soleOwner = false;
-      if (membership.role === "owner") {
-        const others = await ctx.db
-          .query("workspaceMembers")
-          .withIndex("by_workspace", (q) =>
-            q.eq("workspaceId", membership.workspaceId),
-          )
-          .collect();
-        soleOwner = !others.some(
-          (other) => other.role === "owner" && other.userId !== userId,
-        );
-      }
+      const soleOwner = await soleOwnerOf(ctx, membership, userId);
       if (soleOwner) {
         // Note the edge this deliberately includes: a workspace whose only
         // owner leaves dies even if editors or members remain. An ownerless
@@ -206,7 +196,11 @@ export const deleteAccount = mutation({
  * The customer's bucket is never touched: what is deleted here is our metadata
  * about it, credential included, which is exactly the "revoke the key and
  * we're gone" promise `disconnectStorage` makes — extended to the whole row
- * set because the context itself is going away.
+ * set because the context itself is going away. Storage WE run is the one
+ * exception: its bucket is erased with the workspace, notes and attachments
+ * included (decided by the owner, 2026-10-15), because once the row naming it
+ * is gone nobody could ever reach or export it again. The person was offered
+ * the export first (`DeleteAccountCard`).
  *
  * Deliberately placed BELOW the export rather than above it (hoisting makes
  * both work): `__tests__/structure.test.ts` attributes everything before the
@@ -223,7 +217,10 @@ export const deleteAccount = mutation({
  * Google connection and its product state (Gmail/Calendar/Chat) landing
  * alongside it, and what happens to each:
  *
- *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first;
+ *    a bucket WE run for this workspace is queued for erasure first
+ *    (`managedErasures`, `functions/managedErasure.ts`), notes and attachments
+ *    included, because nobody but us could ever reach it again.
  *  - **`managedStorageMigrations`** — swept before its source binding; it can
  *    carry a second encrypted per-bucket credential while a copy is running.
  *  - **`searchIndexes`** — RELEASED below rather than deleted: marked
@@ -290,41 +287,49 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
-  const workspace = await ctx.db.get(workspaceId);
-  const creator =
-    workspace === null ? null : await ctx.db.get(workspace.createdBy);
-  const deleteManagedTestResources = isProductionTestAccount(creator);
-  // A managed-storage copy parks a second encrypted bucket credential. Remove
-  // it before its source binding so no orphan can survive account deletion.
   // Premium usage analytics go with the workspace (`usage.purgeWorkspaceHourly`).
   await ctx.scheduler.runAfter(0, internal.functions.usage.purgeWorkspaceHourly, {
     workspaceId,
   });
+  // A managed-storage copy parks a second encrypted bucket credential. Remove
+  // it before its source binding so no orphan can survive account deletion;
+  // a move INTO storage we run names a managed bucket of its own, which is
+  // queued for erasure like the bound one below.
   const managedMigration = await ctx.db
     .query("managedStorageMigrations")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  if (managedMigration !== null) await ctx.db.delete(managedMigration._id);
+  if (managedMigration !== null) {
+    await queueManagedErasure(ctx, {
+      workspaceId,
+      bucket: managedMigration.targetBucket,
+      tokenId: managedMigration.targetAccessKeyId,
+    });
+    await ctx.db.delete(managedMigration._id);
+  }
 
   // The storage binding, with the same Dropbox care `disconnectStorage`
   // takes: schedule the revocation first, envelope in the args, because the
   // row it lives on is deleted on the next line. Scheduled, not called — this
   // public mutation must not reach the decrypt.
+  //
+  // Storage WE run is erased (decided by the owner, 2026-10-15): the notes and
+  // attachments in this workspace's managed bucket are deleted and its token
+  // revoked, by a retryable job queued here in the same transaction, before
+  // the row naming them goes (`functions/managedErasure.ts`). A customer's
+  // own bucket is never queued: only the name derived from this workspace's
+  // id counts, and the job re-checks it.
   const binding = await ctx.db
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (binding !== null) {
-    if (
-      deleteManagedTestResources &&
-      binding.bucket === managedBucketName(workspaceId) &&
-      binding.accessKeyId !== undefined
-    ) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.managedProvisioning.deleteManagedTestResources,
-        { workspaceId, bucket: binding.bucket, tokenId: binding.accessKeyId },
-      );
+    if (binding.bucket === managedBucketName(workspaceId)) {
+      await queueManagedErasure(ctx, {
+        workspaceId,
+        bucket: binding.bucket,
+        tokenId: binding.accessKeyId,
+      });
     }
     if (
       binding.provider === "dropbox" &&

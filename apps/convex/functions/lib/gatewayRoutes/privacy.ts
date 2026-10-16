@@ -19,9 +19,13 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
+import { setAccessOp } from "./privacySetAccess";
 
 /** The grant scope that may change a workspace's notes, and so its rules. */
 const SCOPE_WRITE = "context:write";
+
+/** The ops that write the rules `privacy.md` is rendered from: refused once the rows are the truth. */
+const ROWS_REFUSED_OPS = new Set(["write", "written", "exported", "owed"]);
 
 /** Rules one request may carry: far above any manifest we have, and a bound on a mutation. */
 export const PRIVACY_ROUTE_RULES = 5_000;
@@ -61,6 +65,7 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
   if ((accessToken === null) === (ticket === null) || expected === null || op === null) return refused();
   // The id the gateway named is compared, never looked up: it must be the one the proof reaches.
   let reached: string | undefined;
+  let actor: { userId: Id<"users">; role: "owner" | "editor" } | undefined;
   if (accessToken !== null) {
     const session = await ctx.runQuery(internal.functions.controlPlane.resolveGrantByAccessToken, {
       hashedAccessToken: await hashToken(accessToken),
@@ -73,6 +78,7 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
     const writes = entry !== undefined && (entry.role === "owner" || entry.role === "editor") &&
       (session?.scopes ?? []).includes(SCOPE_WRITE);
     reached = writes ? entry.workspaceId : undefined;
+    if (writes && session) actor = { userId: session.actorUserId, role: entry.role as "owner" | "editor" };
   } else {
     // A queued move holds a ticket, not a person's token: it counts while its lease does.
     const leased = await ctx.runQuery(internal.functions.nodesPrivacy.jobWorkspace, {
@@ -82,6 +88,16 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
   }
   if (reached === undefined) return refused();
   const workspaceId = reached as Id<"workspaces">;
+
+  if (op === "setAccess") {
+    // A tier or list set on one row. Only meaningful once the rows are the truth; `nodesAccess.setAccess` says so.
+    if (actor === undefined) return refused();
+    return await setAccessOp(ctx, body, workspaceId, actor);
+  }
+  // In rows mode the rules are not written any more: the rows are the truth, and the gateway writes them through `setAccess`.
+  if (ROWS_REFUSED_OPS.has(op) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    return json({ ok: false, code: "ROWS_MODE" });
+  }
 
   if (op === "owed") {
     await ctx.runMutation(internal.functions.nodesPrivacy.owed, { workspaceId });

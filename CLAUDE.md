@@ -16,81 +16,61 @@ file for the area you are touching, and write new durable decisions there.
 These are the product, not implementation details. If a task seems to require
 breaking one, stop and say so rather than working around it.
 
-1. **The customer owns the content, and can always leave with it.** Canonical
-   Markdown and attachments live in a bucket dedicated to one workspace; the
-   control plane holds metadata only — accounts, workspaces, bindings, grants,
-   audit, and each workspace's file tree (file and folder names, versions) and
-   privacy rules (decided by the owner, 2026-10-12;
-   [convex-tree](./docs/decisions/app-and-console/convex-tree.md)), plus, as
-   rebuildable derivatives on each note's row, its links and the front
-   matter, heading and first paragraph a List shows (decided by the owner,
-   2026-10-13; [convex-facts](./docs/decisions/app-and-console/convex-facts.md)),
-   and its folder icons, emoji names and forwarding ledger, whose bucket files
-   are written from those rows for the exit (decided by the owner, 2026-10-14;
-   [convex-small-data](./docs/decisions/app-and-console/convex-small-data.md))
-   — and **never** a note's body or the only copy of anything. Who holds the bucket's key is a billing
-   question: on the free plan it is the customer's own bucket and revoking our
-   credential leaves them a complete, usable context; on **managed storage** we
-   create and pay for the bucket, and the equivalent guarantee is that
-   downloading everything or handing the bucket to storage of their own is
-   free, identical on both plans, and still works after they cancel. That exit
-   is never gated, never degraded, and never behind a paywall — gate it and
-   this is a different product. Cancelling puts a context back on the free
-   plan, still writable and exportable; it never deletes (decided by the
-   owner, 2026-09-29). Credentials never live in Markdown, in the
-   bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
-   in the gateway at request time. The one exception is the texting
-   assistant's autofill vault, sealed in the person's own bucket with the key
-   held outside it and never shown to a model (decided by the owner,
-   2026-10-06; [texting-assistant](./docs/decisions/texting-assistant.md)). See
+1. **The customer owns the content, and can always leave with it.** Note
+   bodies and attachments live in a bucket dedicated to one workspace. Names,
+   folders and privacy live in the control plane, on each workspace's tree
+   rows (decided by the owner, 2026-10-15, replacing the bucket-as-truth rule;
+   [notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)),
+   alongside accounts, bindings, grants, audit, and each note's rebuildable
+   facts (links, front matter, first heading and paragraph;
+   [convex-facts](./docs/decisions/app-and-console/convex-facts.md)). The
+   control plane **never** holds a note's body. Leaving is **Download as
+   folders**: a complete, decrypted copy with real names, free on every plan,
+   still available after cancelling, never gated, degraded or behind a
+   paywall — gate it and this is a different product. Moving to storage of
+   their own is free too. Cancelling puts a context back on the free plan,
+   still writable and exportable; it never deletes (decided by the owner,
+   2026-09-29). Credentials never live in Markdown, in the bucket, in logs, in
+   URLs, or on a device: encrypted at rest, decrypted only in the gateway at
+   request time. The one exception is the texting assistant's autofill vault,
+   sealed in the person's own bucket with the key held outside it and never
+   shown to a model (decided by the owner, 2026-10-06;
+   [texting-assistant](./docs/decisions/texting-assistant.md)). See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
-   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
-   `1-projects/foo.md`, full stop. An existing workspace must connect and work
-   unchanged, without a mandatory migration; user-authored keys are never
-   rewritten, and pre-v1 plumbing remains dual-readable until its owner runs
-   the resumable storage-layout migration. One workspace maps to one bucket (optionally
+   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note's bytes live
+   at `notes/<noteId>.md` (other files at `files/<noteId>.<ext>`), and its
+   name and folder are rows in the control plane; Context may move or rewrite
+   any key in a bucket it is connected to, a customer's own included (decided
+   by the owner, 2026-10-15). One workspace maps to one bucket (optionally
    plus a fixed root prefix the customer chose, applied at the adapter
-   boundary). **This now also carries non-negotiable #1's exit promise**: a
-   bucket holding one workspace can be handed over, and a shared bucket with a
-   prefix per customer can only ever be exported from — so managed buckets are
-   one per workspace, named from the immutable workspace id, in a Cloudflare
-   account that holds customer data — those buckets, the per-context search
-   databases, and a live note's in-flight keystrokes while people are typing
-   it together — and nothing of ours. That third one was added deliberately
-   (decided by the owner, 2026-09-20) rather than discovered: two people
-   editing one note need a shared place for characters that are seconds old,
-   and there is no version of that feature without one. It is bounded, and the
-   bounds are the reason it is allowed — one room per note, append-only,
-   deleted when the last person leaves, replayed only to a socket that passed
-   `canSee` at join, never the only copy of anything, and the flush to the
-   bucket is continuous. See
-   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
-   A store's per-account resource
-   ceiling is therefore a constraint on the product, not a detail: R2 allows a
-   million buckets, and anything low forces prefix tenancy and ends the exit
-   promise with it.
-3. **Plain files stay canonical.** Markdown stays portable and human-readable.
-   A Context-managed bucket may hold each object's body sealed at rest (key
-   outside the bucket, paths and layout unchanged), because every read through
-   the product and every exit is plain; a customer's own bucket never is
-   (decided by the owner, 2026-09-29;
+   boundary). Managed buckets are one per workspace, named from the immutable
+   workspace id, in a Cloudflare account that holds customer data — those
+   buckets, the per-context search databases, and a live note's in-flight
+   keystrokes while people are typing it together — and nothing of ours. That
+   third one was added deliberately (decided by the owner, 2026-09-20): two
+   people editing one note need a shared place for characters that are seconds
+   old. It is bounded — one room per note, append-only, deleted when the last
+   person leaves, replayed only to a socket that passed `canSee` at join, never
+   the only copy of anything, and the flush to the bucket is continuous. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md). A
+   store's per-account resource ceiling is a constraint on the product: R2
+   allows a million buckets, and anything low forces prefix tenancy.
+3. **Note bodies stay plain Markdown.** A Context-managed bucket may hold each
+   object's body sealed at rest (key outside the bucket), because every read
+   through the product and every export is plain; a customer's own bucket
+   never is (decided by the owner, 2026-09-29;
    [managed-encryption](./docs/decisions/storage-and-credentials/managed-encryption.md)).
-   Collaboration history under `.context/collaboration/` is customer-owned essential
-   data, needed to merge offline edits; it is backed up and exported with the
-   notes. Accepted edits may briefly precede their Markdown rendering, and a
-   completed save/export must include them. This is the explicit exception
-   approved for automatic collaboration; see [collaboration](./docs/decisions/collaboration.md).
-   Search indexes, caches and embeddings are **disposable derivatives**,
-   rebuildable from the files, never the only copy of anything. Once the
-   Convex tree migration reaches its phase 3, `privacy.md` is written from
-   rules held in the control plane and never read back as the authority; it
-   stays in the bucket, in the same format, so the exit keeps who-sees-what
-   (decided by the owner, 2026-10-12). The on-bucket layout — `index.md` and
-   `privacy.md` at root, Context-owned plumbing under `.context/`, and
-   user-selected folders — is a versioned stable format, not an internal
-   detail; changing it requires dual reads and an idempotent,
-   verified migration with a rollback window.
+   Collaboration history under `.context/collaboration/` is customer-owned
+   essential data, needed to merge offline edits; accepted edits may briefly
+   precede their Markdown rendering, and a completed save or export includes
+   them ([collaboration](./docs/decisions/collaboration.md)). Search indexes,
+   caches and embeddings are **disposable derivatives**, rebuildable from the
+   notes and the rows. The bucket layout is `notes/`, `files/` and
+   `.context/`; there is no `privacy.md`, and nothing outside the app writing
+   into the bucket is picked up (decided by the owner, 2026-10-15). No
+   compatibility with syncing a bucket to Obsidian is kept; Obsidian plugins
+   running inside Context are.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
    grants. **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /
@@ -100,14 +80,16 @@ breaking one, stop and say so rather than working around it.
    uses OAuth with per-client revocable grants; token-in-URL is a compatibility
    fallback and never the security boundary. Prove isolation with tests: one
    tenant must not enumerate, read, or infer the existence of another.
-5. **`team` never means public.** Visibility is `private` or `team`, and `team`
-   means named people the owner granted access to. No *setting* publishes a
+5. **`team` never means public.** A row's access is `private` (owners) or
+   `team` (members), plus any mix of groups and named people, inside the
+   workspace or not, each with view or edit (decided by the owner,
+   2026-10-15). Every grantee is a person with an account or an email awaiting
+   one. No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
    indexed. **A link an owner mints and can revoke is the single exception**, and
-   it is always a share row, never a third word in `privacy.md`, whose `Scope`
-   stays two-valued. A link covers one note, or one folder and the subtree
+   it is always a share row, never a value of a row's access. A link covers one note, or one folder and the subtree
    beneath it — and a folder link **narrows**: every path under it is still
-   re-derived through the live `privacy.md` at `team` scope with no granted
+   re-derived through the live rows at `team` scope with no granted
    names, so a note held back by name, a private subfolder and a note pointed at
    a group are all absent through it. It publishes what the folder already
    published to the workspace and never more, which is why this is a wider
@@ -116,7 +98,7 @@ breaking one, stop and say so rather than working around it.
    A workspace's **website** is this exception for `website/` and the folders
    its pages name with `folder:`: turning it on is the owner minting that
    locator, and every page, referenced notes included, resolves the same way,
-   so frontmatter can narrow a page but never publish one `privacy.md` holds
+   so frontmatter can narrow a page but never publish one the rows hold
    back, and no page may name the whole context
    ([websites](./docs/decisions/websites.md)). **And no AI client widens any
    of this on its own**: a tool call that would let more people see something
@@ -166,8 +148,9 @@ Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
 an in-memory store stub: fast, offline, currently 4,338 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
-The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
-folder defaults with exact-note overrides) is proven and load-bearing: refactor
+The privacy engine (`canSee`, `effectiveVisibility`: the nearest folder or
+note setting wins, moving onto tree rows per
+[notes-by-id](./docs/decisions/storage-and-credentials/notes-by-id.md)) is proven and load-bearing: refactor
 its *plumbing* freely; changing its *semantics* is a decision for
 `docs/decisions/`.
 
@@ -228,7 +211,9 @@ are deliberately **not** built — do not foreclose them.
   touching auth, token handling, tenant isolation, path resolution, signature
   verification, or credential storage needs a test proving the attack fails.
 - **Self-hosting is a supported path**: someone must be able to clone this,
-  deploy the gateway at their own bucket, and have a working context without us.
+  deploy the gateway and a Convex deployment of their own at their own bucket,
+  and have a working context without us. There is no mode without a control
+  plane (decided by the owner, 2026-10-15).
 
 Work goes through pull requests; do not push to `main`. **Review is self-review,
 and merging is yours to do.** Nobody is waiting to approve, so a branch parked

@@ -13,6 +13,13 @@ on:
   push:
     branches: [main]
 
+# A newer push to a pull request supersedes the run for the older commit, so
+# that run is cancelled rather than holding runners (a free account gets 20
+# at once). Pushes to main are each kept: the group is the commit there.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
     uses: Supa-Media/supa-framework/.github/workflows/ci.yml@main

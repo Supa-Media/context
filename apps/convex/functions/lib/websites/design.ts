@@ -34,9 +34,9 @@ import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { deploymentSells, planFor, statusOf } from "../billing/plan";
 import { planIsPaying } from "../premium";
 import { isEncryptedNote } from "../noteEncryption";
-import { websiteTextRestricts } from "./changes";
 import { readPublishedImages } from "./images";
 import { PUBLICATION_CLEARANCE } from "./publication";
+import { treeRows } from "./treeFacts";
 
 /** One code note the index holds as published. */
 export interface DesignNote {
@@ -69,29 +69,43 @@ async function publishedTexts(
 ): Promise<Map<string, string>> {
   const texts = new Map<string, string>();
   if (notes.length === 0) return texts;
-  const live = await ctx
-    .runAction(internal.functions.files.runFileOperation, {
-      workspaceId,
-      ...PUBLICATION_CLEARANCE,
-      operation: { kind: "readMany", paths: notes.map((note) => note.objectKey) },
-    })
-    .catch(() => null);
-  if (live?.kind !== "notes") return texts;
-  const changed: DesignNote[] = [];
-  for (const note of notes) {
-    const result = live.results.find((entry) => entry.path === note.objectKey);
+  // Existence, sealing, draft and the narrowing a public note may not carry are
+  // the tree's answer; a note it rules out is never opened.
+  const rows = await treeRows(ctx, workspaceId, notes.map((note) => note.objectKey));
+  if (rows === null) return texts;
+  const eligible = notes.filter((note) => {
     // Absent at the publication clearance: held back, deleted or moved. Gone now.
-    if (result?.outcome !== "read") continue;
-    const text = result.note.text;
-    if (isEncryptedNote(text)) continue;
+    const row = rows.get(note.objectKey);
+    if (row === undefined || row.sealed || row.facts === null) return false;
     // A members-only note asked for its narrowing already; a public one that
     // now asks for any is withdrawn, whatever else its bytes say.
-    if (note.audience === "public" && websiteTextRestricts(text)) continue;
-    const parsed = parseWebsitePage(text);
-    if (parsed.draft || (note.audience === "public" && parsed.audience !== "public")) continue;
-    if (result.note.etag === note.sourceEtag) texts.set(note.objectKey, text);
-    else changed.push(note);
+    if (note.audience === "public" && row.facts.site.restricts) return false;
+    return !row.facts.site.draft;
+  });
+  // A note's words are opened only where the tree says its file is the copy
+  // Publish kept; the file's own etag must agree before its words are drawn.
+  const unchanged = eligible.filter((note) => rows.get(note.objectKey)!.etag === note.sourceEtag);
+  const live = new Map<string, { text: string; etag: string }>();
+  if (unchanged.length > 0) {
+    const read = await ctx
+      .runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        ...PUBLICATION_CLEARANCE,
+        operation: { kind: "readMany", paths: unchanged.map((note) => note.objectKey) },
+      })
+      .catch(() => null);
+    if (read?.kind === "notes") {
+      for (const result of read.results) {
+        if (result.outcome !== "read" || isEncryptedNote(result.note.text)) continue;
+        live.set(result.path, { text: result.note.text, etag: result.note.etag });
+      }
+    }
   }
+  const liveIsCopy = (note: DesignNote) => live.get(note.objectKey)?.etag === note.sourceEtag;
+  for (const note of eligible) {
+    if (liveIsCopy(note)) texts.set(note.objectKey, live.get(note.objectKey)!.text);
+  }
+  const changed = eligible.filter((note) => !liveIsCopy(note));
   const wanted = changed.flatMap((note) =>
     note.releaseId === undefined || note.releasePageId === undefined
       ? []

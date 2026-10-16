@@ -1,5 +1,7 @@
 # App and console — the tree moves into the control plane
 
+> **Superseded in part (owner, 2026-10-15):** names, folders and privacy move onto tree rows and bodies to `notes/<noteId>.md`, so bucket sweeps, `privacy.md` and byte-copying moves are retired as the work in [notes-by-id](../storage-and-credentials/notes-by-id.md) lands.
+
 ### A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files
 
 *Decided by the owner, 2026-10-12* ("what would it look like if people's tree

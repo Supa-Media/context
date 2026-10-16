@@ -1,5 +1,6 @@
 import { livePreviewStyles } from "../livePreview";
 import { commentStyles } from "../comments/styles";
+import { mailStyles } from "../mail/styles";
 import { fonts, layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
@@ -244,6 +245,7 @@ export function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-lp-property-slot { padding: 2px 0 12px; cursor: default; }
 ${livePreviewStyles}
 ${commentStyles(colors, fonts.body)}
+${mailStyles(colors, fonts.body)}
 `;
   if (fresh) document.head.appendChild(style);
 }

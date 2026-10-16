@@ -29,7 +29,7 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
-import { attachmentsLine, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { toolsForSession } from "../tools/advertised.js";
 import {
   SHOWN_HISTORY_TURNS,
@@ -56,6 +56,7 @@ import {
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
+import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /**
@@ -159,9 +160,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
   }
   // What came with the question (`attachments.js`). A routine's run has none.
-  const { attachments, refusal } = turnAttachments(body.attachments, runner);
+  const { attachments: sent, refusal } = turnAttachments(body.attachments, runner);
   if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
-  if (question.length === 0 && attachments.length === 0) {
+  if (question.length === 0 && sent.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
   if (question.length > MAX_QUESTION_LENGTH) {
@@ -180,7 +181,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     through `/approvals`.
   */
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    const verdict = attachments.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
+    const verdict = sent.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
     if (verdict !== null) {
       const settled = await settleByText(store, session, verdict);
       if (settled !== null) {
@@ -223,6 +224,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
+  // Voice messages become their words only now, once the turn is allowed and counted.
+  const attachments = await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId);
 
   const offered = await toolsForSession(session, store);
 
@@ -446,7 +449,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         now: received,
         timeZone,
         question,
-        attachments: attachmentsLine(attachments),
+        attachments,
         routine: runner ? routine.path : null,
       })
     : null;

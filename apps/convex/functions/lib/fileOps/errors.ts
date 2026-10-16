@@ -38,6 +38,11 @@ export type FileErrorCode =
   | "PLUGIN_OFF"
   /** The store would not hand over the whole listing. Not the folder's fault. */
   | "LISTING_INCOMPLETE"
+  /**
+   * A path-based operation in a keyed workspace (`lib/noteIds/keyedStore.ts`),
+   * where a note's bytes are not at its path. Refused before anything is touched.
+   */
+  | "KEYED_WORKSPACE"
   | "ARCHIVE_UNAVAILABLE"
   | "CONFIRMATION_REQUIRED"
   /**

@@ -25,6 +25,7 @@
 
 import { livePreviewStyles } from "../livePreview";
 import { commentStyles, type CommentPalette } from "../comments/styles";
+import { mailStyles } from "../mail/styles";
 
 /**
  * The stylesheet, as one string.
@@ -189,6 +190,7 @@ html, body {
 
 ${livePreviewStyles}
 ${commentStyles(GUEST_COMMENT_PALETTE, "var(--lp-body)").replaceAll(".cm-lp-root", "#root")}
+${mailStyles(GUEST_COMMENT_PALETTE, "var(--lp-body)").replaceAll(".cm-lp-root", "#root")}
 `;
 }
 

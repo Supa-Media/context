@@ -21,9 +21,9 @@ import { clearanceOf } from "./lib/clearance";
 import { callerId, personalNameFor, resolveFileAccess } from "./lib/filesFns/access";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { normalizePath } from "./lib/fileOps/paths";
-import { readMirror } from "./lib/nodes/listing";
+import { rulesForReaders } from "./lib/nodes/readerRules";
 import { trashEntryOf } from "./lib/nodes/trashTrail";
-import { canSee, type PrivacyRule, type Visibility } from "./lib/privacy";
+import { canSee } from "./lib/privacy";
 
 const answerValidator = v.union(
   v.null(),
@@ -47,10 +47,8 @@ async function answerFor(ctx: QueryCtx, actorUserId: Id<"users">, workspaceId: I
   const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
   const clearance = clearanceOf(scope, grantedNames);
   if (scope !== "private") {
-    const mirror = await readMirror(ctx.db, workspaceId);
-    if (mirror === null || mirror.invalid) return null;
-    const rules: PrivacyRule[] = mirror.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility as Visibility }));
-    const overrides = new Map(mirror.notes.map((rule): [string, Visibility] => [rule.path, rule.visibility as Visibility]));
+    // No rules (a missing or unparseable file) judge every path private, so the answer is the same as before.
+    const { rules, overrides } = await rulesForReaders(ctx, workspaceId);
     if (!canSee(path, clearance.scope, rules, overrides, clearance.names)) return null;
   }
   const entry = await trashEntryOf(ctx.db, workspaceId, path);

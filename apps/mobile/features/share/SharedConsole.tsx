@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ConsoleFrame } from "../console/ConsoleFrame";
@@ -77,6 +77,7 @@ export function SharedConsole({
   signedIn,
   onOpen,
   onSignIn,
+  report,
 }: {
   note: SharedNote;
   signedIn: boolean;
@@ -84,6 +85,8 @@ export function SharedConsole({
   onOpen: (path: string) => void;
   /** Sign in, and come back to this address. */
   onSignIn: () => void;
+  /** The page's "Report" link, drawn in a corner. */
+  report?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -142,6 +145,7 @@ export function SharedConsole({
       <ConsoleFrame data={data} route={SHARED_ROUTE} router={visitorRouter} params={NO_PARAMS}>
         <BrowsePane data={data} />
       </ConsoleFrame>
+      {report === undefined ? null : <View style={styles.report}>{report}</View>}
     </View>
   );
 }
@@ -149,4 +153,6 @@ export function SharedConsole({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.pageSurface },
+    // A quiet corner link, over the console rather than inside it.
+    report: { position: "absolute", right: 16, bottom: 12 },
   });

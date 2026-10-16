@@ -17,6 +17,8 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { emojiEmbedder } from "./lib/emojiMeaningLookup";
+import { resolveFileAccess } from "./lib/filesFns/access";
+import { gate } from "./lib/jev/meter";
 
 /** A fill quiet this long is taken to have died and may be claimed again. */
 export const FILL_STALE_MS = 10 * 60 * 1000;
@@ -40,6 +42,30 @@ export const setState = internalQuery({
       .withIndex("by_set", (q) => q.eq("set", args.set))
       .unique();
     return row?.state ?? null;
+  },
+});
+
+/**
+ * Everything a suggestion needs to know before it asks a model, in one read:
+ * the caller is an editor here (throws otherwise, as `authorizeFileAccess`
+ * does), whether the feature may answer at all, and the build's state. One
+ * round trip where there were three, for speed (the owner, 2026-10-15).
+ *
+ * `open` is false when the feature is off or refused for a reason other than
+ * the day's cap: the cap counts Clef's questions, and a lookup by meaning is
+ * one small embedding call, so past it the lookup still answers.
+ */
+export const prepareSuggest = internalQuery({
+  args: { actorUserId: v.id("users"), workspaceId: v.id("workspaces"), set: v.string() },
+  returns: v.object({ open: v.boolean(), state: v.union(v.literal("ready"), v.literal("filling"), v.null()) }),
+  handler: async (ctx, args) => {
+    await resolveFileAccess(ctx, { actorUserId: args.actorUserId, workspaceId: args.workspaceId, minimum: "editor" });
+    const allowed = await gate(ctx, "iconSuggest", args.workspaceId, Date.now());
+    const row = await ctx.db
+      .query("emojiMeaningSets")
+      .withIndex("by_set", (q) => q.eq("set", args.set))
+      .unique();
+    return { open: allowed.allowed || allowed.reason === "daily_cap", state: row?.state ?? null };
   },
 });
 

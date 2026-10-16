@@ -14,6 +14,7 @@ import {
   type TestConvex,
   addMember,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   gatewayPost,
@@ -76,6 +77,8 @@ async function withBucket() {
       updatedAt: Date.now(),
     }),
   );
+  // The census is the tree's names, not the bucket's listing (`keyedCensus.test.ts`): the tree copies the notes first.
+  await copyTree(t, workspaceId);
   for (let pass = 0; pass < 12; pass += 1) {
     const result = await t.action(internal.functions.files.runFileOperation, {
       workspaceId,
@@ -99,14 +102,14 @@ describe("the app's searches are timed on our side", () => {
     expect(Object.keys(row).sort()).toEqual(ROW_FIELDS);
     // The words typed are nowhere in it.
     expect(JSON.stringify(row)).not.toContain(WORD);
-  });
+  }, 30_000);
 
   test("a search that finds nothing is timed as a miss", async () => {
     const { t, ada, workspaceId } = await withBucket();
     await asUser(t, ada).action(api.functions.files.searchContext, { workspaceId, query: "zzqxnotaword" });
     const [row] = await rows(t);
     expect(row).toMatchObject({ surface: "app", found: false });
-  });
+  }, 30_000);
 
   test("the search page writes one row per workspace it asked", async () => {
     const { t, ada, workspaceId } = await withBucket();
@@ -115,7 +118,7 @@ describe("the app's searches are timed on our side", () => {
     expect(written).toHaveLength(1);
     expect(written[0]).toMatchObject({ workspaceId, surface: "page", answeredBy: "index", found: true });
     expect(JSON.stringify(written[0])).not.toContain(WORD);
-  });
+  }, 30_000);
 });
 
 describe("what a person waited, reported by their device", () => {

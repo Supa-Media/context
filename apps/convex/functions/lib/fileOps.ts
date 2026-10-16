@@ -107,6 +107,7 @@ export {
   restoreTrashedPath,
   DELETE_CONFIRMATION,
   deletePath,
+  trashKeyedRows,
 } from "./fileOps/deleting";
 export type { DeleteResult } from "./fileOps/deleting";
 export { resetPrivacyManifest } from "./fileOps/privacyReset";
@@ -130,7 +131,7 @@ export {
   storeCustomEmoji,
 } from "./fileOps/emoji";
 export type { CustomEmoji } from "./fileOps/emoji";
-export { notePathIndex, searchNotes, maintainSearchIndex, indexChangedNotes } from "./fileOps/search";
+export { notePathIndex, notePathsAnswer, searchNotes, maintainSearchIndex, indexChangedNotes } from "./fileOps/search";
 export { workspaceGraph } from "./fileOps/graph";
 export type { WorkspaceGraphResult } from "./fileOps/graph";
 export type { SearchHit, SearchResults, ProjectionClient } from "./fileOps/search";

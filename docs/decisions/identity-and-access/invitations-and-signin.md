@@ -285,3 +285,21 @@ unwired, and its sabotage record says by how much.
 Self-hosters get the same gate; their `ADMIN_EMAILS` are admitted, and
 `OPEN_SIGNUP=true`, set by hand, reopens sign-up. A deploy never sets it
 (`deployEnv.test.ts`).
+
+
+### The App Store review phone is an alias, never proof of phone ownership
+
+The owner requested the reserved fictional number `+12025550123` and code
+`000000` for App Store review on 2026-10-15. The existing dedicated reviewer
+account holds the sample workspace. Phone sign-in resolves only that account's
+verified primary email, never provisions an account, and refuses conflicting
+phone assignments. It is enabled only where the directory reviewer is already
+configured. The existing directory email code remains unchanged.
+
+The fixed code is checked only by the sign-in provider. Shared phone verification,
+linking and recovery still require their normal codes. Treating this alias as a
+verified customer phone would let another account attach it using public review
+credentials. No phone ownership row is written, and neither sends nor checks
+contact Twilio for this reserved number. Normal sign-in rate limits still apply.
+`phoneSignIn.test.ts` proves the wrong code, another phone, a conflicting holder,
+a missing reviewer and disabled configuration cannot obtain a review session.

@@ -32,6 +32,7 @@ import {
   FAKE_D1,
   FAKE_STORAGE,
   createUser,
+  copyTree,
   createWorkspace,
   seedAppSecret,
   seedStorageBinding,
@@ -265,6 +266,8 @@ describe("a larger passage cap", () => {
 describe("through the barrier", () => {
   test("a pass fills the index and the row reaches ready", async () => {
     const { t, workspaceId, cf, bucket } = await workspace({ notes: 3 });
+    // The census is the tree's names, not the bucket's listing (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
     const result = await pass(t, workspaceId, 5);
     expect(result).toMatchObject({ kind: "meaningProjected", ready: true, notesIndexed: 5 });
     expect(new Set(cf.upserted.map((vector) => vector.metadata.path)).size).toBe(5);
@@ -275,7 +278,7 @@ describe("through the barrier", () => {
     expect(JSON.parse(bucket.snapshot()[MEANING_STATE_KEY]).generation).toBe("1700000000000");
     // A finished pass schedules no next link.
     expect(await queued(t, "runFileOperation")).toHaveLength(0);
-  });
+  }, 30_000); // the tree's first copy runs before the pass, which takes longer than the default five seconds
 
   test("a row turned off is handed nothing, and no bucket is opened", async () => {
     const { t, workspaceId, bucket } = await workspace({ enabled: false, status: "releasing" });
@@ -299,12 +302,14 @@ describe("through the barrier", () => {
 
   test("a blip is retried later and the row keeps waiting; a refusal lands on the row", async () => {
     const blip = await workspace();
+    await copyTree(blip.t, blip.workspaceId);
     blip.cf.fail = 503;
     await pass(blip.t, blip.workspaceId, 5);
     expect((await row(blip.t, blip.workspaceId))?.status).toBe("backfilling");
     expect(await queued(blip.t, "runFileOperation")).toHaveLength(1);
 
     const refused = await workspace();
+    await copyTree(refused.t, refused.workspaceId);
     refused.cf.fail = 403;
     await pass(refused.t, refused.workspaceId, 5);
     const after = await row(refused.t, refused.workspaceId);
@@ -422,6 +427,8 @@ describe("a console search", () => {
   test("a console search through the barrier merges what the index found", async () => {
     const { t, workspaceId, bucket, cf } = await workspace({ status: "ready", notes: 2 });
     bucket.seed("2-areas/garden.md", "# Garden\n\nTomatoes by the fence.\n");
+    // Written before the copy, which is what the tree hears of: the census is the tree's names (`keyedCensus.test.ts`).
+    await copyTree(t, workspaceId);
     await pass(t, workspaceId, 5);
     // The words half has its own index; the meaning pass no longer builds it.
     await t.action(internal.functions.files.runFileOperation, {
