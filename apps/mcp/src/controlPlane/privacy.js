@@ -52,10 +52,12 @@ export function createPrivacyMethods({ post }) {
          * Rows mode: one row's base, from the version the gateway holds. Answers the
          * control plane's own answer (`{ok, version}` or `{ok: false, code}`) rather
          * than throwing, so the caller can map CONFLICT and FORBIDDEN to its own errors.
-         * A tier replaces the row's list, as a file override did: `grantees: []` says so.
+         * A tier names no `grantees`, so the owner's list is kept: a list is sent only when the caller gives one
+         * (`[]` clears it). Sending `[]` for a tier would wipe the people the owner named.
          */
         async setAccess(change) {
-          const body = { path: change.path, base: change.base, grantees: [] };
+          const body = { path: change.path, base: change.base };
+          if (Array.isArray(change.grantees)) body.grantees = change.grantees;
           if (typeof change.expectedVersion === "number") body.expectedVersion = change.expectedVersion;
           // Said only for a folder: a path with no row takes its pending access as the row it is for (`pendingAccess.ts`).
           if (change.kind === "folder") body.kind = "folder";

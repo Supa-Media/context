@@ -4,15 +4,19 @@
  * by `nodesAccess.setAccess`, which owns the rules about who may change a list.
  */
 
-import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
+import type { Id } from "../../../_generated/dataModel";
 import { json, stringField } from "../gatewayAuth";
 
 type Role = "view" | "edit";
+/**
+ * Ids stay strings here: an action has no `db` to check one with. `nodesAccess.setAccess` checks each with
+ * `normalizeId` and answers `INVALID` for a malformed one, rather than throwing.
+ */
 type Grantee =
-  | { kind: "user"; userId: Id<"users">; role: Role }
-  | { kind: "group"; groupId: Id<"workspaceGroups">; role: Role }
+  | { kind: "user"; userId: string; role: Role }
+  | { kind: "group"; groupId: string; role: Role }
   | { kind: "email"; email: string; role: Role };
 
 const MAX_NAME = 1_024;
@@ -29,10 +33,10 @@ function granteeOf(raw: unknown): Grantee | null {
   const role = roleOf(entry.role);
   if (role === null) return null;
   if (entry.kind === "user" && typeof entry.userId === "string" && entry.userId.length > 0) {
-    return { kind: "user", userId: entry.userId as Id<"users">, role };
+    return { kind: "user", userId: entry.userId, role };
   }
   if (entry.kind === "group" && typeof entry.groupId === "string" && entry.groupId.length > 0) {
-    return { kind: "group", groupId: entry.groupId as Id<"workspaceGroups">, role };
+    return { kind: "group", groupId: entry.groupId, role };
   }
   if (entry.kind === "email" && typeof entry.email === "string" && entry.email.length > 0 && entry.email.length <= MAX_NAME) {
     return { kind: "email", email: entry.email, role };
