@@ -43,7 +43,7 @@ and ChatGPT on the web do not run them.
 ## What the plugin does in a session
 
 - **The skills** tell the agent when to read your notes (`orient` first) and
-  how to write back (`write_note`, `save_context`), and give it a
+  how to write back (`write`, with action `save_session` at the end), and give it a
   `context-save` command.
 - **Session start** tells the agent your notes exist and to call `orient`
   before answering. With `orient` set to `live` it injects the orientation
@@ -59,12 +59,12 @@ Capture is on by default. Turn it off everywhere with
 
 ## Why this exists
 
-A connected client can call `save_context` when it finishes. Sometimes it does.
+A connected client can call `write` with action `save_session` when it finishes. Sometimes it does.
 The failure is not that agents refuse — it is that a long session ends without
 one, and the thing worth keeping was in the part nobody wrote down. This is the
 safety net for that, and it does not depend on the agent choosing to cooperate.
 
-It is not a replacement for `save_context`. An agent that files its own
+It is not a replacement for `save_session`. An agent that files its own
 decisions into the right project folder produces something far better than a
 transcript in an inbox. This catches the sessions where that did not happen.
 

@@ -23,10 +23,10 @@ personal life only if they ask for it.
    one short note per project, area, person or topic, and keep going until you
    have covered all of them.
 3. Before writing each one, search for a note that already covers it with
-   `search_notes`, then `read_note`.
-   - **Nothing covers it:** create a note with `write_note`.
-   - **A note covers it:** add what it lacks with `write_note`, passing the
-     `expected_etag` from `read_note`. Remove nothing, so what another app wrote
+   `search`, then `fetch`.
+   - **Nothing covers it:** create a note with `write`.
+   - **A note covers it:** add what it lacks with `write`, passing the
+     `expected_etag` from `fetch`. Remove nothing, so what another app wrote
      survives.
    - **You disagree with it:** add your version as "According to <your name>:"
      under what is there, rather than replacing it, and list it in the report.

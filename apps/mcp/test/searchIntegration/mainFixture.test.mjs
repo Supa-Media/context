@@ -13,6 +13,7 @@ import {
   R2Store,
   SEARCH_SUBREQUEST_BUDGET,
   TEAM_TOKEN,
+  TEAM_CHATGPT_TOKEN,
   callTool,
   convergeV2,
   defaultIsIndexable,
@@ -142,7 +143,7 @@ export async function runSearchIntegrationMainFixtureChecks(check, harness) {
 
     // the ChatGPT dialect rides the same path and the same filter
     const teamDialect = JSON.parse(
-      (await callTool(env, TEAM_TOKEN, "search", { query: "zebrafish" }))?.content?.[0]?.text
+      (await callTool(env, TEAM_CHATGPT_TOKEN, "search", { query: "zebrafish" }))?.content?.[0]?.text
     );
     check(
       "the ChatGPT dialect shares the indexed path and its visibility filter",

@@ -15,9 +15,6 @@ import { ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../pack
 export const ORIENT_RECENT_LIMIT = 8;
 export const ORIENT_CHILDREN_LIMIT = 12;
 const ORIENT_ROOT_NOTE_LIMIT = 20;
-/** The front page is the customer's own prose; long ones are cut, never dropped. */
-export const ORIENT_INDEX_CHAR_CAP = 6_000;
-
 /**
  * As many names as fit in `charCap`, each capped, and a count of the rest.
  *
@@ -186,49 +183,32 @@ export const SAVE_DESTINATION_LINE = /^\s*(?:[-*]\s*)?destination\s*:\s*(\S.*?)\
 /** Prose handed to an agent, not a place to paste a document. */
 export const SAVE_PROCEDURE_CHAR_CAP = 2_000;
 
-export const NO_FRONT_PAGE =
-  "This context has no `index.md` yet. That file is its front page: what the " +
-  "user is working on, who matters, and where things belong. Once you have " +
-  "looked around, offer to write one with write_note at path `index.md` — " +
-  "every agent that connects reads it first.";
-
 const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
 
-/**
- * Which top-level folder plays which built-in role (`folderRoles.cjs`), so an
- * agent files into "the inbox" without guessing at numbers. Only folders this
- * connection can see are named, and a workspace with none gets no line.
- */
-export function renderBuiltInFolders(survey) {
+/** The built-in folders this connection can see, each with its role, or "" when none. */
+export function builtInFoldersList(survey) {
   const named = [];
   for (const folder of [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)))) {
     const role = folderRole(folderName(folder));
     if (role !== null && !named.some((entry) => entry.role === role)) named.push({ role, prefix: folder.prefix });
   }
-  if (named.length === 0) return "";
-  return (
-    "Built-in folders: " +
-    named.map(({ role, prefix }) => `${ROLE_LABEL[role]} \`${prefix}\``).join(" · ") +
-    ". Inbox, Projects, Areas, Resources and Archive exist in every Context workspace and cannot be renamed, moved or deleted; file into them by what they are for, and move what is inside them freely."
-  );
+  return named.map(({ role, prefix }) => `${ROLE_LABEL[role]} \`${prefix}\``).join(" · ");
 }
-
-/**
- * The guidance under the map. Each folder's description is drawn from its
- * `about.md`, so the agent is told where that lives, when to read it, and that
- * it is the file to keep up to date. The other names are not offered as a way
- * to say the same thing, because a second file for the same purpose is how a
- * folder ends up with two contradicting descriptions.
- */
-export const FOLDER_ABOUT_GUIDANCE =
-  "Each folder's description is the first line of its `about.md`. Read a folder's `about.md` before working in that folder, and when you create a folder or learn what it is for, write or update its `about.md` with write_note; do not create `README.md` or `overview.md` for this.";
 
 /** `- 1-projects/ (42 notes) — Work with a finish line.` */
 function folderDescription(node) {
   return node.description ? ` — ${node.description}` : "";
 }
 
-export function renderStructure(survey) {
+/**
+ * The map under a front page: root notes, then each top-level folder with its
+ * subfolders (two levels). `exclude` names top-level folders to leave out; the
+ * caller says what it left out.
+ *
+ * @param {object} survey
+ * @param {{exclude?: (folderName: string) => boolean}} [options]
+ */
+export function renderStructure(survey, { exclude = () => false } = {}) {
   const lines = [];
   for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
     lines.push(`- ${note.key}`);
@@ -237,7 +217,9 @@ export function renderStructure(survey) {
     lines.push(`- (+${survey.rootNotes.length - ORIENT_ROOT_NOTE_LIMIT} more notes at the root)`);
   }
   // Drawn in the app's order: built-in folders first and Archive last.
-  const folders = [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)));
+  const folders = [...survey.folders]
+    .filter((folder) => !exclude(folderName(folder)))
+    .sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)));
   for (const folder of folders) {
     const count = folder.count === 0 ? "" : ` (${folder.count} ${folder.count === 1 ? "note" : "notes"})`;
     lines.push(`- ${folder.prefix}${count}${folderDescription(folder)}`);

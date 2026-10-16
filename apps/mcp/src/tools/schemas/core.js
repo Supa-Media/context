@@ -24,6 +24,13 @@ export function coreToolDefinitions() {
               "true adds the live list of every tool you may call and its arguments, which can be newer " +
               "than your app's copy. Shown anyway when your copy is out of date.",
           },
+          about: {
+            type: "string",
+            description:
+              "Optional. One part of the manual instead of the overview: \"tools\" for every tool and action " +
+              "with its arguments, an action's name (e.g. \"move\") for that action in full, \"access\" for " +
+              "what you may write where, \"website\" for building the site, \"health\" for how tidy it is.",
+          },
         },
         additionalProperties: false,
       },
@@ -44,7 +51,13 @@ export function coreToolDefinitions() {
         "passed to fetch for the full note.",
       inputSchema: {
         type: "object",
-        properties: { query: { type: "string" } },
+        properties: {
+          query: { type: "string" },
+          args: {
+            type: "object",
+            description: "Optional. prefix: a folder to search within. orient lists the rest.",
+          },
+        },
         required: ["query"],
         additionalProperties: false,
       },
@@ -57,7 +70,18 @@ export function coreToolDefinitions() {
         "Fetch one note from the user's memory in full, by the id a search result returned.",
       inputSchema: {
         type: "object",
-        properties: { id: { type: "string", description: "A result id from search" } },
+        properties: {
+          id: {
+            type: "string",
+            description:
+              "A note path or search result id; a folder path (ending in /) lists it; orient lists the other ids " +
+              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:).",
+          },
+          args: {
+            type: "object",
+            description: "Optional. e.g. mail, transcript, image, lists, limit. orient lists what each id takes.",
+          },
+        },
         required: ["id"],
         additionalProperties: false,
       },

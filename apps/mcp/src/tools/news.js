@@ -41,6 +41,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-16",
+    newTool: true,
+    text:
+      "Context's tools are now six: orient, search, fetch, write, manage and send. Every older name still works, " +
+      'so an old call is answered as before. Reconnect to load the six. orient about: "tools" lists every action ' +
+      "and the arguments it takes, as they are today. Write, manage and send take `action` and `args`.",
+  },
+  {
+    date: "2026-10-16",
     text:
       "vault_list `fetch: { entry, field, env, url, method, headers: [{ name, value }], body }` calls an API with a saved key you never see: " +
       "Context adds the key, only on the one site vault_list names for that entry, and hides it in the answer. " +
@@ -114,7 +122,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "4dfaf139";
+export const TOOL_SHAPE = "87778c57";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

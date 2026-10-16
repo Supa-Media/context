@@ -165,8 +165,8 @@ control plane. Read its comments before editing; the cron and native-binding
 sections are commented out because they are self-host-only.
 
 The `SITE_SHOTS` service binding names the Worker in `infra/site-shots`, which
-photographs a published website for an agent (`write_note` `site: { action:
-"screenshot" }`). Cloudflare refuses to deploy a binding to a Worker that does
+photographs a published website for an agent (`manage` with action `website`,
+`args: { action: "screenshot" }`). Cloudflare refuses to deploy a binding to a Worker that does
 not exist, so either deploy that one first (`wrangler deploy` in
 `infra/site-shots`; it needs Browser Rendering, part of Workers Paid), or delete
 the `[[services]]` block. Without it, screenshots answer "not available" and
@@ -250,7 +250,7 @@ sign-in. Then check the two properties that matter:
 
 1. **Privacy.** As an `owner`, `orient` shows the private index. Reconnect as an
    `editor` or `member` of the same context: `orient` must not include it, and
-   `list_notes` and `search_notes` must not reveal private filenames.
+   `fetch` and `search` must not reveal private filenames.
 2. **Tenancy.** Ask for a context your grant does not cover
    (`https://<host>/@someone-else/mcp`). It must be refused with no detail, and
    refused identically to a slug nobody has ever registered.
@@ -379,7 +379,7 @@ The bucket is yours, so sync it directly. Nothing here goes through the gateway.
 Folder defaults and exact-note exceptions live in `privacy.md` at the root of the
 bucket — private, and visible in Obsidian. Editing `visibility:` or `scope:` in a
 note's frontmatter does **not** change access: frontmatter is descriptive, and
-`set_visibility` / `set_folder_visibility` are the controls. A `team` connection
+`manage` with action `visibility` / `folder_visibility` is the control. A `team` connection
 must not be able to list, search, read, or infer the filenames of private
 notes — even when private and team notes sit side by side in the same folder.
 
@@ -482,8 +482,8 @@ guessing wrong there silently sends reads and writes to a *different bucket*.
 
 - **Audit privacy:** read `privacy.md` in Obsidian or through an owner
   connection. It holds folder defaults and exact-note exceptions. Use
-  `scope_info(path)` to check a note's effective visibility.
-- **Team write discovery:** call `scope_info`, optionally with a proposed path.
+  `orient` with `about: "access"` to check a note's effective visibility.
+- **Team write discovery:** call `orient` with `about: "access"`, optionally with a proposed path.
   Team output lists only its writable surface and never names private notes or
   overrides. An owner's path check returns the effective `private` or `team`
   visibility; a team path check reports only the folder default, so it cannot be
@@ -492,13 +492,13 @@ guessing wrong there silently sends reads and writes to a *different bucket*.
   creates `2-areas/apps/` when `2-areas` is team-writable.
 - **Mixed folders:** notes created by an owner connection default to private;
   notes created by a team connection default to team. An owner can pass
-  `visibility: private` or `visibility: team` to `write_note`; publishing to team
+  `visibility: private` or `visibility: team` to `write`; publishing to team
   requires `confirm_team_publish: true`. Updates preserve existing visibility when
-  omitted. `set_visibility(path, visibility, expected_etag)` changes an existing
+  omitted. `manage` with action `visibility` (`path`, `visibility`, `expected_etag`) changes an existing
   note without moving it, and moves preserve effective privacy. Frontmatter alone
   never grants or removes access.
-- **Correct destination is not writable:** use `propose_note`; an owner reviews
-  it with `list_proposals`, `read_proposal` and `review_proposal`.
+- **Correct destination is not writable:** use `write` with action `propose`; an owner reviews
+  it with `fetch` on `proposals:` and `manage` with action `review_proposal`.
 - **Cleanup:** a team connection archives team content into the team archive,
   where it stays team-visible and recoverable. Owner archives safely tighten to
   private. Explicit private visibility is never loosened.

@@ -1,5 +1,11 @@
-import { check, rpc, call, env, accessTokenFor, worker, modernFetch, MODERN } from "./harness.mjs";
+import { check, rpc, call, env, accessTokenFor, worker, modernFetch, MODERN, contextStore } from "./harness.mjs";
 import { SUPPORTED_SCOPES } from "../src/session.js";
+import { fullToolList } from "./fullToolList.mjs";
+
+// The full list (`shape: "v1"`) for the same session `tools/list` serves; the
+// HTTP answer is the six v2 tools (docs/decisions/gateway-protocol/six-tools.md).
+const fullListFor = (label) => fullToolList(env, accessTokenFor(label), contextStore);
+const namesOf = (tools) => (tools ?? []).map((tool) => tool.name).sort();
 
 export async function runProtocolVersioningChecks() {
   // -- protocol revisions: the legacy handshake era and the modern per-request era
@@ -48,7 +54,13 @@ export async function runProtocolVersioningChecks() {
   );
 
   const modernList = await modernFetch({ method: "tools/list" });
-  check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 48);
+  check(
+    "modern tools/list works",
+    modernList.status === 200 &&
+      JSON.stringify(namesOf(modernList.body.result?.tools)) ===
+        JSON.stringify(["fetch", "manage", "orient", "search", "send", "write"]) &&
+      (await fullListFor("priv-token")).length === 48
+  );
   check(
     "modern tools/list carries the required freshness hints",
     typeof modernList.body.result?.ttlMs === "number" &&
@@ -65,6 +77,11 @@ export async function runProtocolVersioningChecks() {
     (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.every(
       (tool) => tool.annotations?.readOnlyHint === true
     )
+  );
+  check(
+    "and a read-only grant is offered orient, search and fetch, which is all of it",
+    JSON.stringify(namesOf((await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools)) ===
+      JSON.stringify(["fetch", "orient", "search"])
   );
 
   const modernCall = await modernFetch({
@@ -274,7 +291,8 @@ export async function runProtocolVersioningChecks() {
   // --- and now the half that must not have moved: legacy clients ---
   check(
     "a legacy client sending no version header still works",
-    (await rpc("priv-token", "tools/list"))?.result?.tools.length === 48
+    JSON.stringify(namesOf((await rpc("priv-token", "tools/list"))?.result?.tools)) ===
+      JSON.stringify(["fetch", "manage", "orient", "search", "send", "write"])
   );
   async function legacyWithVersionHeader(version) {
     return worker.fetch(

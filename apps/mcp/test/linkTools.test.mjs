@@ -24,7 +24,8 @@ import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
-import { effectiveVisibility, parsePrivacyManifest } from "../src/privacy/engine.js";
+import { effectiveVisibility, parsePrivacyManifest } from "../src/privacy/engine.js";import { fullToolList } from "./fullToolList.mjs";
+
 
 const OWNER_TOKEN = `cat_links_owner_${"0".repeat(16)}`;
 const READONLY_TOKEN = `cat_links_readonly_${"0".repeat(13)}`;
@@ -629,10 +630,15 @@ export async function runLinkToolChecks(check) {
 
     /* ----------------------------- who may mint ---------------------------- */
 
-    const memberList = await rpc(env, MEMBER_TOKEN, "tools/list");
+    const memberList = await fullToolList(env, MEMBER_TOKEN);
     check(
       "a member is not shown the link tools at all",
-      !memberList.result.tools.some((tool) => tool.name === "create_link"),
+      !memberList.some((tool) => tool.name === "create_link"),
+    );
+    const memberOffered = (await rpc(env, MEMBER_TOKEN, "tools/list")).result.tools.map((tool) => tool.name);
+    check(
+      "...and is offered no v2 tool that writes, manages or sends",
+      !memberOffered.some((name) => ["write", "manage", "send"].includes(name)),
     );
     const memberMint = await call(env, MEMBER_TOKEN, "create_link", { path: NOTE });
     check("...and a member that calls one anyway is refused", memberMint.isError);
@@ -646,14 +652,18 @@ export async function runLinkToolChecks(check) {
       that entry it would be offered three tools the control plane refuses
       every time, and an agent would spend a turn finding that out.
     */
-    const teamTierList = await rpc(env, TEAM_TIER_TOKEN, "tools/list");
+    const teamTierList = await fullToolList(env, TEAM_TIER_TOKEN);
     check(
       "a team-tier grant is shown the write tools",
-      teamTierList.result.tools.some((tool) => tool.name === "write_note"),
+      teamTierList.some((tool) => tool.name === "write_note"),
+    );
+    check(
+      "...and, in the six v2 tools, the write tool that carries it",
+      (await rpc(env, TEAM_TIER_TOKEN, "tools/list")).result.tools.some((tool) => tool.name === "write"),
     );
     check(
       "...and not the link tools, which are the owner's private-tier ones",
-      !teamTierList.result.tools.some((tool) =>
+      !teamTierList.some((tool) =>
         ["create_link", "list_links", "revoke_link"].includes(tool.name),
       ),
     );

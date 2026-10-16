@@ -32,6 +32,7 @@ import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
+import { fullToolList } from "./fullToolList.mjs";
 
 const S3_ENDPOINT = "https://s3.example-remember.test";
 const OWNER = `cat_remember_owner_${"0".repeat(21)}`;
@@ -400,8 +401,10 @@ test("the trail's description admits the provenance the trail stores", async () 
   assert.equal(typeof record.details.fact, "string", "the record no longer carries the fact");
   assert.equal(typeof record.details.replaced, "string", "the record no longer carries the replaced line");
 
-  const listed = await rpc(OWNER, "tools/list", {});
-  const changes = (listed?.tools ?? []).find((tool) => tool.name === "list_changes");
+  // The full list: `list_changes` is one of the older tools, which `tools/list`
+  // (the six v2 tools) no longer offers by name. See `fullToolList.mjs`.
+  const listed = await fullToolList(env, OWNER);
+  const changes = listed.find((tool) => tool.name === "list_changes");
   assert.ok(changes, "list_changes is not advertised");
   assert.doesNotMatch(
     changes.description,

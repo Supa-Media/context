@@ -37,6 +37,7 @@ import {
   parseResponsesFile,
   rpc,
 } from "./fixtures.mjs";
+import { fullToolList } from "../fullToolList.mjs";
 
 export async function runFormSubmissionsEditsAndVotesChecks(check, harness) {
   const { bucket, controlPlane, env } = harness;
@@ -82,7 +83,9 @@ export async function runFormSubmissionsEditsAndVotesChecks(check, harness) {
 
   /* -- (2) the tool listing a member is given ----------------------------- */
 
-  const memberTools = (await rpc(env, MEMBER_TOKEN, "tools/list", {})).result?.tools || [];
+  // The full list (`fullToolList.mjs`): the form tools are older names, which
+  // `tools/list` now answers only through the `write` tool's actions.
+  const memberTools = await fullToolList(env, MEMBER_TOKEN);
   const names = new Set(memberTools.map((tool) => tool.name));
   check("a member is offered submit_form", names.has("submit_form"));
   check("...and vote_form", names.has("vote_form"));
@@ -91,12 +94,16 @@ export async function runFormSubmissionsEditsAndVotesChecks(check, harness) {
   // The listing has never been the control — the per-call gate below is, and
   // it reads the role in the context the call was routed to.
   check("...alongside write_note, which they may use in their own workspace", names.has("write_note"));
+  const memberV2 = (await rpc(env, MEMBER_TOKEN, "tools/list", {})).result?.tools?.map((tool) => tool.name) || [];
+  check("...and in the six v2 tools, the write tool that carries them", memberV2.includes("write"));
 
-  const readonlyTools = (await rpc(env, READONLY_TOKEN, "tools/list", {})).result?.tools || [];
+  const readonlyTools = await fullToolList(env, READONLY_TOKEN);
   check(
     "a connection granted read-only is offered no form tools at all",
     !readonlyTools.some((tool) => tool.name.startsWith("submit_") || tool.name === "vote_form")
   );
+  const readonlyV2 = (await rpc(env, READONLY_TOKEN, "tools/list", {})).result?.tools?.map((tool) => tool.name) || [];
+  check("...and no v2 tool that writes", !readonlyV2.some((name) => ["write", "manage", "send"].includes(name)));
 
   /* -- (3) a member submits ----------------------------------------------- */
 

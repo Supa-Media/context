@@ -6,6 +6,7 @@
  * Split out of toolArguments.test.mjs; see fixtures.mjs for the shared helpers.
  */
 
+import { fullToolList, V2_LIST_NAMES } from "../fullToolList.mjs";
 import {
   PRIVACY_MANIFEST,
   rpc,
@@ -64,7 +65,19 @@ export async function runToolArgumentCensusChecks(check, harness) {
   shared.set("index.md", { body: "SHARED-INDEX-MARKER", etag: "ci" });
   shared.set("1-projects/probe.md", { body: "SHARED-MARKER", etag: "c1" });
 
-  const advertised = (await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [];
+  /*
+    Two lists, for two questions. `tools/list` now answers the six v2 tools
+    (docs/decisions/gateway-protocol/six-tools.md), so what a client is offered
+    is checked against those six. Every older tool is still dispatched and
+    still validated, and the census of schemas below is over that FULL list
+    (`fullToolList.mjs`), since that is the set the validator must enforce.
+  */
+  const v2Advertised = (await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [];
+  check(
+    "the owner's connection is offered exactly the six v2 tools",
+    JSON.stringify(v2Advertised.map((tool) => tool.name).sort()) === JSON.stringify(V2_LIST_NAMES)
+  );
+  const advertised = await fullToolList(env, TOKEN_OWNER);
   check("the owner's connection is offered the whole tool list", advertised.length >= 25);
 
   const schemas = new Map(advertised.map((tool) => [tool.name, tool.inputSchema]));
@@ -100,7 +113,7 @@ export async function runToolArgumentCensusChecks(check, harness) {
     "every advertised schema is a closed object, so there is something to enforce",
     open.length === 0
   );
-  const unsupported = advertised.flatMap((tool) => unsupportedKeywords(tool.inputSchema));
+  const unsupported = [...advertised, ...v2Advertised].flatMap((tool) => unsupportedKeywords(tool.inputSchema));
   check(
     "no advertised schema uses a keyword the validator would silently ignore",
     unsupported.length === 0
@@ -121,20 +134,23 @@ export async function runToolArgumentCensusChecks(check, harness) {
     pin that the hole is real, so that nobody deletes the walk as belt and
     braces.
   */
-  const openNodes = [];
-  const barePropertyNodes = [];
-  function walkNodes(schema, where) {
-    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
+  function walkNodes(schema, where, out = { open: [], bare: [] }) {
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return out;
     if (schema.type === "object") {
-      if (schema.additionalProperties !== false) openNodes.push(where);
-      if (!schema.properties) barePropertyNodes.push(where);
+      if (schema.additionalProperties !== false) out.open.push(where);
+      if (!schema.properties) out.bare.push(where);
     }
     for (const [key, child] of Object.entries(schema.properties || {})) {
-      walkNodes(child, `${where}.${key}`);
+      walkNodes(child, `${where}.${key}`, out);
     }
-    if (schema.items) walkNodes(schema.items, `${where}[]`);
+    if (schema.items) walkNodes(schema.items, `${where}[]`, out);
+    return out;
   }
-  for (const tool of advertised) walkNodes(tool.inputSchema, tool.name);
+  const walked = advertised.map((tool) => walkNodes(tool.inputSchema, tool.name));
+  /* The open `args` every v2 action carries, which is exempt here and checked below. */
+  const V2_ARGS = /^(?:search|fetch|write|manage|send)\.args$/;
+  const openNodes = walked.flatMap((entry) => entry.open).filter((where) => !V2_ARGS.test(where));
+  const barePropertyNodes = walked.flatMap((entry) => entry.bare).filter((where) => !V2_ARGS.test(where));
   check(
     `every object node in every advertised schema is closed, not only the root (${openNodes.join(", ")})`,
     openNodes.length === 0
@@ -142,6 +158,21 @@ export async function runToolArgumentCensusChecks(check, harness) {
   check(
     `...and says which properties it takes, so there is something to close over (${barePropertyNodes.join(", ")})`,
     barePropertyNodes.length === 0
+  );
+  /*
+    The six v2 tools are the one place a closed object is not the rule, and
+    only at their `args`: an open object an action's own arguments travel in,
+    because a capability added next year is a new action, not a new property
+    a frozen client copy would strip (`v2/schemas.js`). It is not a hole: the
+    translated call is validated against the closed schema of the tool it
+    becomes (`toolArgumentRefusal` in `routeToolCall`), so every node below
+    `args` is still enforced. Any other open node in a v2 schema fails here.
+  */
+  const v2Walked = v2Advertised.map((tool) => walkNodes(tool.inputSchema, tool.name));
+  const v2Open = v2Walked.flatMap((entry) => [...entry.open, ...entry.bare]);
+  check(
+    `the six v2 tools are closed everywhere except the open args each action carries (${v2Open.filter((where) => !V2_ARGS.test(where)).join(", ") || "none other"})`,
+    v2Open.every((where) => V2_ARGS.test(where))
   );
   check(
     "an object node that forgot `additionalProperties: false` really would take anything",
@@ -185,7 +216,7 @@ export async function runToolArgumentCensusChecks(check, harness) {
   check(
     "callToolForSession is the only way into routeToolCall",
     (SESSION.text.match(/routeToolCall\(/g) || []).length === 2 &&
-      /measuredCall\(store, session, params, \(routed\) => routeToolCall\(params, store, session, routed\)\)/.test(wrapperBody)
+      /measuredCall\(store, session, (params|call), \(routed\) => routeToolCall\(\1, store, session, routed\)\)/.test(wrapperBody)
   );
   /*
     Counted over every module that can reach the dispatcher — the one that

@@ -31,6 +31,9 @@
 /** The addressing argument every tool takes, said once rather than 46 times. */
 const SHARED_ARGUMENT = "context";
 
+/** Addressing arguments every tool takes, said once and left out of each tool's own argument list. */
+const ADDRESSING_ARGUMENTS = [SHARED_ARGUMENT, "mailbox"];
+
 /** How much of a tool's description is kept as its purpose. */
 const PURPOSE_CHARS = 140;
 
@@ -72,14 +75,27 @@ export function typeOf(schema) {
     .join("|");
 }
 
+/**
+ * A property list as `name*: type · name: type`, `*` marking the required ones.
+ * Shared by the tool lines below and orient's manual of actions.
+ *
+ * @param {Record<string, object>} properties
+ * @param {string[]} [required]
+ * @param {string[]} [skip] names left out
+ */
+export function argumentsLine(properties = {}, required = [], skip = []) {
+  const needed = new Set(required);
+  const left = new Set(skip);
+  const args = Object.entries(properties)
+    .filter(([name]) => !left.has(name))
+    .map(([name, schema]) => `${name}${needed.has(name) ? "*" : ""}: ${typeOf(schema)}`);
+  return args.length ? args.join(" · ") : "none";
+}
+
 /** One tool, as two lines: name and purpose, then its arguments. */
 export function toolLine(tool) {
-  const properties = tool.inputSchema?.properties || {};
-  const required = new Set(tool.inputSchema?.required || []);
-  const args = Object.entries(properties)
-    .filter(([name]) => name !== SHARED_ARGUMENT)
-    .map(([name, schema]) => `${name}${required.has(name) ? "*" : ""}: ${typeOf(schema)}`);
-  return `- ${tool.name} — ${purposeOf(tool.description)}\n  ${args.length ? args.join(" · ") : "(no arguments)"}`;
+  const args = argumentsLine(tool.inputSchema?.properties, tool.inputSchema?.required, ADDRESSING_ARGUMENTS);
+  return `- ${tool.name} — ${purposeOf(tool.description)}\n  ${args === "none" ? "(no arguments)" : args}`;
 }
 
 /**
@@ -160,42 +176,5 @@ export function liveToolListSection(tools, app = {}) {
     (shared ? ` Every tool also takes \`${SHARED_ARGUMENT}: "@name"\` to act in another workspace.` : "") +
     "\n\n" +
     tools.map(toolLine).join("\n")
-  );
-}
-
-/**
- * The section for this connection, or `null` where nothing says what it was
- * offered (the texting assistant, which is handed today's tools every turn).
- * A listing that fails is no section rather than a failed orient: this is a
- * courtesy, and `tools/session.js` still decides every call.
- *
- * @param {{offeredTools?: () => Promise<Array<object>>, actor?: {toolsListedAt?: number | null}}} store
- * @param {{full: boolean}} options
- */
-export async function liveToolsSection(store, { full }) {
-  if (typeof store?.offeredTools !== "function") return null;
-  if (!full) return liveToolPointer(store.actor?.toolsListedAt);
-  try {
-    return liveToolListSection(await store.offeredTools(), appOf(store));
-  } catch {
-    return liveToolPointer(null);
-  }
-}
-
-/**
- * The short section orient shows instead, when the client's copy is current
- * or nobody recorded when it was loaded. An unknown time says nothing about
- * the copy, rather than guessing it is current.
- *
- * @param {number | null | undefined} listedAt
- */
-export function liveToolPointer(listedAt) {
-  const ask = "call orient with `tools: true` for the live list of every tool and its arguments.";
-  return (
-    "## Context's tools\n\n" +
-    (Number.isFinite(listedAt)
-      ? `Your app's copy of Context's tools (loaded ${new Date(listedAt).toISOString().slice(0, 10)}) is current. ` +
-        `If a tool or argument you expect seems missing, ${ask}`
-      : `If a tool or argument you expect seems missing from your app's copy of Context's tools, ${ask}`)
   );
 }

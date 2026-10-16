@@ -65,9 +65,13 @@ export async function runOrientationBudgetedWalkChecks(check, harness) {
   const recent = owner.split("## Recently updated")[1]?.split("---")[0] || "";
   check(
     "orient ranks recent activity by timestamp, not by key",
+    // The newest eight, by time: the handbook (2y) comes before the older draft
+    // (3y), and the 4y bulk notes come after both. A key-ordered list would put
+    // the `1-projects/bulk/` notes first, ahead of the handbook.
     recent.includes("2-areas/handbook.md — 2y ago") &&
       recent.indexOf("index.md — ") < recent.indexOf("2-areas/handbook.md —") &&
-      recent.indexOf("2-areas/handbook.md —") < recent.indexOf("1-projects/bulk/")
+      recent.indexOf("2-areas/handbook.md —") < recent.indexOf("3-resources/refs/draft.md") &&
+      recent.indexOf("3-resources/refs/draft.md") < recent.indexOf("1-projects/bulk/note-00000.md")
   );
   check("orient carries the customer's own front page", owner.includes("Shipping the gateway."));
 

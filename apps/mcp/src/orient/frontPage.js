@@ -7,6 +7,33 @@ import { canSee, isPlumbing } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { normalizePath } from "../notes/paths.js";
 import { SAVE_DESTINATION_LINE, SAVE_PROCEDURE_CHAR_CAP, SAVE_SECTION_HEADING } from "./render.js";
+import { withoutFrontmatter } from "./globalNote.js";
+
+/** The first paragraph of a front page, as orient shows it: long enough to say what a workspace is. */
+export const FRONT_PARAGRAPH_CHARS = 400;
+
+/**
+ * The first paragraph of a front page's prose: leading headings and blank
+ * lines skipped, then the lines up to the next blank one, joined by spaces.
+ * Frontmatter is not prose and is dropped first. A front page that is only a
+ * heading gives that heading's text, so a title is never lost to the skip.
+ * `""` when there is neither.
+ */
+export function firstParagraphOf(text) {
+  const lines = withoutFrontmatter(String(text || "")).split(/\r?\n/);
+  let at = 0;
+  while (at < lines.length && (lines[at].trim() === "" || /^#{1,6}\s/.test(lines[at]))) at += 1;
+  const words = [];
+  while (at < lines.length && lines[at].trim() !== "") {
+    words.push(lines[at].trim());
+    at += 1;
+  }
+  const heading = lines.find((line) => /^#{1,6}\s/.test(line));
+  const paragraph = words.length ? words.join(" ") : heading ? heading.replace(/^#{1,6}\s*/, "").trim() : "";
+  return paragraph.length > FRONT_PARAGRAPH_CHARS
+    ? `${paragraph.slice(0, FRONT_PARAGRAPH_CHARS - 1).trimEnd()}…`
+    : paragraph;
+}
 
 /**
  * The front page of a context, as its owner wrote it.

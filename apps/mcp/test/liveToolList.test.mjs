@@ -12,11 +12,13 @@ import worker from "../src/index.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 import { TOOL_NEWS } from "../src/tools/news.js";
 import { appDropsUnknownArguments, liveToolListSection, refreshStep, purposeOf, toolLine, typeOf } from "../src/tools/liveList.js";
+import { SIX_TOOLS_LINE } from "../src/orient/tool.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HEADING = "## Context's tools as they are today";
+const WORKSPACES = "## Workspaces";
 
 /* -------------------------------------------------------------------------- */
 /* Rendering                                                                  */
@@ -67,7 +69,7 @@ test("the list is generated from the definitions: every tool and every argument,
     const line = toolLine(tool);
     assert.ok(section.includes(line));
     for (const name of Object.keys(tool.inputSchema?.properties || {})) {
-      if (name === "context") continue;
+      if (name === "context" || name === "mailbox") continue;
       assert.ok(line.includes(`${name}`), `${tool.name} names ${name}`);
     }
   }
@@ -124,6 +126,8 @@ before(async () => {
     status: "active",
   });
   s3.bucketFor("live-tools").set("index.md", { body: "# Front page", etag: "i0" });
+  // A copied tree for each workspace, so orient can draw its map.
+  controlPlane.serveTreesFrom(undefined, { s3 });
   const longAgo = Date.parse(`${OLDEST.date}T00:00:00Z`) - 30 * DAY;
   const grant = (accessToken, extra) => controlPlane.addGrant({ workspaceId: "ws_live", accessToken, ...extra });
   await grant(STALE, { toolsListedAt: longAgo });
@@ -171,7 +175,7 @@ async function rpc(accessToken, method, params) {
 const orient = async (accessToken, args = {}) =>
   (await rpc(accessToken, "tools/call", { name: "orient", arguments: args }))?.result?.content?.[0]?.text || "";
 
-/** The tool names a section lists, in order. */
+/** The tool names the live list lists, in order: the lines that start at column 0. */
 function listedNames(text) {
   const at = text.indexOf(HEADING);
   if (at === -1) return null;
@@ -179,13 +183,13 @@ function listedNames(text) {
   return [...section.matchAll(/^- ([a-z_]+) — /gm)].map((match) => match[1]);
 }
 
-test("a stale client gets the full list after the news, ahead of the front page", async () => {
+test("a stale client gets the news, then the list, ahead of the workspaces", async () => {
   const text = await orient(STALE);
   const news = text.indexOf("## New in Context's tools");
   const list = text.indexOf(HEADING);
   assert.ok(news > 0 && list > news, "after what changed");
-  assert.ok(list < text.indexOf("## Front page"));
-  assert.match(text, /- write_note — .*\n {2}path\*: string · .*comment: \{action\*/);
+  assert.ok(list < text.indexOf(WORKSPACES));
+  assert.match(text, /- write — .*\n {2}action: string · path: string · content: string · expected_etag: string · args: object/);
 });
 
 test("it lists exactly what tools/list offers the same connection, in the same order", async () => {
@@ -198,45 +202,47 @@ test("it lists exactly what tools/list offers the same connection, in the same o
 });
 
 test("a read-only connection is not listed a tool that writes", async () => {
-  const names = listedNames(await orient(READ_ONLY, { tools: true }));
-  assert.ok(names.includes("read_note"));
-  assert.ok(!names.includes("write_note"));
-  assert.ok(!names.includes("remember"));
+  const text = await orient(READ_ONLY, { tools: true });
+  const names = listedNames(text);
+  assert.ok(names.includes("search"));
+  assert.ok(!names.includes("write"));
+  assert.ok(!names.includes("manage"));
+  assert.ok(!text.includes("### write"), "and no action of a tool it may not call");
 });
 
-test("a tool masked from a tier stays hidden from it", async () => {
-  const team = listedNames(await orient(TEAM, { tools: true }));
-  assert.ok(!team.includes("rotate_encryption_keys"));
-  assert.ok(!team.includes("create_link"));
-  const owner = listedNames(await orient(OWNER, { tools: true }));
-  assert.ok(owner.includes("rotate_encryption_keys"), "the owner sees it, so the filter is the tier and not the renderer");
+test("an action whose tool is private-tier only is named to the owner alone", async () => {
+  const team = await orient(TEAM, { tools: true });
+  assert.ok(!team.includes("  - share_link — "), "a team connection is not told of share_link");
+  assert.ok(team.includes("  - move — "), "but it is told of what it may call");
+  const owner = await orient(OWNER, { tools: true });
+  assert.ok(owner.includes("  - share_link — "), "the owner is: the filter is the tier and not the renderer");
 });
 
 test("an unlisted tool is not listed here either", async () => {
   assert.ok(!listedNames(await orient(OWNER, { tools: true })).includes("create_form"));
 });
 
-test("a current client gets one line, and the list when it asks", async () => {
+test("a current client gets the one line, and the list when it asks", async () => {
   const text = await orient(CURRENT);
   assert.ok(!text.includes(HEADING));
   assert.ok(!text.includes("## New in Context's tools"));
-  assert.match(text, /## Context's tools\n\nYour app's copy of Context's tools \(loaded \d{4}-\d{2}-\d{2}\) is current\. .*orient with `tools: true`/);
+  assert.ok(text.includes(SIX_TOOLS_LINE));
   const asked = await orient(CURRENT, { tools: true });
   assert.ok(asked.includes(HEADING));
-  assert.ok(!asked.includes("is current."));
+  assert.ok(!asked.includes(SIX_TOOLS_LINE));
 });
 
-test("an unknown listing time gets the line without a date, never a guess", async () => {
+test("an unknown listing time gets the line, never a guess that the copy is current", async () => {
   const text = await orient(UNKNOWN);
   assert.ok(!text.includes(HEADING));
-  assert.match(text, /seems missing from your app's copy of Context's tools, call orient with `tools: true`/);
+  assert.ok(text.includes(SIX_TOOLS_LINE));
   assert.ok(!text.includes("is current."));
 });
 
 test("orient addressed to another workspace lists this connection's tools", async () => {
   const offered = (await rpc(ACROSS, "tools/list", {}))?.result?.tools?.map((tool) => tool.name);
   const text = await orient(ACROSS, { context: "@liveother", tools: true });
-  assert.ok(text.startsWith("# Orientation"), "orient answered there rather than refusing");
+  assert.ok(text.startsWith("# Context"), "orient answered there rather than refusing");
   assert.deepEqual(listedNames(text), offered);
 });
 
@@ -272,13 +278,13 @@ test("most apps are told to pass unlisted arguments, with reconnecting as the wa
 test("Codex, which drops arguments its copy does not show, is told to reconnect instead", async () => {
   const text = await orient(CODEX);
   const news = text.slice(text.indexOf("## New in Context's tools"), text.indexOf(HEADING));
-  const list = text.slice(text.indexOf(HEADING), text.indexOf("## Front page"));
+  const list = text.slice(text.indexOf(HEADING), text.indexOf(WORKSPACES));
   for (const section of [news, list]) {
     assert.match(section, /Your app drops any argument its own copy of a tool does not show/);
     assert.match(section, /In Codex, reconnect Context or start a new session\./);
     assert.ok(!/even where your copy/.test(section), "never told to pass what will be dropped");
   }
-  assert.ok(listedNames(text).includes("write_note"), "the list is still there, as the reason to reconnect");
+  assert.ok(listedNames(text).includes("write"), "the list is still there, as the reason to reconnect");
 });
 
 test("tools must be a boolean", async () => {

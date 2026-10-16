@@ -10,8 +10,9 @@ Code, Codex) has the file on disk and can run `curl`, and was pushing pictures
 to a temporary GitHub branch to get a URL. That was the gap (owner,
 2026-10-15: "why are you able to push to a github branch but not context").
 
-So, still one tool and new arguments
-([a new argument reaches a client that a new tool cannot](../gateway-protocol.md)):
+So, still one tool, now an action in `write`'s `args`
+([six tools that never change](./six-tools.md)); the rule it came from is
+[a new argument reaches a client that a new tool cannot](../gateway-protocol.md):
 
 1. `write_note` with `upload: [{ name, sha256, bytes }]` and no content mints
    one ticket per picture and answers with a `curl` line for each. Nothing is

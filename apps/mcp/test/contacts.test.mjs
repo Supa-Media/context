@@ -399,7 +399,7 @@ export async function runContactsChecks(check) {
 
     check(
       "a note of the user's own is handed to read_note rather than rendered as a person",
-      (await callTool(env, OWNER_TOKEN, "read_contact", { path: mine })).includes("Read it with read_note") &&
+      (await callTool(env, OWNER_TOKEN, "read_contact", { path: mine })).includes("Read it with fetch") &&
         !(await callTool(env, OWNER_TOKEN, "read_contact", { path: mine })).includes(
           "# Who to call about the lease"
         )
@@ -411,7 +411,7 @@ export async function runContactsChecks(check) {
         "an encrypted note"
       ) &&
         (await callTool(env, OWNER_TOKEN, "read_contact", { path: sealed })).includes(
-          "Read it with read_note"
+          "Read it with fetch"
         )
     );
     check(

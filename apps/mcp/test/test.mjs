@@ -307,7 +307,7 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
     (read?.content?.[0]?.text || "").includes(`path: ${dayPath}`) &&
       lacks(read?.content?.[0]?.text, `path: ${deepLink}`)
   );
-  const fetched = await call("priv-token", "fetch", { id: deepLink });
+  const fetched = await call("chatgpt-token", "fetch", { id: deepLink });
   check(
     "the ChatGPT dialect's fetch takes the id its own search would have handed out",
     (fetched?.content?.[0]?.text || "").includes("DEEPLINKWORD")

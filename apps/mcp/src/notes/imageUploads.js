@@ -81,7 +81,7 @@ export async function toolImageUploadLinks(store, args) {
   const uploads = args.upload;
   const refuse = (text) => ({ content: [{ type: "text", text }], isError: true });
   if (!Array.isArray(uploads) || uploads.length === 0) return refuse("upload must be a list of { name, sha256, bytes }");
-  if (uploads.length > MAX_IMAGES_PER_WRITE) return refuse(`at most ${MAX_IMAGES_PER_WRITE} upload links per write_note`);
+  if (uploads.length > MAX_IMAGES_PER_WRITE) return refuse(`at most ${MAX_IMAGES_PER_WRITE} upload links per write`);
   if (typeof store.mintImageUpload !== "function") return refuse("upload links are unavailable on this deployment");
   const names = new Set();
   for (const [index, upload] of uploads.entries()) {
@@ -115,7 +115,7 @@ export async function toolImageUploadLinks(store, args) {
         text:
           `Nothing written yet. Run each command from the folder that holds the file (each works once, for ${TICKET_MINUTES} minutes, and only for the exact file you hashed):\n\n` +
           `${lines.join("\n")}\n\n` +
-          `Then call write_note with path "${args.path}", your content embedding each picture by name (![[${uploads[0].name.trim()}]]), ` +
+          `Then call write with path "${args.path}", your content embedding each picture by name (![[${uploads[0].name.trim()}]]), ` +
           `and images: [${embed.join(", ")}].`,
       },
     ],
@@ -189,7 +189,7 @@ export async function handleImageUpload(request, env, deps = {}) {
   } catch {
     console.error("image_upload.store_failed", { workspaceId: job.workspaceId, grantId: job.grantId });
     await controlPlane.reportGatewayJob(ticket, { status: "failed", error: "storage unavailable" }).catch(() => {});
-    return json({ error: "the picture could not be stored; ask write_note for a new link" }, 502);
+    return json({ error: "the picture could not be stored; ask write with action upload for a new link" }, 502);
   }
   await controlPlane.reportGatewayJob(ticket, { status: "complete" }).catch(() => {});
   console.log("image_upload.stored", { workspaceId: job.workspaceId, grantId: job.grantId, bytes: bytes.byteLength });

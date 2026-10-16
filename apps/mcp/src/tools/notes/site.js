@@ -295,7 +295,7 @@ function describeHistory(history) {
   }
   const version = history.version;
   const lines = [
-    `revision ${version.revision}${when(version.publishedAt)}, as it was published. To roll back, write each file below with write_note ` +
+    `revision ${version.revision}${when(version.publishedAt)}, as it was published. To roll back, write each file below with write ` +
       "(read the note first and pass its etag where it still exists). That makes it the draft; check it, then publish it. Nothing goes live before.",
   ];
   if (version.addedSince.length > 0) {

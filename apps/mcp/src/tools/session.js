@@ -10,6 +10,7 @@ import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
+import { translateV2Params } from "./v2/translate.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -310,30 +311,29 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  return measuredCall(store, session, params, (routed) => routeToolCall(params, store, session, routed));
+  const { error, params: call } = translateV2Params(params, store); // v2 → the existing call, before any gate
+  if (error) return toolError(error);
+  return measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
 }
 
 async function routeToolCall(params, store, session, routed) {
-  // Read as the advertised types first: a stale client sends an argument its
-  // copy of the tool does not show as text (`advertised.js`).
+  // Read as the advertised types: a stale client sends an argument its copy lacks as text (`advertised.js`).
   const supplied = coercedArguments(params?.name, params?.arguments);
-  const args =
-    supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
+  const args = supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
 
   /**
    * The addressed context, if the call named one.
    *
-   * **Everything below this point runs against the addressed context, and
-   * nothing above it decided anything.** That is why the routing is here: this
-   * function and `toolsForSession` are the only two places authority is
-   * decided, and a call into somebody else's workspace has to be clamped by *their*
-   * membership rather than by the one the client happens to be connected to.
-   * Resolving a context anywhere else — in a tool, in a path parser — is a
-   * second authority decision, and the second one is the one that drifts.
+   * **Everything below this point runs against the addressed context, and nothing above it
+   * decided anything** (the v2 translation above only renames the call). This function and
+   * `toolsForSession` are the only two places authority is decided, and a call into somebody
+   * else's workspace is clamped by *their* membership, not the connected one's. Resolving a
+   * context anywhere else — in a tool, in a path parser — is a second authority decision, and
+   * the second one is the one that drifts.
    *
-   * `context` is dropped from the arguments before the tool sees them: it
-   * addresses the call, it is not an input to any tool, and a tool that ever
-   * grew an argument of that name would otherwise be handed a routing token.
+   * `context` is dropped from the arguments before the tool sees them: it addresses the call, it
+   * is not an input to any tool, and a tool that grew an argument of that name would otherwise be
+   * handed a routing token.
    */
   /*
     THE `@name/path` SUGAR, in the same one place. A path that opens with a

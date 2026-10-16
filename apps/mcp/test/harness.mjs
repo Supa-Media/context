@@ -185,6 +185,9 @@ const ACCESS_TOKENS = {
   // fixture. These two differ in exactly one scope and in nothing else.
   "owner-team-token": "cat_test_owner_team_tier_00000000000",
   "member-asked-private-token": "cat_test_member_asked_private_000000",
+  // The owner's ChatGPT connector: the one client whose registered name selects
+  // the OpenAI deep-research dialect for `search` and `fetch` (`searchFetch.js`).
+  "chatgpt-token": "cat_test_owner_chatgpt_0000000000000",
 };
 function accessTokenFor(label) {
   return ACCESS_TOKENS[label] || label;
@@ -228,6 +231,18 @@ await controlPlane.addGrant({
   scopes: ["context:read", "context:write", "context:private"],
   clientId: "mcp_client_member_private",
   userId: "user_member",
+});
+// The same owner, connected through ChatGPT's connector. Identical to
+// `priv-token` except the client's registered name, which is what the gateway
+// reads to choose the OpenAI JSON answers for a bare `search` or `fetch`.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["chatgpt-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "owner",
+  scopes: ["context:read", "context:write", "context:private"],
+  clientId: "mcp_client_chatgpt",
+  clientName: "ChatGPT",
+  userId: "user_owner",
 });
 // Editors: privacy tier `team`, may write team content. Two of them, because
 // `pub-token` used to be a second static credential and the checks that used it

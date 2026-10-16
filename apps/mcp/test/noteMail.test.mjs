@@ -198,7 +198,7 @@ test("a message is signed with the joined name and the app, never an argument", 
 test("any call with the mailbox says mail is new, until it is read", async () => {
   const listed = await call(TOKEN_BUILDER, "orient", { mailbox: builder });
   assert.match(listed.text, /mail: 1 new for builder in 1-projects\/launch\/plan\.md, from lead/);
-  assert.match(listed.text, /read_note \{ path: "1-projects\/launch\/plan\.md", mail: true, mailbox: "mb_/);
+  assert.match(listed.text, /fetch \{ id: "1-projects\/launch\/plan\.md", args: \{ mail: true \}, mailbox: "mb_/);
   const quiet = await call(TOKEN_BUILDER, "orient", {});
   assert.ok(!/mail: \d+ new/.test(quiet.text), "no mailbox, no line");
 
@@ -240,7 +240,7 @@ test("a mailbox is its own connection's: another one is told it did not join it"
 
 test("read_note says the mail is there; reading all of it works without a mailbox", async () => {
   const note = await call(TOKEN_LEAD, "read_note", { path: PLAN });
-  assert.match(note.text, /\nmail: 2 messages between lead, builder; read only the mail with read_note mail: true/);
+  assert.match(note.text, /\nmail: 2 messages between lead, builder; read only the mail with fetch \{ args: \{ mail: true \} \}/);
   const all = await call(TOKEN_READER, "read_note", { path: PLAN, mail: "all" });
   assert.match(all.text, /All mail:/);
   assert.match(all.text, /builder \(Codex\) to lead: Pricing done\./);

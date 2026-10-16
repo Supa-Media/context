@@ -227,7 +227,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // Voice messages become their words only now, once the turn is allowed and counted.
   const attachments = await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId);
 
-  const offered = await toolsForSession(session, store);
+  const offered = await toolsForSession(session, store, { shape: "v1" });
 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
