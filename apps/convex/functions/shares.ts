@@ -49,6 +49,7 @@ import * as recipients from "./lib/shares/recipients";
 import * as previews from "./lib/shares/previews";
 import * as readPath from "./lib/shares/readPath";
 import * as gatewayOwner from "./lib/shares/gatewayOwner";
+import * as grantedRead from "./lib/shares/grantedRead";
 import * as validators from "./lib/shares/validators";
 
 export { MAX_ACTIVE_SHARES } from "./lib/shares/standing";
@@ -423,6 +424,38 @@ export const readSharedNote = action({
   args: validators.readSharedNoteArgs,
   returns: validators.readSharedNoteReturns,
   handler: readPath.readSharedNoteHandler,
+});
+
+/* -------------------------------------------------------------------------- */
+/*     an outsider's read: what was granted to an account that is not a member */
+/* -------------------------------------------------------------------------- */
+
+/** The live decision for one grant, from the caller's guest view of the rows. INTERNAL. */
+export const authorizeGrantRead = internalQuery({
+  args: grantedRead.authorizeGrantReadArgs,
+  returns: grantedRead.authorizeGrantReadReturns,
+  handler: grantedRead.authorizeGrantReadHandler,
+});
+
+/** Of these paths, the ones the caller's guest view opens. INTERNAL. */
+export const visibleGrantedPaths = internalQuery({
+  args: grantedRead.visibleGrantedPathsArgs,
+  returns: grantedRead.visibleGrantedPathsReturns,
+  handler: grantedRead.visibleGrantedPathsHandler,
+});
+
+/** Read one note granted to the signed-in caller, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const readGrantedNote = action({
+  args: grantedRead.readGrantedNoteArgs,
+  returns: grantedRead.readGrantedNoteReturns,
+  handler: grantedRead.readGrantedNoteHandler,
+});
+
+/** List one folder granted to the signed-in caller, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const listGrantedFolder = action({
+  args: grantedRead.listGrantedFolderArgs,
+  returns: grantedRead.listGrantedFolderReturns,
+  handler: grantedRead.listGrantedFolderHandler,
 });
 
 export const previewForNote = query({
