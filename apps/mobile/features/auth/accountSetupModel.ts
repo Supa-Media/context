@@ -33,12 +33,21 @@ export function canFinishSetup({
  * A phone the account already confirmed, so the field is not asked for again.
  * `myPhoneCheck` answers `confirmed` for the account's own phone.
  */
-export function phoneAlreadyDone(check: { confirmed: boolean } | undefined): boolean {
+export function phoneAlreadyDone(check: { confirmed: boolean; phone?: string } | undefined): boolean {
   return check?.confirmed === true;
 }
 
+/** What `mySetup` answers (`functions/accountSetup.ts`); `null` when signed out. */
+export interface SetupAnswer {
+  needsSetup: boolean;
+  email: string | null;
+  suggestedName: string;
+}
+
 /** Whether the layout draws this screen. An unanswered question is not a reason to. */
-export function setupNeeded(answer: { needsSetup: boolean } | null | undefined): boolean {
+export function setupNeeded(
+  answer: { needsSetup: boolean; email?: string | null; suggestedName?: string } | null | undefined,
+): boolean {
   return answer?.needsSetup === true;
 }
 

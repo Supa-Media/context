@@ -16,6 +16,8 @@ import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domai
 import { ToastHost } from "../../features/design/components/Toast";
 import { joinedNotice } from "../../features/console/settings/panels/organization";
 import { blocksForPhone } from "../../features/auth/phoneCheck";
+import { AccountSetupScreen } from "../../features/auth/AccountSetupScreen";
+import { setupNeeded, type SetupAnswer } from "../../features/auth/accountSetupModel";
 import { MessagesProvider } from "../../features/messages/MessagesProvider";
 import { accountAnswer, readsFrom } from "../../features/messages/rules";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
@@ -197,6 +199,7 @@ export default function AppLayout() {
       messages: { query: api.functions.messages.myMessageReads, args: {} },
       phoneCheck: { query: api.functions.phoneCheck.myPhoneCheck, args: {} },
       domainWorkspaces: { query: api.functions.workspaceDomains.myDomainWorkspaces, args: {} },
+      mySetup: { query: api.functions.accountSetup.mySetup, args: {} },
     };
   }, [authed]);
   const results = useQueries(spec);
@@ -269,10 +272,26 @@ export default function AppLayout() {
     return <DomainJoin workspace={joining} onJoined={onJoined} onRefused={() => setRefusedJoin(joining.slug)} />;
   }
 
+  /*
+    Make your account (domain sign-up, `AccountSetupScreen`): a person who
+    joined through an email domain names themselves and gets a personal
+    workspace here, before onboarding would send them to `/welcome` and lose
+    the link. Drawn in place of the routes, so the note opens on this same URL
+    once the setup has made the workspace.
+  */
+  const mySetup = usable<SetupAnswer>(results.mySetup);
+  if (mySetup && setupNeeded(mySetup)) {
+    return <AccountSetupScreen email={mySetup.email} suggestedName={mySetup.suggestedName} />;
+  }
+
+  // Not while `mySetup` is outstanding: a domain-joined person owns nothing
+  // until it answers, and `needsOnboarding` waits on that rather than redirect.
   const onboarding = needsOnboarding({
     standing: standingFrom(rows, usable<unknown[]>(results.invitations)),
     pathname,
+    setupPending: results.mySetup === undefined,
   });
+  if (onboarding.action === "wait") return null;
   if (onboarding.action === "redirect") return <Redirect href={onboarding.href} />;
 
   const resume = resumeAtLogin({
