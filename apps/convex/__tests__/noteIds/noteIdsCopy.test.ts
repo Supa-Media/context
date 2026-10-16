@@ -597,7 +597,7 @@ describe("stale rows and shared ids", () => {
     expect(state?.failures).toEqual([{ noteId: a?.noteId, reason: "copy_failed" }]);
   });
 
-  test("a file that was gone and is seen again is a new note: it keeps neither the old id nor the old copy", async () => {
+  test("a file that was gone and is seen again keeps its id but not its old copy", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "revived");
     await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
@@ -608,7 +608,26 @@ describe("stale rows and shared ids", () => {
     const again = await rowAt(t, ws, "1-projects/a.md");
     expect(first?.noteId).toMatch(UUID_V7);
     expect(again?.goneAt).toBeUndefined();
-    expect(again?.noteId).toBeUndefined();
+    expect(again?.noteId).toBe(first?.noteId);
     expect(again?.idCopy).toBeUndefined();
+  });
+
+  test("a gone row seen again after a live row took its id starts without that id", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "taken");
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+    const first = await rowAt(t, ws, "1-projects/a.md");
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
+    // A move handed the id to the note's new place while the old one was gone.
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 25, rows: [{ path: "2-areas/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+    const moved = await rowAt(t, ws, "2-areas/a.md");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(moved!._id, { noteId: first!.noteId });
+    });
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
+
+    const again = await rowAt(t, ws, "1-projects/a.md");
+    expect(again?.goneAt).toBeUndefined();
+    expect(again?.noteId).not.toBe(first?.noteId);
   });
 });

@@ -93,6 +93,10 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[]; log(): { 
       return all().some((node) => node.parentId === parentId && node.goneAt === undefined);
     },
 
+    async idHeldElsewhere(noteId, exceptId) {
+      return all().some((node) => node.id !== exceptId && node.noteId === noteId && node.goneAt === undefined);
+    },
+
     async logChange(path, gone) {
       changes.push({ path, gone });
     },

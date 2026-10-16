@@ -205,6 +205,14 @@ export function convexNodeTable(
       return child !== null;
     },
 
+    async idHeldElsewhere(noteId, exceptId) {
+      const holders = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
+        .collect();
+      return holders.some((holder) => holder._id !== exceptId && holder.goneAt === undefined);
+    },
+
     async logChange(path, gone) {
       if (!writable) throw new Error("log on a read-only node table");
       await openLog();
