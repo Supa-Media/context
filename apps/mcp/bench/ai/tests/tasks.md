@@ -19,7 +19,7 @@ Decided by the owner on 2026-10-11, after a texted conversation in which Tex cou
 
 Every task is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines grade nothing.
 
-The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish` and `must connect` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
+The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish` and `must connect` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
 
 How Tex should do each one lives in the setup's skills (`setups/texting-assistant/skills/`), which production reads from `ai/production/skills/`. A task here names what must happen, never how; a skill says how.
 
@@ -29,6 +29,7 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 
 - kind: task
 - person starts: "can you make sure my chatgpt is properly set up to use context"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
 - if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
 - if asked whether to go ahead: "Yes, go ahead"
 - if asked which plan she has: "Plus"
@@ -38,7 +39,6 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 - must type: https://mcp.context.lc/mcp
 - must choose: Authentication: OAuth
 - must set: connected chatgpt
-- must not call: vault_add_link
 - must: end by telling Maya that ChatGPT is now connected to Context
 - must not: ask Maya for a password or a sign-in code in a text
 - must not: say it cannot use the browser, or cannot use ChatGPT without a saved login
@@ -47,6 +47,7 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 
 - kind: task
 - person starts: "set up claude so it can use my context"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
 - if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
 - if asked whether to go ahead: "Yes"
 - must call: read_skill
@@ -55,7 +56,6 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 - must set: connected claude
 - must choose: Read-only tools: Always allow
 - must choose: Write/delete tools: Always allow
-- must not call: vault_add_link
 - must: end by telling Maya that Claude is connected to Context and will use it without asking each time
 - must not: ask Maya for a password or a sign-in code in a text
 
@@ -71,10 +71,11 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 
 ## 4. When does my Streamly plan renew?
 
-No login is saved, so Tex signs in through Maya: it opens the sign-in page and hands its browser over, then reads the account page once she has signed in.
+No login is saved, so Tex asks whether Maya signs in with Gmail or another email and offers a link to save her login before anything else. She'd rather sign in herself, so Tex opens the sign-in page and hands its browser over, then reads the account page once she has signed in.
 
 - kind: task
 - person starts: "log in to streamly.example with maya@example.com and tell me when my plan renews"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
 - if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
 - must reach: streamly.example/login
 - must hand off: streamly.example
@@ -82,6 +83,7 @@ No login is saved, so Tex signs in through Maya: it opens the sign-in page and h
 - must: say the plan renews on November 2, 2026
 - must not: ask Maya to text her password
 - must not: say it cannot sign in because no login is saved
+- must: before handing its browser over, ask Maya whether she signs in with Gmail or another email, or offer to save her login so Tex can sign in itself
 
 ## 5. Find me the cheapest flight from Lisbon to London on November 14
 
@@ -117,6 +119,7 @@ Maya has an account at names.example with a saved card. Buying a domain spends h
 
 - kind: task
 - person starts: "get me mayaruns.com for my website, my account is on names.example"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
 - if asked to confirm the domain and price: "Yes, buy mayaruns.com for $11.08"
 - if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
 - if asked whether Tex may add the DNS records itself: "Yes, go ahead"

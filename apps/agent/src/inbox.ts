@@ -30,6 +30,7 @@
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
+import { PICTURE_FAILED, describePart, partsFor, sendLinqMedia, uploadLinqPicture, type OutgoingPicture, type SendPart } from "./outgoing";
 import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
@@ -44,8 +45,11 @@ export type InboxStorage = {
 
 export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
 
-/** `reply` was one string before a reply could be several texts; both are read. */
-type Pending = { message: Message; reply?: string[] | string; attempts: number };
+/**
+ * `reply` was one string before a reply could be several texts; both are read.
+ * A picture in it is an uploaded attachment's id or a web address, never bytes.
+ */
+type Pending = { message: Message; reply?: SendPart[] | string; attempts: number };
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 export const MAX_SEND_ATTEMPTS = 3;
@@ -103,18 +107,14 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
-      for (const [index, text] of reply.entries()) {
+      for (const [index, part] of reply.entries()) {
         if (item.message.channel === "simulator") {
-          await record(storage, "in", text, deps.now());
+          await record(storage, "in", describePart(part), deps.now());
           continue;
         }
-        await sendLinqText(
-          deps.fetch as Fetch,
-          deps.linqApiKey,
-          item.message.chatId,
-          text,
-          index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`,
-        );
+        const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
+        if (typeof part === "string") await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, item.message.chatId, part, key);
+        else await sendPicture(deps, item.message.chatId, part.media, key);
       }
       await storage.delete(key);
       if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, deps);
@@ -172,7 +172,35 @@ export const WORKING_NUDGE_MS = 40_000;
  * key, and are not retried with the answer: a line about where a task had got
  * to is stale by the time a retry would send it.
  */
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<SendPart[]> {
+  let pictures: OutgoingPicture[] = [];
+  const texts = await answerTexts(message, { ...deps, onPictures: (sent) => void (pictures = sent) }, storage);
+  if (pictures.length === 0) return texts;
+  // The simulator has no Linq to upload to; its log says a picture went.
+  const upload =
+    message.channel === "simulator"
+      ? async () => "simulator"
+      : (picture: { name: string; mediaType: string; data: string }) =>
+          uploadLinqPicture(deps.fetch as Fetch, deps.linqApiKey, picture);
+  return await partsFor(texts, pictures, upload);
+}
+
+/**
+ * A picture that Linq refuses (a web address that is gone, or not an image)
+ * becomes a sentence saying so rather than a reply retried until dropped; a
+ * failure that is not a refusal is retried with the reply.
+ */
+async function sendPicture(deps: InboxDeps, chatId: string, media: { attachment_id: string } | { url: string }, key: string) {
+  try {
+    await sendLinqMedia(deps.fetch as Fetch, deps.linqApiKey, chatId, media, key);
+  } catch (error) {
+    const status = (error as { status?: number | null }).status;
+    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
+    await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, chatId, PICTURE_FAILED, `${key}:failed`);
+  }
+}
+
+async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
   const simulator = message.channel === "simulator";
   let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();

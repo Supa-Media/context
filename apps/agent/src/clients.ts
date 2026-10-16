@@ -17,6 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
+import { readPictures, type OutgoingPicture } from "./outgoing";
 
 export type Fetch = typeof fetch;
 
@@ -213,7 +214,7 @@ export async function linkPhone(
 // ── Gateway ───────────────────────────────────────────────────────────────
 
 export type AgentAnswer =
-  | { kind: "answer"; text: string }
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[] }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   | { kind: "unavailable" };
@@ -266,8 +267,9 @@ export async function askAgent(
 
 function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
-  if (status === 200 && typeof body.answer === "string" && body.answer.trim()) {
-    return { kind: "answer", text: body.answer.trim() };
+  const pictures = readPictures(body.pictures);
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
+    return { kind: "answer", text: body.answer.trim(), pictures };
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };
@@ -282,8 +284,8 @@ function agentAnswer(status: number, json: unknown): AgentAnswer {
 export const AGENT_STREAM_TIMEOUT_MS = 12 * 60_000;
 /** The gateway writes a heartbeat every 15 seconds; this long with no line is a dead stream. */
 export const AGENT_STREAM_IDLE_MS = 60_000;
-/** One line of the stream is a progress text or a final JSON body, never more. */
-const MAX_STREAM_LINE = 256 * 1024;
+/** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
+const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
 async function askAgentStreaming(
   fetcher: Fetch,

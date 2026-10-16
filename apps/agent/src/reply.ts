@@ -26,6 +26,7 @@ import {
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { textsFromAnswer } from "./format";
+import type { OutgoingPicture } from "./outgoing";
 import type { Inbound } from "./inbound";
 
 /**
@@ -47,6 +48,8 @@ export type ReplyDeps = {
   onProgress?: (text: string) => Promise<void>;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
+  /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
+  onPictures?: (pictures: OutgoingPicture[]) => void;
 };
 
 /**
@@ -142,7 +145,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       session.timeZone,
       attachments,
     );
-    if (answer.kind === "answer") return textsFromAnswer(answer.text);
+    if (answer.kind === "answer") {
+      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
+      return answer.text ? textsFromAnswer(answer.text) : [];
+    }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
     return COPY.unavailable;

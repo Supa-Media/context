@@ -13,12 +13,10 @@
  * `enqueueGatewayJob` already uses, and the reason it uses it: what a handler
  * may do is decided where the session is, not by a handler reaching for one.
  *
- * Absent where there is no control plane, which is the single-tenant
- * deployment and the test stub. `toolCreateLink` and its siblings refuse with
- * a sentence rather than throwing on `undefined`.
+ * Every session has a control plane (`src/index.js` refuses a deployment without
+ * one), so these are always attached.
  */
 export function attachLinkCalls(store, session, controlPlane, env) {
-  if (!controlPlane) return;
   Object.defineProperty(store, "links", {
     value: {
       create: (request) =>

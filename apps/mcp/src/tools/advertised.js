@@ -63,8 +63,8 @@ const UNLISTED_TOOLS = new Set(["create_form"]);
  * docs/decisions/gateway-protocol/six-tools.md). Every other tool is still
  * defined, still validated and still answered by name, for a client holding
  * a copy of the list from before; it is simply no longer offered. The texting
- * assistant, whose list is built fresh every turn, keeps the full list
- * (`shape: "v1"`) until its own prompts move.
+ * assistant's guards are written against the full list (`shape: "v1"`), and
+ * it is shown the six over whatever those guards leave (`agent/sixTools.js`).
  */
 export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
 

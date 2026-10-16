@@ -674,12 +674,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
+- [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
 - The built-in model is for Premium, capped, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
-- [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   barShare,
+  cleanupButtons,
+  cleanupSummary,
+  deleteLabel,
   countsLine,
   diagnosisLine,
   failureLines,
@@ -271,5 +274,70 @@ describe("make notes/ the only copy", () => {
     expect(note).toMatch(/only under notes\//);
     expect(note).toMatch(/names live only in Context/);
     expect(note).toMatch(/cannot be switched back/);
+  });
+});
+
+describe("old copies: the count and the delete", () => {
+  const base = {
+    running: null,
+    countedAt: null,
+    toDelete: 0,
+    unclaimed: 0,
+    readingPaths: 0,
+    startedAt: null,
+    finishedAt: null,
+    deleted: 0,
+    failed: [],
+    error: null,
+    countBlocked: null,
+    deleteBlocked: { code: "CLEANUP_NOT_COUNTED", message: "Count the old copies first." },
+  };
+
+  test("says it was never counted, and what the count found once it was", () => {
+    expect(cleanupSummary(base)).toEqual(["Not counted yet."]);
+    expect(cleanupSummary({ ...base, countedAt: 1, toDelete: 1234, unclaimed: 12, readingPaths: 0 })).toEqual([
+      "Counted: 1,234 old copies to delete · 12 that no note names · 0 notes still read from a path",
+    ]);
+  });
+
+  test("says what is running, and what a finished delete did, failures included", () => {
+    expect(cleanupSummary({ ...base, running: "count" })).toEqual(["Counting old copies…"]);
+    expect(cleanupSummary({ ...base, running: "delete", deleted: 40 })).toEqual(["Deleting old copies… 40 deleted so far"]);
+    expect(cleanupSummary({ ...base, finishedAt: 2, deleted: 5, failed: [{ reason: "delete_failed", count: 2 }] })).toEqual([
+      "Deleted 5 old copies · 2 could not be deleted: the delete failed",
+    ]);
+  });
+
+  test("shows a fixed error label as it is", () => {
+    expect(cleanupSummary({ ...base, error: "Deleting old copies failed; start it again" })).toContain(
+      "Deleting old copies failed; start it again",
+    );
+  });
+
+  test("the delete is one-way: its words say so, and it is offered only when no gate refuses", () => {
+    expect(deleteLabel()).toBe("Delete old copies — can't be undone");
+    expect(cleanupButtons(base)).toEqual({
+      count: { enabled: true, reason: null },
+      delete: { enabled: false, reason: "Count the old copies first." },
+    });
+    const counted = { ...base, countedAt: 1, deleteBlocked: null };
+    expect(
+      cleanupButtons({ ...counted, deleteBlocked: { code: "CLEANUP_WAITING", message: "Waits until 7 days after the switch: 3 days left" } })
+        .delete,
+    ).toEqual({ enabled: false, reason: "Waits until 7 days after the switch: 3 days left" });
+    expect(cleanupButtons(counted).delete).toEqual({ enabled: true, reason: null });
+  });
+
+  test("neither button is offered while a run is going", () => {
+    const buttons = cleanupButtons({ ...base, running: "delete", countedAt: 1 });
+    expect(buttons.count.enabled).toBe(false);
+    expect(buttons.delete.enabled).toBe(false);
+  });
+
+  test("a count refusal shows on the count button", () => {
+    expect(cleanupButtons({ ...base, countBlocked: { code: "NOTE_IDS_PAUSED", message: "The id copy is paused. Resume it first." } }).count).toEqual({
+      enabled: false,
+      reason: "The id copy is paused. Resume it first.",
+    });
   });
 });

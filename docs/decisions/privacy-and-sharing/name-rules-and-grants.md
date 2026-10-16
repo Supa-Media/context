@@ -313,3 +313,39 @@ personal workspace impossible again. `apps/convex/__tests__/shareRead.test.ts`
 entry note refuses its named reader, if a stranger with the token gets it, or
 if a private note linked from it opens; `shareSurvivesMove.test.ts` fails if a
 link follows a note into a private folder.
+
+### A tier keeps the owner's list; only a list names people (2026-10-16)
+
+In rows mode a row's base (`private`, `team`, or inherit) and its list are
+separate. A change between `private` and `team` that names no list keeps the
+owner's list as it is. A given list replaces it, and `[]` is the explicit way to
+clear it. A reset to `inherit` clears the owner's list too: inherit means "share
+exactly like the parent", and a list left behind would be a grant the console no
+longer shows. The gateway sends `grantees` only when the caller passes one, and
+the console's tier verb sends none. Before this, a tier change cleared the list,
+so making a note `team` quietly removed every person the owner had named.
+
+The owner names people with `nodesAccess.setGrantees`: a handle (a group of
+this workspace, or one of its members), a group id, or an email. Someone
+outside the workspace is named by email only: an email grant is stored whether
+or not an account holds it, so no answer says whether a handle exists anywhere
+else, and an outsider's handle gets the same refusal as a handle nobody holds. Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
+with nothing else in it, and nothing is written. A missing account and a
+deleted one are the same refusal. A member or an editor is `FORBIDDEN`. A
+non-member, or a path with no row, is `NOT_FOUND`. Each list is capped at 100
+entries, and past that it is `INVALID`.
+
+Every change of the owner's list writes one `access.list` audit row, with the
+row's id, counts, and grantee ids. An email is audited only as a SHA-256 of its
+lowercased form. A refused change writes no audit row.
+
+What a "simplification" would cost: a tier change that clears the list leaves
+outsiders' access to go away silently, an inherit that keeps the list leaves a
+grant nobody can see, and a refusal that names what failed is an oracle for
+whether a handle exists. A reset to inherit by an editor, on a row with an
+owner's list, is `FORBIDDEN`, since it changes the list. `setAccess.test.ts`,
+`setAccessLists.test.ts` ("a tier change keeps the owner's list", "101
+grantees are refused", "a missing account and a deleted one") and
+`setGrantees.test.ts` ("one refusal for every grantee that does not resolve")
+fail if either is reverted. The gateway's `setAccessBody.test.mjs` fails if
+it sends `grantees` for a tier.

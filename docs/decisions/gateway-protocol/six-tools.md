@@ -102,6 +102,14 @@ passing an unknown name through to the dispatcher.
   move to the console later, and an action table that lists them would hand a
   connected agent the keys to the bucket.
 
+## Tex holds the same six (2026-10-16)
+
+The texting assistant is shown the same six tools, each listing only the
+actions it was granted, with its own abilities as actions no connected app
+holds (send browse, open_page, search_web, fill_login, progress; fetch
+`skill:` and `texts:`). See
+[the texting assistant's tools](../texting-assistant/tool-shelf.md).
+
 ## Tests
 
 - `apps/mcp/test/v2Actions.test.mjs` — every action in the table translates to

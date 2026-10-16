@@ -31,7 +31,7 @@
 
 import { json } from "../http/responses.js";
 import { contextsFor } from "../context/identity.js";
-import { toolsForSession } from "../tools/advertised.js";
+import { grantedToolsFor } from "./sixTools.js";
 import { callToolForSession } from "../tools/session.js";
 import { newLedger } from "../privacy/egress.js";
 import { SCOPE_PRIVATE, SCOPE_READ } from "../session.js";
@@ -194,7 +194,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   const reader = readOnlySession(session);
   // The setup's own search settings, as `/agent` applies a live one's.
   if (setup.search) store.searchSettings = searchSettingsOf(store, setup.search);
-  const offered = await toolsForSession(reader, store, { shape: "v1" }); // the assistant's own list, as `route.js` builds it
+  const offered = await grantedToolsFor(reader, store);
   const skills = skillSession(setup.skills ?? [], (path) => readProductionSkill(store, session, path));
   const persona = tryPersona(body.as);
   // Played as someone else, the turn reads nothing: their notes are what the case says, not the caller's.
@@ -245,7 +245,6 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
       router,
       efforts: setup.efforts ?? null,
       fallback,
-      coreTools: setup.coreTools ?? null,
       maxRounds: Math.min(setup.maxSteps ?? TRY_MAX_ROUNDS, TRY_MAX_ROUNDS),
       localNow: { now: Date.now(), timeZone: readTimeZone(body.timeZone) ?? DEFAULT_TIME_ZONE },
       workspaces: contextsFor(session),

@@ -12,8 +12,13 @@ import worker from "../src/index.js";
 
 const TOKEN = "oa-challenge_Abc123.xyz";
 
+// Every request needs the control plane's settings, so every env carries them.
+const CONTROL_PLANE = { CONTROL_PLANE_URL: "https://control-plane.example", GATEWAY_SECRET: "gateway-secret" };
+
 function get(path, env, method = "GET") {
-  return worker.fetch(new Request(`https://mcp.context.test${path}`, { method }), env, { waitUntil() {} });
+  return worker.fetch(new Request(`https://mcp.context.test${path}`, { method }), { ...CONTROL_PLANE, ...env }, {
+    waitUntil() {},
+  });
 }
 
 test("serves exactly the configured token as plain text", async () => {

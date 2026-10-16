@@ -619,7 +619,7 @@ Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](.
 
 ### A text has every MCP tool
 
-_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
+_Since 2026-10-16 Tex is shown them as the six tools, each listing only the actions it holds ([six tools for Tex](./texting-assistant/tool-shelf.md))._
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a
