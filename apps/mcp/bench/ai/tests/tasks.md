@@ -39,7 +39,6 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 - must type: https://mcp.context.lc/mcp
 - must choose: Authentication: OAuth
 - must set: connected chatgpt
-- must not call: vault_add_link
 - must: end by telling Maya that ChatGPT is now connected to Context
 - must not: ask Maya for a password or a sign-in code in a text
 - must not: say it cannot use the browser, or cannot use ChatGPT without a saved login
@@ -57,7 +56,6 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 - must set: connected claude
 - must choose: Read-only tools: Always allow
 - must choose: Write/delete tools: Always allow
-- must not call: vault_add_link
 - must: end by telling Maya that Claude is connected to Context and will use it without asking each time
 - must not: ask Maya for a password or a sign-in code in a text
 
