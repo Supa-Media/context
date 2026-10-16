@@ -341,6 +341,9 @@ describe("old copies: the count and the delete", () => {
       enabled: false,
       reason: "The id copy is paused. Resume it first.",
     });
+  });
+});
+
 describe("shared ids: the words for the check and the fix", () => {
   test("the count line says how many notes share an id, in plain words", () => {
     expect(sharedIdsLine(0)).toBe("No notes share an id with another note");
