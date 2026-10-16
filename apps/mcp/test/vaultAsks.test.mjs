@@ -23,16 +23,22 @@ import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 const KEY = "fake-vault-value-not-a-real-key-0077";
 const KEYS = { current: "k1", keys: { k1: Buffer.from(new Uint8Array(32).fill(7)).toString("base64") } };
 
-function memoryStore() {
+function memoryStore({ conditionalWrite = true } = {}) {
   const objects = new Map();
+  const versions = new Map();
+  let counter = 0;
   return {
     objects,
+    capabilities: { conditionalWrite },
     async get(key) {
-      return objects.has(key) ? { text: async () => objects.get(key), etag: `"${objects.get(key).length}"` } : null;
+      return objects.has(key) ? { text: async () => objects.get(key), etag: versions.get(key) } : null;
     },
-    async put(key, value) {
+    async put(key, value, options = {}) {
+      const expected = options.onlyIf?.etagMatches;
+      if (conditionalWrite && expected !== undefined && versions.get(key) !== expected) return null;
       objects.set(key, String(value));
-      return { etag: "e" };
+      versions.set(key, `"v${++counter}"`);
+      return { etag: versions.get(key) };
     },
     async delete(key) {
       const had = objects.has(key);
@@ -45,8 +51,8 @@ function memoryStore() {
   };
 }
 
-async function world({ ask = true, people = ["user_a"] } = {}) {
-  const store = memoryStore();
+async function world({ ask = true, people = ["user_a"], conditionalWrite = true } = {}) {
+  const store = memoryStore({ conditionalWrite });
   const id = newEntryId();
   await writeEntry(store, KEYS, "ws_1", {
     id,
@@ -206,4 +212,28 @@ test("a key saved with its ask off is used without asking", async () => {
   assert.equal((await asAI(store, AI, use(id))).isError, undefined);
   assert.equal(calls.length, 1);
   assert.equal(pendingCount(store), 0);
+});
+
+test("two requests racing on one just-this-once: one goes, the other is asked again", async () => {
+  const { store, id, calls } = await world();
+  await asAI(store, AI, use(id));
+  const [waiting] = (await app(store, "GET")).body.approvals;
+  assert.equal((await app(store, "POST", { id: waiting.id, action: "approve" })).body.ok, true);
+  store.actor = AI;
+  const answers = await Promise.all([toolVaultFetch(store, use(id)), toolVaultFetch(store, use(id))]);
+  assert.equal(calls.length, 1, "the grant is spent once");
+  assert.deepEqual(answers.map((answer) => answer.isError === true).sort(), [false, true]);
+  assert.match(answers.find((answer) => answer.isError).content[0].text, /Waiting for the person/);
+});
+
+test("storage that can't write on condition refuses just this once, and says why", async () => {
+  const { store, id, calls } = await world({ conditionalWrite: false });
+  await asAI(store, AI, use(id));
+  const [waiting] = (await app(store, "GET")).body.approvals;
+  const answer = await app(store, "POST", { id: waiting.id, action: "approve" });
+  assert.equal(answer.body.ok, false);
+  assert.match(answer.body.result, /can't make sure a one-time yes is used only once/);
+  assert.equal((await readMeta(store, KEYS, "ws_1", id)).proxy.once, undefined);
+  assert.equal((await asAI(store, AI, use(id))).isError, true);
+  assert.equal(calls.length, 0);
 });

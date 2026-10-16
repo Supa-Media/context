@@ -82,6 +82,10 @@ export function mayUse(meta, userId) {
 }
 
 async function readRecord(store, id) {
+  return (await readVersioned(store, id))?.record ?? null;
+}
+
+async function readVersioned(store, id) {
   const object = await store.get(entryKey(id));
   if (!object) return null;
   let record;
@@ -91,7 +95,7 @@ async function readRecord(store, id) {
     return null;
   }
   if (record?.format !== "context-vault-entry" || record.id !== id) return null;
-  return record;
+  return { record, etag: typeof object.etag === "string" && object.etag.length > 0 ? object.etag : null };
 }
 
 /** One entry's meta, or null when it is missing or does not open. */
@@ -152,6 +156,33 @@ export async function writeMeta(store, keys, workspaceId, id, meta) {
   if (record === null) throw new VaultSealError("not found");
   record.meta = await sealPart(keys, { workspaceId, entryId: id, part: "meta" }, meta);
   await store.put(entryKey(id), JSON.stringify(record));
+}
+
+/**
+ * Change one entry's meta only if nobody else changed it first: reads the
+ * entry fresh, asks `change` for the next meta (null changes nothing), and
+ * writes it on condition of the version it read, trying again on a clash.
+ * Answers `{ meta }` (the meta written, or null when `change` wrote nothing)
+ * or `{ conflict: true }`. Storage without conditional writes is refused by
+ * the caller, never written to blind here.
+ */
+export async function changeMeta(store, keys, workspaceId, id, change, { attempts = 3 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const read = await readVersioned(store, id);
+    if (read === null || read.etag === null) return { conflict: true };
+    let meta;
+    try {
+      meta = await openPart(keys, { workspaceId, entryId: id, part: "meta" }, read.record.meta);
+    } catch {
+      return { conflict: true };
+    }
+    const next = change(meta);
+    if (next === null) return { meta: null };
+    const record = { ...read.record, meta: await sealPart(keys, { workspaceId, entryId: id, part: "meta" }, next) };
+    const written = await store.put(entryKey(id), JSON.stringify(record), { onlyIf: { etagMatches: read.etag } });
+    if (written) return { meta: next };
+  }
+  return { conflict: true };
 }
 
 export async function deleteEntry(store, id) {

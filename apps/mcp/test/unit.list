@@ -107,3 +107,4 @@ test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
 test/calendarKeyedDelete.test.mjs
 test/keyedNoteIdAt.test.mjs
+test/featureSwitches.test.mjs

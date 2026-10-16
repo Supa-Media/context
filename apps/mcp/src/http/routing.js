@@ -41,16 +41,6 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
-  // Requests through Context with a vault key added (`vault_list` `fetch`,
-  // `vault/proxy.js`), only where the deployment switched them on.
-  if (env?.VAULT_PROXY === "on") {
-    Object.defineProperty(store, "vaultProxy", {
-      value: { fetch: (url, init) => fetch(url, init) },
-      enumerable: false,
-      writable: false,
-      configurable: true,
-    });
-  }
   // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
   // read back only by the grant that joined.
   Object.defineProperty(store, "mail", {

@@ -34,6 +34,18 @@ export const platformTables = {
    * bucket; that is non-negotiable #1. This is a build artifact of ours that
    * happens to need somewhere to sit.
    */
+  /**
+   * The staff console's feature switches (Features tab,
+   * `functions/featureSwitches.ts`): one row per switched feature, keyed by a
+   * name from `lib/featureSwitches.ts`. A missing row is off.
+   */
+  featureSwitches: defineTable({
+    key: v.string(),
+    on: v.boolean(),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  }).index("by_key", ["key"]),
+
   renderAssets: defineTable({
     kind: v.literal("resvgWasm"),
     storageId: v.id("_storage"),

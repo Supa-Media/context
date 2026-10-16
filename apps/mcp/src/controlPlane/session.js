@@ -112,6 +112,9 @@ export function createSessionMethods({ post, required }) {
         // to the id copies, `"keys"` once notes may live only at their id keys
         // (`store/idLayout.js`), `null` for paths. Anything else is paths.
         idLayout: parsed.idLayout === "ids" || parsed.idLayout === "keys" ? parsed.idLayout : null,
+        // The staff console's feature switches (`functions/featureSwitches.ts`):
+        // only a literal `true` turns one on, so a missing or odd value is off.
+        features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
       };
     },
 

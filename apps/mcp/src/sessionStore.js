@@ -259,6 +259,19 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
+  /*
+    Requests through Context with a vault key added (`vault_list` `fetch`,
+    `vault/proxy.js`), only while staff have switched key use on in the
+    admin console's Features tab. Absent otherwise, and the tool says so.
+  */
+  if (opened.features?.vaultKeyUse === true) {
+    Object.defineProperty(store, "vaultProxy", {
+      value: { fetch: (url, init) => fetch(url, init) },
+      enumerable: false,
+      writable: false,
+      configurable: true,
+    });
+  }
   return storeThroughMoves(store, opened.pendingMoves, (moved) =>
     controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
   );

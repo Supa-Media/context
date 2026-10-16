@@ -257,6 +257,7 @@ export const ADMIN_TABS = [
   { key: "waitlist", label: "Waitlist" },
   { key: "people", label: "People" },
   { key: "reports", label: "Reports" },
+  { key: "features", label: "Features" },
 ] as const;
 
 export type AdminTab = (typeof ADMIN_TABS)[number]["key"];
