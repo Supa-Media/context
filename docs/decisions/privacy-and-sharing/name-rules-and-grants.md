@@ -370,3 +370,34 @@ loses a team-base row's list, and a write that trusts the path text lets a
 fails if the grant is ignored, a form block is allowed, or a non-canonical path
 is not refused; `__tests__/files/memberWriteCoverage.test.ts` fails if any other
 console write takes the member path.
+
+## Email grants match a member's confirmed addresses
+
+An email grant on a row (`nodeAccess`, `granteeKind: "email"`, stored lower
+case) used to match nobody: `grantedNamesFor` passed the caller's user and
+groups to `accessNamesFor` and no emails. Now a member holds the grant when the
+address is one they have proved they read: their main `users.email` once it is
+verified, or an added sign-in email. `ownedConfirmedEmailsOf` (`lib/signInEmails.ts`)
+gives that list, and drops any address that `accountForEmail` does not give to
+this same account. A full account holds one main address and ten added ones,
+so the list is bounded at eleven, and the newest added address still grants.
+Membership is still checked first, so a non-member gets
+`[]` as before; outsiders are a later slice.
+
+An address two accounts hold matches neither of them. That state is one the
+add flow refuses to create, but old rows predate it, and the owner's grant
+cannot say which person was meant, so both get nothing. Unverified
+`users.email` matches nothing, as it does everywhere else in sign-in and
+sharing.
+
+What a "simplification" would cost: dropping the ownership check lets an address
+that someone else also holds open a private note to both of them, which is a
+wider grant than the owner named. Dropping the `emails` argument turns every
+email grant back into a silent no-op, and the owner sees a grant that never
+works. Counting an unverified address as proved lets anyone who typed a
+person's address into their own unverified profile read notes granted to that
+address. `emailGrants.test.ts` fails on each of these: "an added, confirmed
+address grants a member the note", "an address two accounts hold grants neither
+of them" and "an unverified users.email grants nothing" (which needs both
+verified checks broken, since the ownership lookup refuses an unverified
+address too).
