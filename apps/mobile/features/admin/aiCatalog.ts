@@ -26,6 +26,8 @@
 export interface FolderNote {
   path: string;
   updatedAt?: number;
+  /** The note's bytes, when the tree lists them: a prompt's size is drawn from it. */
+  size?: number;
   props: string;
 }
 
@@ -51,6 +53,14 @@ export interface AiJob {
   where: string;
   /** True when AI Benchmark can run a round for it today. */
   benchable: boolean;
+  /**
+   * Where its setup lives today: a note under `ai/production/`, still in code
+   * (the next step is moving it to a note), nothing to set (no prompt), or
+   * the person's own AI.
+   */
+  home: "note" | "code" | "none" | "theirs";
+  /** The model it runs on when that is set in code, for the row's second line. */
+  model?: string;
 }
 
 /**
@@ -58,15 +68,15 @@ export interface AiJob {
  * request that adds the feature, with a setup note and a test list.
  */
 export const AI_JOBS: readonly AiJob[] = [
-  { key: "texting-assistant", label: "Tex, by text", group: "people", where: "Everyone with Tex", benchable: true },
-  { key: "app-assistant", label: "App assistant", group: "people", where: "Ask in the app", benchable: false },
-  { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: false },
-  { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: false },
-  { key: "auto-organize", label: "Auto-organize", group: "background", where: "Sorting the inbox", benchable: false },
-  { key: "what-changed", label: "What changed", group: "background", where: "Tidy-up suggestions", benchable: false },
-  { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: false },
-  { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: false },
-  { key: "search", label: "Search by meaning", group: "other", where: "Search, for people and AIs", benchable: true },
+  { key: "texting-assistant", label: "Tex, by text", group: "people", where: "Everyone with Tex", benchable: true, home: "note" },
+  { key: "app-assistant", label: "App assistant", group: "people", where: "Ask in the app", benchable: false, home: "note" },
+  { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: false, home: "theirs", model: "their own models" },
+  { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: false, home: "code", model: "Haiku 5.5" },
+  { key: "auto-organize", label: "Auto-organize", group: "background", where: "Sorting the inbox", benchable: false, home: "code", model: "Clef" },
+  { key: "what-changed", label: "What changed", group: "background", where: "Tidy-up suggestions", benchable: false, home: "code", model: "GLM-4.7 Flash" },
+  { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: false, home: "none", model: "Whisper" },
+  { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: false, home: "code", model: "Haiku 5.5" },
+  { key: "search", label: "Search by meaning", group: "other", where: "Search, for people and AIs", benchable: true, home: "code", model: "bge-m3" },
 ];
 
 export interface AiNoteRow {
@@ -76,6 +86,8 @@ export interface AiNoteRow {
   title: string;
   lede: string;
   updatedAt: number | null;
+  /** Bytes, when the tree listed them; `null` is unknown, never zero. */
+  size: number | null;
   properties: Record<string, unknown>;
 }
 
@@ -103,6 +115,8 @@ export interface AiCatalog {
   skills: AiNoteRow[];
   tests: AiNoteRow[];
   setups: AiNoteRow[];
+  /** Setups under `ai/setups/retired/<job>/`: measured and not to run again, behind "show". */
+  retired: AiNoteRow[];
   results: ScoreRow[];
   /**
    * Notes under `ai/` none of the groups above claims (READMEs, probes). A
@@ -145,6 +159,7 @@ function noteRow(note: FolderNote): AiNoteRow {
     title: text(properties.title) ?? (heading || name),
     lede,
     updatedAt: typeof note.updatedAt === "number" ? note.updatedAt : null,
+    size: typeof note.size === "number" && Number.isFinite(note.size) ? note.size : null,
     properties,
   };
 }
@@ -172,6 +187,7 @@ export function buildCatalog(notes: readonly FolderNote[]): AiCatalog {
   const skills: AiNoteRow[] = [];
   const tests: AiNoteRow[] = [];
   const setups: AiNoteRow[] = [];
+  const retired: AiNoteRow[] = [];
   const results: ScoreRow[] = [];
   const other: AiNoteRow[] = [];
   for (const note of notes) {
@@ -185,6 +201,7 @@ export function buildCatalog(notes: readonly FolderNote[]): AiCatalog {
     else if (area === "tests" && parts.length === 1) tests.push(row);
     // A setup's own copies of skills, and retired setups, are not setups being tried.
     else if (area === "setups" && parts.length === 2 && sub !== "retired") setups.push(row);
+    else if (area === "setups" && parts.length === 3 && sub === "retired") retired.push(row);
     else if (area === "results" && parts.length === 1 && row.name.endsWith(" scores")) results.push(scoreRow(row));
     else if (!(area === "results" || area === "setups")) other.push(row);
   }
@@ -211,7 +228,8 @@ export function buildCatalog(notes: readonly FolderNote[]): AiCatalog {
   // A live setup no job claims is still shown, under Other, so it is never lost.
   const claimed = new Set(AI_JOBS.map((job) => job.key));
   for (const [name, row] of live) if (!claimed.has(name)) other.push(row);
-  return { jobs, skills, tests, setups, results, other };
+  retired.sort(byName);
+  return { jobs, skills, tests, setups, retired, results, other };
 }
 
 /** Rows whose name, title or opening line hold every word of `query`. */

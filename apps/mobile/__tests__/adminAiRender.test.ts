@@ -46,7 +46,7 @@ jest.mock("@context/convex/_generated/api", () => {
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Library, type AiView } from "../features/admin/AiSection";
+import { Library, type AiView } from "../features/admin/AiFiles";
 import { buildCatalog, type FolderNote } from "../features/admin/aiCatalog";
 
 const SKILL = "---\nreach: [tex]\n---\n\n# Write a reply\n\nShort and warm.\n";

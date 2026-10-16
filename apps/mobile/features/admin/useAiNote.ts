@@ -11,6 +11,7 @@ import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { readScores, type ScoresRead } from "./aiCatalog";
+import { readRun, type RunRead } from "./aiModel";
 
 /** How a note is read and saved: Convex's own actions, unless a fixture provides others. */
 export interface AiNoteIo {
@@ -104,4 +105,74 @@ export function useScores(workspaceId: Id<"workspaces">, paths: readonly string[
     };
   }, [key, workspaceId, readNote]);
   return read;
+}
+
+/** Every scores note named, read once each: its latest scored section (`readRun`), by path. */
+export function useRuns(workspaceId: Id<"workspaces">, paths: readonly string[]): ReadonlyMap<string, RunRead> {
+  const { readNote } = useIo();
+  const [read, setRead] = useState<ReadonlyMap<string, RunRead>>(new Map());
+  const key = [...new Set(paths)].sort().join("\n");
+  useEffect(() => {
+    if (key === "") return;
+    let live = true;
+    void Promise.all(
+      key.split("\n").map(async (path) => {
+        try {
+          const file = await readNote({ workspaceId, path });
+          return [path, readRun(file.text)] as const;
+        } catch {
+          return [path, null] as const;
+        }
+      }),
+    ).then((pairs) => {
+      if (!live) return;
+      const next = new Map<string, RunRead>();
+      for (const [path, run] of pairs) if (run !== null) next.set(path, run);
+      setRead(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, workspaceId, readNote]);
+  return read;
+}
+
+/** A note's text read once, for a screen that shows it (a prompt beside another); null until read or when it fails. */
+export function useNoteText(workspaceId: Id<"workspaces">, path: string | null): string | null {
+  const { readNote } = useIo();
+  const [text, setText] = useState<{ path: string; text: string } | null>(null);
+  useEffect(() => {
+    if (path === null) return;
+    let live = true;
+    readNote({ workspaceId, path })
+      .then((file) => {
+        if (live) setText({ path, text: file.text });
+      })
+      .catch(() => {
+        if (live) setText(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [workspaceId, path, readNote]);
+  return text !== null && text.path === path ? text.text : null;
+}
+
+/** Saves one note with the version read just before, so somebody's edit since is refused, never overwritten. */
+export function useNoteWriter(workspaceId: Id<"workspaces">) {
+  const { readNote, writeNote } = useIo();
+  return useCallback(
+    async (path: string, change: (text: string | null) => string): Promise<void> => {
+      let current: { text: string; etag: string } | null = null;
+      try {
+        current = await readNote({ workspaceId, path });
+      } catch {
+        current = null; // a new note: written with no version, which the server refuses over one that exists
+      }
+      const next = change(current?.text ?? null);
+      if (current !== null && next === current.text) return;
+      await writeNote({ workspaceId, path, text: next, ...(current === null ? {} : { expectedEtag: current.etag }) });
+    },
+    [workspaceId, readNote, writeNote],
+  );
 }
