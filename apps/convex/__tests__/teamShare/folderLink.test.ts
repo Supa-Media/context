@@ -386,19 +386,14 @@ describe("a folder gets a link too", () => {
    * hardcoded path is caught; a new computed one is not, and no regex over
    * source will change that.
    *
-   * It also reads one file alone, `calendar/sync.js`, where the cron's writer
-   * moved from `index.js`. Generated notes pass through
-   * `writeGeneratedNote`, the collaboration-aware write seam, while the
-   * remaining dot-prefixed writes are plumbing refused by `isPlumbing`.
+   * Generated notes pass through `writeGeneratedNote`, the collaboration-aware
+   * write seam, while the remaining dot-prefixed writes are plumbing refused by
+   * `isPlumbing`.
    */
-  test("and the calendar path the cron hardcodes", () => {
-    const gateway = readFileSync(
-      new URL("../../../mcp/src/calendar/sync.js", import.meta.url),
-      "utf8",
-    );
-    expect(gateway).toMatch(
-      /writeGeneratedNote\(\s*store,\s*"2-areas\/calendar\/next-14-days\.md"/s,
-    );
+  test("and the calendar path the retired cron wrote", () => {
+    // The single-deployment calendar cron is gone (notes-by-id: no gateway mode
+    // without a control plane), but buckets it wrote still hold this note, so
+    // the name stays refused rather than starting to unfurl.
     expect(PRODUCT_MANDATED_PATHS).toContain("2-areas/calendar/next-14-days.md");
   });
 
