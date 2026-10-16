@@ -92,7 +92,7 @@ export function rowStatus(row: DownloadRow): string {
     case "partial":
       return `${formatCount(row.done)} of ${formatCount(row.total)}`;
     case "done":
-      return `All ${formatCount(row.total)}`;
+      return row.total === 0 ? "Nothing to download" : `All ${formatCount(row.total)}`;
     case "waiting":
       return "Next";
     case "online-only":

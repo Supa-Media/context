@@ -321,6 +321,7 @@ export function useMirrorSync(options: {
           const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
           const store = await openMirrorStore();
           if (target === undefined || store === null) return;
+          await loadDownloadChoices(kvRef.current!);
           await freshenFolder(engine(store), target, folder);
         },
       }),
