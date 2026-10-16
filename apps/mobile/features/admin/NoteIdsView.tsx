@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -22,8 +22,13 @@ import { Button, Card, Text, space, useThemedStyles, type Colors, type DotTone }
 import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton } from "./AdminKit";
 import { messageFor } from "./SecretDialogs";
+import { SharedIdsCheck } from "./SharedIdsCheck";
 import {
   barShare,
+  cleanupButtons,
+  cleanupSummary,
+  countLabel,
+  deleteLabel,
   countsLine,
   diagnosisLine,
   failureLines,
@@ -51,6 +56,10 @@ export function NoteIdsView() {
   const report = useQuery(api.functions.noteIds.report, {});
   const startAll = useMutation(api.functions.noteIds.startAll);
   const restart = useMutation(api.functions.noteIds.restart);
+  const countOld = useMutation(api.functions.noteIdsCleanup.countOld);
+  const deleteOld = useMutation(api.functions.noteIdsCleanup.deleteOld);
+  /** The workspace whose delete is waiting for its second, explicit press. */
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const setPaused = useMutation(api.functions.noteIds.setPaused);
   const diagnose = useMutation(api.functions.noteIds.diagnose);
   const diagnoseAll = useMutation(api.functions.noteIds.diagnoseAll);
@@ -139,6 +148,19 @@ export function NoteIdsView() {
     act(`diagnose:${workspaceId}`, async () => {
       await diagnose({ workspaceId: workspaceId as Id<"workspaces"> });
       return "Checking this workspace against its bucket.";
+    });
+
+  const countOneWorkspace = (workspaceId: string) =>
+    act(`count:${workspaceId}`, async () => {
+      await countOld({ workspaceId: workspaceId as Id<"workspaces"> });
+      return "Counting this workspace's old copies. Its row updates as it goes.";
+    });
+
+  const deleteOneWorkspace = (workspaceId: string) =>
+    act(`delete:${workspaceId}`, async () => {
+      await deleteOld({ workspaceId: workspaceId as Id<"workspaces"> });
+      setConfirmingDelete(null);
+      return "Deleting this workspace's old copies. Its row updates as it goes.";
     });
 
   return (
@@ -258,6 +280,11 @@ export function NoteIdsView() {
               busy={busy}
               onRestart={() => void restartOne(entry.workspaceId)}
               onDiagnose={() => void diagnoseOne(entry.workspaceId)}
+              onCount={() => void countOneWorkspace(entry.workspaceId)}
+              confirmingDelete={confirmingDelete === entry.workspaceId}
+              onAskDelete={() => setConfirmingDelete(entry.workspaceId)}
+              onCancelDelete={() => setConfirmingDelete(null)}
+              onDelete={() => void deleteOneWorkspace(entry.workspaceId)}
             />
           ))
         )}
@@ -273,6 +300,11 @@ function WorkspaceRow({
   busy,
   onRestart,
   onDiagnose,
+  onCount,
+  confirmingDelete,
+  onAskDelete,
+  onCancelDelete,
+  onDelete,
 }: {
   row: NoteIdsWorkspace;
   /** Keys mode: the row says how many of its files are keyed. */
@@ -281,11 +313,18 @@ function WorkspaceRow({
   busy: string | null;
   onRestart: () => void;
   onDiagnose: () => void;
+  onCount: () => void;
+  confirmingDelete: boolean;
+  onAskDelete: () => void;
+  onCancelDelete: () => void;
+  onDelete: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const failing = isFailing(row);
   const diagnosis = diagnosisLine(row.diagnosis);
   const share = barShare(row.copied, row.files);
+  const cleanup = row.cleanup ?? null;
+  const buttons = cleanup === null ? null : cleanupButtons(cleanup);
   return (
     <View style={[styles.row, !first && styles.ruled]} testID={`admin-noteids-row-${row.workspaceId}`}>
       <View style={styles.name}>
@@ -323,6 +362,13 @@ function WorkspaceRow({
             {line}
           </Text>
         ))}
+        {cleanup === null
+          ? null
+          : cleanupSummary(cleanup).map((line) => (
+              <Text key={line} variant="meta" style={styles.num} testID={`admin-noteids-cleanup-${row.workspaceId}`}>
+                {line}
+              </Text>
+            ))}
       </View>
       <View style={styles.rowActions}>
         <Button
@@ -338,6 +384,47 @@ function WorkspaceRow({
           testID={`admin-noteids-diagnose-${row.workspaceId}`}
         />
       </View>
+      {buttons === null ? null : (
+        <View style={styles.cleanupCell}>
+          <Button
+            label={busy === `count:${row.workspaceId}` ? "Counting…" : countLabel()}
+            disabled={busy !== null || !buttons.count.enabled}
+            onPress={onCount}
+            testID={`admin-noteids-count-${row.workspaceId}`}
+          />
+          {buttons.count.reason ? <Text variant="meta">{buttons.count.reason}</Text> : null}
+          {confirmingDelete ? (
+            <View style={styles.inline} role="alert" testID={`admin-noteids-delete-confirm-${row.workspaceId}`}>
+              <Text variant="check">
+                {`Delete ${(cleanup?.toDelete ?? 0).toLocaleString("en-US")} old copies? Only the old path copies go. notes/, files/ and the collaboration history stay. This can't be undone.`}
+              </Text>
+              <View style={styles.actions}>
+                <Button label="Cancel" disabled={busy !== null} onPress={onCancelDelete} />
+                <Button
+                  label={busy === `delete:${row.workspaceId}` ? "Deleting…" : "Delete"}
+                  variant="danger"
+                  disabled={busy !== null || !buttons.delete.enabled}
+                  onPress={onDelete}
+                  testID={`admin-noteids-delete-go-${row.workspaceId}`}
+                />
+              </View>
+            </View>
+          ) : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy !== null || !buttons.delete.enabled}
+                onPress={onAskDelete}
+                testID={`admin-noteids-delete-${row.workspaceId}`}
+              >
+                <Text style={buttons.delete.enabled ? styles.deleteWord : styles.muted}>{deleteLabel()}</Text>
+              </Pressable>
+              {buttons.delete.reason ? <Text variant="meta">{buttons.delete.reason}</Text> : null}
+            </>
+          )}
+        </View>
+      )}
+      <SharedIdsCheck workspaceId={row.workspaceId} />
     </View>
   );
 }
@@ -390,6 +477,9 @@ const makeStyles = (colors: Colors) =>
     failedCell: { flexBasis: 80, flexGrow: 0 },
     status: { flexGrow: 2, flexBasis: 200, gap: 4, minWidth: 0 },
     rowActions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2, marginLeft: "auto" },
+    cleanupCell: { flexBasis: "100%", gap: space.x1, alignItems: "flex-start" },
+    /** The one-way door: bold red, inline, not a button-shaped control. */
+    deleteWord: { color: colors.critText, fontWeight: "700" },
     muted: { color: colors.muted },
     num: { fontVariant: ["tabular-nums"] },
     bad: { color: colors.critText },

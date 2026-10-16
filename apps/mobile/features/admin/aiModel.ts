@@ -88,6 +88,25 @@ export function setupJob(path: string): string | null {
   return parts.length === 4 ? parts[2]! : null;
 }
 
+/**
+ * A note's long `why:` or `came_from:` as one cell holds it: its first
+ * sentence. Real setups carry a paragraph there, and a row is one line.
+ */
+export function firstSentence(value: string | null): string | null {
+  if (value === null) return null;
+  const end = /[.!?](?=\s|$)/.exec(value);
+  return (end ? value.slice(0, end.index) : value).trim() || null;
+}
+
+/** The setup a `came_from:` sentence starts with (`guide-haiku of round five …` → `guide-haiku`), or the one it names by path. */
+function setupNamed(value: string | null): string | null {
+  if (value === null) return null;
+  const path = /setups\/[a-z0-9-]+\/([A-Za-z0-9_-]+)/.exec(value)?.[1];
+  if (path) return path;
+  const lead = /^([a-z0-9]+(?:-[a-z0-9]+)+)\b/.exec(value)?.[1];
+  return lead ?? null;
+}
+
 export function setupInfo(row: AiNoteRow): SetupInfo {
   const props = row.properties;
   const retired = row.path.startsWith("ai/setups/retired/");
@@ -96,8 +115,9 @@ export function setupInfo(row: AiNoteRow): SetupInfo {
     row,
     name: row.name,
     job: text(props.job) ?? setupJob(row.path) ?? "",
-    basedOn: text(props.based_on) ?? text(props.came_from),
-    change: text(props.change) ?? text(props.why),
+    // `came_from: guide-haiku of round five` names the setup it revised, under the same name: no base.
+    basedOn: [text(props.based_on) ?? setupNamed(text(props.came_from))].find((name) => name !== row.name) ?? null,
+    change: text(props.change) ?? firstSentence(text(props.why)),
     madeBy: text(props.made_by),
     claimed: retired ? "retired" : STATUSES.includes(status as SetupStatus) ? (status as SetupStatus) : null,
     retired,
@@ -121,8 +141,25 @@ export function liveSince(production: AiNoteRow | null): string | null {
   return production === null ? null : text(production.properties.live_since);
 }
 
+/**
+ * Who promoted it, as a name: `promoted_by:` often runs on into a paragraph
+ * of who promoted which part when (`Seyi, 2026-10-11 (website skills: …)`),
+ * and a name is what a cell has room for.
+ */
 export function promotedBy(production: AiNoteRow | null): string | null {
-  return production === null ? null : text(production.properties.promoted_by);
+  return production === null ? null : nameOf(text(production.properties.promoted_by));
+}
+
+/** The name a `made_by:` or `promoted_by:` line starts with, before any date, list or aside. */
+export function nameOf(value: string | null): string | null {
+  if (value === null) return null;
+  const name = value.split(/[,;(]| on \d| \d{4}-/)[0]!.trim();
+  return name === "" ? null : name.length > 24 ? `${name.slice(0, 23)}…` : name;
+}
+
+/** The first day a line names (`2026-10-11`), for a promotion that has no `live_since:`. */
+function dayIn(value: string | null): string | null {
+  return /\d{4}-\d{2}-\d{2}/.exec(value ?? "")?.[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,8 +281,11 @@ export function readRun(raw: string): RunRead | null {
       return [row];
     });
   }
-  const best = /Best setup that passes every bar: (.+?)\.\s*$/m.exec(body)?.[1] ?? null;
-  return { judge: head?.[1] ?? null, date: head?.[2] ?? null, setups, cases, best: best === "none" ? null : best };
+  // A round that did not write the line still says which setups were good enough.
+  const said = /Best setup that passes every bar: (.+?)\.\s*$/m.exec(body)?.[1];
+  const passing = setups.filter((row) => row.goodEnough).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0]?.setup ?? null;
+  const best = said === undefined ? passing : said === "none" ? null : said;
+  return { judge: head?.[1] ?? null, date: head?.[2] ?? null, setups, cases, best };
 }
 
 /** `2026-10-14 core gh-33 scores` → `gh-33`; the label a run goes by. */
@@ -428,7 +468,10 @@ export interface ActivityItem {
   who: string;
   kind: ActivityWho;
   job: string | null;
+  /** What happened, short: `Drafted live-6`, `Ran core (gh-33)`, `Promoted live-5`. */
   what: string;
+  /** The line under it: the change a setup makes, a run's scores; null when there is nothing to add. */
+  detail: string | null;
   /** The note it came from. */
   path: string;
   /** Waiting on a person: a drafted setup or case, a candidate that beat live. */
@@ -437,12 +480,17 @@ export interface ActivityItem {
 
 /** Who made something, as Activity draws it: the improver and Claude by name, a person by theirs. */
 export function whoOf(madeBy: string | null): { who: string; kind: ActivityWho } {
-  if (madeBy === null) return { who: "Someone", kind: "person" };
-  const lower = madeBy.toLowerCase();
+  const name = nameOf(madeBy);
+  // A note that does not say who made it is not credited to anyone.
+  if (name === null) return { who: NOT_RECORDED, kind: "person" };
+  const lower = name.toLowerCase();
   if (lower === "improver") return { who: "Improver", kind: "improver" };
-  if (/claude|chatgpt|codex|cursor|\bai\b/.test(lower)) return { who: madeBy, kind: "ai" };
-  return { who: madeBy, kind: "person" };
+  if (/claude|chatgpt|codex|cursor|\bai\b/.test(lower)) return { who: name, kind: "ai" };
+  return { who: name, kind: "person" };
 }
+
+/** Who, when the note does not say. */
+export const NOT_RECORDED = "—";
 
 /** Every change the notes record, newest first: setups drafted, runs, promotions. */
 export function activity(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>): ActivityItem[] {
@@ -457,7 +505,8 @@ export function activity(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>
       who,
       kind,
       job: jobLabel(info.job),
-      what: `${retired ? "Retired" : "Drafted"} ${info.name}${info.basedOn ? ` from ${info.basedOn}` : ""}${info.change ? `: ${info.change}` : ""}`,
+      what: `${retired ? "Retired" : "Drafted"} ${info.name}`,
+      detail: [info.change, info.basedOn ? `from ${info.basedOn}` : null].filter(Boolean).join(" · ") || null,
       path: row.path,
       needsPerson: !retired && kind !== "person" && info.claimed !== "lost",
     });
@@ -470,7 +519,8 @@ export function activity(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>
       who: "Test bench",
       kind: "bench",
       job: jobLabel(catalog.jobs.find((job) => job.tests.some((test) => test.name === result.test))?.job.key ?? result.test),
-      what: `Ran ${result.test} (${runLabel(result)})${scores ? `: ${scores}` : ""}`,
+      what: `Ran ${result.test} (${runLabel(result)})`,
+      detail: scores || null,
       path: result.path,
       needsPerson: false,
     });
@@ -479,12 +529,14 @@ export function activity(catalog: AiCatalog, reads: ReadonlyMap<string, RunRead>
     const from = liveFrom(row.setup);
     if (row.setup === null || from === null) continue;
     const by = promotedBy(row.setup);
+    const since = liveSince(row.setup) ?? dayIn(text(row.setup.properties.promoted_by));
     items.push({
       at: row.setup.updatedAt ?? 0,
-      who: by ?? "Someone",
+      who: by ?? NOT_RECORDED,
       kind: "person",
       job: row.job.label,
-      what: `Promoted ${from}${liveSince(row.setup) ? ` on ${liveSince(row.setup)}` : ""}`,
+      what: `Promoted ${from}`,
+      detail: since ? `live since ${since}` : null,
       path: row.setup.path,
       needsPerson: false,
     });

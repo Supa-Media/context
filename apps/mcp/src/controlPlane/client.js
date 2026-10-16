@@ -72,32 +72,51 @@ export function isLoopbackHost(hostname) {
   return hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "localhost";
 }
 
-function requireConfig(env) {
+/**
+ * The control-plane origin, trimmed, or "" when there is none usable.
+ *
+ * Every response on this channel can carry a decrypted storage secret, so it
+ * must be encrypted in transit. The exception is loopback, for a control plane
+ * running on the same machine during development — it cannot leave the host.
+ * This used to exempt the literal hostname `control-plane.test` instead, which
+ * put a cleartext carve-out for one specific name into a production code path
+ * that no deployment could turn off; the test double is https and never needed it.
+ */
+function controlPlaneBase(env) {
   const base = typeof env?.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL.trim() : "";
-  const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
-  if (!base || !secret) {
-    // Deliberately vague and deliberately fatal. A gateway with no control
-    // plane has no tenants; it must refuse every request rather than degrade
-    // into some other access path.
-    throw new ControlPlaneError("not configured");
-  }
+  if (!base) return "";
   let url;
   try {
     url = new URL(base);
   } catch {
-    throw new ControlPlaneError("not configured");
+    return "";
   }
-  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
-    // Every response on this channel can carry a decrypted storage secret, so
-    // it must be encrypted in transit. The exception is loopback, for a control
-    // plane running on the same machine during development — it cannot leave
-    // the host. This used to exempt the literal hostname `control-plane.test`
-    // instead, which put a cleartext carve-out for one specific name into a
-    // production code path that no deployment could turn off; the test double
-    // is https and never needed it.
-    throw new ControlPlaneError("not configured");
-  }
-  return { base: base.replace(/\/+$/, ""), secret };
+  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) return "";
+  return base.replace(/\/+$/, "");
+}
+
+/**
+ * The settings the gateway cannot run without, by their wrangler names: an
+ * empty list when both are usable. The gateway is a control-plane client and
+ * nothing else, so a deployment missing either one refuses every request
+ * (`src/index.js`) rather than degrading into some other access path. Names
+ * only: a value never leaves this function, so the result can be printed.
+ */
+export function controlPlaneSettingProblems(env) {
+  const problems = [];
+  if (!controlPlaneBase(env)) problems.push("CONTROL_PLANE_URL");
+  if (typeof env?.GATEWAY_SECRET !== "string" || env.GATEWAY_SECRET === "") problems.push("GATEWAY_SECRET");
+  return problems;
+}
+
+function requireConfig(env) {
+  const base = controlPlaneBase(env);
+  const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
+  // Deliberately vague and deliberately fatal. The entry refuses every request
+  // before a client is built (`controlPlaneSettingProblems`); this is the
+  // second line for a caller that builds one anyway.
+  if (!base || !secret) throw new ControlPlaneError("not configured");
+  return { base, secret };
 }
 
 /**

@@ -92,7 +92,7 @@ import { runProposalsAndArchiveChecks } from "./proposalsAndArchive.test.mjs";
 import { runMovesAndBatchChecks } from "./movesAndBatch.test.mjs";
 import { checkSyncOwnedSourceChanges } from "./moveSyncOwnedChecks.mjs";
 import { runMoveDiagnosticsRedactionChecks } from "./moveDiagnosticsRedaction.test.mjs";
-import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
+import { runInboxCaptureChecks } from "./inboxCapture.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
@@ -118,7 +118,7 @@ await runProposalsAndArchiveChecks();
 await runMovesAndBatchChecks();
 await checkSyncOwnedSourceChanges();
 await suite("runMoveDiagnosticsRedactionChecks", () => runMoveDiagnosticsRedactionChecks());
-await runWebhooksAndCalendarChecks();
+await runInboxCaptureChecks();
 await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
@@ -138,8 +138,8 @@ await suite("runStoreFactoryChecks", () => runStoreFactoryChecks(check));
 // -- multi-tenancy, OAuth, and the ways both are supposed to fail
 //
 // Last, and with its own control plane and object store: it swaps
-// globalThis.fetch and restores it, so it must not run while the calendar cron
-// checks above still own that global.
+// globalThis.fetch and restores it, so it must not run beside a check that
+// still owns that global.
 // Orientation's budgeted walk and fail-soft handshake, against a bucket that
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.

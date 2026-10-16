@@ -34,14 +34,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AiActivity, lastNight } from "../features/admin/AiActivity";
 import { buildCatalog, type FolderNote } from "../features/admin/aiCatalog";
-import type { ActivityItem } from "../features/admin/aiModel";
+import { NOT_RECORDED, activity, firstSentence, nameOf, type ActivityItem } from "../features/admin/aiModel";
 import type { AiScreenProps } from "../features/admin/aiScreen";
 
 const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;
 
 function item(overrides: Partial<ActivityItem> & Pick<ActivityItem, "who" | "kind" | "what">): ActivityItem {
-  return { at: NOW - HOUR, job: "Tex, by text", path: "ai/setups/texting-assistant/live-6.md", needsPerson: false, ...overrides };
+  return { at: NOW - HOUR, job: "Tex, by text", detail: null, path: "ai/setups/texting-assistant/live-6.md", needsPerson: false, ...overrides };
 }
 
 describe("lastNight", () => {
@@ -77,6 +77,53 @@ describe("lastNight", () => {
     const items: ActivityItem[] = [item({ who: "Improver", kind: "improver", what: "Drafted live-4 from live-3", needsPerson: true, at: NOW - 2 * 24 * HOUR })];
     expect(lastNight(items, NOW)).toBe("Nothing ran on its own in the last day.");
     expect(lastNight([], NOW)).toBe("Nothing ran on its own in the last day.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What a row says: a name and a short line, never a note's paragraph
+
+describe("activity rows from real-shaped notes", () => {
+  const WHY = "The core set failed on lists folded into sentences. So this adds one rule for each, and two examples.";
+  const PROMOTED = "Seyi, 2026-10-11 (website skills: Seyi, 2026-10-13; the tone section: Seyi, 2026-10-14)";
+  const realNotes: FolderNote[] = [
+    {
+      path: "ai/production/texting-assistant.md",
+      updatedAt: 3,
+      props: JSON.stringify({ properties: { came_from: "setups/texting-assistant/skills-haiku, plus setups/texting-assistant/live-5's body", promoted_by: PROMOTED }, heading: "Tex", lede: "" }),
+    },
+    { path: "ai/setups/texting-assistant/live-5.md", updatedAt: 2, props: JSON.stringify({ properties: { came_from: "live-4 of the core set, revised", why: WHY }, heading: "live-5", lede: "" }) },
+    { path: "ai/setups/texting-assistant/guide-haiku.md", updatedAt: 1, props: JSON.stringify({ properties: { came_from: "guide-haiku of round five, revised after its scores" }, heading: "guide-haiku", lede: "" }) },
+  ];
+  const items = activity(buildCatalog(realNotes), new Map());
+  const of = (what: string) => items.find((row) => row.what === what)!;
+
+  test("a promotion is credited to the name promoted_by starts with, dated from it", () => {
+    const promoted = of("Promoted live-5");
+    expect(promoted.who).toBe("Seyi");
+    expect(promoted.detail).toBe("live since 2026-10-11");
+  });
+
+  test("a drafted setup's line is the first sentence of its why, and what it came from", () => {
+    const drafted = of("Drafted live-5");
+    expect(drafted.detail).toBe("The core set failed on lists folded into sentences · from live-4");
+    expect(drafted.who).toBe(NOT_RECORDED);
+  });
+
+  test("a setup that came from an earlier version of itself has no base", () => {
+    expect(of("Drafted guide-haiku").detail).toBeNull();
+  });
+
+  test("nameOf keeps the name and drops the dates, lists and asides after it", () => {
+    expect(nameOf(PROMOTED)).toBe("Seyi");
+    expect(nameOf("Claude (Seyi's)")).toBe("Claude");
+    expect(nameOf("improver")).toBe("improver");
+    expect(nameOf("  ")).toBeNull();
+  });
+
+  test("firstSentence stops at the first full stop, not at one inside a word", () => {
+    expect(firstSentence(WHY)).toBe("The core set failed on lists folded into sentences");
+    expect(firstSentence("Opus 5.5 behind Haiku")).toBe("Opus 5.5 behind Haiku");
   });
 });
 

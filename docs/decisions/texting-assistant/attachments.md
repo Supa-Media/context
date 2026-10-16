@@ -45,3 +45,28 @@ failed transcription or a recording with no speech each become a sentence, so
 Tex asks them to type it rather than guessing. Video is still not read.
 
 Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
+
+## Pictures Tex sends (owner, 2026-10-16: "Tex says he can't send pictures by text, can you fix that?")
+
+A texted answer may end with photos. The model writes `[picture N]` on its own
+line for picture N that a tool showed it this turn (a note's picture, read with
+`read_image`, so its privacy check has passed), or `[picture <https address>]`
+for a web image. The gateway (`apps/mcp/src/agent/outgoingPictures.js`) takes
+those lines out of the text and returns the pictures, at most four, as
+`pictures` on the `/agent` answer. Only a text from the person's phone does
+this, and the prompt says so on every texted turn, a production setup included.
+
+A web address is sent only when it appeared word for word in a tool result or
+in the person's own text that turn. Linq fetches it, so an address the model
+put together could carry a private note's words to whoever runs that server
+(the classic image-link leak); an address copied from what was read was
+written before the turn and carries nothing it learned.
+
+The texting Worker (`apps/agent/src/outgoing.ts`) uploads a note's picture to
+Linq's attachment store and sends it by attachment id, so it never needs an
+address anyone could open, and a retry keeps only that id. A picture that
+cannot be uploaded, or that Linq refuses, becomes "I couldn't send that
+picture just now." The saved conversation says a picture was sent, never its
+bytes.
+
+Tests: `agentOutgoingPictures.test.mjs`, `outgoing.test.ts`.

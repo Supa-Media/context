@@ -8,7 +8,6 @@
 import { useState, type ReactNode } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
-import { Panel } from "./AdminKit";
 import { AiCases } from "./AiCases";
 import { AiScoreChart } from "./AiScoreChart";
 import { JOB_GROUPS, RUN_TESTS_URL, modelName, setupModels, type AiNoteRow, type ScoreRow } from "./aiCatalog";
@@ -32,8 +31,8 @@ const RUN_COLUMNS: Column[] = [
   { label: "DAY", width: 100 },
   { label: "TEST", flex: 1 },
   { label: "LIVE", width: 80, align: "right" },
-  { label: "BEST", flex: 1 },
-  { label: "", width: 60 },
+  { label: "BEST, PASSING EVERY BAR", flex: 1.4 },
+  { label: "", width: 60, align: "right" },
 ];
 
 const TABS: readonly JobTab[] = ["overview", "cases", "setups", "runs"];
@@ -254,9 +253,9 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
       ) : null}
 
       {props.tab === "setups" ? (
-        <Panel flush title="Setups" testID="admin-ai-setups">
+        <Box title="Setups" testID="admin-ai-setups">
           <CandidateTable rows={[...page.candidates, ...page.retired]} columns={SETUP_COLUMNS} onOpen={openCandidate} changed />
-        </Panel>
+        </Box>
       ) : null}
 
       {props.tab === "runs" ? <RunsTab page={page} openInNotes={props.openInNotes} /> : null}
@@ -322,8 +321,8 @@ function RunsTab({ page, openInNotes }: { page: JobPage; openInNotes: (path: str
           <Quiet label="Open the Action" onPress={() => void Linking.openURL(RUN_TESTS_URL)} testID="admin-ai-open-action" />
         </View>
       </Box>
-      <Panel flush title="Runs" testID="admin-ai-runs">
-        {runs.length === 0 ? <Quietly testID="admin-ai-no-runs">No runs yet.</Quietly> : null}
+      <Box title="Runs" testID="admin-ai-runs">
+        {runs.length === 0 ? <Quietly testID="admin-ai-no-runs">No runs yet.</Quietly> : <Head columns={RUN_COLUMNS} />}
         {runs.map((run, index) => {
           const live = run.read ? liveScore(run.read, page.live) : null;
           return (
@@ -335,7 +334,7 @@ function RunsTab({ page, openInNotes }: { page: JobPage; openInNotes: (path: str
                 <Cell key="day" title={dayLabel(run.row.day)} />,
                 <Cell key="test" title={run.row.test} />,
                 <Cell key="live" title={pct(live?.score ?? null)} align="right" />,
-                <Cell key="best" title={run.read?.best ?? "none passed every bar"} />,
+                <Cell key="best" title={run.read === null ? "—" : (run.read.best ?? "none passed every bar")} />,
                 <LinkText key="open" label="Open" onPress={() => openInNotes(run.row.path)} testID={`admin-ai-run-open-${index}`} />,
               ]}
               title={runLabel(run.row)}
@@ -347,7 +346,7 @@ function RunsTab({ page, openInNotes }: { page: JobPage; openInNotes: (path: str
             />
           );
         })}
-      </Panel>
+      </Box>
     </>
   );
 }

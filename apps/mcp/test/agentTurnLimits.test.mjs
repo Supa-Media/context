@@ -133,7 +133,7 @@ test("every turn is told which model answers it, and the ground rules, even with
   const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
   assert.match(system, new RegExp(`AI model ${MODEL.replace(/[/.]/g, "\\$&")}`));
   assert.match(system, /Never fill a gap with a guess/);
-  assert.match(system, /scope_info with workspaces set to true/);
+  assert.match(system, /To list the workspaces they can reach, call orient\./);
 
   const app = systemPrompt(null, { model: "claude-sonnet-5-5" });
   assert.match(app, /AI model claude-sonnet-5-5/);

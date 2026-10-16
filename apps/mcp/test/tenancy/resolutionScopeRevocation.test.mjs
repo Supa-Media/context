@@ -116,7 +116,7 @@ export async function runTenancyResolutionChecks(check, harness) {
         binding: {
           workspaceId: "ws_a",
           provider: "r2-binding",
-          bindingName: "LOCAL_CONTEXT_BUCKET",
+          bindingName: "UNLISTED_BUCKET",
           capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
@@ -128,7 +128,7 @@ export async function runTenancyResolutionChecks(check, harness) {
   restoreSmuggled();
   check(
     "a control plane cannot point a tenant at a non-allowlisted worker binding",
-    smuggled.status === 503 && !smuggled.text.includes("CRON-ONLY-MARKER")
+    smuggled.status === 503 && !smuggled.text.includes("UNLISTED-MARKER")
   );
 
   const restoreUnbound = withControlPlaneOverride((path) => {

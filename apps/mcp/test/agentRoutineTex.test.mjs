@@ -230,7 +230,7 @@ export async function runAgentRoutineTexChecks(check) {
     ]);
     const made = await ask(env, TOKEN_TEXTS, { question: "every morning at 7:30 tell me what's due" });
     const madeRequest = model.requests.at(-2);
-    const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write_note");
+    const writeTool = (madeRequest?.tools ?? []).find((tool) => tool.name === "write");
     check(
       "a text is told new routines go in tex/routines/, and that old ones still run",
       writeTool !== undefined &&

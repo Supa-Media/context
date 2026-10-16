@@ -28,7 +28,7 @@ test/agentProgress.test.mjs
 test/agentRouterWebJobs.test.mjs
 test/agentSkills.test.mjs
 test/agentThinking.test.mjs
-test/agentToolShelf.test.mjs
+test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
@@ -48,6 +48,7 @@ test/historyRoute.test.mjs
 test/historyTable.test.mjs
 test/idCopyPage.test.mjs
 test/idLayout.test.mjs
+test/noteIdResolve.test.mjs
 test/inlineTags.test.mjs
 test/linkScanCost.test.mjs
 test/listingProps.test.mjs
@@ -75,6 +76,7 @@ test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
 test/privacy/rowsWrites.test.mjs
+test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
 test/readAtTreeNameGuard.test.mjs
 test/readFailure.test.mjs
@@ -118,3 +120,5 @@ bench/test/summary.test.mjs
 test/v2Actions.test.mjs
 test/v2SearchFetch.test.mjs
 test/orientV2.test.mjs
+test/controlPlaneRequired.test.mjs
+test/cleanupPage.test.mjs

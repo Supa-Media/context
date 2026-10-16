@@ -66,15 +66,16 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
-  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. ";
+  "When the person has to do something themselves (a code, a captcha, a payment, or a sign-in they said they'd rather do), add a handoff step: " +
+  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
+  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
 
 /** The default description's two rules, and what it says instead when the setup opened the web. */
 const ADDRESS_RULE =
-  "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
+  "goto follows the same rule as send action open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
 const TYPING_RULE = "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. ";
 const OPEN_WEB_RULES = "goto can open any public https address. You can type anything on any page. ";
 
@@ -87,7 +88,7 @@ export const BROWSE_DEFINITION = {
     ADDRESS_RULE +
     TYPING_RULE +
     HANDOFF_SENTENCE +
-    "Use open_page instead when you only need to read.",
+    "Use send action open_page instead when you only need to read.",
   inputSchema: {
     type: "object",
     properties: {
@@ -263,7 +264,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
-            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
+            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (fetch skill:), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
           }
           gotos += 1;
           planned.push({ do: "goto", url });
@@ -274,7 +275,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
             if (theirSites.length === 0) {
               return textResult(
-                "You can only type the person's own words here, or a value a skill you read this question gives (read_skill). To type anything else, the person has to name the site in their message.",
+                "You can only type the person's own words here, or a value a skill you read this question gives (fetch skill:). To type anything else, the person has to name the site in their message.",
                 true,
               );
             }

@@ -14,10 +14,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import { convexNodeTable } from "./lib/nodes/convexTable";
-import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
+import { copyIsFresh, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
 import { applyObservation } from "./lib/nodes/observe";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
+import { isPlumbing } from "./lib/privacy";
+import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIdsCleanup";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { copyStateOf, planGroup, renameSnapshotId, sharedGroupsPage } from "./lib/noteIds/sharedIds";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
@@ -50,6 +53,8 @@ const rowValidator = v.object({
   keyedDoneAt: v.union(v.null(), v.number()),
   /** Held by an archived account: not counted by the switch to keys (`setMode`), which checks live workspaces only. */
   archived: v.boolean(),
+  /** The old-copy cleanup: its counts, its run, and the refusal each of its buttons would get now (`noteIdsCleanup.ts`). */
+  cleanup: cleanupViewValidator,
 });
 
 /** Where the id copy is, for every workspace with storage. Counts and labels only. */
@@ -82,6 +87,7 @@ export const report = query({
       keyedAt: number | null;
       keyedDoneAt: number | null;
       archived: boolean;
+      cleanup: CleanupView;
     }> = [];
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
@@ -107,6 +113,7 @@ export const report = query({
         keyedAt: row?.keyedAt ?? null,
         keyedDoneAt: row?.keyedDoneAt ?? null,
         archived: await workspaceArchived(ctx.db, workspaceId),
+        cleanup: await cleanupViewOf(ctx.db, workspaceId, Date.now()),
       });
     }
     return { paused: layout?.paused === true, mode: layout?.mode ?? "paths", totals, workspaces, truncated };
@@ -314,6 +321,33 @@ export const copiesFor = internalQuery({
 });
 
 /**
+ * The path each note id's live row sits at now, for `/gateway/note-ids/resolve`.
+ *
+ * Scoped by `workspaceId` through the index, so an id held by another
+ * workspace's row is not found here. A trashed row (`goneAt`) is not live, and
+ * neither is one a queued trash parked under a dot folder: the tree never lists
+ * those, so a note in the trash has no current path a search may name. An id
+ * that matches more than one live row is answered as no row, since no single
+ * path is its path. INTERNAL.
+ */
+export const pathsForNoteIds = internalQuery({
+  args: { workspaceId: v.id("workspaces"), noteIds: v.array(v.string()) },
+  returns: v.array(v.object({ noteId: v.string(), path: v.string() })),
+  handler: async (ctx, { workspaceId, noteIds }) => {
+    const found: Array<{ noteId: string; path: string }> = [];
+    for (const noteId of noteIds) {
+      const holders = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
+        .collect();
+      const live = holders.filter((row) => row.kind === "file" && row.goneAt === undefined && !isPlumbing(row.path));
+      if (live.length === 1) found.push({ noteId, path: live[0]!.path });
+    }
+    return found;
+  },
+});
+
+/**
  * Record that the gateway wrote this path's bytes to its id key, at `etag`.
  * Recorded only when the row is a live file with an id and `key` is that id's
  * key for the path; anything else records nothing. The row's own etag may
@@ -408,5 +442,89 @@ export const keepCurrent = internalMutation({
       }
     }
     return { started };
+  },
+});
+
+const sharedGroupValidator = v.object({
+  noteId: v.string(),
+  /** A keyed workspace's group whose repair would re-id a row at its shared key: left as it is, for a person to look at. */
+  needsLook: v.boolean(),
+  rows: v.array(
+    v.object({
+      path: v.string(),
+      copy: v.union(v.literal("keyed"), v.literal("fresh"), v.literal("stale"), v.literal("none")),
+    }),
+  ),
+});
+
+/**
+ * One page of the live file rows that share a noteId in one workspace, in noteId
+ * order: each group's paths and copy states. `after` is the `next` of the page
+ * before (absent for the first). Staff only; paths are shown to staff here, never
+ * to anyone else. A 100k-row workspace is read a page at a time.
+ */
+export const sharedIdReport = query({
+  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
+  returns: v.object({ groups: v.array(sharedGroupValidator), next: v.union(v.string(), v.null()) }),
+  handler: async (ctx, { workspaceId, after }) => {
+    await staffOnly(ctx);
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
+    const page = await sharedGroupsPage(ctx.db, workspaceId, after);
+    return {
+      groups: page.groups.map((group) => ({
+        noteId: group.noteId,
+        needsLook: planGroup(group, keyed).needsLook,
+        rows: group.rows.map((row) => ({ path: row.path, copy: copyStateOf(group.noteId, row) })),
+      })),
+      next: page.next ?? null,
+    };
+  },
+});
+
+/**
+ * Repair one page of shared groups (`lib/noteIds/sharedIds.ts`): the id stays on
+ * the row whose copy is fresh (else the oldest), every other row gets a new id and
+ * loses its copy record, and the access snapshot follows. Then schedules the next
+ * page. INTERNAL.
+ */
+export const repairSharedIdsPage = internalMutation({
+  args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
+  returns: v.object({ repaired: v.number(), needsLook: v.number() }),
+  handler: async (ctx, { workspaceId, after }) => {
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
+    const page = await sharedGroupsPage(ctx.db, workspaceId, after);
+    let repaired = 0;
+    let needsLook = 0;
+    for (const group of page.groups) {
+      const plan = planGroup(group, keyed);
+      if (plan.needsLook) {
+        needsLook += 1;
+        continue;
+      }
+      for (const row of plan.repairs) {
+        const noteId = newNoteId();
+        await ctx.db.patch(row._id, { noteId, idCopy: undefined, idHeals: undefined });
+        await renameSnapshotId(ctx, workspaceId, row.path, group.noteId, noteId);
+        repaired += 1;
+      }
+    }
+    if (page.next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.functions.noteIds.repairSharedIdsPage, { workspaceId, after: page.next });
+    }
+    return { repaired, needsLook };
+  },
+});
+
+/**
+ * Staff: repair every shared group in one workspace. Only schedules
+ * `repairSharedIdsPage`, page by page; a second run finds nothing to change.
+ */
+export const repairSharedIds = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ started: v.number() }),
+  handler: async (ctx, { workspaceId }) => {
+    await staffOnly(ctx);
+    await ctx.scheduler.runAfter(0, internal.functions.noteIds.repairSharedIdsPage, { workspaceId });
+    return { started: 1 };
   },
 });

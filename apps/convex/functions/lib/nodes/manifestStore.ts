@@ -69,6 +69,7 @@ export function nodesPagedStore(
         ...(row.etag !== undefined ? { etag: row.etag } : {}),
         ...(row.size !== undefined ? { size: row.size } : {}),
         ...(row.uploaded !== undefined ? { uploaded: new Date(row.uploaded) } : {}),
+        ...(row.noteId !== undefined ? { noteId: row.noteId } : {}),
       })),
       truncated: !done,
       ...(done || rows.length === 0 ? {} : { cursor: rows[rows.length - 1]!.path }),
@@ -127,7 +128,7 @@ async function everyRow(page: NodePage): Promise<NodeRow[]> {
 
 /** A delimited listing of one folder from every row, as the S3 adapter answers it. */
 function oneLevel(rows: readonly NodeRow[], prefix: string, after: string | undefined) {
-  const objects: { key: string; etag?: string; size?: number; uploaded?: Date }[] = [];
+  const objects: { key: string; etag?: string; size?: number; uploaded?: Date; noteId?: string }[] = [];
   const folders = new Set<string>();
   for (const row of rows) {
     if (!row.path.startsWith(prefix)) continue;
@@ -140,6 +141,7 @@ function oneLevel(rows: readonly NodeRow[], prefix: string, after: string | unde
         ...(row.etag !== undefined ? { etag: row.etag } : {}),
         ...(row.size !== undefined ? { size: row.size } : {}),
         ...(row.uploaded !== undefined ? { uploaded: new Date(row.uploaded) } : {}),
+        ...(row.noteId !== undefined ? { noteId: row.noteId } : {}),
       });
     } else {
       folders.add(`${prefix}${rest.slice(0, slash + 1)}`);
@@ -172,6 +174,7 @@ export async function servedNodesStore(
         ...(row.etag === undefined ? {} : { etag: row.etag }),
         ...(row.size === undefined ? {} : { size: row.size }),
         ...(row.uploaded === undefined ? {} : { uploaded: row.uploaded }),
+        ...(row.noteId === undefined ? {} : { noteId: row.noteId }),
       })),
       cursor: result.cursor,
     };

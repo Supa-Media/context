@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Pill, Text, space, useThemedStyles, type Colors, type PillTone } from "../design";
 import { baseName } from "../console/files/paths";
-import { activity, setupJob, type ActivityItem, type ActivityWho } from "./aiModel";
+import { NOT_RECORDED, activity, setupJob, type ActivityItem, type ActivityWho } from "./aiModel";
 import { Box, Cell, Head, LinkText, PageHead, Quietly, TableLine, shortDay, type Column } from "./AiKit";
 import type { AiScreenProps } from "./aiScreen";
 
@@ -43,7 +43,7 @@ export function lastNight(items: readonly ActivityItem[], now = Date.now()): str
     byWho.set(item.who, [...(byWho.get(item.who) ?? []), item]);
   }
   for (const [who, mine] of byWho) {
-    const name = who === "Improver" ? "the improver" : who;
+    const name = who === "Improver" ? "the improver" : who === NOT_RECORDED ? "someone" : who;
     const drafted = mine.filter((item) => item.what.startsWith("Drafted")).length;
     const retired = mine.filter((item) => item.what.startsWith("Retired")).length;
     const other = mine.length - drafted - retired;
@@ -74,9 +74,9 @@ const WHO_OPTIONS: readonly { key: WhoFilter; label: string; kinds: readonly Act
 const COLUMNS: readonly Column[] = [
   { label: "WHEN", width: 90 },
   { label: "WHO", width: 130 },
-  { label: "JOB", width: 150 },
+  { label: "JOB", width: 140 },
   { label: "WHAT HAPPENED", flex: 1 },
-  { label: "", width: 120 },
+  { label: "", width: 130, align: "right" },
 ];
 
 /** The next option after `current`, wrapping to the first. */
@@ -189,27 +189,24 @@ export function AiActivity(props: AiScreenProps) {
                   key={`${item.path}-${item.at}-${index}`}
                   columns={COLUMNS}
                   title={item.what}
-                  sub={`${item.who} · ${shortDay(item.at)}`}
-                  trailing={
-                    <>
-                      {item.needsPerson ? <Text variant="meta" style={styles.crit}>needs a person</Text> : null}
-                      <LinkText label={link.label} onPress={link.onPress} testID={`admin-ai-activity-link-${index}`} />
-                    </>
-                  }
+                  sub={[item.who === NOT_RECORDED ? null : item.who, shortDay(item.at), item.needsPerson ? "needs a person" : null].filter(Boolean).join(" · ")}
+                  trailing={<LinkText label={link.label} onPress={link.onPress} testID={`admin-ai-activity-link-${index}`} />}
                   first={index === 0}
                   last={last}
                   testID={`admin-ai-activity-row-${index}`}
                   cells={[
                     <Cell key="when" title={shortDay(item.at)} />,
-                    <Pill key="who" tone={toneOf(item.kind)}>{item.who}</Pill>,
+                    item.who === NOT_RECORDED ? (
+                      <Cell key="who" title={NOT_RECORDED} />
+                    ) : (
+                      <Pill key="who" tone={toneOf(item.kind)}>{item.who}</Pill>
+                    ),
                     <Cell key="job" title={item.job ?? ""} />,
-                    <View key="what" style={styles.what}>
-                      <Text variant="meta" numberOfLines={1}>
-                        {item.what}
-                        {item.needsPerson ? <Text variant="meta" style={styles.crit}>{" · needs a person"}</Text> : null}
-                      </Text>
+                    <Cell key="what" title={item.what} sub={item.detail} strong />,
+                    <View key="link" style={styles.end}>
+                      {item.needsPerson ? <Text variant="meta" numberOfLines={1} style={styles.crit}>needs a person</Text> : null}
+                      <LinkText label={link.label} onPress={link.onPress} testID={`admin-ai-activity-open-${index}`} />
                     </View>,
-                    <LinkText key="link" label={link.label} onPress={link.onPress} testID={`admin-ai-activity-open-${index}`} />,
                   ]}
                 />
               );
@@ -235,5 +232,5 @@ const makeStyles = (colors: Colors) =>
     crit: { color: colors.critText, fontWeight: "700" },
     table: { borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface, overflow: "hidden", minWidth: 0 },
     empty: { paddingHorizontal: space.x5, paddingVertical: space.x3 },
-    what: { flex: 1, minWidth: 0 },
+    end: { alignItems: "flex-end", gap: 2 },
   });

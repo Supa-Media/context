@@ -123,7 +123,8 @@ export function AiTab({
     jobs: catalog.jobs.length,
     helpers: AI_HELPERS.length,
     skills: catalog.skills.length,
-    activity: waiting,
+    // What waits on a person; nothing waiting draws no number rather than a 0.
+    activity: waiting > 0 ? waiting : null,
   };
 
   let body: ReactNode;
@@ -167,7 +168,7 @@ export function AiTab({
           options={[...RAIL.map((item) => ({ key: item.key as AiViewKey, label: item.label })), { key: "files" as AiViewKey, label: "Files" }]}
           value={current}
           onChange={(key) => go(railPlace(key))}
-          counts={(key) => counts[key] ?? 0}
+          counts={(key) => counts[key] ?? null}
           label="AI"
           testID="admin-ai-view"
         />

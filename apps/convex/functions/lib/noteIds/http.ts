@@ -11,6 +11,9 @@
  *   path with a row, the reader's view unfiltered (a keyed write resolves the
  *   note whoever reads it: `lib/noteIds/keyed.ts`). `keyed` says whether the
  *   workspace is keyed.
+ * - `POST /gateway/note-ids/resolve` `{ accessToken, workspaceId, noteIds }`: answers
+ *   `{ paths }`, the path each note id's live row sits at now, or `null` (see
+ *   `gatewayNoteIdsResolveHandler`).
  * - `POST /gateway/note-ids/wrote` `{ accessToken, workspaceId, path, key, etag }`:
  *   the gateway wrote the same bytes to the path and to its id key. Records the
  *   copy only when the key is the row's own id key (`recordCopy`), answering
@@ -43,6 +46,7 @@ import { hashToken } from "../crypto";
 import { badRequest, json, stringField } from "../gatewayAuth";
 import { memberWritableWorkspace, writableWorkspace } from "../nodes/gatewayNames";
 import { GATEWAY_PATH_LENGTH, NO_BUCKET } from "../nodes/gatewayManifest";
+import { isNoteId } from "../nodes/noteIds";
 import { servedNodesStore } from "../nodes/manifestStore";
 import { canSee } from "../privacy";
 
@@ -230,6 +234,58 @@ export async function gatewayNoteIdsRemovedHandler(ctx: ActionCtx, body: Record<
     if (writable === null) return json(NOT_SERVED);
     const removed = await ctx.runMutation(internal.functions.noteIdsKeyed.removeKeyed, { workspaceId: writable, path, key, at });
     return json({ ok: true, removed });
+  } catch {
+    return json(NOT_SERVED);
+  }
+}
+
+/** Note ids one resolve may name: the same bound as a lookup's paths. */
+export const NOTE_IDS_RESOLVE_IDS = 200;
+
+/**
+ * A non-empty list of at most `NOTE_IDS_RESOLVE_IDS` note ids (lowercase
+ * UUIDv7s), with repeats collapsed; `null` for anything else.
+ */
+export function noteIdList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > NOTE_IDS_RESOLVE_IDS) return null;
+  if (!value.every((entry) => isNoteId(entry))) return null;
+  return [...new Set(value as string[])];
+}
+
+/**
+ * `POST /gateway/note-ids/resolve` `{ accessToken, workspaceId, noteIds }`:
+ * answers `{ paths }`, which maps each id asked for to the path its live row
+ * sits at now, or `null` where no live row of this workspace holds it or the
+ * reader may not see that path (`canSee`, as `copies` filters). The reader's
+ * workspace is the grant's own, as for lookup; an id held by another workspace
+ * is `null` here.
+ */
+export async function gatewayNoteIdsResolveHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const noteIds = noteIdList(body.noteIds);
+  if (noteIds === null) return badRequest();
+  const accessToken = stringField(body, "accessToken");
+  const workspaceId = stringField(body, "workspaceId");
+  if (accessToken === null || workspaceId === null) return json(NOT_SERVED);
+  try {
+    const reader = await ctx.runQuery(internal.functions.nodesGateway.readClearance, {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: workspaceId,
+    });
+    if (reader === null) return json(NOT_SERVED);
+    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET);
+    if (served === null) return json(NOT_SERVED);
+    const state = await loadPrivacyState(served);
+    if (state.invalid) return json(NOT_SERVED);
+    const found = await ctx.runQuery(internal.functions.noteIds.pathsForNoteIds, {
+      workspaceId: reader.workspaceId,
+      noteIds,
+    });
+    // Every id asked for is answered; an id with no visible row answers null.
+    const paths: Record<string, string | null> = Object.fromEntries(noteIds.map((noteId) => [noteId, null]));
+    for (const { noteId, path } of found) {
+      if (canSee(path, reader.scope, state.rules, state.overrides, NO_NAMES)) paths[noteId] = path;
+    }
+    return json({ paths });
   } catch {
     return json(NOT_SERVED);
   }

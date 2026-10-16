@@ -111,7 +111,8 @@ function cellBox(column: Column | undefined): ViewStyle {
   const align = column?.align === "right" ? "flex-end" : "flex-start";
   return column?.width !== undefined
     ? { width: column.width, flexShrink: 0, alignItems: align }
-    : { flex: column?.flex ?? 1, minWidth: 0, alignItems: align };
+    : // Clipped, so a child that does not bound its own width still ends at its column.
+      { flex: column?.flex ?? 1, minWidth: 0, overflow: "hidden", alignItems: align };
 }
 
 function alignText(column: Column) {

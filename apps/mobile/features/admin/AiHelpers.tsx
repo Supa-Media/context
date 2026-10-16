@@ -20,12 +20,12 @@ import { useNoteWriter } from "./useAiNote";
 const DEFAULT_HELPER = "mail-checker";
 
 const COLUMNS: readonly Column[] = [
-  { label: "HELPER AGENT", flex: 1.4 },
-  { label: "CALLED BY", flex: 1.2 },
-  { label: "CAN DO", flex: 1.6 },
-  { label: "NEEDS A PERSON FOR", flex: 1.2 },
+  { label: "HELPER AGENT", flex: 1.2 },
+  { label: "CALLED BY", flex: 1 },
+  { label: "CAN DO", flex: 1.4 },
+  { label: "NEEDS A PERSON FOR", flex: 1 },
   { label: "STATE", width: 110 },
-  { label: "TOOLS", flex: 1.2 },
+  { label: "TOOLS", flex: 1.6 },
 ];
 
 /** What each helper does, as its panel says it. */
@@ -94,7 +94,7 @@ export function AiHelpers(props: AiScreenProps & { helper: string | null }) {
             <StatStrip
               stats={[
                 { label: "PROMPT", value: sizeLabel(note?.size ?? null) ?? "no note yet" },
-                { label: "TOOLS", value: tools },
+                { label: "TOOLS", value: String(selected.tools.length), sub: tools },
                 { label: "STATE", value: selected.state === "running" ? "Running" : "Not built yet", tone: selected.state === "running" ? "ok" : "neutral" },
               ]}
               testID="admin-ai-helper-stats"
@@ -169,7 +169,6 @@ function starterNote(helper: AiHelper): string {
 
 /** One helper's row: the table line on a pointer, a two-line row on a phone. */
 function HelperLine({ helper, selected, first, last, onPress }: { helper: AiHelper; selected: boolean; first: boolean; last: boolean; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
   const nothing = helper.needsPerson === "nothing";
   const running = helper.state === "running";
   return (
@@ -181,7 +180,7 @@ function HelperLine({ helper, selected, first, last, onPress }: { helper: AiHelp
         <Cell key="does" title={helper.canDo} />,
         nothing ? <Cell key="person" title={helper.needsPerson} /> : <Cell key="person" title={helper.needsPerson} tone="crit" strong />,
         <Pill key="state" tone={running ? "ok" : "neutral"}>{running ? "Running" : "Not built yet"}</Pill>,
-        <Text key="tools" variant="mono" numberOfLines={1} style={styles.tools}>{helper.tools.length > 0 ? helper.tools.join(", ") : "none"}</Text>,
+        <Cell key="tools" title={helper.tools.length > 0 ? helper.tools.join(", ") : "none"} />,
       ]}
       title={helper.label}
       sub={helper.model}
@@ -204,5 +203,4 @@ const makeStyles = (colors: Colors) =>
     callerName: { flexShrink: 1, minWidth: 0 },
     confirm: { gap: space.x2, paddingTop: space.x3, borderTopWidth: 1, borderTopColor: colors.line },
     rule: { paddingTop: space.x3, borderTopWidth: 1, borderTopColor: colors.line },
-    tools: { minWidth: 0 },
   });

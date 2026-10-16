@@ -17,8 +17,8 @@ export async function runAttachmentsCoreChecks() {
 
   // -- images: resolve-by-reference over an opaque, unlistable store
   //
-  // The calendar cron checks above replace globalThis.fetch to serve an ICS feed;
-  // these checks authenticate for real, so the control plane goes back first.
+  // Earlier checks may have replaced globalThis.fetch; these authenticate for
+  // real, so the control plane goes back first.
   controlPlane.install();
   //
   // The premise of the whole feature. `.context/assets/images/` is plumbing, so it is invisible

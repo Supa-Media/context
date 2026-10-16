@@ -177,11 +177,12 @@ beforeEach(() => {
   pinnedBucket.set(skillPath("connect-chatgpt"), { body: `---\nwhy: tested\n---\n\n${SKILL_BODY}\n`, etag: "k0" });
 });
 
-test("a texted turn offers read_skill, naming each skill and when it applies", async () => {
+test("a texted turn offers fetch skill:, naming each skill and when it applies", async () => {
   const response = await text("is my chatgpt set up?");
   assert.equal(response.status, 200);
-  assert.ok(offeredTools().includes(READ_SKILL_TOOL));
-  const definition = gatewayCalls[0].body.tools.find((tool) => tool.name === READ_SKILL_TOOL);
+  assert.ok(!offeredTools().includes(READ_SKILL_TOOL), "the six only: a skill is a fetch id");
+  const definition = gatewayCalls[0].body.tools.find((tool) => tool.name === "fetch");
+  assert.match(definition.description, /skill:<name>/);
   assert.match(definition.description, /connect-chatgpt \(someone wants ChatGPT to use Context\)/);
   assert.match(definition.description, /save-a-login \(a site needs a login that is not saved\)/);
   assert.ok(!JSON.stringify(gatewayCalls[0].body).includes("SKILL-MARK"), "a skill's body is not read until asked for");
@@ -229,6 +230,17 @@ test("a setup with no skills offers no read_skill", async () => {
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("tools: [search_notes]"), etag: "s1" });
   await text("hello");
   assert.ok(!offeredTools().includes(READ_SKILL_TOOL));
+  const fetchTool = gatewayCalls[0].body.tools.find((tool) => tool.name === "fetch");
+  assert.doesNotMatch(fetchTool.description, /skill:/);
+});
+
+test("fetch skill:<name> reads the skill, as read_skill did", async () => {
+  replies = [toolReply("fetch", { id: "skill:connect-chatgpt" }), textReply("Done.")];
+  const response = await text("connect chatgpt to context");
+  assert.equal(response.status, 200);
+  const result = toolResultText();
+  assert.equal(result.isError, false);
+  assert.match(result.text, /SKILL-MARK/);
 });
 
 /* ---------------- a read skill vouches for its words and addresses ---------------- */
