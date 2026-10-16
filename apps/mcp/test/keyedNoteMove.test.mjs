@@ -7,7 +7,8 @@
  *  - drop the `startKeyedNoteMove` call in `toolMoveNote` and the keyed case copies bytes;
  *  - answer `null` from a keyed refusal and the refused case moves the frozen copy;
  *  - drop the `keyedLayout` gate and the old-layout case asks the control plane;
- *  - drop the etag from the control plane call and the stale-version case moves anyway.
+ *  - drop the etag from the control plane call and the stale-version case moves anyway;
+ *  - pass a collaboration etag through unexchanged and the c2 cases ask with it.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -15,6 +16,7 @@ import { toolMoveNote } from "../src/tools/moves/note.js";
 import { toolMoveFolder } from "../src/tools/moves/folder.js";
 import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { toolMoveNotes } from "../src/tools/moves/notes.js";
+import { readDocument as readCollaborationDocument } from "@context/collaboration";
 
 /** A bucket fake with the methods a note move reads and writes. */
 function bucket(files) {
@@ -217,4 +219,56 @@ test("a keyed folder reports the move without the copy that storage has not done
 
   assert.match(answer.content[0].text, /moved folder: 1-projects\/a\/ → 2-areas\/a\/ \(1 objects\)/);
   assert.doesNotMatch(answer.content[0].text, /storage finishes copying/);
+});
+
+/*
+  read_note hands out a note's collaboration etag (c2.…) once it has editing
+  history, and the row holds the stored object's etag. Passed through, the two
+  never matched, and every move or archive of such a note was refused as
+  changed (production, 2026-10-16).
+*/
+test("a keyed move given read_note's collaboration etag asks with the stored version", async () => {
+  const made = keyed({ "1-projects/a.md": { body: "# A\n", etag: "e1" } }, { queued: true, count: 1, rowed: true });
+  const { etag } = await readCollaborationDocument(made.store, "1-projects/a.md");
+  assert.match(etag, /^c2\./);
+
+  const answer = await toolMoveNote(made.store, "private", [], new Map(), "1-projects/a.md", "2-areas/a.md", etag);
+
+  assert.match(answer.content[0].text, /moved note/);
+  assert.equal(made.asked[0].expectedEtag, "e1");
+});
+
+test("a keyed archive given read_note's collaboration etag asks with the stored version", async () => {
+  const made = keyed({ "1-projects/a.md": { body: "# A\n", etag: "e1" } }, { queued: true, count: 1, rowed: true });
+  const { etag } = await readCollaborationDocument(made.store, "1-projects/a.md");
+  const rules = [{ prefix: "4-archive", vis: "team" }];
+
+  const answer = await toolArchiveNote(made.store, "private", rules, new Map(), "1-projects/a.md", etag);
+
+  assert.match(answer.content[0].text, /moved note: 1-projects\/a\.md → 4-archive\//);
+  assert.equal(made.asked[0].expectedEtag, "e1");
+});
+
+test("a stale collaboration etag is a conflict, and the control plane is not asked", async () => {
+  const made = keyed({ "1-projects/a.md": { body: "# A\n", etag: "e1" } }, { queued: true, count: 1, rowed: true });
+  await readCollaborationDocument(made.store, "1-projects/a.md");
+
+  const answer = await toolMoveNote(made.store, "private", [], new Map(), "1-projects/a.md", "2-areas/a.md", "c2.doc-stale.r0");
+
+  assert.match(answer.content[0].text, /conflict/);
+  assert.deepEqual(made.asked, []);
+});
+
+test("a keyed batch given collaboration etags asks with the stored versions", async () => {
+  const made = keyedBatch(TWO_NOTES, (moves) => ({ ok: true, moves: moves.map(({ from, to }) => ({ from, to })) }));
+  const a = (await readCollaborationDocument(made.store, "1-projects/a.md")).etag;
+  const b = (await readCollaborationDocument(made.store, "1-projects/b.md")).etag;
+  const moves = [
+    { source: "1-projects/a.md", destination: "2-areas/a.md", expected_source_etag: a },
+    { source: "1-projects/b.md", destination: "2-areas/b.md", expected_source_etag: b },
+  ];
+
+  await toolMoveNotes(made.store, "private", [], new Map(), moves, false);
+
+  assert.deepEqual(made.batches[0].map((move) => move.expectedEtag), ["e1", "e2"]);
 });

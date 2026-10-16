@@ -22,6 +22,7 @@ import { canSee, hasOverride, visibilityOf } from "../../privacy/engine.js";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { renameCollaboration } from "../../moves/keyedCollaboration.js";
+import { readDocument as readCollaborationDocument } from "@context/collaboration";
 
 /**
  * A keyed row move's collaboration half: each note the row move renamed carries
@@ -50,6 +51,32 @@ function crossesPendingMove(moves, source, destination) {
   );
 }
 
+/** The etag `read_note` answers for a note with editing history: its collaboration revision, not a storage version. */
+const COLLABORATION_ETAG = "c2.";
+
+/**
+ * The version the control plane compares a row move against. `read_note`
+ * hands out a note's collaboration etag (`c2.…`) where it has editing history,
+ * and the row holds the stored object's etag, so the two never matched and
+ * every move or archive of such a note was refused as changed. A collaboration
+ * etag is checked here against the document, then exchanged for the stored
+ * version; any other etag passes as it is.
+ *
+ * @returns {Promise<{etag?: string, conflict?: true}>}
+ */
+async function rowVersionOf(store, path, expected) {
+  if (typeof expected !== "string" || !expected.startsWith(COLLABORATION_ETAG)) return { etag: expected };
+  let current;
+  try {
+    current = await readCollaborationDocument(store, path);
+  } catch {
+    return { conflict: true };
+  }
+  if (current?.etag !== expected) return { conflict: true };
+  const stored = await store.head(path);
+  return typeof stored?.etag === "string" && stored.etag !== "" ? { etag: stored.etag } : { conflict: true };
+}
+
 /**
  * A note moved in a keyed workspace as a row change (`rowMoveStart.ts`): the
  * control plane moves the row and says so; nothing is copied here. `null`
@@ -59,9 +86,11 @@ function crossesPendingMove(moves, source, destination) {
  */
 export async function startKeyedNoteMove(store, scope, source, destination, expectedEtag, privacy) {
   if (store?.keyedLayout !== true || typeof store.startQueuedMove !== "function") return null;
+  const version = await rowVersionOf(store, source, expectedEtag);
+  if (version.conflict) return toolError("conflict: the note changed since you read it; re-read and retry");
   let answer;
   try {
-    answer = await store.startQueuedMove(source, destination, expectedEtag);
+    answer = await store.startQueuedMove(source, destination, version.etag);
   } catch {
     return toolError("could not start the move right now; try again in a moment");
   }
@@ -96,13 +125,19 @@ export async function startKeyedBatchMove(store, scope, rules, overrides, moves)
     }
     if (scope === "team" && hasOverride(overrides, move.destination)) return writePermissionError("move destination");
   }
+  const versions = [];
+  for (const move of moves) {
+    const version = await rowVersionOf(store, move.source, move.expectedSourceEtag || undefined);
+    if (version.conflict) return toolError(`conflict: ${move.source} changed since you read it; re-read and retry`);
+    versions.push(version.etag);
+  }
   let answer;
   try {
     answer = await store.startMoveBatch(
-      moves.map((move) => ({
+      moves.map((move, index) => ({
         from: move.source,
         to: move.destination,
-        ...(move.expectedSourceEtag ? { expectedEtag: move.expectedSourceEtag } : {}),
+        ...(versions[index] ? { expectedEtag: versions[index] } : {}),
       })),
     );
   } catch {
