@@ -104,9 +104,17 @@ export function setupInfo(row: AiNoteRow): SetupInfo {
   };
 }
 
-/** The setup a job's production note says it was promoted from. */
+/**
+ * The setup a job's production note says it was promoted from: its `from:`,
+ * or, on a note promoted before `from:` existed, the last setup its
+ * `came_from:` names.
+ */
 export function liveFrom(production: AiNoteRow | null): string | null {
-  return production === null ? null : text(production.properties.from);
+  if (production === null) return null;
+  const from = text(production.properties.from);
+  if (from !== null) return from;
+  const named = [...(text(production.properties.came_from) ?? "").matchAll(/setups\/[a-z0-9-]+\/([A-Za-z0-9_-]+)/g)];
+  return named.at(-1)?.[1] ?? null;
 }
 
 export function liveSince(production: AiNoteRow | null): string | null {

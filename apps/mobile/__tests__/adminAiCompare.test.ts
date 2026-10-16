@@ -7,7 +7,8 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { buildCatalog, type FolderNote } from "../features/admin/aiCatalog";
-import { jobPage, promotedText, readRun, type RunRead } from "../features/admin/aiModel";
+import { jobPage, liveFrom, promotedText, readRun, type RunRead } from "../features/admin/aiModel";
+import type { AiNoteRow } from "../features/admin/aiCatalog";
 import { verdict } from "../features/admin/AiCompare";
 
 const SCORES = [
@@ -108,5 +109,17 @@ describe("promotedText", () => {
     const out = promotedText(PRODUCTION.replace("job: texting-assistant\n", ""), { job: "texting-assistant", from: "live-6", day: "2026-10-16", by: "Maya" });
     expect(out.match(/^from: /gm)).toHaveLength(1);
     expect(out.match(/^job: /gm)).toHaveLength(1);
+  });
+});
+
+describe("liveFrom", () => {
+  const row = (properties: Record<string, unknown>) => ({ properties }) as unknown as AiNoteRow;
+  test("reads from:, else the last setup came_from names", () => {
+    expect(liveFrom(row({ from: "live-6", came_from: "setups/texting-assistant/live-5" }))).toBe("live-6");
+    expect(
+      liveFrom(row({ came_from: "setups/texting-assistant/skills-haiku (PR #1), plus setups/texting-assistant/live-5-2026-10-14's body (2026-10-14)" })),
+    ).toBe("live-5-2026-10-14");
+    expect(liveFrom(row({ came_from: "a person's say-so" }))).toBeNull();
+    expect(liveFrom(null)).toBeNull();
   });
 });
