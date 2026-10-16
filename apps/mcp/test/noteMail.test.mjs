@@ -171,6 +171,10 @@ test("agents join under a name and get a mailbox; a held name is refused", async
   assert.ok(lead, joined.text);
   assert.match(joined.text, /Pass mailbox: "mb_/);
   assert.match(joined.text, /send the first message/);
+  // The six's names, which every connection is now shown; never the older ones.
+  assert.match(joined.text, /Read new mail: fetch \{ id: "1-projects\/launch\/plan\.md", args: \{ mail: "new" \}/);
+  assert.match(joined.text, /Send: write \{ path: "1-projects\/launch\/plan\.md", action: "mail", args: \{ text, to \}/);
+  assert.doesNotMatch(joined.text, /read_note|write_note/);
   const second = await call(TOKEN_BUILDER, "write_note", { path: PLAN, mail: { join: "builder" } });
   builder = mailboxOf(second.text);
   assert.ok(builder && builder !== lead);
