@@ -213,6 +213,15 @@ export function useMirrorSync(options: {
         onFetched: (workspaceId) => {
           if (mine()) publishMirrorNotesChanged(workspaceId);
         },
+        onChecked: (workspaceId) => {
+          if (!mine()) return;
+          // Said without reading the index back: the point of a quiet
+          // catch-up is that it parses and writes nothing.
+          const before = mirrorStatuses().get(workspaceId);
+          if (before?.state === "synced" || before?.state === "partial") {
+            publishMirrorStatus(workspaceId, { ...before, lastSyncedAt: Date.now() });
+          }
+        },
         onProgress: (workspaceId, progress) => {
           if (!mine()) return;
           const before = mirrorStatuses().get(workspaceId);
