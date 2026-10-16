@@ -25,7 +25,8 @@ import { emojiMeaningSet } from "@context/shared/src/emojiMeaning";
 import { nearestByMeaning, startFill } from "./lib/emojiMeaningLookup";
 import { withJev } from "./lib/jev/client";
 import { clearanceOf } from "./lib/clearance";
-import { loadPrivacyState } from "./lib/fileOps";
+import type { PrivacyState } from "./lib/fileOps/privacyState";
+import type { Visibility } from "./lib/privacy";
 import { checkFolderIcon, visibleFolderIcons } from "./lib/fileOps/folderIcons";
 import { toConvexError } from "./lib/filesFns/operationErrors";
 import { servedNodesStore } from "./lib/nodes/manifestStore";
@@ -43,6 +44,18 @@ async function clearanceFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, minim
   return clearanceOf(scope, grantedNames ?? []);
 }
 
+/** The rules icons are judged by: the ones readers judge by (`lib/nodes/readerRules.ts`), in the shape `loadPrivacyState` gave. */
+async function judgedState(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<PrivacyState> {
+  const held = await ctx.runQuery(internal.functions.nodesPrivacy.readerRules, { workspaceId });
+  return {
+    rules: held.rules.map((rule) => ({ prefix: rule.prefix, vis: rule.vis as Visibility })),
+    overrides: new Map(held.overrides.map((note): [string, Visibility] => [note.path, note.vis as Visibility])),
+    text: null,
+    etag: null,
+    invalid: false,
+  };
+}
+
 /** The icons this clearance may see, over the tree's rules; none while the tree is still loading. */
 async function visible(
   ctx: ActionCtx,
@@ -53,7 +66,7 @@ async function visible(
   await ctx.runMutation(internal.functions.smallData.request, { workspaceId }).catch(() => {});
   const tree = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
   if (tree === null) return [];
-  const state = await loadPrivacyState(tree);
+  const state = await judgedState(ctx, workspaceId);
   const held = await ctx.runQuery(internal.functions.smallData.icons, { workspaceId });
   const icons = visibleFolderIcons(Object.fromEntries(held.map(({ path, icon }) => [path, icon])), { clearance, state });
   return Object.entries(icons).map(([path, icon]) => ({ path, icon }));
@@ -82,7 +95,7 @@ export const set = action({
         path: args.path,
         icon: args.icon,
         clearance,
-        state: await loadPrivacyState(tree),
+        state: await judgedState(ctx, args.workspaceId),
         tree,
         hasEmoji: async (name) =>
           (await ctx.runQuery(internal.functions.smallData.emojiLeaf, { workspaceId: args.workspaceId, name })) !== null,

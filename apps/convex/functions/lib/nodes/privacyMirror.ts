@@ -13,10 +13,28 @@
  * customer's text, and CLAUDE.md keeps note content out of the control plane.
  */
 
+import type { Id } from "../../../_generated/dataModel";
+import type { QueryCtx } from "../../../_generated/server";
 import { renderPrivacyRulesBlock, type PrivacyRule, type Visibility } from "../privacy";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import type { NodeSink, PrivacyMirror } from "./table";
+
+/** The workspace's privacy mirror as a store renders it, or `null` when the tree holds none. */
+export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
+  const row = await db
+    .query("nodePrivacy")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (row === null) return null;
+  return {
+    ...(row.etag === undefined ? {} : { etag: row.etag }),
+    invalid: row.invalid,
+    folders: row.folders,
+    notes: row.notes,
+  };
+}
+
 
 /** What the mirror reads: only the bucket's `get`. */
 export type MirrorSource = Pick<FileStore, "get">;
