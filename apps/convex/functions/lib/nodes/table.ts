@@ -163,6 +163,11 @@ export interface PrivacyMirror {
   invalid: boolean;
   folders: { prefix: string; visibility: string }[];
   notes: { path: string; visibility: string }[];
+  /**
+   * Only on a reader's view in rows mode (`readerRules.readerMirror`), never stored: `folders` and `notes` are
+   * the rows' judgement, which can carry row tokens the file parser refuses, so they are not rendered and parsed.
+   */
+  rows?: boolean;
 }
 
 /** What the bucket-side work asks of the tree. One call, one mutation, in production. */

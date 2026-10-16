@@ -15,6 +15,7 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
+import { PRE_PARSED_RULES } from "../../../../mcp/src/privacy/engine.js";
 import { renderPrivacyRulesBlock, type PrivacyRule, type Visibility } from "../privacy";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
@@ -104,9 +105,8 @@ export function renderMirror(mirror: PrivacyMirror): string | null {
  * tree answers `privacy.md` with this, so none of them falls through to the
  * bucket's file and checks the tree against itself.
  */
-export function mirrorFile(
-  mirror: PrivacyMirror | null,
-): { etag: string; text: () => Promise<string>; arrayBuffer: () => Promise<ArrayBuffer> } | null {
+export function mirrorFile(mirror: PrivacyMirror | null): MirrorObject | null {
+  if (mirror !== null && mirror.rows === true && mirror.etag !== undefined && !mirror.invalid) return rowsFile(mirror);
   const text = mirror === null ? null : renderMirror(mirror);
   if (mirror === null || mirror.etag === undefined || text === null) return null;
   const bytes = new TextEncoder().encode(text);
@@ -114,6 +114,32 @@ export function mirrorFile(
     etag: mirror.etag,
     text: async () => text,
     arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+  };
+}
+
+/** A `privacy.md` as a store hands it out. A rows view also carries its rules, already parsed. */
+export type MirrorObject = {
+  etag: string;
+  text: () => Promise<string>;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  [PRE_PARSED_RULES]?: { rules: PrivacyRule[]; overrides: Map<string, Visibility> };
+};
+
+/**
+ * A rows view as the object a store returns for `privacy.md`. The text is the rules rendered, for anything
+ * that only wants bytes; the rules are the rows' own, handed over parsed, because a row token is not valid
+ * in file text (`loadPrivacyState` takes them from `PRE_PARSED_RULES`).
+ */
+function rowsFile(mirror: PrivacyMirror): MirrorObject {
+  const rules: PrivacyRule[] = mirror.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility as Visibility }));
+  const overrides = new Map<string, Visibility>(mirror.notes.map((note): [string, Visibility] => [note.path, note.visibility as Visibility]));
+  const text = renderPrivacyRulesBlock(rules, overrides);
+  const bytes = new TextEncoder().encode(text);
+  return {
+    etag: mirror.etag!,
+    text: async () => text,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    [PRE_PARSED_RULES]: { rules, overrides },
   };
 }
 

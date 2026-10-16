@@ -12,7 +12,7 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from "./table";
-import { readMirror } from "./listing";
+import { readerMirror } from "./readerRules";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
 import { newNoteId } from "./noteIds";
 import { applyPendingAccess } from "./pendingAccess";
@@ -120,7 +120,7 @@ export function convexNodeTable(
     for (const row of expired) if (row._id !== last?._id) await writer.db.delete(row._id);
   };
   const rulesNow = async (): Promise<Rules> => {
-    if (rules === null) rules = await mirrorRules(await readMirror(writer.db, workspaceId));
+    if (rules === null) rules = await mirrorRules(await readerMirror(writer, workspaceId));
     return rules;
   };
 

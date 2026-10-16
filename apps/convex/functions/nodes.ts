@@ -33,11 +33,12 @@ import {
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { readerMirror } from "./lib/nodes/readerRules";
 import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
-import { refreshAccess } from "./lib/nodes/accessBackfill";
+import { accessSourceOf, refreshAccess } from "./lib/nodes/accessBackfill";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
@@ -81,6 +82,8 @@ const mirrorValidator = v.object({
   invalid: v.boolean(),
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
   notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+  /** Set on a reader's mirror in rows mode: `folders` and `notes` are the rows' judgement, not file text. */
+  rows: v.optional(v.boolean()),
 });
 
 const parityValidator = v.object({
@@ -423,7 +426,7 @@ export const teamShareable = internalQuery({
   handler: async (ctx, { workspaceId, path }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const row = await liveNode(ctx.db, workspaceId, path);
-    const mirror = await readMirror(ctx.db, workspaceId);
+    const mirror = await readerMirror(ctx, workspaceId);
     if (row === null || mirror?.invalid === true) return { visible: false, sealed: false };
     const rules = await mirrorRules(mirror);
     return { visible: canSee(path, "team", rules.rules, rules.overrides), sealed: row.sealed === true };
@@ -441,7 +444,7 @@ export const served = internalQuery({
   returns: v.union(v.null(), v.object({ mirror: v.union(v.null(), mirrorValidator) })),
   handler: async (ctx, { workspaceId }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    return { mirror: await readMirror(ctx.db, workspaceId) };
+    return { mirror: await readerMirror(ctx, workspaceId) };
   },
 });
 
@@ -471,6 +474,9 @@ export const savePrivacy = internalMutation({
   args: { workspaceId: v.id("workspaces"), mirror: mirrorValidator, at: v.number() },
   returns: v.null(),
   handler: async (ctx, { workspaceId, mirror, at }): Promise<null> => {
+    // In rows mode the rows are the truth: a `privacy.md` read is never stored as the rules, so nothing a reader
+    // judges by (`readerRules.readerMirror`) can be moved back to an older file.
+    if ((await accessSourceOf(ctx.db)) === "rows") return null;
     const doc = await ctx.db
       .query("nodePrivacy")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

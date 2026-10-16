@@ -217,6 +217,8 @@ export function withPrivacyAuthority(store, authority) {
    */
   const exportNow = async (prose) => {
     if (held === null) return null;
+    // Rows mode (the held rules carry the rows' version): the rows are the truth and `privacy.md` is not written from them.
+    if (typeof held.accessVersion === "number") return null;
     // Rules that name a row's grants are never written into the bucket: a row token has no place in `privacy.md`.
     if (hasRowToken(held)) throw new Error("privacy.md is not written from access rows: the rules name a row's grants");
     const { text, rules } =

@@ -27,7 +27,8 @@ import { clearanceOf } from "./lib/clearance";
 import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { treeChangesValidator } from "./lib/filesFns/validators";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
-import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { treeServesNow } from "./lib/nodes/listing";
+import { readerMirror } from "./lib/nodes/readerRules";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
@@ -101,7 +102,7 @@ export const head = query({
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const mirror = await readMirror(ctx.db, workspaceId);
+    const mirror = await readerMirror(ctx, workspaceId);
     const moves = await feedMoves(ctx, workspaceId);
     const privacy = await feedPrivacy(ctx, workspaceId, mirror, moves);
     if (privacy === null) return null;
@@ -128,7 +129,7 @@ export const walkStart = internalQuery({
   handler: async (ctx, { workspaceId, now }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const moves = await feedMoves(ctx, workspaceId);
-    const privacy = await feedPrivacy(ctx, workspaceId, await readMirror(ctx.db, workspaceId), moves);
+    const privacy = await feedPrivacy(ctx, workspaceId, await readerMirror(ctx, workspaceId), moves);
     if (privacy === null) return null;
     return { since: seqAt(now - NODE_LOG_OVERLAP_MS), privacy };
   },
@@ -157,7 +158,7 @@ export const changes = internalQuery({
       minimum: "member",
     });
     if (!(await treeServesNow(ctx.db, args.workspaceId))) return null;
-    const mirror = await readMirror(ctx.db, args.workspaceId);
+    const mirror = await readerMirror(ctx, args.workspaceId);
     const moves = await feedMoves(ctx, args.workspaceId);
     const privacy = await feedPrivacy(ctx, args.workspaceId, mirror, moves);
     const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
