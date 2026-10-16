@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { DIRECTORY_APIS } from "../features/vault/apiHosts.generated";
 import { TOP_APIS } from "../features/vault/apiHostsTop";
-import { apiForName, knownApiCount, suggestApiHosts } from "../features/vault/apiHostSuggest";
+import { apiForName, knownApiCount, suggestApiHosts, suggestSites } from "../features/vault/apiHostSuggest";
 import { SHARED_HOST_SUFFIXES, guessStyle, hostProblem, typedHost } from "../features/vault/vaultProxy";
 
 /**
@@ -74,6 +74,33 @@ describe("suggestions as you type", () => {
   });
 });
 
+describe("Convex", () => {
+  test("its name finds its management API, and the name alone offers it", () => {
+    expect(suggestApiHosts("convex")[0].host).toBe("api.convex.dev");
+    expect(apiForName("Convex")?.host).toBe("api.convex.dev");
+  });
+
+  test("a deployment's own address can be typed in: a key goes only to the exact address saved", () => {
+    expect(hostProblem("example-deployment.convex.cloud")).toBeNull();
+  });
+});
+
+describe("Fills on, suggested as you type", () => {
+  const sites = (typed: string) => suggestSites(typed).map((one) => one.site);
+
+  test("a name finds the site itself, which covers its dashboard", () => {
+    expect(suggestSites("convex")[0]).toEqual({ site: "convex.dev", name: "Convex" });
+    expect(sites("stripe")[0]).toBe("stripe.com");
+  });
+
+  test("each site once, none once typed in full, at most five", () => {
+    expect(new Set(sites("google")).size).toBe(sites("google").length);
+    expect(suggestSites("stripe.com")).toEqual([]);
+    expect(suggestSites(" ")).toEqual([]);
+    expect(suggestSites("a").length).toBeLessThanOrEqual(5);
+  });
+});
+
 describe("the one-tap suggestion from the key's name", () => {
   test("a known name or its dashboard points at the API", () => {
     expect(apiForName("Stripe")?.host).toBe("api.stripe.com");
@@ -91,8 +118,10 @@ describe("the one-tap suggestion from the key's name", () => {
 
 describe("the website, checked as it is typed", () => {
   test("a host anyone can publish under is refused in the server's words", () => {
-    expect(hostProblem("myapp.vercel.app")).toMatch(/^Anyone can put a page on myapp\.vercel\.app/);
-    expect(hostProblem("https://x.workers.dev/hook")).toMatch(/Anyone/);
+    expect(hostProblem("webhook.site")).toMatch(/^Anyone can put a page on webhook\.site/);
+    expect(hostProblem("https://workers.dev/hook")).toMatch(/Anyone/);
+    // One person's address beneath it is theirs, and a key goes only to that exact address.
+    expect(hostProblem("myapp.vercel.app")).toBeNull();
   });
 
   test("what isn't a website is said; a real one and an empty field are fine", () => {

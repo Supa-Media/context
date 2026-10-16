@@ -177,15 +177,16 @@ function fakes(listed: VaultEntry[]) {
     },
     link: async (kind, entryId) => {
       calls.push(["link", kind, entryId]);
-      return `tok-${kind}`;
+      return kind === "add" ? "tok-add" : `tok-view-${entryId}`;
     },
     calls: {
       describe: async (token) => {
         calls.push(["describe", token]);
         const workspace = { handle: "seyi", name: "Seyi", kind: "personal" as const };
         if (token === "tok-add") return { kind: "add", workspace, grantee: null, entry: null, expiresAt: 1 };
-        const fields = [{ name: "API_KEY", perEnv: false, set: ["_"] }];
-        return { kind: "view", workspace, grantee: null, entry: { type: "secret", name: "Shown", sites: [], fields }, expiresAt: 1 };
+        const entry = entries.find((e) => token === `tok-view-${e.entryId}`)!;
+        const fields = entry.type === "login" ? [] : [{ name: "API_KEY", perEnv: false, set: ["_"] }];
+        return { kind: "view", workspace, grantee: null, entry: { type: entry.type, name: entry.name, sites: entry.sites, fields }, expiresAt: 1 };
       },
       save: async (token, draft) => {
         calls.push(["save", token, draft.name]);
@@ -194,7 +195,14 @@ function fakes(listed: VaultEntry[]) {
       },
       reveal: async (token) => {
         calls.push(["reveal", token]);
-        return { type: "secret", name: "Shown", sites: [], username: "", password: "", fields: [{ name: "API_KEY", perEnv: false, values: { _: "fake-value-123" } }] };
+        const entry = entries.find((e) => token === `tok-view-${e.entryId}`)!;
+        return entry.type === "login"
+          ? { type: "login", name: entry.name, sites: entry.sites, username: "me@example.test", password: "fake-password-old", fields: [] }
+          : { type: "secret", name: entry.name, sites: [], username: "", password: "", fields: [{ name: "API_KEY", perEnv: false, values: { _: "fake-value-123" } }] };
+      },
+      edit: async (token, edit) => {
+        calls.push(["edit", token, Object.keys(edit).sort().join(",")]);
+        return { changed: [...(edit.username !== undefined ? ["username"] : []), ...(edit.password !== undefined ? ["password"] : [])] };
       },
     },
   };
@@ -298,40 +306,73 @@ describe("on a narrow screen", () => {
     expect(find("vault-detail-v000000000000000000000009")?.textContent).toContain("Fresh bank");
   });
 
-  test("Show the key reveals its values under the key, and Hide drops them", async () => {
-    const { actions, calls } = fakes([unpinned]);
+  test("picking a login shows its username, its password as dots until Show, and nothing else to press", async () => {
+    const { actions, calls } = fakes([login, unpinned]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    expect(container.textContent).not.toContain("AIs that can use it");
-    press(`vault-show-${unpinned.entryId}`);
     await flush();
     await flush();
     expect(calls).toEqual([
-      ["link", "view", unpinned.entryId],
-      ["describe", "tok-view"],
-      ["reveal", "tok-view"],
+      ["link", "view", login.entryId],
+      ["describe", `tok-view-${login.entryId}`],
+      ["reveal", `tok-view-${login.entryId}`],
     ]);
-    expect(find("vault-inline-view")?.textContent).toContain("fake-value-123");
-    expect(find(`vault-show-${unpinned.entryId}`)?.textContent).toBe("Hide the key");
-    expect(find("vault-view-hide")).toBeNull();
-    press(`vault-show-${unpinned.entryId}`);
-    expect(find("vault-inline-view")).toBeNull();
-    expect(container.textContent).not.toContain("fake-value-123");
+    const username = find("vault-edit-username") as HTMLInputElement;
+    const password = find("vault-edit-password") as HTMLInputElement;
+    expect(username.value).toBe("me@example.test");
+    expect(username.type).not.toBe("password");
+    expect(password.type).toBe("password");
+    press("vault-edit-password-reveal");
+    expect((find("vault-edit-password") as HTMLInputElement).type).not.toBe("password");
+    expect(find(`vault-show-${login.entryId}`)).toBeNull();
+    expect(find("vault-edit-save")).toBeNull();
   });
 
-  test("picking another key closes the one shown, values and all", async () => {
-    const { actions } = fakes([unpinned, login]);
+  test("a changed password is saved in place and said back", async () => {
+    const { actions, calls } = fakes([login]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    press(`vault-show-${unpinned.entryId}`);
     await flush();
     await flush();
-    expect(container.textContent).toContain("fake-value-123");
+    type("vault-edit-password", "fake-password-new");
+    press("vault-edit-save");
+    await flush();
+    expect(calls).toContainEqual(["edit", `tok-view-${login.entryId}`, "password"]);
+    expect(find("vault-edit-saved")?.textContent).toBe("Saved. You changed the password.");
+    expect(find("vault-edit-save")).toBeNull();
+  });
+
+  test("Undo puts it back, and an emptied password can't be saved", async () => {
+    const { actions, calls } = fakes([login]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
+    await flush();
+    await flush();
+    type("vault-edit-password", "");
+    expect(find("vault-edit-save")?.getAttribute("aria-disabled")).toBe("true");
+    expect(container.textContent).toContain("To save, enter the password.");
+    press("vault-edit-undo");
+    expect((find("vault-edit-password") as HTMLInputElement).value).toBe("fake-password-old");
+    expect(calls.some((call) => call[0] === "edit")).toBe(false);
+  });
+
+  test("picking another key drops the values of the one before, and coming back reads them afresh", async () => {
+    const { actions, calls } = fakes([unpinned, login]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
+    await flush();
+    await flush();
+    expect(container.innerHTML).toContain("fake-value-123");
     press(`vault-row-${login.entryId}`);
-    expect(container.textContent).not.toContain("fake-value-123");
+    expect(container.innerHTML).not.toContain("fake-value-123");
+    await flush();
+    await flush();
+    await flush();
     press(`vault-row-${unpinned.entryId}`);
-    expect(container.textContent).not.toContain("fake-value-123");
-    expect(find(`vault-show-${unpinned.entryId}`)?.textContent).toBe("Show the key");
+    await flush();
+    await flush();
+    await flush();
+    expect(calls.filter((call) => call[0] === "reveal")).toHaveLength(3);
   });
 
   test("a refusal is said in the server's words", async () => {

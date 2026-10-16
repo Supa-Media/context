@@ -1,7 +1,7 @@
 /**
- * New key and Show the key, opened inside Settings › Vault instead of on a
- * page of their own (the owner asked on 2026-10-16: "I don't like that it
- * opens a new page").
+ * New key, and a picked key's values, opened inside Settings › Vault instead
+ * of on a page of their own (the owner asked on 2026-10-16: "I don't like
+ * that it opens a new page"), where the values can be changed in place.
  *
  * Each press still mints a fresh vault link and goes through the same
  * server calls as `/vault/<token>` (`useVaultLinkFlow`), so the rules do not
@@ -17,7 +17,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { VaultAddForm } from "../../../vault/VaultAddForm";
-import { VaultViewPage } from "../../../vault/VaultViewPage";
+import { VaultKeyEditor } from "../../../vault/VaultKeyEditor";
 import { resolveVaultLinkView } from "../../../vault/vaultLink";
 import { useVaultLinkFlow, type VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
 
@@ -47,7 +47,7 @@ export function VaultInline({
     outcome,
   });
 
-  // Show the key was the press: reveal as soon as the link is read, not after a second button.
+  // Picking the key was the press: reveal as soon as the link is read, not after a second button.
   const revealed = useRef(false);
   useEffect(() => {
     if (view.kind !== "view" || revealed.current) return;
@@ -82,7 +82,25 @@ export function VaultInline({
       case "add":
         return <VaultAddForm prefill={view.prefill} busy={view.busy} problem={view.problem} onSave={onSave} onType={() => undefined} />;
       case "view":
-        return <VaultViewPage view={view} titleSize={0} onReveal={onReveal} inline />;
+        if (view.revealed === null) {
+          return view.problem ? (
+            <Text variant="error">{view.problem.headline}</Text>
+          ) : (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.text2} size="small" />
+              <Text variant="rowSub">Opening the key…</Text>
+            </View>
+          );
+        }
+        return (
+          <VaultKeyEditor
+            revealed={view.revealed}
+            onSave={async (edit) => {
+              if (token === null || calls.edit === undefined) throw new Error("This key can't be changed here.");
+              return (await calls.edit(token, edit)).changed;
+            }}
+          />
+        );
       default:
         return null;
     }
@@ -91,7 +109,7 @@ export function VaultInline({
   if (mode === "view") {
     return (
       <View style={styles.section} testID="vault-inline-view">
-        <Text variant="eyebrow">The key</Text>
+        <Text variant="eyebrow">{view.kind === "view" && view.entry.type === "login" ? "Sign-in" : "Values"}</Text>
         {body}
       </View>
     );

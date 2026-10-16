@@ -223,6 +223,14 @@ describe("the secret form", () => {
     expect(saved[0].proxy).toEqual({ host: "api.stripe.com", style: "bearer", ask: true });
   });
 
+  test("Fills on suggests the site as a name is typed, and a pick fills it", () => {
+    render(add, { kind: "idle" }, {}, { type: "secret", name: "Convex", fields: "CONVEX_DEPLOY_KEY" });
+    type("vault-site", "convex");
+    press("vault-site-suggestion-convex.dev");
+    expect((find("vault-site") as HTMLInputElement).value).toBe("convex.dev");
+    expect(find("vault-site-suggestions")).toBeNull();
+  });
+
   test("Save says what it waits for, and a website anyone can publish on is refused while typing", () => {
     render(add, { kind: "idle" }, {}, { type: "secret", name: "Hook", fields: "TOKEN" });
     expect(find("vault-save-why")?.textContent).toBe("To save, fill in at least one value.");
@@ -230,8 +238,8 @@ describe("the secret form", () => {
     expect(find("vault-save-why")).toBeNull();
     press("vault-proxy-on");
     expect(find("vault-save-why")?.textContent).toBe("To save, enter the website the key is for.");
-    type("vault-proxy-host", "myhook.vercel.app");
-    expect(hostNote()).toMatch(/^Anyone can put a page on myhook\.vercel\.app/);
+    type("vault-proxy-host", "webhook.site");
+    expect(hostNote()).toMatch(/^Anyone can put a page on webhook\.site/);
     expect(find("vault-save-why")?.textContent).toBe("To save, finish the website above.");
     expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
     type("vault-proxy-host", "https://api.example.com/v1/hooks");

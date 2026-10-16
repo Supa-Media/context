@@ -2,8 +2,9 @@
  * Settings › Vault (vault board 2): the keys a signed-in person may use in
  * one workspace, the one website each goes to, the AIs they said yes to, and
  * Cut off. Every read and change goes through the vault's barrier
- * (`runVaultOperation` in `vault.ts`), which never returns a value: a key's
- * values are seen only on its view page, reached here by a fresh link.
+ * (`runVaultOperation` in `vault.ts`), which never returns a value here: a
+ * key's values are seen and changed only through a fresh view link, opened in
+ * place in Settings.
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -14,10 +15,13 @@ import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { workspaceNotFound } from "./lib/workspaceAuth";
-import { isEntryId } from "../../mcp/src/vault/entries.js";
+import { MAX_SECRET, isEntryId } from "../../mcp/src/vault/entries.js";
+import { normalizeFields } from "../../mcp/src/vault/fields.js";
+import { fieldValuesValidator, type FieldValues } from "./lib/vaultShapes";
 import { runVault, type Listed, type Shown, type ShownMeta } from "./vault";
 
 const fail = (code: string, message: string) => new ConvexError({ code, message });
+const linkDead = () => fail("VAULT_LINK_DEAD", "This link has expired or was already used. Ask Tex for a new one.");
 
 const clientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
 const useValidator = v.object({
@@ -184,5 +188,68 @@ export const startVaultLink = action({
     });
     if (status !== "issued") throw fail("FORBIDDEN", "That link could not be made.");
     return { token };
+  },
+});
+
+/**
+ * Save a key's values changed in place on its view link: the username, the
+ * password, or a secret's fields. The link proves this person asked to see
+ * this key moments ago; owners and editors may change any key given to them,
+ * anyone else only one they saved. Audited as `vault.edited` with the names
+ * of what changed ("password"), never a value.
+ */
+export const editVaultEntry = action({
+  args: {
+    token: v.string(),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+    fields: v.optional(v.array(fieldValuesValidator)),
+  },
+  returns: v.object({ changed: v.array(v.string()) }),
+  handler: async (ctx, args): Promise<{ changed: string[] }> => {
+    const signedIn = await getAuthUserId(ctx);
+    if (signedIn === null) throw fail("NOT_AUTHENTICATED", "Sign in to continue.");
+    if (typeof args.token !== "string" || args.token.length === 0 || args.token.length > 128) throw linkDead();
+    const live = await ctx.runQuery(internal.functions.vault.liveViewRequest, {
+      hashedToken: await hashToken(args.token),
+      userId: signedIn as Id<"users">,
+    });
+    const { userId, role } = await signedInMember(ctx, live.workspaceId);
+    if ((args.username?.length ?? 0) > MAX_SECRET || (args.password?.length ?? 0) > MAX_SECRET) {
+      throw fail("INVALID_ARGUMENT", "That is longer than a login can be.");
+    }
+    if (args.password !== undefined && args.password.length === 0) throw fail("INVALID_ARGUMENT", "Enter the password.");
+    let fields: FieldValues[] | undefined;
+    if (args.fields !== undefined) {
+      const normalized = normalizeFields(args.fields);
+      if (normalized.error !== null) throw fail("INVALID_ARGUMENT", `Check the fields: ${normalized.error}.`);
+      fields = normalized.fields as FieldValues[];
+    }
+    const edited = (await runVault(
+      ctx,
+      live.workspaceId,
+      {
+        kind: "edit",
+        entryId: live.entryId,
+        userId,
+        anyKey: role !== "member",
+        ...(args.username === undefined ? {} : { username: args.username }),
+        ...(args.password === undefined ? {} : { password: args.password }),
+        ...(fields === undefined ? {} : { fields }),
+      },
+      "That wasn't saved: your workspace's storage didn't take it.",
+    )) as Shown | null;
+    if (edited === null) throw fail("FORBIDDEN", "Only an owner or editor, or whoever saved this key, can change it.");
+    const changed = edited.changed ?? [];
+    if (changed.length > 0) {
+      await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
+        workspaceId: live.workspaceId,
+        actorUserId: userId,
+        action: "vault.edited",
+        entryId: live.entryId,
+        changed: changed.join(", ").slice(0, 500),
+      });
+    }
+    return { changed };
   },
 });

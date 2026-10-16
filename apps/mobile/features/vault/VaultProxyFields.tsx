@@ -7,6 +7,7 @@ import { TextLink } from "../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { radii } from "../design/tokens";
 import { Segmented } from "./Segmented";
+import { SuggestionList } from "./SuggestionList";
 import { apiForName, suggestApiHosts, type ApiSuggestion } from "./apiHostSuggest";
 import {
   chosenStyle,
@@ -103,26 +104,12 @@ export function VaultProxyFields({
             </Pressable>
           ) : null}
           {suggestions.length > 0 ? (
-            <View style={styles.list} accessibilityLabel="Suggested websites" testID="vault-proxy-suggestions">
-              {suggestions.map((api, index) => (
-                <Pressable
-                  key={api.host}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Use ${api.host}, ${api.name}`}
-                  onPress={() => pick(api)}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.option, index > 0 && styles.divided, pressed && styles.pressed]}
-                  testID={`vault-proxy-suggestion-${api.host}`}
-                >
-                  <Text variant="rowTitle" numberOfLines={1}>
-                    {api.host}
-                  </Text>
-                  <Text variant="rowSub" numberOfLines={1}>
-                    {api.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            <SuggestionList
+              items={suggestions.map((api) => ({ value: api.host, name: api.name }))}
+              onPick={(value) => set({ host: value })}
+              disabled={busy}
+              testID="vault-proxy-suggestions"
+            />
           ) : host && problem === null && host !== state.host.trim().toLowerCase() ? (
             <Text variant="rowSub" testID="vault-proxy-saved-as">
               Saved as <Text variant="rowSub" style={styles.strong}>{host}</Text>, the whole site.
@@ -212,15 +199,5 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chipFill,
       marginTop: -6,
     },
-    list: {
-      marginTop: -6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.lineStrong,
-      borderRadius: radii.card,
-      backgroundColor: colors.surface,
-      overflow: "hidden",
-    },
-    option: { paddingVertical: 9, paddingHorizontal: 12, gap: 1, minHeight: 44, justifyContent: "center" },
-    divided: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
     pressed: { backgroundColor: colors.rowSelected },
   });

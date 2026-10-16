@@ -199,16 +199,20 @@ test("an entry not given to this person, or saved without a pin, sends nothing",
   assert.equal(net.calls.length, 0);
 });
 
-test("a pin to a host anyone can publish under never works", async () => {
-  for (const host of ["myapp.workers.dev", "webhook.site", "someone.github.io", "x.ngrok-free.app"]) {
+test("a pin to a host anyone can publish on never works; one person's address beneath it does", async () => {
+  for (const host of ["webhook.site", "workers.dev", "github.io", "ngrok-free.app"]) {
     assert.equal(isSharedHost(host), true, host);
     assert.equal(proxyPin({ proxy: { host, style: "bearer" } }), null, host);
   }
+  for (const host of ["myapp.workers.dev", "someone.github.io", "example-deployment.convex.cloud"]) {
+    assert.equal(isSharedHost(host), false, host);
+    assert.deepEqual(proxyPin({ proxy: { host, style: "bearer" } }), { host, style: "bearer" }, host);
+  }
   assert.equal(isSharedHost("api.stripe.com"), false);
-  const { store, id } = await proxyVault({ proxy: { host: "hooks.workers.dev", style: "bearer", ask: false } });
+  const { store, id } = await proxyVault({ proxy: { host: "webhook.site", style: "bearer", ask: false } });
   const net = fakeFetch();
   withProxy(store, net.impl);
-  assert.equal((await toolVaultFetch(store, ask(id, "https://hooks.workers.dev/x"))).isError, true);
+  assert.equal((await toolVaultFetch(store, ask(id, "https://webhook.site/x"))).isError, true);
   assert.equal(net.calls.length, 0);
 });
 
@@ -297,9 +301,10 @@ test("the save page's pin is checked by the rules every use checks", () => {
     pin: { host: "api.anthropic.com", style: "header", name: "x-api-key", ask: false },
   });
   assert.equal(savedPin({ host: "api.example.com", style: "query", name: "api_key" }).pin.ask, true, "the ask is on unless turned off");
-  for (const host of ["my-thing.workers.dev", "webhook.site", "x.ngrok-free.app"]) {
+  for (const host of ["workers.dev", "webhook.site", "ngrok-free.app"]) {
     assert.match(savedPin({ host, style: "bearer" }).problem, /Anyone can put a page/, host);
   }
+  assert.deepEqual(savedPin({ host: "my-thing.workers.dev", style: "bearer" }).pin?.host, "my-thing.workers.dev");
   assert.match(savedPin({ host: "localhost", style: "bearer" }).problem, /Enter the website/);
   assert.match(savedPin({ host: "api.example.com:8443", style: "bearer" }).problem, /Enter the website/);
   assert.match(savedPin({ host: "api.example.com", style: "cookie" }).problem, /Choose how/);

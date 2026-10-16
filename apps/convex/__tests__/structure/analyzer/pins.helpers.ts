@@ -69,9 +69,11 @@ export const CREDENTIAL_BARRIERS = new Set([
   /*
    * The vault's barrier (`functions/vault.ts`, decided by the owner
    * 2026-10-10). It opens a bucket credential and the data key to seal or
-   * open one login's name, sites and people, and returns only those: no
-   * operation it has reads a secret part. Its callers are the signed-in save
-   * and share actions, which check the person against the request first.
+   * open one login's name, sites and people, and returns only those, except
+   * `reveal`, which returns the values to the person on a live view link, and
+   * `edit`, which changes them in place and returns only what changed by
+   * name. Its callers are the signed-in actions, which check the person
+   * against the link or the membership first.
    */
   "functions.vault.runVaultOperation",
 ]);
