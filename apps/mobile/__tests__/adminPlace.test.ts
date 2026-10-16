@@ -161,18 +161,24 @@ describe("the router gives places a Back step without a second page", () => {
 });
 
 describe("the AI tab's addresses", () => {
-  test("bare /admin/ai is the jobs view", () => {
+  test("bare /admin/ai is the overview", () => {
     expect(parseAdminPlace(["ai"])).toEqual({ tab: "ai", sub: null });
   });
 
   test("each AI view has its address", () => {
     expect(parseAdminPlace(["ai", "skills"])).toEqual({ tab: "ai", sub: "skills" });
-    expect(parseAdminPlace(["ai", "results"])).toEqual({ tab: "ai", sub: "results" });
+    expect(parseAdminPlace(["ai", "files", "results"])).toEqual({ tab: "ai", sub: "files/results" });
+    expect(parseAdminPlace(["ai", "jobs", "texting-assistant", "compare", "live-6"])).toEqual({
+      tab: "ai",
+      sub: "jobs/texting-assistant/compare/live-6",
+    });
   });
 
   test("an AI view the tab does not have names no place", () => {
     expect(parseAdminPlace(["ai", "nope"])).toBeNull();
-    expect(parseAdminPlace(["ai", "skills", "extra"])).toBeNull();
+    expect(parseAdminPlace(["ai", "skills", "a", "extra"])).toBeNull();
+    expect(parseAdminPlace(["ai", "files", "nope"])).toBeNull();
+    expect(parseAdminPlace(["ai", "jobs", "../x"])).toBeNull();
   });
 
   test("the AI tab's place round-trips through its address", () => {
