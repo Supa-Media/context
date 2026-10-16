@@ -48,6 +48,7 @@ From the 2026-10-10 conversation. Maya's ChatGPT has never been connected.
 
 - kind: task
 - person starts: "set up claude so it can use my context"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
 - if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
 - if asked whether to go ahead: "Yes"
 - must call: read_skill

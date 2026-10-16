@@ -322,7 +322,7 @@ said they would rather do. The rule is in three places the model reads: the
 web prompt (`webPrompt`), `fill_login`'s and `browse`'s descriptions, and the
 `sign-in-for-them` skill in `@context-lc ai/production/skills/`.
 Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
-Tex's to do"). The bench has no vault fill step, so golden tasks 1, 4 and 7
+Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
 script Maya declining the save and test the handoff as the fallback.
 
 ### Later, not now
