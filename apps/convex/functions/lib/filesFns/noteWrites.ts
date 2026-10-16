@@ -9,6 +9,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { callerId } from "./access";
+import { parseFormBlocks } from "../../../../mcp/src/forms.js";
 import type { OperationResult } from "./operationTypes";
 
 /**
@@ -32,6 +33,7 @@ export async function writeNoteHandler(
     actorUserId,
     workspaceId: args.workspaceId,
     minimum: "editor",
+    memberWrite: { path: args.path, formBlocks: parseFormBlocks(args.text).length > 0 },
   });
   const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,
