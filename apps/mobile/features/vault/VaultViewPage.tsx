@@ -41,19 +41,12 @@ export function VaultViewPage({
   titleSize,
   onReveal,
   initialHidden = false,
-  inline = false,
 }: {
   view: ViewState;
   titleSize: number;
   onReveal: () => void;
   /** Previews only: revealed, then covered again. */
   initialHidden?: boolean;
-  /**
-   * Drawn inside Settings › Vault under the key it belongs to: no heading of
-   * its own, and no Hide values, since the key's own Hide the key closes it
-   * and drops the values with it.
-   */
-  inline?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -69,23 +62,19 @@ export function VaultViewPage({
 
   return (
     <View testID="vault-link-view">
-      {inline ? null : (
-        <>
-          <Title size={titleSize}>{entry.name}</Title>
-          <Text variant="heroSub" style={styles.sub}>
-            {`${login ? "A login" : "A secret"} in ${where}. Values stay hidden until you reveal them, and each reveal is recorded.`}
-          </Text>
-          <Card style={styles.facts}>
-            <FieldList
-              testIDPrefix="vault-view"
-              fields={[
-                { label: "Workspace", value: view.workspace.name },
-                ...(sites ? [{ label: "Fills on", value: sites }] : []),
-              ]}
-            />
-          </Card>
-        </>
-      )}
+      <Title size={titleSize}>{entry.name}</Title>
+      <Text variant="heroSub" style={styles.sub}>
+        {`${login ? "A login" : "A secret"} in ${where}. Values stay hidden until you reveal them, and each reveal is recorded.`}
+      </Text>
+      <Card style={styles.facts}>
+        <FieldList
+          testIDPrefix="vault-view"
+          fields={[
+            { label: "Workspace", value: view.workspace.name },
+            ...(sites ? [{ label: "Fills on", value: sites }] : []),
+          ]}
+        />
+      </Card>
 
       {perEnv ? (
         <Segmented
@@ -139,7 +128,7 @@ export function VaultViewPage({
           {entry.fields.length > 0 ? (
             <DotenvCopy name={entry.name} fields={shown.fields} env={env} perEnv={perEnv} />
           ) : null}
-          {inline ? null : <TextLink label="Hide values" onPress={() => setCovered(true)} testID="vault-view-hide" />}
+          <TextLink label="Hide values" onPress={() => setCovered(true)} testID="vault-view-hide" />
         </View>
       ) : (
         <Button
@@ -154,7 +143,7 @@ export function VaultViewPage({
         />
       )}
       <Text variant="foot" style={styles.foot}>
-        {inline ? "Nothing you reveal is saved on this device." : "Nothing you reveal is saved on this device. This link works for 30 minutes."}
+        Nothing you reveal is saved on this device. This link works for 30 minutes.
       </Text>
     </View>
   );

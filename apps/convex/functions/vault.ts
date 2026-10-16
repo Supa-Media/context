@@ -21,11 +21,12 @@
  * `__tests__/structure/analyzer/pins.helpers.ts`. It opens the bucket
  * credential and the data key, does one operation, and returns only what
  * that operation shows a person: an entry's name, sites, people and field
- * names. The one operation that opens a secret part is `reveal`, and its only
- * caller is `revealVaultEntry`, which answers the signed-in person on the
+ * names. The one operation that returns a secret part is `reveal`, and its
+ * only caller is `revealVaultEntry`, which answers the signed-in person on the
  * entry's people list who asked for that page; no gateway route and no tool
  * reaches it (decided by the owner, 2026-10-10: API keys and env variables a
- * person can see and copy).
+ * person can see and copy). `edit` opens one to change it in place and
+ * answers only the names of what changed (`lib/vaultEdit.ts`).
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -55,6 +56,7 @@ import {
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { waitingAsks } from "../../mcp/src/vault/usage.js";
+import { editEntry } from "./lib/vaultEdit";
 import {
   fieldSummaryValidator,
   fieldValuesValidator,
@@ -274,8 +276,17 @@ export const recordVaultAudit = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed"), v.literal("vault.cut_off"), v.literal("vault.allowed")),
+    action: v.union(
+      v.literal("vault.saved"),
+      v.literal("vault.shared"),
+      v.literal("vault.viewed"),
+      v.literal("vault.cut_off"),
+      v.literal("vault.allowed"),
+      v.literal("vault.edited"),
+    ),
     entryId: v.string(),
+    /** `vault.edited`: what changed, by name ("password", a field's name). Never a value. */
+    changed: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -284,6 +295,7 @@ export const recordVaultAudit = internalMutation({
       actorUserId: args.actorUserId,
       action: args.action,
       paths: [`.context/vault/${args.entryId}.json`],
+      ...(args.changed === undefined ? {} : { details: { changed: args.changed } }),
     });
     return null;
   },
@@ -315,7 +327,12 @@ export const runVaultOperation = internalAction({
   args: { workspaceId: v.id("workspaces"), operation: operationValidator },
   returns: v.union(
     v.null(),
-    v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) }),
+    v.object({
+      entryId: v.string(),
+      meta: metaValidator,
+      revealed: v.optional(revealedValidator),
+      changed: v.optional(v.array(v.string())),
+    }),
     v.object({
       entries: v.array(v.object({ entryId: v.string(), meta: metaValidator })),
       waiting: v.record(v.string(), v.number()),
@@ -370,6 +387,11 @@ export const runVaultOperation = internalAction({
       meta.updatedAt = Date.now();
       await writeMeta(store, keys, workspaceId, op.entryId, meta);
       return shown(op.entryId, meta);
+    }
+    if (op.kind === "edit") {
+      const edited = await editEntry(store, keys, workspaceId, op);
+      if (edited === "conflict") throw fail("VAULT_CHANGED", "This key changed while you were editing it. Try again.");
+      return edited === "refused" ? null : { ...shown(op.entryId, edited.meta), changed: edited.changed };
     }
     if (op.kind === "cut") {
       const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;

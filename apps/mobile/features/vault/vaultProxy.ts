@@ -49,8 +49,9 @@ const KNOWN: Record<string, { style: ProxyStyle; name: string }> = Object.fromEn
 );
 
 /**
- * Hosts anyone can publish a page under, so a key can't be kept to one site
- * there. The server refuses these (`SHARED_SUFFIXES` in
+ * Hosts anyone can publish a page on, so a key can't be kept to one site
+ * there; an address beneath one is one person's and is fine. The server
+ * refuses these (`SHARED_SUFFIXES` in
  * `apps/mcp/src/vault/proxy.js`, kept equal to this by
  * `__tests__/vaultApiHosts.test.ts`); the form says so as soon as one is typed.
  */
@@ -97,7 +98,7 @@ export const SHARED_HOST_SUFFIXES: readonly string[] = SHARED_SUFFIXES;
 
 /** Whether anyone can publish under this host, as the gateway's `isSharedHost` decides. */
 export function isSharedHost(host: string): boolean {
-  return SHARED_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  return SHARED_SUFFIXES.includes(host);
 }
 
 /** The host a typed website names, the way the server reads it, or "". */

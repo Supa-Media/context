@@ -170,7 +170,7 @@ describe("a secret saved for use through Context", () => {
   });
 
   test.each([
-    [{ host: "my-app.workers.dev", style: "bearer", ask: true }, /Anyone can put a page/],
+    [{ host: "webhook.site", style: "bearer", ask: true }, /Anyone can put a page/],
     [{ host: "localhost", style: "bearer", ask: true }, /Enter the website/],
     [{ host: "api.example.com", style: "header", name: "", ask: true }, /Name the header/],
     [{ host: "api.example.com", style: "query", name: "a b", ask: true }, /Name the address part/],

@@ -6,13 +6,15 @@
  * person said no to), and the last use in a sentence. On a narrow screen the
  * detail takes the list's place, with a way back.
  *
- * Values never reach the list. Show the key and New key make a fresh vault
+ * Values never reach the list. Picking a key, and New key, make a fresh vault
  * link and open it in place (`VaultInline`), through the same calls as the
- * vault's own page (`/vault/<token>`), so a value is typed or revealed only
- * there and is dropped when it closes.
+ * vault's own page (`/vault/<token>`): the picked key's username shows, its
+ * password and values are dots until Show, and they can be changed and saved
+ * there. Each opening is a recorded reveal, each save a logged change, and
+ * the values go when another key is picked or the page closes.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -104,6 +106,7 @@ function LiveVault({ workspaceId }: { workspaceId: string }) {
       describe: (token) => client.action(api.functions.vault.describeVaultRequest, { token }),
       save: (token, draft) => client.action(api.functions.vault.saveVaultLogin, { token, ...draft }),
       reveal: (token) => client.action(api.functions.vault.revealVaultEntry, { token }),
+      edit: (token, edit) => client.action(api.functions.vaultSettings.editVaultEntry, { token, ...edit }),
     },
   };
   return <VaultList key={workspaceId} actions={actions} />;
@@ -199,6 +202,22 @@ export function VaultList({
   // Side by side, a key is always picked, as on the board; narrow, the list comes first.
   const chosen =
     shownEntries.find((entry) => entry.entryId === picked) ?? (wide && picked === null ? shownEntries[0] ?? null : null);
+  // A picked key opens its values at once (username shown, password as dots
+  // until Show), once per pick: a failure is said, not retried in a loop.
+  const autoOpened = useRef<string | null>(null);
+  const chosenId = chosen?.entryId ?? null;
+  const addingNow = opened?.what.mode === "add";
+  useEffect(() => {
+    if (chosenId === null || addingNow) {
+      autoOpened.current = null;
+      return;
+    }
+    if (autoOpened.current === chosenId) return;
+    autoOpened.current = chosenId;
+    open({ mode: "view", entryId: chosenId });
+    // `open` is rebuilt each render; the pick is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenId, addingNow, opened === null]);
   const detail =
     chosen === null ? null : (
       <VaultDetail
@@ -207,8 +226,6 @@ export function VaultList({
         now={now}
         onCutOff={cutOff}
         onAllow={allow}
-        showing={opened?.what.mode === "view" && opened.what.entryId === chosen.entryId}
-        onShow={() => (opened?.what.mode === "view" ? setOpened(null) : open({ mode: "view", entryId: chosen.entryId }))}
         keyView={
           opened?.what.mode === "view" && opened.what.entryId === chosen.entryId ? (
             <VaultInline
@@ -257,10 +274,7 @@ export function VaultList({
                       key={option.key}
                       accessibilityRole="tab"
                       accessibilityState={{ selected: filter === option.key }}
-                      onPress={() => {
-                        setOpened(null);
-                        setFilter(option.key);
-                      }}
+                      onPress={() => setFilter(option.key)}
                       style={[styles.chip, filter === option.key && styles.chipOn]}
                       testID={`vault-filter-${option.key}`}
                     >
@@ -338,8 +352,6 @@ function VaultDetail({
   now,
   onCutOff,
   onAllow,
-  onShow,
-  showing,
   keyView,
   onBack,
 }: {
@@ -348,10 +360,7 @@ function VaultDetail({
   now?: Date;
   onCutOff: (entryId: string, clientId?: string) => void;
   onAllow: (entryId: string, clientId: string) => void;
-  onShow: () => void;
-  /** Whether the key is open below, so the button closes it. */
-  showing: boolean;
-  /** The key's values, opened in place. */
+  /** The key's values, opened in place and editable. */
   keyView: ReactNode;
   /** Narrow screens only: back to the list. */
   onBack?: () => void;
@@ -382,6 +391,7 @@ function VaultDetail({
               <Text variant="rowSub">{vaultPinLine(proxy)}</Text>
             </View>
           </View>
+          {keyView}
           <View style={styles.section}>
             <Text variant="eyebrow">AIs that can use it</Text>
             {proxy.clients.length === 0 && refused.length === 0 ? <Text variant="hint">{vaultNoClientsLine(proxy)}</Text> : null}
@@ -426,28 +436,24 @@ function VaultDetail({
               <Text variant="rowTitle">{site}</Text>
             </View>
           ))}
+          {keyView}
         </View>
       ) : (
-        <Text variant="hint">Not given to AIs. You copy it yourself from Show the key.</Text>
+        <>
+          <Text variant="hint">Not given to AIs. You copy it yourself from here.</Text>
+          {keyView}
+        </>
       )}
-      <View style={styles.actions}>
-        {proxy !== null && proxy.clients.length > 0 ? (
+      {proxy !== null && proxy.clients.length > 0 ? (
+        <View style={styles.actions}>
           <CutButton
             label="Cut off every AI"
             disabled={busy}
             testID={`vault-cut-all-${entry.entryId}`}
             onPress={() => onCutOff(entry.entryId)}
           />
-        ) : null}
-        <Button
-          label={showing ? "Hide the key" : "Show the key"}
-          variant="dialog"
-          disabled={busy && !showing}
-          testID={`vault-show-${entry.entryId}`}
-          onPress={onShow}
-        />
-      </View>
-      {keyView}
+        </View>
+      ) : null}
     </View>
   );
 }

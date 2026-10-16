@@ -190,6 +190,87 @@ describe("the vault list in Settings", () => {
   });
 });
 
+describe("editing a key in place", () => {
+  async function saveLogin(w: W) {
+    const { token } = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.startVaultLink, { workspaceId: w.team, kind: "add" });
+    await asUser(w.t, w.seyi).action(api.functions.vault.saveVaultLogin, {
+      token,
+      type: "login",
+      name: "Bank",
+      site: "bank.example.test",
+      username: "me@example.test",
+      password: "fake-old-password",
+    } as never);
+    const [entry] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
+    return entry.entryId;
+  }
+  const viewLink = async (w: W, who: W["seyi"], entryId: string) =>
+    (await asUser(w.t, who).action(api.functions.vaultSettings.startVaultLink, { workspaceId: w.team, kind: "view", entryId })).token;
+
+  test("a changed password is saved, the username kept, and the change audited by name only", async () => {
+    const w = await world();
+    const entryId = await saveLogin(w);
+    const token = await viewLink(w, w.seyi, entryId);
+    const edited = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, { token, password: "fake-new-password" });
+    expect(edited.changed).toEqual(["password"]);
+    const shown = await asUser(w.t, w.seyi).action(api.functions.vault.revealVaultEntry, { token });
+    expect(shown.password).toBe("fake-new-password");
+    expect(shown.username).toBe("me@example.test");
+    const audit = await w.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    const row = audit.find((r) => (r as { action?: string }).action === "vault.edited") as { details?: Record<string, unknown> } | undefined;
+    expect(row?.details).toEqual({ changed: "password" });
+    expect(JSON.stringify(audit)).not.toContain("fake-new-password");
+    expect(JSON.stringify(audit)).not.toContain("fake-old-password");
+  });
+
+  test("saving nothing new changes nothing and logs nothing", async () => {
+    const w = await world();
+    const entryId = await saveLogin(w);
+    const token = await viewLink(w, w.seyi, entryId);
+    const edited = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, { token, username: "me@example.test" });
+    expect(edited.changed).toEqual([]);
+    const audit = await w.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(audit.some((r) => (r as { action?: string }).action === "vault.edited")).toBe(false);
+  });
+
+  test("a secret's field values change, and its summary follows", async () => {
+    const w = await world();
+    await save(w, "Stripe");
+    const [entry] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
+    const token = await viewLink(w, w.seyi, entry.entryId);
+    const edited = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, {
+      token,
+      fields: [{ name: "KEY", perEnv: true, values: { dev: VALUE, staging: "fake-staging-value-1", prod: VALUE } }],
+      // A secret has no sign-in: these are ignored, never logged as changed.
+      username: "fake-stray-user",
+      password: "fake-stray-password",
+    });
+    expect(edited.changed).toEqual(["KEY"]);
+    const [after] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
+    expect(after.envs).toEqual(["dev", "staging", "prod"]);
+  });
+
+  test("someone else's link, no link, or a member who did not save the key changes nothing", async () => {
+    const w = await world();
+    const entryId = await saveLogin(w);
+    const token = await viewLink(w, w.seyi, entryId);
+    const notYours = await captureError(() => asUser(w.t, w.sayo).action(api.functions.vaultSettings.editVaultEntry, { token, password: "fake-x" }));
+    expect(errorCode(notYours)).toBe("VAULT_LINK_NOT_YOURS");
+    const signedOut = await captureError(() => w.t.action(api.functions.vaultSettings.editVaultEntry, { token, password: "fake-x" }));
+    expect(errorCode(signedOut)).toBe("NOT_AUTHENTICATED");
+    // Give the key to the member, as a share does; a member may see it but not change it.
+    const { store, keys } = await bucket(w);
+    const { readMeta, writeMeta } = await import("../../mcp/src/vault/entries.js");
+    const meta = (await readMeta(store, keys, String(w.team), entryId)) as { people: string[] };
+    await writeMeta(store, keys, String(w.team), entryId, { ...meta, people: [...meta.people, String(w.sayo)] });
+    const theirs = await viewLink(w, w.sayo, entryId);
+    const member = await captureError(() => asUser(w.t, w.sayo).action(api.functions.vaultSettings.editVaultEntry, { token: theirs, password: "fake-x" }));
+    expect(errorCode(member)).toBe("FORBIDDEN");
+    const shown = await asUser(w.t, w.seyi).action(api.functions.vault.revealVaultEntry, { token });
+    expect(shown.password).toBe("fake-old-password");
+  });
+});
+
 /** The workspace's bucket and data key, as the gateway opens them. */
 async function bucket(w: W) {
   const { storeForBinding } = await import("../../mcp/src/store/factory.js");

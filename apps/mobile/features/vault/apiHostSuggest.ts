@@ -112,3 +112,31 @@ function siteLabel(site: string): string | null {
   const label = parts[parts.length - 2];
   return label.length >= 3 && !["com", "co", "org", "net"].includes(label) ? label : null;
 }
+
+/**
+ * Suggestions for "Fills on": the site of each API that matches what was
+ * typed ("convex" offers convex.dev). A saved site fills every page beneath
+ * it (`siteMatches` in `apps/mcp/src/vault/entries.js`), so the site itself
+ * covers its dashboard. No site offered is one anyone can publish on: every
+ * listed host passes `hostProblem`, and each shared suffix is a whole site.
+ */
+export function suggestSites(raw: string, limit = 5): { site: string; name: string }[] {
+  const query = typedStart(raw);
+  if (query.length === 0) return [];
+  const found: { site: string; name: string }[] = [];
+  for (const api of suggestApiHosts(raw, 40)) {
+    const site = siteOf(api.host);
+    if (site === null || found.some((one) => one.site === site)) continue;
+    found.push({ site, name: api.name });
+  }
+  if (found.some((one) => one.site === query)) return [];
+  return found.slice(0, limit);
+}
+
+/** The site an API lives on: convex.dev for api.convex.dev, example.co.uk for api.example.co.uk. */
+function siteOf(host: string): string | null {
+  const parts = host.split(".");
+  if (parts.length < 2) return null;
+  const short = parts.length >= 3 && ["co", "com", "org", "net", "ac", "gov"].includes(parts[parts.length - 2]);
+  return parts.slice(short ? -3 : -2).join(".");
+}

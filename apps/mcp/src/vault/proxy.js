@@ -44,10 +44,13 @@ const PARAM_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 export const MIN_KEY = 12;
 
 /**
- * Hosts under which anyone can publish a page or catch a request. A key
- * pinned to one of these, or to anything beneath one, could be collected by
- * whoever set up the page there. Not the whole public suffix list: the hosts
- * people actually paste into a "send it to" box.
+ * Hosts on which anyone can publish a page or catch a request. A key pinned to
+ * one of these exactly could be collected by whoever set up a page there. An
+ * address beneath one (`my-app.workers.dev`) is one person's, and a pin is
+ * that exact address, typed by the person saving the key, so it is allowed
+ * (the owner, 2026-10-16: "the user is writing the domain in so they should
+ * be allowed to"). Not the whole public suffix list: the hosts people
+ * actually paste into a "send it to" box.
  */
 const SHARED_SUFFIXES = [
   "workers.dev",
@@ -89,7 +92,7 @@ const SHARED_SUFFIXES = [
 ];
 
 export function isSharedHost(host) {
-  return SHARED_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  return SHARED_SUFFIXES.includes(host);
 }
 
 /**

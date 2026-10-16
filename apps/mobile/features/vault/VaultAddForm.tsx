@@ -7,6 +7,8 @@ import { leading } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { DotenvPaste } from "./DotenvPaste";
 import { Segmented } from "./Segmented";
+import { SuggestionList } from "./SuggestionList";
+import { suggestSites } from "./apiHostSuggest";
 import { SecretInput } from "./SecretInput";
 import { VaultFieldsEditor } from "./VaultFieldsEditor";
 import { VaultProxyFields } from "./VaultProxyFields";
@@ -170,6 +172,14 @@ export function VaultAddForm({
         editable={!busy}
         testID="vault-site"
       />
+      {secret ? (
+        <SuggestionList
+          items={suggestSites(site).map((one) => ({ value: one.site, name: one.name }))}
+          onPick={setSite}
+          disabled={busy}
+          testID="vault-site-suggestions"
+        />
+      ) : null}
       {secret ? null : (
         <>
           <TextField

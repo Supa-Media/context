@@ -162,9 +162,13 @@ outgoing request.
   parameter. Exact host only, never "beneath it" as a login's fill allows,
   and https only. A request to any other host goes out without the key; the
   model cannot choose where a key goes, which is the whole defence against a
-  planted "send the key to webhook.site". A host anyone can publish under (a
-  shared hosting suffix such as `workers.dev`, `ngrok.app`, `github.io`) is
-  refused at save time, because pinning to it pins to everyone.
+  planted "send the key to webhook.site". A host anyone can publish on
+  itself (`webhook.site`, or a shared hosting suffix such as `workers.dev`)
+  is refused at save time, because pinning to it pins to everyone. One
+  person's address beneath a suffix (`my-app.workers.dev`,
+  `<name>.convex.cloud`) is allowed: the person types it, and the key goes
+  to that exact address only (the owner, 2026-10-16: "the user is writing
+  the domain in so they should be allowed to").
 - **The save form suggests the website; it never decides it** (decided by the
   owner, 2026-10-16). As the person types a name or an address, the form
   offers API hosts from a vendored list: about 200 picked by hand
@@ -221,9 +225,27 @@ outgoing request.
   and runs the same calls as `/vault/<token>` (`useVaultLinkFlow`), so a value
   is typed or revealed only on a link, each reveal is recorded, and the list
   itself never holds a value. What was revealed lives in that one component
-  and is dropped when the key is hidden, another key is picked or the page
-  closes. Going back to a separate page would cost nothing in safety and only
-  the person's place in Settings.
+  and is dropped when another key is picked or the page closes. Going back to
+  a separate page would cost nothing in safety and only the person's place in
+  Settings.
+- **A key is changed where it is shown** (the owner, 2026-10-16: "I should
+  also be able to edit it inline and save the edits and have it log that I
+  changed the password"). Picking a key opens its view link at once: a
+  login's username shows as it is, every password and secret value is dots
+  until Show, and each field is editable with Save and Undo. A save goes
+  through the same view link (`editVaultEntry`), so only the person the link
+  was minted for, within its half hour, can change that key; owners and
+  editors may change any key given to them, a member only one they saved.
+  Meta and secret are rewritten together on condition of the version read
+  (`changeEntry`), so an edit never undoes a Cut off or a use that raced it.
+  It is audited as `vault.edited` with the names of what changed
+  ("password"), never a value, and a save that changed nothing is not logged.
+  Each pick is a reveal, and is recorded as one; asking for a second press
+  first would only add a step the owner asked to remove.
+- **"Fills on" suggests the site as a name is typed** ("convex" offers
+  convex.dev), from the same list as "Only ever sent to". The site itself is
+  offered, not a dashboard address, because a saved site fills every page
+  beneath it.
 - **Two ways in.** (1) A fetch-through-Context argument on an existing vault
   tool (new capability, existing tool: `gateway-protocol.md`) for a plain web
   request from any MCP client. (2) For command-line tools on an agent's own
@@ -240,7 +262,7 @@ outgoing request.
 
 **What a simplification would cost:** letting the model name the host turns a
 planted instruction into a stolen key; allowing subdomains or a shared hosting
-suffix lets anyone who can publish there collect it; scrubbing only the literal
+suffix itself lets anyone who can publish there collect it; scrubbing only the literal
 value misses the echo in base64; letting one yes cover every AI makes a steered
 client's first use silent. Tests to write with the build: a request to another
 host carries no key, an echoed key comes back blanked in each encoding, an

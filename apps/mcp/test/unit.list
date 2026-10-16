@@ -104,6 +104,7 @@ test/vault.test.mjs
 test/vaultProxy.test.mjs
 test/vaultAsks.test.mjs
 test/vaultUsage.test.mjs
+test/vaultEdit.test.mjs
 test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
 test/calendarKeyedDelete.test.mjs

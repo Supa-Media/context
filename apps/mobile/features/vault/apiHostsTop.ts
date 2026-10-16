@@ -107,6 +107,7 @@ export const TOP_APIS: readonly TopApi[] = [
   ["api.vultr.com", "Vultr"],
   ["api.scaleway.com", "Scaleway", "header:X-Auth-Token"],
   ["api.supabase.com", "Supabase"],
+  ["api.convex.dev", "Convex"],
   ["console.neon.tech", "Neon"],
   ["api.planetscale.com", "PlanetScale", "header:Authorization"],
   ["api.pinecone.io", "Pinecone", "header:Api-Key"],

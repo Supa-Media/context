@@ -49,7 +49,8 @@ export type ShownMeta = {
   createdAt: number;
 };
 export type Revealed = { username: string; password: string; fields: FieldValues[] };
-export type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
+/** `changed`: after an edit, the names of what changed ("username", "password", a field's name). Never a value. */
+export type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed; changed?: string[] };
 /** `waiting`: entry id → how many AIs wait on a first-use ask from this person now. */
 export type Listed = { entries: { entryId: string; meta: ShownMeta }[]; waiting: Record<string, number> };
 export type RequestKind = "add" | "share" | "view";
@@ -89,6 +90,17 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("cut"), entryId: v.string(), userId: v.string(), clientId: v.optional(v.string()) }),
   // "Allow" on an AI the person said no to: it joins the AIs that may use the key.
   v.object({ kind: v.literal("allow"), entryId: v.string(), userId: v.string(), clientId: v.string() }),
+  // A key's values changed in place in Settings › Vault. `anyKey`: an owner or
+  // editor, who may change any key given to them; anyone else only their own.
+  v.object({
+    kind: v.literal("edit"),
+    entryId: v.string(),
+    userId: v.string(),
+    anyKey: v.boolean(),
+    username: v.optional(v.string()),
+    password: v.optional(v.string()),
+    fields: v.optional(v.array(fieldValuesValidator)),
+  }),
 );
 
 export const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
