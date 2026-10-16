@@ -19,9 +19,9 @@ export function vaultToolDefinitions() {
             description: "Make one https request through Context with one field of an entry added. Instead of listing.",
             properties: {
               entry: { type: "string", description: "The entry's id, from vault_list." },
-              field: { type: "string", description: "The field to add, e.g. STRIPE_SECRET_KEY." },
+              field: { type: "string", description: "The field to add, e.g. API_KEY." },
               env: { type: "string", enum: ["dev", "staging", "prod"], description: "Which environment's value, for a per-environment field." },
-              url: { type: "string", description: "The full https address, on the entry's site, e.g. https://api.stripe.com/v1/customers?limit=3." },
+              url: { type: "string", description: "The full https address, on the entry's site, e.g. https://api.example.com/v1/items?limit=3." },
               method: { type: "string", enum: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], description: "Default GET." },
               headers: {
                 type: "array",
