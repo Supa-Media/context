@@ -176,6 +176,15 @@ export async function startQueuedMove(
       state,
     );
 
+    // In rows mode the rows are the truth, and an unkeyed move re-creates its rows at the new name, where their
+    // access is not carried: a private folder would come out inheriting its new parent. Refused, nothing moved.
+    const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+    if (rowsTruth) {
+      throw new FileOpError(
+        "CONFLICT",
+        "This folder cannot move by name while privacy is kept on rows: its access does not follow it. Nothing was moved.",
+      );
+    }
     const carried = await carryPrivacy(store, from, to);
     if (carried === null) return null;
     await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
@@ -189,7 +198,7 @@ export async function startQueuedMove(
     });
     if (!drawn) {
       // Nothing moved: take the carried rules back and let the old way carry them.
-      await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
+      if (!rowsTruth) await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
       await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
       return null;
     }

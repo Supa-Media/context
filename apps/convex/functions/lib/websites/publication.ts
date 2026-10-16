@@ -19,6 +19,7 @@ import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
+import { recordRowsVisibilityLine } from "../filesFns/visibility";
 
 /** The only clearance a website page, menu entry or list row is read at. */
 export const PUBLICATION_SCOPE = "team" as const;
@@ -33,6 +34,36 @@ export const PUBLICATION_CLEARANCE: {
  * already has a rule for the folder, which is the owner's and stands. A
  * `website/` the owner keeps private serves nothing.
  */
+/**
+ * The same default in rows mode (`nodesAccess.ensureFolderDefault`): the row takes `team` only when it has no
+ * base of its own. The change and its activity line are the file path's, answered in the same shape.
+ */
+async function publishRowsDefault(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; actorUserId?: Id<"users">; actorName?: string | null },
+): Promise<{ kind: "visibility"; path: string; visibility: "private" | "team" } | { kind: "none" }> {
+  // Only a person's gesture can be an owner's change to a row; a repair with no person behind it changes nothing.
+  if (args.actorUserId === undefined) return { kind: "none" };
+  const answer = await ctx.runMutation(internal.functions.nodesAccess.ensureFolderDefault, {
+    workspaceId: args.workspaceId,
+    actorUserId: args.actorUserId,
+    path: DEFAULT_WEBSITE_ROOT,
+  });
+  if (!answer.ok) return { kind: "none" };
+  const visibility = answer.visibility as "private" | "team";
+  if (answer.changed) {
+    await recordRowsVisibilityLine(ctx, {
+      workspaceId: args.workspaceId,
+      action: "visibility.folder",
+      path: DEFAULT_WEBSITE_ROOT,
+      to: visibility,
+      teamVisible: visibility === "team",
+      ...(args.actorName === undefined ? {} : { actorName: args.actorName }),
+    });
+  }
+  return { kind: "visibility", path: DEFAULT_WEBSITE_ROOT, visibility };
+}
+
 export async function ensureWebsitePublicationRule(
   ctx: ActionCtx,
   args: {
@@ -41,7 +72,11 @@ export async function ensureWebsitePublicationRule(
     actorName?: string | null;
   },
 ): Promise<void> {
-  const result = await ctx.runAction(
+  // In rows mode the rows are the truth and `privacy.md` is not written: the default goes on the folder's row.
+  const rows = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+  const result = rows
+    ? await publishRowsDefault(ctx, args)
+    : await ctx.runAction(
     internal.functions.files.runFileOperation,
     {
       workspaceId: args.workspaceId,

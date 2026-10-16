@@ -79,6 +79,8 @@ export function safeMoveStorageDetail(error, store) {
 }
 
 async function cleanupPrivacySourceAfterMove(store, job) {
+  // Rows mode: a move carries its rows with it (the control plane's move), and privacy.md is not written.
+  if (store.rowAccess) return;
   const removableSources = new Set((job.objects || []).map((item) => item.source).filter(Boolean));
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const state = await loadPrivacyState(store);

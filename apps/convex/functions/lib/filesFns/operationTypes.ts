@@ -179,6 +179,17 @@ export type FileOperation =
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderGroup"; path: string; group: string }
+  /**
+   * Rows mode: the activity line a tier change records on the file path, for a change written to the rows
+   * (`visibility.ts`). Not a privacy write: it touches `activity.md` only.
+   */
+  | {
+      kind: "visibilityLine";
+      action: "visibility.note" | "visibility.folder";
+      path: string;
+      to: string;
+      teamVisible: boolean;
+    }
   | {
       kind: "setFolderVisibility";
       path: string;
@@ -447,6 +458,7 @@ export type OperationResult =
     }
   | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
+  | { kind: "activityRecorded" }
   | {
       kind: "visibility";
       path: string;

@@ -113,6 +113,8 @@ export async function startRowMoveBatch(
   }
 
   // Each move's rules go to its new name before any row moves, as one move's do; a batch that fails takes them back.
+  // In rows mode the rows are the truth: nothing is carried, and each move narrows its own row where it would widen.
+  const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
   const carried: { from: string; to: string; added: AddedRules }[] = [];
   let privacyEtag: string | null = null;
   const undoCarried = async () => {
@@ -123,6 +125,11 @@ export async function startRowMoveBatch(
   };
   try {
     for (const { move } of planned) {
+      if (rowsTruth) {
+        await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from: move.from, to: move.to });
+        privacyEtag = state.etag;
+        continue;
+      }
       const carry = await carryPrivacy(store, move.from, move.to);
       if (carry === null) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
       carried.push({ from: move.from, to: move.to, added: carry.added });
@@ -151,7 +158,7 @@ export async function startRowMoveBatch(
     throw batchRefusal(error, planned, clearance, state);
   }
 
-  for (const entry of carried) await releasePrivacy(store, { from: entry.from, undone: false, added: entry.added });
+  if (!rowsTruth) for (const entry of carried) await releasePrivacy(store, { from: entry.from, undone: false, added: entry.added });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   await recordForwarding(
     store,
