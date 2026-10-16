@@ -350,3 +350,23 @@ test("an answer Context cannot read is not passed through unread", async () => {
   assert.equal(text.includes("the site's own words"), false, "a body Context could not read reached the model anyway");
   assert.match(text, /could not read/);
 });
+
+test("an answer that declares no length is still not read past the cap", async () => {
+  const chunk = new Uint8Array(1_000_000);
+  const net = fakeFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < 6; i += 1) controller.enqueue(chunk);
+            controller.close();
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+  );
+  const { store, id } = await proxyVault();
+  withProxy(store, net.impl);
+  const result = await toolVaultFetch(store, ask(id, "https://api.stripe.com/v1/big"));
+  assert.match(JSON.stringify(result), /too large to read through Context/);
+});
