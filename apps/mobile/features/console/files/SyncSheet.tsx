@@ -14,6 +14,8 @@ import { describeSyncMark, type OpRow as QueuedOp, type PendingMarks } from "./p
 import { compactSync, syncSheetSections, type StatusSegment, type SyncSheetSection } from "./status";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { mirrorSheetSection } from "../../offline/mirrorCopy";
+import { downloadPill } from "../../offline/downloadSummary";
+import { DownloadPillContent, DownloadsSection, useDownloadRows } from "./Downloads";
 
 /**
  * Sync, on a phone: a pill in the header and a sheet behind it.
@@ -47,15 +49,37 @@ import { mirrorSheetSection } from "../../offline/mirrorCopy";
 export function SyncPill({
   sync,
   save,
+  contexts,
   onPress,
 }: {
   sync: SyncFacts | undefined;
   /** The open note's `saveChip`, or `null` with nothing open. */
   save: StatusSegment | null;
+  /** Every workspace, for the download count when nothing else is to say. */
+  contexts?: readonly { id: string; slug: string }[];
   onPress: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pill = compactSync(sync, save);
+  /*
+    Nothing about the connection or the queue: the pill is the one way in to
+    what is downloading (owner, 2026-10-16), and absent when nothing is.
+  */
+  const downloads = downloadPill(useDownloadRows(contexts));
+  if (pill === null && downloads !== null) {
+    return (
+      <PressRow
+        accessibilityLabel={`${downloads.label}. Show downloads`}
+        onPress={onPress}
+        radius={radii.pill}
+        style={styles.pill}
+        hoverStyle={styles.pillHover}
+        testID="download-pill"
+      >
+        <DownloadPillContent pill={downloads} />
+      </PressRow>
+    );
+  }
   if (pill === null) return null;
 
   return (
@@ -89,6 +113,7 @@ export function SyncPill({
 export function SyncSheet({
   sync,
   save,
+  contexts,
   pending,
   onOpen,
   onAnswer,
@@ -96,6 +121,8 @@ export function SyncSheet({
 }: {
   sync: SyncFacts | undefined;
   save: StatusSegment | null;
+  /** Every workspace, for the Downloads block. */
+  contexts?: readonly { id: string; slug: string }[];
   pending: PendingMarks;
   onOpen: (path: string) => void;
   /** A person's answer to a parked op — `FileBrowser.answerOp`. */
@@ -109,7 +136,12 @@ export function SyncSheet({
     unless the device is offline with part of it missing — `mirrorCopy.ts` —
     and never on its own a reason for the pill that opens this sheet.
   */
-  const sections = [...syncSheetSections(sync, pending, save), ...mirrorSheetSection(sync, Date.now())];
+  const downloads = useDownloadRows(contexts);
+  const sections = [
+    ...syncSheetSections(sync, pending, save),
+    // The Downloads block says the same per workspace, with the choice beside it.
+    ...(downloads.length > 0 ? [] : mirrorSheetSection(sync, Date.now())),
+  ];
 
   /*
     A sheet about nothing closes itself — the queue draining while it is open
@@ -118,8 +150,8 @@ export function SyncSheet({
     whose only way out is a scrim somebody has to guess at.
   */
   useEffect(() => {
-    if (sections.length === 0) onDismiss();
-  }, [sections.length, onDismiss]);
+    if (sections.length === 0 && downloads.length === 0) onDismiss();
+  }, [sections.length, downloads.length, onDismiss]);
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onDismiss}>
@@ -133,7 +165,7 @@ export function SyncSheet({
         >
           <View style={styles.grabber} aria-hidden />
           <Text variant="railHead" role="heading" aria-level={2} style={styles.sheetHead}>
-            Sync
+            {sections.length === 0 ? "Downloads" : "Sync"}
           </Text>
           <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
             {sections.map((section) => (
@@ -145,6 +177,7 @@ export function SyncSheet({
                 onAnswer={onAnswer}
               />
             ))}
+            <DownloadsSection rows={downloads} />
           </ScrollView>
         </Pressable>
       </Pressable>

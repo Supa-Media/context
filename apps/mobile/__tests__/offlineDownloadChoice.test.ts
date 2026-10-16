@@ -14,6 +14,7 @@ import {
   loadDownloadChoices,
   setOnlineOnly,
 } from "../features/offline/downloadChoice";
+import { downloadPill, downloadRows, rowStatus } from "../features/offline/downloadSummary";
 
 /**
  * What the phone downloads (owner, 2026-10-16): everything but Archive, and
@@ -199,5 +200,42 @@ describe("the per-workspace choice", () => {
     const kv = { ...memoryStore(), set: async () => { throw new Error("full"); } };
     await expect(setOnlineOnly(kv, W, true)).rejects.toThrow("full");
     expect(isOnlineOnly(W)).toBe(false);
+  });
+});
+
+describe("what the pill and the sheet say", () => {
+  const contexts = [
+    { id: "a", slug: "supa" },
+    { id: "b", slug: "seyi" },
+    { id: "c", slug: "public-worship" },
+  ];
+  const syncing = (notes: number, total: number) =>
+    ({ state: "syncing", notes, bytes: 0, lastSyncedAt: null, total, remaining: total - notes }) as const;
+
+  test("one pill across every workspace while anything downloads", () => {
+    const rows = downloadRows(
+      contexts,
+      new Map([
+        ["a", syncing(340, 1204)],
+        ["b", { state: "synced", notes: 50, bytes: 0, lastSyncedAt: 1, total: 50 }],
+      ]),
+      new Set(["c"]),
+    );
+    expect(rows.map((row) => [row.label, row.state, rowStatus(row)])).toEqual([
+      ["@supa", "downloading", "340 of 1,204"],
+      ["@seyi", "done", "All 50"],
+      ["@public-worship", "online-only", "Online only"],
+    ]);
+    expect(downloadPill(rows)?.text).toBe("340 / 1,204");
+  });
+
+  test("no pill when nothing is coming down", () => {
+    const rows = downloadRows(contexts, new Map([["a", { state: "synced", notes: 3, bytes: 0, lastSyncedAt: 1, total: 3 }]]), new Set());
+    expect(downloadPill(rows)).toBeNull();
+  });
+
+  test("a percentage once the numbers get long", () => {
+    const rows = downloadRows([{ id: "a", slug: "big" }], new Map([["a", syncing(2_500, 10_000)]]), new Set());
+    expect(downloadPill(rows)?.text).toBe("25%");
   });
 });

@@ -52,6 +52,7 @@ export function consoleSyncSlot({
       <SyncPill
         sync={data.files.sync}
         save={saveChip({ editor: data.files.editor, now: Date.now() })}
+        contexts={data.contexts}
         onPress={() => setSyncOpen(true)}
       />
     ) : undefined
