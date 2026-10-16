@@ -235,7 +235,7 @@ function TopKey({
       testID={`hold-menu-${item.id}`}
     >
       <Icon name={GLYPH[item.id] ?? "more"} size={22} color={tint} />
-      <Text variant="rowSub" style={[styles.topLabel, { color: tint }]}>
+      <Text variant="rowSub" style={{ color: tint }}>
         {item.label}
       </Text>
     </Pressable>
@@ -315,7 +315,6 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.lineStrong,
     },
     topKey: { flex: 1, alignItems: "center", gap: 4, paddingVertical: space.x3, minHeight: 64 },
-    topLabel: { fontSize: 13 },
     line: {
       flexDirection: "row",
       alignItems: "center",
