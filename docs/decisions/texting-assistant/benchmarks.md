@@ -573,6 +573,43 @@ the runner's scope, checks the state, and prints the two values once";
 `folder.test.mjs` ("the setups are pulled from Context"); and
 `check-secrets-allowlist.mjs`, which names the live token as not synced.
 
+### A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)
+
+**Decided by the owner (2026-10-16)**: tests must run "with the latest agents
+and the latest skills", and test lists are edited in the app's admin/AI page
+like any other note in `@context-lc ai/`. So `pnpm ai pull <job>` now brings
+three more things beside the setups being tried:
+
+- **`ai/production/<job>.md` as the setup `production`**, winning over a setup
+  someone named `production`. The Action runs only it unless `setups` names
+  others (`all` runs every setup too), so pressing Run measures what people
+  get today. Search has no live file and still runs every setup.
+- **`ai/production/skills/` as the round's skills.** A skill only in
+  `ai/setups/<job>/skills/` is added for a setup trying something new; a copy
+  there of a live skill is ignored. The setup copies had already drifted from
+  the live ones (build-a-website, 2,933 against 3,052 bytes on 2026-10-16), so
+  a round graded a stale skill as the live one.
+- **`ai/tests/*.md`, each over the repository's test of the same name.** This
+  narrows the 2026-10-10 rule that question lists are fixtures: the invented
+  workspaces still change with the code, and the repository keeps its test
+  copies for a run with no connection, but the copy a person edits in Context
+  is the one that runs. A test that names a note the workspaces don't have
+  fails loudly in the run, the same as before.
+
+The scores note now heads with `test`, and the live setup's `score`, `gates`
+and `good_enough` (the first row when the round did not run it), so a list of
+results reads them from front matter without opening each note.
+
+**What a simplification would cost:** grading only the setups being tried
+leaves nobody measuring production; pulling the setup copies of skills grades
+a stale skill; ignoring `ai/tests/` makes the app's test editor a page whose
+edits never run. Tests (`bench/test/context.test.mjs`): "pullSetups runs the
+live setup as production, beside the setups being tried", "pullSetups takes
+the live skills over a setup's copy, and keeps a skill only a setup has",
+"pullSetups puts the tests edited in Context over the repository's copies",
+"the scores note heads with the live setup's score, so a list of results can
+show it".
+
 ### The world's egress gate is the deployment's (2026-10-14)
 
 The bench world left `EGRESS_APPROVALS` unset, so it held every write into a

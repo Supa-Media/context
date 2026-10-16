@@ -6,6 +6,10 @@ beside the production files the gateway reads, and `pnpm ai pull <job>` brings
 them here before a run (decided 2026-10-10: a setup is what a person edits and
 promotes, so it lives where they can see it; a workspace or a question list
 changes in the same commit as the code, so it lives here).
+Since 2026-10-16 it also brings the live setup (`ai/production/<job>.md`, run
+as `production`), the live skills, and any test edited in `@context-lc
+ai/tests/`, which replaces the test of the same name here
+(`docs/decisions/texting-assistant/benchmarks.md`).
 
 Everything here is invented. No customer note, name or address is ever in
 this folder: it is public, like the rest of the repository.
