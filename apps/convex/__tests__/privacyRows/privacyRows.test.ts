@@ -245,7 +245,7 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("shadow");
   });
 
-  test("refused while a difference stands, and allowed once the next check finds none", async () => {
+  test("refused while a difference stands, and held for step 3 once the next check finds none", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
     await keepRows(t);
@@ -258,9 +258,10 @@ describe("Use rows", () => {
 
     await corruptRow(t, workspaceId, "1-projects/plan.md", undefined);
     await checkEverything(t);
-    expect(await staff.mutation(api.functions.privacyRows.useRows, {})).toEqual({ source: "rows" });
-    expect(await sourceOf(t)).toBe("rows");
-    expect(await auditActions(t)).toEqual(["rows.source_set", "rows.source_set"]);
+    // Every check passed; only the step-3 hold remains.
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
+    expect(await sourceOf(t)).toBe("shadow");
+    expect(await auditActions(t)).toEqual(["rows.source_set"]);
   });
 
   test("refused when a check was made before the rows were derived again, as stale", async () => {
@@ -295,7 +296,8 @@ describe("Use rows", () => {
     const staff = await signedIn(t, ADMIN);
     const report = await staff.query(api.functions.privacyRows.report, {});
     expect(report.rows[0]?.orphans).toBe(1);
-    expect(await staff.mutation(api.functions.privacyRows.useRows, {})).toEqual({ source: "rows" });
+    // Every check passed; only the step-3 hold remains.
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
   });
 });
 
