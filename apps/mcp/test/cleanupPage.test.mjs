@@ -55,7 +55,7 @@ function memoryStore(seed = [], { failDelete = [] } = {}) {
 const buildWith = (store) => ({ buildStore: () => store });
 
 test("the key rule: note and attachment keys and the collaboration history are never the cleanup's", () => {
-  for (const key of ["notes/a.md", "files/a.png", "notes", "files", ".context/collaboration/x", ".context", ".context/settings.json"]) {
+  for (const key of ["notes/a.md", "files/a.png", "notes", "files", ".context/collaboration/x", ".context", ".context/settings.json", ".obsidian/plugins/x/main.js", ".audit/2026-10.jsonl", ".history/a.md"]) {
     assert.equal(cleanupKey(key), false, key);
   }
   for (const key of ["1-projects/foo.md", "privacy.md", "index.md", "notesx.md", ".context/trash/s/x.md", ".context/moves/m.json", ".context/access/a.json"]) {
