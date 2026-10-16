@@ -406,3 +406,15 @@ test("surveyOtherContexts reports reach for the workspaces it renders and no oth
   // The wiring: a result carrying it reports it to the ledger.
   assert.deepEqual(readReachOf(withReadReach({}, reached)), reached);
 });
+
+test("the manual names a manage action's path among its args, and upload's files", async () => {
+  const { toolsManual } = await import("../src/orient/manual.js");
+  const manual = await toolsManual({}, "private");
+  const line = (name) => manual.split("\n").find((l, i, all) => all[i - 1]?.includes(`- ${name} —`));
+  assert.match(line("archive"), /args: path\*: string/);
+  assert.match(line("visibility"), /path\*: string/);
+  assert.match(line("encrypt"), /path\*: string/);
+  assert.match(line("upload"), /files\*: \{name\*, sha256\*, bytes\*\}\[\]/);
+  // An action that does not take content says nothing of content.
+  assert.doesNotMatch(line("answer"), /content/);
+});

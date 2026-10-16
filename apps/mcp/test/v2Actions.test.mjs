@@ -89,9 +89,10 @@ test("write mail nests its args as mail, with the path beside it", () => {
   });
 });
 
-test("write upload nests its args as upload, with the path beside it", () => {
-  assert.deepEqual(translated("write", { action: "upload", path: "a.md", args: { name: "x.png" } }).arguments, {
-    upload: { name: "x.png" },
+test("write upload sends args.files as write_note's upload list, with the path beside it", () => {
+  const files = [{ name: "x.png", sha256: "a".repeat(64), bytes: 10 }];
+  assert.deepEqual(translated("write", { action: "upload", path: "a.md", args: { files } }).arguments, {
+    upload: files,
     path: "a.md",
   });
 });
