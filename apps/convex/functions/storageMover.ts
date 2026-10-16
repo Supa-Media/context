@@ -24,7 +24,11 @@ const pagePhase = v.union(
   v.literal("carry"),
   v.literal("id_copy"),
   v.literal("id_check"),
+  v.literal("cleanup_list"),
+  v.literal("cleanup_delete"),
 );
+
+const cleanupKeys = v.array(v.string());
 
 const idItems = v.array(v.object({ path: v.string(), key: v.string(), etag: v.string(), size: v.optional(v.number()) }));
 
@@ -41,6 +45,8 @@ export const mintPage = internalMutation({
     objects: v.optional(carriedObjects),
     idRunId: v.optional(v.number()),
     idItems: v.optional(idItems),
+    cleanupRunId: v.optional(v.number()),
+    cleanupKeys: v.optional(cleanupKeys),
     phase: pagePhase,
     expectedCursor: v.optional(v.string()),
     now: v.number(),
@@ -48,8 +54,12 @@ export const mintPage = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     // Exactly one job per ticket, so a spent ticket can never be read as another.
-    const jobs = [args.migrationId, args.walkRunId, args.contextMoveId, args.idRunId].filter((job) => job !== undefined).length;
+    const jobs = [args.migrationId, args.walkRunId, args.contextMoveId, args.idRunId, args.cleanupRunId].filter((job) => job !== undefined).length;
     if (jobs !== 1) throw new Error("COPY_FAILED");
+    // A cleanup ticket names its keys only on a delete page; its list page names none.
+    const cleanupPhase = args.phase === "cleanup_list" || args.phase === "cleanup_delete";
+    if ((args.cleanupRunId !== undefined) !== cleanupPhase) throw new Error("COPY_FAILED");
+    if (args.cleanupKeys !== undefined && args.phase !== "cleanup_delete") throw new Error("COPY_FAILED");
     // A context move's ticket names its files; no other ticket carries any.
     if ((args.contextMoveId !== undefined) !== (args.objects !== undefined && args.phase === "carry")) {
       throw new Error("COPY_FAILED");
@@ -69,6 +79,7 @@ export const mintPage = internalMutation({
       ...(args.walkRunId === undefined ? {} : { walkRunId: args.walkRunId }),
       ...(args.contextMoveId === undefined ? {} : { contextMoveId: args.contextMoveId, objects: args.objects }),
       ...(args.idRunId === undefined ? {} : { idRunId: args.idRunId, idItems: args.idItems }),
+      ...(args.cleanupRunId === undefined ? {} : { cleanupRunId: args.cleanupRunId, cleanupKeys: args.cleanupKeys ?? [] }),
       phase: args.phase,
       ...(args.expectedCursor === undefined ? {} : { expectedCursor: args.expectedCursor }),
       createdAt: args.now,
@@ -91,6 +102,8 @@ export const claimPage = internalMutation({
       objects: v.optional(carriedObjects),
       idRunId: v.optional(v.number()),
       idItems: v.optional(idItems),
+      cleanupRunId: v.optional(v.number()),
+      cleanupKeys: v.optional(cleanupKeys),
       phase: pagePhase,
       expectedCursor: v.optional(v.string()),
     }),
@@ -109,6 +122,7 @@ export const claimPage = internalMutation({
       ...(row.walkRunId === undefined ? {} : { walkRunId: row.walkRunId }),
       ...(row.contextMoveId === undefined ? {} : { contextMoveId: row.contextMoveId, objects: row.objects ?? [] }),
       ...(row.idRunId === undefined ? {} : { idRunId: row.idRunId, idItems: row.idItems ?? [] }),
+      ...(row.cleanupRunId === undefined ? {} : { cleanupRunId: row.cleanupRunId, cleanupKeys: row.cleanupKeys ?? [] }),
       phase: row.phase,
       ...(row.expectedCursor === undefined ? {} : { expectedCursor: row.expectedCursor }),
     };

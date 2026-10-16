@@ -177,3 +177,40 @@ What a "simplification" would cost: a request that reaches a route without a
 control plane has no tenant to check it against, so it is served on the
 gateway's own say-so, and the tenant boundary is a comment. The guard is `test/controlPlaneRequired.test.mjs`, which fails if the entry check is
 removed (sabotaged on the commit that added it).
+
+## Old copies are counted, then deleted, by staff
+
+*Built 2026-10-16 (`functions/noteIdsCleanup.ts`, `lib/cleanup/`,
+`apps/mcp/src/moves/cleanupPage.js`).* The owner's rule: old keys are deleted
+seven days after the owner confirms the switch to keys.
+
+- **Count** is a dry run. It pages the bucket through the mover, counts the
+  keys a delete would remove, and how many no row's path or key names. It also
+  counts live notes still keyed at something other than their id key. Nothing
+  is deleted. A count is fresh for one day.
+- **Delete** is refused by name unless: the workspace is keyed, seven days have
+  passed since the flip (`keyedAt`), a fresh count finished, and no live note
+  still reads from a path. It is also refused while paused or while a run is
+  going. The refusal says why in plain words (`lib/cleanup/gate.ts`).
+- **What may go:** every key outside `notes/` and `files/`, plus, under
+  `.context/`, only `trash/`, `moves/` and `access/`. `.context/collaboration/`
+  is customer-owned history and is never deleted. The gateway repeats this rule
+  (`cleanupKeys.js`) before it deletes.
+- **Each key is checked again** against the rows as its page is spent. A key
+  that a live row is keyed at, or a live unkeyed row sits at, is kept. The page
+  plan does the same check, so a row that starts to read a key after the count
+  keeps it.
+- **A page** lists from a stored cursor, keeps what may go, deletes, and records
+  it. A page recorded at a cursor the run has moved past counts nothing. Deleting
+  an absent key is a no-op, so a page that failed is simply repeated.
+- **Liveness of "reads a path".** A row counts as keyed at its id key when its
+  storage key is `notes/<noteId>` or `files/<noteId>.<ext>` for its own note
+  id, whatever the extension. A rename that changes the extension does not make
+  the note look like it reads its path.
+
+What a "simplification" would cost: deleting without the row re-check deletes a
+key a note reads, which loses the note's bytes. That is the failure the
+re-check guards. Dropping the wait or the fresh-count gate lets a delete run
+before the flip has settled or on a stale view of the rows. Both are guarded by
+`__tests__/cleanup/cleanupGate.test.ts` and `cleanupPass.test.ts`, and the
+gateway's key rule by `apps/mcp/test/cleanupPage.test.mjs`.

@@ -18,6 +18,7 @@ import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
 import { applyObservation } from "./lib/nodes/observe";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { isPlumbing } from "./lib/privacy";
+import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIdsCleanup";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
@@ -51,6 +52,8 @@ const rowValidator = v.object({
   keyedDoneAt: v.union(v.null(), v.number()),
   /** Held by an archived account: not counted by the switch to keys (`setMode`), which checks live workspaces only. */
   archived: v.boolean(),
+  /** The old-copy cleanup: its counts, its run, and the refusal each of its buttons would get now (`noteIdsCleanup.ts`). */
+  cleanup: cleanupViewValidator,
 });
 
 /** Where the id copy is, for every workspace with storage. Counts and labels only. */
@@ -83,6 +86,7 @@ export const report = query({
       keyedAt: number | null;
       keyedDoneAt: number | null;
       archived: boolean;
+      cleanup: CleanupView;
     }> = [];
     for (const workspaceId of ids) {
       const workspace = await ctx.db.get(workspaceId);
@@ -108,6 +112,7 @@ export const report = query({
         keyedAt: row?.keyedAt ?? null,
         keyedDoneAt: row?.keyedDoneAt ?? null,
         archived: await workspaceArchived(ctx.db, workspaceId),
+        cleanup: await cleanupViewOf(ctx.db, workspaceId, Date.now()),
       });
     }
     return { paused: layout?.paused === true, mode: layout?.mode ?? "paths", totals, workspaces, truncated };

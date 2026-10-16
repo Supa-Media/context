@@ -114,6 +114,8 @@ export const nodeTables = {
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])
+    /** A key a row keys its bytes at: the old-copy cleanup's re-check and count look a key up here (`lib/cleanup/`). */
+    .index("by_workspace_storageKey", ["workspaceId", "storageKey"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"]),
@@ -375,6 +377,32 @@ export const nodeTables = {
     keyedDoneAt: v.optional(v.number()),
     /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
     flipped: v.optional(v.number()),
+    /**
+     * The old-copy cleanup (`lib/cleanup/`, `functions/noteIdsCleanup.ts`): a Count
+     * of the path copies a Delete would remove, and a Delete's progress. Counts,
+     * times and fixed labels only; `cursor` is the bucket listing's position.
+     * `runId` names the run, so a page of an earlier run records nothing.
+     */
+    cleanup: v.optional(
+      v.object({
+        runId: v.number(),
+        running: v.optional(v.union(v.literal("count"), v.literal("delete"))),
+        countedAt: v.optional(v.number()),
+        /** Keys a Delete would remove, and how many of them no tree row's path or key ever named. */
+        toDelete: v.number(),
+        unclaimed: v.number(),
+        /** Live notes still read from a path rather than their id key. A Delete needs zero. */
+        readingPaths: v.number(),
+        startedAt: v.optional(v.number()),
+        finishedAt: v.optional(v.number()),
+        deleted: v.number(),
+        /** Keys a page could not delete, by fixed reason, with a count per reason. */
+        failed: v.array(v.object({ reason: v.string(), count: v.number() })),
+        cursor: v.optional(v.string()),
+        /** A fixed label when the run stopped on a failure it could not retry. */
+        error: v.optional(v.string()),
+      }),
+    ),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
 

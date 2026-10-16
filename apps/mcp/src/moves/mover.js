@@ -37,7 +37,9 @@
  *   landed, what stayed behind and why, and edits that raced the move;
  * - a batch of the move from path keys to id keys inside one bucket
  *   (`idCopyPage.js`): `idCopy` copies each path to its id key, and `idCheck`
- *   reports, per path, whether the id key already holds the same object.
+ *   reports, per path, whether the id key already holds the same object;
+ * - a page of the old-copy cleanup (`cleanupPage.js`): `cleanupList` lists keys
+ *   from a cursor, and `cleanupDelete` deletes the keys the control plane approved.
  *
  * Failures answer a code only; a provider's text never leaves, since it can
  * name a key.

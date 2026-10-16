@@ -22,6 +22,7 @@ import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover"
 import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
 import { type ContextMoveMoverPage, type ContextMoveTicket, openContextMovePage } from "./lib/contextMoveMover";
 import { type NoteIdMoverPage, type NoteIdTicket, openNoteIdPage } from "./lib/noteIds/mover";
+import { type CleanupMoverPage, openCleanupTicket } from "./lib/cleanup/mover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
@@ -705,18 +706,21 @@ type MoverTicketJobs = Partial<NoteIdTicket> & {
   migrationId?: Id<"managedStorageMigrations">;
   contextMoveId?: Id<"contextMoves">;
   objects?: ContextMoveTicket["objects"];
+  cleanupRunId?: number;
+  cleanupKeys?: string[];
 };
 
 export const openMoverPage = internalAction({
   args: { hashedTicket: v.string() },
   returns: v.any(),
-  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | NoteIdMoverPage | null> => {
+  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | NoteIdMoverPage | CleanupMoverPage | null> => {
     const ticket: (Omit<WalkTicket, "walkRunId"> & MoverTicketJobs) | null =
       await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
     if (ticket === null) return null;
     if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
     if (ticket.contextMoveId !== undefined) return await openContextMovePage(ctx, { ...ticket, contextMoveId: ticket.contextMoveId, objects: ticket.objects ?? [] });
     if (ticket.idRunId !== undefined) return await openNoteIdPage(ctx, { workspaceId: ticket.workspaceId, phase: ticket.phase, runId: ticket.idRunId, items: ticket.idItems ?? [] });
+    if (ticket.cleanupRunId !== undefined) return await openCleanupTicket(ctx, { ...ticket, cleanupRunId: ticket.cleanupRunId });
     const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
       internal.functions.managedProvisioning.migrationForCopy,
       { workspaceId: ticket.workspaceId },
