@@ -47,6 +47,7 @@ import { identifiersForUser, resolveAddressedUser } from "./identities";
 import { accessSourceOf } from "./nodes/accessBackfill";
 import { accessRowsOf } from "./nodes/accessRows";
 import { accessNamesFor } from "./nodes/rowAccess";
+import { ownedConfirmedEmailsOf } from "./signInEmails";
 
 /**
  * The most rows one of these lookups will scan.
@@ -117,7 +118,9 @@ export async function grantedNamesFor(
   // The membership check above has already run, so a person named by a grant who is no longer a
   // member of this workspace gets nothing. The token is stored without its `@`, as the names above are.
   if ((await accessSourceOf(ctx.db)) === "rows") {
-    for (const name of accessNamesFor({ userId, groupIds }, await accessRowsOf(ctx, workspaceId))) {
+    // An email grant matches only an address this account alone holds (`ownedConfirmedEmailsOf`).
+    const emails = await ownedConfirmedEmailsOf(ctx, userId);
+    for (const name of accessNamesFor({ userId, groupIds, emails }, await accessRowsOf(ctx, workspaceId))) {
       names.add(name.slice(1));
     }
   }
