@@ -152,8 +152,9 @@ export function createSessionMethods({ post, required }) {
      *
      * @returns {Promise<{allowed: true, remaining: number}|{allowed: false, reason: string}|null>}
      */
-    async startBuiltinTurn(accessToken, expectedWorkspaceId) {
-      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId });
+    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false } = {}) {
+      // `tryIt` only from the AI tab's Try it route (`agent/tryIt.js`): the control plane checks the person may.
+      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}) });
       return required(parsed, "verdict");
     },
 
@@ -205,9 +206,10 @@ export function createSessionMethods({ post, required }) {
     async recordBuiltinUsage(
       accessToken,
       expectedWorkspaceId,
-      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms },
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false },
     ) {
       await post("/gateway/builtin-model/usage", {
+        ...(tryIt ? { tryIt: true } : {}),
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,

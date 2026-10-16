@@ -299,6 +299,23 @@ export async function readProductionSetup(store, session, { texting }) {
 }
 
 /**
+ * A setup the AI tab's Try it names, parsed as a production setup is, or
+ * `null`. Only a note under `ai/production/` or `ai/setups/<job>/` is a
+ * setup; any other path is `null` before anything is read. Never throws.
+ */
+export async function readSetupAt(store, session, path) {
+  if (typeof path !== "string" || !TRY_SETUP_PATH.test(path) || path.includes("..")) return null;
+  try {
+    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+  } catch {
+    return null;
+  }
+}
+
+/** `ai/production/<job>.md` or `ai/setups/<job>/<name>.md`: names of letters, digits, `.`, `_`, `-`. */
+const TRY_SETUP_PATH = /^ai\/(?:production|setups\/[a-z0-9-]+)\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,120}\.md$/;
+
+/**
  * One skill note's body from the pinned workspace (`skills.js`), read as the
  * setup is, or `null`. `path` is one `skillPath` made from a name the setup
  * listed. Never throws.

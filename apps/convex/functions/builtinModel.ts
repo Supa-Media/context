@@ -20,6 +20,15 @@
  * agent panel is refused here, so since 2026-10-10 it has no model at all;
  * widening this set to it is a product decision, not a line here.
  *
+ * One narrow exception, for the AI tab's Try it (decided by the owner,
+ * 2026-10-16: "a chatbot sort of thing … that I'm able to test it"): a console
+ * grant may start a turn when the gateway says it is a Try it turn **and** its
+ * person can edit `@context-lc`, whose `ai/` notes are the setups being tried.
+ * The flag comes from the gateway's own route, behind the gateway secret,
+ * never from the app; the role is checked here, from the grant, so a console
+ * grant of anybody else is refused exactly as before. It is metered on the
+ * same feature, cap and kill switch, against the grant's own workspace.
+ *
  * Nothing about the conversation reaches this file. The gateway reports token
  * counts after a turn, never text.
  */
@@ -32,6 +41,9 @@ import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 import { DREAMS_CLIENT_ID } from "./lib/dreams/model";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
+import { CONSOLE_CLIENT_ID } from "./agentGrant";
+import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 
 /** The clients that may spend the built-in model. Nothing else, whatever its plan. */
 const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([TEXTS_CLIENT_ID, ROUTINES_CLIENT_ID, DREAMS_CLIENT_ID]);
@@ -57,11 +69,22 @@ async function chargedWorkspace(
   ctx: MutationCtx,
   hashedAccessToken: string,
   expectedWorkspaceId: string | null,
+  tryIt = false,
 ): Promise<{ workspaceId: Id<"workspaces"> } | { refused: "not_texts" } | null> {
   const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
   if (turn === null) return null;
-  if (!BUILTIN_CLIENTS.has(turn.clientId)) return { refused: "not_texts" };
-  return { workspaceId: turn.workspaceId };
+  if (BUILTIN_CLIENTS.has(turn.clientId)) return { workspaceId: turn.workspaceId };
+  if (tryIt && turn.clientId === CONSOLE_CLIENT_ID && (await editsAiNotes(ctx, hashedAccessToken))) {
+    return { workspaceId: turn.workspaceId };
+  }
+  return { refused: "not_texts" };
+}
+
+/** Whether a grant's person is an owner or editor of `@context-lc`, whose `ai/` notes Try it runs. */
+export async function editsAiNotes(ctx: MutationCtx, hashedAccessToken: string): Promise<boolean> {
+  const session = await resolveGrantByAccessTokenHandler(ctx, { hashedAccessToken });
+  const pinned = session?.workspaces.find((entry) => entry.slug === PINNED_CONTEXT_SLUG);
+  return pinned !== undefined && (pinned.role === "owner" || pinned.role === "editor");
 }
 
 /**
@@ -69,14 +92,19 @@ async function chargedWorkspace(
  * so the cap is enforced before anything is spent rather than after.
  */
 export const startBuiltinTurn = internalMutation({
-  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.union(v.string(), v.null()) },
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.union(v.string(), v.null()),
+    /** Set by the gateway's Try it route only; see the file's head. */
+    tryIt: v.optional(v.boolean()),
+  },
   returns: v.union(
     v.null(),
     v.object({ allowed: v.literal(true), remaining: v.number() }),
     v.object({ allowed: v.literal(false), reason: refusalValidator }),
   ),
   handler: async (ctx, args) => {
-    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
+    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
     if (charged === null) return null;
     if ("refused" in charged) return { allowed: false as const, reason: charged.refused };
     return await countTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, Date.now());
@@ -106,10 +134,11 @@ export const recordBuiltinUsage = internalMutation({
     model: v.optional(v.string()),
     failed: v.boolean(),
     ms: v.number(),
+    tryIt: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId);
+    const charged = await chargedWorkspace(ctx, args.hashedAccessToken, args.expectedWorkspaceId, args.tryIt === true);
     if (charged === null || "refused" in charged) return false;
     await recordTurn(ctx, BUILTIN_FEATURE, charged.workspaceId, args, GLM_MODEL, Date.now());
     return true;

@@ -63,6 +63,7 @@ import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
+import { handleTryIt } from "../agent/tryIt.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
 
@@ -215,6 +216,7 @@ export async function route(request, env, ctx) {
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
+      path === "/agent/try" ||
       path === "/collaboration" ||
       approvalsRoute ||
       meetingRoute
@@ -619,6 +621,9 @@ export async function route(request, env, ctx) {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }
+      // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
+      // setup an @context-lc editor picked, then a judge turn on its rules.
+      if (path === "/agent/try") return await handleTryIt(request, env, store, session, controlPlane);
       if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
