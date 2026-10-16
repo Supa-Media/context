@@ -14,8 +14,8 @@
  *
  *   `anthropicMessages` rebuilding a thought round from text and tool_use
  *     → "the next round gets the thinking back, unchanged and first" fails
- *   `runTurn` keeping the blocks when find_tools loads a tool
- *     → "a newly loaded tool drops every earlier thinking block at once" fails
+ *   `runTurn` dropping thinking blocks between rounds
+ *     → "the six never change mid-turn, so every round's thinking rides along" fails
  *   `runTurn` not passing the model's effort
  *     → "the think model thinks as hard as the setup says" fails
  */
@@ -27,7 +27,6 @@ import { aiGatewayConfig, gatewayBody, resetCreditState } from "../src/agent/aiG
 import { anthropicMessages } from "../src/agent/providers.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { parseSetup } from "../src/agent/production.js";
-import { FIND_TOOLS } from "../src/agent/toolShelf.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const ENV = {
@@ -97,18 +96,16 @@ test("the next round gets the thinking back, unchanged and first", async () => {
   assert.equal(assistant.content[1].type, "tool_use");
 });
 
-test("a newly loaded tool drops every earlier thinking block at once", async () => {
+test("the six never change mid-turn, so every round's thinking rides along", async () => {
   const { bodies, fetchImpl } = scripted([
-    reply([THOUGHT, { type: "tool_use", id: "t1", name: "read_note", input: {} }], "tool_use"),
-    reply([{ ...THOUGHT, signature: "sig-two" }, { type: "tool_use", id: "t2", name: FIND_TOOLS, input: { names: ["browse"] } }], "tool_use"),
+    reply([THOUGHT, { type: "tool_use", id: "t1", name: "fetch", input: { id: "a.md" } }], "tool_use"),
+    reply([{ ...THOUGHT, signature: "sig-two" }, { type: "tool_use", id: "t2", name: "read_note", input: { path: "b.md" } }], "tool_use"),
     reply([{ type: "text", text: "Done." }]),
   ]);
-  await turn(fetchImpl, { coreTools: ["read_note", "write_note"] });
-  // Round two: same tools as round one, so round one's thinking rides along.
-  assert.ok(bodies[1].messages.some((m) => m.role === "assistant" && m.content[0].type === "thinking"));
-  // Round three: browse was loaded, so no earlier block is sent at all.
-  assert.ok(bodies[2].tools.some((t) => t.name === "browse"));
-  assert.ok(!JSON.stringify(bodies[2].messages).includes('"thinking"'));
+  await turn(fetchImpl);
+  assert.deepEqual(bodies[2].tools.map((t) => t.name), bodies[0].tools.map((t) => t.name));
+  const thoughts = bodies[2].messages.filter((m) => m.role === "assistant" && m.content?.[0]?.type === "thinking");
+  assert.equal(thoughts.length, 2);
 });
 
 test("the think model thinks as hard as the setup says", async () => {

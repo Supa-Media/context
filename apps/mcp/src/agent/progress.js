@@ -74,7 +74,7 @@ export const PROGRESS_TOOL_DEFINITION = {
 
 export const PROGRESS_PROMPT =
   "\n\nThis can be a long task over text. If it will take more than a couple of steps (opening websites, filling " +
-  "forms, working through several notes), first call text_progress with one short line saying what you're doing, " +
+  "forms, working through several notes), first call send with action progress, args { text }, one short line saying what you're doing, " +
   "then again at real milestones, and finish with the result as your reply. Don't send progress for a quick question.";
 
 /**

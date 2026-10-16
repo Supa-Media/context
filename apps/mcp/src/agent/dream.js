@@ -35,7 +35,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
-import { toolsForSession } from "../tools/advertised.js";
+import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
@@ -140,7 +140,7 @@ export function dreamQuestion({ transcripts, first, since, timeZone }) {
       : "",
     "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, preferences, how they like you to answer, corrections they gave you, places and routines. " +
       "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
-    `Write the whole note back once with write_note: read it first and pass its etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.`,
+    `Write the whole note back once with write: fetch it first and pass its etag as expected_etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.`,
     "Then answer with two or three plain sentences for the dream log: what you changed and why, or why nothing changed.",
   ]
     .filter(Boolean)
@@ -288,7 +288,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   }
 
   const events = [];
-  const offered = await toolsForSession(session, store, { shape: "v1" });
+  const offered = await grantedToolsFor(session, store);
   const model = builtinModel(env);
   const meter = async (usage, failed, answering = model) => {
     try {
@@ -312,6 +312,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
     turn = await runTurn({
       question: dreamQuestion({ transcripts, first, since, timeZone }),
       tools: dreamTools(offered),
+      grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
       callTool: dreamCallTool(dispatch),
       env,
       providerOptions: {

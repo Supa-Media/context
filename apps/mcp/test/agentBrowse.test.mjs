@@ -10,6 +10,7 @@
  * question. The end-to-end check runs a texted turn through `/agent`.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -301,7 +302,7 @@ async function runEndToEnd(check) {
       "a texted question can drive the browser and gets its answer",
       response.status === 200 &&
         body.answer === "Socks are $5." &&
-        (calls[0]?.tools ?? []).some((t) => t.function?.name === BROWSE_TOOL) &&
+        [...shown((calls[0]?.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))].includes(`send.${BROWSE_TOOL}`) &&
         requests[0]?.path === "/browse",
     );
     check(

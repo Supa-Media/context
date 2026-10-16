@@ -30,7 +30,7 @@ const TEXTING_STYLE = [
   "Keep it short: usually one to three short paragraphs. A blank line between paragraphs sends them as separate texts. For a list, write one short line per item starting with \"- \".",
   "Put a web link on its own line, as the bare URL.",
   "If their notes don't say, tell them so in one sentence.",
-  "Be quick. For most questions one search_notes call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
+  "Be quick. For most questions one search call is enough; read a note only when the search result doesn't already answer it, and don't call orient for a simple question.",
 ];
 
 /**
@@ -62,11 +62,11 @@ const GROUND_RULES = [
   // own checked answers one text later (staging, 2026-10-10).
   "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
   "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
-  "To list the workspaces they can reach, call scope_info with workspaces set to true.",
+  "To list the workspaces they can reach, call orient.",
 ];
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
-const PROPOSES = "You cannot edit their notes. To suggest a change, use propose_note; they review and decide.";
+const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
   "You have the same tools as any app connected to their notes, and you change notes yourself when they ask: " +
   "write, archive and move notes, including between workspaces they can write in. Check your tool list before " +

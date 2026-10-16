@@ -6,6 +6,7 @@
  * line.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -74,7 +75,7 @@ function turn(ai, overrides = {}) {
   });
 }
 
-const offered = (ai, n = 0) => (ai.calls[n].input.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
+const offered = (ai, n = 0) => [...shown((ai.calls[n].input.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
 
 test("a streamed turn offers text_progress, sends it to the person and never to the MCP", async () => {
   const said = [];
@@ -87,11 +88,11 @@ test("a streamed turn offers text_progress, sends it to the person and never to 
       return { content: [{ type: "text", text: "x" }] };
     },
   });
-  assert.ok(offered(ai).includes(PROGRESS_TOOL));
+  assert.ok(offered(ai).includes("send.progress"));
   assert.deepEqual(said, ["On it, opening ChatGPT."]);
   assert.deepEqual(mcp, []);
   assert.equal(result.answer, "Done.");
-  assert.match(ai.calls[0].input.messages[0].content, /text_progress/);
+  assert.match(ai.calls[0].input.messages[0].content, /send with action progress/);
 });
 
 test("a turn with no stream is not offered text_progress, and a call to it reaches nothing", async () => {
@@ -103,7 +104,7 @@ test("a turn with no stream is not offered text_progress, and a call to it reach
       return { content: [{ type: "text", text: "x" }] };
     },
   });
-  assert.ok(!offered(ai).includes(PROGRESS_TOOL));
+  assert.ok(!offered(ai).includes("send.progress"));
   assert.deepEqual(mcp, []);
 });
 

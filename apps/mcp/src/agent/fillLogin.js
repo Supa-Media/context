@@ -27,13 +27,13 @@ export const FILL_LOGIN_DEFINITION = {
   name: FILL_LOGIN_TOOL,
   description:
     "Sign in with a login the person saved: fills the username and password boxes on the page your browser is on. " +
-    "First open the site's sign-in page with browse, then pass the login's id from vault_list and the numbers of the boxes. " +
-    "You never see the username or password; press the sign-in button with browse afterwards. " +
-    "It only works on the login's own site. If there is no saved login, never ask for the password: hand the browser over with a browse handoff step so they sign in themselves, and offer vault_add_link so you can sign in for them next time.",
+    "First open the site's sign-in page with send action browse, then pass the login's id from fetch vault: and the numbers of the boxes. " +
+    "You never see the username or password; press the sign-in button with send action browse afterwards. " +
+    "It only works on the login's own site. If there is no saved login, never ask for the password: hand the browser over with a browse handoff step so they sign in themselves, and offer manage action vault_add so you can sign in for them next time.",
   inputSchema: {
     type: "object",
     properties: {
-      entry: { type: "string", description: "The login's id from vault_list." },
+      entry: { type: "string", description: "The login's id from fetch vault:." },
       password_ref: { type: "integer", description: "The password box's number from the last reading." },
       username_ref: { type: "integer", description: "The username or email box's number, when this page has one." },
       context: { type: "string", description: "The workspace the login is saved in, like @team, when it is not the person's own." },
@@ -44,9 +44,9 @@ export const FILL_LOGIN_DEFINITION = {
 };
 
 const REFUSED = {
-  no_key: "Saved logins are not set up in that workspace. Give the person vault_add_link to save one.",
-  not_found: "There is no such login. Check vault_list.",
-  not_yours: "There is no such login. Check vault_list.",
+  no_key: "Saved logins are not set up in that workspace. Give the person a link to save one: manage action vault_add.",
+  not_found: "There is no such login. Check fetch vault:.",
+  not_yours: "There is no such login. Check fetch vault:.",
   wrong_site: "That login is saved for a different site than the page your browser is on. Open the login's own site first.",
 };
 
@@ -67,7 +67,7 @@ export function fillLoginTool(browser, store) {
   return {
     definition: FILL_LOGIN_DEFINITION,
     async call(args) {
-      if (!isEntryId(args?.entry)) return text("entry must be a login id from vault_list.", true);
+      if (!isEntryId(args?.entry)) return text("entry must be a login id from fetch vault:.", true);
       if (!isRef(args?.password_ref)) return text("password_ref must be the password box's number.", true);
       if (args.username_ref !== undefined && !isRef(args.username_ref)) {
         return text("username_ref must be the username box's number.", true);
@@ -76,7 +76,7 @@ export function fillLoginTool(browser, store) {
       // Where the browser actually is, from its last reading: the model's say
       // has no part in which site the login is checked against.
       const origin = browser.currentOrigin();
-      if (origin === null) return text("Open the site's sign-in page with browse first.", true);
+      if (origin === null) return text("Open the site's sign-in page with send action browse first.", true);
       fills += 1;
 
       let vault = store;
@@ -104,7 +104,7 @@ export function fillLoginTool(browser, store) {
       if (login.password === "") return text(`${name} has no password saved.`, true);
       const filled = await browser.fillSecret({ ref: args.password_ref, value: login.password, origin, field: "password" });
       if (!filled.ok) return text(`Couldn't fill the password for ${name}: ${filled.reason}. Read the page again.`, true);
-      return text(`Filled the login for ${name}. Press the page's sign-in button with browse.`);
+      return text(`Filled the login for ${name}. Press the page's sign-in button with send action browse.`);
     },
   };
 }
