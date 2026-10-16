@@ -101,10 +101,8 @@ export function VaultAddForm({
   const setFields = secret ? setSecretFields : setLoginFields;
   const problems = useMemo(() => fieldProblems(fields), [fields]);
 
-  const ready =
-    name.trim().length > 0 &&
-    !problems.any &&
-    (secret ? anyValue(fields) && proxyProblem(proxy) === null : site.trim().length > 0 && password.length > 0);
+  const blocker = saveBlocker({ secret, name, site, password, fieldsProblem: problems.any, anyValue: anyValue(fields), proxy: proxyProblem(proxy) });
+  const ready = blocker === null;
 
   const choose = (next: EntryType) => {
     setType(next);
@@ -226,10 +224,15 @@ export function VaultAddForm({
         />
       </View>
 
-      {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} busy={busy} /> : null}
+      {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} entrySite={site} busy={busy} /> : null}
 
       {problem ? <FormError headline={problem.headline} next={problem.next} /> : null}
 
+      {blocker !== null && !busy ? (
+        <Text variant="hint" style={styles.why} testID="vault-save-why">
+          {blocker}
+        </Text>
+      ) : null}
       <Button
         label={busy ? "Saving…" : "Save"}
         variant="accent"
@@ -249,10 +252,36 @@ export function VaultAddForm({
   );
 }
 
+/**
+ * What still stands between the form and Save, in one sentence, or null when
+ * it can be saved: said above the button so a greyed-out Save never leaves a
+ * person guessing.
+ */
+export function saveBlocker(form: {
+  secret: boolean;
+  name: string;
+  site: string;
+  password: string;
+  fieldsProblem: boolean;
+  anyValue: boolean;
+  proxy: string | null;
+}): string | null {
+  if (form.name.trim().length === 0) return "To save, give it a name.";
+  if (form.fieldsProblem) return "To save, fix the field marked above.";
+  if (form.secret) {
+    if (!form.anyValue) return "To save, fill in at least one value.";
+    return form.proxy;
+  }
+  if (form.site.trim().length === 0) return "To save, enter the site.";
+  if (form.password.length === 0) return "To save, enter the password.";
+  return null;
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     form: { marginTop: 26, gap: 16 },
     section: { gap: 10 },
+    why: { textAlign: "center", marginBottom: -8 },
     save: { alignSelf: "stretch", justifyContent: "center", marginTop: 4 },
     foot: { color: colors.muted, lineHeight: leading(12.5, 1.5), textAlign: "center" },
   });
