@@ -10,9 +10,11 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { runIdCheckPage, runIdCopyPage } from "../../../../mcp/src/moves/idCopyPage.js";
+import { runCleanupDeletePage, runCleanupListPage } from "../../../../mcp/src/moves/cleanupPage.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import type { GatewayCredential } from "../storage/shapes";
 import { storageMoverOrigin } from "../storageMover";
+import type { CleanupDeps } from "../cleanup/pass";
 import type { CheckDeps } from "./checkPass";
 import type { CopyDeps } from "./copyPass";
 
@@ -53,10 +55,17 @@ async function headOf(store: HeadStore, key: string): Promise<{ etag: string; si
   return { etag: object.etag, ...(typeof object.size === "number" ? { size: object.size } : {}) };
 }
 
-export function productionDeps(): { copy: CopyDeps; check: CheckDeps } {
+export function productionDeps(): { copy: CopyDeps; check: CheckDeps; cleanup: CleanupDeps } {
   const origin = storageMoverOrigin();
   return {
     copy: { origin, credential: credentialOf, copyHere: (page) => runIdCopyPage(page) },
     check: { origin, credential: credentialOf, checkHere: (page) => runIdCheckPage(page), keyHeads: keyHeadsHere },
+    // The old-copy cleanup (`lib/cleanup/pass.ts`): the same two places a page can run, as the copy and the check have.
+    cleanup: {
+      origin,
+      credential: credentialOf,
+      listHere: (page) => runCleanupListPage(page),
+      deleteHere: (page) => runCleanupDeletePage(page),
+    },
   };
 }

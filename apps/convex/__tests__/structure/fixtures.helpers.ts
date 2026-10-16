@@ -221,6 +221,13 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // cutover deletes that row, while failure keeps it solely for resumable
   // retry. No public return or route reaches it.
   "functions/managedProvisioning.ts",
+  // THE MOVER'S DOOR, SPLIT OUT OF managedProvisioning.ts TO KEEP THAT FILE UNDER ITS SIZE LIMIT.
+  //
+  // This is a new importer, and it opens nothing new: the same destination secret,
+  // for the same page, that `managedProvisioning.ts`'s migration copy opened before.
+  // `openMoverPage` is reachable only through a mover ticket the gateway spends.
+  // See `functions/lib/managedProvisioningFns/moverDoor.ts`.
+  "functions/lib/managedProvisioningFns/moverDoor.ts",
   // THE NINTH, AND THE SHORTEST-LIVED.
   //
   // After a storage move switches over, a writer that opened the old storage

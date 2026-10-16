@@ -175,6 +175,13 @@ export const jobTables = {
     idItems: v.optional(
       v.array(v.object({ path: v.string(), key: v.string(), etag: v.string(), size: v.optional(v.number()) })),
     ),
+    /**
+     * A page of the old-copy cleanup (`lib/cleanup/`): the run it belongs to, and for a
+     * delete page the keys the control plane approved, re-checked when the ticket is
+     * spent (`lib/cleanup/mover.ts`). A list page's cursor travels in `expectedCursor`.
+     */
+    cleanupRunId: v.optional(v.number()),
+    cleanupKeys: v.optional(v.array(v.string())),
     /** The migration's (or the walk's) phase and cursor when the page was handed out; `carry` for a context move. */
     phase: v.union(
       v.literal("copy"),
@@ -187,6 +194,8 @@ export const jobTables = {
       v.literal("carry"),
       v.literal("id_copy"),
       v.literal("id_check"),
+      v.literal("cleanup_list"),
+      v.literal("cleanup_delete"),
     ),
     expectedCursor: v.optional(v.string()),
     createdAt: v.number(),
