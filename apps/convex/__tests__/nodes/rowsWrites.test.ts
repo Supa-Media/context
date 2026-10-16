@@ -11,7 +11,8 @@
  *
  * Sabotage (run by hand, each must fail its own case):
  *  - B: carry the file rules in `rowMoveBatch` in rows mode: "privacy.md is not carried" fails.
- *  - C: drop the `state !== null` return in `deriveNewWorkspaceRows`: "does not clobber" fails.
+ *  - C: drop the `scaffoldDerived` return in `deriveNewWorkspaceRows`: "does not clobber" fails; drop its
+ *    `onlyUnset` option: the pre-empted case clobbers the owner's row and fails.
  *  - D: drop the `base !== undefined` return in `ensureFolderDefault`: "keeps its own base" fails.
  *  - E: drop the `recordRowsVisibilityLine` call in `setNoteVisibilityHandler`: "records the line" fails.
  */
@@ -115,6 +116,31 @@ describe("C: a new context's folders take their scaffolded defaults once, when t
     expect((await nodeAt(f, "1-projects"))?.access).toEqual({ base: "private" });
   });
 
+  test("pre-empted: an owner's write made first leaves a state, and the defaults still come, without clobbering the owner's row", async () => {
+    const f = await fixture();
+    await setRowsMode(f);
+    await f.t.run(async (ctx) => {
+      const state = await ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
+      if (state !== null) await ctx.db.delete(state._id);
+    });
+    // The owner's write comes before the scaffold's derivation: it creates the access state, and sets 1-projects itself.
+    await setBase(f, "1-projects", "private");
+    const before = await f.t.run(async (ctx) =>
+      ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique(),
+    );
+    expect(before?.scaffoldDerived).toBeUndefined();
+
+    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
+
+    // The scaffold's default still lands on the row the owner did not touch, and the owner's choice stands.
+    expect((await nodeAt(f, "1-projects/secret"))?.access).toEqual({ base: "private" });
+    expect((await nodeAt(f, "1-projects"))?.access).toEqual({ base: "private" });
+    const after = await f.t.run(async (ctx) =>
+      ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique(),
+    );
+    expect(after?.scaffoldDerived).toBe(true);
+  });
+
   test("outside rows mode it derives nothing", async () => {
     const f = await fixture();
     await f.t.run(async (ctx) => {
@@ -148,7 +174,7 @@ describe("D: a website's folder in rows mode", () => {
     expect((await nodeAt(f, "3-resources"))?.access).toEqual({ base: "team" });
   });
 
-  test("a folder with no row is not found, and no row is made", async () => {
+  test("a folder with no row takes team as pending, and no row is made", async () => {
     const f = await fixture();
     await setRowsMode(f);
     const answer = await f.t.mutation(internal.functions.nodesAccess.ensureFolderDefault, {
@@ -156,7 +182,7 @@ describe("D: a website's folder in rows mode", () => {
       actorUserId: f.ownerId,
       path: "9-missing",
     });
-    expect(answer).toEqual({ ok: false, code: "NOT_FOUND" });
+    expect(answer).toEqual({ ok: true, visibility: "team", changed: true });
     expect(await nodeAt(f, "9-missing")).toBeNull();
   });
 });

@@ -21,6 +21,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { GROUP_SCOPE_PATTERN, type PrivacyRule, type Visibility } from "../privacy";
 import { handleForUser } from "../identities";
 import { scanAccessRows } from "./accessRows";
+import { withPendingPrivate } from "./pendingAccess";
 import type { AccessRow } from "./rowAccess";
 
 export type RulesFromRows =
@@ -55,7 +56,12 @@ async function visibilityOfRow(ctx: QueryCtx, workspaceId: Id<"workspaces">, row
 
 /** The rules this workspace's rows say, or the paths they cannot say. Reads only. */
 export async function rulesFromRows(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<RulesFromRows> {
-  const rows = await scanAccessRows(ctx, workspaceId);
+  // A private access still waiting for its row is said too, or going back to Off would drop it.
+  const state = await ctx.db
+    .query("nodeAccessState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const rows = withPendingPrivate(await scanAccessRows(ctx, workspaceId), state?.pending, Date.now());
   const folders: PrivacyRule[] = [];
   const notes: { path: string; visibility: string }[] = [];
   const refused: string[] = [];

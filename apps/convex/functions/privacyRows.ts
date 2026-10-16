@@ -115,6 +115,13 @@ async function refusalFor(
       message: `${gate.differing} ${noun(gate.differing)} ${gate.differing === 1 ? "differs" : "differ"} from the rules. Fix the difference first; the sample on each row says where.`,
     };
   }
+  // Rows are born keyed: a note's row is adopted at its id key, and the moves that keep rows are only safe there.
+  if ((await db.query("noteIdLayout").first())?.mode !== "keys") {
+    return {
+      code: "ROWS_NEEDS_KEYS",
+      message: "Notes have to be read from their id keys before rows can be the truth. Finish moving the note keys first.",
+    };
+  }
   return null;
 }
 
@@ -247,12 +254,13 @@ export const checkAll = mutation({
 
 /** Move the readers to the rows. Refused unless every workspace's check stands and found nothing. */
 /**
- * Whether every privacy write works under rows. The gateway, the console and moves write rows (step 3), but
- * still open: a new note saved private has no row yet when its privacy is written, so it is refused; unkeyed
- * folder moves are refused; a fresh workspace's scaffold defaults can be pre-empted; a website folder with no
- * row is not made team. Use rows stays held until those close.
+ * Whether every privacy write works under rows. True: the gateway, the console and moves write a row's access;
+ * a note asked to be private before its row exists keeps that as pending access, and the row is born with it
+ * (`lib/nodes/pendingAccess.ts`); a new context's scaffold defaults cannot be pre-empted (`scaffoldDerived`); a
+ * website folder with no row takes team as pending. Unkeyed folder moves are refused, and rows need the keys
+ * (`ROWS_NEEDS_KEYS`). Set false to hold Use rows again.
  */
-export const ROWS_WRITES_READY = false;
+export const ROWS_WRITES_READY = true;
 
 const ROWS_WRITES_PENDING = {
   code: "ROWS_WRITES_PENDING",

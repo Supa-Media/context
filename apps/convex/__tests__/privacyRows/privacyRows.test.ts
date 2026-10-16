@@ -8,7 +8,8 @@
  *  - a check stores its count, its differences and a sample of at most 20,
  *    path and clearance only;
  *  - Use rows is refused while a difference stands, refused while a check is
- *    missing or stale, refused from Off, and allowed at zero differences;
+ *    missing or stale, refused from Off, refused until the notes are keyed
+ *    (ROWS_NEEDS_KEYS), and allowed at zero differences;
  *  - orphans are shown and do not block Use rows;
  *  - Back to Off is always allowed;
  *  - every switch change is in the staff audit trail, and a repeat is not.
@@ -32,6 +33,15 @@ import { ADMIN, boundWorkspace, user } from "../noteIds/noteIds.helpers";
 /** Typed against the schema, so a `t.run` callback's `ctx.db` knows the tables and their indexes. */
 const tester = () => convexTest(schema, modules);
 type T = ReturnType<typeof tester>;
+
+/** Notes are read from their id keys: the precondition `useRows` checks (`ROWS_NEEDS_KEYS`). */
+async function keysOn(t: T, mode: "ids" | "keys" = "keys"): Promise<void> {
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("noteIdLayout").first();
+    if (row === null) await ctx.db.insert("noteIdLayout", { paused: false, mode, updatedAt: 1 });
+    else await ctx.db.patch(row._id, { mode });
+  });
+}
 
 /** The rules are the authority before rows are used: the precondition `useRows` checks (`ROWS_NEEDS_AUTHORITY`). */
 async function ruleAuthorityOn(t: T): Promise<void> {
@@ -253,7 +263,7 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("shadow");
   });
 
-  test("refused while a difference stands, and held once the next check finds none", async () => {
+  test("refused while a difference stands, and allowed once the next check finds none", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
     await keepRows(t);
@@ -266,11 +276,33 @@ describe("Use rows", () => {
 
     await corruptRow(t, workspaceId, "1-projects/plan.md", undefined);
     await checkEverything(t);
-    // Every check passed; only the hold remains (new private notes can't be saved on rows yet).
+    // Every check passed: the switch goes to rows, and the switch is audited each time it moves.
     await ruleAuthorityOn(t);
-    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
+    await keysOn(t);
+    await staff.mutation(api.functions.privacyRows.useRows, {});
+    expect(await sourceOf(t)).toBe("rows");
+    expect(await auditActions(t)).toEqual(["rows.source_set", "rows.source_set"]);
+  });
+
+  test("refused with ROWS_NEEDS_KEYS until the notes are read from their keys, and nothing changes", async () => {
+    const t = tester();
+    await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    await checkEverything(t);
+    await ruleAuthorityOn(t);
+    const staff = await signedIn(t, ADMIN);
+    const refused = await errorOf(staff.mutation(api.functions.privacyRows.useRows, {}));
+    expect(errorCode(refused)).toBe("ROWS_NEEDS_KEYS");
+    expect((await staff.query(api.functions.privacyRows.report, {})).ready.ok).toBe(false);
     expect(await sourceOf(t)).toBe("shadow");
-    expect(await auditActions(t)).toEqual(["rows.source_set"]);
+
+    // The ids layout is not keys: still refused.
+    await keysOn(t, "ids");
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_NEEDS_KEYS");
+
+    await keysOn(t);
+    await staff.mutation(api.functions.privacyRows.useRows, {});
+    expect(await sourceOf(t)).toBe("rows");
   });
 
   test("refused when a check was made before the rows were derived again, as stale", async () => {
@@ -279,6 +311,7 @@ describe("Use rows", () => {
     await keepRows(t);
     await checkEverything(t);
     const staff = await signedIn(t, ADMIN);
+    await keysOn(t);
     const report = await staff.query(api.functions.privacyRows.report, {});
     expect(report.ready.ok).toBe(true);
 
@@ -305,9 +338,11 @@ describe("Use rows", () => {
     const staff = await signedIn(t, ADMIN);
     const report = await staff.query(api.functions.privacyRows.report, {});
     expect(report.rows[0]?.orphans).toBe(1);
-    // Every check passed, orphans and all; only the hold remains.
+    // Every check passed, orphans and all: the switch goes to rows.
     await ruleAuthorityOn(t);
-    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
+    await keysOn(t);
+    await staff.mutation(api.functions.privacyRows.useRows, {});
+    expect(await sourceOf(t)).toBe("rows");
   });
 });
 

@@ -26,7 +26,7 @@ import {
 } from "./lib/nodes/privacyAuthority";
 import { privacyIsNewer } from "./lib/nodes/observe";
 import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
-import { accessDerived, accessSourceOf, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
+import { accessDerived, accessSourceOf, backfillAccess, deriveAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import { accessParityPage } from "./lib/nodes/accessParity";
 import { rulesForReaders } from "./lib/nodes/readerRules";
@@ -283,9 +283,10 @@ const SCAFFOLD_DERIVE_RETRY_MS = 15_000;
 
 /**
  * A new context's folders take the defaults its scaffolded `privacy.md` gives them, once its rows exist (scheduled
- * by `lib/scaffold/step.ts` in rows mode). Rows mode derives nothing on its own, so this is the one derivation,
- * and only while the workspace has no access state: once it has one, the rows are the owner's and are not touched.
- * INTERNAL.
+ * by `lib/scaffold/step.ts` in rows mode). Rows mode derives nothing on its own, so this is the one derivation.
+ * It runs once (`nodeAccessState.scaffoldDerived`), and only the rows no owner has decided (`onlyUnset`): an access
+ * state may already exist because an owner's write came first, and that must not stop the defaults, nor be clobbered
+ * by them. A new context's tree is small, so the derivation runs in this transaction. INTERNAL.
  */
 export const deriveNewWorkspaceRows = internalMutation({
   args: { workspaceId: v.id("workspaces"), attempt: v.number() },
@@ -296,7 +297,7 @@ export const deriveNewWorkspaceRows = internalMutation({
       .query("nodeAccessState")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
-    if (state !== null) return null;
+    if (state?.scaffoldDerived === true) return null;
     const anyRow = await ctx.db
       .query("nodes")
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
@@ -310,7 +311,12 @@ export const deriveNewWorkspaceRows = internalMutation({
       }
       return null;
     }
-    await backfillAccess(ctx, workspaceId);
+    await deriveAccess(ctx, workspaceId, { onlyUnset: true });
+    const after = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (after !== null) await ctx.db.patch(after._id, { scaffoldDerived: true });
     return null;
   },
 });

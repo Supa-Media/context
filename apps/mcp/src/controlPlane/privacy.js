@@ -57,6 +57,8 @@ export function createPrivacyMethods({ post }) {
         async setAccess(change) {
           const body = { path: change.path, base: change.base, grantees: [] };
           if (typeof change.expectedVersion === "number") body.expectedVersion = change.expectedVersion;
+          // Said only for a folder: a path with no row takes its pending access as the row it is for (`pendingAccess.ts`).
+          if (change.kind === "folder") body.kind = "folder";
           return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "setAccess", ...body });
         },
       };

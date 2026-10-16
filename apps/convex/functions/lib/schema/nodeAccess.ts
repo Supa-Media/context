@@ -63,6 +63,29 @@ export const nodeAccessTables = {
      * walking (the readers scan the rows then) and whenever the set is too
      * large for one document (`accessBackfill.ts`, `SNAPSHOT_MAX_ROWS`).
      */
+    /**
+     * Access asked for on a path that has no row yet (rows mode, `setAccess`): a note's tier
+     * written before the note's row is born. Applied to the row when it is inserted at this path
+     * (`convexNodeTable.insert`), and dropped unapplied after an hour. Until then readers judge a
+     * private one as a private override, so the path is closed while it waits; a team one is not
+     * rendered, and the path inherits. A folder's kind says which row it is for.
+     */
+    pending: v.optional(
+      v.array(
+        v.object({
+          path: v.string(),
+          kind: v.union(v.literal("file"), v.literal("folder")),
+          base: v.union(v.literal("private"), v.literal("team")),
+          at: v.number(),
+        }),
+      ),
+    ),
+    /**
+     * Whether the new-context scaffold's folder defaults were derived (`nodesPrivacy.deriveNewWorkspaceRows`).
+     * Its own fact, not the existence of this document: an access write can create the state before the
+     * scaffold's derivation runs, and that derivation must still happen.
+     */
+    scaffoldDerived: v.optional(v.boolean()),
     snapshot: v.optional(
       v.array(
         v.object({

@@ -216,12 +216,13 @@ describe("setAccess: the rows are the truth", () => {
     expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(0);
   });
 
-  test("a row is never created, and a group of another workspace is refused", async () => {
+  test("a row is never created: a base on a path with no row waits as pending, and a group of another workspace is refused", async () => {
     const w = await world();
     await addRows(w.t, w.ws, ["1-projects/"]);
+    // The base waits for the row (`pendingAccess.ts`); no row is made here.
     expect(
       await w.t.run(async (ctx) => setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: "2-areas", base: "team", actor: owner(w) })),
-    ).toEqual({ ok: false, code: "NOT_FOUND" });
+    ).toMatchObject({ ok: true });
     expect(await rowAt(w.t, w.ws, "2-areas")).toBeNull();
     expect(
       await w.t.run(async (ctx) =>

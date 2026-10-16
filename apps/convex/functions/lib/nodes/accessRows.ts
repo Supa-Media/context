@@ -11,6 +11,7 @@
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
+import { withPendingPrivate } from "./pendingAccess";
 import type { AccessRow, Grantee } from "./rowAccess";
 
 function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
@@ -81,14 +82,16 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
     .query("nodeAccessState")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  if (state?.snapshot !== undefined) {
-    return state.snapshot.map((entry) => ({
-      path: entry.path,
-      noteId: entry.noteId,
-      kind: entry.kind,
-      base: entry.base,
-      grantees: entry.grantees.map((grantee) => ({ kind: grantee.kind, id: grantee.id, role: grantee.role })),
-    }));
-  }
-  return await scanAccessRows(ctx, workspaceId);
+  const rows =
+    state?.snapshot !== undefined
+      ? state.snapshot.map((entry) => ({
+          path: entry.path,
+          noteId: entry.noteId,
+          kind: entry.kind,
+          base: entry.base,
+          grantees: entry.grantees.map((grantee) => ({ kind: grantee.kind, id: grantee.id, role: grantee.role })),
+        }))
+      : await scanAccessRows(ctx, workspaceId);
+  // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
+  return withPendingPrivate(rows, state?.pending, Date.now());
 }
