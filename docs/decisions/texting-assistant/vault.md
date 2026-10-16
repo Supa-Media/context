@@ -181,7 +181,15 @@ outgoing request.
   lasts until the person cuts that client off in Settings › Vault; "just this
   once" lets one request through. The entry's switch "Ask me the first time
   each AI uses it" is on by default; off means every client the person
-  connected may use it without asking.
+  connected may use it without asking. "Just this once" is spent with a
+  conditional write, so two requests racing on one grant send one key; on
+  storage without conditional writes the app refuses "Just this once" and
+  says why.
+- **Staff open it with a Features switch in the admin console, not a
+  deployment variable** (decided by the owner, 2026-10-16: "remove it, make a
+  features switch in admin"). `/gateway/binding` carries the switches as
+  `features`; only a literal `true` is on, and a missing row is off. A
+  self-hosted deployment switches it in its own console the same way.
 - **Every use is an audit entry** (`vault.proxied`, `vault.proxy_refused`):
   who, which entry, which environment, method, host and path, status. Never a
   query string, a header value or a body, since those are where a site puts

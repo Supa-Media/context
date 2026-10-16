@@ -28,6 +28,7 @@ export const ADMIN_ACTIONS = [
   "tex.allowlist_added",
   "tex.allowlist_removed",
   "rows.source_set",
+  "feature.switched",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

@@ -98,6 +98,10 @@ export async function gatewayBindingHandler(
   // notes live at id keys and the path objects are frozen copies. The gateway
   // refuses a keyed store that has no id layer (`sessionStore.js`).
   const keyed = await keyedSibling(ctx, opened.binding.workspaceId as Id<"workspaces">);
+  // Eleventh: the staff console's feature switches (`functions/featureSwitches.ts`),
+  // absent while every one is off, as the siblings above are absent in the ordinary case.
+  // Not caught, like the id switch: a switch the gateway cannot read is not guessed on.
+  const features = await ctx.runQuery(internal.functions.featureSwitches.gatewayFeatures, {});
   // `searchIndex` is `undefined` for every context that has no usable index,
   // and `JSON.stringify` drops an undefined value — so the normal case is the
   // key being **absent**, not present and null. A gateway on an older build
@@ -134,5 +138,6 @@ export async function gatewayBindingHandler(
     // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
     ...(idLayout === null ? {} : { idLayout }),
     ...keyed,
+    ...(Object.values(features).some(Boolean) ? { features } : {}),
   });
 }

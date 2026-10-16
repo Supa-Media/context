@@ -21,7 +21,7 @@
 
 import { createPending, findPending } from "../tools/approvals.js";
 import { recordChange } from "../activity/record.js";
-import { mayUse, readMeta, writeMeta } from "./entries.js";
+import { changeMeta, mayUse, readMeta, writeMeta } from "./entries.js";
 
 export const VAULT_USE = "vault_use";
 /** How long an ask waits for an answer, and how long a "just this once" lasts. */
@@ -53,14 +53,7 @@ export async function firstUseAllowed(store, { entryId, meta, pin, now = Date.no
   }
   const clients = Array.isArray(meta.proxy.clients) ? meta.proxy.clients : [];
   if (clients.some((client) => client?.id === clientId)) return { allowed: true };
-  const once = Array.isArray(meta.proxy.once) ? meta.proxy.once : [];
-  const mine = once.find((grant) => grant?.id === clientId && Number(grant.until) > now);
-  if (mine) {
-    // Spent before the request is made, so a second request cannot ride it.
-    const rest = once.filter((grant) => grant !== mine && Number(grant?.until) > now);
-    await writeMeta(store, store.encryptionKey, actor.workspaceId, entryId, { ...meta, proxy: { ...meta.proxy, once: rest } });
-    return { allowed: true };
-  }
+  if (onceGrant(meta, clientId, now) && (await spendOnce(store, { entryId, clientId, now }))) return { allowed: true };
   const args = askArgs(entryId, clientId);
   const waiting = await findPending(store, { name: "vault_list", args, userId: actor.userId, now });
   if (!waiting) {
@@ -86,6 +79,32 @@ export async function firstUseAllowed(store, { entryId, meta, pin, now = Date.no
   return { allowed: false, code: "needs_yes", message: WAITING("the person") };
 }
 
+function onceGrant(meta, clientId, now) {
+  const once = Array.isArray(meta?.proxy?.once) ? meta.proxy.once : [];
+  return once.find((grant) => grant?.id === clientId && Number(grant?.until) > now) ?? null;
+}
+
+/** Whether the storage can promise a "just this once" is spent once. */
+function spendsSafely(store) {
+  return store?.capabilities?.conditionalWrite !== false;
+}
+
+/**
+ * Spends this AI's "just this once" before the request is made, on condition
+ * that nobody spent it first: of two requests racing on one grant, the one
+ * whose write lands goes, and the other finds the grant gone and asks again.
+ */
+async function spendOnce(store, { entryId, clientId, now }) {
+  if (!spendsSafely(store)) return false;
+  const spent = await changeMeta(store, store.encryptionKey, store.actor.workspaceId, entryId, (fresh) => {
+    const mine = onceGrant(fresh, clientId, now);
+    if (!mine) return null;
+    const rest = fresh.proxy.once.filter((grant) => grant !== mine && Number(grant?.until) > now);
+    return { ...fresh, proxy: { ...fresh.proxy, once: rest } };
+  });
+  return spent.meta != null;
+}
+
 /**
  * The person's answer to one ask: `always` or `once` writes it into the
  * entry's meta, for the AI that asked. Run by `/approvals` after it took the
@@ -102,6 +121,12 @@ export async function grantUse(store, record, choice, { userId, now = Date.now()
   }
   const meta = await readMeta(store, keys, workspaceId, entryId);
   if (meta === null || !mayUse(meta, userId) || !meta.proxy) return { ok: false, text: "That key is gone, or no longer yours to use." };
+  if (choice === "once" && !spendsSafely(store)) {
+    return {
+      ok: false,
+      text: "This workspace's storage can't make sure a one-time yes is used only once. Choose Yes, from now on, or No.",
+    };
+  }
   const proxy = { ...meta.proxy };
   if (choice === "always") {
     const clients = (Array.isArray(proxy.clients) ? proxy.clients : []).filter((client) => client?.id !== clientId);
