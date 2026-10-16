@@ -102,6 +102,7 @@ test/treeTouchReporting.test.mjs
 test/treeWriteNames.test.mjs
 test/vault.test.mjs
 test/vaultProxy.test.mjs
+test/vaultAsks.test.mjs
 test/vaultLinkStub.test.mjs
 test/visibleKeysBranches.test.mjs
 test/calendarKeyedDelete.test.mjs

@@ -25,7 +25,8 @@
  */
 
 /** Approve runs the held call once; deny drops it. Nothing else. */
-export type DecisionAction = "approve" | "deny";
+/** `approve_always` answers a vault key's first-use ask only: "Yes, from now on". */
+export type DecisionAction = "approve" | "approve_always" | "deny";
 
 /** One held call, as the screen shows it. */
 export interface Approval {
@@ -44,6 +45,11 @@ export interface Approval {
   createdAt: number;
   /** Epoch milliseconds. */
   expiresAt: number;
+  /**
+   * `vault_use`: an AI asking to use a saved key for the first time. Answered
+   * "Yes, from now on", "Just this once" or "No", and nothing is run.
+   */
+  kind: "vault_use" | null;
 }
 
 /** What a listing answers with: the held calls, or a sentence for why not. */
@@ -60,6 +66,8 @@ export type Decision =
       ok: boolean;
       /** The tool's own answer text, or `""` when none was text. */
       result: string;
+      /** The answer was to a vault key's first-use ask. */
+      vaultUse?: boolean;
     }
   | { status: "denied"; summary: string | null };
 
@@ -167,6 +175,7 @@ function approvalFrom(raw: unknown): Approval | null {
     client: typeof record.client === "string" ? record.client : null,
     createdAt,
     expiresAt,
+    kind: record.kind === "vault_use" ? "vault_use" : null,
   };
 }
 
@@ -213,6 +222,7 @@ export function readDecision(status: number, body: unknown): DecisionRead {
         summary,
         ok: record.ok === true,
         result: typeof record.result === "string" ? record.result : "",
+        ...(record.kind === "vault_use" ? { vaultUse: true } : {}),
       },
     };
   }

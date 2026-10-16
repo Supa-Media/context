@@ -10,6 +10,7 @@
 
 import { recordChange } from "../activity/record.js";
 import { listMeta, mayUse, isEntryId, readMeta } from "../vault/entries.js";
+import { firstUseAllowed } from "../vault/asks.js";
 import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
 import { ENVS, SINGLE, entryType, isFieldName } from "../vault/fields.js";
 import { toolError, toolText } from "./results.js";
@@ -129,17 +130,6 @@ export async function toolVaultViewLink(store, args) {
 }
 
 const NO_PROXY = "Requests through Context are not switched on for this deployment yet.";
-const NEEDS_YES = {
-  allowed: false,
-  code: "needs_yes",
-  message:
-    "This key asks the person the first time each AI uses it, and that ask is not switched on yet. They can turn the ask off for this key when they save it.",
-};
-
-/** Until the first-use ask exists, only an entry saved with its ask off may be used. */
-function allowedWithoutAsks({ meta }) {
-  return meta?.proxy?.ask === false ? { allowed: true } : NEEDS_YES;
-}
 
 function describeAnswer(answer) {
   const lines = [`${answer.status} from ${answer.host}${answer.path}`];
@@ -182,7 +172,7 @@ export async function toolVaultFetch(store, request) {
     }).catch(() => {});
   try {
     const answer = await proxyFetch(store, request, {
-      allowed: proxy.allowed ?? allowedWithoutAsks,
+      allowed: proxy.allowed ?? ((use) => firstUseAllowed(store, use)),
       fetchImpl: proxy.fetch,
     });
     await audit("vault_proxied", { status: answer.status, hidden: answer.hidden });
