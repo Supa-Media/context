@@ -45,7 +45,6 @@ import { handleApprovals } from "./approvals.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
-import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import { handleMcp } from "../mcp/handlers.js";
 import {
@@ -55,7 +54,6 @@ import {
   meetingScopeRefusal,
   scopeForMeetingRequest,
 } from "../meetings/ingest.js";
-import { localIngestionStore } from "../ingestion/inbox.js";
 import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summarize.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
@@ -627,12 +625,6 @@ export async function route(request, env, ctx) {
       if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
-    }
-
-    if (path === "/granola-webhook" && request.method === "POST") {
-      const store = localIngestionStore(env);
-      if (!store) return json({ error: "not_found" }, 404);
-      return handleGranolaWebhook(request, env, store, ctx);
     }
 
     return json({ error: "not_found" }, 404);

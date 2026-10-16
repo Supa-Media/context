@@ -34,8 +34,6 @@
  *   GET  /oauth/authorize      authorization code + PKCE (S256 only)
  *   POST /oauth/token          code exchange and refresh
  *   POST /oauth/revoke         RFC 7009, one client at a time
- *   POST /granola-webhook      signed Granola note events (single-deployment only)
- *   cron                       calendar refresh (single-deployment only)
  *
  * **Nothing here snapshots a previous version.** This gateway used to copy
  * every overwritten, moved and archived body to `.history/<path>.<stamp>.md`
@@ -88,7 +86,7 @@
  *   notes/      visibleKeys, paths, storage, format, embeds, sealing
  *   moves/      queueConsumer, limits, jobs, objects
  *   search/     visibleNotes, scan, budget, pacing, maintenance, writeProjection
- *   ingestion/  inboxRoute, granolaWebhook, inbox, granola, transcription
+ *   ingestion/  inboxRoute, inbox, transcription
  *   agent/      route (`/agent`), turn, providers
  *   meetings/   notes          calendar/  sync, ics     context/  identity
  *   encryptionKeys/  rotation      crypto/  bytes
@@ -102,14 +100,11 @@
  */
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { snippetLinesFor } from "./search/visible.js";
-import { localIngestionStore } from "./ingestion/inbox.js";
 import { json } from "./http/responses.js";
 import { controlPlaneSettingProblems } from "./controlPlane/client.js";
 import { authorizeLiveRelay } from "./live/relayAuthorization.js";
 import { handleGatewayJobMessage } from "./moves/queueConsumer.js";
-import { processPendingGranolaEvents } from "./ingestion/granolaWebhook.js";
 import { route } from "./http/route.js";
-import { syncCalendar } from "./calendar/sync.js";
 import { NoteCapReached } from "./store/noteCap.js";
 
 export { presenceClientKey } from "./live/relayAuthorization.js";
@@ -168,12 +163,13 @@ export const PresenceRoom = AuthorizedPresenceRoom;
 
 export default {
   async fetch(request, env, ctx) {
-    // Before any route, so no request reaches a surface that would need the
-    // control plane. The answer names the settings that are wrong, never their
-    // values, and it is the same for every path.
-    const missing = controlPlaneSettingProblems(env);
-    if (missing.length) return json({ error: "control_plane_not_configured", settings: missing }, 503);
     try {
+      // Before any route, so no request reaches a surface that would need the
+      // control plane. The answer names the settings that are wrong, never their
+      // values, and it is the same for every path. Inside the catch, because
+      // reading `env` is itself the first thing that can throw.
+      const missing = controlPlaneSettingProblems(env);
+      if (missing.length) return json({ error: "control_plane_not_configured", settings: missing }, 503);
       return await route(request, env, ctx);
     } catch (error) {
       // A create refused at the free tier's note cap is an answer, not a
@@ -191,14 +187,6 @@ export default {
       }
       return json({ error: "server_error" }, 500);
     }
-  },
-
-  async scheduled(event, env, ctx) {
-    const store = localIngestionStore(env);
-    if (!store) return;
-    ctx.waitUntil(
-      Promise.all([syncCalendar(env, store), processPendingGranolaEvents(env, store)])
-    );
   },
 
   async queue(batch, env) {
