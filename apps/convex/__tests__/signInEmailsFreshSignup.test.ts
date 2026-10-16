@@ -6,6 +6,7 @@ import {
   isFreshSingleEmailAccount,
 } from "../functions/lib/freshSignup";
 import { hashToken } from "../functions/lib/crypto";
+import type { Id } from "../_generated/dataModel";
 
 /**
  * ADDING A PERSONAL EMAIL RIGHT AFTER A DOMAIN SIGN-UP (signInEmails.ts).
