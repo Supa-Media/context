@@ -86,14 +86,18 @@ export function SharedNoteShown({
   now,
   onList,
   onGo,
+  linkHref,
 }: {
   loaded: Loaded;
-  token: string;
+  /** The share's token, which its report names; `null` for a grant, which has none. */
+  token: string | null;
   item: SharedItem | null;
   phone: boolean;
   now: number;
   onList: () => void;
   onGo: (href: string) => void;
+  /** Where a link inside the note goes, for a grant (a share's links follow its own page). */
+  linkHref?: (target: string) => string;
 }) {
   const styles = useThemedStyles(makeStyles);
   const state = useMemo(
@@ -170,11 +174,13 @@ export function SharedNoteShown({
           </Text>
           {` shared this with you · ${when}`}
         </Text>
-        <ReportLink
-          target={{ kind: "share", token }}
-          person={{ handle: item.sharedByHandle, name: item.sharedByName }}
-          testID="shared-note-report"
-        />
+        {token === null ? null : (
+          <ReportLink
+            target={{ kind: "share", token }}
+            person={{ handle: item.sharedByHandle, name: item.sharedByName }}
+            testID="shared-note-report"
+          />
+        )}
       </View>
     );
 
@@ -200,7 +206,9 @@ export function SharedNoteShown({
               onUseTheirs={nothing}
               onKeepMine={nothing}
               // A link in the note follows the share's own reach, on its own page.
-              onOpenLink={(target) => onGo(`${sharedLinkHref(token)}?path=${encodeURIComponent(target)}`)}
+              onOpenLink={(target) =>
+                onGo(linkHref ? linkHref(target) : `${sharedLinkHref(token ?? "")}?path=${encodeURIComponent(target)}`)
+              }
             />
           </View>
         </>
@@ -214,7 +222,7 @@ export function SharedNoteShown({
               {loaded.kind === "folder" ? (
                 <PressRow
                   accessibilityLabel="Open the folder"
-                  onPress={() => onGo(sharedLinkHref(token))}
+                  onPress={() => onGo(sharedLinkHref(token ?? ""))}
                   radius={radii.sm}
                   style={styles.link}
                 >

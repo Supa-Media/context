@@ -6,24 +6,52 @@ import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { SharedList } from "../console/shared/SharedPane";
 import { SharedNoteShown } from "../console/shared/SharedNoteView";
 import { SharedSidebar } from "../console/shared/SharedSidebar";
-import type { SharedItem } from "../console/shared/sharedInbox";
+import { sharedItemKey, sharerLabel, shareTokenOf, type SharedItem } from "../console/shared/sharedInbox";
+import { grantItemKey } from "../console/shared/sharedGrant";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { StatusBar } from "../design/components/StatusBar";
 
 /**
  * @shared on fixed rows, for looking at against boards A2, A3 and A5
- * (`/e2e-fixture?screen=shared`, `&at=note`, `&at=empty`). The real sidebar,
- * list and read-only editor inside the real `AppFrame`; nothing behind them.
+ * (`/e2e-fixture?screen=shared`, `&at=note`, `&at=grant`, `&at=empty`). The real
+ * sidebar, list and read-only editor inside the real `AppFrame`; nothing behind them.
+ * The granted row carries a long workspace name and a long title on purpose.
  */
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.now();
+
+const GRANT_WORKSPACE = "ws-riverside-long";
+const GRANT_NOTE = "n-granted-long";
+
+const GRANT: SharedItem = {
+  kind: "grant",
+  workspaceId: GRANT_WORKSPACE,
+  slug: "riverside-editorial",
+  displayName: "The Riverside Studio Editorial Collective and Friends",
+  workspaceKind: "shared",
+  noteId: GRANT_NOTE,
+  entryPath: "1-projects/a-granted-note-with-a-long-file-name-that-keeps-going.md",
+  itemKind: "file",
+  sharedBy: null,
+  sharedByHandle: null,
+  sharedByName: null,
+  title: "A granted note whose title runs on for more than seventy characters in the list",
+  createdAt: NOW - 4 * HOUR,
+};
 
 const ITEMS: SharedItem[] = [
   row("t-chaos", "Beneath the Chaos", "ana", "Ana Ruiz", null, NOW - 2 * HOUR),
   row("t-launch", "Launch week plan", "kola", "Kola Ade", "Riverside Studio", NOW - 26 * HOUR),
   row("t-recipes", "Recipes we keep making", "maya", "Maya Chen", null, NOW - 5 * 24 * HOUR),
   row("t-interview", "Interview questions", "kola", "Kola Ade", "Riverside Studio", NOW - 12 * 24 * HOUR),
+  GRANT,
 ];
+
+/** The key a fixed row opens under: its token for a share, its grant for the granted row. */
+const OPEN_AT: Record<string, string> = {
+  note: "t-chaos",
+  grant: grantItemKey(GRANT_WORKSPACE, GRANT_NOTE),
+};
 
 function row(
   token: string,
@@ -70,8 +98,8 @@ export function SharedInboxFixture({ at }: { at?: string }) {
   const { width } = useWindowDimensions();
   const phone = densityFor(width) === "compact";
   const items = at === "empty" ? [] : ITEMS;
-  const [open, setOpen] = useState<string | null>(at === "note" ? "t-chaos" : null);
-  const item = items.find((candidate) => candidate.token === open) ?? null;
+  const [open, setOpen] = useState<string | null>(at === "note" || at === "grant" ? OPEN_AT[at] ?? null : null);
+  const item = items.find((candidate) => sharedItemKey(candidate) === open) ?? null;
   const account = (trigger?: "avatar") => (
     <SwitcherMenu
       data={data}
@@ -81,7 +109,7 @@ export function SharedInboxFixture({ at }: { at?: string }) {
       trigger={trigger}
     />
   );
-  const status = item === null ? `Shared with me · ${items.length} items` : `Shared by ${item.sharedByName}`;
+  const status = item === null ? `Shared with me · ${items.length} items` : `Shared by ${sharerLabel(item)}`;
   return (
     <AppFrame
       account={account("avatar")}
@@ -110,7 +138,7 @@ export function SharedInboxFixture({ at }: { at?: string }) {
       ) : (
         <SharedNoteShown
           loaded={{ kind: "note", path: item.entryPath, text: CHAOS }}
-          token={item.token}
+          token={shareTokenOf(item)}
           item={item}
           phone={phone}
           now={NOW}

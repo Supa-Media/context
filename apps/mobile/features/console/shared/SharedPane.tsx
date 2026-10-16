@@ -14,12 +14,17 @@ import { PersonFace } from "../faces/PersonFace";
 import { atName } from "../format";
 import { ReportLink } from "../../report/ReportLink";
 import { SharedNoteView } from "./SharedNoteView";
+import { SharedGrantView } from "./SharedGrantView";
+import { openKeyOf, type GrantTarget } from "./sharedGrant";
 import {
   groupByDay,
   itemTitle,
   placeLabel,
+  sharedItemHref,
+  sharedItemKey,
   sharerFace,
   sharerLabel,
+  shareTokenOf,
   shortWhen,
   type SharedItem,
 } from "./sharedInbox";
@@ -29,12 +34,14 @@ export const SHARED_MEASURE = 760;
 
 /**
  * @shared's page: the list of everything people shared with you by name
- * (board A2), or one of those notes open in place (board A3) when the address
- * carries `?note=<token>`. The sidebar beside it is `SharedSidebar`, drawn in
- * the tree's column by `ConsoleFrame`.
+ * (board A2), or one of those notes open in place (board A3). An open note is
+ * `?note=<token>` for a share, or `?grant=…` for a row you hold a grant on
+ * (`./sharedGrant.ts`). The sidebar beside it is `SharedSidebar`, drawn in the
+ * tree's column by `ConsoleFrame`.
  */
 export function SharedPane({
   note,
+  grant,
   phone,
   me,
   onOpen,
@@ -42,12 +49,15 @@ export function SharedPane({
   onBack,
   onGo,
 }: {
-  /** The open note's token, from the address; `null` shows the list. */
+  /** The open share's token, from the address; `null` when none is open. */
   note: string | null;
+  /** The open grant, from the address; `null` when none is open. */
+  grant: GrantTarget | null;
   phone: boolean;
   /** The reader's own `@name`, for the empty page's "shared with @seyi". */
   me: string | null;
-  onOpen: (token: string) => void;
+  /** Open a row: the href it lives at. */
+  onOpen: (href: string) => void;
   /** Back to the list, from an open note. */
   onList: () => void;
   /** Off @shared altogether: a phone's ‹, which has no sidebar to leave by. */
@@ -76,8 +86,13 @@ export function SharedPane({
     });
   }, [count, markSeen]);
 
+  if (grant !== null) {
+    const key = openKeyOf(grant);
+    const item = key === null ? null : (items?.find((candidate) => sharedItemKey(candidate) === key) ?? null);
+    return <SharedGrantView target={grant} item={item} phone={phone} now={Date.now()} onList={onList} onGo={onGo} />;
+  }
   if (note !== null) {
-    const item = items?.find((candidate) => candidate.token === note) ?? null;
+    const item = items?.find((candidate) => candidate.kind !== "grant" && candidate.token === note) ?? null;
     return <SharedNoteView token={note} item={item} phone={phone} now={Date.now()} onList={onList} onGo={onGo} />;
   }
   return (
@@ -87,7 +102,10 @@ export function SharedPane({
       now={Date.now()}
       phone={phone}
       me={me}
-      onOpen={onOpen}
+      onOpen={(key) => {
+        const item = items?.find((candidate) => sharedItemKey(candidate) === key);
+        if (item !== undefined) onOpen(sharedItemHref(item));
+      }}
       onBack={onBack}
     />
   );
@@ -111,7 +129,8 @@ export function SharedList({
   now: number;
   phone: boolean;
   me: string | null;
-  onOpen: (token: string) => void;
+  /** A row was pressed: its key (`sharedItemKey`), a token for a share. */
+  onOpen: (key: string) => void;
   onBack: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -202,21 +221,28 @@ export function SharedList({
                       {group.heading}
                     </Text>
                   )}
-                  {group.items.map((item) => (
+                  {group.items.map((item) => {
+                    const key = sharedItemKey(item);
+                    const token = shareTokenOf(item);
                     // The report sits beside the row rather than inside it, so
-                    // it is its own control and never a press on the row.
-                    <View key={item.token} style={styles.rowLine}>
-                      <View style={styles.grow}>
-                        <SharedRow item={item} now={now} fresh={isNew(item)} phone={phone} onOpen={onOpen} />
+                    // it is its own control and never a press on the row. A grant
+                    // has no token to report against, so its row has none.
+                    return (
+                      <View key={key} style={styles.rowLine}>
+                        <View style={styles.grow}>
+                          <SharedRow item={item} now={now} fresh={isNew(item)} phone={phone} onOpen={onOpen} />
+                        </View>
+                        {token === null ? null : (
+                          <ReportLink
+                            target={{ kind: "share", token }}
+                            person={{ handle: item.sharedByHandle, name: item.sharedByName }}
+                            label={phone ? "Report" : "Report or block"}
+                            testID={`shared-report-${token}`}
+                          />
+                        )}
                       </View>
-                      <ReportLink
-                        target={{ kind: "share", token: item.token }}
-                        person={{ handle: item.sharedByHandle, name: item.sharedByName }}
-                        label={phone ? "Report" : "Report or block"}
-                        testID={`shared-report-${item.token}`}
-                      />
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               ))
             )}
@@ -238,9 +264,10 @@ function SharedRow({
   now: number;
   fresh: boolean;
   phone: boolean;
-  onOpen: (token: string) => void;
+  onOpen: (key: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const key = sharedItemKey(item);
   const title = itemTitle(item);
   const who = sharerLabel(item);
   const place = placeLabel(item);
@@ -253,14 +280,14 @@ function SharedRow({
       accessibilityLabel={`${title}, shared by ${who}${place === null ? "" : ` in ${place}`}, ${when}${
         fresh ? ", new" : ""
       }. You can read it.`}
-      onPress={() => onOpen(item.token)}
+      onPress={() => onOpen(key)}
       radius={radii.sm}
       style={[styles.row, phone && styles.rowPhone]}
       hoverStyle={styles.rowHover}
-      testID={`shared-row-${item.token}`}
+      testID={`shared-row-${key}`}
     >
       {phone ? null : (
-        <View style={styles.dotSlot}>{fresh ? <View style={styles.dot} testID={`shared-new-${item.token}`} /> : null}</View>
+        <View style={styles.dotSlot}>{fresh ? <View style={styles.dot} testID={`shared-new-${key}`} /> : null}</View>
       )}
       <Icon name="file" size={14} />
       <View style={styles.rowText}>
@@ -268,7 +295,7 @@ function SharedRow({
           <Text variant="tree" numberOfLines={1} style={styles.rowTitle}>
             {title}
           </Text>
-          {phone && fresh ? <View style={styles.dot} testID={`shared-new-${item.token}`} /> : null}
+          {phone && fresh ? <View style={styles.dot} testID={`shared-new-${key}`} /> : null}
         </View>
         <View style={styles.byline}>
           <PersonFace name={sharerFace(item)} size={14} />
