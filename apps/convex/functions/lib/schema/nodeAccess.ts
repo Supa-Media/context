@@ -81,4 +81,24 @@ export const nodeAccessTables = {
       ),
     ),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Staff's last parity check of one workspace's access rows against its rules
+   * (`lib/nodes/accessParity.ts`), run by `privacyRows.checkPage`. Counts and
+   * the first few differences as path and clearance only, never note text.
+   * `version` is the derivation version the check ran against; a check is
+   * current only while `nodeAccessState.version` still equals it.
+   */
+  privacyRowChecks: defineTable({
+    workspaceId: v.id("workspaces"),
+    runId: v.number(),
+    status: v.union(v.literal("running"), v.literal("done")),
+    version: v.number(),
+    startedAt: v.number(),
+    checkedAt: v.optional(v.number()),
+    checked: v.number(),
+    differences: v.number(),
+    sample: v.array(v.object({ path: v.string(), clearance: v.string() })),
+    orphans: v.optional(v.number()),
+  }).index("by_workspace", ["workspaceId"]),
 };
