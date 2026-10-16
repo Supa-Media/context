@@ -639,9 +639,10 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // Share takes one note and has no plural: a share is addressed to one
     // person over one path, and "Share 3 items" is three separate grants with
     // three separate links, which is a batch job nobody asked for. A folder is
-    // omitted rather than refused, because `createShare` has no folder form at
-    // all — see `SHARE_TRAVERSAL_DEPTH` in `functions/shares.ts`.
-    context.canShare && single !== null && single.kind === "file"
+    // omitted on a pointer, because the tree's share dialog has no folder form
+    // (`SHARE_TRAVERSAL_DEPTH` in `functions/shares.ts`); a phone's hold opens
+    // the folder and the pane's full sheet over it, which does have one.
+    context.canShare && single !== null && (single.kind === "file" || context.platform === "touch")
       ? [makeItem(context, "share", "Share…")]
       : [],
 
