@@ -133,12 +133,9 @@ export interface EditorState {
    */
   fromCache?: boolean;
   /**
-   * With `fromCache`: the copy was put up while the bucket is still being
-   * asked, online (`INSTANT_OPEN_MS`). Not yet a claim that the note is
-   * behind — most of the time the bucket answers a moment later with the
-   * same words — so a phone does not flash "Cached copy" in its header for
-   * that moment (owner, 2026-10-16: "the app flickers a lot"). Cleared when
-   * the bucket answers or the read fails.
+   * With `fromCache`: shown while the bucket is still asked (`INSTANT_OPEN_MS`),
+   * so not yet "Cached copy" — the phone's header flashed it for that moment
+   * (owner, 2026-10-16). Cleared when the bucket answers or the read fails.
    */
   checking?: boolean;
 }
