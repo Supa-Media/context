@@ -50,11 +50,16 @@ The answer is its id, and the agent passes `mailbox` on every call after.
 - **Mail to a name reaches that name; mail to `everyone` reaches all.** A
   sender is never told of its own mail.
 
-## The lead sets the rhythm
+## Every agent checks every 5 minutes, on a timer that survives (2026-10-16)
 
-The join answer tells a first agent to send the opening message: who does
-what, and how often everyone checks. That cadence is a convention in the
-mail, not a setting, because the server cannot wake anyone either way.
+The join answer tells a first agent to send the opening message (who does
+what) and tells every agent to check mail every 5 minutes with a timer that
+survives its session restarting. The owner, after a lead's in-memory timer
+was wiped and twenty minutes of test results sat unread: "we need to make sure
+that the agents know they need to set up a poll timer that cant be wiped".
+The cadence is still words, not a setting, because the server cannot wake
+anyone either way; dropping `CHECK_RHYTHM` from the join answer fails
+`noteMail.test.mjs`.
 
 ## Tested by
 

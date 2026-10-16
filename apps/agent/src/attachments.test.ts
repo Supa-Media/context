@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accept, drain, MEDIA_WAIT_MS, type InboxDeps } from "./inbox";
+import { accept, drain, MEDIA_WAIT_MS, TEXT_WAIT_MS, type InboxDeps } from "./inbox";
 import { dimensions, prepareAttachments, sniff, MAX_AUDIO_BYTES, MAX_DOWNLOAD_BYTES, type ImagesLike } from "./attachments";
 import { officeText } from "./officeText";
 import type { Fetch } from "./clients";
@@ -281,6 +281,33 @@ describe("a photo and its words, texted separately", () => {
     expect(asked).toHaveLength(1);
     expect(asked[0].question).toBe("");
     expect(asked[0].attachments).toHaveLength(1);
+  });
+
+  it("words that overtake their photo wait for it, and are answered together", async () => {
+    // Messages sends a photo and then its words; Linq can deliver the words first (2026-10-16).
+    const storage = new MemoryStorage();
+    await accept(storage, message("e1", "and this one?"), 1_000);
+    expect(storage.alarms.at(-1)).toBe(1_000 + TEXT_WAIT_MS);
+    await accept(storage, message("e2", "", photo), 1_500);
+    expect(storage.alarms.at(-1)).toBe(1_500);
+    const asked: Array<{ question: string; attachments?: unknown[] }> = [];
+    await drain(storage, deps(asked));
+    expect(asked).toEqual([
+      { question: "and this one?", attachments: [{ name: "meme.png", mediaType: "image/png", data: b64(PNG) }] },
+    ]);
+    expect(await storage.list({ prefix: "pending:" })).toEqual(new Map());
+  });
+
+  it("a photo after words that already have files of their own is answered on its own", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("e1", "compare these", photo), 1_000);
+    await accept(storage, message("e2", "", photo), 1_500);
+    const asked: Array<{ question: string; attachments?: unknown[] }> = [];
+    await drain(storage, deps(asked));
+    expect(asked.map((ask) => [ask.question, ask.attachments?.length])).toEqual([
+      ["compare these", 1],
+      ["", 1],
+    ]);
   });
 
   it("a photo sent while another text waits does not hold that text up", async () => {
