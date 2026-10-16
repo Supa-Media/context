@@ -99,6 +99,9 @@ export async function startRowMove(
     ? { etag: state.etag, added: { folders: [], notes: [] } }
     : await carryPrivacy(store, from, to);
   if (carried === null) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
+  // Rows mode hands out the rows' version, taken after this move's own narrowing: only a change that lands
+  // between here and the move refuses it.
+  if (rowsTruth) carried.etag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
 
   const answer = await ctx.runMutation(internal.functions.nodeRowMoves.rowMove, {

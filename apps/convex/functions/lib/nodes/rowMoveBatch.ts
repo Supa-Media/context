@@ -127,7 +127,6 @@ export async function startRowMoveBatch(
     for (const { move } of planned) {
       if (rowsTruth) {
         await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from: move.from, to: move.to });
-        privacyEtag = state.etag;
         continue;
       }
       const carry = await carryPrivacy(store, move.from, move.to);
@@ -135,6 +134,8 @@ export async function startRowMoveBatch(
       carried.push({ from: move.from, to: move.to, added: carry.added });
       privacyEtag = carry.etag;
     }
+    // Rows mode hands out the rows' version, taken after every move's own narrowing (see `rowMoveStart`).
+    if (rowsTruth) privacyEtag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
   } catch (error) {
     await undoCarried();
     throw error;
