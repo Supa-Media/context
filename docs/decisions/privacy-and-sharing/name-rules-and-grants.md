@@ -317,11 +317,13 @@ link follows a note into a private folder.
 ### A tier keeps the owner's list; only a list names people (2026-10-16)
 
 In rows mode a row's base (`private`, `team`, or inherit) and its list are
-separate. A change that names no list keeps the owner's list as it is. Only a
-list that is given replaces it, and `[]` is the explicit way to clear it. The
-gateway sends `grantees` only when the caller passes one, and the console's
-tier verb sends none. Before this, a tier change cleared the list, so making a
-note `team` quietly removed every person the owner had named.
+separate. A change between `private` and `team` that names no list keeps the
+owner's list as it is. A given list replaces it, and `[]` is the explicit way to
+clear it. A reset to `inherit` clears the owner's list too: inherit means "share
+exactly like the parent", and a list left behind would be a grant the console no
+longer shows. The gateway sends `grantees` only when the caller passes one, and
+the console's tier verb sends none. Before this, a tier change cleared the list,
+so making a note `team` quietly removed every person the owner had named.
 
 The owner names people with `nodesAccess.setGrantees`: a handle (a group of
 this workspace, or a person with an account, member or not), a group id, or an
@@ -336,8 +338,10 @@ row's id, counts, and grantee ids. An email is audited only as a SHA-256 of its
 lowercased form. A refused change writes no audit row.
 
 What a "simplification" would cost: a tier change that clears the list leaves
-outsiders' access to go away silently, and a refusal that names what failed is
-an oracle for whether a handle exists. `setAccess.test.ts`,
+outsiders' access to go away silently, an inherit that keeps the list leaves a
+grant nobody can see, and a refusal that names what failed is an oracle for
+whether a handle exists. A reset to inherit by an editor, on a row with an
+owner's list, is `FORBIDDEN`, since it changes the list. `setAccess.test.ts`,
 `setAccessLists.test.ts` ("a tier change keeps the owner's list", "101
 grantees are refused", "a missing account and a deleted one") and
 `setGrantees.test.ts` ("one refusal for every grantee that does not resolve")

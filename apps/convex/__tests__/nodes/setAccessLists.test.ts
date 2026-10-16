@@ -8,6 +8,7 @@
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - make `setAccessRow` treat an absent `grantees` as `[]` again: "a tier change keeps the owner's list" fails;
+ *  - drop the `|| base === "inherit"` in `replaces`: "a reset to inherit clears the owner's list" fails;
  *  - drop the `MAX_GRANTEES` check: "101 grantees are refused" fails;
  *  - drop the `normalizeId` check in `nodesAccess.setAccess`: "a malformed id is INVALID" fails;
  *  - drop the `recordAudit` call: "a list change writes one audit row" fails;
@@ -237,6 +238,68 @@ describe("a tier change keeps the owner's list", () => {
       }),
     );
     expect(answer).toEqual({ ok: true, version: 1 });
+  });
+});
+
+describe("a reset to inherit clears the owner's list, and team to private keeps it", () => {
+  async function ownerGroupOn(w: World, path: string): Promise<void> {
+    const leads = { kind: "group" as const, groupId: w.leads, role: "view" as const };
+    await w.t.run(async (ctx) =>
+      setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path, base: "private", grantees: [leads], actor: owner(w) }),
+    );
+  }
+
+  test("a console reset of a note to its inherited tier clears the owner's list with it", async () => {
+    const w = await world();
+    await ownerGroupOn(w, "1-projects/plan.md");
+    expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(1);
+    // The folder above is private by default, so "private" on the note is what it inherits.
+    const answer = await w.t.mutation(internal.functions.nodesAccess.consoleAccess, {
+      workspaceId: w.ws,
+      actorUserId: w.owner,
+      path: "1-projects/plan.md",
+      kind: "note",
+      tier: "private",
+    });
+    expect(answer).toMatchObject({ ok: true, exception: false });
+    expect((await rowAt(w.t, w.ws, "1-projects/plan.md"))?.access).toBeUndefined();
+    expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(0);
+  });
+
+  test("a gateway reset to inherit clears the owner's list with it", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: now });
+      const creator = await ctx.db.insert("users", { email: "creator@example.test", emailVerificationTime: now } as never);
+      const group = await ctx.db.insert("workspaceGroups", { workspaceId: aliceWs, name: "alice-leads", createdBy: creator, createdAt: now });
+      const row = await ctx.db.insert("nodes", { workspaceId: aliceWs, path: "1-projects", name: "1-projects", kind: "folder", observedAt: now, access: { base: "team" } });
+      await ctx.db.insert("nodeAccess", { workspaceId: aliceWs, nodeId: row, granteeKind: "group", granteeGroupId: group, role: "view", at: now, source: "owner" });
+    });
+    const answer = await bodyOf(
+      await gatewayPost(t, "/gateway/privacy", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, op: "setAccess", path: "1-projects", base: "inherit" }),
+    );
+    expect(answer).toEqual({ ok: true, version: 1 });
+    const row = await t.run(async (ctx) => ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", aliceWs).eq("path", "1-projects")).unique());
+    expect(row?.access).toBeUndefined();
+    const grants = await t.run(async (ctx) => ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect());
+    expect(grants).toHaveLength(0);
+  }, 30_000);
+
+  test("a change from team to private with no list keeps the owner's list", async () => {
+    const w = await world();
+    await ownerGroupOn(w, "1-projects/plan.md");
+    await w.t.run(async (ctx) =>
+      setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: "1-projects/plan.md", base: "team", actor: owner(w) }),
+    );
+    const before = await grantsOn(w.t, w.ws, "1-projects/plan.md");
+    expect(before).toHaveLength(1);
+    const answer = await w.t.run(async (ctx) =>
+      setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: "1-projects/plan.md", base: "private", actor: owner(w) }),
+    );
+    expect(answer).toMatchObject({ ok: true });
+    expect((await rowAt(w.t, w.ws, "1-projects/plan.md"))?.access).toEqual({ base: "private" });
+    expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toEqual(before);
   });
 });
 

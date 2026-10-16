@@ -15,8 +15,9 @@
  * and rebuilds the snapshot readers answer from (a pending change rebuilds nothing:
  * readers render pending access from the state itself).
  *
- * A base change with no `grantees` keeps the owner's list: only a list that is
- * given (`[]` and `"inherit"` included) replaces it. Every change of the owner's
+ * A private <-> team change with no `grantees` keeps the owner's list: a list that is
+ * given (`[]` and `"inherit"` included) replaces it, and a reset of the base to
+ * `inherit` clears it. Every change of the owner's
  * list writes one `access.list` audit row; a refused change writes none.
  */
 
@@ -187,8 +188,9 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     .withIndex("by_node", (q) => q.eq("nodeId", row._id))
     .collect();
   const held = grants.filter((grant) => grant.source !== "share");
-  // An absent list keeps the owner's (nothing is wanted here); a given one, `[]` included, replaces it.
-  const replaces = args.grantees !== undefined;
+  // A given list, `[]` included, replaces the owner's. Without one, only a base of `inherit` replaces it (with none):
+  // inherit means "as the parent", so a list left behind would be a hidden grant. private <-> team keeps the list.
+  const replaces = args.grantees !== undefined || base === "inherit";
   const wanted = await wantedOf(ctx, workspaceId, args.grantees === undefined || args.grantees === "inherit" ? [] : args.grantees);
   if (wanted === null) return { ok: false, code: "NOT_FOUND" };
 
