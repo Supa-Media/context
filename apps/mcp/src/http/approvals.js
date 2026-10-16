@@ -29,6 +29,7 @@ import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { listPending, pendingById, replayAsAsked, settlePending } from "../tools/approvals.js";
 import { VAULT_USE, grantUse } from "../vault/asks.js";
+import { noteRefusal } from "../vault/usage.js";
 import { toolError, toolText } from "../tools/results.js";
 import { json } from "./responses.js";
 
@@ -99,6 +100,7 @@ export async function handleApprovals(request, store, session) {
     },
   });
   if (settled.status === "not_found") return json({ error: "not_found" }, 404);
+  if (settled.status === "denied" && settled.record?.kind === VAULT_USE) await noteRefusal(store, settled.record).catch(() => false);
   const text = settled.result?.content?.[0]?.text;
   return json({
     status: settled.status,

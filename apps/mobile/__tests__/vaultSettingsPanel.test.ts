@@ -9,21 +9,37 @@ import { createRoot, type Root } from "react-dom/client";
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
 import { VaultList, VaultPanel, type VaultActions } from "../features/console/settings/panels/VaultPanel";
-import { vaultClientLine, vaultNoClientsLine, vaultPinLine, vaultRowLine, type VaultEntry } from "../features/vault/vaultSettings";
+import {
+  inFilter,
+  vaultAgo,
+  vaultClientLine,
+  vaultCountLine,
+  vaultLastUsedLine,
+  vaultNoClientsLine,
+  vaultPinLine,
+  vaultRefusedLine,
+  vaultRowLine,
+  vaultRowPill,
+  vaultSavedLine,
+  type VaultEntry,
+} from "../features/vault/vaultSettings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * Settings › Vault (vault board 2): names, the one website, the AIs a person
- * said yes to, and Cut off. The page is handed names only, so these prove
- * the words and that each button asks the server for the right thing.
+ * Settings › Vault, drawn as vault board 2: cards with the one website, the
+ * AIs on each key and when one last used it, and the picked key's detail with
+ * Cut off, Allow and the last use in a sentence. The page is handed names,
+ * yeses and uses only, so these prove the words and that each button asks the
+ * server for the right thing.
  */
 
-const JUNE = Date.UTC(2026, 5, 3, 12);
+const NOW = new Date(Date.UTC(2026, 9, 16, 12));
+const MIN = 60_000;
 const pinned: VaultEntry = {
   entryId: "v000000000000000000000001",
   type: "secret",
-  name: "Payments",
+  name: "Stripe",
   sites: [],
   envs: ["dev", "prod"],
   shared: false,
@@ -33,33 +49,73 @@ const pinned: VaultEntry = {
     name: null,
     ask: true,
     clients: [
-      { id: "client-a", name: "Claude", at: JUNE },
-      { id: "client-b", name: null, at: JUNE },
+      { id: "client-a", name: "Claude Code", at: Date.UTC(2026, 9, 16) },
+      { id: "client-b", name: null, at: Date.UTC(2026, 9, 14) },
     ],
+    uses: [
+      { id: "client-a", name: "Claude Code", count: 31, at: NOW.getTime() - 4 * MIN, method: "GET", path: "/v1/customers/cus_8Hd2" },
+      { id: "client-b", name: null, count: 3, at: NOW.getTime() - 3 * 24 * 60 * MIN, method: "POST", path: "/v1/charges" },
+    ],
+    refused: [{ id: "client-c", name: "ChatGPT", at: Date.UTC(2026, 9, 15) }],
+    waiting: 0,
   },
+  savedAt: Date.UTC(2026, 9, 10),
+  savedByYou: true,
+};
+const waiting: VaultEntry = {
+  ...pinned,
+  entryId: "v000000000000000000000004",
+  name: "Convex deploy key",
+  proxy: { ...pinned.proxy!, clients: [], uses: [], refused: [], waiting: 1 },
 };
 const unpinned: VaultEntry = { ...pinned, entryId: "v000000000000000000000002", name: "Bank notes", envs: [], proxy: null };
 const login: VaultEntry = { ...unpinned, entryId: "v000000000000000000000003", type: "login", name: "Bank", sites: ["bank.example.test"] };
 
 describe("the words", () => {
-  test("a row says where the key goes, or why no AI uses it", () => {
+  test("the count, and a row says where the key goes, or why no AI uses it", () => {
+    expect(vaultCountLine([pinned, unpinned, login])).toBe("2 keys · 1 login");
+    expect(vaultCountLine([login, login, login])).toBe("3 logins");
+    expect(vaultCountLine([pinned])).toBe("1 key");
     expect(vaultRowLine(pinned)).toBe("Only to api.example.com · dev, prod");
-    expect(vaultRowLine({ ...pinned, envs: [] })).toBe("Only to api.example.com");
     expect(vaultRowLine(unpinned)).toBe("Not given to AIs · you copy it yourself");
     expect(vaultRowLine(login)).toBe("Login · Tex fills it on bank.example.test");
   });
 
-  test("the detail names the website and how the key is sent", () => {
-    expect(vaultPinLine(pinned.proxy!)).toBe("Only ever sent to api.example.com as a sign-in header.");
-    expect(vaultPinLine({ ...pinned.proxy!, style: "header", name: "x-api-key" })).toMatch(/the x-api-key header/);
-    expect(vaultPinLine({ ...pinned.proxy!, style: "query", name: "key" })).toMatch(/\?key= in the address/);
+  test("a row's pill: who waits, when it was last used, or no AI yet", () => {
+    expect(vaultRowPill(pinned, NOW)).toEqual({ text: "used 4 min ago", tone: "ok" });
+    expect(vaultRowPill(waiting, NOW)).toEqual({ text: "1 AI waiting for you", tone: "warn" });
+    expect(vaultRowPill({ ...waiting, proxy: { ...waiting.proxy!, waiting: 0 } }, NOW)).toEqual({ text: "no AI yet", tone: "neutral" });
+    expect(vaultRowPill(unpinned, NOW)).toBeNull();
+    expect(vaultAgo(NOW.getTime() - 26 * 60 * MIN, NOW)).toBe("yesterday");
+    expect(vaultAgo(NOW.getTime() - 2 * 24 * 60 * MIN, NOW)).toBe("2 days ago");
   });
 
-  test("an AI is named with the day of the yes, and nobody yet reads by the ask", () => {
-    expect(vaultClientLine(pinned.proxy!.clients[0], new Date(Date.UTC(2026, 9, 1)))).toBe("Claude · You said yes Jun 3");
-    expect(vaultClientLine(pinned.proxy!.clients[1], new Date(Date.UTC(2027, 9, 1)))).toBe("An AI · You said yes Jun 3, 2026");
+  test("the detail: who saved it, how it is sent, each AI with its yes and uses, and a no", () => {
+    expect(vaultSavedLine(pinned, NOW)).toBe("Saved by you on 10 Oct");
+    expect(vaultPinLine(pinned.proxy!)).toBe("as a sign-in header");
+    expect(vaultPinLine({ ...pinned.proxy!, style: "header", name: "x-api-key" })).toBe("as the x-api-key header");
+    const [claude, other] = pinned.proxy!.clients;
+    expect(vaultClientLine(claude, pinned.proxy!.uses, NOW)).toBe("You said yes 16 Oct · used 31 times");
+    expect(vaultClientLine(other, [], new Date(Date.UTC(2027, 1, 1)))).toBe("You said yes 14 Oct 2026");
+    expect(vaultRefusedLine(pinned.proxy!.refused[0], NOW)).toBe("You said no 15 Oct");
     expect(vaultNoClientsLine(pinned.proxy!)).toMatch(/you'll be asked/);
-    expect(vaultNoClientsLine({ ...pinned.proxy!, ask: false })).toMatch(/without asking/);
+  });
+
+  test("the last use in a sentence, naming what the address was about and never an id", () => {
+    expect(vaultLastUsedLine(pinned, NOW)).toBe("Claude Code read your customers, 4 minutes ago.");
+    const wrote = { ...pinned, proxy: { ...pinned.proxy!, uses: [{ ...pinned.proxy!.uses[1], at: NOW.getTime() - 2 * 60 * MIN }] } };
+    expect(vaultLastUsedLine(wrote, NOW)).toBe("An AI wrote to your charges, 2 hours ago.");
+    const bare = { ...pinned, proxy: { ...pinned.proxy!, uses: [{ ...pinned.proxy!.uses[0], path: "/v2/8f3a9c" }] } };
+    expect(vaultLastUsedLine(bare, NOW)).toBe("Claude Code read api.example.com, 4 minutes ago.");
+    expect(vaultLastUsedLine(unpinned, NOW)).toBeNull();
+  });
+
+  test("the filters", () => {
+    expect(inFilter(pinned, "ai", NOW)).toBe(true);
+    expect(inFilter(login, "ai", NOW)).toBe(false);
+    expect(inFilter(login, "logins", NOW)).toBe(true);
+    expect(inFilter(pinned, "stale", NOW)).toBe(false);
+    expect(inFilter({ ...unpinned, savedAt: Date.UTC(2026, 0, 1) }, "stale", NOW)).toBe(true);
   });
 });
 
@@ -89,54 +145,101 @@ async function flush() {
   });
 }
 
-function fakes(entries: VaultEntry[]) {
+function fakes(listed: VaultEntry[]) {
   const calls: unknown[][] = [];
+  // The server's copy, changed by each call as the server would.
+  const entries = listed.map((entry) => ({ ...entry }));
+  const keep = (next: VaultEntry) => {
+    entries[entries.findIndex((e) => e.entryId === next.entryId)] = next;
+    return next;
+  };
   const actions: VaultActions = {
-    list: async () => entries,
+    list: async () => entries.map((entry) => ({ ...entry })),
     cutOff: async (entryId, clientId) => {
       calls.push(["cut", entryId, clientId]);
       const entry = entries.find((e) => e.entryId === entryId)!;
       const clients = clientId === undefined ? [] : entry.proxy!.clients.filter((c) => c.id !== clientId);
-      return { ...entry, proxy: { ...entry.proxy!, clients } };
+      return keep({ ...entry, proxy: { ...entry.proxy!, clients, waiting: 0 } });
+    },
+    allow: async (entryId, clientId) => {
+      calls.push(["allow", entryId, clientId]);
+      const entry = entries.find((e) => e.entryId === entryId)!;
+      const refusal = entry.proxy!.refused.find((no) => no.id === clientId)!;
+      return keep({ ...entry, proxy: { ...entry.proxy!, clients: [...entry.proxy!.clients, refusal], refused: [] } });
     },
     link: async (kind, entryId) => void calls.push(["link", kind, entryId]),
   };
   return { actions, calls };
 }
 
-describe("the list", () => {
-  test("lists keys by name and opens one to its AIs", async () => {
-    const { actions } = fakes([pinned, unpinned]);
-    act(() => root.render(createElement(VaultList, { actions })));
+describe("side by side, as the board draws it", () => {
+  test("the first key is picked, with its website, its AIs and its last use", async () => {
+    const { actions } = fakes([pinned, waiting, login]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    expect(container.textContent).toContain("2 keys");
-    expect(container.textContent).toContain("Only to api.example.com · dev, prod");
-    expect(container.textContent).not.toContain("AIs that can use it");
-    press(`vault-row-${pinned.entryId}`);
-    expect(container.textContent).toContain("AIs that can use it");
-    expect(container.textContent).toContain("Claude · You said yes");
+    expect(find("vault-count")?.textContent).toBe("2 keys · 1 login");
+    expect(find(`vault-pill-${pinned.entryId}`)?.textContent).toBe("used 4 min ago");
+    expect(find(`vault-pill-${waiting.entryId}`)?.textContent).toBe("1 AI waiting for you");
+    expect(find(`vault-detail-${pinned.entryId}`)).not.toBeNull();
+    expect(find("vault-site")?.textContent).toBe("api.example.comas a sign-in header");
+    expect(container.textContent).toContain("You said yes 16 Oct · used 31 times");
+    expect(container.textContent).toContain("You said no 15 Oct");
+    expect(find("vault-last-used")?.textContent).toBe("Claude Code read your customers, 4 minutes ago.");
+    press(`vault-row-${login.entryId}`);
+    expect(find(`vault-detail-${login.entryId}`)?.textContent).toContain("bank.example.test");
   });
 
-  test("Cut off removes one AI, Cut off every AI removes them all", async () => {
-    const { actions, calls } = fakes([pinned]);
-    act(() => root.render(createElement(VaultList, { actions })));
+  test("the filter chips narrow the list", async () => {
+    const { actions } = fakes([pinned, unpinned, login]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    press(`vault-row-${pinned.entryId}`);
+    press("vault-filter-logins");
+    expect(find(`vault-row-${pinned.entryId}`)).toBeNull();
+    expect(find(`vault-row-${login.entryId}`)).not.toBeNull();
+    expect(find(`vault-detail-${login.entryId}`)).not.toBeNull();
+    press("vault-filter-ai");
+    expect(find(`vault-row-${login.entryId}`)).toBeNull();
+    expect(find(`vault-row-${unpinned.entryId}`)).toBeNull();
+  });
+
+  test("Cut off removes one AI, Cut off every AI removes them all, Allow lets a refused one in", async () => {
+    const { actions, calls } = fakes([pinned]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
     press("vault-cut-client-a");
     await flush();
     expect(calls).toContainEqual(["cut", pinned.entryId, "client-a"]);
     expect(find("vault-cut-client-a")).toBeNull();
     expect(find("vault-cut-client-b")).not.toBeNull();
+    press("vault-allow-client-c");
+    await flush();
+    expect(calls).toContainEqual(["allow", pinned.entryId, "client-c"]);
+    expect(find("vault-allow-client-c")).toBeNull();
+    expect(find("vault-cut-client-c")).not.toBeNull();
     press(`vault-cut-all-${pinned.entryId}`);
     await flush();
     expect(calls).toContainEqual(["cut", pinned.entryId, undefined]);
     expect(find("vault-cut-client-b")).toBeNull();
     expect(container.textContent).toContain("No AI yet");
   });
+});
+
+describe("on a narrow screen", () => {
+  test("the list comes first; a key opens in its place, with a way back", async () => {
+    const { actions } = fakes([pinned, unpinned]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW })));
+    await flush();
+    expect(find(`vault-detail-${pinned.entryId}`)).toBeNull();
+    press(`vault-row-${pinned.entryId}`);
+    expect(find(`vault-detail-${pinned.entryId}`)).not.toBeNull();
+    expect(find(`vault-row-${unpinned.entryId}`)).toBeNull();
+    press("vault-back");
+    expect(find(`vault-row-${unpinned.entryId}`)).not.toBeNull();
+  });
 
   test("New key and Show the key ask for a fresh link", async () => {
     const { actions, calls } = fakes([unpinned]);
-    act(() => root.render(createElement(VaultList, { actions })));
+    act(() => root.render(createElement(VaultList, { actions, now: NOW })));
     await flush();
     press("vault-new");
     await flush();
@@ -154,6 +257,9 @@ describe("the list", () => {
     const actions: VaultActions = {
       list: async () => [],
       cutOff: async () => {
+        throw new Error("unused");
+      },
+      allow: async () => {
         throw new Error("unused");
       },
       link: async () => {

@@ -19,6 +19,15 @@ import { runVault, type Listed, type Shown, type ShownMeta } from "./vault";
 
 const fail = (code: string, message: string) => new ConvexError({ code, message });
 
+const clientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
+const useValidator = v.object({
+  id: v.string(),
+  name: v.union(v.string(), v.null()),
+  count: v.number(),
+  at: v.number(),
+  method: v.string(),
+  path: v.string(),
+});
 const styleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
 const entryValidator = v.object({
   entryId: v.string(),
@@ -34,13 +43,20 @@ const entryValidator = v.object({
       style: styleValidator,
       name: v.union(v.string(), v.null()),
       ask: v.boolean(),
-      clients: v.array(v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() })),
+      clients: v.array(clientValidator),
+      uses: v.array(useValidator),
+      refused: v.array(clientValidator),
+      /** How many AIs wait on a first-use ask from this person now. */
+      waiting: v.number(),
     }),
   ),
+  /** When it was saved, and whether by the person reading. */
+  savedAt: v.number(),
+  savedByYou: v.boolean(),
 });
 type Entry = typeof entryValidator.type;
 
-function entryFrom(entryId: string, meta: ShownMeta): Entry {
+function entryFrom(entryId: string, meta: ShownMeta, userId: string, waiting = 0): Entry {
   const envs = new Set<string>();
   for (const field of meta.fields) for (const env of field.set) if (env !== "_") envs.add(env);
   return {
@@ -57,8 +73,13 @@ function entryFrom(entryId: string, meta: ShownMeta): Entry {
           name: meta.proxy.name ?? null,
           ask: meta.proxy.ask,
           clients: meta.proxy.clients ?? [],
+          uses: meta.proxy.uses ?? [],
+          refused: meta.proxy.refused ?? [],
+          waiting,
         }
       : null,
+    savedAt: meta.createdAt,
+    savedByYou: meta.createdBy === userId,
   };
 }
 
@@ -88,7 +109,7 @@ export const listVaultEntries = action({
     )) as Listed | null;
     if (listed === null) return [];
     return listed.entries
-      .map((entry) => entryFrom(entry.entryId, entry.meta))
+      .map((entry) => entryFrom(entry.entryId, entry.meta, userId, listed.waiting[entry.entryId] ?? 0))
       .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
@@ -113,7 +134,31 @@ export const cutOffVaultAI = action({
       action: "vault.cut_off",
       entryId: args.entryId,
     });
-    return entryFrom(cut.entryId, cut.meta);
+    return entryFrom(cut.entryId, cut.meta, userId);
+  },
+});
+
+/** "Allow" beside an AI the person said no to: it may use the key from now on. */
+export const allowVaultAI = action({
+  args: { workspaceId: v.id("workspaces"), entryId: v.string(), clientId: v.string() },
+  returns: entryValidator,
+  handler: async (ctx, args): Promise<Entry> => {
+    const { userId } = await signedInMember(ctx, args.workspaceId);
+    if (!isEntryId(args.entryId)) throw fail("INVALID_ARGUMENT", "There is no such key.");
+    const allowed = (await runVault(
+      ctx,
+      args.workspaceId,
+      { kind: "allow", entryId: args.entryId, userId, clientId: args.clientId },
+      "That didn't go through: your workspace's storage didn't answer.",
+    )) as Shown | null;
+    if (allowed === null) throw fail("INVALID_ARGUMENT", "There is no such key.");
+    await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "vault.allowed",
+      entryId: args.entryId,
+    });
+    return entryFrom(allowed.entryId, allowed.meta, userId);
   },
 });
 
