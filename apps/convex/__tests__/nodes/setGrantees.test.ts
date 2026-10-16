@@ -96,7 +96,7 @@ function setGrantees(w: World, who: Id<"users">, path: string, grantees: Array<R
 }
 
 describe("the owner's list: who may set it, and what it writes", () => {
-  test("the owner sets a group, a member's handle, an outsider's handle and an email, with mixed roles, and reads them back", async () => {
+  test("the owner sets a group, a member's handle and an email, with mixed roles, and reads them back", async () => {
     const w = await world();
     await w.t.run(async (ctx) =>
       setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: PLAN, base: "team", actor: { userId: w.owner, role: "owner" } }),
@@ -104,7 +104,6 @@ describe("the owner's list: who may set it, and what it writes", () => {
     const answer = await setGrantees(w, w.owner, PLAN, [
       { groupId: w.leads, role: "view" },
       { handle: "@kola", role: "edit" },
-      { handle: "ana", role: "view" },
       { email: "  Dev@Example.TEST ", role: "edit" },
     ]);
     expect(answer).toMatchObject({ ok: true });
@@ -116,12 +115,20 @@ describe("the owner's list: who may set it, and what it writes", () => {
       [
         `group|${w.leads}|view|owner`,
         `user|${w.kola}|edit|owner`,
-        `user|${w.ana}|view|owner`,
         `email|dev@example.test|edit|owner`,
       ].sort(),
     );
     // The base the owner set is kept by a list change.
     expect(await accessOn(w.t, w.ws, PLAN)).toEqual({ base: "team" });
+  });
+
+  test("someone outside the workspace is not named by handle: the answer is the one an unclaimed handle gets", async () => {
+    const w = await world();
+    const outsider = await setGrantees(w, w.owner, PLAN, [{ handle: "ana", role: "view" }]);
+    const nobody = await setGrantees(w, w.owner, PLAN, [{ handle: "nobody-holds-this", role: "view" }]);
+    expect(outsider).toEqual({ ok: false, code: "GRANTEE_NOT_FOUND" });
+    expect(nobody).toEqual(outsider);
+    expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 
   test("the row's base is kept, and an empty list clears the owner's list", async () => {
@@ -213,14 +220,14 @@ describe("one refusal for every grantee that does not resolve", () => {
     expect(await grantsOn(w.t, w.ws, PLAN)).toHaveLength(0);
   });
 
-  test("a handle that names a person with an account, and a handle without the sigil, resolve to the same person", async () => {
+  test("a member's handle with and without the sigil resolves to the same person", async () => {
     const w = await world();
-    await setGrantees(w, w.owner, PLAN, [{ handle: "@ana", role: "view" }]);
+    await setGrantees(w, w.owner, PLAN, [{ handle: "@kola", role: "view" }]);
     const withSigil = await grantsOn(w.t, w.ws, PLAN);
-    await setGrantees(w, w.owner, PLAN, [{ handle: "ana", role: "view" }]);
+    await setGrantees(w, w.owner, PLAN, [{ handle: "kola", role: "view" }]);
     const without = await grantsOn(w.t, w.ws, PLAN);
-    expect(withSigil.map((g) => g.granteeUserId)).toEqual([w.ana]);
-    expect(without.map((g) => g.granteeUserId)).toEqual([w.ana]);
+    expect(withSigil.map((g) => g.granteeUserId)).toEqual([w.kola]);
+    expect(without.map((g) => g.granteeUserId)).toEqual([w.kola]);
   });
 
   test("the audit row of a list the owner set holds the owner, the row, and no raw email", async () => {

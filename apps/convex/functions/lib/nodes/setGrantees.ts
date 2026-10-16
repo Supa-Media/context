@@ -1,8 +1,8 @@
 /**
  * The owner's list on one row, named by the people and groups they choose (`nodesAccess.setGrantees`).
  *
- * Each entry names exactly one of: a handle (`@name`, a group of this workspace or a person with an account,
- * whether or not they are a member), a group's id, or an email (a person who may not have an account yet).
+ * Each entry names exactly one of: a handle (`@name`, a group of this workspace or one of its members), a
+ * group's id, or an email (anyone, inside the workspace or not, with an account or not).
  * The list replaces the row's list (`setAccessRow`); the row's base is kept as it is.
  *
  * ## One refusal for every way a grantee can fail to resolve
@@ -26,7 +26,7 @@ import { parseInvitee } from "../invitees";
 import type { Visibility } from "../privacy";
 import { accessSourceOf, resolveHandle, type Grant } from "./accessBackfill";
 import { setAccessRow, MAX_GRANTEES, type GranteeInput, type Role } from "./setAccess";
-import { requireWorkspaceRole } from "../workspaceAuth";
+import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 
 /** One entry the owner names. Exactly one of `handle`, `groupId` or `email`. */
 export interface GranteeRequest {
@@ -81,6 +81,10 @@ async function resolveEntry(
     if (grant.kind === "group") return { kind: "group", groupId: grant.groupId, role };
     // A name can outlive its account: a deleted person is nobody, the same as a name nobody holds.
     if ((await ctx.db.get(grant.userId)) === null) return null;
+    // By handle, only a member of this workspace: the owner already sees who those are, so the answer
+    // reveals nothing new. Someone outside is named by email, which is stored whether or not an account
+    // holds it, so no answer here says whether a handle exists anywhere else on the platform.
+    if ((await getMembership(ctx, workspaceId, grant.userId)) === null) return null;
     return { kind: "user", userId: grant.userId, role };
   }
   if (entry.groupId !== undefined) {
