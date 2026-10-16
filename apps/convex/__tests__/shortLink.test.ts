@@ -55,6 +55,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The first test pays the suite's cold start (module graph, keyset) on a loaded CI shard.
+vi.setConfig({ testTimeout: 20_000 });
+
 const ENTRY = "1-projects/intake/overview.md";
 const OTHER = "1-projects/intake/rates.md";
 const PRIVATE_NOTE = "2-areas/salaries.md";
