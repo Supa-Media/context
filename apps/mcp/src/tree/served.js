@@ -48,7 +48,7 @@ export class TreeUnavailable extends Error {
 /** What an agent is told while a workspace's first copy into Context has not finished. */
 export const TREE_LOADING =
   "this workspace is still loading: Context is copying the list of its files, so it cannot be listed yet. " +
-  "read_note, write_note and search_notes work now; list again in a minute or two.";
+  "read, write and search work now; list again in a minute or two.";
 
 /** What an agent is told when the control plane could not be asked for the list. */
 export const TREE_UNREACHABLE = "this workspace's file list could not be read just now; try again in a moment.";

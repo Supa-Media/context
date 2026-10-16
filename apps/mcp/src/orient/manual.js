@@ -1,0 +1,170 @@
+/**
+ * `orient about: "tools"` and `orient about: "<action>"`: the manual of the
+ * six tools and of every action the write, manage and send tools carry.
+ *
+ * Nothing here is written by hand except the fetch ids, which are the
+ * gateway's own spellings. The tools are the connection's offered list
+ * (`store.offeredTools`), their arguments are read off the advertised schemas,
+ * and the actions are the rows of `tools/v2/actions.js`, so a new action shows
+ * here the moment it is a row there.
+ */
+
+import { ACTIONS } from "../tools/v2/actions.js";
+import { PRIVATE_TIER_ONLY_TOOLS, toolDefinitions } from "../tools/registry.js";
+import { V2_TOOLS } from "../tools/advertised.js";
+import { appOf, argumentsLine, liveToolListSection } from "../tools/liveList.js";
+
+/** The write-family tools that carry actions, in the order the six are listed. */
+const ACTION_FAMILIES = ["write", "manage", "send"];
+
+/** Top-level fields of a `write` call that name a note. */
+const NOTE_FIELDS = ["path", "content", "expected_etag"];
+
+/** Fields every tool takes that are addressing, not an action's own argument. */
+const ADDRESSING = ["context", "mailbox"];
+
+/** A probe call, to read which top-level fields and nested argument an action's `take` produces. */
+const PROBE = { path: "p", content: "c", expected_etag: "e", args: {} };
+
+/**
+ * What an action's `take` puts where, read by running it once on a probe.
+ * A `nested` action (comment, mail, upload, website, api) returns its own
+ * arguments under one key; a note action keeps the note fields at the top;
+ * a plain one returns its arguments unchanged.
+ */
+function shapeOf(entry) {
+  const produced = entry.take(PROBE) || {};
+  const keys = Object.keys(produced);
+  return {
+    note: NOTE_FIELDS.filter((field) => keys.includes(field)),
+    nested: keys.find((key) => !NOTE_FIELDS.includes(key)) ?? null,
+  };
+}
+
+/** Every nested argument key any action uses: they are sub-objects, never top-level tool arguments. */
+const NESTED_KEYS = new Set(
+  Object.values(ACTIONS).flatMap((table) =>
+    Object.values(table)
+      .map((entry) => shapeOf(entry).nested)
+      .filter(Boolean)
+  )
+);
+
+/** The advertised tool an action is carried by. */
+function carrierOf(entry) {
+  return toolDefinitions().find((tool) => tool.name === entry.tool) ?? null;
+}
+
+/** The argument list an action takes, from its carrying tool's schema. */
+function actionArguments(entry) {
+  const tool = carrierOf(entry);
+  const schema = tool?.inputSchema || {};
+  const { nested } = shapeOf(entry);
+  if (nested) {
+    const sub = schema.properties?.[nested];
+    return argumentsLine(sub?.properties || {}, sub?.required || []);
+  }
+  return argumentsLine(schema.properties || {}, schema.required || [], [
+    ...ADDRESSING,
+    ...NOTE_FIELDS,
+    ...NESTED_KEYS,
+  ]);
+}
+
+/**
+ * Whether a connection at this scope is told about an action. An action whose
+ * tool is private-tier only (`PRIVATE_TIER_ONLY_TOOLS`, e.g. share_link) is not
+ * named to a connection that reads no private notes, exactly as the tool
+ * itself is not offered to it.
+ */
+function visibleTo(scope, entry) {
+  return scope === "private" || !PRIVATE_TIER_ONLY_TOOLS.has(entry.tool);
+}
+
+/** Every action of one family the connection at `scope` may be told about, as `[name, entry]`. */
+function actionsOf(family, scope) {
+  return Object.entries(ACTIONS[family] || {}).filter(([, entry]) => visibleTo(scope, entry));
+}
+
+/** Every action name across the families this scope may see, for `orient about:` and its error. */
+export function actionNames(scope) {
+  return ACTION_FAMILIES.flatMap((family) => actionsOf(family, scope).map(([name]) => name));
+}
+
+/** The family an action name belongs to, with its entry, or null. */
+export function findAction(name, scope) {
+  for (const family of ACTION_FAMILIES) {
+    if (!Object.hasOwn(ACTIONS[family], name)) continue;
+    const entry = ACTIONS[family][name];
+    if (visibleTo(scope, entry)) return { family, name, entry };
+  }
+  return null;
+}
+
+/** The connection's tools as tools/list offers them, or null where the listing cannot be read. */
+async function offeredToolsOf(store) {
+  if (typeof store?.offeredTools !== "function") return toolDefinitions().filter((tool) => V2_TOOLS.has(tool.name));
+  try {
+    return await store.offeredTools();
+  } catch {
+    return null;
+  }
+}
+
+const FETCH_IDS = [
+  "- a note path, e.g. `1-projects/togather/status.md`: that note",
+  "- a folder path ending in `/`, e.g. `1-projects/`: lists it",
+  "- `meetings:`, `messages:`, `contacts:`, `activity:`, `changes:`, `proposals:` (and `proposals:<id>`), `links:`, `vault:`, `plugins:`, `access:`: each kind, listed or read by id",
+].join("\n");
+
+/** The whole manual: the six tools, every action, and the fetch ids. */
+export async function toolsManual(store, scope) {
+  const offered = await offeredToolsOf(store);
+  if (offered === null) {
+    return "## Context's tools\n\nThe tool list could not be read just now; try again in a moment.";
+  }
+  const offeredNames = new Set(offered.map((tool) => tool.name));
+  const families = ACTION_FAMILIES.filter((family) => offeredNames.has(family) && actionsOf(family, scope).length > 0).map((family) => {
+    const lines = actionsOf(family, scope).map(([name, entry]) => {
+      const { note } = shapeOf(entry);
+      const top = note.length ? `top level: ${note.join(", ")}; ` : "";
+      return `  - ${name} — ${entry.summary}\n    ${top}args: ${actionArguments(entry)}`;
+    });
+    return `### ${family}\n${lines.join("\n")}`;
+  });
+  return [
+    liveToolListSection(offered, appOf(store)),
+    "## Actions\n\n" +
+      "`write`, `manage` and `send` each take `action`, and an action's own arguments go in `args`. " +
+      "`write` takes a note's `path`, `content` and `expected_etag` at the top level; an action that " +
+      "does not name a note takes none. `orient about: \"<action>\"` gives one action in full.\n\n" +
+      families.join("\n\n"),
+    "## Fetch ids\n\n`fetch` takes one id:\n" + FETCH_IDS,
+  ].join("\n\n");
+}
+
+/**
+ * One action in full: its carrying tool's whole description, its arguments,
+ * and how to call it in v2.
+ *
+ * @param {{family: string, name: string, entry: object}} found from `findAction`
+ */
+export function actionManual({ family, name, entry }) {
+  const tool = carrierOf(entry);
+  const { note, nested } = shapeOf(entry);
+  const shownNote = note.length ? `path: "<note>", ` : "";
+  const call =
+    name === "save"
+      ? `${family} { path: "<note>", content: "<markdown>", expected_etag: "<etag>" }`
+      : `${family} { action: "${name}", ${shownNote}args: {...} }`;
+  return [
+    `# ${name}`,
+    `${family} → \`${entry.tool}\`: ${entry.summary}`,
+    `Arguments${nested ? ` (in \`args\`, under \`${nested}\`)` : " (in `args`)"}: ${actionArguments(entry)}`,
+    note.length ? `Top level: ${note.join(", ")}.` : "",
+    `How to call it: \`${call}\``,
+    tool?.description ? `## \`${entry.tool}\`, whole description\n\n${tool.description}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}

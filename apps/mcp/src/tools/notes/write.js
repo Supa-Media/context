@@ -235,7 +235,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     const there = await openNoteBeingWritten(store, path, found);
     return toolError(
       `that note already exists (etag ${there?.etag}). A form block is ordinary Markdown: ` +
-        "read the note, add the block to its content, and save it with write_note — or write " +
+        "read the note, add the block to its content, and save it with write — or write " +
         "the form to a path of its own."
     );
   }

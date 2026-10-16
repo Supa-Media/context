@@ -13,7 +13,8 @@ to whoever hosts it; see `apps/mobile/features/share/markdown.ts` and
 
 `write_note` takes an optional `images: [{ name, data | url, alt? }]`. An
 argument and not a tool, for the reason [a new argument reaches a client that
-a new tool cannot](../gateway-protocol.md) gives. It is the paste, reached
+a new tool cannot](../gateway-protocol.md) gives (and now, as an action of `write`,
+[six tools that never change](./six-tools.md)). It is the paste, reached
 from the other side:
 
 - **The bytes go in the opaque store** under `upload-<16 hex of SHA-256>.<ext>`.

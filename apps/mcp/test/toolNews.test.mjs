@@ -137,7 +137,7 @@ test("a stale client is told what changed, ahead of the front page", async () =>
   const text = await orient(TOKEN_STALE);
   const at = text.indexOf("## New in Context's tools");
   assert.ok(at > 0, "the section is there");
-  assert.ok(at < text.indexOf("## Front page"));
+  assert.ok(at < text.indexOf("## Workspaces"));
   assert.ok(text.includes(TOOL_NEWS[0].text), "the newest change is named");
 });
 
@@ -151,6 +151,6 @@ test("after the client fetches tools/list, the old news is gone", async () => {
 
 test("no listing time means no section, never a guess", async () => {
   const text = await orient(TOKEN_UNKNOWN);
-  assert.ok(text.includes("# Orientation"));
+  assert.ok(text.includes("# Context"));
   assert.ok(!text.includes("## New in Context's tools"));
 });

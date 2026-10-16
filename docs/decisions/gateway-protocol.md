@@ -920,6 +920,13 @@ has to be told the argument exists, which a tool description and `orient` can
 do on every call. `write_note` is in every client's list and has been from the
 beginning.
 
+**Superseded in its mechanism, 2026-10-16.** Capability that has to reach
+every client now goes into one of six tools that never change, as an action in
+its `args`, and the gateway checks the action itself. See
+[Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md).
+The argument rule below still holds for the reason it gives: a client may send
+an argument it has never seen, as long as it is told the argument exists.
+
 So capability that has to reach every client goes on an existing tool:
 
 - **`write_note` already made forms** and nobody had said so. It parses the

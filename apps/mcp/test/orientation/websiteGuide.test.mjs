@@ -42,11 +42,12 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
       [`${id.toUpperCase()}_BUCKET`]: bucket,
     };
     controlPlane.serveTree(id, bucket);
-    return await orientText(env, token);
+    return await orientText(env, token, { about: "website" });
   };
 
   const withSite = await site("ws_sitegd", { "website/index.md": "# Home\n" });
-  check("orient carries the website guide where the context has a website folder", withSite.includes("## Building this context's website"));
+  check("orient about website carries the guide where the context has a website folder", withSite.includes("## Building this context's website"));
+  check("...and says nothing about a missing folder there", !withSite.includes("has no website/ folder yet"));
   check("...naming the layout, stylesheet and loop syntax an agent writes", withSite.includes("layout.html.md") && withSite.includes(".css.md") && withSite.includes("{ each item in site.nav }"));
 
   check(
@@ -67,7 +68,7 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
   );
 
   const withoutSite = await site("ws_nositegd", { "1-projects/a.md": "# A\n" });
-  check("...and not in a context with no website", !withoutSite.includes("## Building this context's website"));
+  check("...and says so, where the context has no website, with the guide after it", withoutSite.includes("has no website/ folder yet") && withoutSite.includes("## Building this context's website"));
 
   check(
     "the guide stays short enough to sit in every orient",

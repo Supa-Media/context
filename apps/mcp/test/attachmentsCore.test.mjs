@@ -1,4 +1,6 @@
-import { check, rpc, call, succeeded, contextStore, objects, controlPlane, modernFetch } from "./harness.mjs";
+import { check, rpc, call, succeeded, contextStore, objects, controlPlane, modernFetch, env, accessTokenFor } from "./harness.mjs";
+import { fullToolList } from "./fullToolList.mjs";
+
 import {
   PNG_BYTES,
   PNG_BASE64,
@@ -61,14 +63,14 @@ export async function runAttachmentsCoreChecks() {
   );
   await contextStore.put("1-projects/portable/no-image.md", "# team note with no image at all\n");
 
-  const imageTools = await rpc("priv-token", "tools/list");
+  const imageTools = await fullToolList(env, accessTokenFor("priv-token"), contextStore);
   check(
     "read_image is discoverable and read-only",
-    imageTools.result?.tools.find((tool) => tool.name === "read_image")?.annotations?.readOnlyHint === true
+    imageTools.find((tool) => tool.name === "read_image")?.annotations?.readOnlyHint === true
   );
   check(
     "a read-only grant may still resolve images",
-    (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.some(
+    (await fullToolList(env, accessTokenFor("readonly-token"), contextStore)).some(
       (tool) => tool.name === "read_image"
     )
   );

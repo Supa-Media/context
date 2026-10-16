@@ -171,6 +171,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agent activity is announced from finished tool calls, never streamed
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
+- [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)

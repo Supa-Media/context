@@ -1,4 +1,16 @@
 import { check, rpc, call, lacks, succeeded, contextStore, objects, env, accessTokenFor, worker } from "./harness.mjs";
+import { fullToolList, V2_LIST_NAMES } from "./fullToolList.mjs";
+
+/*
+  The FULL list (`shape: "v1"`), which is what the checks below were written
+  against. `tools/list` over HTTP now answers the six v2 tools
+  (docs/decisions/gateway-protocol/six-tools.md), so the filters these checks
+  are about (read-only, tier, plugins, masking) are read off the same function
+  `tools/list` calls, for the same session, with the older shape asked for.
+*/
+const fullListFor = (label) => fullToolList(env, accessTokenFor(label), contextStore);
+const namesOf = (listing) => listing.map((tool) => tool.name).sort();
+const V2_NAMES = V2_LIST_NAMES;
 
 export async function runProtocolBasicsChecks() {
   // -- protocol basics
@@ -81,7 +93,7 @@ export async function runProtocolBasicsChecks() {
   const instructionsFlat = instructionsText();
   check(
     "initialize prompts scoped session saving",
-    instructionsFlat.includes("save_context") &&
+    instructionsFlat.includes("save_session") &&
       instructionsFlat.includes("Default privacy follows this connection")
   );
   // The argument for using this at all, which is the only reason the rest gets
@@ -117,6 +129,16 @@ export async function runProtocolBasicsChecks() {
   );
   check("notification → 202", noteRes.status === 202);
   const tools = await rpc("priv-token", "tools/list");
+  // What a client is offered: the six v2 tools, for a writing connection.
+  check("tools/list offers exactly the six v2 tools", JSON.stringify(namesOf(tools.result?.tools ?? [])) === JSON.stringify(V2_NAMES));
+  const readOnlyV2 = await rpc("readonly-token", "tools/list");
+  check(
+    "a read-only connection is offered orient, search and fetch, and no tool that writes",
+    JSON.stringify(namesOf(readOnlyV2.result?.tools ?? [])) === JSON.stringify(["fetch", "orient", "search"])
+  );
+  // The full list, for the checks below. Read per check, since the plugin
+  // switch and the settings file change what it returns.
+  const fullTools = { result: { tools: await fullListFor("priv-token") } };
   // 18 became 20 when `search` and `fetch` landed — ChatGPT's ordinary chats can
   // invoke only those two names on a custom connector, so they are the same
   // read capabilities wearing OpenAI's deep-research contract. 21 with
@@ -141,17 +163,15 @@ export async function runProtocolBasicsChecks() {
   // 44 without `export_encryption_keys`, removed by the owner on 2026-10-08:
   // leaving the product already hands back every note in plain text.
   // 48 with the vault's four (`vault_list` and three links a person finishes).
-  check("48 tools listed", tools.result?.tools.length === 48);
+  check("48 tools listed", fullTools.result?.tools.length === 48);
   check(
     "Folder lists have an explicit read-only server evaluator",
-    tools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
+    fullTools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
   );
   check(
     "storage migration is advertised only to an owner-tier connection",
-    tools.result?.tools?.some((tool) => tool.name === "migrate_storage_layout") === true &&
-      !(await rpc("pub-token", "tools/list"))?.result?.tools?.some(
-        (tool) => tool.name === "migrate_storage_layout",
-      ),
+    fullTools.result?.tools?.some((tool) => tool.name === "migrate_storage_layout") === true &&
+      !(await fullListFor("pub-token")).some((tool) => tool.name === "migrate_storage_layout"),
   );
   check(
     "a direct team-tier migration call is masked like an unknown tool",
@@ -217,13 +237,11 @@ export async function runProtocolBasicsChecks() {
   */
   check(
     "and it is NOT offered to a grant that reads at team tier, whatever it writes",
-    !(await rpc("readonly-token", "tools/list"))?.result?.tools.some(
-      (t) => t.name === "list_plugins"
-    )
+    !(await fullListFor("readonly-token")).some((t) => t.name === "list_plugins")
   );
   check(
     "while a grant that reads private somewhere is offered it",
-    (await rpc("priv-token", "tools/list"))?.result?.tools.some((t) => t.name === "list_plugins")
+    fullTools.result?.tools.some((t) => t.name === "list_plugins")
   );
   check(
     "and a team-tier grant that calls it anyway is refused",
@@ -254,16 +272,16 @@ export async function runProtocolBasicsChecks() {
     enablementKey,
     JSON.stringify({ version: 1, enabled: [], disabled: ["context-forms"] })
   );
-  const listWithFormsOff = await rpc("priv-token", "tools/list");
+  const listWithFormsOff = await fullListFor("priv-token");
   check(
     "a Context plugin turned off takes its tools out of the listing",
-    listWithFormsOff.result?.tools.length === 44 &&
-      listWithFormsOff.result?.tools?.some((tool) => tool.name === "submit_form") === false
+    listWithFormsOff.length === 44 &&
+      listWithFormsOff.some((tool) => tool.name === "submit_form") === false
   );
   check(
     "and leaves every tool no plugin owns exactly where it was",
     ["read_note", "write_note", "search", "list_plugins", "set_visibility"].every((name) =>
-      listWithFormsOff.result?.tools?.some((tool) => tool.name === name) === true
+      listWithFormsOff.some((tool) => tool.name === name) === true
     )
   );
   const refusedForm = await call("priv-token", "vote_form", {
@@ -289,6 +307,19 @@ export async function runProtocolBasicsChecks() {
       refusedForm.content[0].text.includes("Plugins") &&
       lacks(refusedForm.content[0].text, "unknown tool")
   );
+  // The same switch, reached through v2: `write` with the `vote` action is
+  // vote_form, and the same gate refuses it for the same reason.
+  const refusedThroughWrite = await call("priv-token", "write", {
+    action: "vote",
+    path: "1-projects/bugs.md",
+    args: { response_id: "r1" },
+  });
+  check(
+    "and the same switch refuses the same tool reached through write's vote action",
+    refusedThroughWrite?.isError === true &&
+      refusedThroughWrite.content?.[0]?.text?.includes("Markdown forms") === true &&
+      lacks(refusedThroughWrite.content[0].text, "unknown tool")
+  );
   // The switch removes a capability, never a protection. `read_note` and the
   // privacy engine behind it are untouched by any decision in that file, and
   // this is the check that stops a later "while we are in here" from folding a
@@ -303,26 +334,26 @@ export async function runProtocolBasicsChecks() {
   await contextStore.put(enablementKey, "{ half a file");
   check(
     "a settings file that does not parse leaves every tool where it was",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 48
+    (await fullListFor("priv-token")).length === 48
   );
   await contextStore.delete(enablementKey);
   check(
     "and removing the file restores the full listing",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 48
+    (await fullListFor("priv-token")).length === 48
   );
-  check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
+  check("set_visibility tool is discoverable", fullTools.result?.tools.some((tool) => tool.name === "set_visibility"));
   check(
     "set_folder_visibility tool is discoverable",
-    tools.result?.tools.some((tool) => tool.name === "set_folder_visibility")
+    fullTools.result?.tools.some((tool) => tool.name === "set_folder_visibility")
   );
-  const writeNoteTool = tools.result?.tools.find((tool) => tool.name === "write_note");
-  const setVisibilityTool = tools.result?.tools.find((tool) => tool.name === "set_visibility");
-  const setFolderVisibilityTool = tools.result?.tools.find(
+  const writeNoteTool = fullTools.result?.tools.find((tool) => tool.name === "write_note");
+  const setVisibilityTool = fullTools.result?.tools.find((tool) => tool.name === "set_visibility");
+  const setFolderVisibilityTool = fullTools.result?.tools.find(
     (tool) => tool.name === "set_folder_visibility"
   );
-  const scopeInfoTool = tools.result?.tools.find((tool) => tool.name === "scope_info");
-  const searchNotesTool = tools.result?.tools.find((tool) => tool.name === "search_notes");
-  const saveContextTool = tools.result?.tools.find((tool) => tool.name === "save_context");
+  const scopeInfoTool = fullTools.result?.tools.find((tool) => tool.name === "scope_info");
+  const searchNotesTool = fullTools.result?.tools.find((tool) => tool.name === "search_notes");
+  const saveContextTool = fullTools.result?.tools.find((tool) => tool.name === "save_context");
   check(
     "write_note advertises only private and team visibility",
     JSON.stringify(writeNoteTool.inputSchema.properties.visibility?.enum) === JSON.stringify(["private", "team"])
@@ -352,15 +383,15 @@ export async function runProtocolBasicsChecks() {
   // loss on the one call whose whole job is not losing anything.
   check(
     "archive_chat is no longer advertised",
-    !tools.result?.tools.some((tool) => tool.name === "archive_chat")
+    !fullTools.result?.tools.some((tool) => tool.name === "archive_chat")
   );
   check(
     "tool surface uses team terminology instead of the old public-access wording",
-    !/(?:public connections?|writable public|public archive)/i.test(JSON.stringify(tools.result?.tools))
+    !/(?:public connections?|writable public|public archive)/i.test(JSON.stringify(fullTools.result?.tools))
   );
   check(
     "read tools have read-only annotations",
-    tools.result?.tools.find((tool) => tool.name === "read_note").annotations.readOnlyHint === true
+    fullTools.result?.tools.find((tool) => tool.name === "read_note").annotations.readOnlyHint === true
   );
   await contextStore.put(
     "1-projects/list-source.md",

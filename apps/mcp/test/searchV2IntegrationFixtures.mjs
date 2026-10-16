@@ -17,6 +17,8 @@ export const SUBREQUEST_LIMIT = 50;
 
 export const MAIN_OWNER_TOKEN = `cat_searchv2_owner_${"0".repeat(17)}`;
 export const MAIN_TEAM_TOKEN = `cat_searchv2_member_${"0".repeat(16)}`;
+// The same team member, connected through ChatGPT (the client name selects the dialect).
+export const MAIN_TEAM_CHATGPT_TOKEN = `cat_searchv2_member_chatgpt_${"0".repeat(8)}`;
 export const WIDE_TOKEN = `cat_searchv2_wide_${"0".repeat(18)}`;
 export const SPREAD_TOKEN = `cat_searchv2_spread_${"0".repeat(16)}`;
 
@@ -251,6 +253,16 @@ export async function seedV2World(controlPlane) {
       userId: user,
     });
   }
+
+  await controlPlane.addGrant({
+    accessToken: MAIN_TEAM_CHATGPT_TOKEN,
+    workspaceId: "ws_v2_main",
+    role: "editor",
+    scopes: ["context:read"],
+    clientId: "mcp_client_searchv2_chatgpt",
+    clientName: "ChatGPT",
+    userId: "u_v2_member",
+  });
 
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,

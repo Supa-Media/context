@@ -187,7 +187,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
  */
 function commentsLine(text) {
   const described = comments.describeComments(text);
-  return described ? `\ncomments: ${described}; answer with write_note comment: { action: "reply" | "resolve", thread }` : "";
+  return described ? `\ncomments: ${described}; answer with write { action: "comment", args: { action: "reply" | "resolve", thread } }` : "";
 }
 
 /**
@@ -203,6 +203,6 @@ function mailLine(text) {
   return (
     `\nmail: ${sent.length} message${sent.length === 1 ? "" : "s"}` +
     `${joined.length ? ` between ${joined.join(", ")}` : ""}; ` +
-    'read only the mail with read_note mail: true, join with write_note mail: { join: "name" }'
+    'read only the mail with fetch { args: { mail: true } }, join with write { action: "mail", args: { join: "name" } }'
   );
 }

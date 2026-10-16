@@ -103,6 +103,7 @@ import {
   SUBREQUEST_LIMIT,
   MAIN_OWNER_TOKEN,
   MAIN_TEAM_TOKEN,
+  MAIN_TEAM_CHATGPT_TOKEN,
   WIDE_TOKEN,
   PRIVACY_MANIFEST,
   callTool,
@@ -238,7 +239,7 @@ export async function runSearchV2IntegrationChecks(check) {
     // `searchVisibleNotes`, so a second path cannot disagree about what a query
     // matches or about who may see it.
     const teamDialect = JSON.parse(
-      (await callTool(env, MAIN_TEAM_TOKEN, "search", { query: "narwhal" }))?.content?.[0]?.text
+      (await callTool(env, MAIN_TEAM_CHATGPT_TOKEN, "search", { query: "narwhal" }))?.content?.[0]?.text
     );
     check(
       "the ChatGPT dialect rides the same v2 path and the same filter",

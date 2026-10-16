@@ -73,6 +73,7 @@
 
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { fullToolList } from "./fullToolList.mjs";
 import {
   createControlPlaneStub,
   createS3Backend,
@@ -171,21 +172,12 @@ async function ask(env, tokenValue, body) {
   return { status: response.status, body: parsed, text };
 }
 
-/** What the same connection's MCP client is offered, for comparison. */
+/**
+ * What the same connection's MCP client is offered, for comparison: the full
+ * list (`fullToolList.mjs`), since `tools/list` answers the six v2 tools now.
+ */
 async function clientToolNames(env, tokenValue) {
-  const { ctx, settle } = createWorkerCtx();
-  const response = await worker.fetch(
-    new Request("https://mcp.context.test/mcp", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${tokenValue}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-    }),
-    env,
-    ctx,
-  );
-  const names = (JSON.parse(await response.text())?.result?.tools ?? []).map((tool) => tool.name);
-  await settle();
-  return names;
+  return (await fullToolList(env, tokenValue)).map((tool) => tool.name);
 }
 
 export async function runAgentChecks(check) {

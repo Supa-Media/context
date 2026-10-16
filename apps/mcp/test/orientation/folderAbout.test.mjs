@@ -177,7 +177,7 @@ export async function runOrientationFolderAboutChecks(check, harness) {
   // -- placeholders and encryption are never shown -----------------------------
   check(
     "a README.md placeholder we wrote earlier is not shown as a description",
-    lineOf(ownerMap, "4-archive/") === "- 4-archive/ (1 note)" && lacks(ownerMap, "Folder placeholder")
+    ownerMap.includes("Archive: 1 note") && lacks(ownerMap, "Folder placeholder")
   );
   check(
     "an encrypted front note is skipped, and its plaintext-looking body is not shown",

@@ -179,7 +179,7 @@ export async function prepareNoteImages(content, images, store = null) {
   if (images === undefined) return { content, images: [] };
   if (!Array.isArray(images)) return { error: "images must be a list" };
   if (images.length > MAX_IMAGES_PER_WRITE) {
-    return { error: `at most ${MAX_IMAGES_PER_WRITE} images per write_note` };
+    return { error: `at most ${MAX_IMAGES_PER_WRITE} images per write` };
   }
   const names = new Set();
   const prepared = [];
@@ -204,7 +204,7 @@ export async function prepareNoteImages(content, images, store = null) {
       const found = store ? await findUploadedImage(store, image.sha256.toLowerCase()) : null;
       if (!found) {
         return {
-          error: `${label}: no picture with that sha256 was uploaded to this workspace; ask write_note for an upload link and run it first`,
+          error: `${label}: no picture with that sha256 was uploaded to this workspace; ask write with action upload for an upload link and run it first`,
         };
       }
       prepared.push({ name, leaf: found.leaf, key: IMAGE_PREFIX + found.leaf, stored: true, alt: cleanAlt(image.alt), label: cleanLabel(image.label) });

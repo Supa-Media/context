@@ -37,7 +37,7 @@ export async function mailFooter(mailboxId, where) {
   const lookup = where.targetStore?.mail ?? where.store?.mail;
   if (typeof lookup?.get !== "function") return null;
   const mailbox = await lookup.get(mailboxId).catch(() => null);
-  if (!mailbox) return `mail: mailbox ${mailboxId} is not one this connection joined; join a note's mail with write_note mail: { join }`;
+  if (!mailbox) return `mail: mailbox ${mailboxId} is not one this connection joined; join a note's mail with write { action: "mail", args: { join } }`;
   const reach = await storeFor(mailbox.workspaceId, where);
   if (!reach) return null;
   const read = await readNoteForGateway(reach.store, reach.scope, mailbox.path);
@@ -52,7 +52,7 @@ export async function mailFooter(mailboxId, where) {
   return (
     `mail: ${fresh.length} new for ${mailbox.name} in ${path}` +
     `${toYou ? ` (${toYou} to you)` : ""}, from ${from}. ` +
-    `Read it: read_note { path: ${JSON.stringify(path)}, mail: true, mailbox: ${JSON.stringify(mailboxId)} }`
+    `Read it: fetch { id: ${JSON.stringify(path)}, args: { mail: true }, mailbox: ${JSON.stringify(mailboxId)} }`
   );
 }
 
