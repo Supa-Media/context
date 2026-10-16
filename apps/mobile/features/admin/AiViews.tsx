@@ -24,7 +24,7 @@ import {
   type ScoreRow,
   type ScoresRead,
 } from "./aiCatalog";
-import type { AiView } from "./AiSection";
+import type { AiView } from "./AiFiles";
 import { mergeFeatures } from "./aiCosts";
 import { useAiCostsData } from "./aiCostsData";
 import { relativeTime } from "./report";

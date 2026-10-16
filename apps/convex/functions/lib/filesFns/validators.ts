@@ -181,7 +181,7 @@ export const manifestValidator = v.object({
 export const folderNotesValidator = v.object({
   kind: v.literal("folderNotes"),
   available: v.boolean(),
-  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), props: v.string() })),
+  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), size: v.optional(v.number()), props: v.string() })),
   cursor: v.union(v.string(), v.null()),
   missing: v.array(v.string()),
   fill: v.boolean(),

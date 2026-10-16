@@ -50,6 +50,8 @@ this folder: it is public, like the rest of the repository.
   result and the key as artifacts and writes the scores to
   `@context-lc ai/results/` (`pnpm ai publish`).
 
+A case an AI drafted carries `- drafted: <who>` under its heading. `pnpm ai run` skips it, naming it on stderr, until a person has checked it and removed that line, so a drafted case never reaches a score. A scored result ends its `## Scored by` section with a `### Case by case` table (one row per question, one column per setup), placed after the setup table so a reader of the first table never takes a case for a setup.
+
 The runner's sign-in (`pnpm ai connect`, once, by a person; `pnpm ai signin`
 from `BENCH_RUNNER_*` in the environment) is described in `bench/context.mjs`.
 How a run, a judging and a score work: `@context-lc ai/README.md`, and

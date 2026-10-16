@@ -59,7 +59,7 @@ import { space, useColors, useThemedStyles, type Colors } from "../design";
 import { ActivitySection } from "./ActivitySection";
 import { AgentSection } from "./AgentSection";
 import { AiCostsSection } from "./AiCostsSection";
-import { AiSection, aiView } from "./AiSection";
+import { AiSection, aiPlaceOf } from "./AiSection";
 import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
@@ -184,7 +184,7 @@ function Console(props: AdminPaneProps) {
           <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
         ) : null}
         {tab === "ai" ? (
-          <AiSection days={days} view={aiView(sub)} onView={(view) => go({ tab: "ai", sub: view === "attention" ? null : view })} />
+          <AiSection days={days} place={aiPlaceOf(sub)} onPlace={(next) => go({ tab: "ai", sub: next })} />
         ) : null}
         {tab === "search" ? (
           <SearchSection

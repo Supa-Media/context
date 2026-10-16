@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AdminChrome } from "../admin/AdminPane";
-import { Library, type AiView } from "../admin/AiSection";
+import { Library, type AiView } from "../admin/AiFiles";
 import { ConsoleHeader } from "../admin/ConsoleHeader";
 import { buildCatalog, type FolderNote } from "../admin/aiCatalog";
 import { AiNoteIoContext, type AiNoteIo } from "../admin/useAiNote";

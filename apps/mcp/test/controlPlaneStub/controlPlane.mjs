@@ -56,6 +56,7 @@ export function createControlPlaneStub(options = {}) {
   const bindings = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
+  const builtinStarts = [];
   const meetingSummaryVerdicts = new Map();
   const meetingSummaryReports = [];
   /** Every `/gateway/agent-turn` report, as the turn log would receive it. */
@@ -484,6 +485,7 @@ export function createControlPlaneStub(options = {}) {
           return ok({ recorded: Boolean(known) });
         }
         if (!known) return ok({ verdict: null });
+        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true });
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 
@@ -963,6 +965,7 @@ export function createControlPlaneStub(options = {}) {
     issueCode,
     setBuiltinVerdict,
     builtinReports,
+    builtinStarts,
     setMeetingSummaryVerdict,
     meetingSummaryReports,
     turnReports,

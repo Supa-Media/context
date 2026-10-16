@@ -24,7 +24,7 @@ export type AiCatalogState =
   | { kind: "notEditor" }
   | { kind: "unavailable" }
   | { kind: "failed"; message: string }
-  | { kind: "ready"; workspaceId: Id<"workspaces">; catalog: AiCatalog; missing: number; truncated: boolean };
+  | { kind: "ready"; workspaceId: Id<"workspaces">; catalog: AiCatalog; missing: number; truncated: boolean; me: string };
 
 export function canEditAi(role: string | undefined): boolean {
   return role === "owner" || role === "editor";
@@ -38,6 +38,9 @@ export function useAiCatalog(): { state: AiCatalogState; reload: () => void } {
   const target = workspaces?.find((workspace) => workspace.slug === PINNED_CONTEXT_SLUG);
   const workspaceId = target && canEditAi(target.role) ? target.workspaceId : null;
   const listed = workspaces !== undefined;
+  // Who is signed in, as `promoted_by:` and `made_by:` name them: their handle, which is their own workspace's slug.
+  const own = workspaces?.find((workspace) => (workspace as { kind?: string }).kind === "personal");
+  const me = own ? `@${own.slug}` : "staff";
 
   useEffect(() => {
     if (!listed) return;
@@ -70,7 +73,7 @@ export function useAiCatalog(): { state: AiCatalogState; reload: () => void } {
           cursor = answer.cursor;
           truncated = page === MAX_PAGES - 1;
         }
-        if (live) setState({ kind: "ready", workspaceId: workspaceId as Id<"workspaces">, catalog: buildCatalog(notes), missing, truncated });
+        if (live) setState({ kind: "ready", workspaceId: workspaceId as Id<"workspaces">, catalog: buildCatalog(notes), missing, truncated, me });
       } catch (error: unknown) {
         if (live) setState({ kind: "failed", message: error instanceof Error ? error.message : String(error) });
       }
@@ -78,7 +81,7 @@ export function useAiCatalog(): { state: AiCatalogState; reload: () => void } {
     return () => {
       live = false;
     };
-  }, [listed, workspaceId, folderNotes, round]);
+  }, [listed, workspaceId, folderNotes, round, me]);
 
   return { state, reload: () => setRound((was) => was + 1) };
 }

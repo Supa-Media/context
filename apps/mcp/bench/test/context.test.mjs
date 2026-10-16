@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callTool, connect, notePaths, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
+import { callTool, connect, liveScoreRow, notePaths, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
 
 const ENDPOINT = "https://mcp.context.test/@context-lc/mcp";
 
@@ -293,6 +293,21 @@ test("the scores note heads with the live setup's score, so a list of results ca
   // Without the live setup, the first row stands in; before scoring, nothing does.
   assert.match(scoresNote(raw.replace("| production |", "| other |")), /\nsetup: guide\nscore: 100\.0%\ngates: passed\ngood_enough: yes\n/);
   assert.doesNotMatch(scoresNote(SCORED.replace(/## Scored by[\s\S]*$/, "")), /\nscore:/);
+});
+
+test("the live row is read from the first table, so a case-by-case table below it is never a setup", () => {
+  const head = ["---", "job: texting-assistant", "date: 2026-10-16", "status: scored", "---", "", "## Scored by claude-haiku-5-5, 2026-10-16", ""];
+  const cases = ["### Case by case", "", "| case | guide | production |", "| --- | --- | --- |", "| 1. When's my dentist appointment? | 3 of 3 | 2 of 3 |", ""];
+  // An empty setup table: the case row must not stand in for it.
+  assert.equal(liveScoreRow([...head, "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |", "", ...cases].join("\n")), null);
+  // With a setup table: its production row, and the case table's rows never read as setups.
+  const scored = [...head, "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |", "| guide | 100.0% | passed | 9 of 9 (100.0%) | $0.0100 | 5.0 s | 1.0 | 0 | yes |", "| production | 66.7% | failed (q1) | 8 of 9 (88.9%) | $0.0177 | 6.6 s | 1.2 | 0 | no |", "", ...cases].join("\n");
+  assert.deepEqual(liveScoreRow(scored), { setup: "production", score: "66.7%", gates: "failed (q1)", goodEnough: "no" });
+  // The published note carries the whole section, case table included, and still heads with the live row.
+  const note = scoresNote(scored);
+  assert.match(note, /\nsetup: production\nscore: 66\.7%\n/);
+  assert.match(note, /### Case by case\n\n\| case \| guide \| production \|\n/);
+  assert.match(note, /\| 1\. When's my dentist appointment\? \| 3 of 3 \| 2 of 3 \|/);
 });
 
 test("a search result's scores note keeps its misses", () => {

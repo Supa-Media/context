@@ -299,11 +299,18 @@ export function scoresNote(raw, { runUrl = null, date = new Date().toISOString()
 export function liveScoreRow(raw) {
   const at = raw.lastIndexOf("\n## Scored by ");
   if (at === -1) return null;
-  const rows = raw
-    .slice(at)
-    .split("\n")
-    .filter((line) => line.startsWith("| ") && !line.startsWith("| setup ") && !line.startsWith("| ---"))
-    .map((line) => line.slice(2, -2).split(" | ").map((cell) => cell.trim()));
+  // The first table only: the case-by-case table below it has case rows, not setup rows.
+  const rows = [];
+  let inTable = false;
+  for (const line of raw.slice(at).split("\n")) {
+    if (!line.startsWith("| ")) {
+      if (inTable) break;
+      continue;
+    }
+    inTable = true;
+    if (line.startsWith("| setup ") || line.startsWith("| ---")) continue;
+    rows.push(line.slice(2, -2).split(" | ").map((cell) => cell.trim()));
+  }
   const row = rows.find((cells) => cells[0] === LIVE_SETUP) ?? rows[0];
   if (!row || row.length < 3) return null;
   const clean = (value) => String(value ?? "").replace(/[^\w %.(),-]/g, "").trim();

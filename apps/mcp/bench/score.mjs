@@ -162,9 +162,27 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
     };
   });
 
+  // The case table: per question, how many answered runs passed for each
+  // setup. A question whose mirror did not pass is untested for that setup,
+  // so its cell says so, never a count.
+  const cases = numbers.map((n) => {
+    const q = questions.get(n);
+    const cells = {};
+    for (const setup of setups) {
+      if (q.mirror !== null && !questionPassed(setup, q.mirror)) {
+        cells[setup] = "untested";
+        continue;
+      }
+      const runs = answered(setup, n);
+      cells[setup] = { passed: runs.filter((row) => runPassed(row.id)).length, runs: runs.length };
+    }
+    // A table cell is one line: a pipe in the question would start a new column.
+    return { question: n, title: String(q.text ?? "").replace(/\|/g, "/").replace(/\s+/g, " ").trim(), cells };
+  });
+
   // The best good-enough setup: highest score, then cheapest, then fastest.
   const good = rows.filter((row) => row.goodEnough).sort((a, b) => b.score - a.score || a.price - b.price || a.speed - b.speed);
-  return { rows, best: good[0]?.setup ?? null };
+  return { rows, best: good[0]?.setup ?? null, cases };
 }
 
 /**
@@ -199,8 +217,11 @@ const speedText = (speed) => (speed === null ? "n/a" : `${speed.toFixed(1)} s`);
 const textsText = (texts) => (texts === null ? "n/a" : texts.toFixed(1));
 const gatesText = (failed) => (failed.length ? `failed (${failed.map((n) => `q${n}`).join(", ")})` : "passed");
 
-/** The "## Scored by" section. `goodEnough` is the test's good_enough lines as written. */
-export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) {
+/**
+ * The "## Scored by" section. `goodEnough` is the test's good_enough lines as written.
+ * `cases` is the case table; it is left out when there are none, as an older caller has none.
+ */
+export function scoreSection({ judgeModel, date, rows, best, goodEnough = {}, cases = [] }) {
   const out = [
     `## Scored by ${judgeModel}, ${date}`,
     "",
@@ -230,6 +251,15 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {} }) 
     if (!r.gateLines?.length) continue;
     out.push(`Why gates failed, ${r.setup}:`, ...r.gateLines.map((g) => `- q${g.question} ${g.kind} "${g.line}": ${g.failed} of ${g.runs} runs`), "");
   }
+  // Below the main table on purpose: the context note's reader stops at the first table.
+  if (cases.length) {
+    out.push("### Case by case", "", `| case | ${rows.map((r) => r.setup).join(" | ")} |`, `| --- |${rows.map(() => " --- |").join("")}`);
+    for (const c of cases) {
+      const shown = rows.map((r) => (c.cells[r.setup] === "untested" ? "untested" : `${c.cells[r.setup].passed} of ${c.cells[r.setup].runs}`));
+      out.push(`| ${c.question}. ${c.title} | ${shown.join(" | ")} |`);
+    }
+    out.push("");
+  }
   out.push(`Best setup that passes every bar: ${best ?? "none"}.`, "");
   return out.join("\n");
 }
@@ -247,17 +277,17 @@ export async function scoreFile({ path, dir, date = today() }) {
   const answers = new Map(parseResult(raw).answers.map((answer) => [answer.id, answer]));
   const test = parseTest(await readFile(join(dir, "tests", `${front.test}.md`), "utf8"));
   const bars = parseBars(test.front.good_enough);
-  const { rows, best } = scoreSetups({
+  const { rows, best, cases } = scoreSetups({
     key,
     judged: latest.blocks,
     answers,
     questions: new Map(test.questions.map((q) => [q.n, q])),
     bars,
   });
-  const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {} });
+  const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {}, cases });
   await writeFile(path, `${setFrontStatus(raw, "scored").replace(/\n*$/, "\n")}\n${section}`);
   const log = failedGateLog({ key, judged: latest.blocks, answers, questions: new Map(test.questions.map((q) => [q.n, q])) });
-  return { rows, best, judgeModel: latest.model, log };
+  return { rows, best, judgeModel: latest.model, log, cases };
 }
 
 /** The `score` command: options come from run.mjs's argument parser. */

@@ -17,6 +17,8 @@ export async function gatewayBuiltinModelHandler(ctx: ActionCtx, body: Record<st
   const verdict = await ctx.runMutation(internal.functions.builtinModel.startBuiltinTurn, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected.value,
+    // Only `true` asks for the Try it exception; anything else is an ordinary turn.
+    tryIt: body.tryIt === true,
   });
   return json({ verdict });
 }
@@ -39,6 +41,7 @@ export async function gatewayBuiltinUsageHandler(ctx: ActionCtx, body: Record<st
     model: body.model === undefined ? undefined : typeof body.model === "string" ? body.model : "",
     failed: body.failed === true,
     ms: count("ms"),
+    tryIt: body.tryIt === true,
   });
   return json({ recorded });
 }
