@@ -57,6 +57,7 @@ import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
+import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
 import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /**
@@ -135,10 +136,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
 
-  /*
-    The routine is re-read now, before any model is opened, so a paused or
-    vanished one costs nobody a turn from their daily allowance.
-  */
+  // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
   // A tool call through the client's own dispatcher, under this session.
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
@@ -454,6 +452,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       })
     : null;
 
+  // Pictures a texted answer sends back (`outgoingPictures.js`): a text from their phone only.
+  const outgoing = outgoingPictures({ enabled: session.actorClientId === TEXTS_CLIENT_ID, question });
   try {
     const turn = await runTurn({
       question,
@@ -465,15 +465,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...textingWriting,
         ...(skills?.tools ?? []),
       ],
-      /*
-        THE ONE DISPATCHER, AND IT IS THE CLIENT'S. Not a copy, not a subset
-        assembled here — `callToolForSession` is what an MCP client's tool call
-        goes through, including the cross-context routing and every per-call
-        scope refusal. An agent that reached past it would be a second authority
-        decision with no tests behind it.
-      */
+      // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
+      // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      callTool: withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting))),
+      callTool: outgoing.wrap(withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+      pictures: session.actorClientId === TEXTS_CLIENT_ID,
       attachments,
       env,
       providerOptions: {
@@ -549,7 +545,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // The ask goes out in the gateway's own words, after whatever the model
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
-    const answer = ledger.asked.length === 0 ? turn.answer : `${turn.answer}\n\n${askLine(ledger.asked)}`;
+    const { answer: told, pictures } = outgoing.take(turn.answer);
+    const answer = ledger.asked.length === 0 ? told : `${told}\n\n${askLine(ledger.asked)}`;
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
@@ -564,7 +561,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (conversation !== null && !turn.exhausted) {
       try {
         const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
-        await appendConversation(store, conversation, history, saved, answer, {
+        await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
         });
@@ -579,6 +576,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
+      ...(pictures.length > 0 ? { pictures } : {}),
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,

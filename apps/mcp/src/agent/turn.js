@@ -265,6 +265,8 @@ export async function runTurn(options) {
     history = [],
     web = null,
     texting = false,
+    // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
+    pictures = false,
     notes = null,
     builtinModelOverride = null,
     router = null,
@@ -358,6 +360,7 @@ export async function runTurn(options) {
   const systemFor = (answering) =>
     systemPrompt(place, {
       texting,
+      pictures,
       notes,
       model: answering,
       edits: tools.some((tool) => tool.name === "write_note"),
