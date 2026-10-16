@@ -17,7 +17,7 @@
  * not see or a reader should not learn:
  *
  *  - **A numbered picture is one a tool already handed this turn**, through
- *    the session's own dispatcher, so `read_image`'s privacy check (a note the
+ *    the session's own dispatcher, so `read_image`'s privacy check (`fetch` with `image`: a note the
  *    person may see references it) has passed before its bytes are kept.
  *    Nothing here reads storage.
  *  - **A web address must have appeared verbatim in a tool result or in the
@@ -44,7 +44,7 @@ const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/w
 /** What the model is told on a texted turn, so it never says it can't. */
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
-  "(read a note's picture with read_image first), or [picture <https address>] for a web image whose address " +
+  "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
   "you read in a tool result. It goes as a photo after your words.";
 
 function webAddress(value) {
