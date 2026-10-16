@@ -5,6 +5,8 @@
  * the pinned `@context-lc` workspace, which take their place when present.
  */
 
+import { PICTURES_LINE } from "./outgoingPictures.js";
+
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
 
@@ -125,7 +127,7 @@ function usedLine(used) {
 
 export function systemPrompt(
   place,
-  { texting = false, notes = null, model = null, edits = false, continued = false, used = [] } = {},
+  { texting = false, pictures = false, notes = null, model = null, edits = false, continued = false, used = [] } = {},
 ) {
   // A production setup's prompt (`production.js`) is the whole of who the
   // assistant is and how it writes: it stands in for the identity and the
@@ -138,6 +140,8 @@ export function systemPrompt(
         "This turn is a text message they sent you from their phone.",
         edits ? EDITS_DIRECTLY : PROPOSES,
         ...GROUND_RULES,
+        // A fact about this build, so a production setup's own words keep it too.
+        ...(pictures ? [PICTURES_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [
