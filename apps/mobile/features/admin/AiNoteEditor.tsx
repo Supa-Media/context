@@ -9,6 +9,9 @@ import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Pill, Text, TextField, space, useColors, useThemedStyles, type Colors } from "../design";
+import { pointerType } from "../design/tokens";
+import { useFieldFont } from "../design/fieldFont";
+import { baseName, displayName } from "../console/files/paths";
 import { Panel, useCompact } from "./AdminKit";
 import { Primary } from "./AiViews";
 import { provedBy, reachOf, type AiNoteRow } from "./aiCatalog";
@@ -59,6 +62,7 @@ export function AiNoteEditor({
   onOpenInNotes: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const colors = useColors();
   const compact = useCompact();
   const [target, setTarget] = useState(path);
@@ -98,7 +102,7 @@ export function AiNoteEditor({
     }
   }
 
-  const name = row?.title ?? (isNew ? "" : target?.split("/").pop()?.replace(/\.md$/, "") ?? "");
+  const name = row?.title ?? (isNew ? "" : displayName(baseName(target ?? "")));
   const proved = row ? provedBy(row, tests) : [];
   const isSkill = folder.startsWith("ai/production/skills") || (target ?? "").startsWith("ai/production/skills/");
 
@@ -149,7 +153,7 @@ export function AiNoteEditor({
             onChangeText={setDraft}
             editable={!state.readOnly}
             placeholderTextColor={colors.muted}
-            style={styles.editor}
+            style={[styles.editor, fieldFont]}
             textAlignVertical="top"
             autoCapitalize="none"
             autoCorrect={false}
@@ -185,7 +189,7 @@ const makeStyles = (colors: Colors) =>
       padding: space.x5,
       color: colors.text,
       fontFamily: mono,
-      fontSize: 13,
+      fontSize: pointerType.ui,
       lineHeight: 20,
       ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null),
     },

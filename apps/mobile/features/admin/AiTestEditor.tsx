@@ -11,6 +11,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button, Text, TextField, space, useThemedStyles, type Colors } from "../design";
+import { pointerType } from "../design/tokens";
+import { useFieldFont } from "../design/fieldFont";
+import { baseName, displayName } from "../console/files/paths";
 import { Panel, useCompact } from "./AdminKit";
 import { Primary } from "./AiViews";
 import { RUN_TESTS_URL, type ScoreRow } from "./aiCatalog";
@@ -55,6 +58,7 @@ export function AiTestEditor({
   onOpenInNotes: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const compact = useCompact();
   const [target, setTarget] = useState(path);
   const { state, save, reload } = useAiNote(workspaceId, path);
@@ -78,7 +82,7 @@ export function AiTestEditor({
   const isNew = target === null;
   const dirty = state.kind === "ready" && text !== null && (isNew ? name.trim() !== "" : text !== state.text);
   const current = list?.cases.find((item) => item.number === picked) ?? list?.cases[0] ?? null;
-  const title = (target ?? "").split("/").pop()?.replace(/\.md$/, "") ?? "";
+  const title = displayName(baseName(target ?? ""));
   const failedOn = (n: number) => round?.misses.filter((miss) => miss.question === n) ?? [];
 
   async function onSave() {
@@ -142,7 +146,7 @@ export function AiTestEditor({
         <Panel><Text variant="meta">{state.message}</Text></Panel>
       ) : mode === "markdown" ? (
         <Panel flush>
-          <TextInput multiline value={text ?? ""} onChangeText={setText} style={styles.markdown} textAlignVertical="top" autoCapitalize="none" autoCorrect={false} spellCheck={false} accessibilityLabel="The test list as Markdown" testID="admin-ai-test-markdown" />
+          <TextInput multiline value={text ?? ""} onChangeText={setText} style={[styles.markdown, fieldFont]} textAlignVertical="top" autoCapitalize="none" autoCorrect={false} spellCheck={false} accessibilityLabel="The test list as Markdown" testID="admin-ai-test-markdown" />
         </Panel>
       ) : (
         <View style={[styles.columns, compact && styles.columnsCompact]}>
@@ -253,6 +257,7 @@ function LineField({ line, label, tone, onLine, onRemove }: {
   onRemove?: (index: number) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const fieldFont = useFieldFont(pointerType.ui);
   const [value, setValue] = useState(line.value);
   // Grows with what is typed, so a long rule reads whole instead of scrolling inside one line.
   const [height, setHeight] = useState<number | null>(null);
@@ -261,7 +266,7 @@ function LineField({ line, label, tone, onLine, onRemove }: {
       <View style={[styles.chip, tone ? toneStyle(styles, tone) : styles.chipPlain]}>
         <Text variant="mini" style={tone ? toneText(styles, tone) : styles.muted} numberOfLines={1}>{label}</Text>
       </View>
-      <TextInput multiline numberOfLines={1} value={value} onChangeText={(next) => { setValue(next); onLine(line.index, next); }} onContentSizeChange={(event) => setHeight(event.nativeEvent.contentSize.height)} style={[styles.lineInput, height !== null && { height: Math.max(32, height) }]} accessibilityLabel={label} testID={`admin-ai-line-${line.index}-value`} />
+      <TextInput multiline numberOfLines={1} value={value} onChangeText={(next) => { setValue(next); onLine(line.index, next); }} onContentSizeChange={(event) => setHeight(event.nativeEvent.contentSize.height)} style={[styles.lineInput, fieldFont, height !== null && { height: Math.max(32, height) }]} accessibilityLabel={label} testID={`admin-ai-line-${line.index}-value`} />
       {onRemove ? (
         <Pressable role="button" accessibilityLabel={`Remove this ${label} line`} onPress={() => onRemove(line.index)} hitSlop={8} testID={`admin-ai-line-${line.index}-remove`}>
           <Text variant="meta" style={styles.muted}>×</Text>
@@ -295,7 +300,7 @@ const makeStyles = (colors: Colors) =>
     center: { flex: 1, padding: space.x5 },
     section: { marginTop: space.x3 },
     line: { flexDirection: "row", alignItems: "center", gap: space.x2, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: space.x2, paddingVertical: 4, backgroundColor: colors.ground },
-    lineInput: { flex: 1, minWidth: 0, color: colors.text, fontSize: 14, paddingVertical: 6, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null) },
+    lineInput: { flex: 1, minWidth: 0, color: colors.text, fontSize: pointerType.ui, paddingVertical: 6, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null) },
     chip: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, maxWidth: 220 },
     chipPlain: { backgroundColor: colors.chipFill },
     chipMust: { backgroundColor: colors.okWash },
@@ -306,7 +311,7 @@ const makeStyles = (colors: Colors) =>
     last: { width: 280, gap: space.x2, padding: space.x5, borderLeftWidth: 1, borderLeftColor: colors.line, alignSelf: "stretch" },
     lastCompact: { width: "auto", borderLeftWidth: 0, borderTopWidth: 1, borderTopColor: colors.line },
     miss: { gap: 2, padding: space.x2, borderRadius: 8, backgroundColor: colors.critWash },
-    markdown: { minHeight: 560, padding: space.x5, color: colors.text, fontFamily: mono, fontSize: 13, lineHeight: 20, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null) },
+    markdown: { minHeight: 560, padding: space.x5, color: colors.text, fontFamily: mono, fontSize: pointerType.ui, lineHeight: 20, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null) },
     muted: { color: colors.muted },
     bad: { color: colors.critText, fontWeight: "600" },
     okText: { color: colors.okText, fontWeight: "600" },
