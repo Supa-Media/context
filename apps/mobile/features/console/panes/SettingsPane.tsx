@@ -21,6 +21,7 @@ import { MoreCard } from "../settings/panels/MoreCard";
 import { ConnectedAppsCard } from "../settings/AccountSections";
 import { DomainSection } from "../settings/panels/DomainPanel";
 import { EmojiPanel } from "../settings/panels/EmojiPanel";
+import { VaultPanel } from "../settings/panels/VaultPanel";
 import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { ActivityPanel } from "../settings/panels/ActivityPanel";
 import { SharingSection } from "../settings/panels/SharingSection";
@@ -408,6 +409,10 @@ export function SettingsPane({
         </>
       )}
       </>
+      ) : null}
+
+      {show("vault") ? (
+        <VaultPanel sectioned={section !== undefined} workspaceId={data.files.contextId ?? null} />
       ) : null}
 
       {show("activity") ? (

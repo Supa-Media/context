@@ -147,7 +147,7 @@ describe("a secret saved for use through Context", () => {
     const key = [...w.backend.objects.keys()].find((k) => k.startsWith(".context/vault/"))!;
     const entryId = /(v[0-9a-f]{24})\.json$/.exec(key)![1];
     const shown = await w.t.action(internal.functions.vault.runVaultOperation, { workspaceId: w.team, operation: { kind: "meta", entryId } });
-    return shown!.meta;
+    return (shown as { meta: { proxy?: unknown } }).meta;
   }
 
   test("keeps the one website, how it wants the key, and the ask, sealed with the entry", async () => {

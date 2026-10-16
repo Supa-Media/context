@@ -45,6 +45,7 @@ import {
   mayUse,
   newEntryId,
   isEntryId,
+  listMeta,
   readMeta,
   readSecret,
   siteHost,
@@ -63,6 +64,9 @@ type FieldValues = { name: string; perEnv: boolean; values: Record<string, strin
 type EntryKind = "login" | "secret";
 /** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
 type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
+/** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
+type ProxyClient = { id: string; name: string | null; at: number };
+type StoredPin = ProxyPin & { clients?: ProxyClient[]; once?: { id: string; until: number }[] };
 
 type VaultMeta = {
   type?: EntryKind;
@@ -70,7 +74,7 @@ type VaultMeta = {
   name: string;
   sites: string[];
   people: string[];
-  proxy?: ProxyPin;
+  proxy?: StoredPin;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
@@ -81,9 +85,17 @@ type RequestLabels = {
   grantee: string | null;
 };
 type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
-type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[]; proxy?: ProxyPin };
+export type ShownMeta = {
+  type: EntryKind;
+  name: string;
+  sites: string[];
+  people: string[];
+  fields: FieldSummary[];
+  proxy?: ProxyPin & { clients?: ProxyClient[] };
+};
 type Revealed = { username: string; password: string; fields: FieldValues[] };
-type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
+export type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
+export type Listed = { entries: { entryId: string; meta: ShownMeta }[] };
 type RequestKind = "add" | "share" | "view";
 type Described = {
   kind: RequestKind;
@@ -280,7 +292,7 @@ export const recordVaultAudit = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed")),
+    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed"), v.literal("vault.cut_off")),
     entryId: v.string(),
   },
   returns: v.null(),
@@ -329,15 +341,26 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
   v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
+  v.object({ kind: v.literal("list"), userId: v.string() }),
+  // Cut one AI off a key, or every AI when `clientId` is absent.
+  v.object({ kind: v.literal("cut"), entryId: v.string(), userId: v.string(), clientId: v.optional(v.string()) }),
 );
 
+const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
+const shownPinValidator = v.object({
+  host: v.string(),
+  style: proxyStyleValidator,
+  name: v.optional(v.string()),
+  ask: v.boolean(),
+  clients: v.optional(v.array(proxyClientValidator)),
+});
 const metaValidator = v.object({
   type: v.union(v.literal("login"), v.literal("secret")),
   name: v.string(),
   sites: v.array(v.string()),
   people: v.array(v.string()),
   fields: v.array(fieldSummaryValidator),
-  proxy: v.optional(proxyPinValidator),
+  proxy: v.optional(shownPinValidator),
 });
 const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
@@ -349,8 +372,12 @@ const revealedValidator = v.object({ username: v.string(), password: v.string(),
  */
 export const runVaultOperation = internalAction({
   args: { workspaceId: v.id("workspaces"), operation: operationValidator },
-  returns: v.union(v.null(), v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) })),
-  handler: async (ctx, args): Promise<Shown | null> => {
+  returns: v.union(
+    v.null(),
+    v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) }),
+    v.object({ entries: v.array(v.object({ entryId: v.string(), meta: metaValidator })) }),
+  ),
+  handler: async (ctx, args): Promise<Shown | Listed | null> => {
     const credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
       workspaceId: args.workspaceId,
     });
@@ -371,10 +398,29 @@ export const runVaultOperation = internalAction({
         sites: meta.sites ?? [],
         people: meta.people,
         fields: Array.isArray(meta.fields) ? meta.fields : [],
-        ...(meta.proxy ? { proxy: meta.proxy } : {}),
+        ...(meta.proxy ? { proxy: shownPin(meta.proxy) } : {}),
       },
     });
     const op = args.operation;
+    if (op.kind === "list") {
+      const all = (await listMeta(store, keys, workspaceId)) as { id: string; meta: VaultMeta }[];
+      return { entries: all.filter((entry) => mayUse(entry.meta, op.userId)).map((entry) => shown(entry.id, entry.meta)) };
+    }
+    if (op.kind === "cut") {
+      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
+      if (meta === null || !mayUse(meta, op.userId)) return null;
+      if (meta.proxy) {
+        const keep = (id: string) => op.clientId !== undefined && id !== op.clientId;
+        meta.proxy = {
+          ...meta.proxy,
+          clients: (meta.proxy.clients ?? []).filter((client) => keep(client.id)),
+          once: (meta.proxy.once ?? []).filter((grant) => keep(grant.id)),
+        };
+        meta.updatedAt = Date.now();
+        await writeMeta(store, keys, workspaceId, op.entryId, meta);
+      }
+      return shown(op.entryId, meta);
+    }
     if (op.kind === "meta") {
       const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
       return meta === null ? null : shown(op.entryId, meta);
@@ -427,6 +473,17 @@ export const runVaultOperation = internalAction({
   },
 });
 
+/** A pin as a person may see it: the "just this once" grants stay inside the key. */
+function shownPin(pin: StoredPin): ProxyPin & { clients?: ProxyClient[] } {
+  return {
+    host: pin.host,
+    style: pin.style,
+    ...(pin.name === undefined ? {} : { name: pin.name }),
+    ask: pin.ask,
+    ...(pin.clients && pin.clients.length > 0 ? { clients: pin.clients } : {}),
+  };
+}
+
 /* ------------------------------ signed-in pages ---------------------------- */
 
 async function signedIn(ctx: Parameters<typeof getAuthUserId>[0]): Promise<Id<"users">> {
@@ -453,6 +510,16 @@ async function openVault(
   operation: Infer<typeof operationValidator>,
   message: string,
 ): Promise<Shown | null> {
+  return (await runVault(ctx, workspaceId, operation, message)) as Shown | null;
+}
+
+/** `openVault` for any operation, `list` included; `vaultSettings.ts` reaches the barrier through it. */
+export async function runVault(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  operation: Infer<typeof operationValidator>,
+  message: string,
+): Promise<Shown | Listed | null> {
   try {
     return await ctx.runAction(internal.functions.vault.runVaultOperation, { workspaceId, operation });
   } catch (error) {
