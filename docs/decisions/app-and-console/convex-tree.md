@@ -348,10 +348,11 @@ opens the one note it was asked to evaluate, and `orient` its front page.
   and `search_notes` work meanwhile; a failed, slow or malformed request says
   the list could not be read just now. `orient` still answers, without a map.
   A note the props have not read yet is listed with "(details still
-  loading)", and a List leaves it out and says `pending`. The one store that
-  lists its bucket is one with no control plane at all (the single-tenant
-  token deployment, a self-hosted gateway): there is no tree to ask, so it is
-  not a fallback.
+  loading)", and a List leaves it out and says `pending`. A store with no
+  control plane has no tree to ask, so it cannot list a note at all
+  (`TreeUnavailable`). The gateway refuses to run without a control plane
+  (decided 2026-10-15), so only a unit test's bare store is one, and it is not
+  a fallback: the bucket is listed only for plumbing.
 
 A rename or move made in the console re-checks the tree as soon as its bytes
 land, before the links pointing at it are repaired (`lib/nodes/landedTouch.ts`),

@@ -41,8 +41,9 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * called itself — and three senders are the product's own. `plugins/context`
  * publishes exactly three client ids and bakes `--client <id>` into the
  * command it installs, so `hook:claude-code` slugs to `hook-claude-code`;
- * `POST /inbox` defaults `source` to `"inbox"`; the Granola webhook hardcodes
- * `"granola"`.
+ * `POST /inbox` defaults `source` to `"inbox"`; the Granola webhook, removed
+ * from the gateway on 2026-10-15, hardcoded `"granola"`. The folder stays
+ * mandated so no note takes the name.
  *
  * The hook one is the sharpest of the whole list. It is the product's most
  * promoted surface — the safety net for a session nobody remembered to save —
@@ -70,12 +71,12 @@ export const CAPTURE_SOURCE_FOLDERS = [
 ] as const;
 
 /**
- * The one path the single-tenant calendar cron writes, and its folder.
+ * The path the calendar cron wrote, and its folder.
  *
- * `2-areas/calendar/next-14-days.md` is hardcoded in the gateway and gated on
- * `CALENDAR_ICS_URL`, so it exists only where that is configured — which is
- * the original workspace, the one deployment whose owner is publicly known. The
- * name requires no knowledge of them.
+ * The gateway's calendar cron that wrote `2-areas/calendar/next-14-days.md` was
+ * removed on 2026-10-15 (it only ran on a single-deployment install). The path
+ * stays mandated so no note takes the name. The name requires no knowledge of
+ * any deployment.
  */
 export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
 

@@ -81,8 +81,10 @@ price of "no fallbacks".
   bytes as a tree that does not serve. Moves and icon moves are recorded
   through `/gateway/tree/touch` (`forwarding`, `icons`, 100 a request),
   awaited so the next read follows the move.
-- A gateway with no control plane (self-hosted, the gateway's test stub) has
-  no hooks, and the files stay its record exactly as before.
+- Every gateway session has a control plane, because the gateway refuses to
+  run without one (decided 2026-10-15), so every session reports these moves.
+  A store with no tree, such as a unit test's bare bucket, has no hooks, and
+  its files stay its record exactly as before.
 
 **Storage moves and deletion.** Deleting a workspace's tree purges every row,
 in batches (`purgeSmallDataBatch`). Moving its storage to another bucket keeps
