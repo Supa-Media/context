@@ -318,3 +318,16 @@ invocation. A host that cannot defer still runs them inline and capped.
 searches start no index pass until the model has answered", "a held pass
 starts on release, once per workspace").
 
+
+## The index records the version its listing reports
+
+A pass that reads a note records the version the *listing* gave it, never the
+read's own etag. The two agreed while the listing was the bucket's; the
+listing is the Convex tree now, and a row's etag need not be the stored
+object's. Recording the read's etag made every such note look stale to the
+next listing, so every pass read it again, three calls a note in a by-id
+workspace, and the search database re-copied it: on production, 2026-10-16, a
+search's pass spent its whole budget on the same notes, all day. The cost of
+the rule is one extra read of a note that changed between a listing and its
+read, after which the two agree. `test/searchKeyed/census.test.mjs` ("settles")
+fails if it is reversed.
