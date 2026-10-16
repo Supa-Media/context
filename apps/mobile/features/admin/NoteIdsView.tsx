@@ -22,6 +22,7 @@ import { Button, Card, Text, space, useThemedStyles, type Colors, type DotTone }
 import { pointerType } from "../design/tokens";
 import { EmptyNote, NoticeLine, Panel, Skeleton } from "./AdminKit";
 import { messageFor } from "./SecretDialogs";
+import { SharedIdsCheck } from "./SharedIdsCheck";
 import {
   barShare,
   cleanupButtons,
@@ -423,6 +424,7 @@ function WorkspaceRow({
           )}
         </View>
       )}
+      <SharedIdsCheck workspaceId={row.workspaceId} />
     </View>
   );
 }

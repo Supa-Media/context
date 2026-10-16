@@ -12,6 +12,8 @@ export const itemValidator = v.object({
 
 export const copyResultValidator = v.object({
   path: v.string(),
+  /** The key the page was handed for this path: a row whose id changed since does not take the copy (`copyRecord.ts`). */
+  key: v.optional(v.string()),
   ok: v.boolean(),
   etag: v.optional(v.string()),
   keyEtag: v.optional(v.string()),

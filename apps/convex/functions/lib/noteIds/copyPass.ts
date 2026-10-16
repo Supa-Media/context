@@ -55,28 +55,30 @@ export function normalizeCopy(items: readonly NoteIdItem[], answers: readonly un
       byPath.set((answer as { path: string }).path, answer as Record<string, unknown>);
     }
   }
-  return items.map((item): CopyResult => {
-    const answer = byPath.get(item.path);
-    if (answer === undefined) return { path: item.path, ok: false, reason: "no_answer" };
-    if (answer.ok === true) {
-      if (answer.etag !== item.etag) return { path: item.path, ok: false, reason: "changed" };
-      // A copy that does not name the key's version can never be trusted, so it is a failed copy, not a stale one.
-      return typeof answer.copiedEtag === "string" && answer.copiedEtag !== ""
-        ? { path: item.path, ok: true, etag: item.etag, keyEtag: answer.copiedEtag }
-        : { path: item.path, ok: false, reason: "verify_failed" };
-    }
-    const reason = typeof answer.reason === "string" && COPY_REASONS.has(answer.reason) ? answer.reason : "copy_failed";
-    if (reason !== "changed") return { path: item.path, ok: false, reason };
-    const currentEtag = typeof answer.currentEtag === "string" && answer.currentEtag !== "" ? answer.currentEtag : undefined;
-    const currentSize = typeof answer.currentSize === "number" ? answer.currentSize : undefined;
-    return {
-      path: item.path,
-      ok: false,
-      reason,
-      ...(currentEtag === undefined ? {} : { currentEtag }),
-      ...(currentSize === undefined ? {} : { currentSize }),
-    };
-  });
+  return items.map((item): CopyResult => ({ ...answerFor(item, byPath.get(item.path)), key: item.key }));
+}
+
+/** One item's result, without the key it was copied to (`normalizeCopy` adds that). */
+function answerFor(item: NoteIdItem, answer: Record<string, unknown> | undefined): Omit<CopyResult, "key"> {
+  if (answer === undefined) return { path: item.path, ok: false, reason: "no_answer" };
+  if (answer.ok === true) {
+    if (answer.etag !== item.etag) return { path: item.path, ok: false, reason: "changed" };
+    // A copy that does not name the key's version can never be trusted, so it is a failed copy, not a stale one.
+    return typeof answer.copiedEtag === "string" && answer.copiedEtag !== ""
+      ? { path: item.path, ok: true, etag: item.etag, keyEtag: answer.copiedEtag }
+      : { path: item.path, ok: false, reason: "verify_failed" };
+  }
+  const reason = typeof answer.reason === "string" && COPY_REASONS.has(answer.reason) ? answer.reason : "copy_failed";
+  if (reason !== "changed") return { path: item.path, ok: false, reason };
+  const currentEtag = typeof answer.currentEtag === "string" && answer.currentEtag !== "" ? answer.currentEtag : undefined;
+  const currentSize = typeof answer.currentSize === "number" ? answer.currentSize : undefined;
+  return {
+    path: item.path,
+    ok: false,
+    reason,
+    ...(currentEtag === undefined ? {} : { currentEtag }),
+    ...(currentSize === undefined ? {} : { currentSize }),
+  };
 }
 
 async function copyItems(ctx: ActionCtx, args: ChainArgs, items: NoteIdItem[], deps: CopyDeps): Promise<CopyResult[]> {
