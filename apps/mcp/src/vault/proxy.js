@@ -118,7 +118,7 @@ export function proxyPin(meta) {
 export function savedPin(raw) {
   if (!raw || typeof raw !== "object") return { problem: "Say which website the key is for." };
   const host = siteHost(raw.host);
-  if (host === null) return { problem: "Enter the website the key is for, like api.stripe.com." };
+  if (host === null) return { problem: "Enter the website the key is for, like api.example.com." };
   if (isSharedHost(host)) {
     return { problem: `Anyone can put a page on ${host}, so a key can't be kept to it. Use the site's own address.` };
   }
