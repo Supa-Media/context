@@ -9,6 +9,8 @@ import { DotenvPaste } from "./DotenvPaste";
 import { Segmented } from "./Segmented";
 import { SecretInput } from "./SecretInput";
 import { VaultFieldsEditor } from "./VaultFieldsEditor";
+import { VaultProxyFields } from "./VaultProxyFields";
+import { PROXY_OFF, proxyDraft, proxyProblem, type ProxyFormState, type ProxyPinDraft } from "./vaultProxy";
 import {
   anyValue,
   fieldProblems,
@@ -29,6 +31,8 @@ export interface VaultDraft {
   username: string;
   password: string;
   fields: SubmitField[];
+  /** A secret the person lets their AIs use through Context; absent when the switch is off. */
+  proxy?: ProxyPinDraft;
 }
 
 /** Previews only: a form already typed into. */
@@ -75,6 +79,7 @@ export function VaultAddForm({
   const [site, setSite] = useState(initialDraft?.site ?? prefill.site);
   const [username, setUsername] = useState(initialDraft?.username ?? "");
   const [password, setPassword] = useState(initialDraft?.password ?? "");
+  const [proxy, setProxy] = useState<ProxyFormState>(PROXY_OFF);
   // One list per kind, so switching back and forth loses nothing typed.
   const [loginFields, setLoginFields] = useState<FieldDraft[]>(() =>
     initialDraft?.fields && (initialDraft.type ?? prefill.type) === "login"
@@ -99,7 +104,7 @@ export function VaultAddForm({
   const ready =
     name.trim().length > 0 &&
     !problems.any &&
-    (secret ? anyValue(fields) : site.trim().length > 0 && password.length > 0);
+    (secret ? anyValue(fields) && proxyProblem(proxy) === null : site.trim().length > 0 && password.length > 0);
 
   const choose = (next: EntryType) => {
     setType(next);
@@ -116,6 +121,8 @@ export function VaultAddForm({
       password: secret ? "" : password,
       fields: submitFields(fields),
     };
+    const pin = secret ? proxyDraft(proxy) : undefined;
+    if (pin) draft.proxy = pin;
     void onSave(draft).then((ok) => {
       if (!ok) return;
       setPassword("");
@@ -218,6 +225,8 @@ export function VaultAddForm({
           trailing={secret ? <DotenvPaste fields={fields} onChange={setFields} busy={busy} /> : null}
         />
       </View>
+
+      {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} busy={busy} /> : null}
 
       {problem ? <FormError headline={problem.headline} next={problem.next} /> : null}
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { newEntryId, writeEntry } from "../src/vault/entries.js";
-import { HIDDEN, echoForms, isSharedHost, proxyFetch, proxyPin } from "../src/vault/proxy.js";
+import { HIDDEN, echoForms, isSharedHost, proxyFetch, proxyPin, savedPin } from "../src/vault/proxy.js";
 import { toolVaultFetch, toolVaultList } from "../src/tools/vault.js";
 import { mightWiden, wideningOf } from "../src/privacy/egress.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
@@ -287,4 +287,26 @@ test("a request through Context counts as sending outside the workspace for the 
   assert.equal(widening.audience, "outside");
   assert.match(widening.summary, /api\.stripe\.com/);
   assert.equal(await wideningOf("vault_list", {}, { privacy: async () => ({ rules: [], overrides: {} }) }), null);
+});
+
+test("the save page's pin is checked by the rules every use checks", () => {
+  assert.deepEqual(savedPin({ host: "https://API.Stripe.com/v1", style: "bearer", name: "ignored", ask: true }), {
+    pin: { host: "api.stripe.com", style: "bearer", ask: true },
+  });
+  assert.deepEqual(savedPin({ host: "api.anthropic.com", style: "header", name: " x-api-key ", ask: false }), {
+    pin: { host: "api.anthropic.com", style: "header", name: "x-api-key", ask: false },
+  });
+  assert.equal(savedPin({ host: "api.example.com", style: "query", name: "api_key" }).pin.ask, true, "the ask is on unless turned off");
+  for (const host of ["my-thing.workers.dev", "webhook.site", "x.ngrok-free.app"]) {
+    assert.match(savedPin({ host, style: "bearer" }).problem, /Anyone can put a page/, host);
+  }
+  assert.match(savedPin({ host: "localhost", style: "bearer" }).problem, /Enter the website/);
+  assert.match(savedPin({ host: "api.example.com:8443", style: "bearer" }).problem, /Enter the website/);
+  assert.match(savedPin({ host: "api.example.com", style: "cookie" }).problem, /Choose how/);
+  assert.match(savedPin({ host: "api.example.com", style: "header", name: "bad header" }).problem, /Name the header/);
+  assert.match(savedPin({ host: "api.example.com", style: "query", name: "" }).problem, /Name the address part/);
+  assert.match(savedPin(null).problem, /Say which website/);
+  // What it stores is exactly what a use reads back.
+  const { pin } = savedPin({ host: "api.example.com", style: "header", name: "x-api-key", ask: false });
+  assert.deepEqual(proxyPin({ proxy: pin }), { host: "api.example.com", style: "header", name: "x-api-key" });
 });

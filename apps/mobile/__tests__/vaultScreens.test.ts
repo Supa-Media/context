@@ -169,6 +169,50 @@ describe("the secret form", () => {
     ]);
   });
 
+  test("the AI switch sends the one website, the guessed style and the ask, and holds Save until a website is typed", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "Anthropic", fields: "ANTHROPIC_API_KEY" });
+    type("vault-field-0-prod", "fake-anthropic-value-0001");
+    expect(find("vault-proxy-host")).toBeNull();
+    press("vault-proxy-on");
+    expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
+    type("vault-proxy-host", "api.anthropic.com");
+    expect(find("vault-proxy-style")?.textContent).toContain("the x-api-key header, found for you");
+    expect(find("vault-proxy-ask")?.getAttribute("aria-checked")).toBe("true");
+    press("vault-save");
+    await flush();
+    expect(saved[0].proxy).toEqual({ host: "api.anthropic.com", style: "header", name: "x-api-key", ask: true });
+  });
+
+  test("Advanced changes how the site wants it; turning the ask off is sent; switch off sends nothing", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "Maps", fields: "KEY" });
+    type("vault-field-0-prod", "fake-maps-value-000001");
+    press("vault-proxy-on");
+    type("vault-proxy-host", "api.example.com");
+    expect(find("vault-proxy-style")?.textContent).toContain("sign-in header");
+    press("vault-proxy-advanced");
+    press("vault-proxy-kind-query");
+    expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
+    type("vault-proxy-param", "api_key");
+    press("vault-proxy-ask");
+    press("vault-save");
+    await flush();
+    expect(saved[0].proxy).toEqual({ host: "api.example.com", style: "query", name: "api_key", ask: false });
+    expect(attributeText().includes("fake-maps-value")).toBe(false);
+  });
+
+  test("with the switch off the draft has no proxy, and a login never shows the switch", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "X", fields: "K" });
+    type("vault-field-0-prod", "fake-value-0000000001");
+    press("vault-save");
+    await flush();
+    expect("proxy" in saved[0]).toBe(false);
+    press("vault-type-login");
+    expect(find("vault-proxy")).toBeNull();
+  });
+
   test("a repeated field name is said beside the row and holds Save", () => {
     render(add, { kind: "idle" }, {}, { type: "secret", name: "Stripe", fields: "KEY" });
     type("vault-field-0-dev", "v");
