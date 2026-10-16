@@ -36,7 +36,16 @@ async function domainJoiner(t: TestConvex) {
   });
   const kayla = await createUser(t, "kayla.ortiz@publicworship.life");
   await asUser(t, kayla).mutation(api.functions.workspaceDomains.joinWithDomain, { slug: "pw" });
+  await confirmPhoneAndEmail(t, kayla);
   return { seyi, kayla, team };
+}
+
+/** What the setup screen confirms before Continue: a phone and a personal email. */
+async function confirmPhoneAndEmail(t: TestConvex, userId: Id<"users">) {
+  await t.run(async (ctx) => {
+    await ctx.db.patch(userId, { phone: "+15555550123", phoneVerificationTime: Date.now() });
+    await ctx.db.insert("signInEmails", { userId, email: "kayla@home.example", addedAt: Date.now() });
+  });
 }
 
 describe("mySetup", () => {
@@ -144,6 +153,19 @@ describe("finishSetup", () => {
     const t = setupTest();
     const { kayla } = await domainJoiner(t);
     expect(await finish(t, kayla, "!!!")).toEqual({ slug: "person" });
+  });
+
+  test("a domain joiner without a confirmed phone and personal email is refused, and nothing is made", async () => {
+    const t = setupTest();
+    const seyi = await createUser(t, "seyi@publicworship.life");
+    const team = await createWorkspace(t, seyi, "pw", { kind: "shared" });
+    await asUser(t, seyi).mutation(api.functions.workspaceDomains.addWorkspaceDomain, { workspaceId: team, domain: "publicworship.life" });
+    const lee = await createUser(t, "lee@publicworship.life");
+    await asUser(t, lee).mutation(api.functions.workspaceDomains.joinWithDomain, { slug: "pw" });
+    expect(errorCode(await captureError(() => finish(t, lee, "Lee")))).toBe("SETUP_INCOMPLETE");
+    await t.run((ctx) => ctx.db.patch(lee, { phone: "+15555550199", phoneVerificationTime: Date.now() }));
+    expect(errorCode(await captureError(() => finish(t, lee, "Lee")))).toBe("SETUP_INCOMPLETE");
+    expect((await mySetup(t, lee))?.needsSetup).toBe(true);
   });
 
   test("a name outside 1..80 characters is refused as INVALID", async () => {

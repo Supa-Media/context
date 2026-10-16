@@ -4,6 +4,8 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
+import { hasConfirmedPhone } from "./lib/phoneCheck";
+import { attachedEmailsOf } from "./lib/signInEmails";
 import { MAX_DISPLAY_NAME_LENGTH } from "./lib/workspaces/constants";
 import {
   availableSlug,
@@ -67,9 +69,25 @@ export const finishSetup = mutation({
         message: `A name is 1 to ${MAX_NAME} characters.`,
       });
     }
-    await ctx.db.patch(userId, { name });
     const existing = await ownedPersonalWorkspace(ctx, userId);
-    if (existing !== null) return { slug: existing.slug };
+    if (existing !== null) {
+      await ctx.db.patch(userId, { name });
+      return { slug: existing.slug };
+    }
+    // Someone who came in through a work domain keeps their account if they leave it:
+    // a confirmed phone and a confirmed personal email first, checked here and not only in the app.
+    if (await joinedThroughDomain(ctx, userId)) {
+      const user = await ctx.db.get(userId);
+      const phoneOk = user !== null && (await hasConfirmedPhone(ctx, user));
+      const emailOk = (await attachedEmailsOf(ctx, userId)).length > 0;
+      if (!phoneOk || !emailOk) {
+        throw new ConvexError({
+          code: "SETUP_INCOMPLETE",
+          message: "Confirm your phone number and your personal email first.",
+        });
+      }
+    }
+    await ctx.db.patch(userId, { name });
     const slug = await availableSlug(ctx, name);
     const created = await createWorkspaceHandler(ctx, { slug, displayName: name, kind: "personal" });
     return { slug: created.slug };
