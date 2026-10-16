@@ -3,16 +3,18 @@
  * `rows`): the writes that replace the rules' `privacy.md` for an owner, and
  * the switch's answer to the callers that ask whether rows are the truth.
  *
- * Internal only. The console reaches `consoleAccess` through its own handlers
- * (`lib/filesFns/visibility.ts`), which keep their owner check; the gateway
- * reaches `setAccess` through `/gateway/privacy`, which checks the person's
- * grant first. Nothing here answers outside rows mode with a write: that
- * would leave rows the rules do not read.
+ * Internal, except one public mutation, `setGrantees` (the owner's own list,
+ * checked there in `lib/nodes/setGrantees.ts`). The console reaches
+ * `consoleAccess` through its own handlers (`lib/filesFns/visibility.ts`), which
+ * keep their owner check; the gateway reaches `setAccess` through
+ * `/gateway/privacy`, which checks the person's grant first. Nothing here
+ * answers outside rows mode with a write: that would leave rows the rules do
+ * not read.
  */
 
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
@@ -23,18 +25,54 @@ import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
 import { privacyEtagOf } from "./lib/nodes/readerRules";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
+type RawGrantee =
+  | { kind: "user"; userId: string; role: "view" | "edit" }
+  | { kind: "group"; groupId: string; role: "view" | "edit" }
+  | { kind: "email"; email: string; role: "view" | "edit" };
+
+// Ids arrive as strings from the gateway: a malformed one is an answer (`INVALID`), not an argument error.
 const granteeValidator = v.union(
-  v.object({ kind: v.literal("user"), userId: v.id("users"), role: roleValidator }),
-  v.object({ kind: v.literal("group"), groupId: v.id("workspaceGroups"), role: roleValidator }),
+  v.object({ kind: v.literal("user"), userId: v.string(), role: roleValidator }),
+  v.object({ kind: v.literal("group"), groupId: v.string(), role: roleValidator }),
   v.object({ kind: v.literal("email"), email: v.string(), role: roleValidator }),
 );
 const answerValidator = v.union(
   v.object({ ok: v.literal(true), version: v.number() }),
   v.object({
     ok: v.literal(false),
-    code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL")),
+    code: v.union(
+      v.literal("CONFLICT"),
+      v.literal("NOT_FOUND"),
+      v.literal("FORBIDDEN"),
+      v.literal("NOT_ROWS_MODE"),
+      v.literal("PENDING_FULL"),
+      v.literal("INVALID"),
+    ),
   }),
 );
+
+/**
+ * The gateway's grantees as the rules take them: each id must be a real id of its table, or the whole list is
+ * refused (`null`). `normalizeId` checks the shape only, so an id of the right shape that names nobody is
+ * still `NOT_FOUND` from the rules, as it always was.
+ */
+function granteesOf(ctx: MutationCtx, raw: RawGrantee[]): GranteeInput[] | null {
+  const out: GranteeInput[] = [];
+  for (const grantee of raw) {
+    if (grantee.kind === "user") {
+      const userId = ctx.db.normalizeId("users", grantee.userId);
+      if (userId === null) return null;
+      out.push({ kind: "user", userId, role: grantee.role });
+    } else if (grantee.kind === "group") {
+      const groupId = ctx.db.normalizeId("workspaceGroups", grantee.groupId);
+      if (groupId === null) return null;
+      out.push({ kind: "group", groupId, role: grantee.role });
+    } else {
+      out.push({ kind: "email", email: grantee.email, role: grantee.role });
+    }
+  }
+  return out;
+}
 
 /** Whether the rows are the truth for this deployment. */
 export const rowsMode = internalQuery({
@@ -95,7 +133,9 @@ export const setAccess = internalMutation({
   returns: answerValidator,
   handler: async (ctx, args): Promise<SetAccessAnswer> => {
     if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false, code: "NOT_ROWS_MODE" };
-    return await setAccessRow(ctx, args as Parameters<typeof setAccessRow>[1]);
+    const grantees = args.grantees === undefined || args.grantees === "inherit" ? args.grantees : granteesOf(ctx, args.grantees);
+    if (grantees === null) return { ok: false, code: "INVALID" };
+    return await setAccessRow(ctx, { ...args, grantees });
   },
 });
 
@@ -133,7 +173,8 @@ export const consoleAccess = internalMutation({
 
     let visibility: string;
     let base: "private" | "team" | "inherit";
-    let grantees: GranteeInput[];
+    // A tier leaves the owner's list alone (`grantees` omitted); a group replaces it with that one grant.
+    let grantees: GranteeInput[] | undefined;
     if (args.group !== undefined) {
       const grant = await resolveHandle(ctx as MutationCtx, args.workspaceId, `@${args.group}` as Visibility, new Map());
       if (grant === null) return { ok: false as const, code: "GROUP_NOT_FOUND" as const };
@@ -147,7 +188,6 @@ export const consoleAccess = internalMutation({
       const tier = args.tier ?? "private";
       visibility = tier;
       base = args.kind === "note" && tier === inherited ? "inherit" : tier;
-      grantees = [];
     }
 
     const answer = await setAccessRow(ctx, { workspaceId: args.workspaceId, path: args.path, base, grantees, actor });
@@ -178,23 +218,6 @@ export const narrowMove = internalMutation({
   },
 });
 
-/** The owner's list on a row, as the grantees `setAccessRow` takes: a base-only write keeps it. */
-async function ownerGranteesOf(ctx: MutationCtx, row: Doc<"nodes">): Promise<GranteeInput[]> {
-  const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect();
-  const granted: GranteeInput[] = [];
-  for (const grant of grants) {
-    if (grant.source !== "owner") continue;
-    if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
-      granted.push({ kind: "user", userId: grant.granteeUserId, role: grant.role });
-    } else if (grant.granteeKind === "group" && grant.granteeGroupId !== undefined) {
-      granted.push({ kind: "group", groupId: grant.granteeGroupId, role: grant.role });
-    } else if (grant.granteeKind === "email" && grant.granteeEmail !== undefined) {
-      granted.push({ kind: "email", email: grant.granteeEmail, role: grant.role });
-    }
-  }
-  return granted;
-}
-
 /**
  * Website publication in rows mode (`lib/websites/publication.ts`): a folder with no base of its own takes
  * `team`, as the file's `onlyIfUnset` rule gives it; one that has a base keeps it. Its owner's list is kept.
@@ -207,7 +230,7 @@ export const ensureFolderDefault = internalMutation({
     v.object({ ok: v.literal(true), visibility: v.string(), changed: v.boolean() }),
     v.object({
       ok: v.literal(false),
-      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL")),
+      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE"), v.literal("PENDING_FULL"), v.literal("INVALID")),
     }),
   ),
   handler: async (ctx, args) => {
@@ -228,7 +251,6 @@ export const ensureFolderDefault = internalMutation({
         workspaceId: args.workspaceId,
         path: args.path,
         base: "team",
-        grantees: [],
         kind: "folder",
         actor,
       });
@@ -236,14 +258,24 @@ export const ensureFolderDefault = internalMutation({
       return { ok: true as const, visibility: "team", changed: true };
     }
     if (row.access?.base !== undefined) return { ok: true as const, visibility: row.access.base, changed: false };
-    const answer = await setAccessRow(ctx, {
-      workspaceId: args.workspaceId,
-      path: args.path,
-      base: "team",
-      grantees: await ownerGranteesOf(ctx, row),
-      actor,
-    });
+    // A base alone: the owner's list is kept as it is.
+    const answer = await setAccessRow(ctx, { workspaceId: args.workspaceId, path: args.path, base: "team", actor });
     if (!answer.ok) return { ok: false as const, code: answer.code };
     return { ok: true as const, visibility: "team", changed: true };
   },
+});
+
+/**
+ * The owner's list on one row, named by handles, group ids and emails (`lib/nodes/setGrantees.ts`). Owner only:
+ * a member gets `FORBIDDEN`, a non-member the same `NOT_FOUND` as a path that does not exist. Replaces the list;
+ * the row's base is kept.
+ */
+export const setGrantees = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    grantees: v.array(granteeRequestValidator),
+  },
+  returns: setGranteesAnswerValidator,
+  handler: async (ctx, args) => await setGranteesHandler(ctx, args),
 });

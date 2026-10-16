@@ -76,6 +76,7 @@ test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
 test/privacy/rowsWrites.test.mjs
+test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
 test/readAtTreeNameGuard.test.mjs
 test/readFailure.test.mjs

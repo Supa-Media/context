@@ -14,11 +14,17 @@
  * on such a path is `NOT_FOUND`. Every change bumps `nodeAccessState.version`
  * and rebuilds the snapshot readers answer from (a pending change rebuilds nothing:
  * readers render pending access from the state itself).
+ *
+ * A private <-> team change with no `grantees` keeps the owner's list: a list that is
+ * given (`[]` and `"inherit"` included) replaces it, and a reset of the base to
+ * `inherit` clears it. Every change of the owner's
+ * list writes one `access.list` audit row; a refused change writes none.
  */
 
 import { normalizeEmail } from "@context/shared";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
+import { recordAudit } from "../audit";
 import { effectiveVisibility, visibilityOf, narrowerVisibility, type Visibility } from "../privacy";
 import { refreshSnapshot } from "./accessBackfill";
 import { scanAccessRows } from "./accessRows";
@@ -27,6 +33,9 @@ import { renderAccess } from "./rowAccess";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
+
+/** The most grantees one row's list may hold. Past it a list is refused (`INVALID`), and nothing is written. */
+export const MAX_GRANTEES = 100;
 
 /** One grantee the owner names. Users and groups by id; emails are normalized here. */
 export type GranteeInput =
@@ -44,7 +53,10 @@ export interface SetAccessArgs {
   workspaceId: Id<"workspaces">;
   path: string;
   base: Base;
-  /** The list that replaces the owner's. Omitted or `"inherit"` clears it. */
+  /**
+   * The list that replaces the owner's. Omitted keeps the owner's list as it is;
+   * `[]` or `"inherit"` clears it.
+   */
   grantees?: GranteeInput[] | "inherit";
   /** The `nodeAccessState.version` the caller read; a different one is a `CONFLICT`. */
   expectedVersion?: number;
@@ -53,7 +65,7 @@ export interface SetAccessArgs {
   actor: Actor;
 }
 
-export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "PENDING_FULL";
+export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "PENDING_FULL" | "INVALID";
 export type SetAccessAnswer = { ok: true; version: number } | { ok: false; code: SetAccessCode };
 
 /** A grant's identity for comparing two lists: who, and at what role. */
@@ -138,9 +150,25 @@ async function setPendingAccess(
   return { ok: true, version: nextVersion };
 }
 
+/** The token a grant is audited by: its kind, its id and its role. An email is audited only as its SHA-256. */
+async function auditToken(grant: { kind: string; userId?: string; groupId?: string; email?: string; role: string }): Promise<string> {
+  let id: string;
+  if (grant.kind === "email") {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode((grant.email ?? "").toLowerCase()));
+    id = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  } else {
+    id = grant.userId ?? grant.groupId ?? "";
+  }
+  return `${grant.kind}:${id}:${grant.role}`;
+}
+
 /** Set one row's base and list, from the version the caller read (`expectedVersion`, when given). */
 export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promise<SetAccessAnswer> {
   const { workspaceId, path, base, actor } = args;
+  // Refused before anything is read or written: a list over the cap is never partly applied.
+  const listed = args.grantees === undefined || args.grantees === "inherit" ? 0 : args.grantees.length;
+  if (listed > MAX_GRANTEES) return { ok: false, code: "INVALID" };
+
   const row = await ctx.db
     .query("nodes")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
@@ -154,29 +182,37 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     return { ok: false, code: "CONFLICT" };
   }
   if (row === null) return await setPendingAccess(ctx, args, state);
-  // A row stands at the path now: an access still waiting for it is answered by the row's own base from here on.
-  if (state?.pending?.some((entry) => entry.path === path)) {
-    await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
-  }
 
   const grants = await ctx.db
     .query("nodeAccess")
     .withIndex("by_node", (q) => q.eq("nodeId", row._id))
     .collect();
   const held = grants.filter((grant) => grant.source !== "share");
+  // A given list, `[]` included, replaces the owner's. Without one, only a base of `inherit` replaces it (with none):
+  // inherit means "as the parent", so a list left behind would be a hidden grant. private <-> team keeps the list.
+  const replaces = args.grantees !== undefined || base === "inherit";
   const wanted = await wantedOf(ctx, workspaceId, args.grantees === undefined || args.grantees === "inherit" ? [] : args.grantees);
   if (wanted === null) return { ok: false, code: "NOT_FOUND" };
 
   const before = held.map(keyOf).sort().join("|");
   const after = wanted.map((grant) => keyOf({ granteeKind: grant.kind, granteeUserId: grant.granteeUserId, granteeGroupId: grant.granteeGroupId, granteeEmail: grant.granteeEmail, role: grant.role })).sort().join("|");
-  if (before !== after && actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
+  const listChanges = replaces && before !== after;
+  if (listChanges && actor.role !== "owner") return { ok: false, code: "FORBIDDEN" };
 
+  // Every refusal is above this line: a refused change writes nothing, not even the pending entry it would clear.
+  // A row stands at the path now: an access still waiting for it is answered by the row's own base from here on.
+  if (state !== null && state.pending?.some((entry) => entry.path === path)) {
+    await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
+  }
   const nextBase = base === "inherit" ? undefined : base;
   if (row.access?.base !== nextBase) {
     await ctx.db.patch(row._id, { access: nextBase === undefined ? undefined : { base: nextBase } });
   }
-  // The owner's list and the derived one are replaced whole; a share is left as it is.
-  for (const grant of held) await ctx.db.delete(grant._id);
+  // A replaced list drops the owner's grants and the derived ones; a kept list drops only the derived ones.
+  // A share is left as it is.
+  for (const grant of held) {
+    if (replaces || grant.source === "privacy.md") await ctx.db.delete(grant._id);
+  }
   const at = Date.now();
   for (const grant of wanted) {
     await ctx.db.insert("nodeAccess", {
@@ -190,6 +226,31 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
       grantedBy: actor.userId,
       at,
       source: "owner",
+    });
+  }
+
+  if (listChanges) {
+    const heldTokens = await Promise.all(
+      held.map((grant) => auditToken({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, email: grant.granteeEmail, role: grant.role })),
+    );
+    const wantedTokens = await Promise.all(
+      wanted.map((grant) => auditToken({ kind: grant.kind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, email: grant.granteeEmail, role: grant.role })),
+    );
+    const heldSet = new Set(heldTokens);
+    const wantedSet = new Set(wantedTokens);
+    const added = [...new Set(wantedTokens.filter((token) => !heldSet.has(token)))];
+    const removed = [...new Set(heldTokens.filter((token) => !wantedSet.has(token)))];
+    await recordAudit(ctx, {
+      workspaceId,
+      actorUserId: actor.userId,
+      action: "access.list",
+      details: {
+        nodeId: String(row._id),
+        addedCount: added.length,
+        removedCount: removed.length,
+        added: added.join(","),
+        removed: removed.join(","),
+      },
     });
   }
 
