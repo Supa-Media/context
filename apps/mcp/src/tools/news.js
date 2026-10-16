@@ -29,6 +29,8 @@
  * fingerprinted: rewording one is not news.
  */
 
+import { unlistedArgumentAdvice } from "./liveList.js";
+
 /**
  * Newest first. `date` is the UTC day it shipped; `text` is written for the
  * model reading orient, naming the tool and the exact argument. `newTool`
@@ -148,8 +150,9 @@ export function toolShape(tools) {
  *
  * @param {number | null | undefined} listedAt
  * @param {ReadonlyArray<{date: string, text: string, newTool?: true}>} [news]
+ * @param {{dropsUnknown?: boolean, client?: string | null}} [app] see `appOf` in `liveList.js`
  */
-export function toolNewsSection(listedAt, news = TOOL_NEWS) {
+export function toolNewsSection(listedAt, news = TOOL_NEWS, app = {}) {
   if (!Number.isFinite(listedAt)) return null;
   const listedDay = Math.floor(listedAt / DAY_MS) * DAY_MS;
   const fresh = news.filter((entry) => Date.parse(`${entry.date}T00:00:00Z`) >= listedDay);
@@ -164,8 +167,7 @@ export function toolNewsSection(listedAt, news = TOOL_NEWS) {
   const since = new Date(listedAt).toISOString().slice(0, 10);
   return (
     `## New in Context's tools since your app loaded them (${since})\n\n` +
-    "Your copy of these tools' descriptions may be older than this list. New arguments work anyway: " +
-    "pass them exactly as written here, even where your copy of the tool does not list them.\n\n" +
+    `Your copy of these tools' descriptions may be older than this list. ${unlistedArgumentAdvice(app)}\n\n` +
     lines.join("\n")
   );
 }

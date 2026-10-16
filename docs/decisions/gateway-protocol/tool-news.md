@@ -73,3 +73,28 @@ that parses to an object or array. Anything else is left as sent and refused
 as before, and the result is still validated in full. Reversing it fails
 `apps/mcp/test/staleClientArguments.test.mjs` and the text case in
 `liveToolList.test.mjs`.
+
+## Apps that drop unknown arguments are told to reconnect
+
+Decided 2026-10-16. Codex sends only the arguments in its own copy of a tool
+and drops the rest before the call leaves it, so a stale Codex never reaches
+the gateway with an argument added since it loaded our tools (found when it
+stripped `mail` from `write_note`). "Pass it even where your copy does not
+show it" was false advice there.
+
+- `appDropsUnknownArguments` (`apps/mcp/src/tools/liveList.js`) matches the
+  client's registered name (`/codex/i`, as the control plane's
+  `CLIENT_FAMILIES` does). For those apps both the news section and the live
+  list say the argument will not reach Context and to ask the person to
+  reconnect; the list is still shown, as the reason to.
+- Every other app is told to pass arguments as listed, and to have Context
+  reconnected if its app refuses or ignores one.
+- Both sections end with the app's own way to load today's tools
+  (`refreshStep`: ChatGPT's Settings › Connectors › Refresh, a new Claude
+  Code session, removing and re-adding the Claude connector, restarting
+  Cursor, reconnecting Codex), from the project's 2026-10-16 staleness
+  survey, with a general "reconnect" for any other app.
+- Add a client here when it is seen dropping arguments; the name is the
+  client's own claim and only chooses which advice is read.
+
+Reversing it fails the Codex cases in `apps/mcp/test/liveToolList.test.mjs`.
