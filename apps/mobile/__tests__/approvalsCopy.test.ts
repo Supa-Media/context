@@ -89,6 +89,12 @@ describe("what the notice says after a decision", () => {
     });
   });
 
+  test("a yes to a saved key says the AI can try again", () => {
+    expect(
+      decisionNotice({ status: "approved", summary: "x", ok: true, result: "Allowed from now on.", vaultUse: true }),
+    ).toEqual({ tone: "ok", text: "Allowed from now on. The AI can try again now." });
+  });
+
   test("an approval that ran says so", () => {
     expect(
       decisionNotice({ status: "approved", summary: "x", ok: true, result: "Shared." }),

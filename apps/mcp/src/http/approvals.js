@@ -15,6 +15,9 @@
  *    to look at before saying yes)
  *  - `POST /approvals` with `{ id, action: "approve" | "deny" }` →
  *    `{ status, result? }`, where `result` is the tool's own answer text.
+ *  - A vault key's first-use ask (`kind: "vault_use"`, `vault/asks.js`) is
+ *    listed with `choices`, and also takes `action: "approve_always"`. It is
+ *    answered by writing the yes into the key, never by replaying a call.
  *
  * An approved call runs once, here, through the same dispatcher an AI
  * client's call goes through, under this person's own session marked
@@ -24,7 +27,9 @@
 
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
-import { listPending, replayAsAsked, settlePending } from "../tools/approvals.js";
+import { listPending, pendingById, replayAsAsked, settlePending } from "../tools/approvals.js";
+import { VAULT_USE, grantUse } from "../vault/asks.js";
+import { toolError, toolText } from "../tools/results.js";
 import { json } from "./responses.js";
 
 /** The console's client (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`). */
@@ -55,6 +60,7 @@ export async function handleApprovals(request, store, session) {
         client: record.actor?.client ?? null,
         created_at: record.created_at,
         expires_at: record.expires_at,
+        ...(record.kind === VAULT_USE ? { kind: VAULT_USE, choices: ["approve_always", "approve", "deny"] } : {}),
       })),
     });
   }
@@ -66,24 +72,38 @@ export async function handleApprovals(request, store, session) {
     return json({ error: "invalid_request", error_description: "Expected a JSON body." }, 400);
   }
   const id = typeof body?.id === "string" ? body.id : "";
-  const action = body?.action === "approve" || body?.action === "deny" ? body.action : null;
+  const action = ["approve", "approve_always", "deny"].includes(body?.action) ? body.action : null;
   if (!id || action === null) {
+    return json({ error: "invalid_request", error_description: "Pass id and action: approve or deny." }, 400);
+  }
+  const asked = await pendingById(store, id, { userId: session.actorUserId });
+  const vaultUse = asked?.kind === VAULT_USE;
+  // "From now on" is a vault ask's answer only: a held call runs once.
+  if (action === "approve_always" && asked !== null && !vaultUse) {
     return json({ error: "invalid_request", error_description: "Pass id and action: approve or deny." }, 400);
   }
   const settled = await settlePending(store, id, {
     userId: session.actorUserId,
-    action,
+    action: action === "deny" ? "deny" : "approve",
     actorScope: session.scope,
-    run: (record) =>
-      replayAsAsked(store, session, record, (approver) =>
+    run: async (record) => {
+      if (record.kind === VAULT_USE) {
+        const granted = await grantUse(store, record, action === "approve_always" ? "always" : "once", {
+          userId: session.actorUserId,
+        });
+        return granted.ok ? toolText(granted.text) : toolError(granted.text);
+      }
+      return replayAsAsked(store, session, record, (approver) =>
         callToolForSession({ name: record.tool, arguments: record.args }, store, approver),
-      ),
+      );
+    },
   });
   if (settled.status === "not_found") return json({ error: "not_found" }, 404);
   const text = settled.result?.content?.[0]?.text;
   return json({
     status: settled.status,
     summary: settled.record?.summary ?? null,
+    ...(vaultUse ? { kind: VAULT_USE } : {}),
     ...(settled.status === "approved"
       ? { result: typeof text === "string" ? text : "", ok: settled.result?.isError !== true }
       : {}),

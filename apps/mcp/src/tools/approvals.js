@@ -112,7 +112,7 @@ export async function findPending(store, { name, args, userId, now = Date.now() 
  */
 export async function createPending(
   store,
-  { name, args, actor, tier, scopes, widening, workspaceId, texting, now = Date.now() },
+  { name, args, actor, tier, scopes, widening, workspaceId, texting, kind, entryId, ttlMs, now = Date.now() },
 ) {
   const all = await readAll(store, PENDING_PREFIX);
   if (all.filter(({ record }) => !expired(record, now)).length >= PENDING_CAP) return null;
@@ -134,8 +134,12 @@ export async function createPending(
     scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === "string") : [],
     texting: texting === true,
     ...(texting === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
+    // An ask that is not a held call (`vault/asks.js`): settled by its own
+    // grant, never replayed.
+    ...(typeof kind === "string" ? { kind } : {}),
+    ...(typeof entryId === "string" ? { entry_id: entryId } : {}),
     created_at: now,
-    expires_at: now + (texting === true ? TEXTING_TTL_MS : PENDING_TTL_MS),
+    expires_at: now + (Number.isFinite(ttlMs) ? ttlMs : texting === true ? TEXTING_TTL_MS : PENDING_TTL_MS),
   };
   await store.put(`${PENDING_PREFIX}${timestampSlug(new Date(now))}-${id}.json`, JSON.stringify(record));
   return record;

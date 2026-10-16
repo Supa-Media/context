@@ -212,13 +212,13 @@ test("a pin to a host anyone can publish under never works", async () => {
   assert.equal(net.calls.length, 0);
 });
 
-test("a key that asks first is not sent until the person can say yes", async () => {
+test("a key that asks first is not sent until the person says yes (vaultAsks.test.mjs has the rest)", async () => {
   const { store, id } = await proxyVault({ proxy: { host: "api.stripe.com", style: "bearer" } });
   const net = fakeFetch();
   withProxy(store, net.impl);
   const result = await toolVaultFetch(store, ask(id, "https://api.stripe.com/v1/customers"));
   assert.equal(result.isError, true);
-  assert.match(JSON.stringify(result), /first time each AI uses it/);
+  assert.match(JSON.stringify(result), /Waiting for the person/);
   assert.equal(net.calls.length, 0);
 });
 

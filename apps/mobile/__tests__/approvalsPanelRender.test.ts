@@ -44,6 +44,19 @@ const ITEM: Approval = {
   client: "Claude Desktop",
   createdAt: NOW - 5 * 60_000,
   expiresAt: NOW + 14 * 60_000,
+  kind: null,
+};
+
+const KEY_ASK: Approval = {
+  id: "ap_key",
+  summary: "let Claude Code use your Stripe key on api.example.com",
+  tool: "vault_list",
+  args: { vault_use: { entry: "v0", client: "client_x" } },
+  audience: "outside",
+  client: "Claude Code",
+  createdAt: NOW - 60_000,
+  expiresAt: NOW + 9 * 60_000,
+  kind: "vault_use",
 };
 
 function view(over: Partial<ApprovalsView> = {}): ApprovalsView & { decided: string[] } {
@@ -156,6 +169,21 @@ describe("the choice", () => {
     const state = view({ items: [ITEM] });
     mount(state).press(`deny-${ITEM.id}`);
     expect(state.decided).toEqual([`deny:${ITEM.id}`]);
+  });
+
+  test("a saved key's first use offers from now on, just this once and no, and nothing to show", () => {
+    const state = view({ items: [KEY_ASK] });
+    const panel = mount(state);
+    expect(panel.find(`approval-toggle-${KEY_ASK.id}`)).toBeNull();
+    expect(panel.find(`approve-always-${KEY_ASK.id}`)?.textContent).toContain("Yes, from now on");
+    expect(panel.find(`approve-${KEY_ASK.id}`)?.textContent).toContain("Just this once");
+    expect(panel.find(`deny-${KEY_ASK.id}`)?.textContent).toContain("No");
+    panel.press(`approve-always-${KEY_ASK.id}`);
+    expect(state.decided).toEqual([`approve_always:${KEY_ASK.id}`]);
+  });
+
+  test("an ordinary held call has no from-now-on", () => {
+    expect(mount(view({ items: [ITEM] })).find(`approve-always-${ITEM.id}`)).toBeNull();
   });
 
   test("nothing can be decided while another decision is in flight", () => {

@@ -36,7 +36,11 @@ export function ApprovalsPanel({ view }: { view: ApprovalsView }) {
   const busy = view.busyId !== null;
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.body} testID="approvals-panel">
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.body}
+      testID="approvals-panel"
+    >
       <View style={styles.head}>
         <Text variant="foot" style={styles.intro}>
           {APPROVALS_INTRO}
@@ -82,6 +86,7 @@ export function ApprovalsPanel({ view }: { view: ApprovalsView }) {
           busy={view.busyId === approval.id}
           disabled={busy}
           onApprove={() => view.decide(approval.id, "approve")}
+          onApproveAlways={() => view.decide(approval.id, "approve_always")}
           onDeny={() => view.decide(approval.id, "deny")}
         />
       ))}
@@ -95,6 +100,7 @@ function ApprovalRow({
   busy,
   disabled,
   onApprove,
+  onApproveAlways,
   onDeny,
 }: {
   approval: Approval;
@@ -102,10 +108,14 @@ function ApprovalRow({
   busy: boolean;
   disabled: boolean;
   onApprove: () => void;
+  onApproveAlways: () => void;
   onDeny: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
+  // A saved key's first use: nothing runs, so there is nothing to show, and
+  // the yes can be for good (vault board 3).
+  const vaultUse = approval.kind === "vault_use";
 
   return (
     <Card style={styles.card} testID={`approval-${approval.id}`}>
@@ -113,24 +123,30 @@ function ApprovalRow({
         {approval.summary}
       </Text>
       <Text variant="foot" style={styles.meta}>
-        {[clientLine(approval.client), askedLine(approval.createdAt, now), expiryLine(approval.expiresAt, now)].join(
-          " · ",
-        )}
+        {[
+          clientLine(approval.client),
+          askedLine(approval.createdAt, now),
+          expiryLine(approval.expiresAt, now),
+        ].join(" · ")}
       </Text>
 
-      <Pressable
-        role="button"
-        accessibilityLabel={open ? "Hide what would run" : "Show what would run"}
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen((value) => !value)}
-        testID={`approval-toggle-${approval.id}`}
-      >
-        <Text variant="rowSub" style={styles.toggle}>
-          {open ? "Hide what would run" : "Show what would run"}
-        </Text>
-      </Pressable>
+      {vaultUse ? null : (
+        <Pressable
+          role="button"
+          accessibilityLabel={
+            open ? "Hide what would run" : "Show what would run"
+          }
+          accessibilityState={{ expanded: open }}
+          onPress={() => setOpen((value) => !value)}
+          testID={`approval-toggle-${approval.id}`}
+        >
+          <Text variant="rowSub" style={styles.toggle}>
+            {open ? "Hide what would run" : "Show what would run"}
+          </Text>
+        </Pressable>
+      )}
 
-      {open ? (
+      {open && !vaultUse ? (
         <View style={styles.detail} testID={`approval-detail-${approval.id}`}>
           <Text variant="mono" style={styles.tool}>
             {approval.tool}
@@ -148,24 +164,57 @@ function ApprovalRow({
         </View>
       ) : null}
 
-      <View style={styles.actions}>
-        <Button
-          label="Approve"
-          variant="decision"
-          disabled={disabled}
-          onPress={onApprove}
-          accessibilityLabel={busy ? "Approving" : `Approve: ${approval.summary}`}
-          testID={`approve-${approval.id}`}
-        />
-        <Button
-          label="Deny"
-          variant="decision"
-          disabled={disabled}
-          onPress={onDeny}
-          accessibilityLabel={`Deny: ${approval.summary}`}
-          testID={`deny-${approval.id}`}
-        />
-      </View>
+      {vaultUse ? (
+        <View style={styles.actions}>
+          <Button
+            label="Yes, from now on"
+            variant="decision"
+            disabled={disabled}
+            onPress={onApproveAlways}
+            accessibilityLabel={`Yes, from now on: ${approval.summary}`}
+            testID={`approve-always-${approval.id}`}
+          />
+          <Button
+            label="Just this once"
+            variant="decision"
+            disabled={disabled}
+            onPress={onApprove}
+            accessibilityLabel={
+              busy ? "Allowing" : `Just this once: ${approval.summary}`
+            }
+            testID={`approve-${approval.id}`}
+          />
+          <Button
+            label="No"
+            variant="decision"
+            disabled={disabled}
+            onPress={onDeny}
+            accessibilityLabel={`No: ${approval.summary}`}
+            testID={`deny-${approval.id}`}
+          />
+        </View>
+      ) : (
+        <View style={styles.actions}>
+          <Button
+            label="Approve"
+            variant="decision"
+            disabled={disabled}
+            onPress={onApprove}
+            accessibilityLabel={
+              busy ? "Approving" : `Approve: ${approval.summary}`
+            }
+            testID={`approve-${approval.id}`}
+          />
+          <Button
+            label="Deny"
+            variant="decision"
+            disabled={disabled}
+            onPress={onDeny}
+            accessibilityLabel={`Deny: ${approval.summary}`}
+            testID={`deny-${approval.id}`}
+          />
+        </View>
+      )}
     </Card>
   );
 }
@@ -174,7 +223,12 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     scroll: { flex: 1, minHeight: 0 },
     body: { padding: space.x4, gap: space.x3 },
-    head: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.x2 },
+    head: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: space.x2,
+    },
     intro: { color: colors.muted, flex: 1 },
     quiet: { color: colors.muted },
     card: { gap: space.x2 },
@@ -183,6 +237,11 @@ const makeStyles = (colors: Colors) =>
     toggle: { color: colors.accent },
     detail: { gap: space.x2 },
     tool: { color: colors.text },
-    argsBox: { maxHeight: 160, borderRadius: 6, backgroundColor: colors.chrome, padding: space.x2 },
+    argsBox: {
+      maxHeight: 160,
+      borderRadius: 6,
+      backgroundColor: colors.chrome,
+      padding: space.x2,
+    },
     actions: { flexDirection: "row", gap: space.x2, flexWrap: "wrap" },
   });
