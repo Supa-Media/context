@@ -3,15 +3,18 @@
  * `rows`): the writes that replace the rules' `privacy.md` for an owner, and
  * the switch's answer to the callers that ask whether rows are the truth.
  *
- * Internal only. The console reaches `consoleAccess` through its own handlers
- * (`lib/filesFns/visibility.ts`), which keep their owner check; the gateway
- * reaches `setAccess` through `/gateway/privacy`, which checks the person's
- * grant first. Nothing here answers outside rows mode with a write: that
- * would leave rows the rules do not read.
+ * Internal, except one public mutation, `setGrantees` (the owner's own list,
+ * checked there in `lib/nodes/setGrantees.ts`). The console reaches
+ * `consoleAccess` through its own handlers (`lib/filesFns/visibility.ts`), which
+ * keep their owner check; the gateway reaches `setAccess` through
+ * `/gateway/privacy`, which checks the person's grant first. Nothing here
+ * answers outside rows mode with a write: that would leave rows the rules do
+ * not read.
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
@@ -260,4 +263,19 @@ export const ensureFolderDefault = internalMutation({
     if (!answer.ok) return { ok: false as const, code: answer.code };
     return { ok: true as const, visibility: "team", changed: true };
   },
+});
+
+/**
+ * The owner's list on one row, named by handles, group ids and emails (`lib/nodes/setGrantees.ts`). Owner only:
+ * a member gets `FORBIDDEN`, a non-member the same `NOT_FOUND` as a path that does not exist. Replaces the list;
+ * the row's base is kept.
+ */
+export const setGrantees = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    grantees: v.array(granteeRequestValidator),
+  },
+  returns: setGranteesAnswerValidator,
+  handler: async (ctx, args) => await setGranteesHandler(ctx, args),
 });
