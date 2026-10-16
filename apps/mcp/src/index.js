@@ -104,6 +104,7 @@ import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { snippetLinesFor } from "./search/visible.js";
 import { localIngestionStore } from "./ingestion/inbox.js";
 import { json } from "./http/responses.js";
+import { controlPlaneSettingProblems } from "./controlPlane/client.js";
 import { authorizeLiveRelay } from "./live/relayAuthorization.js";
 import { handleGatewayJobMessage } from "./moves/queueConsumer.js";
 import { processPendingGranolaEvents } from "./ingestion/granolaWebhook.js";
@@ -167,6 +168,11 @@ export const PresenceRoom = AuthorizedPresenceRoom;
 
 export default {
   async fetch(request, env, ctx) {
+    // Before any route, so no request reaches a surface that would need the
+    // control plane. The answer names the settings that are wrong, never their
+    // values, and it is the same for every path.
+    const missing = controlPlaneSettingProblems(env);
+    if (missing.length) return json({ error: "control_plane_not_configured", settings: missing }, 503);
     try {
       return await route(request, env, ctx);
     } catch (error) {
