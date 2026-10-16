@@ -312,8 +312,8 @@ function addressByPath(tool, args) {
 export async function callToolForSession(params, store, session) {
   const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
-  const route = async (routed) => inWordsOf(v2, await routeToolCall(call, store, session, routed));
-  return measuredCall(store, session, call, route);
+  const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
+  return inWordsOf(v2, result);
 }
 
 async function routeToolCall(params, store, session, routed) {
