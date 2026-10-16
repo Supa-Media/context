@@ -401,3 +401,56 @@ address grants a member the note", "an address two accounts hold grants neither
 of them" and "an unverified users.email grants nothing" (which needs both
 verified checks broken, since the ownership lookup refuses an unverified
 address too).
+
+## Outsiders read what they were granted, through the share path
+
+*Built on 2026-10-16 (outsider read, slice 2).* A row's access list can name an
+account that is not a member of the workspace (`granteeKind: "user"`), or an
+address that account holds (`granteeKind: "email"`, counted only when
+`ownedConfirmedEmailsOf` gives it to that account alone). Such a person reads
+what was granted to them, read-only, and nothing else.
+
+- **Found, then re-derived.** `nodeAccess` is found through two global indexes
+  (`by_grantee_user`, `by_grantee_email`), bounded at 200. Each candidate is
+  judged again from its workspace's live rows: the names come from
+  `accessNamesFor` over `accessRowsOf`, the node must be live, and `canSee` at
+  `team` scope with those names over the **guest** rendering
+  (`renderAccess(rows, "guest")`) must open the path.
+- **The guest rendering never shows `team`.** A row a member can see because of
+  its `team` base is `private` to an outsider. Only a row that names them (by
+  account or by a confirmed address) opens to them.
+- **One path, one decision, through the share read.** `shares.readGrantedNote`
+  (a note, by its stable id or by a path under a grant) and
+  `shares.listGrantedFolder` read through `readThroughShare` at `team` scope with
+  the caller's names. A folder grant covers its subtree, and every path beneath
+  it is decided again: a private subfolder, a note held back by name, and a note
+  the members can see are all absent. A listing is filtered entry by entry.
+- **One refusal.** Not granted, not there, trashed, granted in another
+  workspace, a member, and a grant the live rows no longer name all answer
+  `SHARE_UNAVAILABLE`, with the same message. A signed-out caller gets
+  `NOT_AUTHENTICATED` for every target. A storage failure is passed through.
+- **Leaving takes the account's grants along.** `removeMember` and
+  `leaveWorkspace` delete that account's `user` grants in that workspace, rebuild
+  the snapshot the readers judge by, and write one `access.list` row. Email grants
+  are left as they are: they name an address, and the owner who wrote one takes
+  it back. (An open question, below.)
+- **Edit is read as view.** An outsider's edit grant reads the note and writes
+  nothing in this slice.
+
+What a "simplification" would cost. Trusting the candidate grant row, instead of
+the names the live rows give, lets a revoked grant, or a grant a stale snapshot
+no longer records, keep reading. Judging an outsider by the member rendering
+lets anyone holding one folder read a note the members can see, which is the
+`team` base that non-negotiable #5 forbids reaching the internet. Leaving the
+departed member's account grants in place turns "removed" into a read the owner
+did not keep. `outsiderRead.test.ts` ("the candidate row is never trusted on its
+own", and "a note the members can see is not opened to an outsider by a folder
+grant") fails on the first two. "every refusal is the one answer" pins the
+byte-identical refusal, and `outsiderRemoval.test.ts` ("removeMember deletes the
+user's grants in that workspace and audits the change") fails on the third.
+
+Open, and not decided here: an email grant on a removed member's address still
+reaches them as an outsider. Removing it too would be a second decision with its
+own cost (an owner who named a person by address and then removed them from the
+workspace for an unrelated reason would lose that address's grant without being
+asked), so this slice leaves it and says so.
