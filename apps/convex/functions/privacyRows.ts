@@ -27,8 +27,10 @@ import { toConvexError } from "./lib/adminFns/errors";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { accessParityPage } from "./lib/nodes/accessParity";
 import { accessSourceOf, backfillAccess, type AccessSource } from "./lib/nodes/accessBackfill";
+import { privacyAuthorityOn } from "./lib/nodes/privacyAuthority";
 import { SAMPLE_MAX, accessStateRowOf, checkRowOf, checkStatus, type CheckStatus } from "./lib/privacyRows/checks";
 import { boundWorkspaces } from "./nodesMigration";
+import { renderRowsAsRules } from "./lib/privacyRows/backToOff";
 
 const sourceValidator = v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"));
 const statusValidator = v.union(
@@ -267,19 +269,30 @@ export const useRows = mutation({
     const refusal = await refusalFor(ctx.db, from, ids, truncated);
     if (refusal !== null) throw new ConvexError(refusal);
     if (!ROWS_WRITES_READY) throw new ConvexError(ROWS_WRITES_PENDING);
+    // Rows mode reads the rules the rows render, through the authority; with the file as the authority its stale rules would still judge a move.
+    if (!(await privacyAuthorityOn(ctx.db))) {
+      throw new ConvexError({
+        code: "ROWS_NEEDS_AUTHORITY",
+        message: "Turn on the privacy rules as the authority before using rows. The file would otherwise still judge moves.",
+      });
+    }
     await writeSource(ctx, actor, "rows");
     await auditSwitch(ctx, actor, from, "rows");
     return { source: "rows" as const };
   },
 });
 
-/** Back to Off: the rules decide again. Always allowed; the rows are kept, but nothing reads them. */
+/**
+ * Back to Off: the rules decide again. From `file` or `shadow` always allowed; the rows are kept, but nothing
+ * reads them. From `rows` the rows are first written back as the rules (`renderRowsAsRules`), or refused.
+ */
 export const backToOff = mutation({
   args: {},
   returns: v.object({ source: sourceValidator }),
   handler: async (ctx) => {
     const actor = await staffActor(ctx);
     const from = await accessSourceOf(ctx.db);
+    if (from === "rows") await renderRowsAsRules(ctx);
     await writeSource(ctx, actor, "file");
     await auditSwitch(ctx, actor, from, "file");
     return { source: "file" as const };

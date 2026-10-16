@@ -91,7 +91,13 @@ export async function startRowMove(
   const pairs = plan.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
   assertMoveDestinationsVisible(pairs, clearance, state);
 
-  const carried = await carryPrivacy(store, from, to);
+  // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
+  // narrowing on its own row, which the move then carries (`narrowMove`). The file's own rules are left alone.
+  const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+  if (rowsTruth) await ctx.runMutation(internal.functions.nodesAccess.narrowMove, { workspaceId, from, to });
+  const carried = rowsTruth
+    ? { etag: state.etag, added: { folders: [], notes: [] } }
+    : await carryPrivacy(store, from, to);
   if (carried === null) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
 
@@ -106,7 +112,7 @@ export async function startRowMove(
   });
   if (!answer.ok) {
     // Nothing moved: take the carried rules back, as a move that never drew does.
-    await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
+    if (!rowsTruth) await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
     await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] }).catch(() => {});
     // A taken name the caller cannot see is "not found", never "exists": that is the disclosure the guards prevent.
     const visibleTarget =
@@ -116,7 +122,7 @@ export async function startRowMove(
     throw refusal(answer.reason, to, visibleTarget);
   }
 
-  await releasePrivacy(store, { from, undone: false, added: carried.added });
+  if (!rowsTruth) await releasePrivacy(store, { from, undone: false, added: carried.added });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   await recordForwarding(store, [{ from, to, kind: answer.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
   if (answer.kind === "folder") await remapFolderIcons(store, from, to);

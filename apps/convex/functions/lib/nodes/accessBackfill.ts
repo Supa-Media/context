@@ -221,7 +221,7 @@ async function syncGrants(ctx: MutationCtx, workspaceId: Id<"workspaces">, nodeI
  * The snapshot a finished derivation leaves: every row that carries a setting or a grant. Read after the
  * walk's writes, so it sees this derivation's rows. `undefined` when it is too large to store.
  */
-async function snapshotOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[] | undefined> {
+export async function snapshotOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[] | undefined> {
   const rows = await scanAccessRows(ctx, workspaceId);
   const bytes = JSON.stringify(rows).length;
   if (rows.length > SNAPSHOT_MAX_ROWS || bytes > SNAPSHOT_MAX_BYTES) {
@@ -241,6 +241,22 @@ async function clearSnapshot(ctx: MutationCtx, workspaceId: Id<"workspaces">): P
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (state !== null && state.snapshot !== undefined) await ctx.db.patch(state._id, { snapshot: undefined });
+}
+
+/**
+ * Rebuild the snapshot from the rows as they are, and bump the version. The rows mode's refresh (and the
+ * owner's own writes): nothing is derived from the rules, so an owner's list is never clobbered.
+ */
+export async function refreshSnapshot(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<number> {
+  const state = await ctx.db
+    .query("nodeAccessState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  const snapshot = await snapshotOf(ctx, workspaceId);
+  const version = (state?.version ?? 0) + 1;
+  if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, version, orphans: [], snapshot });
+  else await ctx.db.patch(state._id, { version, snapshot });
+  return version;
 }
 
 /** The orphans of these rules, the snapshot of the rows, and the version bump that closes a finished walk. */
@@ -348,6 +364,13 @@ export async function backfillAccess(ctx: MutationCtx, workspaceId: Id<"workspac
  * a deployment that has not turned access on pays one read here and nothing else.
  */
 export async function refreshAccess(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
-  if (!accessDerived(await accessSourceOf(ctx.db))) return;
+  const source = await accessSourceOf(ctx.db);
+  // In `rows` the rows are the truth: nothing is derived from the rules (that would clobber an owner's list).
+  // The snapshot is rebuilt from the rows as they are, so a move's new paths are what readers see.
+  if (source === "rows") {
+    await refreshSnapshot(ctx, workspaceId);
+    return;
+  }
+  if (!accessDerived(source)) return;
   await backfillAccess(ctx, workspaceId);
 }
