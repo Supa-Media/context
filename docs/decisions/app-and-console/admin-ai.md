@@ -77,7 +77,8 @@ a comparison can be pasted into a thread.
   `reach: [tex, mcp, helpers]` on the skill note. Turning one off for Tex
   asks first, because the next text uses it.
 - **Helper agents are declared in code** (`AI_HELPERS`), with the tools they
-  may call named as the v2 tools and actions (`send · email.send`), and who
+  may call named as the v2 tools and actions (`write · save`; an action
+  not built yet says so), and who
   may call them in their note's `callers:`.
 - **Try it chats with any setup as yourself, read-only.** `/agent/try`
   (`apps/mcp/src/agent/tryIt.js`) runs one turn of a live or drafted setup on

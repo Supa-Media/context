@@ -137,9 +137,10 @@ export interface AiHelper {
   /** What it never does without a person; "nothing" when it changes nothing of anybody's. */
   needsPerson: string;
   /**
-   * What it may call, in the shape of the tools V2 (another thread,
-   * 2026-10-16): one of orient, search, fetch, write, manage, send, with the
-   * action for manage and send (`send · email.send`). Never an old tool name.
+   * What it may call, as the six v2 tools and their actions
+   * (`apps/mcp/src/tools/v2/actions.js`): `write · save`, `send · email`.
+   * Never an old tool name. An action the table does not have yet is marked
+   * "(not built)".
    */
   tools: string[];
   /** Built and running, or written down and not built yet. */
@@ -160,7 +161,7 @@ export const AI_HELPERS: readonly AiHelper[] = [
     calledBy: "Tex, connected AIs",
     canDo: "Check a draft, send one email",
     needsPerson: "every send",
-    tools: ["fetch", "send · email.send"],
+    tools: ["fetch", "send · email (not built)"],
     state: "planned",
     callers: ["texting-assistant", "connected-ais", "app-assistant", "improver"],
   },
@@ -169,9 +170,9 @@ export const AI_HELPERS: readonly AiHelper[] = [
     label: "Improver",
     model: "Opus 5.5 · nightly",
     calledBy: "the clock, or you",
-    canDo: "Draft setups and cases, run tests",
+    canDo: "Draft setups and cases",
     needsPerson: "promoting, new cases",
-    tools: ["search", "fetch", "write", "manage · tests.run"],
+    tools: ["search", "fetch", "write · save"],
     state: "planned",
     callers: [],
   },
@@ -193,7 +194,7 @@ export const AI_HELPERS: readonly AiHelper[] = [
     calledBy: "the clock",
     canDo: "Rewrite about-me, tidy personal skills",
     needsPerson: "nothing",
-    tools: ["fetch", "write"],
+    tools: ["fetch", "write · save"],
     state: "running",
     callers: [],
   },
