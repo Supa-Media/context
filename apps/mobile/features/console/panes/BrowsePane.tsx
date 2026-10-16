@@ -5,8 +5,6 @@ import { useConsoleNav } from "../ConsoleNavContext";
 import { anchorOnScreen } from "../followedAnchor";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
-import { Menu } from "../../design/components/Menu";
-import { runMenuAction } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { useReadMode } from "../files/readMode";
 import { useDeclaredView } from "../files/viewMode";
@@ -25,6 +23,7 @@ import type { BrowsePaneProps } from "./browsePane/props";
 import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
+import { ListingMenu } from "./browsePane/ListingMenu";
 import { useShownEntry } from "./browsePane/useShownEntry";
 import { NoteIntentContext } from "../files/noteIntent";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
@@ -207,6 +206,7 @@ export function BrowsePane({
     saveTags,
     selectAsked,
     takeSelect,
+    holdSelect,
   } = useFolderListing({ files, contextLabel, settled, current, data, onShare: files.canShare ? setSharing : undefined });
   /*
     The two bands the floating chrome occupies, spent as content padding at
@@ -467,19 +467,14 @@ export function BrowsePane({
         driven by its own state, because a dialog belongs to the surface that
         raised it.
       */}
-      {folderMenu !== null ? (
-        <Menu
-          items={folderMenu.items}
-          anchor={folderMenu.anchor}
-          title={folderMenu.title}
-          onSelect={(id) => {
-            const target = folderMenu.target;
-            setFolderMenu(null);
-            runMenuAction(id, target, menuActions);
-          }}
-          onDismiss={() => setFolderMenu(null)}
-        />
-      ) : null}
+      <ListingMenu
+        menu={folderMenu}
+        setMenu={setFolderMenu}
+        actions={menuActions}
+        notes={homeSource.notes}
+        folders={homeSource.folders}
+        holdSelect={holdSelect}
+      />
 
       <ExplorerDialogs
         files={files}

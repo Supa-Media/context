@@ -78,9 +78,10 @@ export function FolderRow({
    */
   picked?: boolean;
   /**
-   * What a long press does instead of the row menu: on a phone, enter the
-   * select mode with this row picked. Absent everywhere else, where the long
-   * press (or right-click) is still the row's own menu.
+   * What a long press does instead of the row menu: in a phone's select mode,
+   * pick or unpick this row. Absent everywhere else, where the long press (or
+   * right-click) is the row's own menu — on a phone, the lifted hold menu
+   * (`HoldMenu.tsx`), whose Select enters the mode.
    */
   onHold?: (path: string) => void;
   /**
