@@ -122,10 +122,18 @@ export function describeFile(
 /** One folder's immediate children, as the tree renders them. */
 export async function listFolder(
   store: FileStore,
-  options: { path: string; clearance: Clearance },
+  options: {
+    path: string;
+    clearance: Clearance;
+    /**
+     * The rules to judge by, when the caller already holds them (`lib/nodes/readerRules.ts`); else
+     * `privacy.md` is read from the store. `manifestUsable` is the answer the file would give.
+     */
+    judged?: { rules: readonly PrivacyRule[]; overrides: ReadonlyMap<string, Visibility>; manifestUsable: boolean };
+  },
 ): Promise<FolderListing> {
   const folder = requireFolderPath(options.path);
-  const state = await loadPrivacyState(store);
+  const state = options.judged ?? (await loadPrivacyState(store));
 
   // **A folder the caller cannot see answers exactly as one that is not there,
   // and refusing is not how you do that.**
@@ -284,7 +292,7 @@ export async function listFolder(
     // returned, and the store is theirs.
     entries: withheld ? [] : entries,
     truncated: withheld ? false : truncated,
-    manifestUsable: state.text !== null && !state.invalid,
+    manifestUsable: "manifestUsable" in state ? state.manifestUsable : state.text !== null && !state.invalid,
   };
 }
 

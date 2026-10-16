@@ -17,9 +17,12 @@ import type { Clearance } from "../clearance";
 import { listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
-import { mirrorFile } from "./privacyMirror";
+import { mirrorFile, readMirror } from "./privacyMirror";
+import { rulesForReaders } from "./readerRules";
 import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
+
+export { readMirror };
 
 /**
  * Rows of one folder a listing reads before calling itself short. A folder
@@ -131,21 +134,6 @@ export function folderRowsStore(
   } as unknown as FileStore;
 }
 
-/** The workspace's privacy mirror as a store renders it, or `null` when the tree holds none. */
-export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
-  const row = await db
-    .query("nodePrivacy")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-  if (row === null) return null;
-  return {
-    ...(row.etag === undefined ? {} : { etag: row.etag }),
-    invalid: row.invalid,
-    folders: row.folders,
-    notes: row.notes,
-  };
-}
-
 /** Where this workspace's tree is now, read in the caller's transaction. */
 export async function treeReadinessNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<TreeReadiness> {
   const tree = await db
@@ -175,5 +163,12 @@ export async function listFolderFromNodes(
     ? await childrenOf(ctx, workspaceId, folder)
     : await childrenThroughMoves(folder, moves, (source) => childrenOf(ctx, workspaceId, source), (key) => rowAt(ctx, workspaceId, key));
   const mirror = await readMirror(ctx.db, workspaceId);
-  return await listFolder(folderRowsStore(folder, rows, more, mirror), { path: folder, clearance });
+  // The rules readers judge by (`readerRules.ts`): the mirror's own, or the access rows' once they are the source.
+  const judged = await rulesForReaders(ctx, workspaceId);
+  const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
+  return await listFolder(folderRowsStore(folder, rows, more, mirror), {
+    path: folder,
+    clearance,
+    judged: { ...judged, manifestUsable },
+  });
 }

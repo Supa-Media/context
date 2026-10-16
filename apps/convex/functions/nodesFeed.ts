@@ -28,6 +28,7 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { treeChangesValidator } from "./lib/filesFns/validators";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { rulesForReaders } from "./lib/nodes/readerRules";
 import { MOVES_PER_WORKSPACE } from "./lib/nodes/moveOverlay";
 import {
   NODE_HEAD_SCAN,
@@ -35,7 +36,6 @@ import {
   feedToken,
   judgeRows,
   logReachesBack,
-  mirrorRules,
   movesMark,
   newestTold,
   seqAt,
@@ -89,7 +89,7 @@ export const head = query({
       .order("desc")
       .take(NODE_HEAD_SCAN);
     const skip = (path: string) => underPendingMove(path, moves);
-    const told = newestTold(newest, clearanceOf(scope, grantedNames), await mirrorRules(mirror), skip);
+    const told = newestTold(newest, clearanceOf(scope, grantedNames), await rulesForReaders(ctx, workspaceId), skip);
     return { token: `${privacy}|${told ?? ""}` };
   },
 });
@@ -172,7 +172,7 @@ export const changes = internalQuery({
       );
     }
     const clearance = clearanceOf(scope, grantedNames);
-    const rules = await mirrorRules(mirror);
+    const rules = await rulesForReaders(ctx, args.workspaceId);
     const page = judgeRows({
       rows,
       current,

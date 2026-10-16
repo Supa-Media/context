@@ -26,6 +26,7 @@ import { privacyIsNewer } from "./lib/nodes/observe";
 import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
 import { accessDerived, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
 import { accessParityPage } from "./lib/nodes/accessParity";
+import { rulesForReaders } from "./lib/nodes/readerRules";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -41,6 +42,22 @@ export const authority = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
     return isAuthority(row, await privacyAuthorityOn(ctx.db)) ? heldRules(row) : null;
+  },
+});
+
+/** The rules Convex readers judge by (`lib/nodes/readerRules.ts`), as plain values a query can return. */
+export const readerRules = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    rules: v.array(v.object({ prefix: v.string(), vis: v.string() })),
+    overrides: v.array(v.object({ path: v.string(), vis: v.string() })),
+  }),
+  handler: async (ctx, { workspaceId }) => {
+    const held = await rulesForReaders(ctx, workspaceId);
+    return {
+      rules: held.rules.map((rule) => ({ prefix: rule.prefix, vis: rule.vis })),
+      overrides: [...held.overrides].map(([path, vis]) => ({ path, vis })),
+    };
   },
 });
 
