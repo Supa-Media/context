@@ -39,6 +39,8 @@ export interface ManifestEntry {
   etag?: string;
   size?: number;
   updatedAt?: number;
+  /** The note's id, where the tree holds one for this row. Absent for a bucket listing, which has none. */
+  noteId?: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
@@ -285,13 +287,14 @@ export async function syncManifest(
       if (!noteFolders(key)) return stop();
       if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
 
-      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
+      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string; noteId?: string };
       const described = describeFile(key, state.rules, state.overrides);
       entries.push({
         path: key,
         ...(typeof meta.etag === "string" && meta.etag !== "" ? { etag: meta.etag } : {}),
         ...(typeof meta.size === "number" ? { size: meta.size } : {}),
         ...(meta.uploaded === undefined ? {} : { updatedAt: new Date(meta.uploaded).getTime() }),
+        ...(typeof meta.noteId === "string" && meta.noteId !== "" ? { noteId: meta.noteId } : {}),
         visibility: described.visibility,
         inherited: described.inherited,
         exception: described.exception,

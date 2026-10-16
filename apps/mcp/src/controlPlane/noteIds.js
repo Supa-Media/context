@@ -52,6 +52,9 @@ export function narrowNote(entry) {
 /** The most paths one lookup may ask about: the control plane's `NOTE_ID_LOOKUP_MAX`. */
 export const NOTE_ID_LOOKUP_MAX = 200;
 
+/** The most note ids one resolve may name: the control plane's `NOTE_IDS_RESOLVE_IDS`. */
+export const NOTE_ID_RESOLVE_MAX = 200;
+
 export function createNoteIdMethods({ post, required }) {
   return {
     /**
@@ -103,6 +106,39 @@ export function createNoteIdMethods({ post, required }) {
         if (entry !== null) notes[path] = entry;
       }
       return { copies: narrowed, keyed: parsed.keyed === true, notes };
+    },
+
+    /**
+     * The current path of each note id, for the caller's workspace only
+     * (`/gateway/note-ids/resolve`). `paths` has every id asked for: its path
+     * where a live row the caller may see holds it, and `null` otherwise
+     * (trashed, moved under a dot folder, another workspace's, or not seen).
+     *
+     * @param {string} accessToken
+     * @param {string} workspaceId
+     * @param {string[]} noteIds
+     * @returns {Promise<{paths: Record<string, string|null>}>}
+     */
+    async noteIdResolve(accessToken, workspaceId, noteIds) {
+      if (!Array.isArray(noteIds) || noteIds.length === 0 || noteIds.length > NOTE_ID_RESOLVE_MAX) {
+        throw new ControlPlaneError("note id resolve needs 1 to 200 note ids");
+      }
+      const parsed = await post("/gateway/note-ids/resolve", {
+        workspaceId,
+        noteIds,
+        accessToken,
+        expectedWorkspaceId: workspaceId,
+      });
+      const paths = required(parsed, "paths");
+      if (!paths || typeof paths !== "object" || Array.isArray(paths)) {
+        throw new ControlPlaneError("malformed note id paths");
+      }
+      const narrowed = {};
+      for (const noteId of [...new Set(noteIds)]) {
+        const path = paths[noteId];
+        narrowed[noteId] = typeof path === "string" && path !== "" ? path : null;
+      }
+      return { paths: narrowed };
     },
 
     /**
