@@ -298,7 +298,11 @@ test("runTurn tells the observer its thinking, its words between tools and each 
   assert.deepEqual(events[2].args, { path: "todo.md" });
   assert.equal(events[2].ok, true);
   assert.deepEqual(bodies[0].thinking, { type: "adaptive", display: "summarized" });
-  assert.match(bodies[0].system.map((block) => block.text).join(""), /tex\/transcripts\/ is your own record of these texts/);
+  // Asked "what is my Tex transcript folder called?", Tex once said it was not in their workspace (2026-10-16).
+  const system = bodies[0].system.map((block) => block.text).join("");
+  assert.match(system, /tex\/transcripts\/ in their personal workspace holds a transcript of these texts, one note a day/);
+  assert.match(system, /they can open it like any note/);
+  assert.doesNotMatch(system, /not their notes/);
 });
 
 test("the thinking is asked for in words only from a model that thinks by default", () => {
