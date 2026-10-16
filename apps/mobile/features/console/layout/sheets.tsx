@@ -123,6 +123,7 @@ export function consoleSyncSheet({
       <SyncSheet
         sync={data.files.sync}
         save={saveChip({ editor: data.files.editor, now: Date.now() })}
+        contexts={data.contexts}
         pending={data.files.pending ?? NO_PENDING}
         onOpen={(path) => {
           data.files.select(path);

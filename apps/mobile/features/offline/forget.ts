@@ -17,6 +17,7 @@ import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
 import { openMirrorStore } from "./mirrorStore";
 import { forgetMirrorStatus } from "./mirrorStatus";
+import { forgetDownloadChoices } from "./downloadChoice";
 import { forgetMirrorLists } from "./mirrorLists";
 import { forgetMirrorSearch } from "./mirrorSearch";
 import type { MirrorStore } from "./mirrorStoreCore";
@@ -316,6 +317,7 @@ async function clearEverything(): Promise<ForgetResult> {
       queue (and removed by it) or after it (and refused), never in between.
     */
     forgetMirrorStatus();
+    forgetDownloadChoices();
     // The device search's in-memory copy of the same bodies (`mirrorSearch.ts`).
     forgetMirrorSearch();
     forgetMirrorLists();

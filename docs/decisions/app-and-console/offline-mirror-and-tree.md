@@ -553,3 +553,25 @@ row" (`collaboration.test.mjs`), "a sibling folder's missing notes are not
 this page's" (`folderPageHoldsFolder.test.ts`), "a retry for one context
 leaves the others alone, and says which it wants"
 (`offlineFolderFreshener.test.ts`).
+
+### The phone downloads everything but Archive, and a workspace can stay online
+
+Decided by the owner, 2026-10-16: "we should be auto downloading everything
+not in archive", and "allow them per workspace to just choose not to download
+it, to keep it online only". The mirror still lists every note it may hold, so
+the tree is whole offline, but fetches a body only where `keepsBody`
+(`offline/downloadChoice.ts`) says so: never under a top-level folder playing
+the archive role, never in a workspace this device keeps online only. A body an
+older build fetched is dropped on the next pass — whatever the listing named,
+because a catch-up names only what changed — except where somebody's unsent
+work is based on it. The most recently edited notes come down first.
+
+The choice is the device's, not the account's: it is about this device's
+storage. It is the `download` kind in the offline namespace, so sign-out and a
+lost workspace forget it, and `sweep` never ages it out. The phone says what is
+downloading in one place: the top-right pill ("340 / 1,204", a percentage past
+ten thousand) when nothing about the connection or the queue is to say, opening
+the sheet's Downloads block with a line and a Don't download button per
+workspace. Tests: `offlineDownloadChoice.test.ts` (sabotage: removing the
+reconcile's body sweep fails "a body an older build downloaded goes") and
+`downloadPillRender.test.ts`.
