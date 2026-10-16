@@ -6,7 +6,7 @@
  * opens the job's page; nothing here promotes anything.
  */
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
 import { Box, Cell, Columns, Head, LinkText, PageHead, Quiet, Quietly, TableLine, pct, shortDay, type Column } from "./AiKit";

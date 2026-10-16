@@ -484,3 +484,63 @@ test("the job log shows each broken gate's failing answer, its reason and its ch
   // No answer id reaches the log.
   assert.doesNotMatch(text, /\ba1\b|\ba2\b/);
 });
+
+test("the case table has one row per question: passed of answered runs for each setup, untested when its mirror failed", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    await scoreFile({ path, dir, date: "2026-10-10" });
+    const md = await readFile(path, "utf8");
+    const table = md.slice(md.indexOf("### Case by case"), md.indexOf("Best setup that passes every bar"));
+    assert.equal(
+      table.split("\n").filter((line) => line.startsWith("| ")).join("\n"),
+      [
+        "| case | alpha | beta | gamma |",
+        "| --- | --- | --- | --- |",
+        "| 1. Hours at the dentist? | 2 of 2 | 1 of 2 | 2 of 2 |",
+        "| 2. Is my dentist visit private? | 2 of 2 | untested | 1 of 2 |",
+        "| 3. Push the Lisbon trip back? | 2 of 2 | 2 of 2 | 2 of 2 |",
+        "| 4. Is the old list gone? | 2 of 2 | 2 of 2 | 2 of 2 |",
+      ].join("\n"),
+    );
+    // The table sits after the gate reasons and before the best setup, and the setup rows are untouched.
+    assert.ok(md.indexOf("Why gates failed, gamma:") < md.indexOf("### Case by case"));
+    assert.equal(scoredRows(md).length, 3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a case's title is one table cell, and a case with no answered run reads 0 of 0", async () => {
+  const { scoreSetups, scoreSection, parseBars } = await import("../score.mjs");
+  const questions = new Map([
+    [1, { n: 1, text: "Is A | B   split?", kind: "lookup", mirror: null }],
+    [2, { n: 2, text: "Mirror of one?", kind: "lookup", mirror: 1 }],
+    [3, { n: 3, text: "Never asked?", kind: "lookup", mirror: null }],
+  ]);
+  const key = [
+    { id: "a1", setup: "alpha", question: 1, run: 1 },
+    { id: "a2", setup: "alpha", question: 2, run: 1 },
+    { id: "b1", setup: "beta", question: 1, run: 1 },
+    { id: "b2", setup: "beta", question: 2, run: 1 },
+    // Question 3 is in the key but no run of it was answered: 0 of 0.
+    { id: "b3", setup: "beta", question: 3, run: 1 },
+  ];
+  const judged = new Map([
+    ["a1", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["a2", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["b1", { verdicts: [{ kind: "must", line: "x", pass: false, reason: "" }] }],
+    ["b2", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["b3", { verdicts: [], skipped: "no answer: status 500" }],
+  ]);
+  const answers = new Map(key.map((row) => [row.id, { time: null, conversation: [] }]));
+  const { rows, cases } = scoreSetups({ key, judged, answers, questions, bars: parseBars({}) });
+  assert.deepEqual(cases[0], { question: 1, title: "Is A / B split?", cells: { alpha: { passed: 1, runs: 1 }, beta: { passed: 0, runs: 1 } } });
+  // Beta's question 2 mirrors question 1, which beta failed.
+  assert.equal(cases[1].cells.beta, "untested");
+  assert.deepEqual(cases[2].cells, { alpha: { passed: 0, runs: 0 }, beta: { passed: 0, runs: 0 } });
+  assert.equal(cases[2].title, "Never asked?");
+  // No cases means no table, as before the table existed.
+  const plain = scoreSection({ judgeModel: "judge", date: "2026-10-16", rows, best: null });
+  assert.doesNotMatch(plain, /Case by case/);
+  assert.match(scoreSection({ judgeModel: "judge", date: "2026-10-16", rows, best: null, cases }), /\| 2\. Mirror of one\? \| 1 of 1 \| untested \|/);
+});

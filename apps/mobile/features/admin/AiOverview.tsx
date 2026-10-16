@@ -11,26 +11,28 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
 import { provedBy } from "./aiCatalog";
 import { AI_HELPERS, jobPage, scoreHistory, type Candidate, type JobPage, type ScorePoint } from "./aiModel";
-import { Box, Cell, Columns, Head, PageHead, Quiet, Quietly, StatusPill, TableLine, pct, type Column } from "./AiKit";
+import { Box, Cell, Columns, Head, LinkText, PageHead, Quiet, Quietly, StatusPill, TableLine, pct, type Column } from "./AiKit";
 import type { AiScreenProps } from "./aiScreen";
 
-/** Rounds to one decimal, so `93.3` against `100` reads `+6.7 pts`, and whole points drop the `.0`. */
-export function pointsLabel(delta: number | null): string {
-  if (delta === null) return "—";
-  const rounded = Math.round(delta * 10) / 10;
-  if (rounded === 0) return "0 pts";
-  return `${rounded > 0 ? "+" : "−"}${Number(Math.abs(rounded).toFixed(1))} pts`;
-}
-
-/** A candidate's points against live in the same round, when both scored. */
+/** A candidate's score less live's in the same round, or null when either did not score. */
 function deltaOf(candidate: Candidate): number | null {
   const mine = candidate.score?.score ?? null;
   const theirs = candidate.liveScore?.score ?? null;
   return mine === null || theirs === null ? null : mine - theirs;
 }
 
+/** Its points against live, to one decimal: `+6.7 pts`, `−20 pts`, `0 pts`; `—` when live has no score. */
+export function points(candidate: Candidate): string {
+  const delta = deltaOf(candidate);
+  if (delta === null) return "—";
+  const rounded = Math.round(delta * 10) / 10;
+  if (rounded === 0) return "0 pts";
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)} pts`;
+}
+
 /** A change that beat live is ok, one that lost is crit, a tie is plain. */
-function toneOf(delta: number | null): "ok" | "crit" | undefined {
+function toneOf(candidate: Candidate): "ok" | "crit" | undefined {
+  const delta = deltaOf(candidate);
   if (delta === null || delta === 0) return undefined;
   return delta > 0 ? "ok" : "crit";
 }
@@ -39,15 +41,13 @@ interface Change {
   jobKey: string;
   jobLabel: string;
   candidate: Candidate;
-  /** Points, the candidate's score less live's in the same round; null when live has none. */
-  delta: number | null;
 }
 
 const CHANGE_COLUMNS: readonly Column[] = [
   { label: "CHANGE", flex: 2 },
   { label: "JOB", flex: 1 },
   { label: "RESULT", width: 80, align: "right" },
-  { label: "KEPT?", width: 110 },
+  { label: "KEPT?", width: 140 },
 ];
 
 const JOB_COLUMNS: readonly Column[] = [
@@ -107,7 +107,6 @@ export function AiOverview(props: AiScreenProps) {
           jobKey: key,
           jobLabel: page.job.label,
           candidate,
-          delta: deltaOf(candidate),
         })),
     )
     .sort((a, b) => (b.candidate.row.updatedAt ?? 0) - (a.candidate.row.updatedAt ?? 0));
@@ -128,9 +127,7 @@ export function AiOverview(props: AiScreenProps) {
         <Tile label="Golden cases" value={String(catalog.tests.length)} onPress={() => go({ view: "files", part: "tests" })} testID="admin-ai-tile-cases">
           <Text variant="meta" numberOfLines={2}>test lists of golden cases, set by people.</Text>
           {untested.length > 0 ? (
-            <Pressable role="link" onPress={jobsPage} testID="admin-ai-cases-none">
-              <Text variant="meta" numberOfLines={1} style={styles.crit}>{`${untested.length} jobs have none ›`}</Text>
-            </Pressable>
+            <LinkText label={`${untested.length} jobs have none ›`} onPress={jobsPage} testID="admin-ai-cases-none" />
           ) : null}
         </Tile>
         <Tile label="Jobs" value={String(catalog.jobs.length)} onPress={jobsPage} testID="admin-ai-tile-jobs">
@@ -167,7 +164,7 @@ export function AiOverview(props: AiScreenProps) {
               {changes.map((item, index) => {
                 const { candidate } = item;
                 const sub = candidate.madeBy ? `${candidate.name} · ${candidate.madeBy}` : candidate.name;
-                const result = pointsLabel(item.delta);
+                const result = points(candidate);
                 return (
                   <TableLine
                     key={candidate.row.path}
@@ -182,7 +179,7 @@ export function AiOverview(props: AiScreenProps) {
                     cells={[
                       <Cell key="change" strong title={candidate.change ?? candidate.name} sub={sub} />,
                       <Cell key="job" title={item.jobLabel} />,
-                      <Cell key="result" strong title={result} tone={toneOf(item.delta)} align="right" />,
+                      <Cell key="result" strong title={result} tone={toneOf(candidate)} align="right" />,
                       <StatusPill key="kept" status={candidate.status} />,
                     ]}
                   />

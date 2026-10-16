@@ -164,20 +164,20 @@ export function scoreSetups({ key, judged, answers, questions, bars }) {
 
   // The case table: per question, how many answered runs passed for each
   // setup. A question whose mirror did not pass is untested for that setup,
-  // so its cell is null and shows as untested, never as a count.
+  // so its cell says so, never a count.
   const cases = numbers.map((n) => {
     const q = questions.get(n);
     const cells = {};
     for (const setup of setups) {
       if (q.mirror !== null && !questionPassed(setup, q.mirror)) {
-        cells[setup] = null;
+        cells[setup] = "untested";
         continue;
       }
       const runs = answered(setup, n);
       cells[setup] = { passed: runs.filter((row) => runPassed(row.id)).length, runs: runs.length };
     }
     // A table cell is one line: a pipe in the question would start a new column.
-    return { question: n, title: q.text.replace(/\|/g, "/").trim(), cells };
+    return { question: n, title: String(q.text ?? "").replace(/\|/g, "/").replace(/\s+/g, " ").trim(), cells };
   });
 
   // The best good-enough setup: highest score, then cheapest, then fastest.
@@ -255,7 +255,7 @@ export function scoreSection({ judgeModel, date, rows, best, goodEnough = {}, ca
   if (cases.length) {
     out.push("### Case by case", "", `| case | ${rows.map((r) => r.setup).join(" | ")} |`, `| --- |${rows.map(() => " --- |").join("")}`);
     for (const c of cases) {
-      const shown = rows.map((r) => (c.cells[r.setup] === null ? "untested" : `${c.cells[r.setup].passed} of ${c.cells[r.setup].runs}`));
+      const shown = rows.map((r) => (c.cells[r.setup] === "untested" ? "untested" : `${c.cells[r.setup].passed} of ${c.cells[r.setup].runs}`));
       out.push(`| ${c.question}. ${c.title} | ${shown.join(" | ")} |`);
     }
     out.push("");

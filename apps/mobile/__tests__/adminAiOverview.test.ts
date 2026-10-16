@@ -44,14 +44,12 @@ jest.mock("@context/convex/_generated/api", () => {
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { AiOverview, pointsLabel } from "../features/admin/AiOverview";
+import { AiOverview, points } from "../features/admin/AiOverview";
 import { buildCatalog, type FolderNote } from "../features/admin/aiCatalog";
-import { readRun, type RunRead } from "../features/admin/aiModel";
+import { readRun, type Candidate, type RunRead } from "../features/admin/aiModel";
 import type { AiPlace } from "../features/admin/aiPlace";
 
-const PRODUCTION = "---\nfrom: live-5\nlive_since: 2026-10-13\npromoted_by: Seyi\n---\n\n# Tex\n";
 const LIVE_SETUP = "---\njob: texting-assistant\nstatus: live\nmade_by: Seyi\n---\n\n# live-5\n";
-const SETUP = "---\njob: texting-assistant\nbased_on: live-5\nchange: Never merge two to-dos\nmade_by: improver\nstatus: beat live\n---\n\n# live-6\n";
 const TEST = "---\njob: texting-assistant\n---\n\n# Core\n\n## 1. When's my dentist?\n\n- kind: task\n- must: say Tuesday at 3 pm\n";
 const SCORES = [
   "---",
@@ -151,10 +149,12 @@ describe("What worked, what didn't", () => {
     expect(went).toContainEqual({ view: "jobs", job: "texting-assistant", tab: "setups", compare: "live-6" });
   });
 
-  test("pointsLabel rounds to one decimal and signs the difference", () => {
-    expect(pointsLabel(100 - 93.3)).toBe("+6.7 pts");
-    expect(pointsLabel(-20)).toBe("−20 pts");
-    expect(pointsLabel(0.02)).toBe("0 pts");
-    expect(pointsLabel(null)).toBe("—");
+  test("points rounds to one decimal and signs the difference against live", () => {
+    const against = (score: number | null, live: number | null) =>
+      ({ score: score === null ? null : { score }, liveScore: live === null ? null : { score: live } }) as unknown as Candidate;
+    expect(points(against(100, 93.3))).toBe("+6.7 pts");
+    expect(points(against(80, 100))).toBe("−20 pts");
+    expect(points(against(100.02, 100))).toBe("0 pts");
+    expect(points(against(100, null))).toBe("—");
   });
 });

@@ -4,6 +4,7 @@
  * who may use it, is `apps/mcp/test/agentTryIt.test.mjs`.
  */
 
+import { expect, jest, test } from "@jest/globals";
 import { firstQuestion, readTry, tryBody, uncheckedRules, type TryExchange } from "../features/admin/AiTryIt";
 import { parseTestList } from "../features/admin/testList";
 
