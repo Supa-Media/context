@@ -10,6 +10,8 @@
  */
 
 import { validateArguments } from "../../toolArguments.js";
+import { advertisedSchema, coercedArguments } from "../advertised.js";
+import { appOf } from "../liveList.js";
 import { ACTION_TOOLS, ACTIONS, actionOf } from "./actions.js";
 import { translateFetch, translateSearch } from "./searchFetch.js";
 
@@ -27,11 +29,15 @@ function listOf(tool) {
  * `{ params }` to call instead, or `{ error }` to answer with.
  *
  * @param {{name?: string, arguments?: object}} params
- * @param {{schemaFor: (name: string) => object | null, coerce?: Function, app?: {client?: string | null}}} options
- *   `schemaFor` is the advertised schema lookup (`advertised.js`), passed in
- *   so this module does not import the registry it is listed in.
+ * @param {object} [store] the call's store, for the app it came from (`appOf`)
+ * @param {{schemaFor?: Function, coerce?: Function, app?: {client?: string | null}}} [options]
+ *   overrides for tests; by default the advertised schemas and coercion.
  */
-export function translateV2Params(params, { schemaFor, coerce = (_name, args) => args, app = {} }) {
+export function translateV2Params(
+  params,
+  store,
+  { schemaFor = advertisedSchema, coerce = coercedArguments, app = appOf(store) } = {}
+) {
   const name = params?.name;
   if (!TRANSLATED_TOOLS.has(name)) return { params };
   // Read as the advertised types first, as `routeToolCall` does: an app

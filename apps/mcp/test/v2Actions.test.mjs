@@ -27,7 +27,7 @@ import {
 import { approving } from "./egressApproval.mjs";
 
 const translate = (name, args) =>
-  translateV2Params({ name, arguments: args }, { schemaFor: advertisedSchema, coerce: coercedArguments });
+  translateV2Params({ name, arguments: args }, undefined, { schemaFor: advertisedSchema, coerce: coercedArguments });
 
 /** The translated call, asserting the translation succeeded. */
 function translated(name, args) {
@@ -45,7 +45,7 @@ const refused = (name, args) => {
 
 test("a v2 call that is not translated passes through unchanged", () => {
   const params = { name: "read_note", arguments: { path: "a.md" } };
-  assert.deepEqual(translateV2Params(params, { schemaFor: advertisedSchema }), { params });
+  assert.deepEqual(translateV2Params(params, undefined, { schemaFor: advertisedSchema }), { params });
 });
 
 // --- write: one row each -----------------------------------------------------
@@ -327,7 +327,7 @@ test("a path or content sent as text is never reinterpreted", () => {
 });
 
 test("a non-object arguments value is treated as no arguments", () => {
-  const result = translateV2Params({ name: "write", arguments: "nope" }, { schemaFor: () => null });
+  const result = translateV2Params({ name: "write", arguments: "nope" }, undefined, { schemaFor: () => null });
   assert.deepEqual(result.params.arguments, {});
   assert.equal(result.v2.action, "save");
 });
