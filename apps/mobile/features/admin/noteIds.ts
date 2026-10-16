@@ -26,6 +26,8 @@ export type NoteIdsWorkspace = {
   status: NoteIdsStatus;
   error: string | null;
   diagnosis: NoteIdsDiagnosis | null;
+  /** Why files failed, by note id (no paths); absent from an older server. */
+  failures?: { noteId: string; reason: string }[];
   /** Keys mode only (0 otherwise): live, non-plumbing files, and how many of them are keyed. */
   liveFiles: number;
   keyed: number;
@@ -125,6 +127,21 @@ export function statusLabel(row: NoteIdsWorkspace): string {
 export function diagnosisLine(diagnosis: NoteIdsDiagnosis | null | undefined): string | null {
   if (diagnosis === undefined || diagnosis === null) return null;
   return `Checked ${count(diagnosis.checked)} · ${count(diagnosis.missing)} missing · ${count(diagnosis.differs)} differs`;
+}
+
+const FAILURE_REASONS: Record<string, string> = {
+  too_large: "too big to copy",
+  changed: "kept changing while it was copied",
+  missing: "not in the bucket",
+  copy_failed: "the copy failed",
+  verify_failed: "the copy did not match the original",
+  no_answer: "the mover did not answer",
+  no_etag: "the bucket gave no version for it",
+};
+
+/** One line per failed file: `Note 3f2a9c1b: too big to copy`. Unknown reasons are shown as they are. */
+export function failureLines(failures: { noteId: string; reason: string }[] | undefined): string[] {
+  return (failures ?? []).map(({ noteId, reason }) => `Note ${noteId.slice(0, 8)}: ${FAILURE_REASONS[reason] ?? reason}`);
 }
 
 /** `@handle`, or `(no handle)`. A leading `@` in the stored value is not doubled. */

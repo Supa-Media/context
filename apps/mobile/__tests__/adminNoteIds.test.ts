@@ -3,6 +3,7 @@ import {
   barShare,
   countsLine,
   diagnosisLine,
+  failureLines,
   formatPercent,
   handleLabel,
   isFailing,
@@ -157,6 +158,19 @@ describe("diagnosis line", () => {
 
   test("is absent until the workspace has been checked", () => {
     expect(diagnosisLine(undefined)).toBeNull();
+  });
+});
+
+describe("failure lines", () => {
+  test("say which note failed and why, in words", () => {
+    expect(failureLines([{ noteId: "3f2a9c1b-0000-4000-8000-000000000000", reason: "too_large" }])).toEqual([
+      "Note 3f2a9c1b: too big to copy",
+    ]);
+  });
+
+  test("an unknown reason is shown as it is, and none means no lines", () => {
+    expect(failureLines([{ noteId: "abcdef12", reason: "new_reason" }])).toEqual(["Note abcdef12: new_reason"]);
+    expect(failureLines(undefined)).toEqual([]);
   });
 });
 
