@@ -8,7 +8,9 @@
  *  - a check stores its count, its differences and a sample of at most 20,
  *    path and clearance only;
  *  - Use rows is refused while a difference stands, refused while a check is
- *    missing or stale, refused from Off, refused until the notes are keyed
+ *    missing or stale (the rules changed since it, or it began before the rows
+ *    caught up with them), yet a check stands while the rows are derived again
+ *    from the rules it checked, as every move in a busy workspace does, refused from Off, refused until the notes are keyed
  *    (ROWS_NEEDS_KEYS), and allowed at zero differences;
  *  - orphans are shown and do not block Use rows;
  *  - Back to Off is always allowed;
@@ -17,7 +19,10 @@
  * Sabotage (temporary local edit, reverted): drop the `refusalFor` difference
  * check and the differing case is accepted; drop the `checkStatus` version
  * comparison and the stale case passes; drop the `staffActor` call and the
- * stranger cases change state.
+ * stranger cases change state. Drop the same-rules case of `checkStatus` and a
+ * busy workspace never stands; drop its rules-changed test, or its
+ * `derivedEtag` comparison, and a stale check stands; derive every page in rows
+ * mode and the owner's decision is clobbered.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -141,6 +146,23 @@ async function corruptRow(t: T, workspaceId: Id<"workspaces">, path: string, bas
       .unique();
     if (row === null) throw new Error(`no row at ${path}`);
     await ctx.db.patch(row._id, { access: base === undefined ? undefined : { base } });
+  });
+}
+
+/** Write new rules (a new version), as an owner's privacy edit does: the team folder turns private. */
+async function setRules(t: T, workspaceId: Id<"workspaces">, etag: string): Promise<void> {
+  await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("nodePrivacy")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    await ctx.db.patch(row!._id, {
+      etag,
+      folders: [
+        { prefix: "1-projects", visibility: "private" },
+        { prefix: "2-areas", visibility: "private" },
+      ],
+    });
   });
 }
 
@@ -305,22 +327,77 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("rows");
   });
 
-  test("refused when a check was made before the rows were derived again, as stale", async () => {
+  test("a check stands while the rows are derived again from the same rules, as a move does", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
     await keepRows(t);
     await checkEverything(t);
     const staff = await signedIn(t, ADMIN);
     await keysOn(t);
-    const report = await staff.query(api.functions.privacyRows.report, {});
-    expect(report.ready.ok).toBe(true);
+    await ruleAuthorityOn(t);
 
-    // A derivation after the check: the version moves on, so the check no longer stands.
+    // A busy workspace: every move derives its rows again from the rules it already has.
+    await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
     await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
     const after = await staff.query(api.functions.privacyRows.report, {});
-    expect(after.rows[0]?.status).toBe("stale");
-    expect(after.ready.ok).toBe(false);
+    expect(after.rows[0]?.status).toBe("clean");
+    expect(after.ready.ok).toBe(true);
+    await staff.mutation(api.functions.privacyRows.useRows, {});
+    expect(await sourceOf(t)).toBe("rows");
+  });
+
+  test("refused as stale once the rules change after the check, derived or not", async () => {
+    const t = tester();
+    const workspaceId = await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    await checkEverything(t);
+    const staff = await signedIn(t, ADMIN);
+    await keysOn(t);
+    await ruleAuthorityOn(t);
+
+    // The rules move on: the check said nothing about rows derived from these.
+    await setRules(t, workspaceId, "v2");
+    const written = await staff.query(api.functions.privacyRows.report, {});
+    expect(written.rows[0]?.status).toBe("stale");
     expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_NOT_CHECKED");
+
+    await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
+    const derived = await staff.query(api.functions.privacyRows.report, {});
+    expect(derived.rows[0]?.status).toBe("stale");
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_NOT_CHECKED");
+
+    await checkEverything(t);
+    expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("clean");
+  });
+
+  test("refused as stale when the check began before the rows had caught up with the rules", async () => {
+    const t = tester();
+    const workspaceId = await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    // The rules were written, and the walk that derives from them has not finished.
+    await setRules(t, workspaceId, "v2");
+    await checkEverything(t);
+    await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
+    const staff = await signedIn(t, ADMIN);
+    expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("stale");
+  });
+
+  test("a check stored before it recorded its rules is stale once the rows are derived again", async () => {
+    const t = tester();
+    const workspaceId = await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    await checkEverything(t);
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("privacyRowChecks")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, { rulesEtag: undefined, derivedEtag: undefined });
+    });
+    const staff = await signedIn(t, ADMIN);
+    expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("clean");
+    await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
+    expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("stale");
   });
 
   test("orphans are shown and do not block", async () => {
@@ -343,6 +420,27 @@ describe("Use rows", () => {
     await keysOn(t);
     await staff.mutation(api.functions.privacyRows.useRows, {});
     expect(await sourceOf(t)).toBe("rows");
+  });
+});
+
+describe("a walk still running when rows are switched on", () => {
+  test("its remaining pages leave an owner's decision as it is", async () => {
+    const t = tester();
+    const workspaceId = await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    await checkEverything(t);
+    await ruleAuthorityOn(t);
+    await keysOn(t);
+    const staff = await signedIn(t, ADMIN);
+    await staff.mutation(api.functions.privacyRows.useRows, {});
+    // An owner makes the team folder private on rows, while a page of a walk begun in shadow is still to run.
+    await corruptRow(t, workspaceId, "1-projects", "private");
+    await t.mutation(internal.functions.nodesPrivacy.backfillAccessPage, { workspaceId, after: null });
+    await settle(t);
+    const row = await t.run((ctx) =>
+      ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "1-projects")).unique(),
+    );
+    expect(row?.access?.base).toBe("private");
   });
 });
 
