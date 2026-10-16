@@ -432,7 +432,7 @@ export function BrowseDocument({
         phoneRows={phoneRowsFor}
         iconOf={files.iconOf}
         nesting={folderNesting}
-        askSelect={selectAsked === selected.path}
+        askSelect={selectAsked?.folder === selected.path ? { ...(selectAsked.path === undefined ? {} : { path: selectAsked.path }) } : false}
         onAskTaken={takeSelect}
       />
     ) : files.opening === selected.path && files.editor.path !== selected.path ? (

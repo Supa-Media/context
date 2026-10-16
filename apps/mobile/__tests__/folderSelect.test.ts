@@ -16,14 +16,14 @@
  *  - the button is on a phone and nowhere else, and only where there is a menu
  *    to act through (a read-only console has none);
  *  - in select mode a press picks rather than opens;
- *  - the long press enters the mode with that row picked, instead of the row
- *    menu, on a phone — and is still the row menu on a pointer;
+ *  - the long press is the row menu everywhere (on a phone, the lifted hold
+ *    menu, whose Select enters the mode with that row picked);
  *  - "Actions" hands the picked rows, in listing order, to `onSelection`;
  *  - every target here is a real 44pt box, because `hitSlop` does nothing on
  *    react-native-web.
  *
- * SABOTAGE: `onHold` not passed to `FolderRow` → "a long press enters it"
- * fails; the row's `onPress` left as `onSelect` in select mode → "a press
+ * SABOTAGE: `askSelect.path` not passed to `start` → "Select from a row's
+ * hold" fails; the row's `onPress` left as `onSelect` in select mode → "a press
  * picks" fails.
  */
 
@@ -82,7 +82,7 @@ interface Mounted {
   open: (folder: string) => void;
 }
 
-function mount(width: number, options: { menu?: boolean } = {}): Mounted {
+function mount(width: number, options: { menu?: boolean; askSelect?: false | { path?: string } } = {}): Mounted {
   setWidth(width);
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -115,6 +115,7 @@ function mount(width: number, options: { menu?: boolean } = {}): Mounted {
           opened.push(path);
         },
         ...(options.menu === false ? {} : { menu }),
+        ...(options.askSelect === undefined ? {} : { askSelect: options.askSelect }),
       }),
     );
   act(() => render(entry("", "folder")));
@@ -223,10 +224,20 @@ describe("Select on a phone's folder page", () => {
     expect(app.opened).toEqual(["1-projects/alpha.md"]);
   });
 
-  test("a long press enters it with that row picked, instead of the row menu", () => {
+  /*
+    The owner's board of 2026-10-16: a hold is Apple Notes' lifted preview
+    and short menu (the row menu, drawn by `HoldMenu`), and that menu's
+    Select is the way into picking — with the held row already picked.
+  */
+  test("a long press on a phone opens the row's menu, not select mode", () => {
     const app = mount(390);
     app.hold(app.rows()[1]!.parentElement);
-    expect(app.rowMenus).toEqual([]);
+    expect(app.rowMenus).toEqual(["1-projects/beta.md"]);
+    expect(app.rows()[1]!.getAttribute("aria-label")).toBe("beta");
+  });
+
+  test("Select from a row's hold enters the mode with that row picked", () => {
+    const app = mount(390, { askSelect: { path: "1-projects/beta.md" } });
     expect(app.find("folder-select-count")!.textContent).toContain("1 selected");
     expect(app.rows()[1]!.getAttribute("aria-label")).toBe("beta, selected");
   });

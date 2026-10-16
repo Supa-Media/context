@@ -147,7 +147,7 @@ export interface FolderMenu {
   /**
    * Board 16's bottom bar for the picked rows: Move, Tags, Pin, Archive and
    * More (`selectActions.ts`). With it, select mode is entered from the
-   * folder's ••• or a long press, and the line over the listing is Cancel,
+   * folder's ••• or a row's hold menu, and the line over the listing is Cancel,
    * the count and Select all.
    */
   bulk?: (entries: readonly FileEntry[]) => BulkActions;
@@ -259,8 +259,11 @@ export function FolderView({
   iconOf?: (path: string) => string | null;
   /** Other folders' listings, so a row's arrow can open its folder in place (`NestedRows.tsx`). Absent: the arrow only marks a folder. */
   nesting?: RowNesting;
-  /** "Select notes" was chosen from this folder's ••• (board 16): enter select mode, then say so. */
-  askSelect?: boolean;
+  /**
+   * "Select notes" was chosen from this folder's ••• (board 16), or Select from
+   * a row's hold with that row (`path`) picked: enter select mode, then say so.
+   */
+  askSelect?: false | { path?: string };
   onAskTaken?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -316,10 +319,12 @@ export function FolderView({
   const bulk = compact ? menu?.bulk : undefined;
   const start = selection.start;
   useEffect(() => {
-    if (!askSelect) return;
-    if (canSelect) start();
+    if (askSelect === false) return;
+    // A folder opened from a hold's Select may not have its rows yet: wait for them rather than drop the ask.
+    if (!canSelect && listing === undefined) return;
+    if (canSelect) start(askSelect.path);
     onAskTaken?.();
-  }, [askSelect, canSelect, start, onAskTaken]);
+  }, [askSelect, canSelect, start, onAskTaken, listing]);
   /*
     Board 16: while rows are picked, their actions are the bottom bar's. The
     bar is another region, so it is left in `selectActions.ts` and taken
@@ -488,13 +493,10 @@ export function FolderView({
                         card={compact}
                         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
                         picked={selecting ? selection.pickedOf(row.path) : undefined}
-                        onHold={
-                          !canSelect
-                            ? undefined
-                            : selecting
-                              ? selection.toggle
-                              : selection.start
-                        }
+                        // Outside select mode a hold is the row's own menu, drawn on a
+                        // phone as Apple Notes' lifted preview, whose Select is the way in
+                        // (the owner's board, 2026-10-16).
+                        onHold={selecting ? selection.toggle : undefined}
                         phone={compact ? phoneRows?.(row) : undefined}
                         opening={opening != null && row.path === opening}
                         folderIcon={iconOf?.(row.path) ?? null}
