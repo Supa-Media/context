@@ -153,7 +153,7 @@ const CONTEXT_ARGUMENT = {
 const MAILBOX_ARGUMENT = {
   type: "string",
   description:
-    "Optional. Your mailbox id, if you joined a note's mail with write_note mail: { join }. " +
+    "Optional. Your mailbox id, if you joined a note's mail (write action mail, args { join }). " +
     "Pass it on every call; the answer then says when mail is new for you.",
 };
 
