@@ -358,13 +358,13 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
     }
   };
 
-  /** A read routed by the tree: `method` is `get`, `head` or `exists`. */
+  /** A read routed by the tree: `method` is `get`, `head`, `exists` or `existsMetadata`. */
   const routedRead = (method) => async (path, ...rest) => {
     if (!mirroredPath(path)) return await store[method](path, ...rest);
     const resolved = await resolve(path);
     const { entry } = resolved;
     if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
-    if (noNote(resolved)) return method === "exists" ? false : null;
+    if (noNote(resolved)) return method === "exists" || method === "existsMetadata" ? false : null;
     const copy = method === "get" && !hasConditional(rest[0]) && typeof store.head === "function" ? freshCopyOf(entry) : null;
     if (copy !== null) {
       const fromCopy = await fromFreshCopy(copy, await pathEtag(path));
@@ -376,6 +376,11 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
   if (typeof store.get === "function") wrapped.get = routedRead("get");
   if (typeof store.head === "function") wrapped.head = routedRead("head");
   if (typeof store.exists === "function") wrapped.exists = routedRead("exists");
+  // The probe `read_note` asks before it reads (`objectExists`, metadata only).
+  // Left to the store below, it asked the PATH: a keyed note created since the
+  // flip has no object there, so it read as missing, and a trashed note's
+  // frozen copy read as present.
+  if (typeof store.existsMetadata === "function") wrapped.existsMetadata = routedRead("existsMetadata");
 
   /**
    * The id of the live row at `path`, for the collaboration engine: a head is

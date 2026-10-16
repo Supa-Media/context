@@ -10,7 +10,8 @@
  *  - ask for the row before writing the bytes: the create-order case fails;
  *  - keep the bytes of a create whose name was taken: the taken case fails;
  *  - delete the key before retiring the row: the delete-order case fails;
- *  - swallow a failed lookup: the strict case fails.
+ *  - swallow a failed lookup: the strict case fails;
+ *  - leave `existsMetadata` to the path: the create case fails (read_note's probe).
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -19,6 +20,7 @@ import { idKeyFor, isNoteId } from "../src/store/noteIdKeys.js";
 import { storeForSession } from "../src/sessionStore.js";
 import { createControlPlane } from "../src/controlPlane/index.js";
 import { isIdKey } from "../src/privacy/engine.js";
+import { probeWithLegacyFallback } from "../src/notes/storage.js";
 
 /* ------------------------------ fixtures ------------------------------- */
 
@@ -42,6 +44,11 @@ function bucket() {
     },
     async exists(key) {
       log.push(["exists", key]);
+      return objects.has(key);
+    },
+    // The logical-delete layer's metadata probe, which `read_note` asks first.
+    async existsMetadata(key) {
+      log.push(["existsMetadata", key]);
       return objects.has(key);
     },
     async put(key, body, options = {}) {
@@ -153,6 +160,7 @@ test("a keyed note is read from its key, never from the frozen copy at its path"
   assert.equal(object.etag, store.objects.get(KEY).etag);
   assert.equal((await layered.head("1-projects/a.md")).etag, store.objects.get(KEY).etag);
   assert.equal(await layered.exists("1-projects/a.md"), true);
+  assert.equal(await layered.existsMetadata("1-projects/a.md"), true);
   assert.ok(!store.log.some(([, key]) => key === "1-projects/a.md"));
 });
 
@@ -166,6 +174,9 @@ test("a keyed workspace has no note where the tree has no live row, whatever the
   assert.equal(await layered.get("1-projects/unknown.md"), null);
   assert.equal(await layered.head("1-projects/unknown.md"), null);
   assert.equal(await layered.exists("1-projects/unknown.md"), false);
+  // The metadata probe too: a trashed note's frozen copy is no note.
+  assert.equal(await layered.existsMetadata("1-projects/deleted.md"), false);
+  assert.equal(await layered.existsMetadata("1-projects/unknown.md"), false);
 });
 
 test("a workspace that is not keyed yet still reads its paths in the keys layout", async () => {
@@ -257,6 +268,10 @@ test("a create in a keyed workspace writes a new id key first, then asks for the
   // The bytes were at the key before the row named them.
   assert.equal(landedFirst, "HELLO");
   assert.equal(await (await layered.get("1-projects/new.md")).text(), "HELLO");
+  // read_note's probe finds the new note, which has no object at its path
+  // (production, 2026-10-16: every note made after the flip read "not found").
+  assert.equal(await layered.existsMetadata("1-projects/new.md"), true);
+  assert.ok(await probeWithLegacyFallback(layered, "1-projects/new.md"));
 });
 
 test("a file that is not Markdown is created under files/ with its extension", async () => {
