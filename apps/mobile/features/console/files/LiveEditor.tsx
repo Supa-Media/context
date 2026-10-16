@@ -442,6 +442,9 @@ export function LiveEditor({
         bridge.setCrdtSnapshot({ documentId: collaboration.documentId, update: collaboration.revision });
       } else {
         bridge.setCrdtSnapshot(null);
+        // The bucket's text, read-only, until the snapshot lands: never an
+        // empty page under the note's name.
+        bridge.setCrdtPreview(value);
       }
       return;
     }

@@ -224,6 +224,14 @@ export type ToGuest =
   | { v: number; type: "crdtSnapshot"; documentId: string; update: string }
   /** Tear down any durable binding while the next document is loading. */
   | { v: number; type: "crdtReset" }
+  /**
+   * The note's text as the bucket last gave it, drawn read-only while the
+   * durable snapshot is on its way. Without it a freshly mounted guest in
+   * durable mode drew an empty page under the note's name until the shared
+   * copy arrived (Dev2, 2026-10-16: kings-18 opened blank). Ignored once a
+   * snapshot is bound; the snapshot replaces it when it lands.
+   */
+  | { v: number; type: "preview"; text: string }
   /** `false` for `privacy.md`, and for a member who may read but not write. */
   | { v: number; type: "editable"; editable: boolean }
   /**
@@ -600,6 +608,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "revision",
   "crdtSnapshot",
   "crdtReset",
+  "preview",
   "editable",
   "theme",
   "inset",

@@ -703,6 +703,21 @@ export function mountGuest(
         durableMode = true;
         destroyCrdt();
         return;
+      case "preview": {
+        // Words to read while the durable snapshot loads. A bound document is
+        // the authority, so a late preview never replaces it; with none bound
+        // the guest stays read-only (`effectiveEditable`) until one is.
+        durableMode = true;
+        if (crdt !== null || message.text === latest) return;
+        latest = message.text;
+        latestRevision = "";
+        forms.generation = (forms.generation ?? 0) + 1;
+        extras.documentReplaced();
+        replaceDocument(view, message.text);
+        configureEditable();
+        heights.request();
+        return;
+      }
       case "editable": {
         editable = message.editable;
         configureEditable();
