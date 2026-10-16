@@ -241,7 +241,7 @@ people see the vault; nothing changes on screen. Underneath:
 
 **What it costs:** a bucket read now shows that an entry named "Stripe"
 exists and which host it is pinned to; before, the meta part was sealed too.
-The owner accepted that for plain notes. The test "a bucket read of a vault
+This follows from plain notes and was put to the owner when they chose them. The test "a bucket read of a vault
 entry never yields the login, its name or its site" becomes "never yields the
 login or a value", and a new one proves no tool, listing or search returns a
 vault note. Built with the proxy, after the boards are picked; entries saved
