@@ -11,6 +11,7 @@
 import { recordChange } from "../activity/record.js";
 import { listMeta, mayUse, isEntryId, readMeta } from "../vault/entries.js";
 import { firstUseAllowed } from "../vault/asks.js";
+import { noteUse } from "../vault/usage.js";
 import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
 import { ENVS, SINGLE, entryType, isFieldName } from "../vault/fields.js";
 import { toolError, toolText } from "./results.js";
@@ -176,6 +177,7 @@ export async function toolVaultFetch(store, request) {
       fetchImpl: proxy.fetch,
     });
     await audit("vault_proxied", { status: answer.status, hidden: answer.hidden });
+    await noteUse(store, request.entry, { method: request.method, path }).catch(() => false);
     return toolText(describeAnswer(answer));
   } catch (error) {
     if (!(error instanceof ProxyRefused)) throw error;

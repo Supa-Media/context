@@ -7,6 +7,7 @@ type StatusIconName =
   | "close"
   | "lock"
   | "lockOpen"
+  | "key"
   | "globe"
   | "info"
   | "gear"
@@ -107,6 +108,13 @@ export const statusIcons: Record<StatusIconName, DrawFn> = {
   lockOpen: (u, w, c) => [
     rect("body", u, w, c, { x0: 0.14, y0: 0.46, x1: 0.72, y1: 0.86, radius: 0.1 }),
     shackle("shackle", u, w, c, { x0: 0.5, y0: 0.12, x1: 0.86, y1: 0.46 }),
+  ],
+
+  // A bow and a shaft with one tooth, lying flat: a key at a glance, at 18pt.
+  key: (u, w, c) => [
+    ring("bow", u, w, c, { cx: 0.28, cy: 0.5, r: 0.15 }),
+    bar("shaft", u, w, c, { cx: 0.63, cy: 0.5, length: 0.4 }),
+    bar("tooth", u, w, c, { cx: 0.76, cy: 0.59, length: 0.18, angle: 90 }),
   ],
 
   globe: (u, w, c) => {

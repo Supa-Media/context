@@ -205,6 +205,17 @@ outgoing request.
   who, which entry, which environment, method, host and path, status. Never a
   query string, a header value or a body, since those are where a site puts
   what it answered.
+- **Settings › Vault reads its history from the key itself** (board 2, as
+  drawn, 2026-10-16). Each use updates the key's own sealed meta: per AI, a
+  count, when it last used the key, and the method and path of that last use
+  (`apps/mcp/src/vault/usage.js`). A No is kept there too, so the page can say
+  "You said no" and offer Allow, and a later yes clears it. Keeping this in
+  the key rather than in the control plane means a key's history moves,
+  exports and is deleted with the key. Every such write is conditional on the
+  version just read. That way a use racing Cut off can never write the
+  removed AI back. Storage without conditional writes records no history and
+  still uses the key. The asks waiting are read from the pending approvals
+  as they stand.
 - **Two ways in.** (1) A fetch-through-Context argument on an existing vault
   tool (new capability, existing tool: `gateway-protocol.md`) for a plain web
   request from any MCP client. (2) For command-line tools on an agent's own

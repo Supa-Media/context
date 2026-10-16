@@ -54,6 +54,7 @@ import {
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
+import { waitingAsks } from "../../mcp/src/vault/usage.js";
 import {
   fieldSummaryValidator,
   fieldValuesValidator,
@@ -273,7 +274,7 @@ export const recordVaultAudit = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed"), v.literal("vault.cut_off")),
+    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed"), v.literal("vault.cut_off"), v.literal("vault.allowed")),
     entryId: v.string(),
   },
   returns: v.null(),
@@ -315,7 +316,10 @@ export const runVaultOperation = internalAction({
   returns: v.union(
     v.null(),
     v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) }),
-    v.object({ entries: v.array(v.object({ entryId: v.string(), meta: metaValidator })) }),
+    v.object({
+      entries: v.array(v.object({ entryId: v.string(), meta: metaValidator })),
+      waiting: v.record(v.string(), v.number()),
+    }),
   ),
   handler: async (ctx, args): Promise<Shown | Listed | null> => {
     const credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
@@ -339,12 +343,33 @@ export const runVaultOperation = internalAction({
         people: meta.people,
         fields: Array.isArray(meta.fields) ? meta.fields : [],
         ...(meta.proxy ? { proxy: shownPin(meta.proxy) } : {}),
+        createdBy: meta.createdBy,
+        createdAt: meta.createdAt,
       },
     });
     const op = args.operation;
     if (op.kind === "list") {
       const all = (await listMeta(store, keys, workspaceId)) as { id: string; meta: VaultMeta }[];
-      return { entries: all.filter((entry) => mayUse(entry.meta, op.userId)).map((entry) => shown(entry.id, entry.meta)) };
+      const mine = all.filter((entry) => mayUse(entry.meta, op.userId));
+      const asks = (await waitingAsks(store, op.userId)) as Map<string, number>;
+      const waiting: Record<string, number> = {};
+      for (const entry of mine) if (asks.has(entry.id)) waiting[entry.id] = asks.get(entry.id)!;
+      return { entries: mine.map((entry) => shown(entry.id, entry.meta)), waiting };
+    }
+    if (op.kind === "allow") {
+      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
+      if (meta === null || !mayUse(meta, op.userId)) return null;
+      const refusal = meta.proxy?.refused?.find((no) => no.id === op.clientId);
+      if (!meta.proxy || refusal === undefined) return shown(op.entryId, meta);
+      const clients = (meta.proxy.clients ?? []).filter((client) => client.id !== op.clientId);
+      meta.proxy = {
+        ...meta.proxy,
+        clients: [...clients, { id: op.clientId, name: refusal.name, at: Date.now() }],
+        refused: meta.proxy.refused!.filter((no) => no.id !== op.clientId),
+      };
+      meta.updatedAt = Date.now();
+      await writeMeta(store, keys, workspaceId, op.entryId, meta);
+      return shown(op.entryId, meta);
     }
     if (op.kind === "cut") {
       const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;

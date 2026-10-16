@@ -131,6 +131,7 @@ export async function grantUse(store, record, choice, { userId, now = Date.now()
   if (choice === "always") {
     const clients = (Array.isArray(proxy.clients) ? proxy.clients : []).filter((client) => client?.id !== clientId);
     proxy.clients = [...clients, { id: clientId, name: record.actor.client ?? null, at: now }].slice(-MAX_CLIENTS);
+    if (Array.isArray(proxy.refused)) proxy.refused = proxy.refused.filter((no) => no?.id !== clientId);
   } else {
     const once = (Array.isArray(proxy.once) ? proxy.once : []).filter((grant) => grant?.id !== clientId && Number(grant?.until) > now);
     proxy.once = [...once, { id: clientId, until: now + ONCE_TTL_MS }];

@@ -22,9 +22,9 @@ import { timestampSlug } from "../notes/paths.js";
 import { recordChange } from "../activity/record.js";
 import { toolError } from "./results.js";
 
-export const APPROVALS_PREFIX = ".context/approvals/";
-export const PENDING_PREFIX = `${APPROVALS_PREFIX}pending/`;
-export const DONE_PREFIX = `${APPROVALS_PREFIX}done/`;
+import { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX } from "./approvalKeys.js";
+
+export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX };
 
 /**
  * A person has a day to answer in the app; a result waits an hour to be

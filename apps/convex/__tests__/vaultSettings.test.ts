@@ -139,4 +139,62 @@ describe("the vault list in Settings", () => {
     const shown = await asUser(w.t, w.seyi).action(api.functions.vault.revealVaultEntry, { token: own.token });
     expect(shown.fields[0].values.prod).toBe(VALUE);
   });
+
+  test("says each AI's uses and last call, who was told no, who waits, and who saved it", async () => {
+    const w = await world();
+    await save(w, "Stripe", { host: "api.stripe.com", style: "bearer", ask: true });
+    const entryId = await sayYes(w, "client_claude", "Claude Code");
+    const { store, keys } = await bucket(w);
+    const { readMeta, writeMeta } = await import("../../mcp/src/vault/entries.js");
+    const meta = (await readMeta(store, keys, String(w.team), entryId)) as { proxy: Record<string, unknown> };
+    await writeMeta(store, keys, String(w.team), entryId, {
+      ...meta,
+      proxy: {
+        ...meta.proxy,
+        uses: [{ id: "client_claude", name: "Claude Code", count: 31, at: 5, method: "GET", path: "/v1/customers" }],
+        refused: [{ id: "client_gpt", name: "ChatGPT", at: 4 }],
+      },
+    });
+    const ask = (clientId: string, userId: string, expiresAt: number) =>
+      JSON.stringify({ id: `ask-${clientId}-${userId}`, kind: "vault_use", entry_id: entryId, actor: { userId, clientId }, expires_at: expiresAt });
+    await store.put(".context/approvals/pending/a.json", ask("client_codex", String(w.seyi), Date.now() + 60_000));
+    await store.put(".context/approvals/pending/b.json", ask("client_old", String(w.seyi), Date.now() - 1));
+    await store.put(".context/approvals/pending/c.json", ask("client_x", String(w.sayo), Date.now() + 60_000));
+    const [entry] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
+    expect(entry.proxy!.uses).toEqual([{ id: "client_claude", name: "Claude Code", count: 31, at: 5, method: "GET", path: "/v1/customers" }]);
+    expect(entry.proxy!.refused).toEqual([{ id: "client_gpt", name: "ChatGPT", at: 4 }]);
+    expect(entry.proxy!.waiting).toBe(1);
+    expect(entry.savedByYou).toBe(true);
+    expect(entry.savedAt).toBeGreaterThan(0);
+  });
+
+  test("Allow lets an AI the person said no to use the key, and is audited", async () => {
+    const w = await world();
+    await save(w, "Stripe", { host: "api.stripe.com", style: "bearer", ask: true });
+    const entryId = await sayYes(w, "client_claude", "Claude Code");
+    const { store, keys } = await bucket(w);
+    const { readMeta, writeMeta } = await import("../../mcp/src/vault/entries.js");
+    const meta = (await readMeta(store, keys, String(w.team), entryId)) as { proxy: Record<string, unknown> };
+    await writeMeta(store, keys, String(w.team), entryId, { ...meta, proxy: { ...meta.proxy, refused: [{ id: "client_gpt", name: "ChatGPT", at: 4 }] } });
+    const stranger = await captureError(() =>
+      asUser(w.t, w.sayo).action(api.functions.vaultSettings.allowVaultAI, { workspaceId: w.team, entryId, clientId: "client_gpt" }),
+    );
+    expect(errorCode(stranger)).toBe("INVALID_ARGUMENT");
+    const allowed = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.allowVaultAI, { workspaceId: w.team, entryId, clientId: "client_gpt" });
+    expect(allowed.proxy!.clients.map((client: { id: string }) => client.id)).toEqual(["client_claude", "client_gpt"]);
+    expect(allowed.proxy!.refused).toEqual([]);
+    const unknown = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.allowVaultAI, { workspaceId: w.team, entryId, clientId: "client_never_asked" });
+    expect(unknown.proxy!.clients).toHaveLength(2);
+    const audit = await w.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(audit.some((row) => (row as { action?: string }).action === "vault.allowed")).toBe(true);
+  });
 });
+
+/** The workspace's bucket and data key, as the gateway opens them. */
+async function bucket(w: W) {
+  const { storeForBinding } = await import("../../mcp/src/store/factory.js");
+  const credential = await w.t.action(internal.functions.storage.getBindingForGateway, { workspaceId: w.team });
+  const store = storeForBinding(credential!, undefined, {});
+  const keys = await w.t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, { workspaceId: w.team, create: false });
+  return { store, keys };
+}

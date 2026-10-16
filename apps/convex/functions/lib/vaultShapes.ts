@@ -15,7 +15,11 @@ export type EntryKind = "login" | "secret";
 export type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
 /** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
 export type ProxyClient = { id: string; name: string | null; at: number };
-export type StoredPin = ProxyPin & { clients?: ProxyClient[]; once?: { id: string; until: number }[] };
+/** Each AI's count and last call, and the AIs the person said no to (`apps/mcp/src/vault/usage.js`). */
+export type ProxyUse = { id: string; name: string | null; count: number; at: number; method: string; path: string };
+export type ProxyRefusal = { id: string; name: string | null; at: number };
+type PinHistory = { clients?: ProxyClient[]; uses?: ProxyUse[]; refused?: ProxyRefusal[] };
+export type StoredPin = ProxyPin & PinHistory & { once?: { id: string; until: number }[] };
 
 export type VaultMeta = {
   type?: EntryKind;
@@ -40,11 +44,14 @@ export type ShownMeta = {
   sites: string[];
   people: string[];
   fields: FieldSummary[];
-  proxy?: ProxyPin & { clients?: ProxyClient[] };
+  proxy?: ProxyPin & PinHistory;
+  createdBy: string;
+  createdAt: number;
 };
 export type Revealed = { username: string; password: string; fields: FieldValues[] };
 export type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
-export type Listed = { entries: { entryId: string; meta: ShownMeta }[] };
+/** `waiting`: entry id → how many AIs wait on a first-use ask from this person now. */
+export type Listed = { entries: { entryId: string; meta: ShownMeta }[]; waiting: Record<string, number> };
 export type RequestKind = "add" | "share" | "view";
 export type Described = {
   kind: RequestKind;
@@ -80,15 +87,27 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("list"), userId: v.string() }),
   // Cut one AI off a key, or every AI when `clientId` is absent.
   v.object({ kind: v.literal("cut"), entryId: v.string(), userId: v.string(), clientId: v.optional(v.string()) }),
+  // "Allow" on an AI the person said no to: it joins the AIs that may use the key.
+  v.object({ kind: v.literal("allow"), entryId: v.string(), userId: v.string(), clientId: v.string() }),
 );
 
 export const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
+export const proxyUseValidator = v.object({
+  id: v.string(),
+  name: v.union(v.string(), v.null()),
+  count: v.number(),
+  at: v.number(),
+  method: v.string(),
+  path: v.string(),
+});
 export const shownPinValidator = v.object({
   host: v.string(),
   style: proxyStyleValidator,
   name: v.optional(v.string()),
   ask: v.boolean(),
   clients: v.optional(v.array(proxyClientValidator)),
+  uses: v.optional(v.array(proxyUseValidator)),
+  refused: v.optional(v.array(proxyClientValidator)),
 });
 export const metaValidator = v.object({
   type: v.union(v.literal("login"), v.literal("secret")),
@@ -97,16 +116,40 @@ export const metaValidator = v.object({
   people: v.array(v.string()),
   fields: v.array(fieldSummaryValidator),
   proxy: v.optional(shownPinValidator),
+  createdBy: v.string(),
+  createdAt: v.number(),
 });
 export const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
-/** A pin as a person may see it: the "just this once" grants stay inside the key. */
-export function shownPin(pin: StoredPin): ProxyPin & { clients?: ProxyClient[] } {
+/**
+ * A pin as a person may see it: the "just this once" grants stay inside the
+ * key, and the history is passed on only in the shape it was written in.
+ */
+export function shownPin(pin: StoredPin): ProxyPin & PinHistory {
+  const uses = (pin.uses ?? []).filter(
+    (use) => typeof use?.id === "string" && Number.isFinite(use.count) && Number.isFinite(use.at),
+  );
+  const refused = (pin.refused ?? []).filter((no) => typeof no?.id === "string" && Number.isFinite(no.at));
   return {
     host: pin.host,
     style: pin.style,
     ...(pin.name === undefined ? {} : { name: pin.name }),
     ask: pin.ask,
     ...(pin.clients && pin.clients.length > 0 ? { clients: pin.clients } : {}),
+    ...(uses.length > 0
+      ? {
+          uses: uses.map((use) => ({
+            id: use.id,
+            name: typeof use.name === "string" ? use.name : null,
+            count: use.count,
+            at: use.at,
+            method: typeof use.method === "string" ? use.method : "GET",
+            path: typeof use.path === "string" ? use.path : "/",
+          })),
+        }
+      : {}),
+    ...(refused.length > 0
+      ? { refused: refused.map((no) => ({ id: no.id, name: typeof no.name === "string" ? no.name : null, at: no.at })) }
+      : {}),
   };
 }
