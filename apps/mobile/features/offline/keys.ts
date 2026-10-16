@@ -138,7 +138,13 @@ export type UnscopedKind =
    * in `apps/convex` — so building ownership transfer fails this rule's test
    * rather than quietly widening a cache key.
    */
-  | "context";
+  | "context"
+  /**
+   * Whether this device downloads a workspace's notes (`downloadChoice.ts`).
+   * A setting, not a copy and not anybody's typing: purged with the
+   * workspace, never aged out.
+   */
+  | "download";
 
 /** What a key can be about. */
 export type Kind = ScopedKind | UnscopedKind;
@@ -150,7 +156,7 @@ export type Kind = ScopedKind | UnscopedKind;
   checks are derived from them, so the two representations cannot disagree.
 */
 const SCOPED: Record<ScopedKind, true> = { note: true, listing: true, collaboration: true };
-const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true, context: true };
+const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true, context: true, download: true };
 
 /**
  * The kinds that are the only copy of something a person typed.
@@ -172,6 +178,7 @@ const OWN_TYPING: Record<Kind, boolean> = {
   draft: true,
   outbox: true,
   context: false,
+  download: false,
 };
 
 /** Whether this kind is somebody's own typing, and therefore never disposable. */

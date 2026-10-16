@@ -30,6 +30,7 @@ import {
   type MirrorRun,
   type MirrorSyncDeps,
 } from "./mirrorSync";
+import { keepsBody, loadDownloadChoices, onDownloadChoiceChange } from "./downloadChoice";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
 import { visibilityTierForRole, type VisibilityTier } from "../console/visibility";
@@ -175,6 +176,7 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
+        keepsBody,
         // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
         // the same keys. The bucket is never walked; a tree still copying
         // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
@@ -266,6 +268,8 @@ export function useMirrorSync(options: {
     void (async () => {
       const store = await openMirrorStore();
       if (store === null) return;
+      // Which workspaces are online only, before the first body is asked for.
+      await loadDownloadChoices(kvRef.current!);
       const deps = engine(store);
       const { mine } = deps;
       const first = focused.current;
@@ -461,6 +465,9 @@ export function useMirrorSync(options: {
   useEffect(() => {
     if (feedKey !== "") sync();
   }, [feedKey, sync]);
+
+  // A workspace switched to or from online only: drop or fetch its bodies now.
+  useEffect(() => onDownloadChoiceChange(() => sync()), [sync]);
 
   // Back to the foreground, and a modest interval while it stays there.
   useEffect(() => {

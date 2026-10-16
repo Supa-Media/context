@@ -659,6 +659,8 @@ export async function sweep(
     const parsed = parseKey(key);
     if (parsed === null) continue;
     if (isOwnTyping(parsed.kind)) continue;
+    // A setting, not a copy: it has no age (`downloadChoice.ts`).
+    if (parsed.kind === "download") continue;
 
     const record = decode<unknown>(await store.get(key));
     if (record === null || options.now - record.cachedAt > maxAge) {

@@ -77,7 +77,9 @@ export async function freshenFolder(
   if (committed !== null) deps.onListed?.(workspaceId);
 
   const index = await readIndex(store, scope, workspaceId).catch(() => null);
-  const queue = stalePathsFor(listed, index, folder).slice(0, FOLDER_FRESHEN_LIMIT);
+  const queue = stalePathsFor(listed, index, folder)
+    .filter((path) => deps.keepsBody?.(workspaceId, path) ?? true)
+    .slice(0, FOLDER_FRESHEN_LIMIT);
   let fetched = 0;
   while (queue.length > 0) {
     const batch = queue.splice(0, MIRROR_BATCH);
