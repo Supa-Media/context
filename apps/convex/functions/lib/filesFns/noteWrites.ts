@@ -33,7 +33,10 @@ export async function writeNoteHandler(
     actorUserId,
     workspaceId: args.workspaceId,
     minimum: "editor",
-    memberWrite: { path: args.path, formBlocks: parseFormBlocks(args.text).length > 0 },
+    // Only a write over a version the member read: one with no etag creates a note, and creating stays an editor's.
+    ...(args.expectedEtag === undefined
+      ? {}
+      : { memberWrite: { path: args.path, formBlocks: parseFormBlocks(args.text).length > 0 } }),
   });
   const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,

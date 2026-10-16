@@ -109,6 +109,15 @@ describe("a member writes through an edit grant on the governing row", () => {
     expect(written.kind).toBe("written");
   });
 
+  test("a folder edit grant does not let a member create a note in it", async () => {
+    const f = await fixture();
+    await rowsMode(f);
+    await setRow(f, FOLDER, { kind: "folder", grant: "edit" });
+
+    const error = await captureError(async () => writeAsReader(f, `${FOLDER}/brand-new.md`, "# New\n"));
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+  });
+
   test("a note's own list replaces its folder's: the folder edit grant does not reach it", async () => {
     const f = await fixture();
     await rowsMode(f);
