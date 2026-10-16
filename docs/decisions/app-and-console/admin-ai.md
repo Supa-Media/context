@@ -8,13 +8,23 @@ permissions."
 So `/admin/ai` has no table of its own. It reads `@context-lc`'s `ai/` folder
 from the tree's front matter (`folderNotes`, every page) and sorts the notes
 into jobs, skills, tests, setups, results and the rest
-(`apps/mobile/features/admin/aiCatalog.ts`). A row opens its note in the
-normal editor; writing a skill or a test is writing a note there, and "New
-skill" or "New test" opens the folder whose own New note makes one. The page
-draws only for an owner or editor of `@context-lc` (every account is a pinned
-`member` there, which is not enough), and `folderNotes` answers only what that
-caller's clearance sees. It sits inside the staff console, which `amIAdmin`
-already gates.
+(`apps/mobile/features/admin/aiCatalog.ts`). The page draws only for an owner
+or editor of `@context-lc` (every account is a pinned `member` there, which is
+not enough), and `folderNotes` answers only what that caller's clearance sees.
+It sits inside the staff console, which `amIAdmin` already gates.
+
+**It is a library, and it edits in place** (boards 5-7; the owner, 2026-10-16,
+after a first version that was a plain list whose rows opened the note editor:
+"the UI looks nothing like what I was promised I also cant edit anything
+inline"). The tree on the left is the folder's parts and opens on Needs
+attention: jobs failing their last round, jobs with no test, skills no test
+`covers:`, jobs with no setup note. Jobs show their model, quality, uses and
+cost (from the AI costs report). A skill, setup or other note opens beside the
+tree as its whole Markdown and saves back with the version it was read at; a
+test list opens as a form (cases, what the person texts, how they answer,
+rules coloured by who checks them) or as Markdown, and the form rewrites only
+the lines it shows (`testList.ts`), with the last round's gate failures for
+the case beside it. "Open in notes" stays for the full editor.
 
 **Jobs are declared in code, never from the page** (the owner, 2026-10-16:
 "a job should be like kind of predefined in the code"). `AI_JOBS` lists every
@@ -32,4 +42,6 @@ what the Jobs and Results lists show.
 What a "simplification" would cost: a second store for skills or tests would
 let the page and Tex disagree about what runs, and a page-made job would have
 no code, no test and no cost behind it. `__tests__/adminAiCatalog.test.ts`
-pins the sorting and the job rows.
+pins the sorting and the job rows, `adminTestList.test.ts` that the form's
+edits leave every other line of a test list as written, and
+`adminAiRender.test.ts` that rows open and save in place.

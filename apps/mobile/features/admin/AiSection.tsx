@@ -1,66 +1,52 @@
 /**
- * The AI tab: every place AI runs, and the skills, tests, setups and results
- * behind them, all of it notes in `@context-lc`'s `ai/` folder (the owner,
- * 2026-10-16). A row opens its note in the normal editor; writing a skill or
- * a test is writing a note there. Running the tests is the AI Benchmark
- * workflow on GitHub, which always runs the live setup with the live skills
- * and the tests edited here. See `./aiCatalog.ts`.
+ * The AI tab: `@context-lc`'s `ai/` folder drawn as a library (boards 5-7 of
+ * the AI tools plan, the owner, 2026-10-16). The tree on the left is the
+ * folder's parts; the right is a table of the part picked, and a row opens
+ * in place, where a skill or a setup is edited as Markdown and a test list
+ * as a form or as Markdown, saved back to the same note. Whoever can edit
+ * `@context-lc` can change anything here, and nothing else is a store: see
+ * `./aiCatalog.ts`.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
-import { Button, Pill, Text, TextField, space, useThemedStyles } from "../design";
+import { Button, Text, space, useThemedStyles, type Colors } from "../design";
 import { noteHref } from "../console/nav";
-import { EmptyNote, NoticeLine, Panel, Skeleton } from "./AdminKit";
-import { ListRow } from "./AdminTable";
-import { Segments } from "./Segments";
-import {
-  JOBS_SOURCE_URL,
-  JOB_GROUPS,
-  RUN_TESTS_URL,
-  jobQuality,
-  matches,
-  type AiCatalog,
-  type AiNoteRow,
-  type JobRow,
-  type ScoreRow,
-} from "./aiCatalog";
+import { EmptyNote, NoticeLine, Skeleton, useCompact } from "./AdminKit";
+import { AiNoteEditor } from "./AiNoteEditor";
+import { AiTestEditor } from "./AiTestEditor";
+import { AttentionView, JobsTable, NotesTable, Primary, ResultsTable, SkillsTable } from "./AiViews";
+import { RUN_TESTS_URL, attention, type AiCatalog, type AiNoteRow } from "./aiCatalog";
 import { AI_PLACES } from "./place";
-import { relativeTime } from "./report";
+import { Segments } from "./Segments";
 import { useAiCatalog } from "./useAiCatalog";
+import { useScores } from "./useAiNote";
+import type { Id } from "@context/convex/_generated/dataModel";
 
 export type AiView = (typeof AI_PLACES)[number];
 
-const VIEWS: readonly { key: AiView; label: string }[] = [
-  { key: "jobs", label: "Jobs" },
-  { key: "skills", label: "Skills" },
-  { key: "tests", label: "Tests" },
-  { key: "setups", label: "Setups" },
-  { key: "results", label: "Results" },
-  { key: "other", label: "Other" },
+/** The tree's rows, in the order of the boards. */
+const PARTS: readonly { key: AiView; label: string; folder: string | null }[] = [
+  { key: "attention", label: "Needs attention", folder: null },
+  { key: "jobs", label: "jobs", folder: "ai/production" },
+  { key: "skills", label: "skills", folder: "ai/production/skills" },
+  { key: "tests", label: "tests", folder: "ai/tests" },
+  { key: "setups", label: "setups", folder: "ai/setups" },
+  { key: "results", label: "results", folder: "ai/results" },
+  { key: "other", label: "everything else", folder: "ai" },
 ];
-
-/** Where "New skill" and "New test" go: the folder, whose own New note makes one. */
-const NEW_IN: Partial<Record<AiView, { label: string; folder: string }>> = {
-  skills: { label: "New skill", folder: "ai/production/skills" },
-  tests: { label: "New test", folder: "ai/tests" },
-  setups: { label: "New setup", folder: "ai/setups" },
-};
-
-/** A long list draws this many rows; the search box finds the rest. */
-const SHOWN = 200;
 
 const open = (url: string) => void Linking.openURL(url).catch(() => {});
 
 export function aiView(sub: string | null): AiView {
-  return (AI_PLACES as readonly string[]).includes(sub ?? "") ? (sub as AiView) : "jobs";
+  return (AI_PLACES as readonly string[]).includes(sub ?? "") ? (sub as AiView) : "attention";
 }
 
-export function AiSection({ view, onView }: { view: AiView; onView: (view: AiView) => void }) {
+export function AiSection({ view, onView, days }: { view: AiView; onView: (view: AiView) => void; days: number }) {
   const { state, reload } = useAiCatalog();
-  if (state.kind === "loading") return <Skeleton width="100%" height={240} />;
+  if (state.kind === "loading") return <Skeleton width="100%" height={320} />;
   if (state.kind === "notEditor") {
     return (
       <EmptyNote
@@ -91,17 +77,49 @@ export function AiSection({ view, onView }: { view: AiView; onView: (view: AiVie
             : `${state.missing} ${state.missing === 1 ? "note" : "notes"} could not be read this time and are not listed.`}
         </NoticeLine>
       ) : null}
-      <Catalog catalog={state.catalog} view={view} onView={onView} />
+      <Library workspaceId={state.workspaceId} catalog={state.catalog} view={view} onView={onView} onSaved={reload} days={days} />
     </>
   );
 }
 
-export function Catalog({ catalog, view, onView }: { catalog: AiCatalog; view: AiView; onView: (view: AiView) => void }) {
+/** What the right side shows over the table: a note opened in place, or a new one. */
+type Opened = { kind: "note"; row: AiNoteRow } | { kind: "new"; folder: string } | null;
+
+export function Library({
+  workspaceId,
+  catalog,
+  view,
+  onView,
+  onSaved,
+  days,
+  initialOpen,
+}: {
+  days: number;
+  /** A path to open in place on first draw, for the browser fixture. */
+  initialOpen?: string;
+  workspaceId: Id<"workspaces">;
+  catalog: AiCatalog;
+  view: AiView;
+  onView: (view: AiView) => void;
+  onSaved: () => void;
+}) {
   const styles = useThemedStyles(makeStyles);
+  const compact = useCompact();
   const router = useRouter();
+  const [opened, setOpened] = useState<Opened>(() => {
+    const all = [...catalog.skills, ...catalog.tests, ...catalog.setups, ...catalog.results, ...catalog.other];
+    const row = initialOpen ? all.find((item) => item.path === initialOpen) : undefined;
+    return row ? { kind: "note", row } : null;
+  });
   const [query, setQuery] = useState("");
-  const openNote = (path: string) => router.push(noteHref(PINNED_CONTEXT_SLUG, path));
+  const latest = useMemo(
+    () => catalog.jobs.map((row) => row.latest?.path).filter((path): path is string => path !== undefined),
+    [catalog],
+  );
+  const scores = useScores(workspaceId, latest);
+  const needs = useMemo(() => attention(catalog, scores), [catalog, scores]);
   const counts: Record<AiView, number> = {
+    attention: needs.failing.length + needs.untested.length + needs.unproved.length + needs.noSetup.length,
     jobs: catalog.jobs.length,
     skills: catalog.skills.length,
     tests: catalog.tests.length,
@@ -109,154 +127,162 @@ export function Catalog({ catalog, view, onView }: { catalog: AiCatalog; view: A
     results: catalog.results.length,
     other: catalog.other.length,
   };
-  const make = NEW_IN[view];
+  const go = (next: AiView) => {
+    setOpened(null);
+    setQuery("");
+    onView(next);
+  };
+  const openRow = (row: AiNoteRow) => setOpened({ kind: "note", row });
+  const openInNotes = (path: string) => router.push(noteHref(PINNED_CONTEXT_SLUG, path));
+  const part = PARTS.find((item) => item.key === view)!;
+  const closeAndRefresh = (saved: boolean) => {
+    setOpened(null);
+    if (saved) onSaved();
+  };
+
+  let body: ReactNode;
+  if (opened !== null) {
+    const path = opened.kind === "note" ? opened.row.path : null;
+    const isTest = opened.kind === "note" ? opened.row.path.startsWith("ai/tests/") : opened.folder === "ai/tests";
+    const lastRound = isTest && opened.kind === "note" ? catalog.results.find((result) => result.test === opened.row.name) ?? null : null;
+    body = isTest ? (
+      <AiTestEditor
+        workspaceId={workspaceId}
+        path={path}
+        folder="ai/tests"
+        lastRound={lastRound}
+        onClose={closeAndRefresh}
+        onOpenInNotes={openInNotes}
+      />
+    ) : (
+      <AiNoteEditor
+        workspaceId={workspaceId}
+        path={path}
+        folder={opened.kind === "new" ? opened.folder : part.folder ?? "ai"}
+        crumb={part.label}
+        row={opened.kind === "note" ? opened.row : null}
+        tests={catalog.tests}
+        onClose={closeAndRefresh}
+        onOpenInNotes={openInNotes}
+      />
+    );
+  } else if (view === "attention") {
+    body = <AttentionView needs={needs} scores={scores} onOpen={openRow} onView={go} />;
+  } else if (view === "jobs") {
+    body = <JobsTable rows={catalog.jobs} scores={scores} days={days} onOpen={openRow} />;
+  } else if (view === "skills") {
+    body = <SkillsTable rows={catalog.skills} tests={catalog.tests} query={query} onQuery={setQuery} onOpen={openRow} onNew={() => setOpened({ kind: "new", folder: "ai/production/skills" })} />;
+  } else if (view === "results") {
+    body = <ResultsTable rows={catalog.results} query={query} onQuery={setQuery} onOpen={openRow} />;
+  } else {
+    const rows = view === "tests" ? catalog.tests : view === "setups" ? catalog.setups : catalog.other;
+    const make = view === "tests" ? { label: "New test", folder: "ai/tests" } : view === "setups" ? { label: "New setup", folder: "ai/setups/texting-assistant" } : null;
+    body = (
+      <NotesTable
+        noun={part.label}
+        rows={rows}
+        query={query}
+        onQuery={setQuery}
+        onOpen={openRow}
+        newLabel={make?.label}
+        onNew={make ? () => setOpened({ kind: "new", folder: make.folder }) : undefined}
+      />
+    );
+  }
+
   return (
-    <View style={styles.stack} testID="admin-ai">
-      <View style={styles.bar}>
-        <Segments options={VIEWS} value={view} onChange={onView} counts={(key) => counts[key]} label="AI" testID="admin-ai-view" />
-        <View style={styles.actions}>
-          {make ? <Button label={make.label} onPress={() => openNote(make.folder)} testID="admin-ai-new" /> : null}
-          <Button label="Run tests" variant="accent" onPress={() => open(RUN_TESTS_URL)} testID="admin-ai-run" />
-        </View>
-      </View>
-      {view === "jobs" ? null : (
-        <TextField
-          label="Find"
-          labelHidden
-          placeholder={`Find in ${VIEWS.find((item) => item.key === view)?.label.toLowerCase()}`}
-          value={query}
-          onChangeText={setQuery}
-          testID="admin-ai-find"
+    <View style={[styles.frame, compact && styles.frameCompact]} testID="admin-ai">
+      {compact ? (
+        <Segments
+          options={PARTS.map((item) => ({ key: item.key, label: item.key === "attention" ? "Attention" : item.label }))}
+          value={view}
+          onChange={go}
+          counts={(key) => counts[key]}
+          label="AI"
+          testID="admin-ai-view"
         />
+      ) : (
+        <View style={styles.tree} role="tablist" aria-label="AI">
+          {PARTS.map((item, index) => (
+            <View key={item.key}>
+              {index === 1 ? <Text variant="eyebrow" style={styles.treeHead}>ai/</Text> : null}
+              <TreeRow label={item.label} count={counts[item.key]} on={item.key === view} alert={item.key === "attention" && counts.attention > 0} indent={index > 0} onPress={() => go(item.key)} testID={`admin-ai-view-${item.key}`} />
+            </View>
+          ))}
+        </View>
       )}
-      {view === "jobs" ? <Jobs rows={catalog.jobs} onOpen={openNote} /> : null}
-      {view === "skills" ? <Notes rows={catalog.skills} query={query} onOpen={openNote} empty="No skills yet." /> : null}
-      {view === "tests" ? (
-        <Notes rows={catalog.tests} query={query} onOpen={openNote} empty="No test lists here yet. Runs use the repository's copies until one is added." />
-      ) : null}
-      {view === "setups" ? <Notes rows={catalog.setups} query={query} onOpen={openNote} empty="No setups being tried." /> : null}
-      {view === "results" ? <Results rows={catalog.results} query={query} onOpen={openNote} /> : null}
-      {view === "other" ? <Notes rows={catalog.other} query={query} onOpen={openNote} empty="Nothing else here." /> : null}
+      <View style={styles.main}>
+        <View style={styles.showing}>
+          <Text variant="meta" style={styles.showingText} numberOfLines={2}>
+            Showing <Text variant="meta" style={styles.strong}>@context-lc {part.folder ?? "ai"}/</Text> · Everyone who can edit @context-lc can edit here
+          </Text>
+          <View style={styles.showingActions}>
+            {part.folder ? (
+              <Pressable role="link" onPress={() => openInNotes(part.folder!)} testID="admin-ai-open-folder">
+                <Text variant="meta" style={styles.link}>Open in notes</Text>
+              </Pressable>
+            ) : null}
+            <Primary label="Run tests" onPress={() => open(RUN_TESTS_URL)} testID="admin-ai-run" />
+          </View>
+        </View>
+        {body}
+      </View>
     </View>
   );
 }
 
-function Jobs({ rows, onOpen }: { rows: readonly JobRow[]; onOpen: (path: string) => void }) {
+function TreeRow({
+  label,
+  count,
+  on,
+  alert,
+  indent,
+  onPress,
+  testID,
+}: {
+  label: string;
+  count: number;
+  on: boolean;
+  alert: boolean;
+  indent: boolean;
+  onPress: () => void;
+  testID: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <>
-      {JOB_GROUPS.map((group) => {
-        const own = rows.filter((row) => row.job.group === group.key);
-        if (own.length === 0) return null;
-        return (
-          <Panel key={group.key} title={group.label} flush testID={`admin-ai-group-${group.key}`}>
-            {own.map((row, index) => {
-              const quality = jobQuality(row);
-              const tests = row.tests.map((test) => test.name).join(", ");
-              const sub = [row.job.where, row.setup ? null : "no setup note", tests ? `tests: ${tests}` : null]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <Pressable
-                  key={row.job.key}
-                  role="button"
-                  accessibilityLabel={`Open ${row.job.label}'s setup`}
-                  disabled={row.setup === null}
-                  onPress={() => row.setup && onOpen(row.setup.path)}
-                  testID={`admin-ai-job-${row.job.key}`}
-                >
-                  <ListRow
-                    first={index === 0}
-                    title={row.job.label}
-                    sub={sub}
-                    trailing={<Pill tone={quality.tone === "none" ? "neutral" : quality.tone}>{quality.label}</Pill>}
-                  />
-                </Pressable>
-              );
-            })}
-          </Panel>
-        );
-      })}
-      <Pressable role="link" onPress={() => open(JOBS_SOURCE_URL)} testID="admin-ai-jobs-source">
-        <Text variant="meta" style={styles.link}>
-          Jobs are added in code, with a setup note and a test list. See the list on GitHub.
-        </Text>
-      </Pressable>
-    </>
-  );
-}
-
-function Notes({
-  rows,
-  query,
-  onOpen,
-  empty,
-}: {
-  rows: readonly AiNoteRow[];
-  query: string;
-  onOpen: (path: string) => void;
-  empty: string;
-}) {
-  const found = useMemo(() => rows.filter((row) => matches(row, query)), [rows, query]);
-  if (rows.length === 0) return <EmptyNote title={empty} />;
-  if (found.length === 0) return <EmptyNote title="Nothing matches." />;
-  return (
-    <Panel flush title={more(found.length)}>
-      {found.slice(0, SHOWN).map((row, index) => (
-        <NoteRow key={row.path} row={row} first={index === 0} onOpen={onOpen} />
-      ))}
-    </Panel>
-  );
-}
-
-function Results({ rows, query, onOpen }: { rows: readonly ScoreRow[]; query: string; onOpen: (path: string) => void }) {
-  const found = useMemo(() => rows.filter((row) => matches(row, query)), [rows, query]);
-  if (rows.length === 0) return <EmptyNote title="No rounds scored yet." />;
-  if (found.length === 0) return <EmptyNote title="Nothing matches." />;
-  return (
-    <Panel flush title={more(found.length)}>
-      {found.slice(0, SHOWN).map((row, index) => {
-        const passed = row.goodEnough === "yes" || row.goodEnough === "true";
-        const label = row.score === null ? "Open for scores" : `${row.score}${row.gates ? ` · gates ${row.gates}` : ""}`;
-        return (
-          <Pressable key={row.path} role="button" onPress={() => onOpen(row.path)} testID={`admin-ai-row-${row.name}`}>
-            <ListRow
-              first={index === 0}
-              title={`${row.test}${row.setup ? `, ${row.setup}` : ""}`}
-              sub={row.day ?? undefined}
-              trailing={<Pill tone={row.score === null ? "neutral" : passed ? "ok" : "warn"}>{label}</Pill>}
-            />
-          </Pressable>
-        );
-      })}
-    </Panel>
-  );
-}
-
-function NoteRow({ row, first, onOpen }: { row: AiNoteRow; first: boolean; onOpen: (path: string) => void }) {
-  const where = row.path.split("/").slice(1, -1).join("/");
-  const sub = [row.lede, where].filter(Boolean).join(" · ");
-  return (
-    <Pressable role="button" onPress={() => onOpen(row.path)} testID={`admin-ai-row-${row.name}`}>
-      <ListRow
-        first={first}
-        title={row.title}
-        sub={sub || undefined}
-        trailing={row.updatedAt === null ? undefined : <Text variant="meta">{relativeTime(row.updatedAt)}</Text>}
-      />
+    <Pressable role="tab" aria-selected={on} onPress={onPress} style={[styles.treeRow, indent && styles.treeIndent, on && styles.treeOn]} testID={testID}>
+      <Text variant="tree" style={on ? styles.strong : null}>{label}</Text>
+      <Text variant="treeMeta" style={alert ? styles.alert : null}>{count}</Text>
     </Pressable>
   );
 }
 
-function more(count: number): string {
-  if (count > SHOWN) return `First ${SHOWN} of ${count}; find narrows it`;
-  return count === 1 ? "1 note" : `${count} notes`;
-}
-
-const makeStyles = () =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    stack: { gap: space.x4 },
-    bar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: space.x3 },
-    actions: { flexDirection: "row", gap: space.x2 },
-    link: { textDecorationLine: "underline" },
+    frame: { flexDirection: "row", gap: space.x5, alignItems: "flex-start" },
+    frameCompact: { flexDirection: "column", gap: space.x3, alignItems: "stretch" },
+    tree: { width: 220, flexShrink: 0, gap: 2, paddingTop: space.x1 },
+    treeHead: { marginTop: space.x3, marginBottom: space.x1, paddingHorizontal: space.x3 },
+    treeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, paddingHorizontal: space.x3, borderRadius: 8 },
+    treeIndent: { paddingLeft: space.x4 },
+    treeOn: { backgroundColor: colors.rowSelected },
+    alert: { color: colors.crit, fontWeight: "700" },
+    main: { flex: 1, minWidth: 0, gap: space.x4 },
+    showing: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: space.x3,
+      paddingVertical: space.x2,
+      paddingHorizontal: space.x4,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surface,
+    },
+    showingText: { flexShrink: 1 },
+    showingActions: { flexDirection: "row", alignItems: "center", gap: space.x3 },
+    strong: { color: colors.text, fontWeight: "600" },
+    link: { color: colors.accentText },
   });

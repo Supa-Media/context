@@ -90,7 +90,7 @@ export function AdminPane(props: AdminPaneProps = {}) {
   if (isAdmin === undefined) return <AuthPending />;
   if (!isAdmin) return <DeadLinkScreen />;
   return (
-    <AdminChrome>
+    <AdminChrome wide={props.place?.tab === "ai"}>
       <Console {...props} />
     </AdminChrome>
   );
@@ -109,7 +109,7 @@ export function AdminPane(props: AdminPaneProps = {}) {
  * it. The column's vertical spacing is on an inner view rather than on the
  * content container, whose top and bottom padding are the safe area's.
  */
-export function AdminChrome({ children }: { children: ReactNode }) {
+export function AdminChrome({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
   return (
@@ -117,7 +117,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
       style={styles.scroll}
       testID="admin-pane"
     >
-      <View style={[styles.column, compact && styles.columnCompact]}>{children}</View>
+      <View style={[styles.column, wide && styles.columnWide, compact && styles.columnCompact]}>{children}</View>
     </ScreenScroll>
   );
 }
@@ -184,7 +184,7 @@ function Console(props: AdminPaneProps) {
           <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
         ) : null}
         {tab === "ai" ? (
-          <AiSection view={aiView(sub)} onView={(view) => go({ tab: "ai", sub: view === "jobs" ? null : view })} />
+          <AiSection days={days} view={aiView(sub)} onView={(view) => go({ tab: "ai", sub: view === "attention" ? null : view })} />
         ) : null}
         {tab === "search" ? (
           <SearchSection
@@ -218,6 +218,8 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 36,
       paddingBottom: 72,
     },
+    // The AI tab is a library with a tree beside its tables: it needs the room.
+    columnWide: { maxWidth: 1440 },
     columnCompact: { paddingHorizontal: space.x4, paddingTop: space.x5, paddingBottom: 48 },
     body: { marginTop: space.x6 },
     bodyCompact: { marginTop: space.x4 },
