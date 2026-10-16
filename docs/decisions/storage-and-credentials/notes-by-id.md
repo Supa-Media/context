@@ -194,7 +194,8 @@ seven days after the owner confirms the switch to keys.
   going. The refusal says why in plain words (`lib/cleanup/gate.ts`).
 - **What may go:** every key outside `notes/` and `files/`, plus, under
   `.context/`, only `trash/`, `moves/` and `access/`. `.context/collaboration/`
-  is customer-owned history and is never deleted. The gateway repeats this rule
+  is customer-owned history and is never deleted, and every other dot-prefixed
+  root (`.obsidian/` plugins, `.audit/`, `.history/`) is kept. The gateway repeats this rule
   (`cleanupKeys.js`) before it deletes.
 - **Each key is checked again** against the rows as its page is spent. A key
   that a live row is keyed at, or a live unkeyed row sits at, is kept. The page
