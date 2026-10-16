@@ -52,6 +52,7 @@ import {
   writeMeta,
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
+import { savedPin } from "../../mcp/src/vault/proxy.js";
 
 export const VAULT_LINK_TTL_MS = 30 * 60 * 1000;
 const REQUEST_LIMIT = 20;
@@ -60,6 +61,8 @@ const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 type FieldSummary = { name: string; perEnv: boolean; set: string[] };
 type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
 type EntryKind = "login" | "secret";
+/** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
+type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
 
 type VaultMeta = {
   type?: EntryKind;
@@ -67,6 +70,7 @@ type VaultMeta = {
   name: string;
   sites: string[];
   people: string[];
+  proxy?: ProxyPin;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
@@ -77,7 +81,7 @@ type RequestLabels = {
   grantee: string | null;
 };
 type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
-type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[] };
+type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[]; proxy?: ProxyPin };
 type Revealed = { username: string; password: string; fields: FieldValues[] };
 type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
 type RequestKind = "add" | "share" | "view";
@@ -306,6 +310,9 @@ export const purgeExpiredVaultRequests = internalMutation({
 
 /* --------------------------------- barrier -------------------------------- */
 
+const proxyStyleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
+const proxyPinValidator = v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() });
+
 const operationValidator = v.union(
   v.object({ kind: v.literal("meta"), entryId: v.string() }),
   v.object({
@@ -318,6 +325,7 @@ const operationValidator = v.union(
     username: v.string(),
     password: v.string(),
     fields: v.array(fieldValuesValidator),
+    proxy: v.optional(proxyPinValidator),
   }),
   v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
   v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
@@ -329,6 +337,7 @@ const metaValidator = v.object({
   sites: v.array(v.string()),
   people: v.array(v.string()),
   fields: v.array(fieldSummaryValidator),
+  proxy: v.optional(proxyPinValidator),
 });
 const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
@@ -362,6 +371,7 @@ export const runVaultOperation = internalAction({
         sites: meta.sites ?? [],
         people: meta.people,
         fields: Array.isArray(meta.fields) ? meta.fields : [],
+        ...(meta.proxy ? { proxy: meta.proxy } : {}),
       },
     });
     const op = args.operation;
@@ -383,6 +393,7 @@ export const runVaultOperation = internalAction({
         name: op.name,
         sites: op.sites,
         fields: fieldSummaries(op.fields) as FieldSummary[],
+        ...(op.proxy === undefined ? {} : { proxy: op.proxy }),
         people: [op.userId],
         createdBy: op.userId,
         createdAt: now,
@@ -510,6 +521,8 @@ export const saveVaultLogin = action({
     username: v.optional(v.string()),
     password: v.optional(v.string()),
     fields: v.optional(v.array(fieldValuesValidator)),
+    /** "Let my AIs use it, never shown the key": the one website, and how it wants the key. */
+    proxy: v.optional(v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() })),
   },
   returns: v.object({ name: v.string(), site: v.string() }),
   handler: async (ctx, args): Promise<{ name: string; site: string }> => {
@@ -532,6 +545,13 @@ export const saveVaultLogin = action({
     if (username.length > MAX_SECRET || password.length > MAX_SECRET) {
       throw fail("INVALID_ARGUMENT", "That is longer than a login can be.");
     }
+    let proxy: ProxyPin | undefined;
+    if (args.proxy !== undefined) {
+      if (type !== "secret") throw fail("INVALID_ARGUMENT", "Only an API key or secret can be used by your AIs this way.");
+      const checked = savedPin(args.proxy) as { pin?: ProxyPin; problem?: string };
+      if (checked.pin === undefined) throw fail("INVALID_ARGUMENT", checked.problem ?? "Check the website.");
+      proxy = checked.pin;
+    }
     // Check, write, then spend: see `checkVaultRequest` and `consumeVaultRequest`.
     const hashedToken = await hashToken(args.token);
     const live = await ctx.runMutation(internal.functions.vault.checkVaultRequest, {
@@ -544,7 +564,7 @@ export const saveVaultLogin = action({
     const saved = await openVault(
       ctx,
       live.workspaceId,
-      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields },
+      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields, ...(proxy ? { proxy } : {}) },
       "That wasn't saved: your workspace's storage didn't take it.",
     );
     if (saved === null) throw fail("KEY_UNAVAILABLE", "This workspace's vault can't be opened right now.");

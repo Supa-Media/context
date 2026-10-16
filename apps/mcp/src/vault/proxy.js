@@ -109,6 +109,28 @@ export function proxyPin(meta) {
   return { host, style: pin.style, ...(pin.style === "bearer" ? {} : { name: pin.name }) };
 }
 
+/**
+ * The pin a person asked for on the save page, checked by the same rules every
+ * use checks: `{pin}` to store as `meta.proxy`, or `{problem}` in words for
+ * the page. `ask` is the "Ask me the first time each AI uses it" switch, on
+ * unless the person turned it off.
+ */
+export function savedPin(raw) {
+  if (!raw || typeof raw !== "object") return { problem: "Say which website the key is for." };
+  const host = siteHost(raw.host);
+  if (host === null) return { problem: "Enter the website the key is for, like api.example.com." };
+  if (isSharedHost(host)) {
+    return { problem: `Anyone can put a page on ${host}, so a key can't be kept to it. Use the site's own address.` };
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const pin = proxyPin({ proxy: { host, style: raw.style, ...(raw.style === "bearer" ? {} : { name }) } });
+  if (pin === null) {
+    if (!STYLES.has(raw.style)) return { problem: "Choose how the site wants the key." };
+    return { problem: raw.style === "query" ? "Name the address part the key goes in, like api_key." : "Name the header the key goes in, like x-api-key." };
+  }
+  return { pin: { ...pin, ask: raw.ask !== false } };
+}
+
 /** The exact address a request goes to, or a refusal naming why. */
 export function requestTarget(raw, pin) {
   let url;
