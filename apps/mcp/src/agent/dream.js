@@ -288,7 +288,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   }
 
   const events = [];
-  const offered = await toolsForSession(session, store);
+  const offered = await toolsForSession(session, store, { shape: "v1" });
   const model = builtinModel(env);
   const meter = async (usage, failed, answering = model) => {
     try {

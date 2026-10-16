@@ -59,6 +59,24 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 const UNLISTED_TOOLS = new Set(["create_form"]);
 
 /**
+ * The six tools an MCP client is offered since v2 (decided 2026-10-16,
+ * docs/decisions/gateway-protocol/six-tools.md). Every other tool is still
+ * defined, still validated and still answered by name, for a client holding
+ * a copy of the list from before; it is simply no longer offered. The texting
+ * assistant, whose list is built fresh every turn, keeps the full list
+ * (`shape: "v1"`) until its own prompts move.
+ */
+export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
+
+/** The v2-only names, which the full (v1) list does not show. */
+const V2_ONLY_TOOLS = new Set(["write", "manage", "send"]);
+
+/** The advertised schema for a name, for `v2/translate.js`. */
+export function advertisedSchema(name) {
+  return advertisedSchemaFor(name);
+}
+
+/**
  * The name a tool is known by in the dispatch table: an alias resolved, any
  * other name unchanged. The egress gate classifies a call by this, never by
  * the spelling the client used, because a gate that reads the old name of
@@ -171,7 +189,7 @@ export function toolArgumentRefusal(name, args, scope) {
  * decided, so adding a protocol revision can never quietly add a second, laxer
  * copy of either.
  */
-export async function toolsForSession(session, store) {
+export async function toolsForSession(session, store, { shape = "v2" } = {}) {
   const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
@@ -200,5 +218,8 @@ export async function toolsForSession(session, store) {
   // Last, so that everything above still reasons about the whole surface: an
   // unlisted tool is one this server stopped *recommending*, not one it
   // stopped answering. See `UNLISTED_TOOLS`.
-  return enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  return shape === "v1"
+    ? listed.filter((tool) => !V2_ONLY_TOOLS.has(tool.name))
+    : listed.filter((tool) => V2_TOOLS.has(tool.name));
 }

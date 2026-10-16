@@ -174,16 +174,13 @@ const CONTEXT_ARGUMENT_SENTENCE =
   ' Works in another context too: pass context: "@name" for any workspace you reach ' +
   "(orient lists them and says what you may do in each).";
 
-/**
- * The two tools whose schema is somebody else's contract.
- *
- * `search` and `fetch` exist in OpenAI's deep-research shape so ordinary
- * ChatGPT chats can call something at all; those chats pass what that contract
- * defines and nothing else, so an extra property buys them nothing and risks
- * being read as a violation of it. Cross-context reach is available to them
- * through the ordinary tools when a client can see the ordinary tools.
- */
-const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
+/*
+  `search` and `fetch` keep the names and the required `query` / `id` of
+  OpenAI's deep-research contract, so ordinary ChatGPT chats can still call
+  them, and since v2 (2026-10-16) also take the optional `args`, `context`
+  and `mailbox` every tool takes: they are two of the six tools every client
+  is offered, not a side door for one app.
+*/
 
 /**
  * Every tool, with the addressing argument folded in.
@@ -197,7 +194,6 @@ const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
  */
 export function toolDefinitions() {
   return baseToolDefinitions().map((tool) => {
-    if (FOREIGN_CONTRACT_TOOLS.has(tool.name)) return tool;
     const schema = tool.inputSchema || { type: "object" };
     return {
       ...tool,

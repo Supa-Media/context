@@ -10,6 +10,8 @@ import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
+import { translateV2Params } from "./v2/translate.js";
+import { appOf } from "./liveList.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -32,7 +34,7 @@ import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
 import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
+import { advertisedSchema, canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
@@ -310,7 +312,13 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  return measuredCall(store, session, params, (routed) => routeToolCall(params, store, session, routed));
+  // A v2 call becomes the one existing call it stands for before anything
+  // decides anything, so every gate below sees what it always saw
+  // (`v2/translate.js`).
+  const translated = translateV2Params(params, { schemaFor: advertisedSchema, coerce: coercedArguments, app: appOf(store) });
+  if (translated.error) return toolError(translated.error);
+  const call = translated.params;
+  return measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
 }
 
 async function routeToolCall(params, store, session, routed) {
