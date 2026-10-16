@@ -14,7 +14,7 @@
  * account grant" fails.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { asUser, captureError, errorCode } from "../fixtures.helpers";
@@ -36,6 +36,9 @@ async function accessListAudits(w: World, workspace = w.ws) {
     return events.filter((event) => event.workspaceId === workspace && event.action === "access.list");
   });
 }
+
+// Each test builds a whole workspace with a bucket and a copied tree, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe("removing a member takes their account grants with them", () => {
   test("removeMember deletes the user's grants in that workspace and audits the change", async () => {

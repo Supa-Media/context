@@ -17,6 +17,9 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+// Each test builds a whole workspace with a bucket and a copied tree, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { api } from "../../_generated/api";
 import type { QueryCtx } from "../../_generated/server";
 import { outsiderGrantsFor } from "../../functions/lib/grants/outsider";
