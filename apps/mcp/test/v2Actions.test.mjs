@@ -520,3 +520,10 @@ describe("v2 calls through the worker", { concurrency: false }, () => {
 async function readBody(world, path) {
   return world.bucket.get(path)?.body ?? "";
 }
+
+test("the six tools' own schemas name no retired tool, so a v2 app is never told to call one it lacks", () => {
+  for (const name of ["orient", "search", "fetch", "write", "manage", "send"]) {
+    const text = JSON.stringify(advertisedSchema(name));
+    assert.doesNotMatch(text, /\bwrite_note\b/, `${name} still says write_note`);
+  }
+});

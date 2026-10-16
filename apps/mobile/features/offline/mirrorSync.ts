@@ -360,7 +360,26 @@ async function fetchContext(
   const batchSize = Math.min(deps.batchSize ?? MIRROR_BATCH, MIRROR_BATCH);
   let listedNotes = 0;
   for (const path of listed.keys()) if (kept(path)) listedNotes += 1;
-  const current = listedNotes - toFetch.length;
+  let current = listedNotes - toFetch.length;
+  /*
+    A catch-up lists only what changed, so its own count ("0 of 1") is not the
+    workspace's: the pill read "0 / 1", then "done" and vanished, then came
+    back at "2,828 / 2,831" when the run ended (Dev2, 2026-10-16: "the
+    download counter still randomly disappears"). Counted from the index the
+    listing was just committed into, the line stays the workspace's own.
+  */
+  if (listing.delta !== undefined && before !== null) {
+    const waiting = new Set(toFetch);
+    let notes = 0;
+    for (const [path, entry] of before.entries) {
+      if (!kept(path)) continue;
+      notes += 1;
+      if (!entry.body) waiting.add(path);
+    }
+    for (const path of listed.keys()) if (kept(path) && !before.entries.has(path)) notes += 1;
+    listedNotes = notes;
+    current = notes - waiting.size;
+  }
   const progress = () =>
     deps.onProgress?.(workspaceId, { total: listedNotes, done: current + run.fetched });
   // Said only when there is something to download: a sync that finds nothing
