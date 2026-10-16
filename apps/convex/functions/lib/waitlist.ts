@@ -22,6 +22,7 @@
  *    teammate is letting them in; making them queue as well would break
  *    sharing.
  *  - A waitlist row staff have admitted.
+ *  - An address at a domain a live shared workspace is open to (enabled row).
  *  - A live referral: somebody who is in named this address in the last 14
  *    days (`lib/referrals.ts`).
  *
@@ -35,7 +36,7 @@
  * row reads exactly like a waiting one.
  */
 
-import { domainOf, isPersonalMailDomain } from "./emailDomains";
+import { domainOf, isPersonalMailDomain, normalizeDomain } from "./emailDomains";
 import { normalizeEmail } from "@context/shared";
 import type { GenericDatabaseReader } from "convex/server";
 import type { DataModel } from "../../_generated/dataModel";
@@ -108,17 +109,7 @@ export async function isAdmittedWithoutReferral(
     .first();
   if (attached !== null) return true;
 
-  // An address at a domain a shared workspace is open to: its owner let
-  // everyone there in (`functions/workspaceDomains.ts`). Says only that some
-  // workspace is open to the domain, never which.
-  const domain = domainOf(email);
-  if (domain !== null && !isPersonalMailDomain(domain)) {
-    const open = await db
-      .query("workspaceDomains")
-      .withIndex("by_domain", (q) => q.eq("domain", domain))
-      .take(20);
-    if (open.some((row) => row.enabled)) return true;
-  }
+  if (await domainIsOpenToShared(db, email)) return true;
 
   const row = await db
     .query("waitlist")
@@ -131,6 +122,34 @@ export async function isAdmittedWithoutReferral(
     .withIndex("by_invitee", (q) => q.eq("inviteeKind", "email").eq("invitee", email))
     .take(50);
   return invitations.some((row) => row.status === "pending" && row.expiresAt > now);
+}
+
+/** At most this many domain rows are read for one address. */
+const MAX_DOMAIN_ROWS_READ = 100;
+
+/**
+ * Is the address's domain open to a live shared workspace? An owner opened a
+ * shared workspace to that domain (`functions/workspaceDomains.ts`), so its
+ * people are let in. Only an enabled row on a workspace that exists and is
+ * shared counts: a switched-off row, a personal workspace, or a deleted one
+ * admits nobody. A personal mail service never counts, whatever rows exist.
+ * Says only that some workspace is open to the domain, never which.
+ */
+async function domainIsOpenToShared(db: Db, rawEmail: string): Promise<boolean> {
+  const address = domainOf(rawEmail);
+  if (address === null) return false;
+  const domain = normalizeDomain(address);
+  if (domain === null || isPersonalMailDomain(domain)) return false;
+  const rows = await db
+    .query("workspaceDomains")
+    .withIndex("by_domain", (q) => q.eq("domain", domain))
+    .take(MAX_DOMAIN_ROWS_READ);
+  for (const row of rows) {
+    if (!row.enabled) continue;
+    const workspace = await db.get(row.workspaceId);
+    if (workspace !== null && workspace.kind === "shared") return true;
+  }
+  return false;
 }
 
 /**
