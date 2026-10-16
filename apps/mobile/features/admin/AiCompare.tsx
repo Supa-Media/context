@@ -1,30 +1,26 @@
 /**
- * A candidate setup beside live (board 10, "Compare a candidate with live, then
- * promote"): one verdict line, a pass/fail grid for every test case, and the
- * prompt's actual change with unchanged lines folded. Promote is the only
- * one-way step on the page and waits for a person's yes. See `./AiSection`.
+ * An experiment beside live (boards 10 and 20): how sure the difference is,
+ * what it still needs before it can go live, the replies where the two
+ * differ, a pass/fail grid for every case with live's own history beside it,
+ * and the prompt's actual change with unchanged lines folded. Make it live is
+ * the only one-way step on the page; it stays off until every gate holds and
+ * then waits for a person's yes. See `./AiSection`.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
-import { compact, jobPage, promotedText, promptDiff, tokensOf, withFrontKey, type Candidate, type CaseCell, type CaseRow, type RunRead, type SetupScore } from "./aiModel";
+import { compact, jobPage, promotedText, promptDiff, tokensOf, withFrontKey, type Candidate, type RunRead } from "./aiModel";
 import type { AiScreenProps } from "./aiScreen";
-import { Box, Cell, Columns, Head, LinkText, OneWay, PageHead, Primary, Quiet, Quietly, TableLine, cents, pct, type Column } from "./AiKit";
+import { Box, Columns, LinkText, OneWay, PageHead, Primary, Quiet, Quietly, cents, pct } from "./AiKit";
 import { messageOf, useNoteText, useNoteWriter } from "./useAiNote";
+import { gapLabel, setupTitle } from "./aiExperiments";
+import { goLiveGates, liveHistory } from "./aiCompareModel";
+import { AiCompareCases, liveCell, outcome } from "./AiCompareCases";
+import { AiCompareReplies } from "./AiCompareReplies";
 
-/** The cases that always show; the rest fold once both setups passed every run in them. */
-const FOLD_AFTER = 6;
 /** A prompt's diff draws this many lines at most; the rest are a count. */
 const MAX_DIFF_LINES = 400;
-
-type Outcome = "pass" | "fail" | null;
-
-/** A setup's result on one case: passed every run, failed one, or not run. */
-const outcome = (cell: CaseCell | undefined): Outcome => (cell === undefined ? null : cell.passed === cell.runs ? "pass" : "fail");
-
-/** Live's cell on a case: under its name, else the `production` column a round names when live has no setup file. */
-const liveCell = (row: CaseRow, liveName: string): CaseCell | undefined => row.cells[liveName] ?? row.cells.production;
 
 /** `[5]` → `case 5`; `[5, 7, 9]` → `cases 5, 7 and 9`. */
 const listCases = (questions: readonly number[]): string =>
@@ -64,14 +60,29 @@ function change(mine: number | null, theirs: number | null, words: (diff: number
  * line of its own. `liveName` is the live setup's name, the column the case
  * table names it by.
  */
-export function verdict(candidate: Candidate, read: RunRead | null, liveName: string): { lead: string; rest: string } {
-  if (read === null || candidate.score === null) return { lead: `${candidate.name} has not been run beside live yet.`, rest: "" };
-  const { fixed, broke } = changedCases(candidate, read, liveName);
-  const verbs = [fixed.length > 0 ? `fixes ${listCases(fixed)}` : null, broke.length > 0 ? `breaks ${listCases(broke)}` : null].filter(Boolean);
+export function verdict(
+  candidate: Candidate,
+  read: RunRead | null,
+  liveName: string,
+  label = candidate.name,
+  groupOf: (test: string) => string = (test) => test,
+): { lead: string; rest: string } {
+  if (read === null || candidate.score === null) return { lead: `${label} has not been run beside live yet.`, rest: "" };
+  // Over every case group's round when it ran in more than one, each case named with its group.
+  const several = candidate.rounds.length > 1;
+  const named = several
+    ? candidate.rounds.map((round) => ({ group: groupOf(round.run.test), ...changedCases(candidate, round.read, liveName) }))
+    : [{ group: "", ...changedCases(candidate, read, liveName) }];
+  const say = (pick: "fixed" | "broke"): string | null => {
+    const parts = named.filter((item) => item[pick].length > 0).map((item) => (several ? `${item.group} ${listCases(item[pick])}` : listCases(item[pick])));
+    return parts.length === 0 ? null : parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  };
+  const fixed = say("fixed");
+  const broke = say("broke");
   let lead: string;
-  if (verbs.length === 0) lead = `${candidate.name} changes no case.`;
-  else if (fixed.length > 0 && broke.length === 0) lead = `${candidate.name} fixes ${listCases(fixed)} and breaks nothing.`;
-  else lead = `${candidate.name} ${verbs.join(" and ")}.`;
+  if (fixed === null && broke === null) lead = `${label} changes no case.`;
+  else if (fixed !== null && broke === null) lead = `${label} fixes ${fixed} and breaks nothing.`;
+  else lead = `${label} ${[fixed ? `fixes ${fixed}` : null, broke ? `breaks ${broke}` : null].filter(Boolean).join(" and ")}.`;
 
   const mine = candidate.score;
   const theirs = candidate.liveScore;
@@ -87,24 +98,11 @@ export function verdict(candidate: Candidate, read: RunRead | null, liveName: st
     if (known) extra.push("same cost and speed");
   } else extra.push(...[cost, speed].filter((item): item is string => item !== null));
 
-  const rest = ` ${pct(mine.score)} vs ${pct(theirs?.score ?? null)} on ${candidate.run?.test ?? "its tests"}${extra.map((item) => ` · ${item}`).join("")}.`;
+  // With runs passed over every group, "How sure" carries the score; one group's percentage would only repeat part of it.
+  const score = candidate.livePassed !== null ? [] : [`${pct(mine.score)} vs ${pct(theirs?.score ?? null)} on ${candidate.run ? groupOf(candidate.run.test) : "its tests"}`];
+  const said = [...score, ...extra];
+  const rest = said.length === 0 ? "" : ` ${said.join(" · ").replace(/^./, (first) => first.toUpperCase())}.`;
   return { lead, rest };
-}
-
-/** The rule a setup broke on one case, from its "Why gates failed" lines. */
-const ruleFor = (setup: SetupScore | null, question: number): string | null => setup?.misses.find((miss) => miss.question === question)?.rule ?? null;
-
-/** One setup's runs on a case: a small square per run, passed in the accent and failed in red. */
-function Runs({ cell }: { cell: CaseCell | undefined }) {
-  const styles = useThemedStyles(makeStyles);
-  if (cell === undefined) return <Text variant="meta">—</Text>;
-  return (
-    <View style={styles.runs}>
-      {Array.from({ length: cell.runs }, (_, index) => (
-        <View key={index} style={[styles.run, index < cell.passed ? styles.runPass : styles.runFail]} />
-      ))}
-    </View>
-  );
 }
 
 /**
@@ -125,7 +123,6 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState<number | null>(null);
   const diff = useMemo(
     () => (liveText === null || mineText === null ? [] : promptDiff(liveText, mineText, showAll ? 100000 : 2)),
     [liveText, mineText, showAll],
@@ -144,19 +141,20 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
   const { job } = page;
   const goJob = (tab: "overview" | "runs") => props.go({ view: "jobs", job: props.job, tab, compare: null });
   const read = candidate.run === null ? null : (props.reads.get(candidate.run.path) ?? null);
-  const v = verdict(candidate, read, liveName);
-  const test = candidate.run?.test ?? "its tests";
-  const cases = read?.cases ?? null;
-  const rows = cases ?? [];
-  const shown = rows.filter((row, index) => index < FOLD_AFTER || outcome(row.cells[candidate.name]) === "fail" || outcome(liveCell(row, liveName)) === "fail");
-  const columns: Column[] = [{ label: "CASE", flex: 1 }, { label: liveName.toUpperCase(), width: 110 }, { label: candidate.name.toUpperCase(), width: 110 }];
-  const runsEach = cases === null ? null : Math.max(0, ...cases.flatMap((row) => Object.values(row.cells).map((cell) => cell.runs)));
-  const caseMeta = [runsEach !== null ? `${runsEach} runs each` : null, read?.judge ? `judge ${read.judge}` : null].filter(Boolean).join(" · ");
-  const run = candidate.run;
-  const picked = cases?.find((row) => row.question === open) ?? null;
-  const pickedSetup = picked === null ? null : outcome(picked.cells[candidate.name]) === "fail" ? candidate.name : outcome(liveCell(picked, liveName)) === "fail" ? liveName : null;
-  const pickedRule = picked === null || pickedSetup === null ? null : ruleFor(pickedSetup === candidate.name ? candidate.score : candidate.liveScore, picked.question);
-
+  const v = verdict(candidate, read, liveName, setupTitle(candidate), (test) => page.row.tests.find((item) => item.name === test)?.title || test);
+  const title = setupTitle(candidate);
+  const historyIn = (test: string, until: string) => (question: number) => liveHistory(page, test, question, liveName, until);
+  const groupTitleOf = (test: string) => page.row.tests.find((item) => item.name === test)?.title || test;
+  const gates = goLiveGates(page, candidate);
+  const ready = gates.every((gate) => gate.ok);
+  const sure = candidate.gap === null || candidate.passed === null || candidate.livePassed === null
+    ? null
+    : {
+        word: candidate.gap.verdict === "better" ? "Better than live" : candidate.gap.verdict === "worse" ? "Worse than live" : "Too close to call",
+        tone: candidate.gap.verdict === "better" ? styles.ok : candidate.gap.verdict === "worse" ? styles.crit : styles.warn,
+        line: `${candidate.passed.passed} of ${candidate.passed.runs} runs vs ${candidate.livePassed.passed} of ${candidate.livePassed.runs} · ${gapLabel(candidate.gap)}`,
+        note: candidate.gap.verdict === "too close" ? "The gap is inside what live moves by on its own from one round to the next, so it could be luck." : null,
+      };
   const promote = async () => {
     if (liveRow === null || mineText === null) return;
     setBusy(true);
@@ -173,62 +171,6 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
       setBusy(false);
     }
   };
-
-  const leftBody: ReactNode =
-    read === null ? (
-      <Quietly testID="admin-ai-compare-unrun">Not run beside live yet.</Quietly>
-    ) : cases === null ? (
-      <>
-        <Quietly testID="admin-ai-compare-old">This round was scored before the case-by-case table; only failed gates are known.</Quietly>
-        {[
-          { name: candidate.name, misses: candidate.score?.misses ?? [] },
-          { name: liveName, misses: candidate.liveScore?.misses ?? [] },
-        ].map((item) => (
-          <Text key={item.name} variant="meta" numberOfLines={2}>
-            {`${item.name}: ${item.misses.map((miss) => `case ${miss.question} ${miss.rule}`).join("; ") || "no failed gates"}`}
-          </Text>
-        ))}
-      </>
-    ) : (
-      <>
-        <Head columns={columns} />
-        {shown.map((row, index) => {
-          const mine = outcome(row.cells[candidate.name]);
-          const theirs = outcome(liveCell(row, liveName));
-          const failing = mine === "fail" || theirs === "fail";
-          const failCell = mine === "fail" ? row.cells[candidate.name] : liveCell(row, liveName);
-          const sub = failing && failCell ? `${ruleFor(mine === "fail" ? candidate.score : candidate.liveScore, row.question) ?? "failed a gate"} · ${failCell.passed} of ${failCell.runs} runs` : undefined;
-          return (
-            <TableLine
-              key={row.question}
-              testID={`admin-ai-compare-case-${row.question}`}
-              columns={columns}
-              first={index === 0}
-              last={index === shown.length - 1}
-              title={`${row.question}. ${row.title}`}
-              sub={sub}
-              selected={open === row.question}
-              onPress={failing ? () => setOpen(row.question) : undefined}
-              cells={[
-                <Cell key="case" title={`${row.question}. ${row.title}`} sub={sub} strong={failing} />,
-                <Runs key="live" cell={liveCell(row, liveName)} />,
-                <Runs key="mine" cell={row.cells[candidate.name]} />,
-              ]}
-            />
-          );
-        })}
-        {rows.length > shown.length ? <Quietly testID="admin-ai-compare-folded">{`${rows.length - shown.length} more cases, all passing`}</Quietly> : null}
-        {picked !== null && pickedSetup !== null ? (
-          <View style={styles.detail} testID="admin-ai-compare-detail">
-            <Text variant="meta" numberOfLines={2}>
-              <Text variant="meta" style={styles.strong}>{`Case ${picked.question}, ${pickedSetup}: `}</Text>
-              {pickedRule ?? "failed a gate"}
-            </Text>
-            {run ? <LinkText label="Open the scores ›" onPress={() => props.openInNotes(run.path)} testID="admin-ai-compare-open" /> : null}
-          </View>
-        ) : null}
-      </>
-    );
 
   const rightBody: ReactNode =
     liveRow === null ? (
@@ -262,55 +204,97 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
           { label: "Jobs", onPress: () => props.go({ view: "jobs", job: null, tab: "overview", compare: null }) },
           { label: job.label, onPress: () => goJob("overview") },
         ]}
-        title={`${candidate.name} vs ${liveName}`}
+        title={`${title} vs live`}
         actions={
           <>
             <Quiet label="Run both again" onPress={() => goJob("runs")} testID="admin-ai-compare-run" />
             <Primary
-              label={busy ? "Promoting…" : `Promote ${candidate.name}`}
+              label={busy ? "Making it live…" : "Make it live"}
               onPress={() => setConfirming(true)}
-              disabled={candidate.status === "live" || liveRow === null || mineText === null || busy}
+              disabled={!ready || candidate.status === "live" || liveRow === null || mineText === null || busy}
               testID="admin-ai-compare-promote"
             />
           </>
         }
         testID="admin-ai-compare-head"
       />
-      <View style={styles.verdict} testID="admin-ai-compare-verdict">
-        <Text variant="body" style={styles.verdictText}>
-          <Text variant="body" style={styles.strong}>{v.lead}</Text>
-          {v.rest}
-        </Text>
-      </View>
       <Columns weights={[1, 1]}>
         {[
-          <Box key="cases" title={`${test.charAt(0).toUpperCase()}${test.slice(1)}, case by case`} right={<Text variant="meta" numberOfLines={1}>{caseMeta}</Text>} testID="admin-ai-compare-left">
-            {leftBody}
+          <Box key="sure" title="How sure" testID="admin-ai-compare-sure">
+            {sure !== null ? (
+              <>
+                <Text variant="rowTitle" style={sure.tone} testID="admin-ai-compare-sure-word">{sure.word}</Text>
+                <Text variant="meta">{sure.line}</Text>
+                {sure.note ? <Text variant="meta" style={styles.muted}>{sure.note}</Text> : null}
+              </>
+            ) : null}
+            <View style={styles.verdict} testID="admin-ai-compare-verdict">
+              <Text variant="body" style={styles.verdictText}>
+                <Text variant="body" style={styles.strong}>{v.lead}</Text>
+                {v.rest}
+              </Text>
+            </View>
           </Box>,
-          <Box
-            key="changed"
-            title="What changed"
-            right={<Text variant="meta" numberOfLines={1}>{`${liveText?.length.toLocaleString() ?? "—"} → ${mineText?.length.toLocaleString() ?? "—"} chars`}</Text>}
-            testID="admin-ai-compare-right"
-          >
-            {rightBody}
+          <Box key="gates" title="Before it can go live" testID="admin-ai-compare-gates">
+            {gates.map((gate) => (
+              <View key={gate.label} style={styles.gate}>
+                <Text variant="meta" style={gate.ok ? styles.ok : styles.crit}>{gate.ok ? "✓" : "✗"}</Text>
+                <Text variant="meta" style={styles.gateText}>{gate.label}</Text>
+                {gate.note ? <Text variant="meta" style={styles.muted}>{gate.note}</Text> : null}
+              </View>
+            ))}
             <View style={styles.promote}>
               {confirming ? (
                 <>
                   <OneWay testID="admin-ai-compare-warn">
-                    {`Promote replaces ${job.label}'s live setup for everyone, from the next message. ${liveName} is kept as the way back, and you can promote it again from the job page.`}
+                    {`Making it live changes what everyone using ${job.label} gets, from the next message. Today's live is kept as the way back, and you can make it live again from here.`}
                   </OneWay>
                   <View style={styles.row}>
-                    <Quiet tone="crit" label={`Yes, make ${candidate.name} live`} onPress={() => void promote()} disabled={busy} testID="admin-ai-compare-yes" />
+                    <Quiet tone="crit" label={`Yes, make ${title} live`} onPress={() => void promote()} disabled={busy} testID="admin-ai-compare-yes" />
                     <Quiet label="Not now" onPress={() => setConfirming(false)} testID="admin-ai-compare-no" />
                   </View>
                 </>
-              ) : null}
+              ) : (
+                <Text variant="meta" style={styles.muted}>{ready ? "Every gate holds. Make it live asks once more before it changes anything." : "Make it live turns on when every line above is ticked. Run tests runs the groups not yet run."}</Text>
+              )}
               {error ? <Quietly testID="admin-ai-compare-error">{error}</Quietly> : null}
             </View>
           </Box>,
         ]}
       </Columns>
+      <AiCompareReplies
+        workspaceId={props.workspaceId}
+        rounds={candidate.rounds.map((round) => ({ scoresPath: round.run.path, group: groupTitleOf(round.run.test), history: historyIn(round.run.test, round.run.path) }))}
+        setup={candidate.name}
+        setupLabel={title}
+        liveName={liveName}
+        testID="admin-ai-compare-replies"
+      />
+      {candidate.rounds.length === 0 ? (
+        <Box title="Case by case" testID="admin-ai-compare-left">
+          <Quietly testID="admin-ai-compare-unrun">Not run beside live yet.</Quietly>
+        </Box>
+      ) : (
+        candidate.rounds.map((round) => (
+          <AiCompareCases
+            key={round.run.path}
+            setup={candidate.name}
+            liveName={liveName}
+            groupTitle={groupTitleOf(round.run.test)}
+            run={round.run}
+            read={round.read}
+            history={historyIn(round.run.test, round.run.path)}
+            openInNotes={props.openInNotes}
+          />
+        ))
+      )}
+      <Box
+        title="What changed"
+        right={<Text variant="meta" numberOfLines={1}>{`${liveText?.length.toLocaleString() ?? "—"} → ${mineText?.length.toLocaleString() ?? "—"} chars`}</Text>}
+        testID="admin-ai-compare-right"
+      >
+        {rightBody}
+      </Box>
     </View>
   );
 }
@@ -318,7 +302,12 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     page: { gap: space.x4, minWidth: 0 },
-    verdict: { borderLeftWidth: 3, borderLeftColor: colors.accent, paddingLeft: space.x3, paddingVertical: space.x1 },
+    verdict: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space.x3, marginTop: space.x2 },
+    ok: { color: colors.okText, fontWeight: "600" },
+    crit: { color: colors.critText, fontWeight: "600" },
+    warn: { color: colors.warnText, fontWeight: "600" },
+    gate: { flexDirection: "row", alignItems: "baseline", gap: space.x2, paddingVertical: 3 },
+    gateText: { flex: 1, minWidth: 0, color: colors.text },
     verdictText: { color: colors.text },
     strong: { color: colors.text, fontWeight: "600" },
     muted: { color: colors.muted },

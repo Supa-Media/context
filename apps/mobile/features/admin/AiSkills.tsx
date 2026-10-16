@@ -383,7 +383,7 @@ function SkillPanel({
         <Text variant="meta" numberOfLines={2} style={styles.footText} testID="admin-ai-skill-footer">
           {footer}
         </Text>
-        <Quiet label="Add a golden case" onPress={onCase} testID="admin-ai-skill-case" />
+        <Quiet label="Add a case" onPress={onCase} testID="admin-ai-skill-case" />
       </View>
     </Box>
   );

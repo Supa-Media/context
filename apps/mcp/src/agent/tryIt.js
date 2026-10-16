@@ -22,6 +22,11 @@
  *   call opens its context from the connection's own grant, so the clamp
  *   alone would not hold there). No web, no browser, no texting writes, no
  *   saved conversation, no transcript: a try leaves no trace in their notes.
+ * - **As this case.** A case may name who is asking and what their notes
+ *   say (`as`). Then the turn is offered no tools at all, so it cannot read
+ *   the caller's own notes while pretending to be someone else, and what the
+ *   case says their notes hold is handed to it as text, bounded, after the
+ *   setup's prompt.
  */
 
 import { json } from "../http/responses.js";
@@ -52,6 +57,10 @@ const MAX_RULES = 24;
 const MAX_RULE_CHARS = 400;
 /** A judge's verdicts are short; a try that runs long stops here. */
 const TRY_MAX_ROUNDS = 12;
+
+/** Who a try plays: a name and what the case says their notes hold. */
+const MAX_AS_WHO_CHARS = 200;
+const MAX_AS_NOTES_CHARS = 4_000;
 
 /** The rule kinds the judge checks; the record checks (`must call`, …) need the bench's record. */
 const JUDGED = new Set(["must", "must not", "may", "judge"]);
@@ -112,6 +121,29 @@ export function tryRules(raw) {
     .filter((rule) => rule.value !== "");
 }
 
+/**
+ * The person a try plays, from the request's `as`, bounded; null when it
+ * names nobody, and the try is the caller as themselves.
+ */
+export function tryPersona(raw) {
+  if (!raw || typeof raw !== "object" || typeof raw.who !== "string") return null;
+  const who = raw.who.replace(/[\r\n]+/g, " ").trim().slice(0, MAX_AS_WHO_CHARS);
+  if (who === "") return null;
+  const notes = typeof raw.notes === "string" ? raw.notes.trim().slice(0, MAX_AS_NOTES_CHARS) : "";
+  return { who, notes };
+}
+
+/** The setup's prompt with the played person after it: the only notes the turn knows. */
+export function personaPrompt(prompt, persona) {
+  return [
+    prompt,
+    "",
+    "## Test conversation",
+    `This is a test. You are talking with ${persona.who}. You cannot read their notes in this conversation; everything you know about them is below.`,
+    persona.notes === "" ? "Their notes say nothing relevant." : `Their notes say:\n${persona.notes}`,
+  ].join("\n");
+}
+
 /** The judge's answer read leniently: one verdict per rule, `null` where it said nothing usable. */
 export function readVerdicts(answer, count) {
   const verdicts = Array.from({ length: count }, () => null);
@@ -164,7 +196,9 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   if (setup.search) store.searchSettings = searchSettingsOf(store, setup.search);
   const offered = await grantedToolsFor(reader, store);
   const skills = skillSession(setup.skills ?? [], (path) => readProductionSkill(store, session, path));
-  const tools = [...agentTools(offered).filter((tool) => tool.name !== "propose_note"), ...(skills?.tools ?? [])];
+  const persona = tryPersona(body.as);
+  // Played as someone else, the turn reads nothing: their notes are what the case says, not the caller's.
+  const tools = persona !== null ? [] : [...agentTools(offered).filter((tool) => tool.name !== "propose_note"), ...(skills?.tools ?? [])];
   const dispatch = tryDispatcher(tools, (name, args) => callToolForSession({ name, arguments: args }, store, reader));
   const model = canRunBuiltin(setup.model, env) ? setup.model : undefined;
   const router =
@@ -206,7 +240,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
       providerOptions: providerOptions("try"),
       history: tryHistory(body.history),
       texting: setup.job === "texting-assistant",
-      notes: { prompt: setup.prompt },
+      notes: { prompt: persona === null ? setup.prompt : personaPrompt(setup.prompt, persona) },
       builtinModelOverride: model,
       router,
       efforts: setup.efforts ?? null,

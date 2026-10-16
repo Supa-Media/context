@@ -101,3 +101,51 @@ reachable; `apps/convex/__tests__/builtinModel.test.ts` "Try it on the AI
 tab" that only an editor's console grant may spend; the
 `apps/mobile/__tests__/adminAi*.test.ts` files pin each screen's reads and
 writes.
+
+## Experiments, case groups and how sure a score is (boards 17-22)
+
+The owner, 2026-10-16: "we should only be showing setups that are live, and
+setups that are being presently experimented with … a simple way to archive
+setups", "rename Golden Cases to something like Case Groups and allow me to
+edit the case group names case items", and a Try it that drops down. A UX
+review and an ML review of the same day shaped the rest.
+
+- **The Setups tab shows live and the experiments in play.** Everything
+  retired, lost, or untouched for 14 days and not live or better than live
+  sits behind "Show archived" (`aiExperiments.ts` `archivedSetup`). Archive
+  moves the note to `ai/setups/retired/<job>/`, where the bench no longer
+  pulls it; Restore moves it back. Nothing is deleted. Deleting a case group
+  puts its note in the workspace's trash. Case numbers are never renumbered:
+  every earlier round's scores name cases by number.
+- **New experiment is the one way to start a change.** It copies live into
+  `ai/setups/<job>/<first five words>.md`, drops how live got there, and
+  records `based_on`, `change`, `title` and `made_by`. Live is never edited
+  from the tab.
+- **A score says how sure it is.** A setup's runs passed are summed over the
+  newest round of each case group that ran it, beside live's in the same
+  rounds, with a Wilson 95% range; the gap is "better" or "worse" only when
+  its Newcombe range clears zero, otherwise "too close to call". One flipped
+  run on a handful of cases is noise, and was being drawn as "beat live".
+  Simplifying back to one round's percentage brings that back;
+  `adminAiExperiments.test.ts` fails.
+- **Make it live waits for every gate**: better than live beyond the noise,
+  and every case group run with the experiment and no gate failed
+  (`aiCompareModel.ts` `goLiveGates`). It still asks once more, in bold red.
+- **The bench keeps the replies where setups differ.** `score` writes
+  `<result> replies.md` (`apps/mcp/bench/replies.mjs`) and `publish` puts it
+  beside the scores note: only cases where one setup passed every run and
+  another did not, at most 12, one run per setup, texts cut at 1,200
+  characters, never an answer id or the key. This is the one exception to
+  "the answers stay the Action's artifacts": a person cannot judge a prompt
+  change from pass counts alone. The fixtures are invented people.
+- **Try it can play the case's person.** `as: {who, notes}` makes the turn
+  run with no tools at all, so it cannot read the caller's own notes while
+  being someone else, and the case's notes are handed to it as bounded text
+  after the setup's prompt (`tryIt.js` `tryPersona`, `personaPrompt`;
+  `agentTryIt.test.mjs`).
+- **Prompt health is text matching, and says so**: sentences written twice,
+  and cases whose question or `must` line the prompt carries word for word,
+  which makes their score worthless (`aiHealth.ts`). Contradictions need a
+  reader and are not attempted.
+- **On a phone the rail folds into one picker**, so a job page has one row
+  of tabs (`AiPhonePicker.tsx`).

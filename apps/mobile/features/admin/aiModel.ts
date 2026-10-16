@@ -22,6 +22,7 @@
 export * from "./aiNotes";
 
 import { AI_JOBS, type AiCatalog, type AiJob, type AiNoteRow, type GateMiss, type JobRow, type ScoreRow } from "./aiCatalog";
+import { gapAgainstLive, runsPassed, type Gap, type Passed } from "./aiExperiments";
 
 const text = (value: unknown): string | null => {
   if (typeof value === "string") return value.trim() === "" ? null : value.trim();
@@ -63,7 +64,8 @@ export function sizeDelta(chars: number | null, from: number | null): string | n
 // ---------------------------------------------------------------------------
 // Setups
 
-export type SetupStatus = "live" | "beat live" | "tied" | "lost" | "not run" | "draft" | "retired";
+/** "too close": its runs passed differ from live's by less than the round can tell apart (`./aiExperiments`). */
+export type SetupStatus = "live" | "beat live" | "too close" | "tied" | "lost" | "not run" | "draft" | "retired";
 
 export interface SetupInfo {
   row: AiNoteRow;
@@ -322,6 +324,13 @@ export interface Candidate extends SetupInfo {
   liveScore: SetupScore | null;
   /** The run the score is from. */
   run: ScoreRow | null;
+  /** The newest round of each case group that ran it, newest first. */
+  rounds: { run: ScoreRow; read: RunRead }[];
+  /** Its runs passed and live's, summed over those rounds that ran both and wrote a case-by-case table. */
+  passed: Passed | null;
+  livePassed: Passed | null;
+  /** The gap against live and how sure it is; null without both counts. */
+  gap: Gap | null;
   /** Its size and the size of what it was based on (or live), in chars. */
   size: number | null;
   baseSize: number | null;
@@ -345,6 +354,13 @@ export function jobRuns(catalog: AiCatalog, job: string): ScoreRow[] {
   return catalog.results.filter((result) => tests.has(result.test) || result.test === job).sort(runOrder);
 }
 
+interface Round {
+  run: ScoreRow;
+  read: RunRead;
+  score: SetupScore;
+  live: SetupScore | null;
+}
+
 function candidateOf(
   info: SetupInfo,
   live: string | null,
@@ -352,14 +368,34 @@ function candidateOf(
   sizes: ReadonlyMap<string, number | null>,
   liveSize: number | null,
 ): Candidate {
-  let found: { run: ScoreRow; score: SetupScore; live: SetupScore | null } | null = null;
+  // The newest round of each case group that ran it: one group passing says nothing about the others.
+  const rounds: Round[] = [];
+  const seen = new Set<string>();
   for (const { row, read } of [...runs].reverse()) {
-    if (read === null) continue;
+    if (read === null || seen.has(row.test)) continue;
     const score = scoreFor(read, info.name, live);
     if (score === null) continue;
-    found = { run: row, score, live: liveScore(read, live) };
-    break;
+    seen.add(row.test);
+    rounds.push({ run: row, read, score, live: liveScore(read, live) });
   }
+  const found = rounds[0] ?? null;
+  // Runs passed, summed over the rounds that ran both it and live, so the two counts are paired.
+  const sum = { mine: { passed: 0, runs: 0 }, live: { passed: 0, runs: 0 } };
+  for (const round of rounds) {
+    const mine = runsPassed(round.read, round.score.setup);
+    const theirs = round.live && round.live.setup !== round.score.setup ? runsPassed(round.read, round.live.setup) : null;
+    if (mine === null || theirs === null) continue;
+    sum.mine = { passed: sum.mine.passed + mine.passed, runs: sum.mine.runs + mine.runs };
+    sum.live = { passed: sum.live.passed + theirs.passed, runs: sum.live.runs + theirs.runs };
+  }
+  const paired = sum.mine.runs > 0;
+  // Unpaired (live itself, or rounds without live): its own runs over every group's round.
+  const own = rounds.map((round) => runsPassed(round.read, round.score.setup)).filter((item): item is Passed => item !== null);
+  const ownSum = own.length === 0 ? null : own.reduce((total, item) => ({ passed: total.passed + item.passed, runs: total.runs + item.runs }), { passed: 0, runs: 0 });
+  const passed: Passed | null = paired ? sum.mine : ownSum;
+  const livePassed: Passed | null = paired ? sum.live : null;
+  const gap = passed !== null && livePassed !== null ? gapAgainstLive(passed, livePassed) : null;
+  const brokeGate = rounds.some((round) => round.live !== null && round.live.setup !== round.score.setup && !round.score.gatesPassed && round.live.gatesPassed);
   let status: SetupStatus;
   if (info.retired) status = "retired";
   else if (live !== null && info.name === live) status = "live";
@@ -369,7 +405,9 @@ function candidateOf(
     const mine = found.score;
     const theirs = found.live;
     if (theirs === null || theirs.setup === mine.setup) status = info.claimed ?? "not run";
-    else if (!mine.gatesPassed && theirs.gatesPassed) status = "lost";
+    else if (brokeGate) status = "lost";
+    // Runs passed say how sure: only a gap whose whole range clears zero is a win or a loss.
+    else if (gap !== null) status = gap.verdict === "better" ? "beat live" : gap.verdict === "worse" ? "lost" : "too close";
     else if ((mine.score ?? 0) > (theirs.score ?? 0) && (mine.gatesPassed || !theirs.gatesPassed)) status = "beat live";
     else if ((mine.score ?? 0) === (theirs.score ?? 0)) status = "tied";
     else status = "lost";
@@ -381,12 +419,16 @@ function candidateOf(
     score: found?.score ?? null,
     liveScore: found?.live ?? null,
     run: found?.run ?? null,
+    rounds: rounds.map((round) => ({ run: round.run, read: round.read })),
+    passed,
+    livePassed,
+    gap,
     size: info.row.size,
     baseSize,
   };
 }
 
-const STATUS_ORDER: Record<SetupStatus, number> = { live: 0, "beat live": 1, tied: 2, "not run": 3, draft: 4, lost: 5, retired: 6 };
+const STATUS_ORDER: Record<SetupStatus, number> = { live: 0, "beat live": 1, "too close": 2, tied: 3, "not run": 4, draft: 5, lost: 6, retired: 7 };
 
 /** A job's page, from the catalog and whichever scores notes have been read (`reads`, by path). */
 export function jobPage(catalog: AiCatalog, job: string, reads: ReadonlyMap<string, RunRead>): JobPage | null {
@@ -446,9 +488,11 @@ export function nextStep(page: JobPage): NextStep {
   const { job, row } = page;
   if (job.home === "code") return { kind: "move-prompt", label: "Move its prompt to a note" };
   if (row.tests.length === 0) return { kind: "first-test", label: "Write its first test" };
-  const better = page.candidates.filter((item) => item.status === "beat live" || (item.status === "tied" && (item.size ?? 0) < (item.baseSize ?? 0)));
-  if (better.length === 1) return { kind: "review", label: "Review 1 candidate", candidate: better[0]!.name };
-  if (better.length > 1) return { kind: "review", label: `Review ${better.length} candidates`, candidate: better[0]!.name };
+  // No worse and smaller is worth a look too: the gap is noise, the saving is not.
+  const smaller = (item: Candidate) => (item.size ?? 0) < (item.baseSize ?? 0);
+  const better = page.candidates.filter((item) => item.status === "beat live" || ((item.status === "tied" || item.status === "too close") && smaller(item)));
+  if (better.length === 1) return { kind: "review", label: "Review 1 experiment", candidate: better[0]!.name };
+  if (better.length > 1) return { kind: "review", label: `Review ${better.length} experiments`, candidate: better[0]!.name };
   const latest = page.runs.at(-1);
   if (latest === undefined) return { kind: "run", label: "Run its tests" };
   const live = latest.read === null ? null : liveScore(latest.read, page.live);

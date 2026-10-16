@@ -1,6 +1,6 @@
 /**
  * A job's page (boards 8-13): what is live, the score over time, the tests on
- * the job, and the candidate setups beside it, with Golden cases, Setups and
+ * the job, and the candidate setups beside it, with Case groups, Setups and
  * Runs as its tabs. The Overview is the one place to see the whole loop; the
  * other tabs are the same data in full. See `./AiSection`.
  */
@@ -9,12 +9,16 @@ import { useState, type ReactNode } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
 import { AiCases } from "./AiCases";
+import { AiNewExperiment } from "./AiNewExperiment";
+import { AiSetups } from "./AiSetups";
+import { archivedSetup, setupTitle } from "./aiExperiments";
+import { AiJobOverview, passedStat } from "./AiJobOverview";
 import { AiScoreChart } from "./AiScoreChart";
-import { JOB_GROUPS, RUN_TESTS_URL, modelName, setupModels, type AiNoteRow, type ScoreRow } from "./aiCatalog";
+import { JOB_GROUPS, RUN_TESTS_URL, modelName, setupModels, type AiNoteRow } from "./aiCatalog";
 import { jobPage, liveScore, liveSince, nextStep, promotedBy, runLabel, scoreHistory, sizeDelta, sizeLabel, type Candidate, type JobPage } from "./aiModel";
 import type { JobTab } from "./aiPlace";
 import type { AiScreenProps } from "./aiScreen";
-import { Box, Cell, Columns, LinkText, NextLine, PageHead, Primary, Quiet, Quietly, StatStrip, StatusPill, TableLine, Head, cents, pct, shortDay, type Column, type Stat } from "./AiKit";
+import { Box, Cell, LinkText, NextLine, PageHead, Primary, Quiet, Quietly, StatStrip, StatusPill, TableLine, Head, cents, pct, type Column, type Stat } from "./AiKit";
 
 const CANDIDATE_COLUMNS: Column[] = [
   { label: "SETUP", flex: 1.3 },
@@ -24,7 +28,6 @@ const CANDIDATE_COLUMNS: Column[] = [
   { label: "STATUS", width: 170 },
 ];
 
-const SETUP_COLUMNS: Column[] = [...CANDIDATE_COLUMNS, { label: "CHANGED", width: 90, align: "right" }];
 
 const RUN_COLUMNS: Column[] = [
   { label: "RUN", width: 90 },
@@ -78,7 +81,7 @@ function setupSub(candidate: Candidate): string | undefined {
  */
 export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
   const styles = useThemedStyles(makeStyles);
-  const [showHidden, setShowHidden] = useState(false);
+  const [making, setMaking] = useState(false);
   const page = jobPage(props.catalog, props.job, props.reads);
   const goJobs = () => props.go({ view: "jobs", job: null, tab: "overview", compare: null });
 
@@ -105,16 +108,22 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
   const promoter = promotedBy(row.setup);
   const liveLine = [since ? `since ${since}` : null, promoter ? `promoted by ${promoter}` : null].filter(Boolean).join(" · ");
   const speed = latestLive?.speed ?? null;
+  const now = Date.now();
+  const liveCandidate = page.candidates.find((item) => item.status === "live") ?? null;
+  const liveTitle = liveCandidate ? setupTitle(liveCandidate) : (page.live ?? "live");
 
+  const passed = passedStat(page);
   const stats: Stat[] = [
-    { label: "LIVE", value: page.live ?? (row.setup ? "production" : "none"), sub: liveLine || undefined },
+    { label: "LIVE", value: liveCandidate ? liveTitle : (page.live ?? (row.setup ? "production" : "none")), sub: liveLine || undefined },
     { label: "MODEL", value: setupModels(row.setup) ?? job.model ?? "—", sub: modelDetail(row.setup) },
     {
       label: "PROMPT",
       value: sizeLabel(row.setup?.size ?? null) ?? "—",
       sub: row.setup?.size != null ? `${row.setup.size.toLocaleString()} chars` : undefined,
     },
-    {
+    passed !== null
+      ? { label: "PASSED", value: passed.value, sub: passed.sub, tone: latestLive && !latestLive.gatesPassed ? "warn" : undefined }
+      : {
       label: "SCORE",
       value: pct(latestLive?.score ?? null),
       tone: latestLive && !latestLive.gatesPassed ? "warn" : latestLive?.goodEnough ? "ok" : undefined,
@@ -130,22 +139,23 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
   const step = nextStep(page);
   const next =
     step.kind === "review" && step.candidate
-      ? { label: "Compare and promote", onPress: () => props.go({ view: "jobs", job: props.job, tab: "setups", compare: step.candidate! }) }
+      ? { label: "Compare", onPress: () => props.go({ view: "jobs", job: props.job, tab: "setups", compare: step.candidate! }) }
       : step.kind === "fix" || step.kind === "first-test"
-        ? { label: "Open golden cases", onPress: () => goTab("cases") }
+        ? { label: "Open case groups", onPress: () => goTab("cases") }
         : step.kind === "run"
           ? { label: "Run tests", onPress: () => goTab("runs") }
           : null;
 
-  const hidden = page.candidates.filter((item) => item.status === "lost").length + page.retired.length;
-  const shownCandidates = showHidden
-    ? [...page.candidates, ...page.retired]
-    : page.candidates.filter((item) => item.status !== "lost");
+  const experiments = page.candidates.filter((item) => item.status !== "live" && !archivedSetup(item, now));
+  const shownCandidates = experiments;
+  const hidden = page.candidates.length + page.retired.length - experiments.length - (liveCandidate ? 1 : 0);
+  // Try it's list: live first (the production note, which is what people get), then experiments, then the archived.
   const setupsToTry = [
-    ...(row.setup ? [{ name: page.live ?? "live", path: row.setup.path }] : []),
-    ...page.candidates
-      .filter((item) => item.status !== "lost" && item.status !== "retired" && item.status !== "live")
-      .map((item) => ({ name: item.name, path: item.row.path })),
+    ...(row.setup ? [{ name: page.live ?? "live", title: liveTitle, path: row.setup.path, group: "live" as const }] : []),
+    ...experiments.map((item) => ({ name: item.name, title: setupTitle(item), path: item.row.path, group: "experiment" as const, status: item.status })),
+    ...[...page.candidates, ...page.retired]
+      .filter((item) => item.status !== "live" && archivedSetup(item, now))
+      .map((item) => ({ name: item.name, title: setupTitle(item), path: item.row.path, group: "archived" as const, status: item.status })),
   ];
 
   const tabLabel = (tab: JobTab): string => {
@@ -153,9 +163,9 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
       case "overview":
         return "Overview";
       case "cases":
-        return `Golden cases · ${row.tests.length}`;
+        return `Cases · ${row.tests.length} ${row.tests.length === 1 ? "group" : "groups"}`;
       case "setups":
-        return `Setups · ${page.candidates.length}`;
+        return `Setups · ${experiments.length} trying`;
       case "runs":
         return `Runs · ${page.runs.length}`;
     }
@@ -170,11 +180,29 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
         testID="admin-ai-job-head"
         actions={
           <>
-            {row.setup ? <Quiet label="Edit live setup" onPress={() => props.openInNotes(row.setup!.path)} testID="admin-ai-edit-live" /> : null}
-            <Primary label="Run tests" onPress={() => goTab("runs")} testID="admin-ai-run-tests" />
+            <Quiet label="Run tests" onPress={() => goTab("runs")} testID="admin-ai-run-tests" />
+            {row.setup ? <Primary label="New experiment" onPress={() => setMaking(true)} testID="admin-ai-new-experiment-open" /> : null}
           </>
         }
       />
+
+      {making && row.setup ? (
+        <AiNewExperiment
+          workspaceId={props.workspaceId}
+          job={props.job}
+          livePath={row.setup.path}
+          liveName={page.live ?? "production"}
+          liveTitle={liveTitle}
+          taken={new Set([...page.candidates, ...page.retired].map((item) => item.name))}
+          me={props.me}
+          onMade={(path) => {
+            setMaking(false);
+            props.reload();
+            props.openInNotes(path);
+          }}
+          onCancel={() => setMaking(false)}
+        />
+      ) : null}
 
       <View style={styles.tabs} accessibilityRole="tablist">
         {TABS.map((tab) => {
@@ -202,39 +230,23 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
           <NextLine action={next?.label} onAction={next?.onPress} testID="admin-ai-next">
             {step.label}
           </NextLine>
-          <Columns weights={[2, 1]}>
-            <Box title="Score over time">
-              <AiScoreChart points={scoreHistory(page)} bar={bar} />
-            </Box>
-            <Box title="Tests on this job" testID="admin-ai-tests">
-              {row.tests.length === 0 ? <Quietly>No tests yet.</Quietly> : null}
-              {row.tests.map((test, index) => {
-                const found = latestRunOf(page, test.name);
-                return (
-                  <View key={test.path} style={[styles.testRow, index > 0 && styles.ruled]} testID={`admin-ai-test-${test.name}`}>
-                    <View style={styles.testMain}>
-                      <Text variant="rowTitle" numberOfLines={1}>{test.name}</Text>
-                      {test.lede ? <Text variant="meta" numberOfLines={1}>{test.lede}</Text> : null}
-                    </View>
-                    <View style={styles.figures}>
-                      <Text variant="rowTitle" numberOfLines={1}>{pct(found?.score.score ?? null)}</Text>
-                      <Text variant="meta" numberOfLines={1}>{dayLabel(found?.run.day ?? null)}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </Box>
-          </Columns>
+          <AiJobOverview
+            page={page}
+            workspaceId={props.workspaceId}
+            liveSince={since}
+            now={now}
+            openInNotes={props.openInNotes}
+            goCases={() => goTab("cases")}
+            goRuns={() => goTab("runs")}
+            openCompare={(setup) => props.go({ view: "jobs", job: props.job, tab: "setups", compare: setup })}
+          />
+          <Box title="Score over time">
+            <AiScoreChart points={scoreHistory(page)} bar={bar} />
+          </Box>
           <Box
-            title="Candidates"
+            title="Experiments"
             testID="admin-ai-candidates"
-            right={
-              <LinkText
-                label={`Retired and lost: ${hidden} · ${showHidden ? "hide" : "show"}`}
-                onPress={() => setShowHidden((value) => !value)}
-                testID="admin-ai-toggle-hidden"
-              />
-            }
+            right={<LinkText label={`Archived: ${hidden} ›`} onPress={() => goTab("setups")} testID="admin-ai-toggle-hidden" />}
           >
             <CandidateTable rows={shownCandidates} columns={CANDIDATE_COLUMNS} onOpen={openCandidate} />
           </Box>
@@ -253,9 +265,14 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
       ) : null}
 
       {props.tab === "setups" ? (
-        <Box title="Setups" testID="admin-ai-setups">
-          <CandidateTable rows={[...page.candidates, ...page.retired]} columns={SETUP_COLUMNS} onOpen={openCandidate} changed />
-        </Box>
+        <AiSetups
+          page={page}
+          workspaceId={props.workspaceId}
+          reload={props.reload}
+          openInNotes={props.openInNotes}
+          openCompare={(setup) => props.go({ view: "jobs", job: props.job, tab: "setups", compare: setup })}
+          now={now}
+        />
       ) : null}
 
       {props.tab === "runs" ? <RunsTab page={page} openInNotes={props.openInNotes} /> : null}
@@ -263,17 +280,8 @@ export function AiJobPage(props: AiScreenProps & { job: string; tab: JobTab }) {
   );
 }
 
-/** The newest run of a test that was read, with its live score; null when none has been read. */
-function latestRunOf(page: JobPage, test: string): { run: ScoreRow; score: { score: number | null } } | null {
-  for (const { row, read } of [...page.runs].reverse()) {
-    if (row.test !== test || read === null) continue;
-    return { run: row, score: { score: liveScore(read, page.live)?.score ?? null } };
-  }
-  return null;
-}
-
 /** A table of candidates: a setup, what changed, its size against what it was based on, its score and its status. */
-function CandidateTable({ rows, columns, onOpen, changed = false }: { rows: readonly Candidate[]; columns: readonly Column[]; onOpen: (candidate: Candidate) => void; changed?: boolean }) {
+function CandidateTable({ rows, columns, onOpen }: { rows: readonly Candidate[]; columns: readonly Column[]; onOpen: (candidate: Candidate) => void }) {
   const styles = useThemedStyles(makeStyles);
   if (rows.length === 0) return <Quietly testID="admin-ai-no-candidates">No setups are being tried yet.</Quietly>;
   return (
@@ -283,19 +291,18 @@ function CandidateTable({ rows, columns, onOpen, changed = false }: { rows: read
         const delta = sizeDelta(candidate.size, candidate.baseSize) ?? "—";
         const cheaper = (candidate.size ?? 0) < (candidate.baseSize ?? 0);
         const cells: ReactNode[] = [
-          <Cell key="setup" title={candidate.name} sub={setupSub(candidate)} strong />,
+          <Cell key="setup" title={setupTitle(candidate)} sub={setupSub(candidate)} strong />,
           <Cell key="what" title={candidate.change ?? "—"} />,
           <Cell key="delta" title={delta} tone={delta.startsWith("−") ? "ok" : undefined} align="right" />,
           <Cell key="score" title={pct(candidate.score?.score ?? null)} align="right" />,
           <StatusPill key="status" status={candidate.status} cheaper={cheaper} />,
         ];
-        if (changed) cells.push(<Cell key="changed" title={shortDay(candidate.row.updatedAt)} align="right" />);
         return (
           <TableLine
             key={candidate.row.path}
             columns={columns}
             cells={cells}
-            title={candidate.name}
+            title={setupTitle(candidate)}
             sub={setupSub(candidate)}
             trailing={<StatusPill status={candidate.status} cheaper={cheaper} />}
             first={index === 0}
@@ -359,10 +366,6 @@ const makeStyles = (colors: Colors) =>
     tabOn: { borderBottomColor: colors.accent },
     tabLabel: { color: colors.muted },
     tabLabelOn: { color: colors.text, fontWeight: "700" },
-    testRow: { flexDirection: "row", alignItems: "center", gap: space.x3, paddingVertical: space.x2 },
-    ruled: { borderTopWidth: 1, borderTopColor: colors.line },
-    testMain: { flex: 1, minWidth: 0, gap: 2 },
-    figures: { alignItems: "flex-end", gap: 2, flexShrink: 0 },
     table: { minWidth: 0 },
     actionRow: { flexDirection: "row" },
   });

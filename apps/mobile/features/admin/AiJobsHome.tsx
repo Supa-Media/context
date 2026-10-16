@@ -70,7 +70,7 @@ export function AiJobsHome(props: AiScreenProps) {
                   <Text variant="rowTitle" numberOfLines={1}>{`${page.job.label}: ${candidate.name} beats ${page.live ?? "live"}`}</Text>
                   <Text variant="meta" numberOfLines={2}>{delta === null ? head : `${head}, ${delta} tokens`}</Text>
                   <LinkText
-                    label="Compare and promote ›"
+                    label="Compare ›"
                     onPress={() => go({ view: "jobs", job: page.job.key, tab: "setups", compare: candidate.name })}
                     testID={`admin-ai-yes-${candidate.name}-compare`}
                   />

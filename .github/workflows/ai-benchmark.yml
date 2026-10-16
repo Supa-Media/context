@@ -302,8 +302,9 @@ jobs:
             echo "_The run wrote no result note; read the job log._" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # The scores, never the answers or the key, as a note beside the earlier
-      # rounds' reads; a fake or a calibration run has nothing worth keeping.
+      # The scores, never the key, as a note beside the earlier rounds' reads,
+      # and the replies only where the setups' results differ (bench/replies.mjs),
+      # for Compare; a fake or a calibration run has nothing worth keeping.
       - name: Put the scores in Context
         if: ${{ !inputs.fake && !inputs.calibrate && steps.name.outputs.result != '' }}
         env:

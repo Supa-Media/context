@@ -35,11 +35,9 @@ export function points(candidate: Candidate): string {
   return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)} pts`;
 }
 
-/** A change that beat live is ok, one that lost is crit, a tie is plain. */
+/** By its status, not the raw difference: a gap inside the noise is "too close", and is plain. */
 function toneOf(candidate: Candidate): "ok" | "crit" | undefined {
-  const delta = deltaOf(candidate);
-  if (delta === null || delta === 0) return undefined;
-  return delta > 0 ? "ok" : "crit";
+  return candidate.status === "beat live" ? "ok" : candidate.status === "lost" ? "crit" : undefined;
 }
 
 interface Change {
@@ -129,8 +127,8 @@ export function AiOverview(props: AiScreenProps) {
       />
 
       <View style={styles.tiles}>
-        <Tile label="Golden cases" value={String(catalog.tests.length)} onPress={() => go({ view: "files", part: "tests" })} testID="admin-ai-tile-cases">
-          <Text variant="meta" numberOfLines={2}>test lists of golden cases, set by people.</Text>
+        <Tile label="Case groups" value={String(catalog.tests.length)} onPress={() => go({ view: "files", part: "tests" })} testID="admin-ai-tile-cases">
+          <Text variant="meta" numberOfLines={2}>groups of cases, set by people.</Text>
           {untested.length > 0 ? (
             <LinkText label={`${untested.length} jobs have none ›`} onPress={jobsPage} testID="admin-ai-cases-none" />
           ) : null}
@@ -156,7 +154,7 @@ export function AiOverview(props: AiScreenProps) {
       </View>
 
       <Text variant="meta" style={styles.line}>
-        Golden cases judge every setup → a job reads skills and calls tools and helper agents → the improver drafts changes → a person promotes
+        Case groups judge every setup → a job reads skills and calls tools and helper agents → the improver drafts changes → a person makes it live
       </Text>
 
       {/* One above the other: a change's sentence needs the page's width, and halves of it cut every one short. */}
@@ -194,7 +192,7 @@ export function AiOverview(props: AiScreenProps) {
         )}
       </Box>
 
-      <Box title="Each job over time" right={<Text variant="meta">score on its golden cases</Text>} testID="admin-ai-jobs-over-time">
+      <Box title="Each job over time" right={<Text variant="meta">score on its case groups</Text>} testID="admin-ai-jobs-over-time">
         <Head columns={JOB_COLUMNS} />
         {pages.map(({ key, page }, index) => (
           <JobLine key={key} page={page} first={index === 0} last={index === pages.length - 1} onPress={() => go({ view: "jobs", job: key, tab: "overview", compare: null })} />

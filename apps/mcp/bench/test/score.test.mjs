@@ -544,3 +544,20 @@ test("a case's title is one table cell, and a case with no answered run reads 0 
   assert.doesNotMatch(plain, /Case by case/);
   assert.match(scoreSection({ judgeModel: "judge", date: "2026-10-16", rows, best: null, cases }), /\| 2\. Mirror of one\? \| 1 of 1 \| untested \|/);
 });
+
+test("score writes the replies that differ beside the result, without an answer id", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    await scoreFile({ path, dir, date: "2026-10-10" });
+    const replies = await readFile(join(dir, "results", "2026-10-08 texting-assistant replies.md"), "utf8");
+    assert.match(replies, /^---\nrole: benchmark-replies\njob: texting-assistant\ndate: 2026-10-08\ntest: texting-assistant\n---/);
+    // Q1: alpha passed both runs, beta missed run 2; the failed run is the one shown.
+    assert.match(replies, /## 1\. Hours at the dentist\?\n\n### alpha · run 1 of 2 · passed\n\n> Person: when's my dentist appointment\?\n> Reply: It is Tuesday at 9am\./);
+    assert.match(replies, /### beta · run 2 of 2 · failed\n\n- missed must: say Tuesday\n> Person: when's my dentist appointment\?\n> Reply: It is Monday\./);
+    // Q3 and Q4 passed everywhere: nothing to read.
+    assert.doesNotMatch(replies, /## 3\.|## 4\./);
+    assert.doesNotMatch(replies, /alpha-1-1|beta-1-2|key\.md/);
+  } finally {
+    await cleanup();
+  }
+});

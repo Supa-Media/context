@@ -341,6 +341,17 @@ test("publishResult replaces a scores note already there, as a re-judged run doe
   assert.equal(state.written[0].expected_etag, "e-1");
 });
 
+test("publishResult also writes the replies note score left beside the result", async () => {
+  const { fetchImpl, state } = fakeGateway();
+  const dir = await mkdtemp(join(tmpdir(), "bench-publish-"));
+  const result = join(dir, "2026-10-10 texting-assistant gh-3.md");
+  await writeFile(result, SCORED);
+  await writeFile(join(dir, "2026-10-10 texting-assistant gh-3 replies.md"), "---\nrole: benchmark-replies\n---\n\n## 1. q\n");
+  await publishResult({ result, runUrl: null, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
+  assert.deepEqual(state.written.map((item) => item.path), ["ai/results/2026-10-10 texting-assistant gh-3 scores.md", "ai/results/2026-10-10 texting-assistant gh-3 replies.md"]);
+  assert.match(state.written[1].content, /role: benchmark-replies/);
+});
+
 test("callTool throws on a transport failure and returns a refusal as isError", async () => {
   const { fetchImpl } = fakeGateway();
   await assert.rejects(callTool({ endpoint: ENDPOINT, accessToken: "cat_wrong" }, "list_notes", {}, fetchImpl), /answered 401/);

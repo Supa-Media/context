@@ -9,7 +9,9 @@
  * the same commit as the code, so they stay in the repository. A round's
  * scores are something a person reads and compares, so they go back to
  * `ai/results/` by themselves; the answers and the key stay the Action's
- * artifacts (big, and the key never sits beside the result).
+ * artifacts (big, and the key never sits beside the result). The one
+ * exception is the replies note (`./replies.mjs`): a bounded few replies,
+ * only where the setups differ, for Compare in the console.
  *
  * The connection is an ordinary OAuth grant of a test account that is a
  * member of `@context-lc`, made once by a person with `pnpm ai connect` and
@@ -34,6 +36,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";
 
 /** The workspace the setups and the results live in, addressed as the MCP endpoint. */
@@ -339,6 +342,33 @@ export async function publishResult({ result, runUrl = null, connection, fetchIm
       summary: `benchmark scores for ${basename(result, ".md")}`,
       ...(etag ? { expected_etag: etag } : {}),
     },
+    fetchImpl,
+  );
+  if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
+  await publishReplies({ result, connection, fetchImpl });
+  return path;
+}
+
+/** Where a result's replies note goes in Context: beside its scores note. */
+export function repliesPathFor(resultFile) {
+  return `${RESULTS_FOLDER}/${repliesName(basename(resultFile, ".md"))}`;
+}
+
+/** The replies note `score` wrote beside the result, when the setups differed anywhere. */
+async function publishReplies({ result, connection, fetchImpl }) {
+  let text;
+  try {
+    text = await readFile(join(dirname(result), repliesName(basename(result, ".md"))), "utf8");
+  } catch {
+    return null;
+  }
+  const path = repliesPathFor(result);
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
+  const written = await callTool(
+    connection,
+    "write_note",
+    { path, content: text, summary: `benchmark replies for ${basename(result, ".md")}`, ...(etag ? { expected_etag: etag } : {}) },
     fetchImpl,
   );
   if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);

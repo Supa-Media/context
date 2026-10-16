@@ -33,7 +33,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = {
   "mail-checker":
     "Checks a draft before it leaves: refuses one that names someone not in the person's contacts, promises money, or attaches a note marked private. Sends only after the person's yes reaches the gateway; if anything fails, nothing is sent. It needs an email action on the send tool, which the six tools do not have yet; it is built with that action.",
   improver:
-    "Reads where live missed, drafts one change at a time as a new setup with based_on and change, drafts golden cases marked drafted, and runs the tests. It never promotes and never makes a case count: both wait for a person.",
+    "Reads where live missed, drafts one change at a time as a new setup with based_on and change, drafts cases marked drafted, and runs the tests. It never promotes and never makes a case count: both wait for a person.",
   judge: "Scores each reply against a case's must, must not and judge lines for the test bench. It changes nothing.",
   dream: "Rewrites Tex's about-me each night from the day's texts and tidies the person's own skills, in their own workspace.",
 };
@@ -104,7 +104,7 @@ export function AiHelpers(props: AiScreenProps & { helper: string | null }) {
               <Quiet label="Edit its note" onPress={() => void editNote()} testID="admin-ai-helper-edit" />
               {selected.key === "mail-checker" ? (
                 <Quiet
-                  label="Golden cases"
+                  label="Case groups"
                   onPress={() => go({ view: "jobs", job: "texting-assistant", tab: "cases", compare: null })}
                   testID="admin-ai-helper-cases"
                 />

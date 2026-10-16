@@ -117,7 +117,8 @@ export function StatStrip({ stats, testID }: { stats: readonly Stat[]; testID?: 
 
 const STATUS: Record<SetupStatus, { label: string; tone: PillTone }> = {
   live: { label: "Live", tone: "ok" },
-  "beat live": { label: "Beat live · needs yes", tone: "warn" },
+  "beat live": { label: "Better than live · needs yes", tone: "warn" },
+  "too close": { label: "Too close to call", tone: "neutral" },
   tied: { label: "Tied", tone: "neutral" },
   lost: { label: "Lost", tone: "neutral" },
   "not run": { label: "Not run", tone: "neutral" },

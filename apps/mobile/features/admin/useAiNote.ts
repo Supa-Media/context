@@ -17,16 +17,22 @@ import { readRun, type RunRead } from "./aiModel";
 export interface AiNoteIo {
   readNote(args: { workspaceId: Id<"workspaces">; path: string }): Promise<{ text: string; etag: string; readOnly: boolean }>;
   writeNote(args: { workspaceId: Id<"workspaces">; path: string; text: string; expectedEtag?: string }): Promise<{ etag: string }>;
+  /** Archiving a setup moves it under `ai/setups/retired/`; restoring moves it back. */
+  moveEntry(args: { workspaceId: Id<"workspaces">; from: string; to: string }): Promise<unknown>;
+  /** A deleted case group goes to the workspace's trash, where it can be restored. */
+  trashEntry(args: { workspaceId: Id<"workspaces">; path: string }): Promise<unknown>;
 }
 
 /** Set only by the browser fixture (`features/e2e`), which has no control plane behind it. */
 export const AiNoteIoContext = createContext<AiNoteIo | null>(null);
 
-function useIo(): AiNoteIo {
+export function useIo(): AiNoteIo {
   const provided = useContext(AiNoteIoContext);
   const readNote = useAction(api.functions.files.readNote);
   const writeNote = useAction(api.functions.files.writeNote);
-  return useMemo(() => provided ?? { readNote, writeNote }, [provided, readNote, writeNote]);
+  const moveEntry = useAction(api.functions.files.moveEntry);
+  const trashEntry = useAction(api.functions.files.trashEntry);
+  return useMemo(() => provided ?? { readNote, writeNote, moveEntry, trashEntry }, [provided, readNote, writeNote, moveEntry, trashEntry]);
 }
 
 export type AiNoteState =
@@ -176,4 +182,48 @@ export function useNoteWriter(workspaceId: Id<"workspaces">) {
     },
     [workspaceId, readNote, writeNote],
   );
+}
+
+/** Moves a note (archive, restore) and trashes one (a deleted case group), in the ai/ folder. */
+export function useNoteMoves(workspaceId: Id<"workspaces">) {
+  const { moveEntry, trashEntry, readNote } = useIo();
+  return useMemo(
+    () => ({
+      move: async (from: string, to: string) => {
+        await moveEntry({ workspaceId, from, to });
+      },
+      trash: async (path: string) => {
+        await trashEntry({ workspaceId, path });
+      },
+      read: async (path: string) => (await readNote({ workspaceId, path })).text,
+    }),
+    [workspaceId, moveEntry, trashEntry, readNote],
+  );
+}
+
+/** Several notes' text, read once each, by path: null for a note that could not be read, absent while it is read. */
+export function useNoteTexts(workspaceId: Id<"workspaces">, paths: readonly string[]): ReadonlyMap<string, string | null> {
+  const { readNote } = useIo();
+  const [read, setRead] = useState<ReadonlyMap<string, string | null>>(new Map());
+  const key = [...new Set(paths)].sort().join("\n");
+  useEffect(() => {
+    if (key === "") return;
+    let live = true;
+    void Promise.all(
+      key.split("\n").map(async (path) => {
+        try {
+          return [path, (await readNote({ workspaceId, path })).text] as const;
+        } catch {
+          return [path, null] as const;
+        }
+      }),
+    ).then((pairs) => {
+      if (!live) return;
+      setRead(new Map(pairs));
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, workspaceId, readNote]);
+  return read;
 }

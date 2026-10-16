@@ -19,12 +19,13 @@
  * the test sets one (the `every_answer` lines are judge lines on every answer).
  */
 
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import { isGateQuestion, parseTest } from "./load.mjs";
 import { frontMatter, parseJudgedSections, parseKey, parseResult, setFrontStatus } from "./resultNote.mjs";
 import { benchFolder } from "./folder.mjs";
+import { repliesName, repliesNote } from "./replies.mjs";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -286,7 +287,13 @@ export async function scoreFile({ path, dir, date = today() }) {
   });
   const section = scoreSection({ judgeModel: latest.model, date, rows, best, goodEnough: test.front.good_enough ?? {}, cases });
   await writeFile(path, `${setFrontStatus(raw, "scored").replace(/\n*$/, "\n")}\n${section}`);
-  const log = failedGateLog({ key, judged: latest.blocks, answers, questions: new Map(test.questions.map((q) => [q.n, q])) });
+  const questions = new Map(test.questions.map((q) => [q.n, q]));
+  const log = failedGateLog({ key, judged: latest.blocks, answers, questions });
+  // Beside the result, for `publish`: what the setups said where their results differ.
+  const replies = repliesNote({ key, judged: latest.blocks, answers, questions, front, date });
+  const repliesPath = join(dirname(path), repliesName(basename(path, ".md")));
+  if (replies !== null) await writeFile(repliesPath, replies);
+  else await rm(repliesPath, { force: true });
   return { rows, best, judgeModel: latest.model, log, cases };
 }
 
