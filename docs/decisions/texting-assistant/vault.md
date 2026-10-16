@@ -209,6 +209,44 @@ host carries no key, an echoed key comes back blanked in each encoding, an
 unanswered ask is a no after ten minutes, and a model's own call cannot settle
 an ask.
 
+### A vault entry is a Markdown note under `.context/vault/`, with notes' privacy
+
+Decided by the owner, 2026-10-16, with the proxy above: "it should be plain
+markdown notes underlyingly, just in the hidden context folder, with all the
+extra details needed for settings". Settings › Vault stays the only place
+people see the vault; nothing changes on screen. Underneath:
+
+- **One note per entry**, `.context/vault/<id>.md`, replacing the sealed
+  `.json` pair. Its front matter is plain: name, type, the pinned host and
+  how the site wants the key, the fields and which environments hold a value,
+  and the "ask the first time" switch. Like every note, that front matter is
+  read from the Convex tree, never from storage, so Settings lists the vault
+  the way the sidebar lists notes.
+- **Values stay sealed.** The body is one sealed block holding the username,
+  password and field values, under the same data key and associated data as
+  today (workspace, entry id, generation). Non-negotiable #1's exception is
+  unchanged: no value is ever plain in the bucket, and no tool reads the
+  block; only the fill step, the proxy step and a person's reveal open it.
+- **Who has it is a tree row's access**, the same rows and grantees as notes
+  (private, or named people and groups, each with view or edit), replacing the
+  entry's own people list. A vault entry always starts private, whatever its
+  folder, and only a member of its workspace can be given one. "View" on a
+  vault entry means use it and reveal it; it never means an AI may read it.
+- **No AI reads a vault note.** `.context/` is system data, so it is never in
+  a listing, a search or `read_note`; a vault note is additionally excluded by
+  its kind, so a future change that surfaces `.context/` cannot surface it.
+- **Export carries it.** Download as folders includes the vault notes with the
+  block still sealed, and the owner's exported keys open it, which is the exit
+  promise the sealed `.json` kept.
+
+**What it costs:** a bucket read now shows that an entry named "Stripe"
+exists and which host it is pinned to; before, the meta part was sealed too.
+The owner accepted that for plain notes. The test "a bucket read of a vault
+entry never yields the login, its name or its site" becomes "never yields the
+login or a value", and a new one proves no tool, listing or search returns a
+vault note. Built with the proxy, after the boards are picked; entries saved
+before then are rewritten into notes by a one-time pass.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
