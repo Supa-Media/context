@@ -31,6 +31,9 @@ const COLUMNS: readonly Column[] = [
   { label: "PROVED BY", width: 110 },
 ];
 
+/** Beside an open skill: its panel shows the size and the cases, so the table keeps the name and the switches. */
+const NARROW_COLUMNS: readonly Column[] = COLUMNS.filter((column) => column.label !== "SIZE" && column.label !== "PROVED BY");
+
 const SIZE_NOTE =
   "Size is in tokens. Tex reads a skill only when a text needs it, so its size counts when it's read, not on every text. Skills a person's Tex wrote stay in their own workspace.";
 const REACH_NOTE = "Every connected AI and helper agents read this from the skill's reach: line once the new tools are live.";
@@ -168,10 +171,11 @@ export function AiSkills(props: AiScreenProps & { skill: string | null }) {
 
   const table = (
     <View style={styles.list}>
-      <Head columns={COLUMNS} />
+      <Head columns={selected === null ? COLUMNS : NARROW_COLUMNS} />
       {shown.map((row, index) => (
         <SkillLine
           key={row.path}
+          narrow={selected !== null}
           row={row}
           reach={skillReach(row, texSkills)}
           proved={provedBy(row, catalog.tests)}
@@ -190,10 +194,9 @@ export function AiSkills(props: AiScreenProps & { skill: string | null }) {
     </View>
   );
 
+  // With no skill open the table has the page's whole width; one opens beside it.
   const panel =
-    selected === null ? (
-      <Quietly testID="admin-ai-skill-none">Pick a skill to read and edit it.</Quietly>
-    ) : (
+    selected === null ? null : (
       <SkillPanel
         row={selected}
         reach={skillReach(selected, texSkills)}
@@ -233,10 +236,14 @@ export function AiSkills(props: AiScreenProps & { skill: string | null }) {
       <PageHead title="Skills" sub={`${skills.length} · managed`} actions={actions} testID="admin-ai-skills-head" />
       {creatingRow}
       {problem !== null ? <OneWay testID="admin-ai-skill-problem">{problem}</OneWay> : null}
-      <Columns weights={[1.6, 1]}>
-        {table}
-        {panel}
-      </Columns>
+      {panel === null ? (
+        table
+      ) : (
+        <Columns weights={[1, 1]}>
+          {table}
+          {panel}
+        </Columns>
+      )}
     </View>
   );
 }
@@ -254,6 +261,7 @@ function SkillLine({
   onPress,
   onTex,
   onReach,
+  narrow,
 }: {
   row: AiNoteRow;
   reach: Record<ReachKey, boolean>;
@@ -266,36 +274,45 @@ function SkillLine({
   onPress: () => void;
   onTex: (on: boolean) => void;
   onReach: (key: "mcp" | "helpers", on: boolean) => void;
+  narrow: boolean;
 }) {
+  const switches = [
+    <Switch key="tex" value={reach.tex} onValueChange={onTex} label="Tex" disabled={busy || texLocked} testID={`admin-ai-skill-${row.name}-tex`} />,
+    <Switch
+      key="mcp"
+      value={reach.mcp}
+      onValueChange={(on) => onReach("mcp", on)}
+      label="Every connected AI"
+      disabled={busy}
+      testID={`admin-ai-skill-${row.name}-mcp`}
+    />,
+    <Switch
+      key="helpers"
+      value={reach.helpers}
+      onValueChange={(on) => onReach("helpers", on)}
+      label="Helper agents"
+      disabled={busy}
+      testID={`admin-ai-skill-${row.name}-helpers`}
+    />,
+  ];
+  const skill = <Cell key="skill" title={row.title} sub={row.lede} strong />;
   return (
     <TableLine
-      columns={COLUMNS}
-      cells={[
-        <Cell key="skill" title={row.title} sub={row.lede} strong />,
-        <Cell key="size" title={sizeOf(row)} align="right" />,
-        <Switch key="tex" value={reach.tex} onValueChange={onTex} label="Tex" disabled={busy || texLocked} testID={`admin-ai-skill-${row.name}-tex`} />,
-        <Switch
-          key="mcp"
-          value={reach.mcp}
-          onValueChange={(on) => onReach("mcp", on)}
-          label="Every connected AI"
-          disabled={busy}
-          testID={`admin-ai-skill-${row.name}-mcp`}
-        />,
-        <Switch
-          key="helpers"
-          value={reach.helpers}
-          onValueChange={(on) => onReach("helpers", on)}
-          label="Helper agents"
-          disabled={busy}
-          testID={`admin-ai-skill-${row.name}-helpers`}
-        />,
-        proved.length > 0 ? (
-          <Cell key="proved" title={proved.map((test) => test.name).join(", ")} tone="ok" />
-        ) : (
-          <Cell key="proved" title="no case" tone="crit" />
-        ),
-      ]}
+      columns={narrow ? NARROW_COLUMNS : COLUMNS}
+      cells={
+        narrow
+          ? [skill, ...switches]
+          : [
+              skill,
+              <Cell key="size" title={sizeOf(row)} align="right" />,
+              ...switches,
+              proved.length > 0 ? (
+                <Cell key="proved" title={proved.map((test) => test.name).join(", ")} tone="ok" />
+              ) : (
+                <Cell key="proved" title="no case" tone="crit" />
+              ),
+            ]
+      }
       title={row.title}
       sub={row.lede}
       first={first}

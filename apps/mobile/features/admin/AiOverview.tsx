@@ -11,17 +11,22 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Text, space, useThemedStyles, type Colors } from "../design";
 import { provedBy } from "./aiCatalog";
 import { AI_HELPERS, jobPage, scoreHistory, type Candidate, type JobPage, type ScorePoint } from "./aiModel";
-import { Box, Cell, Columns, Head, LinkText, PageHead, Quiet, Quietly, StatusPill, TableLine, pct, type Column } from "./AiKit";
+import { Box, Cell, Head, LinkText, PageHead, Quiet, Quietly, StatusPill, TableLine, pct, type Column } from "./AiKit";
 import type { AiScreenProps } from "./aiScreen";
 
-/** A candidate's score less live's in the same round, or null when either did not score. */
+/**
+ * A candidate's score less live's in the same round, or null when either did
+ * not score, or when the row live stands on is its own (live itself, or a
+ * round live did not run in): that is no comparison, not a tie.
+ */
 function deltaOf(candidate: Candidate): number | null {
-  const mine = candidate.score?.score ?? null;
-  const theirs = candidate.liveScore?.score ?? null;
+  if (candidate.score === null || candidate.liveScore === null || candidate.liveScore === candidate.score) return null;
+  const mine = candidate.score.score;
+  const theirs = candidate.liveScore.score;
   return mine === null || theirs === null ? null : mine - theirs;
 }
 
-/** Its points against live, to one decimal: `+6.7 pts`, `−20 pts`, `0 pts`; `—` when live has no score. */
+/** Its points against live, to one decimal: `+6.7 pts`, `−20 pts`, `0 pts`; `—` when there is nothing to compare. */
 export function points(candidate: Candidate): string {
   const delta = deltaOf(candidate);
   if (delta === null) return "—";
@@ -44,16 +49,16 @@ interface Change {
 }
 
 const CHANGE_COLUMNS: readonly Column[] = [
-  { label: "CHANGE", flex: 2 },
-  { label: "JOB", flex: 1 },
-  { label: "RESULT", width: 80, align: "right" },
-  { label: "KEPT?", width: 140 },
+  { label: "CHANGE", flex: 1 },
+  { label: "JOB", width: 160 },
+  { label: "RESULT", width: 90, align: "right" },
+  { label: "KEPT?", width: 160 },
 ];
 
 const JOB_COLUMNS: readonly Column[] = [
-  { label: "JOB", flex: 1.4 },
-  { label: "LAST RUNS", flex: 1 },
-  { label: "NOW", width: 70, align: "right" },
+  { label: "JOB", flex: 1 },
+  { label: "LAST RUNS", width: 200 },
+  { label: "NOW", width: 90, align: "right" },
 ];
 
 /** A job's last few rounds as small bars, oldest left; a round with no score is a flat stub. */
@@ -154,48 +159,47 @@ export function AiOverview(props: AiScreenProps) {
         Golden cases judge every setup → a job reads skills and calls tools and helper agents → the improver drafts changes → a person promotes
       </Text>
 
-      <Columns weights={[1, 1]}>
-        <Box title="What worked, what didn't" right={<Text variant="meta">{`${tried} changes tried`}</Text>} testID="admin-ai-changes">
-          {changes.length === 0 ? (
-            <Quietly testID="admin-ai-changes-empty">No change has been measured yet.</Quietly>
-          ) : (
-            <>
-              <Head columns={CHANGE_COLUMNS} />
-              {changes.map((item, index) => {
-                const { candidate } = item;
-                const sub = candidate.madeBy ? `${candidate.name} · ${candidate.madeBy}` : candidate.name;
-                const result = points(candidate);
-                return (
-                  <TableLine
-                    key={candidate.row.path}
-                    columns={CHANGE_COLUMNS}
-                    title={candidate.change ?? candidate.name}
-                    sub={sub}
-                    trailing={<Text variant="meta">{result}</Text>}
-                    first={index === 0}
-                    last={index === changes.length - 1}
-                    onPress={() => openChange(item)}
-                    testID={`admin-ai-change-${candidate.name}`}
-                    cells={[
-                      <Cell key="change" strong title={candidate.change ?? candidate.name} sub={sub} />,
-                      <Cell key="job" title={item.jobLabel} />,
-                      <Cell key="result" strong title={result} tone={toneOf(candidate)} align="right" />,
-                      <StatusPill key="kept" status={candidate.status} />,
-                    ]}
-                  />
-                );
-              })}
-            </>
-          )}
-        </Box>
+      {/* One above the other: a change's sentence needs the page's width, and halves of it cut every one short. */}
+      <Box title="What worked, what didn't" right={<Text variant="meta">{`${tried} changes tried`}</Text>} testID="admin-ai-changes">
+        {changes.length === 0 ? (
+          <Quietly testID="admin-ai-changes-empty">No change has been measured yet.</Quietly>
+        ) : (
+          <>
+            <Head columns={CHANGE_COLUMNS} />
+            {changes.map((item, index) => {
+              const { candidate } = item;
+              const sub = candidate.madeBy ? `${candidate.name} · ${candidate.madeBy}` : candidate.name;
+              const result = points(candidate);
+              return (
+                <TableLine
+                  key={candidate.row.path}
+                  columns={CHANGE_COLUMNS}
+                  title={candidate.change ?? candidate.name}
+                  sub={sub}
+                  trailing={<Text variant="meta">{result}</Text>}
+                  first={index === 0}
+                  last={index === changes.length - 1}
+                  onPress={() => openChange(item)}
+                  testID={`admin-ai-change-${candidate.name}`}
+                  cells={[
+                    <Cell key="change" strong title={candidate.change ?? candidate.name} sub={sub} />,
+                    <Cell key="job" title={item.jobLabel} />,
+                    <Cell key="result" strong title={result} tone={toneOf(candidate)} align="right" />,
+                    <StatusPill key="kept" status={candidate.status} />,
+                  ]}
+                />
+              );
+            })}
+          </>
+        )}
+      </Box>
 
-        <Box title="Each job over time" right={<Text variant="meta">score on its golden cases</Text>} testID="admin-ai-jobs-over-time">
-          <Head columns={JOB_COLUMNS} />
-          {pages.map(({ key, page }, index) => (
-            <JobLine key={key} page={page} first={index === 0} last={index === pages.length - 1} onPress={() => go({ view: "jobs", job: key, tab: "overview", compare: null })} />
-          ))}
-        </Box>
-      </Columns>
+      <Box title="Each job over time" right={<Text variant="meta">score on its golden cases</Text>} testID="admin-ai-jobs-over-time">
+        <Head columns={JOB_COLUMNS} />
+        {pages.map(({ key, page }, index) => (
+          <JobLine key={key} page={page} first={index === 0} last={index === pages.length - 1} onPress={() => go({ view: "jobs", job: key, tab: "overview", compare: null })} />
+        ))}
+      </Box>
     </View>
   );
 }

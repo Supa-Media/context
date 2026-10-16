@@ -105,7 +105,7 @@ export function StatStrip({ stats, testID }: { stats: readonly Stat[]; testID?: 
   return (
     <View style={[styles.strip, compact && styles.stripCompact]} testID={testID}>
       {stats.map((stat, index) => (
-        <View key={stat.label} style={[styles.stat, index > 0 && !compact && styles.statRule]}>
+        <View key={stat.label} style={[styles.stat, compact && styles.statCompact, index > 0 && !compact && styles.statRule]}>
           <Text variant="eyebrow" numberOfLines={1}>{stat.label}</Text>
           <Text variant="statValue" numberOfLines={1} style={stat.tone ? styles[stat.tone] : null}>{stat.value}</Text>
           {stat.sub ? <Text variant="meta" numberOfLines={2}>{stat.sub}</Text> : null}
@@ -263,14 +263,17 @@ const makeStyles = (colors: Colors) =>
     },
     nextText: { flexShrink: 1, color: colors.text },
     strip: { flexDirection: "row", borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
-    stripCompact: { flexDirection: "column" },
+    // Two to a row on a phone: five stacked figures push the page's content off the first screen.
+    stripCompact: { flexWrap: "wrap" },
     stat: { flex: 1, minWidth: 0, gap: space.x1, paddingVertical: space.x3, paddingHorizontal: space.x4 },
+    statCompact: { flexBasis: "50%", flexGrow: 0 },
     statRule: { borderLeftWidth: 1, borderLeftColor: colors.line },
     ok: { color: colors.okText },
     warn: { color: colors.warnText },
     crit: { color: colors.critText },
     neutral: {},
-    cell: { gap: 2, minWidth: 0 },
+    // Stretched to its column's width, so `numberOfLines` has an edge to truncate at.
+    cell: { gap: 2, minWidth: 0, alignSelf: "stretch" },
     right: { textAlign: "right" },
     selected: { backgroundColor: colors.rowSelected },
     hover: { backgroundColor: colors.chipFill },

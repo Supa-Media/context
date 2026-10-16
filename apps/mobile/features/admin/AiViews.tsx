@@ -445,7 +445,8 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.line,
       backgroundColor: colors.surface,
     },
-    tileCrit: { borderColor: colors.critBorder, backgroundColor: colors.critWash },
+    // A red edge, not a red fill: the console draws no tinted boxes.
+    tileCrit: { borderColor: colors.critBorder },
     group: { paddingHorizontal: space.x5, paddingVertical: space.x2, backgroundColor: colors.chipFill, borderBottomWidth: 1, borderBottomColor: colors.line },
     pills: { flexDirection: "row", flexWrap: "wrap", gap: space.x1 },
     ok: { color: colors.okText },

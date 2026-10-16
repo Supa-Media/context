@@ -157,4 +157,18 @@ describe("What worked, what didn't", () => {
     expect(points(against(100.02, 100))).toBe("0 pts");
     expect(points(against(100, null))).toBe("—");
   });
+
+  test("a round with no 'Best setup' line names the best setup that was good enough", () => {
+    expect(readRun(SCORES)!.best).toBe("live-6");
+    expect(readRun(`${SCORES}\nBest setup that passes every bar: none.\n`)!.best).toBeNull();
+  });
+
+  test("live is not scored against itself: its row says — and never 0 pts", async () => {
+    await render();
+    const row = byTestId("admin-ai-change-live-5")!;
+    expect(row.textContent).toContain("—");
+    expect(row.textContent).not.toContain("0 pts");
+    const self = { score: 93.3 };
+    expect(points({ score: self, liveScore: self } as unknown as Candidate)).toBe("—");
+  });
 });

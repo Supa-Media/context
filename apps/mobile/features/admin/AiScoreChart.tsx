@@ -12,7 +12,7 @@ import { useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Circle, Line, Polyline, Svg, Text as SvgText } from "react-native-svg";
 import { Text, useColors, useThemedStyles, type Colors } from "../design";
-import { pointerType } from "../design/tokens";
+import { fonts, pointerType } from "../design/tokens";
 import type { ScorePoint } from "./aiModel";
 
 const HEIGHT = 160;
@@ -57,12 +57,12 @@ export function AiScoreChart({ points, bar }: { points: readonly ScorePoint[]; b
           <Line key={`grid-${value}`} x1={plotLeft} x2={plotRight} y1={yAt(value)} y2={yAt(value)} stroke={colors.line} strokeWidth={1} />
         ))}
         {[CEILING, FLOOR].map((value) => (
-          <SvgText key={`label-${value}`} x={plotLeft - 8} y={yAt(value) + 4} fontSize={pointerType.label} fill={colors.muted} textAnchor="end">
+          <SvgText key={`label-${value}`} x={plotLeft - 8} y={yAt(value) + 4} fontSize={pointerType.label} fontFamily={fonts.body} fill={colors.muted} textAnchor="end">
             {`${value}%`}
           </SvgText>
         ))}
         <Line x1={plotLeft} x2={plotRight} y1={yAt(bar)} y2={yAt(bar)} stroke={colors.warnText} strokeWidth={1} strokeDasharray="4 4" />
-        <SvgText x={plotRight + 6} y={yAt(bar) + 4} fontSize={pointerType.label} fill={colors.warnText}>
+        <SvgText x={plotRight + 6} y={yAt(bar) + 4} fontSize={pointerType.label} fontFamily={fonts.body} fill={colors.warnText}>
           bar
         </SvgText>
         {drawn.length > 1 ? (
@@ -74,13 +74,13 @@ export function AiScoreChart({ points, bar }: { points: readonly ScorePoint[]; b
         {drawn
           .filter((item) => item.point.promoted)
           .map((item) => (
-            <SvgText key={`promoted-${item.point.path}`} x={item.x} y={item.y - 10} fontSize={pointerType.label} fill={colors.accent} textAnchor="middle">
+            <SvgText key={`promoted-${item.point.path}`} x={item.x} y={item.y - 10} fontSize={pointerType.label} fontFamily={fonts.body} fill={colors.accent} textAnchor="middle">
               ▲ promoted
             </SvgText>
           ))}
         {points.map((point, index) =>
           index % stride === 0 || index === points.length - 1 ? (
-            <SvgText key={`run-${point.path}`} x={xAt(index)} y={HEIGHT - 8} fontSize={pointerType.label} fill={colors.muted} textAnchor="middle">
+            <SvgText key={`run-${point.path}`} x={xAt(index)} y={HEIGHT - 8} fontSize={pointerType.label} fontFamily={fonts.body} fill={colors.muted} textAnchor="middle">
               {point.label}
             </SvgText>
           ) : null,
