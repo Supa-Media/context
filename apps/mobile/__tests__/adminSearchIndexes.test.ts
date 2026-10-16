@@ -152,6 +152,12 @@ describe("the Convex copy column", () => {
       figure: "12",
     });
     expect(convexCell(migration({ stage: "matches" }), true)).toMatchObject({ health: "ok", label: "Matches" });
+    // A keyed workspace is done, whatever a check from before the flip found.
+    expect(convexCell(migration({ stage: "keyed", parity: { checkedAt: 1, mismatches: 70, privacyMatches: true } }))).toMatchObject({
+      health: "ok",
+      label: "Notes by id",
+      problem: null,
+    });
     expect(convexCell(migration({ stage: "stuck", error: "Listing failed" }), true)).toMatchObject({ health: "stuck" });
   });
 

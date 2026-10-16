@@ -82,6 +82,17 @@ export function parseAdminPlace(segments: readonly string[]): AdminPlace | null 
   return null;
 }
 
+/**
+ * The Search tab's view for a place's `sub`, `indexes` for none. Every view in
+ * `SEARCH_PLACES` comes through: a list kept by hand here once left out `rows`,
+ * so its address and its tab both drew Indexes.
+ */
+export function searchView(sub: string | null): (typeof SEARCH_PLACES)[number] {
+  return (SEARCH_PLACES as readonly string[]).includes(sub ?? "")
+    ? (sub as (typeof SEARCH_PLACES)[number])
+    : "indexes";
+}
+
 /** The path for a place: the inverse of `parseAdminPlace`. */
 export function adminPath(place: AdminPlace): string {
   const base = `/admin/${tabSlug(place.tab)}`;

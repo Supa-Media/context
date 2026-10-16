@@ -16,6 +16,7 @@ import {
   adminPath,
   parseAdminPlace,
   parseWindow,
+  searchView,
   sectionSegments,
   type AdminPlace,
 } from "../features/admin/place";
@@ -77,6 +78,12 @@ describe("every place has one address", () => {
 
   test("every Search view the tab offers has an address", () => {
     expect(SEARCH_SUBVIEWS.map((entry) => entry.key).sort()).toEqual([...SEARCH_PLACES].sort());
+  });
+
+  test("every search address opens its own view", () => {
+    for (const view of SEARCH_PLACES) expect(searchView(view)).toBe(view);
+    expect(searchView(null)).toBe("indexes");
+    expect(searchView("nonsense")).toBe("indexes");
   });
 
   test("waitlist views and their address words are inverses", () => {

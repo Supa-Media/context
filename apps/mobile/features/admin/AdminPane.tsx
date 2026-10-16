@@ -68,7 +68,7 @@ import { ReportsSection } from "./ReportsSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
-import { DEFAULT_PLACE, type AdminPlace } from "./place";
+import { DEFAULT_PLACE, searchView, type AdminPlace } from "./place";
 import type { AdminPlaceControl } from "./useAdminPlace";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistSection, waitlistPlace, waitlistView } from "./WaitlistSection";
@@ -183,7 +183,7 @@ function Console(props: AdminPaneProps) {
         ) : null}
         {tab === "search" ? (
           <SearchSection
-            view={sub === "speed" || sub === "notes" ? sub : "indexes"}
+            view={searchView(sub)}
             onView={(view) => go({ tab: "search", sub: view === "indexes" ? null : view })}
           />
         ) : null}
