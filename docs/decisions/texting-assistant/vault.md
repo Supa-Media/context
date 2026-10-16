@@ -216,6 +216,14 @@ outgoing request.
   removed AI back. Storage without conditional writes records no history and
   still uses the key. The asks waiting are read from the pending approvals
   as they stand.
+- **New key and Show the key open in place** (the owner, 2026-10-16: "I don't
+  like that it opens a new page"). Each press still mints a fresh vault link
+  and runs the same calls as `/vault/<token>` (`useVaultLinkFlow`), so a value
+  is typed or revealed only on a link, each reveal is recorded, and the list
+  itself never holds a value. What was revealed lives in that one component
+  and is dropped when the key is hidden, another key is picked or the page
+  closes. Going back to a separate page would cost nothing in safety and only
+  the person's place in Settings.
 - **Two ways in.** (1) A fetch-through-Context argument on an existing vault
   tool (new capability, existing tool: `gateway-protocol.md`) for a plain web
   request from any MCP client. (2) For command-line tools on an agent's own

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useAction, useConvexAuth } from "convex/react";
@@ -15,13 +15,12 @@ import { firstParam } from "../invite/invite";
 import { useSwitchAccount } from "../auth/useSwitchAccount";
 import { VaultAddForm, type VaultDraft, type VaultInitialDraft } from "./VaultAddForm";
 import { VaultViewPage } from "./VaultViewPage";
+import { useVaultLinkFlow } from "./useVaultLinkFlow";
 import {
   PREFILL_KEYS,
   atHandle,
   resolveVaultLinkView,
-  type Described,
   type EntryType,
-  type Outcome,
   type RawPrefill,
   type VaultLinkView,
   type VaultWorkspace,
@@ -49,55 +48,12 @@ export function VaultLinkScreen() {
   const share = useAction(api.functions.vault.confirmVaultShare);
   const reveal = useAction(api.functions.vault.revealVaultEntry);
   const switchAccount = useSwitchAccount();
-  const [described, setDescribed] = useState<Described>({ kind: "idle" });
-  const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
-  const asked = useRef(false);
-
-  useEffect(() => {
-    if (asked.current || !auth.isAuthenticated || token === null) return;
-    asked.current = true;
-    setDescribed({ kind: "loading" });
-    describe({ token }).then(
-      (request) => setDescribed({ kind: "shown", request }),
-      (error: unknown) => setDescribed({ kind: "failed", error }),
-    );
-  }, [auth.isAuthenticated, describe, token]);
-
-  // Resolves true on success so the form can drop the password it held.
-  const onSave = useCallback(
-    async (draft: VaultDraft): Promise<boolean> => {
-      if (token === null) return false;
-      setOutcome({ kind: "busy" });
-      try {
-        const saved = await save({ token, ...draft });
-        setOutcome({ kind: "saved", ...saved, type: draft.type });
-        return true;
-      } catch (error: unknown) {
-        setOutcome({ kind: "failed", error });
-        return false;
-      }
-    },
-    [save, token],
-  );
-
-  const onShare = useCallback(() => {
-    if (token === null) return;
-    setOutcome({ kind: "busy" });
-    share({ token }).then(
-      (shared) => setOutcome({ kind: "shared", ...shared }),
-      (error: unknown) => setOutcome({ kind: "failed", error }),
-    );
-  }, [share, token]);
-
-  // One call per press; the answer stays in this state and is never logged.
-  const onReveal = useCallback(() => {
-    if (token === null) return;
-    setOutcome({ kind: "busy" });
-    reveal({ token }).then(
-      (entry) => setOutcome({ kind: "revealed", entry }),
-      (error: unknown) => setOutcome({ kind: "failed", error }),
-    );
-  }, [reveal, token]);
+  const { described, outcome, setOutcome, onSave, onShare, onReveal } = useVaultLinkFlow(token, auth.isAuthenticated, {
+    describe: (link) => describe({ token: link }),
+    save: (link, draft) => save({ token: link, ...draft }),
+    share: (link) => share({ token: link }),
+    reveal: (link) => reveal({ token: link }),
+  });
 
   const view = resolveVaultLinkView({ token, auth, prefill, described, outcome });
   if (view.kind === "wait") return <View style={styles.ground} />;
