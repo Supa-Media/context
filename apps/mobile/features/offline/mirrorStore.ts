@@ -1,4 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
+import { breathe } from "./breathe";
 import type { CacheScope } from "./keys";
 import { bodyFileName, segmentName, segmentValue } from "./mirrorPath";
 import { guardMirror, type MirrorRoot, type MirrorSlot, type MirrorStore } from "./mirrorStoreCore";
@@ -98,9 +99,12 @@ function decodedName(name: string): string | null {
 export function fileMirrorStore(): MirrorStore {
   return guardMirror({
     kind: "files",
+    // Every call that touches the disk synchronously breathes first
+    // (`breathe.ts`): a sync's run of them must not hold every tap.
     readIndex: async (scope, workspaceId) =>
       readText(new File(workspaceDir(scope, workspaceId), "index.json")),
     writeIndex: async (scope, workspaceId, json) => {
+      await breathe();
       const directory = workspaceDir(scope, workspaceId);
       ensure(directory);
       new File(directory, "index.json").write(json);
@@ -108,11 +112,13 @@ export function fileMirrorStore(): MirrorStore {
     readBody: async (scope, workspaceId, slot, path) =>
       readText(new File(slotDir(scope, workspaceId, slot), bodyFileName(path))),
     writeBody: async (scope, workspaceId, slot, path, text) => {
+      await breathe();
       const directory = slotDir(scope, workspaceId, slot);
       ensure(directory);
       new File(directory, bodyFileName(path)).write(text);
     },
     removeBody: async (scope, workspaceId, slot, path) => {
+      await breathe();
       removeIfThere(new File(slotDir(scope, workspaceId, slot), bodyFileName(path)));
     },
     roots: async () => {
