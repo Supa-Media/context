@@ -14,10 +14,13 @@ import { test } from "node:test";
 
 import worker from "../src/index.js";
 
+// Every request needs the control plane's settings, so every env carries them.
+const CONTROL_PLANE = { CONTROL_PLANE_URL: "https://control-plane.example", GATEWAY_SECRET: "gateway-secret" };
+
 async function metadata(env) {
   const response = await worker.fetch(
     new Request("https://mcp.context.test/.well-known/oauth-authorization-server"),
-    env,
+    { ...CONTROL_PLANE, ...env },
     { waitUntil() {} }
   );
   assert.equal(response.status, 200);

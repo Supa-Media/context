@@ -157,3 +157,23 @@ before this change has no id and is not checked: a trashed note whose head was
 left at its name before this change can still pass its history to a note later
 created there. The rename gap in the section above is the other open item for a
 workspace with live collaborative notes.
+
+## The gateway refuses every request without a control plane
+
+*Decided by the owner, 2026-10-15.*
+
+The gateway is a control-plane client and nothing else. With
+`CONTROL_PLANE_URL` missing, not https (loopback excepted), or with no
+`GATEWAY_SECRET`, `fetch` answers `503` JSON naming the setting that is wrong,
+never its value, before any route runs. The check sits inside the top-level
+catch, so an `env` that throws on first read still answers `500`.
+
+The single-deployment ingestion went with it: the Granola webhook and the
+calendar cron wrote through a bucket bound straight to the Worker
+(`LOCAL_CONTEXT_BUCKET`), which only a one-person install without a control
+plane had. They are removed, with their settings.
+
+What a "simplification" would cost: a request that reaches a route without a
+control plane has no tenant to check it against, so it is served on the
+gateway's own say-so, and the tenant boundary is a comment. The guard is `test/controlPlaneRequired.test.mjs`, which fails if the entry check is
+removed (sabotaged on the commit that added it).

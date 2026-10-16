@@ -315,10 +315,6 @@ const env = {
   // answer. Anything else is refused even if it exists on `env`.
   NATIVE_BINDINGS: "CONTEXT_BUCKET",
   CONTEXT_BUCKET: bucket,
-  // Cron and webhook ingestion only; no caller can reach this.
-  LOCAL_CONTEXT_BUCKET: bucket,
-  GRANOLA_WEBHOOK_SECRET: `whsec_${btoa("granola-webhook-secret")}`,
-  GRANOLA_API_KEY: "granola-api-key",
 };
 
 // seed

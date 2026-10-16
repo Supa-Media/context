@@ -365,7 +365,7 @@ export async function createTenancyHarness() {
     ALLOWED_BUCKET: memoryR2(),
     // Present on env and deliberately NOT in NATIVE_BINDINGS. A control plane
     // that names it must not be able to reach it.
-    LOCAL_CONTEXT_BUCKET: memoryR2({ "secret.md": "CRON-ONLY-MARKER" }),
+    UNLISTED_BUCKET: memoryR2({ "secret.md": "UNLISTED-MARKER" }),
   };
   controlPlane.serveTreesFrom(env, { s3, dropbox });
 
