@@ -258,7 +258,7 @@ async function runTool(name, args, store, scope) {
     case "create_link":
       return toolCreateLink(store, scope, args);
     case "vault_list":
-      return toolVaultList(store);
+      return toolVaultList(store, args);
     case "vault_add_link":
       return toolVaultAddLink(store, args);
     case "vault_share_link":

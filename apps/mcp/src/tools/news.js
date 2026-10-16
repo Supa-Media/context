@@ -38,6 +38,13 @@
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-16",
+    text:
+      "vault_list `fetch: { entry, field, env, url, method, headers: [{ name, value }], body }` calls an API with a saved key you never see: " +
+      "Context adds the key, only on the one site vault_list names for that entry, and hides it in the answer. " +
+      "Where it is not switched on yet, it says so.",
+  },
+  {
     date: "2026-10-15",
     text:
       'Mail between agents working on one note: write_note `mail: { join: "builder" }` gives you a mailbox id; ' +
@@ -105,7 +112,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "5fb58c31";
+export const TOOL_SHAPE = "4dfaf139";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
