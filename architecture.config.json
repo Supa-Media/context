@@ -65,11 +65,6 @@
       "path": "apps/convex/functions/lib/reservedNames.generated.ts",
       "reason": "Vendored username blocklists with a digest.",
       "command": "node scripts/build-reserved-names.mjs"
-    },
-    {
-      "path": "apps/mobile/features/vault/apiHosts.generated.ts",
-      "reason": "API websites the vault's save form suggests, vendored from the APIs.guru OpenAPI directory (CC0); regenerated, never hand-edited.",
-      "command": "node scripts/build-vault-api-hosts.mjs"
     }
   ],
   "reviewed": {

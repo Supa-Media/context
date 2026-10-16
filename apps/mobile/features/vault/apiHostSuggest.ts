@@ -27,7 +27,7 @@ function all(): Known[] {
   if (known !== null) return known;
   const list: Known[] = TOP_APIS.map(([host, name], rank) => ({ host, name, rank, words: wordsOf(name) }));
   const seen = new Set(list.map((api) => api.host));
-  for (const line of DIRECTORY_APIS.split("\n")) {
+  for (const line of DIRECTORY_APIS.split(/[;\n]/)) {
     const bar = line.indexOf("|");
     const host = line.slice(0, bar);
     if (bar <= 0 || seen.has(host)) continue;

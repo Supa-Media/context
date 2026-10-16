@@ -13,7 +13,7 @@ import { SHARED_HOST_SUFFIXES, guessStyle, hostProblem, typedHost } from "../fea
  * the hand-picked APIs come first.
  */
 
-const directoryHosts = DIRECTORY_APIS.split("\n").map((line) => line.split("|")[0]);
+const directoryHosts = DIRECTORY_APIS.split(/[;\n]/).map((line) => line.split("|")[0]);
 const everyHost = [...TOP_APIS.map(([host]) => host), ...directoryHosts];
 
 describe("the list", () => {
