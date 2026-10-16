@@ -151,6 +151,8 @@ export const manifestEntryValidator = v.object({
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
+  /** The note's id where the tree holds one; a bucket walk has none. */
+  noteId: v.optional(v.string()),
   visibility: visibilityReadValidator,
   inherited: visibilityReadValidator,
   exception: v.boolean(),
