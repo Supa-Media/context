@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { internal } from "../../_generated/api";
 import { drain, fixture, start } from "../nodes/moveFixture.helpers";
 import { copyIsFresh, idKeyFor } from "../../functions/lib/nodes/noteIds";
 import { rowAt } from "./noteIds.helpers";
@@ -59,5 +60,21 @@ describe("a queued move carries ids and copies", () => {
     expect(moved?.noteId).toBe(source!.noteId);
     expect(moved?.idCopy?.key).toBe(`files/${source!.noteId}.png`);
     expect(moved?.idCopy?.etag).toBe(moved!.etag);
+  });
+});
+
+describe("a source that is still live keeps its id", () => {
+  test("carrying from a live source gives the target its own id, so two live rows never share one", async () => {
+    const f = await fixture();
+    const source = await rowAt(f.t, f.ws, "1-projects/launch/brief.md");
+    const target = "3-resources/launch/brief.md";
+    await f.t.mutation(internal.functions.nodes.observe, { workspaceId: f.ws, at: Date.now() + 1_000, rows: [{ path: target, etag: "t1" }], gone: [], vanishedUnder: [] });
+    const before = await rowAt(f.t, f.ws, target);
+
+    await f.t.mutation(internal.functions.noteIdsCopy.carryMoved, { workspaceId: f.ws, moves: [{ from: source!.path, to: target }] });
+
+    const after = await rowAt(f.t, f.ws, target);
+    expect(after?.noteId).toBe(before?.noteId);
+    expect(after?.noteId).not.toBe(source!.noteId);
   });
 });

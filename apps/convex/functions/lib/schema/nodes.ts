@@ -79,6 +79,8 @@ export const nodeTables = {
      * Fresh only while that equals `etag` above (`copyIsFresh`). Absent when
      * no copy has been made, or one was cleared to be made again.
      */
+    /** Passes in a row in which the bucket had moved past this row's etag under a copy (`copyRecord.ts`); cleared by a copy. */
+    idHeals: v.optional(v.number()),
     idCopy: v.optional(
       v.object({
         key: v.string(),

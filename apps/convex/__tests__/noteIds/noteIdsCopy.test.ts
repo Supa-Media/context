@@ -535,3 +535,80 @@ describe("the copies are not notes", () => {
     expect((await store.list({ limit: 100 })).objects.map((o) => o.key).filter((k) => /^(notes|files)\//.test(k))).toHaveLength(2);
   });
 });
+
+describe("stale rows and shared ids", () => {
+  test("a row stale against its bucket object is healed from the bucket, copied, and the pass counts it as found", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "healed");
+    const store = bucket({ "1-projects/a.md": "# A\n" });
+    await observeBucket(t, ws, store);
+    // The bytes changed without the tree hearing of it (a writer that did not report its touch).
+    store.seed("1-projects/a.md", "# A, changed without the tree hearing\n");
+    const c = chain(t, ws, store);
+    await runPass(c);
+
+    const a = await rowAt(t, ws, "1-projects/a.md");
+    expect(await pass(c)).toMatchObject({ status: "done", copied: 1, failed: 0, failures: [] });
+    expect(a?.etag).toBe((await store.get("1-projects/a.md"))?.etag);
+    expect(copyIsFresh(a!)).toBe(true);
+    expect(new TextDecoder().decode(store.bytesOf(`notes/${a?.noteId}.md`)!)).toBe("# A, changed without the tree hearing\n");
+  });
+
+  test("a note that changes on every pass is healed three times, then listed as changed, and the pass ends", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "churning");
+    const store = bucket({ "1-projects/a.md": "# A\n" });
+    await observeBucket(t, ws, store);
+    const buckets = storeWithHead(store) as never;
+    let writes = 0;
+    const c = chain(t, ws, store, {
+      copyHere: async (page) => {
+        writes += 1;
+        // Every page: the note is written after the row was read, so the copy finds a version the row does not have.
+        store.seed("1-projects/a.md", `# A, write ${writes}\n`);
+        return await runIdCopyPage(page, { buildStore: () => buckets });
+      },
+    });
+    await runPass(c);
+
+    // Three heals, then the fourth change is recorded as a failure: no fifth copy.
+    expect(writes).toBe(4);
+    const state = await pass(c);
+    expect(state).toMatchObject({ status: "done", failed: 1, copied: 0 });
+    const a = await rowAt(t, ws, "1-projects/a.md");
+    expect(state?.failures).toEqual([{ noteId: a?.noteId, reason: "changed" }]);
+  });
+
+  test("two rows that name one id are listed once in the report, and both still count as failed", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "shared");
+    const store = bucket({ "1-projects/a.md": "# A\n", "1-projects/b.md": "# B\n" });
+    await observeBucket(t, ws, store);
+    const a = await rowAt(t, ws, "1-projects/a.md");
+    const b = await rowAt(t, ws, "1-projects/b.md");
+    await t.run((ctx) => ctx.db.patch(b!._id, { noteId: a!.noteId }));
+    const c = chain(t, ws, store, {
+      copyHere: async (page) => ({ results: page.items.map((item) => ({ path: item.path, ok: false, reason: "copy_failed" })) }),
+    });
+    await runPass(c);
+
+    const state = await pass(c);
+    expect(state).toMatchObject({ status: "done", failed: 2 });
+    expect(state?.failures).toEqual([{ noteId: a?.noteId, reason: "copy_failed" }]);
+  });
+
+  test("a file that was gone and is seen again is a new note: it keeps neither the old id nor the old copy", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "revived");
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 10, rows: [{ path: "1-projects/a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
+    const first = await rowAt(t, ws, "1-projects/a.md");
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/a.md"], vanishedUnder: [] });
+    await t.mutation(internal.functions.nodes.observe, { workspaceId: ws, at: 30, rows: [{ path: "1-projects/a.md", etag: "e2" }], gone: [], vanishedUnder: [] });
+
+    const again = await rowAt(t, ws, "1-projects/a.md");
+    expect(first?.noteId).toMatch(UUID_V7);
+    expect(again?.goneAt).toBeUndefined();
+    expect(again?.noteId).toBeUndefined();
+    expect(again?.idCopy).toBeUndefined();
+  });
+});

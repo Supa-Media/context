@@ -73,7 +73,17 @@ async function applyBucketRow(
   if (existing.kind !== "file") return;
   if (existing.observedAt > at) return;
   if (existing.goneAt !== undefined && existing.goneAt > at) return;
-  const fields = { etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at, goneAt: undefined };
+  // A gone row seen again is a new file: its id and copy described the object that went away, and a
+  // live row must never keep the id of a note that is elsewhere (the id names the note's key).
+  const revived = existing.goneAt !== undefined;
+  const fields = {
+    etag: row.etag,
+    size: row.size,
+    uploaded: row.uploaded,
+    observedAt: at,
+    goneAt: undefined,
+    ...(revived ? { noteId: undefined, idCopy: undefined, idHeals: undefined } : {}),
+  };
   // Only a change is logged: a sweep that re-sees a file as it was writes nothing there.
   const changed = existing.goneAt !== undefined || existing.etag !== row.etag || existing.size !== row.size;
   await table.patch(existing.id, fields);

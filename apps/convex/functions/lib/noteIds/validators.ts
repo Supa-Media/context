@@ -16,6 +16,9 @@ export const copyResultValidator = v.object({
   etag: v.optional(v.string()),
   keyEtag: v.optional(v.string()),
   reason: v.optional(v.string()),
+  /** For `changed`: the bucket's current version of the path, which the record may refresh the row to. */
+  currentEtag: v.optional(v.string()),
+  currentSize: v.optional(v.number()),
 });
 
 export const refusedValidator = v.object({ noteId: v.string(), reason: v.string() });

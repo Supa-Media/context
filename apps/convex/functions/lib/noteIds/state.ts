@@ -192,6 +192,10 @@ export async function carryIdentity(ctx: MutationCtx, workspaceId: Id<"workspace
   const source = await nodeAt(ctx.db, workspaceId, from);
   const target = await nodeAt(ctx.db, workspaceId, to);
   if (source === null || target === null || target.kind !== "file") return;
+  // Only a source that has gone can hand its id over. A source still live keeps its id, and the target keeps its
+  // own: two live rows with one id would share one key (`notes/<id>.md` names no path), and one note's bytes would
+  // be copied over the other's.
+  if (source.goneAt === undefined) return;
   const noteId = source.noteId ?? target.noteId ?? newNoteId();
   const key = idKeyFor(noteId, to);
   const copy = source.idCopy;
