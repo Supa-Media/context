@@ -326,3 +326,27 @@ test("a non-text answer cannot hand the key back in its content type", async () 
   assert.equal(text.includes(KEY), false, "the content type echoed the key back to the model");
   assert.ok(text.includes(HIDDEN));
 });
+
+test("the AI cannot ask the site for an answer Context would not be able to read", async () => {
+  const { store, id } = await proxyVault();
+  const net = fakeFetch();
+  withProxy(store, net.impl);
+  await toolVaultFetch(store, ask(id, "https://api.stripe.com/v1/customers", { headers: [{ name: "accept-encoding", value: "gzip" }] }));
+  const sent = [...net.calls[0].init.headers.keys()];
+  assert.equal(sent.includes("accept-encoding"), false, "the AI chose the answer's encoding");
+});
+
+test("an answer Context cannot read is not passed through unread", async () => {
+  const { store, id } = await proxyVault();
+  const net = fakeFetch(
+    () =>
+      new Response("the site's own words, never decoded", {
+        headers: { "content-type": "application/json", "content-encoding": "gzip" },
+      }),
+  );
+  withProxy(store, net.impl);
+  const result = await toolVaultFetch(store, ask(id, "https://api.stripe.com/v1/customers"));
+  const text = JSON.stringify(result);
+  assert.equal(text.includes("the site's own words"), false, "a body Context could not read reached the model anyway");
+  assert.match(text, /could not read/);
+});
