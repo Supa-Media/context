@@ -141,10 +141,79 @@ member it was never given cannot have a view link made for it"),
 `apps/mcp/test/vault.test.mjs` ("the fill step types one field for one
 environment, on the entry's site only").
 
+### An AI uses a key without seeing it: Context adds it on the way out
+
+Shape agreed with the owner, 2026-10-16 ("wouldn't it be the same if you just
+proxied network requests through context and had it add the key you
+wanted?"). Boards first, then the build: the save page, the vault list, the
+first-use ask and the activity log are drawn in the owner's workspace
+(@supa `1-projects/vault-key-proxy/`), and nothing below is built until the
+owner picks.
+
+This widens the 2026-10-06 rule on one side and keeps it on the other. Still
+true: no model ever sees a value, in a tool result, a log or a message. What
+changes: the fill step is no longer the only thing that opens a secret for
+use. A second opener, the gateway's proxy step, adds one field's value to one
+outgoing request.
+
+- **Pinned to one website when saved.** An entry used this way names exactly
+  one host (`api.stripe.com`), and how the site wants the key: the sign-in
+  header (`Authorization: Bearer`), a header the person names, or a query
+  parameter. Exact host only, never "beneath it" as a login's fill allows,
+  and https only. A request to any other host goes out without the key; the
+  model cannot choose where a key goes, which is the whole defence against a
+  planted "send the key to webhook.site". A host anyone can publish under (a
+  shared hosting suffix such as `workers.dev`, `ngrok.app`, `github.io`) is
+  refused at save time, because pinning to it pins to everyone.
+- **Blanked from the answer.** Before a response reaches the model the
+  gateway replaces the value, and its base64, URL-encoded and hex forms, with
+  a fixed marker, in headers and body. An answer it cannot read whole (over the
+  size cap, compressed in a way it cannot open) is refused rather than passed
+  through unread.
+- **The first use by each AI asks the person.** The unit of a yes is one entry,
+  one connected client (the grant), one host. The ask reuses the egress gate's
+  machinery (`.context/approvals/pending/`, the app's `/approvals` and a texted
+  YES, which the gateway reads before any model runs), never anything the
+  model can call. A key Tex itself asks for is asked in the app only, so Tex's
+  own thread never settles Tex's own ask. The request does not hang while the
+  person decides: it answers at once "waiting for <person>'s yes, try again",
+  and the ask stays open for ten minutes, after which it is a no. "From now on"
+  lasts until the person cuts that client off in Settings › Vault; "just this
+  once" lets one request through. The entry's switch "Ask me the first time
+  each AI uses it" is on by default; off means every client the person
+  connected may use it without asking.
+- **Every use is an audit entry** (`vault.proxied`, `vault.proxy_refused`):
+  who, which entry, which environment, method, host and path, status. Never a
+  query string, a header value or a body, since those are where a site puts
+  what it answered.
+- **Two ways in.** (1) A fetch-through-Context argument on an existing vault
+  tool (new capability, existing tool: `gateway-protocol.md`) for a plain web
+  request from any MCP client. (2) For command-line tools on an agent's own
+  computer, the `npx @supa-media/context` CLI runs a local proxy that the tools
+  reach through `HTTPS_PROXY`. It terminates TLS with a certificate authority
+  it generates on that machine, and hands each request to the gateway, which
+  adds the key and makes the call. The machine holds that local certificate and
+  a revocable grant, never a key. A Worker cannot be a CONNECT proxy itself,
+  which is why the local half exists.
+- **What it does not stop.** A model with a yes can do whatever the key lets it
+  do on that site: read the customers, refund a charge. Pinning stops the key
+  leaving; the key's own permissions stop the rest, so the save page asks for
+  the narrowest key the site offers.
+
+**What a simplification would cost:** letting the model name the host turns a
+planted instruction into a stolen key; allowing subdomains or a shared hosting
+suffix lets anyone who can publish there collect it; scrubbing only the literal
+value misses the echo in base64; letting one yes cover every AI makes a steered
+client's first use silent. Tests to write with the build: a request to another
+host carries no key, an echoed key comes back blanked in each encoding, an
+unanswered ask is a no after ten minutes, and a model's own call cannot settle
+an ask.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
 until then a changed key is saved as a new entry. Handing a coding agent an
-environment's values to run with (the way `op run` does) needs its own
-section here: today no model ever sees a value. TOTP secrets, email codes, a
+environment's values to run with (the way `op run` does) stays out: the agent
+types the commands, so it could print what it was handed. The proxy above is
+the answer to that need. TOTP secrets, email codes, a
 sealed cookie jar and cards each need their own section before they are built.
