@@ -74,6 +74,16 @@ import { readTrashedText } from "../fileOps/trashedReading";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 
+/** Operations that write `privacy.md`'s rules: refused in rows mode, where the rows are written instead. */
+const PRIVACY_WRITE_OPERATIONS = new Set([
+  "setVisibility",
+  "setNoteGroup",
+  "setFolderGroup",
+  "setFolderVisibility",
+  "resetPrivacy",
+  "ensurePrivacy",
+]);
+
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
 
@@ -87,6 +97,15 @@ export async function runFileOperationHandler(
     operation: Infer<typeof operationValidator>;
   },
 ): Promise<OperationResult> {
+  // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
+  // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
+  // credential is opened.
+  if (PRIVACY_WRITE_OPERATIONS.has(args.operation.kind) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    throw new ConvexError({
+      code: "ROWS_MODE",
+      message: "Access is kept on the tree's rows now. Change it through the console, or the gateway's set access.",
+    });
+  }
   /*
    * A PROJECTION PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
    *

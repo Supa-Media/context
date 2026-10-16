@@ -30,7 +30,7 @@ export const nodeAccessTables = {
     role: v.union(v.literal("view"), v.literal("edit")),
     grantedBy: v.optional(v.id("users")),
     at: v.number(),
-    source: v.union(v.literal("privacy.md"), v.literal("share")),
+    source: v.union(v.literal("privacy.md"), v.literal("share"), v.literal("owner")),
   })
     .index("by_node", ["nodeId"])
     .index("by_workspace", ["workspaceId"])
