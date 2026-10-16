@@ -54,60 +54,41 @@ import {
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
+import {
+  fieldSummaryValidator,
+  fieldValuesValidator,
+  kindValidator,
+  metaValidator,
+  operationValidator,
+  proxyClientValidator,
+  proxyPinValidator,
+  proxyStyleValidator,
+  revealedValidator,
+  shownPinValidator,
+  shownPin,
+  type Described,
+  type EntryKind,
+  type FieldSummary,
+  type FieldValues,
+  type LiveRequest,
+  type ProxyClient,
+  type ProxyPin,
+  type RequestKind,
+  type RequestLabels,
+  type Revealed,
+  type StoredPin,
+  type VaultMeta,
+  type Listed,
+  type Shown,
+  type ShownMeta,
+} from "./lib/vaultShapes";
+export type { Listed, Shown, ShownMeta } from "./lib/vaultShapes";
 
 export const VAULT_LINK_TTL_MS = 30 * 60 * 1000;
 const REQUEST_LIMIT = 20;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 
-type FieldSummary = { name: string; perEnv: boolean; set: string[] };
-type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
-type EntryKind = "login" | "secret";
-/** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
-type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
-/** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
-type ProxyClient = { id: string; name: string | null; at: number };
-type StoredPin = ProxyPin & { clients?: ProxyClient[]; once?: { id: string; until: number }[] };
 
-type VaultMeta = {
-  type?: EntryKind;
-  fields?: FieldSummary[];
-  name: string;
-  sites: string[];
-  people: string[];
-  proxy?: StoredPin;
-  createdBy: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type RequestLabels = {
-  workspace: { handle: string; name: string; kind: "personal" | "shared" } | null;
-  grantee: string | null;
-};
-type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
-export type ShownMeta = {
-  type: EntryKind;
-  name: string;
-  sites: string[];
-  people: string[];
-  fields: FieldSummary[];
-  proxy?: ProxyPin & { clients?: ProxyClient[] };
-};
-type Revealed = { username: string; password: string; fields: FieldValues[] };
-export type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
-export type Listed = { entries: { entryId: string; meta: ShownMeta }[] };
-type RequestKind = "add" | "share" | "view";
-type Described = {
-  kind: RequestKind;
-  workspace: { handle: string; name: string; kind: "personal" | "shared" };
-  grantee: string | null;
-  entry: { type: EntryKind; name: string; sites: string[]; fields: FieldSummary[] } | null;
-  expiresAt: number;
-};
-
-const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
-const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
-const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
 function fail(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
@@ -322,47 +303,6 @@ export const purgeExpiredVaultRequests = internalMutation({
 
 /* --------------------------------- barrier -------------------------------- */
 
-const proxyStyleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
-const proxyPinValidator = v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() });
-
-const operationValidator = v.union(
-  v.object({ kind: v.literal("meta"), entryId: v.string() }),
-  v.object({
-    kind: v.literal("add"),
-    entryId: v.string(),
-    userId: v.string(),
-    type: v.union(v.literal("login"), v.literal("secret")),
-    name: v.string(),
-    sites: v.array(v.string()),
-    username: v.string(),
-    password: v.string(),
-    fields: v.array(fieldValuesValidator),
-    proxy: v.optional(proxyPinValidator),
-  }),
-  v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
-  v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
-  v.object({ kind: v.literal("list"), userId: v.string() }),
-  // Cut one AI off a key, or every AI when `clientId` is absent.
-  v.object({ kind: v.literal("cut"), entryId: v.string(), userId: v.string(), clientId: v.optional(v.string()) }),
-);
-
-const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
-const shownPinValidator = v.object({
-  host: v.string(),
-  style: proxyStyleValidator,
-  name: v.optional(v.string()),
-  ask: v.boolean(),
-  clients: v.optional(v.array(proxyClientValidator)),
-});
-const metaValidator = v.object({
-  type: v.union(v.literal("login"), v.literal("secret")),
-  name: v.string(),
-  sites: v.array(v.string()),
-  people: v.array(v.string()),
-  fields: v.array(fieldSummaryValidator),
-  proxy: v.optional(shownPinValidator),
-});
-const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
 /**
  * CREDENTIAL BARRIER. Opens one workspace's bucket and data key, does one
@@ -473,16 +413,6 @@ export const runVaultOperation = internalAction({
   },
 });
 
-/** A pin as a person may see it: the "just this once" grants stay inside the key. */
-function shownPin(pin: StoredPin): ProxyPin & { clients?: ProxyClient[] } {
-  return {
-    host: pin.host,
-    style: pin.style,
-    ...(pin.name === undefined ? {} : { name: pin.name }),
-    ask: pin.ask,
-    ...(pin.clients && pin.clients.length > 0 ? { clients: pin.clients } : {}),
-  };
-}
 
 /* ------------------------------ signed-in pages ---------------------------- */
 

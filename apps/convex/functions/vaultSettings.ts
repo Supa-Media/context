@@ -13,6 +13,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
+import { workspaceNotFound } from "./lib/workspaceAuth";
 import { isEntryId } from "../../mcp/src/vault/entries.js";
 import { runVault, type Listed, type Shown, type ShownMeta } from "./vault";
 
@@ -69,7 +70,7 @@ async function signedInMember(
   if (userId === null) throw fail("NOT_AUTHENTICATED", "Sign in to continue.");
   const membership = await ctx.runQuery(internal.functions.contextPlugins.membershipFor, { workspaceId, userId });
   // A workspace this person is not in reads as one that does not exist.
-  if (membership === null) throw fail("WORKSPACE_NOT_FOUND", "There is no such workspace.");
+  if (membership === null) throw workspaceNotFound();
   return { userId: userId as Id<"users">, role: membership.role };
 }
 
