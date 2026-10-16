@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderListSource, ListNote, ListSource, PropertyValue } from "../listBlock/model";
 import { isProjectsFolder } from "./model";
+import { cachedFolder, cachedFront, readFolder, readFronts, type FolderRead } from "./pageCache";
 import type { TaskHost } from "./tasks/taskHost";
 import type { PeekEditing } from "./panel/peekEditing";
 
@@ -130,12 +131,22 @@ function settle(notes: readonly ListNote[], chosen: Chosen): void {
 export function useFolderNotes(host: FolderPageHost | undefined, folder: string): FolderNotes {
   const source = host?.source;
   const scope = folder;
-  const [loaded, setLoaded] = useState<{
-    notes: readonly ListNote[];
-    complete: boolean;
-    missing?: readonly string[];
-  } | null>(null);
-  const [front, setFront] = useState<readonly ListNote[] | null>(null);
+  /*
+    Each read is filed under the folder it was for, and a folder with no read
+    of its own yet draws what `pageCache` already holds for it: a page that
+    was open before, or one its row preloaded. So a folder page arrives whole
+    and a way back draws at once (owner, 2026-10-16: "the app flickers a lot").
+  */
+  const [loadedFor, setLoaded] = useState<{ folder: string; source: FolderListSource | undefined; read: FolderRead } | null>(null);
+  const [frontFor, setFront] = useState<{ folder: string; source: FolderListSource | undefined; notes: readonly ListNote[] } | null>(null);
+  const loaded =
+    loadedFor !== null && loadedFor.folder === scope && loadedFor.source === source
+      ? loadedFor.read
+      : (cachedFolder(source, scope) ?? null);
+  const front =
+    frontFor !== null && frontFor.folder === scope && frontFor.source === source
+      ? frontFor.notes
+      : (cachedFront(source, scope) ?? null);
   const [chosen, setChosen] = useState<Chosen>(() => new Map());
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
@@ -150,8 +161,6 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
 
   useEffect(() => {
     alive.current = true;
-    setLoaded(null);
-    setFront(null);
     setProblem(null);
     if (source === undefined) return;
     let current = true;
@@ -161,37 +170,27 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
       bodies and all, when it is one note read by name.
     */
     if (scope !== "" && source.loadFront !== undefined) {
-      void source
-        .loadFront([scope])
-        .then((notes) => {
-          if (current) setFront(notes);
+      void readFronts(source, [scope])
+        .then(() => {
+          const notes = cachedFront(source, scope);
+          if (current && notes !== undefined) setFront({ folder: scope, source, notes });
         })
         .catch(() => {});
     }
-    const read = () => {
-      const folders = ancestorsOf(scope);
-      const above: Promise<readonly (readonly ListNote[])[]> =
-        source.loadFront !== undefined
-          ? source.loadFront(folders).then((notes) => [notes])
-          : Promise.all(folders.map((at) => source.load(at, false).then((each) => each?.notes ?? [])));
-      void Promise.all([source.load(scope, true), above])
-        .then(([result, aboveNotes]) => {
-          if (!current) return;
-          if (result === null) {
-            setLoaded({ notes: [], complete: false });
-            return;
-          }
-          // Only the front notes above matter (a status list is inherited), and a note is never listed twice.
-          const byPath = new Map(result.notes.map((note) => [note.path, note]));
-          for (const each of aboveNotes) for (const note of each) if (!byPath.has(note.path)) byPath.set(note.path, note);
-          setLoaded({ notes: [...byPath.values()], complete: result.complete, missing: result.missing });
+    const read = (fresh: boolean) => {
+      void readFolder(source, scope, fresh)
+        .then((result) => {
+          if (current) setLoaded({ folder: scope, source, read: result });
         })
         .catch(() => {
-          if (current) setLoaded({ notes: [], complete: false });
+          // A failed read leaves what was drawn; with nothing drawn, the page draws an empty List.
+          if (current && cachedFolder(source, scope) === undefined) {
+            setLoaded({ folder: scope, source, read: { notes: [], complete: false } });
+          }
         });
     };
-    read();
-    const stop = source.subscribe?.(read);
+    read(false);
+    const stop = source.subscribe?.(() => read(true));
     return () => {
       current = false;
       alive.current = false;
@@ -304,17 +303,4 @@ export function holdsFolder(result: ListSource, folder: string): boolean {
     const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
     return parent === "" || folder.startsWith(`${parent}/`);
   });
-}
-
-/** Every folder above `folder`, nearest first, and the workspace root last. */
-function ancestorsOf(folder: string): string[] {
-  if (folder === "") return [];
-  const out: string[] = [];
-  let at = folder;
-  while (at.includes("/")) {
-    at = at.slice(0, at.lastIndexOf("/"));
-    out.push(at);
-  }
-  out.push("");
-  return out;
 }

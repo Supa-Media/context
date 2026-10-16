@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { View } from "react-native";
 import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
@@ -25,6 +25,13 @@ import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
 import { ListingMenu } from "./browsePane/ListingMenu";
 import { useShownEntry } from "./browsePane/useShownEntry";
+import {
+  folderPageReady,
+  pageCacheVersion,
+  preloadFolderPage,
+  preloadFronts,
+  subscribePageCache,
+} from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
 import { useOrganizerView } from "../../organizer/OrganizerContext";
 import { useMapRoute } from "../map/live/MapRouteContext";
@@ -98,15 +105,6 @@ export function BrowsePane({
     files.selectedPath === null
       ? null
       : entryAt(files.listings, files.selectedPath, files.editor);
-  // The page already on screen, until the one being opened is ready to swap
-  // in. See `useShownEntry`.
-  const selected = useShownEntry({
-    target,
-    contextId: files.contextId,
-    selectedPath: files.selectedPath,
-    opening: files.opening,
-    editorPath: files.editor.path,
-  });
 
   /**
    * Whether the file browser is talking about the context the console is on.
@@ -208,6 +206,41 @@ export function BrowsePane({
     takeSelect,
     holdSelect,
   } = useFolderListing({ files, contextLabel, settled, current, data, onShare: files.canShare ? setSharing : undefined });
+  /*
+    A folder page is drawn from three reads besides its listing (`pageCache`):
+    until they land the page on screen stays, and the press that chose the
+    folder has already started them. Re-rendered as each one lands.
+  */
+  useSyncExternalStore(subscribePageCache, pageCacheVersion, pageCacheVersion);
+  const folderPending =
+    compact &&
+    target !== null &&
+    target.kind === "folder" &&
+    classifyCommsPath(target.path) === null &&
+    !folderPageReady(folderLists, target.path);
+  const pendingFolder = folderPending && target !== null ? target.path : null;
+  useEffect(() => {
+    if (pendingFolder !== null) preloadFolderPage(folderLists, pendingFolder);
+  }, [pendingFolder, folderLists]);
+  // The page already on screen, until the one being opened is ready to swap
+  // in. See `useShownEntry`.
+  const { entry: selected, holding } = useShownEntry({
+    target,
+    contextId: files.contextId,
+    selectedPath: files.selectedPath,
+    opening: files.opening,
+    editorPath: files.editor.path,
+    waiting: folderPending,
+  });
+  // Whatever the listing on screen names, its folders' front notes are read ahead (`preloadFronts`).
+  const shownListing = files.listings[selected?.kind === "folder" ? selected.path : ""];
+  useEffect(() => {
+    if (!compact || shownListing === undefined) return;
+    preloadFronts(
+      folderLists,
+      shownListing.entries.filter((each) => each.kind === "folder").map((each) => each.path),
+    );
+  }, [compact, shownListing, folderLists]);
   /*
     The two bands the floating chrome occupies, spent as content padding at
     both ends.
@@ -330,6 +363,7 @@ export function BrowsePane({
       notices={notices}
       pathBar={pathBar}
       layingOut={layingOut}
+      holding={holding}
     />
   );
 

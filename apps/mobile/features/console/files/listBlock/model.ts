@@ -78,6 +78,12 @@ export interface ListNote {
   readonly heading?: string | null;
   /** The note's first paragraph, which a folder page draws under its title. */
   readonly lede?: string | null;
+  /**
+   * The note's whole text, where the read that listed it had it anyway: a
+   * front note read by name (`serverFrontNotes`). A folder page draws its
+   * words from it without reading the note a second time (`pageCache`).
+   */
+  readonly text?: string;
 }
 
 export interface ListRow {

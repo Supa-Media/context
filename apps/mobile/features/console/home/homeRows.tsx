@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { RowOpeningBar } from "../files/RowOpening";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -60,6 +61,7 @@ export function Tile({
   onPress,
   onLongPress,
   style,
+  opening = false,
 }: {
   icon: IconName;
   title: string;
@@ -68,6 +70,8 @@ export function Tile({
   onPress: () => void;
   onLongPress?: (at: HoldPoint) => void;
   style: object;
+  /** Its page is being read while Home stays on screen (`useShownEntry`): it says so (`RowOpening.tsx`). */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -78,7 +82,7 @@ export function Tile({
       accessibilityRole="button"
       accessibilityLabel={[title, ...lines].join(", ")}
       accessibilityHint={onLongPress === undefined ? undefined : "Hold for more actions"}
-      style={({ pressed }) => [styles.tile, style, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [styles.tile, style, pressed || opening ? styles.pressed : null]}
     >
       <Icon name={icon} size={20} color={colors.text2} />
       <View style={styles.tileTitleRow}>
@@ -92,6 +96,7 @@ export function Tile({
           {line}
         </Text>
       ))}
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }
@@ -101,11 +106,14 @@ export function NoteRow({
   when,
   onPress,
   onLongPress,
+  opening = false,
 }: {
   note: HomeNoteTile;
   when: string;
   onPress: () => void;
   onLongPress?: (at: HoldPoint) => void;
+  /** See `Tile`. */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -116,7 +124,7 @@ export function NoteRow({
       onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={[note.title, detail, when].filter(Boolean).join(", ")}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+      style={({ pressed }) => [styles.row, pressed || opening ? styles.rowPressed : null]}
     >
       <Icon name="file" size={20} color={colors.text2} />
       <View style={styles.rowText}>
@@ -132,6 +140,7 @@ export function NoteRow({
           </Text>
         )}
       </View>
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }
@@ -141,12 +150,15 @@ export function FolderLine({
   icon = null,
   onPress,
   onLongPress,
+  opening = false,
 }: {
   folder: HomeFolder;
   /** The emoji this folder was given, drawn in place of the folder icon. `null` for the plain one. */
   icon?: string | null;
   onPress: () => void;
   onLongPress?: (at: HoldPoint) => void;
+  /** See `Tile`. */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -157,7 +169,7 @@ export function FolderLine({
       onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${folder.title}${folder.shared ? ", shared" : ""}, ${counts}`}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+      style={({ pressed }) => [styles.row, pressed || opening ? styles.rowPressed : null]}
       testID="phone-home-folder"
     >
       {icon === null ? (
@@ -181,6 +193,7 @@ export function FolderLine({
         {counts}
       </Text>
       <Icon name="chevronRight" size={16} color={colors.muted} />
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }

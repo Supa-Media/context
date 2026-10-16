@@ -132,6 +132,15 @@ export interface EditorState {
    * their context contains something it does not.
    */
   fromCache?: boolean;
+  /**
+   * With `fromCache`: the copy was put up while the bucket is still being
+   * asked, online (`INSTANT_OPEN_MS`). Not yet a claim that the note is
+   * behind — most of the time the bucket answers a moment later with the
+   * same words — so a phone does not flash "Cached copy" in its header for
+   * that moment (owner, 2026-10-16: "the app flickers a lot"). Cleared when
+   * the bucket answers or the read fails.
+   */
+  checking?: boolean;
 }
 
 /**
@@ -197,6 +206,8 @@ export type EditorAction =
       note: OpenNote;
       /** The body came off the device rather than out of the bucket. */
       fromCache?: boolean;
+      /** …while the bucket is still being asked (`EditorState.checking`). */
+      checking?: boolean;
       /** How old that copy is, or anything else the open should say. */
       notice?: string;
       /** Work found waiting for this note in the offline queue. */
@@ -236,6 +247,8 @@ export type EditorAction =
   | { type: "saveTimedOut" }
   /** The person chose "use theirs" after a conflict. */
   | { type: "reloaded"; note: OpenNote }
+  /** The bucket answered (or could not) for a copy shown early; the copy is now plainly a copy. */
+  | { type: "checked"; path: string }
   /** The person chose "keep mine" — rebase the draft onto the current etag. */
   | { type: "conflictOverridden" }
   /**
@@ -292,6 +305,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         inherited: action.note.inherited,
         exception: action.note.exception,
         fromCache: action.fromCache === true ? true : undefined,
+        ...(action.fromCache === true && action.checking === true ? { checking: true } : {}),
         message: action.notice,
       };
       if (action.restored === undefined) return opened;
@@ -324,6 +338,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         inherited: action.note.inherited,
         exception: action.note.exception,
       };
+
+    case "checked":
+      if (state.path !== action.path || state.checking !== true) return state;
+      return { ...state, checking: undefined };
 
     case "renamed":
       return state.path === action.from ? { ...state, path: action.to } : state;
