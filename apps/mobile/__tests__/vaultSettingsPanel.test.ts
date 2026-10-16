@@ -201,8 +201,22 @@ function fakes(listed: VaultEntry[]) {
           : { type: "secret", name: entry.name, sites: [], username: "", password: "", fields: [{ name: "API_KEY", perEnv: false, values: { _: "fake-value-123" } }] };
       },
       edit: async (token, edit) => {
-        calls.push(["edit", token, Object.keys(edit).sort().join(",")]);
-        return { changed: [...(edit.username !== undefined ? ["username"] : []), ...(edit.password !== undefined ? ["password"] : [])] };
+        calls.push(["edit", token, Object.keys(edit).sort().join(","), edit.proxy]);
+        const entry = entries.find((e) => token === `tok-view-${e.entryId}`)!;
+        if (edit.proxy) keep({ ...entry, proxy: { ...entry.proxy!, ...edit.proxy, name: edit.proxy.name ?? null, prefix: edit.proxy.prefix ?? null } });
+        return {
+          changed: [
+            ...(edit.proxy !== undefined ? ["website"] : []),
+            ...(edit.username !== undefined ? ["username"] : []),
+            ...(edit.password !== undefined ? ["password"] : []),
+          ],
+        };
+      },
+      remove: async (token) => {
+        calls.push(["remove", token]);
+        const at = entries.findIndex((e) => token === `tok-view-${e.entryId}`);
+        const [gone] = entries.splice(at, 1);
+        return { name: gone.name };
       },
     },
   };
@@ -306,7 +320,7 @@ describe("on a narrow screen", () => {
     expect(find("vault-detail-v000000000000000000000009")?.textContent).toContain("Fresh bank");
   });
 
-  test("picking a login shows its username, its password as dots until Show, and nothing else to press", async () => {
+  test("picking a login shows its username, its password as dots until Show, read-only, with Edit beside its name", async () => {
     const { actions, calls } = fakes([login, unpinned]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
@@ -317,43 +331,94 @@ describe("on a narrow screen", () => {
       ["describe", `tok-view-${login.entryId}`],
       ["reveal", `tok-view-${login.entryId}`],
     ]);
-    const username = find("vault-edit-username") as HTMLInputElement;
-    const password = find("vault-edit-password") as HTMLInputElement;
-    expect(username.value).toBe("me@example.test");
-    expect(username.type).not.toBe("password");
-    expect(password.type).toBe("password");
-    press("vault-edit-password-reveal");
-    expect((find("vault-edit-password") as HTMLInputElement).type).not.toBe("password");
-    expect(find(`vault-show-${login.entryId}`)).toBeNull();
-    expect(find("vault-edit-save")).toBeNull();
+    expect(find("vault-value-username-text")?.textContent).toBe("me@example.test");
+    expect(find("vault-value-password-text")?.textContent).toBe("••••••••••••");
+    expect(container.innerHTML).not.toContain("fake-password-old");
+    press("vault-value-password-reveal");
+    expect(find("vault-value-password-text")?.textContent).toBe("fake-password-old");
+    // Nothing to type into until Edit.
+    expect(container.querySelector("input")).toBeNull();
+    expect(find("vault-edit")).not.toBeNull();
   });
 
-  test("a changed password is saved in place and said back", async () => {
+  test("Edit changes the password in place, says it back, and shows the new one", async () => {
     const { actions, calls } = fakes([login]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
     await flush();
     await flush();
+    press("vault-edit");
+    expect(find("vault-edit-save")?.getAttribute("aria-disabled")).toBe("true");
     type("vault-edit-password", "fake-password-new");
     press("vault-edit-save");
     await flush();
-    expect(calls).toContainEqual(["edit", `tok-view-${login.entryId}`, "password"]);
+    await flush();
+    expect(calls).toContainEqual(["edit", `tok-view-${login.entryId}`, "password", undefined]);
     expect(find("vault-edit-saved")?.textContent).toBe("Saved. You changed the password.");
-    expect(find("vault-edit-save")).toBeNull();
+    expect(find("vault-key-editor")).toBeNull();
+    press("vault-value-password-reveal");
+    expect(find("vault-value-password-text")?.textContent).toBe("fake-password-new");
+    // The pick did not re-open the key to do it.
+    expect(calls.filter((call) => call[0] === "reveal")).toHaveLength(1);
   });
 
-  test("Undo puts it back, and an emptied password can't be saved", async () => {
+  test("an emptied password can't be saved, and Cancel leaves the key as it was", async () => {
     const { actions, calls } = fakes([login]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
     await flush();
     await flush();
+    press("vault-edit");
     type("vault-edit-password", "");
     expect(find("vault-edit-save")?.getAttribute("aria-disabled")).toBe("true");
     expect(container.textContent).toContain("To save, enter the password.");
-    press("vault-edit-undo");
-    expect((find("vault-edit-password") as HTMLInputElement).value).toBe("fake-password-old");
+    press("vault-edit-cancel");
+    press("vault-value-password-reveal");
+    expect(find("vault-value-password-text")?.textContent).toBe("fake-password-old");
     expect(calls.some((call) => call[0] === "edit")).toBe(false);
+  });
+
+  test("Edit changes where a key is sent: a Convex deployment's address is guessed as Authorization: Convex <key>", async () => {
+    const convex = { ...pinned, name: "Convex", proxy: { ...pinned.proxy!, host: "api.convex.dev" } };
+    const { actions, calls } = fakes([convex]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
+    await flush();
+    await flush();
+    press("vault-edit");
+    type("vault-proxy-host", "example-deployment.convex.cloud");
+    expect(find("vault-proxy-style")?.textContent).toContain("the Authorization header, after “Convex”");
+    press("vault-edit-save");
+    await flush();
+    await flush();
+    expect(calls).toContainEqual([
+      "edit",
+      `tok-view-${convex.entryId}`,
+      "proxy",
+      { host: "example-deployment.convex.cloud", style: "header", name: "Authorization", prefix: "Convex", ask: true },
+    ]);
+    expect(find("vault-site")?.textContent).toBe("example-deployment.convex.cloudas the Authorization header, after “Convex”");
+  });
+
+  test("Delete asks once more, then the key is gone and the page says so", async () => {
+    const { actions, calls } = fakes([pinned, unpinned]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
+    await flush();
+    await flush();
+    press("vault-edit");
+    press("vault-delete");
+    expect(find("vault-delete-ask")?.textContent).toContain("Delete “Stripe”?");
+    expect(calls.some((call) => call[0] === "remove")).toBe(false);
+    press("vault-delete-keep");
+    expect(find("vault-delete-ask")).toBeNull();
+    press("vault-delete");
+    press("vault-delete-confirm");
+    await flush();
+    await flush();
+    expect(calls).toContainEqual(["remove", `tok-view-${pinned.entryId}`]);
+    expect(find(`vault-row-${pinned.entryId}`)).toBeNull();
+    expect(find("vault-notice")?.textContent).toBe("Deleted “Stripe”. No AI can use it now.");
   });
 
   test("picking another key drops the values of the one before, and coming back reads them afresh", async () => {
@@ -362,6 +427,7 @@ describe("on a narrow screen", () => {
     await flush();
     await flush();
     await flush();
+    press("vault-value-0-_-reveal");
     expect(container.innerHTML).toContain("fake-value-123");
     press(`vault-row-${login.entryId}`);
     expect(container.innerHTML).not.toContain("fake-value-123");

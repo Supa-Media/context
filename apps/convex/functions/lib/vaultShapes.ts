@@ -12,7 +12,7 @@ export type FieldSummary = { name: string; perEnv: boolean; set: string[] };
 export type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
 export type EntryKind = "login" | "secret";
 /** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
-export type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
+export type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; prefix?: string; ask: boolean };
 /** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
 export type ProxyClient = { id: string; name: string | null; at: number };
 /** Each AI's count and last call, and the AIs the person said no to (`apps/mcp/src/vault/usage.js`). */
@@ -67,7 +67,13 @@ export const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.bool
 export const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
 export const proxyStyleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
-export const proxyPinValidator = v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() });
+export const proxyPinValidator = v.object({
+  host: v.string(),
+  style: proxyStyleValidator,
+  name: v.optional(v.string()),
+  prefix: v.optional(v.string()),
+  ask: v.boolean(),
+});
 
 export const operationValidator = v.union(
   v.object({ kind: v.literal("meta"), entryId: v.string() }),
@@ -100,7 +106,14 @@ export const operationValidator = v.union(
     username: v.optional(v.string()),
     password: v.optional(v.string()),
     fields: v.optional(v.array(fieldValuesValidator)),
+    name: v.optional(v.string()),
+    /** The site Tex fills it on, a checked host, or "" for none. */
+    site: v.optional(v.string()),
+    /** The checked pin it is only ever sent to, or null to stop AIs using it. */
+    proxy: v.optional(v.union(proxyPinValidator, v.null())),
   }),
+  // Delete a key, with the same say as `edit`.
+  v.object({ kind: v.literal("delete"), entryId: v.string(), userId: v.string(), anyKey: v.boolean() }),
 );
 
 export const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
@@ -116,6 +129,7 @@ export const shownPinValidator = v.object({
   host: v.string(),
   style: proxyStyleValidator,
   name: v.optional(v.string()),
+  prefix: v.optional(v.string()),
   ask: v.boolean(),
   clients: v.optional(v.array(proxyClientValidator)),
   uses: v.optional(v.array(proxyUseValidator)),
@@ -146,6 +160,7 @@ export function shownPin(pin: StoredPin): ProxyPin & PinHistory {
     host: pin.host,
     style: pin.style,
     ...(pin.name === undefined ? {} : { name: pin.name }),
+    ...(pin.prefix === undefined ? {} : { prefix: pin.prefix }),
     ask: pin.ask,
     ...(pin.clients && pin.clients.length > 0 ? { clients: pin.clients } : {}),
     ...(uses.length > 0

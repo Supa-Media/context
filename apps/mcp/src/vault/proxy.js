@@ -40,6 +40,8 @@ const MAX_ANSWER = 200_000;
 const MAX_READ = 5_000_000;
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 const PARAM_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
+/** A word a named header puts before the key ("Convex" in `Authorization: Convex <key>`). */
+const PREFIX = /^[A-Za-z][A-Za-z0-9._-]{0,31}$/;
 /** Shorter than this, blanking it out of an answer would blank ordinary words too. */
 export const MIN_KEY = 12;
 
@@ -99,7 +101,8 @@ export function isSharedHost(host) {
  * The pin an entry was saved with, checked again on every use: `{host, style,
  * name}`, or null when the entry was not saved for the proxy. `style` is how
  * the site wants the key: `bearer` (`Authorization: Bearer <key>`), `header`
- * (a header called `name`), or `query` (a parameter called `name`).
+ * (a header called `name`, the key after `prefix` and a space when there is
+ * one), or `query` (a parameter called `name`).
  */
 export function proxyPin(meta) {
   const pin = meta?.proxy;
@@ -109,7 +112,13 @@ export function proxyPin(meta) {
   if (!STYLES.has(pin.style)) return null;
   if (pin.style === "header" && !(typeof pin.name === "string" && HEADER_NAME.test(pin.name))) return null;
   if (pin.style === "query" && !(typeof pin.name === "string" && PARAM_NAME.test(pin.name))) return null;
-  return { host, style: pin.style, ...(pin.style === "bearer" ? {} : { name: pin.name }) };
+  if (pin.prefix !== undefined && !(pin.style === "header" && typeof pin.prefix === "string" && PREFIX.test(pin.prefix))) return null;
+  return {
+    host,
+    style: pin.style,
+    ...(pin.style === "bearer" ? {} : { name: pin.name }),
+    ...(pin.prefix === undefined ? {} : { prefix: pin.prefix }),
+  };
 }
 
 /**
@@ -126,7 +135,9 @@ export function savedPin(raw) {
     return { problem: `Anyone can put a page on ${host}, so a key can't be kept to it. Use the site's own address.` };
   }
   const name = typeof raw.name === "string" ? raw.name.trim() : "";
-  const pin = proxyPin({ proxy: { host, style: raw.style, ...(raw.style === "bearer" ? {} : { name }) } });
+  const prefix = raw.style === "header" && typeof raw.prefix === "string" ? raw.prefix.trim() : "";
+  if (prefix !== "" && !PREFIX.test(prefix)) return { problem: "Put one word before the key, like Convex or Token." };
+  const pin = proxyPin({ proxy: { host, style: raw.style, ...(raw.style === "bearer" ? {} : { name }), ...(prefix ? { prefix } : {}) } });
   if (pin === null) {
     if (!STYLES.has(raw.style)) return { problem: "Choose how the site wants the key." };
     return { problem: raw.style === "query" ? "Name the address part the key goes in, like api_key." : "Name the header the key goes in, like x-api-key." };
@@ -223,7 +234,7 @@ function outgoingHeaders(raw, pin, value) {
     }
   }
   if (pin.style === "bearer") headers.set("authorization", `Bearer ${value}`);
-  if (pin.style === "header") headers.set(pin.name, value);
+  if (pin.style === "header") headers.set(pin.name, pin.prefix ? `${pin.prefix} ${value}` : value);
   return headers;
 }
 

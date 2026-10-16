@@ -1,7 +1,8 @@
 /**
  * New key, and a picked key's values, opened inside Settings › Vault instead
  * of on a page of their own (the owner asked on 2026-10-16: "I don't like
- * that it opens a new page"), where the values can be changed in place.
+ * that it opens a new page"). A key's values show read-only, quietly; Edit
+ * turns the pane into one form for the whole key, and Delete is there too.
  *
  * Each press still mints a fresh vault link and goes through the same
  * server calls as `/vault/<token>` (`useVaultLinkFlow`), so the rules do not
@@ -11,13 +12,15 @@
  * value.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { Text } from "../../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { VaultAddForm } from "../../../vault/VaultAddForm";
-import { VaultKeyEditor } from "../../../vault/VaultKeyEditor";
+import { VaultKeyEditor, changedLine } from "../../../vault/VaultKeyEditor";
+import { VaultValues, type VaultValuesShape } from "../../../vault/VaultValues";
+import type { VaultEntry } from "../../../vault/vaultSettings";
 import { resolveVaultLinkView } from "../../../vault/vaultLink";
 import { useVaultLinkFlow, type VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
 
@@ -27,6 +30,11 @@ export function VaultInline({
   calls,
   onClose,
   onSaved,
+  entry,
+  editing = false,
+  onEditing,
+  onChanged,
+  onDeleted,
 }: {
   mode: "add" | "view";
   /** Null while the link is being made. */
@@ -35,6 +43,15 @@ export function VaultInline({
   onClose: () => void;
   /** After New key saves: the name it was saved under. */
   onSaved: (name: string) => void;
+  /** View only: the key as the list knows it (name, where it goes), for Edit. */
+  entry?: VaultEntry;
+  /** View only: Edit is open, in place of the values. */
+  editing?: boolean;
+  onEditing?: (editing: boolean) => void;
+  /** View only: after a save, so the list reads the key again. */
+  onChanged?: () => void;
+  /** View only: after Delete. */
+  onDeleted?: (name: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -54,6 +71,14 @@ export function VaultInline({
     revealed.current = true;
     onReveal();
   }, [view.kind, onReveal]);
+
+  // The values as last saved here: the reveal's, then each save's.
+  const [values, setValues] = useState<VaultValuesShape | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const opened = view.kind === "view" ? view.revealed : null;
+  useEffect(() => {
+    if (opened !== null) setValues({ username: opened.username, password: opened.password, fields: opened.fields });
+  }, [opened]);
 
   const saved = view.kind === "saved" ? view.name : null;
   useEffect(() => {
@@ -82,7 +107,7 @@ export function VaultInline({
       case "add":
         return <VaultAddForm prefill={view.prefill} busy={view.busy} problem={view.problem} onSave={onSave} onType={() => undefined} />;
       case "view":
-        if (view.revealed === null) {
+        if (view.revealed === null || values === null) {
           return view.problem ? (
             <Text variant="error">{view.problem.headline}</Text>
           ) : (
@@ -92,14 +117,38 @@ export function VaultInline({
             </View>
           );
         }
+        if (editing && entry !== undefined) {
+          return (
+            <VaultKeyEditor
+              entry={entry}
+              values={values}
+              onCancel={() => onEditing?.(false)}
+              onSave={async (edit, after) => {
+                if (token === null || calls.edit === undefined) throw new Error("This key can't be changed here.");
+                const { changed } = await calls.edit(token, edit);
+                setValues(after);
+                setSaid(changedLine(changed));
+                onEditing?.(false);
+                if (changed.length > 0) onChanged?.();
+                return changed;
+              }}
+              onDelete={async () => {
+                if (token === null || calls.remove === undefined) throw new Error("This key can't be deleted here.");
+                const { name } = await calls.remove(token);
+                onDeleted?.(name);
+              }}
+            />
+          );
+        }
         return (
-          <VaultKeyEditor
-            revealed={view.revealed}
-            onSave={async (edit) => {
-              if (token === null || calls.edit === undefined) throw new Error("This key can't be changed here.");
-              return (await calls.edit(token, edit)).changed;
-            }}
-          />
+          <>
+            {said !== null ? (
+              <Text variant="rowSub" testID="vault-edit-saved">
+                {said}
+              </Text>
+            ) : null}
+            <VaultValues login={view.revealed.type === "login"} values={values} />
+          </>
         );
       default:
         return null;
@@ -109,7 +158,7 @@ export function VaultInline({
   if (mode === "view") {
     return (
       <View style={styles.section} testID="vault-inline-view">
-        <Text variant="eyebrow">{view.kind === "view" && view.entry.type === "login" ? "Sign-in" : "Values"}</Text>
+        {editing ? null : <Text variant="eyebrow">{view.kind === "view" && view.entry.type === "login" ? "Sign-in" : "Values"}</Text>}
         {body}
       </View>
     );
@@ -134,6 +183,6 @@ const makeStyles = (_colors: Colors) =>
     add: { gap: 14 },
     head: { flexDirection: "row", alignItems: "center", gap: 12 },
     flex: { flex: 1, minWidth: 0 },
-    section: { gap: 8 },
+    section: { gap: 10 },
     loading: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   });

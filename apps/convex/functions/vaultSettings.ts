@@ -15,9 +15,10 @@ import type { Id } from "../_generated/dataModel";
 import { hashToken } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { workspaceNotFound } from "./lib/workspaceAuth";
-import { MAX_SECRET, isEntryId } from "../../mcp/src/vault/entries.js";
+import { MAX_NAME, MAX_SECRET, isEntryId, siteHost } from "../../mcp/src/vault/entries.js";
+import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { normalizeFields } from "../../mcp/src/vault/fields.js";
-import { fieldValuesValidator, type FieldValues } from "./lib/vaultShapes";
+import { fieldValuesValidator, proxyPinValidator, type FieldValues, type ProxyPin } from "./lib/vaultShapes";
 import { runVault, type Listed, type Shown, type ShownMeta } from "./vault";
 
 const fail = (code: string, message: string) => new ConvexError({ code, message });
@@ -46,6 +47,8 @@ const entryValidator = v.object({
       host: v.string(),
       style: styleValidator,
       name: v.union(v.string(), v.null()),
+      /** A named header's word before the key ("Convex"), or null. */
+      prefix: v.union(v.string(), v.null()),
       ask: v.boolean(),
       clients: v.array(clientValidator),
       uses: v.array(useValidator),
@@ -75,6 +78,7 @@ function entryFrom(entryId: string, meta: ShownMeta, userId: string, waiting = 0
           host: meta.proxy.host,
           style: meta.proxy.style,
           name: meta.proxy.name ?? null,
+          prefix: meta.proxy.prefix ?? null,
           ask: meta.proxy.ask,
           clients: meta.proxy.clients ?? [],
           uses: meta.proxy.uses ?? [],
@@ -191,30 +195,52 @@ export const startVaultLink = action({
   },
 });
 
+/** The person behind a view link minted moments ago, and their role in its workspace. */
+async function viewLinkHolder(ctx: ActionCtx, token: string) {
+  const signedIn = await getAuthUserId(ctx);
+  if (signedIn === null) throw fail("NOT_AUTHENTICATED", "Sign in to continue.");
+  if (typeof token !== "string" || token.length === 0 || token.length > 128) throw linkDead();
+  const live = await ctx.runQuery(internal.functions.vault.liveViewRequest, {
+    hashedToken: await hashToken(token),
+    userId: signedIn as Id<"users">,
+  });
+  const { userId, role } = await signedInMember(ctx, live.workspaceId);
+  return { ...live, userId, anyKey: role !== "member" };
+}
+
+const noSay = () => fail("FORBIDDEN", "Only an owner or editor, or whoever saved this key, can change it.");
+
 /**
- * Save a key's values changed in place on its view link: the username, the
+ * Save a key changed in place on its view link: its name, the site Tex fills
+ * it on, the one website it is only ever sent to and how, the username, the
  * password, or a secret's fields. The link proves this person asked to see
  * this key moments ago; owners and editors may change any key given to them,
  * anyone else only one they saved. Audited as `vault.edited` with the names
- * of what changed ("password"), never a value.
+ * of what changed ("website, password"), never a value.
  */
 export const editVaultEntry = action({
   args: {
     token: v.string(),
+    name: v.optional(v.string()),
+    site: v.optional(v.string()),
+    proxy: v.optional(v.union(v.null(), proxyPinValidator)),
     username: v.optional(v.string()),
     password: v.optional(v.string()),
     fields: v.optional(v.array(fieldValuesValidator)),
   },
   returns: v.object({ changed: v.array(v.string()) }),
   handler: async (ctx, args): Promise<{ changed: string[] }> => {
-    const signedIn = await getAuthUserId(ctx);
-    if (signedIn === null) throw fail("NOT_AUTHENTICATED", "Sign in to continue.");
-    if (typeof args.token !== "string" || args.token.length === 0 || args.token.length > 128) throw linkDead();
-    const live = await ctx.runQuery(internal.functions.vault.liveViewRequest, {
-      hashedToken: await hashToken(args.token),
-      userId: signedIn as Id<"users">,
-    });
-    const { userId, role } = await signedInMember(ctx, live.workspaceId);
+    const live = await viewLinkHolder(ctx, args.token);
+    const name = args.name?.trim();
+    if (name !== undefined && (name.length === 0 || name.length > MAX_NAME)) throw fail("INVALID_ARGUMENT", "Give it a short name.");
+    const site = args.site === undefined || args.site.trim() === "" ? args.site?.trim() : siteHost(args.site);
+    if (site === null) throw fail("INVALID_ARGUMENT", "Enter the site's address, like netflix.com.");
+    let proxy: ProxyPin | null | undefined = args.proxy === null ? null : undefined;
+    if (args.proxy) {
+      const checked = savedPin(args.proxy) as { pin?: ProxyPin; problem?: string };
+      if (checked.pin === undefined) throw fail("INVALID_ARGUMENT", checked.problem ?? "Check the website.");
+      proxy = checked.pin;
+    }
     if ((args.username?.length ?? 0) > MAX_SECRET || (args.password?.length ?? 0) > MAX_SECRET) {
       throw fail("INVALID_ARGUMENT", "That is longer than a login can be.");
     }
@@ -231,25 +257,55 @@ export const editVaultEntry = action({
       {
         kind: "edit",
         entryId: live.entryId,
-        userId,
-        anyKey: role !== "member",
+        userId: live.userId,
+        anyKey: live.anyKey,
+        ...(name === undefined ? {} : { name }),
+        ...(site === undefined ? {} : { site }),
+        ...(proxy === undefined ? {} : { proxy }),
         ...(args.username === undefined ? {} : { username: args.username }),
         ...(args.password === undefined ? {} : { password: args.password }),
         ...(fields === undefined ? {} : { fields }),
       },
       "That wasn't saved: your workspace's storage didn't take it.",
     )) as Shown | null;
-    if (edited === null) throw fail("FORBIDDEN", "Only an owner or editor, or whoever saved this key, can change it.");
+    if (edited === null) throw noSay();
     const changed = edited.changed ?? [];
     if (changed.length > 0) {
       await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
         workspaceId: live.workspaceId,
-        actorUserId: userId,
+        actorUserId: live.userId,
         action: "vault.edited",
         entryId: live.entryId,
         changed: changed.join(", ").slice(0, 500),
       });
     }
     return { changed };
+  },
+});
+
+/**
+ * Delete a key from its view link, with the same say as editing it. Its name
+ * and values go together; every AI loses it at once. Audited as
+ * `vault.deleted`.
+ */
+export const deleteVaultEntry = action({
+  args: { token: v.string() },
+  returns: v.object({ name: v.string() }),
+  handler: async (ctx, args): Promise<{ name: string }> => {
+    const live = await viewLinkHolder(ctx, args.token);
+    const deleted = (await runVault(
+      ctx,
+      live.workspaceId,
+      { kind: "delete", entryId: live.entryId, userId: live.userId, anyKey: live.anyKey },
+      "That wasn't deleted: your workspace's storage didn't answer.",
+    )) as Shown | null;
+    if (deleted === null) throw noSay();
+    await ctx.runMutation(internal.functions.vault.recordVaultAudit, {
+      workspaceId: live.workspaceId,
+      actorUserId: live.userId,
+      action: "vault.deleted",
+      entryId: live.entryId,
+    });
+    return { name: deleted.meta.name };
   },
 });

@@ -9,8 +9,10 @@ export interface VaultLinkCalls {
   save: (token: string, draft: VaultDraft) => Promise<{ name: string; site: string }>;
   share?: (token: string) => Promise<{ name: string; grantee: string | null }>;
   reveal: (token: string) => Promise<RevealedEntry>;
-  /** Settings › Vault only: save values changed in place on a view link; resolves what changed, by name. */
+  /** Settings › Vault only: save a key changed in place on a view link; resolves what changed, by name. */
   edit?: (token: string, edit: VaultEdit) => Promise<{ changed: string[] }>;
+  /** Settings › Vault only: delete the key a view link opened. */
+  remove?: (token: string) => Promise<{ name: string }>;
 }
 
 /**

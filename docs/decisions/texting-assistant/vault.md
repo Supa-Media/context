@@ -242,6 +242,19 @@ outgoing request.
   ("password"), never a value, and a save that changed nothing is not logged.
   Each pick is a reveal, and is recorded as one; asking for a second press
   first would only add a step the owner asked to remove.
+- **Edit is the whole key, and Delete sits beside it** (the owner,
+  2026-10-16: "no way for me to edit the url here, or even delete the
+  key?"). The picked key reads quietly (values as dots in rows, Show and
+  Copy on each) with one Edit button, as board 2 draws it; Edit opens one
+  form in place for the name, the website it is only ever sent to, how it is
+  sent, the first-use ask, "Fills on" and the values. A new website is
+  checked by the same `savedPin` as a new key and its sending style is
+  guessed again, while the AIs already allowed and their uses stay with the
+  key. A named header may carry one word before the key (`Authorization:
+  Convex <key>`); `*.convex.cloud` is guessed that way. Delete is a bold red
+  one-way door asked once more inline, goes through the same view link with
+  the same say as an edit, removes meta and sealed values as one object, and
+  is audited as `vault.deleted` by name.
 - **"Fills on" suggests the site as a name is typed** ("convex" offers
   convex.dev), from the same list as "Only ever sent to". The site itself is
   offered, not a dashboard address, because a saved site fills every page

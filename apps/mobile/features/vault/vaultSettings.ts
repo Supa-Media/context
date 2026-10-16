@@ -19,6 +19,8 @@ export type VaultEntry = {
     host: string;
     style: ProxyStyle;
     name: string | null;
+    /** A named header's word before the key ("Convex"), or null. */
+    prefix?: string | null;
     ask: boolean;
     clients: VaultClient[];
     /** Each AI's count and last call (`apps/mcp/src/vault/usage.js`). */
@@ -124,7 +126,7 @@ export function vaultSavedLine(entry: VaultEntry, now: Date = new Date()): strin
 
 /** The detail's first sentence for a key AIs may use: how it is sent. */
 export function vaultPinLine(proxy: NonNullable<VaultEntry["proxy"]>): string {
-  const how = styleWords(proxy.style, proxy.name ?? "");
+  const how = styleWords(proxy.style, proxy.name ?? "", proxy.prefix ?? "");
   return `as ${proxy.style === "bearer" ? `a ${how}` : how}`;
 }
 

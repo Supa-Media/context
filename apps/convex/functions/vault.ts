@@ -25,8 +25,8 @@
  * only caller is `revealVaultEntry`, which answers the signed-in person on the
  * entry's people list who asked for that page; no gateway route and no tool
  * reaches it (decided by the owner, 2026-10-10: API keys and env variables a
- * person can see and copy). `edit` opens one to change it in place and
- * answers only the names of what changed (`lib/vaultEdit.ts`).
+ * person can see and copy). `edit` opens one to change it in place, and
+ * `delete` removes one; both answer only names (`lib/vaultEdit.ts`).
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -56,7 +56,7 @@ import {
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { waitingAsks } from "../../mcp/src/vault/usage.js";
-import { editEntry } from "./lib/vaultEdit";
+import { deleteKey, editEntry } from "./lib/vaultEdit";
 import {
   fieldSummaryValidator,
   fieldValuesValidator,
@@ -65,7 +65,6 @@ import {
   operationValidator,
   proxyClientValidator,
   proxyPinValidator,
-  proxyStyleValidator,
   revealedValidator,
   shownPinValidator,
   shownPin,
@@ -283,9 +282,10 @@ export const recordVaultAudit = internalMutation({
       v.literal("vault.cut_off"),
       v.literal("vault.allowed"),
       v.literal("vault.edited"),
+      v.literal("vault.deleted"),
     ),
     entryId: v.string(),
-    /** `vault.edited`: what changed, by name ("password", a field's name). Never a value. */
+    /** `vault.edited`: what changed, by name ("password", "website"). Never a value. */
     changed: v.optional(v.string()),
   },
   returns: v.null(),
@@ -388,8 +388,8 @@ export const runVaultOperation = internalAction({
       await writeMeta(store, keys, workspaceId, op.entryId, meta);
       return shown(op.entryId, meta);
     }
-    if (op.kind === "edit") {
-      const edited = await editEntry(store, keys, workspaceId, op);
+    if (op.kind === "edit" || op.kind === "delete") {
+      const edited = op.kind === "edit" ? await editEntry(store, keys, workspaceId, op) : await deleteKey(store, keys, workspaceId, op);
       if (edited === "conflict") throw fail("VAULT_CHANGED", "This key changed while you were editing it. Try again.");
       return edited === "refused" ? null : { ...shown(op.entryId, edited.meta), changed: edited.changed };
     }
@@ -566,7 +566,7 @@ export const saveVaultLogin = action({
     password: v.optional(v.string()),
     fields: v.optional(v.array(fieldValuesValidator)),
     /** "Let my AIs use it, never shown the key": the one website, and how it wants the key. */
-    proxy: v.optional(v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() })),
+    proxy: v.optional(proxyPinValidator),
   },
   returns: v.object({ name: v.string(), site: v.string() }),
   handler: async (ctx, args): Promise<{ name: string; site: string }> => {

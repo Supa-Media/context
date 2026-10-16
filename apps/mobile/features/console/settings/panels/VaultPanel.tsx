@@ -9,9 +9,11 @@
  * Values never reach the list. Picking a key, and New key, make a fresh vault
  * link and open it in place (`VaultInline`), through the same calls as the
  * vault's own page (`/vault/<token>`): the picked key's username shows, its
- * password and values are dots until Show, and they can be changed and saved
- * there. Each opening is a recorded reveal, each save a logged change, and
- * the values go when another key is picked or the page closes.
+ * password and values are dots until Show. Edit, beside its name as on the
+ * board, turns the pane into one form for the whole key (name, the website
+ * and how it is sent, the values) and holds Delete. Each opening is a
+ * recorded reveal, each save a logged change, and the values go when another
+ * key is picked or the page closes.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -107,6 +109,7 @@ function LiveVault({ workspaceId }: { workspaceId: string }) {
       save: (token, draft) => client.action(api.functions.vault.saveVaultLogin, { token, ...draft }),
       reveal: (token) => client.action(api.functions.vault.revealVaultEntry, { token }),
       edit: (token, edit) => client.action(api.functions.vaultSettings.editVaultEntry, { token, ...edit }),
+      remove: (token) => client.action(api.functions.vaultSettings.deleteVaultEntry, { token }),
     },
   };
   return <VaultList key={workspaceId} actions={actions} />;
@@ -129,6 +132,8 @@ export function VaultList({
   const [opened, setOpened] = useState<{ what: Opened; token: string | null; n: number } | null>(null);
   const [filter, setFilter] = useState<VaultFilter>("all");
   const [problem, setProblem] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(layoutWidth ?? 0);
   const { list } = actions;
@@ -150,8 +155,21 @@ export function VaultList({
   // Any other choice closes what was opened in place, and its values with it.
   const setPicked = (entryId: string | null) => {
     setOpened(null);
+    setEditing(false);
+    setNotice(null);
     setPickedState(entryId);
   };
+  // After a save: read the list again, the key staying picked and open.
+  const changed = () =>
+    void run(async () => {
+      setEntries(await actions.list());
+    });
+  const deleted = (name: string) =>
+    void run(async () => {
+      setPicked(null);
+      setEntries(await actions.list());
+      setNotice(`Deleted “${name}”. No AI can use it now.`);
+    });
   const open = (what: Opened) => {
     const n = (opened?.n ?? 0) + 1;
     setOpened({ what, token: null, n });
@@ -226,6 +244,8 @@ export function VaultList({
         now={now}
         onCutOff={cutOff}
         onAllow={allow}
+        editing={editing}
+        onEdit={() => setEditing(true)}
         keyView={
           opened?.what.mode === "view" && opened.what.entryId === chosen.entryId ? (
             <VaultInline
@@ -235,6 +255,11 @@ export function VaultList({
               calls={actions.calls}
               onClose={() => setOpened(null)}
               onSaved={() => undefined}
+              entry={chosen}
+              editing={editing}
+              onEditing={setEditing}
+              onChanged={changed}
+              onDeleted={deleted}
             />
           ) : null
         }
@@ -264,6 +289,11 @@ export function VaultList({
           <Text variant="hint">No keys yet. Save one with New key, or ask your AI to send you a link to add one.</Text>
         ) : null}
         {problem !== null ? <Text variant="error">{problem}</Text> : null}
+        {notice !== null ? (
+          <Text variant="rowSub" testID="vault-notice">
+            {notice}
+          </Text>
+        ) : null}
         {entries !== null && (entries.length > 0 || adding !== null) ? (
           <View style={wide ? styles.split : null}>
             {(wide || side === null) && entries.length > 0 ? (
@@ -352,6 +382,8 @@ function VaultDetail({
   now,
   onCutOff,
   onAllow,
+  editing,
+  onEdit,
   keyView,
   onBack,
 }: {
@@ -360,6 +392,9 @@ function VaultDetail({
   now?: Date;
   onCutOff: (entryId: string, clientId?: string) => void;
   onAllow: (entryId: string, clientId: string) => void;
+  /** Edit is open: the pane is the key's form, and nothing else. */
+  editing: boolean;
+  onEdit: () => void;
   /** The key's values, opened in place and editable. */
   keyView: ReactNode;
   /** Narrow screens only: back to the list. */
@@ -369,66 +404,43 @@ function VaultDetail({
   const proxy = entry.proxy;
   const lastUsed = vaultLastUsedLine(entry, now);
   const refused = (proxy?.refused ?? []).filter((no) => !proxy?.clients.some((client) => client.id === no.id));
+  // The values keep one place among these children, so opening Edit never
+  // re-opens the key (another reveal) or loses what was typed.
+  const values = (
+    <View key="values" style={styles.section}>
+      {keyView}
+    </View>
+  );
   return (
     <View style={styles.detail} testID={`vault-detail-${entry.entryId}`}>
       {onBack ? (
-        <Pressable accessibilityRole="button" onPress={onBack} testID="vault-back" style={styles.back}>
+        <Pressable key="back" accessibilityRole="button" onPress={onBack} testID="vault-back" style={styles.back}>
           <Text variant="rowSub">‹ All keys</Text>
         </Pressable>
       ) : null}
-      <View>
-        <Text variant="paneTitle">{entry.name}</Text>
-        <Text variant="rowSub">{vaultSavedLine(entry, now)}</Text>
+      <View key="head" style={styles.titleRow}>
+        <View style={styles.flex}>
+          <Text variant="paneTitle" numberOfLines={2}>
+            {editing ? `Edit ${entry.name}` : entry.name}
+          </Text>
+          <Text variant="rowSub">{vaultSavedLine(entry, now)}</Text>
+        </View>
+        {editing ? null : <Button label="Edit" variant="dialog" disabled={busy} onPress={onEdit} testID="vault-edit" />}
       </View>
-      {proxy !== null ? (
-        <>
-          <View style={styles.section}>
-            <Text variant="eyebrow">Only ever sent to</Text>
-            <View style={styles.site} testID="vault-site">
-              <Text variant="rowTitle" style={styles.flex} numberOfLines={1}>
-                {proxy.host}
-              </Text>
-              <Text variant="rowSub">{vaultPinLine(proxy)}</Text>
-            </View>
-          </View>
-          {keyView}
-          <View style={styles.section}>
-            <Text variant="eyebrow">AIs that can use it</Text>
-            {proxy.clients.length === 0 && refused.length === 0 ? <Text variant="hint">{vaultNoClientsLine(proxy)}</Text> : null}
-            {proxy.clients.map((client) => (
-              <View key={client.id} style={styles.ai}>
-                <AgentFace name={client.name ?? "AI"} size={26} />
-                <View style={styles.flex}>
-                  <Text variant="rowTitle">{client.name ?? "An AI"}</Text>
-                  <Text variant="rowSub">{vaultClientLine(client, proxy.uses, now)}</Text>
-                </View>
-                <CutButton label="Cut off" disabled={busy} testID={`vault-cut-${client.id}`} onPress={() => onCutOff(entry.entryId, client.id)} />
-              </View>
-            ))}
-            {refused.map((no) => (
-              <View key={no.id} style={[styles.ai, styles.aiRefused]}>
-                <View style={styles.dim}>
-                  <AgentFace name={no.name ?? "AI"} size={26} />
-                </View>
-                <View style={styles.flex}>
-                  <Text variant="rowTitle" style={styles.mutedText}>
-                    {no.name ?? "An AI"}
-                  </Text>
-                  <Text variant="rowSub">{vaultRefusedLine(no, now)}</Text>
-                </View>
-                <Button label="Allow" variant="dialog" disabled={busy} testID={`vault-allow-${no.id}`} onPress={() => onAllow(entry.entryId, no.id)} />
-              </View>
-            ))}
-          </View>
-          <View style={styles.section}>
-            <Text variant="eyebrow">Last used</Text>
-            <Text variant="rowSub" style={styles.sentence} testID="vault-last-used">
-              {lastUsed ?? "No AI has used it yet."}
+      {editing ? null : proxy !== null ? (
+        <View key="site" style={styles.section}>
+          <Text variant="eyebrow">Only ever sent to</Text>
+          <View style={styles.site} testID="vault-site">
+            <Text variant="rowTitle" style={styles.flex} numberOfLines={1}>
+              {proxy.host}
+            </Text>
+            <Text variant="rowSub" numberOfLines={1}>
+              {vaultPinLine(proxy)}
             </Text>
           </View>
-        </>
+        </View>
       ) : entry.type === "login" ? (
-        <View style={styles.section}>
+        <View key="site" style={styles.section}>
           <Text variant="eyebrow">Tex fills it on</Text>
           {entry.sites.length === 0 ? <Text variant="hint">No site yet.</Text> : null}
           {entry.sites.map((site) => (
@@ -436,16 +448,53 @@ function VaultDetail({
               <Text variant="rowTitle">{site}</Text>
             </View>
           ))}
-          {keyView}
         </View>
       ) : (
-        <>
-          <Text variant="hint">Not given to AIs. You copy it yourself from here.</Text>
-          {keyView}
-        </>
+        <Text key="site" variant="hint">
+          Not given to AIs. You copy it yourself from here.
+        </Text>
       )}
-      {proxy !== null && proxy.clients.length > 0 ? (
-        <View style={styles.actions}>
+      {values}
+      {editing || proxy === null ? null : (
+        <View key="ais" style={styles.section}>
+          <Text variant="eyebrow">AIs that can use it</Text>
+          {proxy.clients.length === 0 && refused.length === 0 ? <Text variant="hint">{vaultNoClientsLine(proxy)}</Text> : null}
+          {proxy.clients.map((client) => (
+            <View key={client.id} style={styles.ai}>
+              <AgentFace name={client.name ?? "AI"} size={26} />
+              <View style={styles.flex}>
+                <Text variant="rowTitle">{client.name ?? "An AI"}</Text>
+                <Text variant="rowSub">{vaultClientLine(client, proxy.uses, now)}</Text>
+              </View>
+              <CutButton label="Cut off" disabled={busy} testID={`vault-cut-${client.id}`} onPress={() => onCutOff(entry.entryId, client.id)} />
+            </View>
+          ))}
+          {refused.map((no) => (
+            <View key={no.id} style={styles.ai}>
+              <View style={styles.dim}>
+                <AgentFace name={no.name ?? "AI"} size={26} />
+              </View>
+              <View style={styles.flex}>
+                <Text variant="rowTitle" style={styles.mutedText}>
+                  {no.name ?? "An AI"}
+                </Text>
+                <Text variant="rowSub">{vaultRefusedLine(no, now)}</Text>
+              </View>
+              <Button label="Allow" variant="dialog" disabled={busy} testID={`vault-allow-${no.id}`} onPress={() => onAllow(entry.entryId, no.id)} />
+            </View>
+          ))}
+        </View>
+      )}
+      {editing || proxy === null ? null : (
+        <View key="last" style={styles.section}>
+          <Text variant="eyebrow">Last used</Text>
+          <Text variant="rowSub" style={styles.sentence} testID="vault-last-used">
+            {lastUsed ?? "No AI has used it yet."}
+          </Text>
+        </View>
+      )}
+      {!editing && proxy !== null && proxy.clients.length > 0 ? (
+        <View key="cut" style={styles.actions}>
           <CutButton
             label="Cut off every AI"
             disabled={busy}
@@ -483,8 +532,8 @@ const makeStyles = (colors: Colors) =>
     frame: { gap: 14, padding: 18 },
     head: { flexDirection: "row", alignItems: "center", gap: 10 },
     split: { flexDirection: "row", alignItems: "stretch", gap: 0, marginHorizontal: -18, marginBottom: -18, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
-    listSide: { flex: 1.5, gap: 10, padding: 18 },
-    detailSide: { flex: 1, padding: 18, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
+    listSide: { flex: 1, gap: 10, padding: 18 },
+    detailSide: { flex: 1.15, padding: 20, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
     filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
     chip: {
       paddingVertical: 6,
@@ -519,6 +568,7 @@ const makeStyles = (colors: Colors) =>
     face: { borderRadius: 7, borderWidth: 2, borderColor: colors.surface },
     faceOverlap: { marginLeft: -6 },
     detail: { gap: 18 },
+    titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
     back: { alignSelf: "flex-start", paddingVertical: 4 },
     section: { gap: 8 },
     site: {
@@ -539,7 +589,6 @@ const makeStyles = (colors: Colors) =>
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
     },
-    aiRefused: {},
     dim: { opacity: 0.45 },
     mutedText: { color: colors.muted },
     sentence: { color: colors.text },
