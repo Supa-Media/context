@@ -162,7 +162,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   const reader = readOnlySession(session);
   // The setup's own search settings, as `/agent` applies a live one's.
   if (setup.search) store.searchSettings = searchSettingsOf(store, setup.search);
-  const offered = await toolsForSession(reader, store);
+  const offered = await toolsForSession(reader, store, { shape: "v1" }); // the assistant's own list, as `route.js` builds it
   const skills = skillSession(setup.skills ?? [], (path) => readProductionSkill(store, session, path));
   const tools = [...agentTools(offered).filter((tool) => tool.name !== "propose_note"), ...(skills?.tools ?? [])];
   const dispatch = tryDispatcher(tools, (name, args) => callToolForSession({ name, arguments: args }, store, reader));

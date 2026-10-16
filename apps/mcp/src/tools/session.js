@@ -1,8 +1,7 @@
 /**
- * `callToolForSession` — the one path from a client's tool call to a tool:
- * cross-context routing, the per-call scope refusals, argument validation,
- * and then `callTool`. Read off THIS FILE by toolArguments.test.mjs and
- * crossContext.test.mjs (see test/gatewaySource.mjs).
+ * `callToolForSession` — the one path from a client's tool call to a tool: cross-context routing,
+ * the per-call scope refusals, argument validation, and then `callTool`. Read off THIS FILE by
+ * toolArguments.test.mjs and crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
 import { withMailFooter } from "../mail/footer.js";
@@ -10,7 +9,7 @@ import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
-import { translateV2Params } from "./v2/translate.js";
+import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
@@ -311,9 +310,10 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  const { error, params: call } = translateV2Params(params, store); // v2 → the existing call, before any gate
+  const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
   if (error) return toolError(error);
-  return measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
+  const route = async (routed) => inWordsOf(v2, await routeToolCall(call, store, session, routed));
+  return measuredCall(store, session, call, route);
 }
 
 async function routeToolCall(params, store, session, routed) {
