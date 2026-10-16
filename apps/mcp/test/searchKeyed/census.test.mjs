@@ -9,7 +9,9 @@
  *
  *  - the census lists the bucket again (`namesOf` returns the store): the names,
  *    no-bucket-list and loading cases fail;
- *  - the fallback scan lists the bucket again (`scan.js` without `namesOf`): the scan case fails.
+ *  - the fallback scan lists the bucket again (`scan.js` without `namesOf`): the scan case fails;
+ *  - the sync records the read's etag instead of the listed one (`shards/sync.js`,
+ *    as it did until 2026-10-16): the "settles" case fails, every note read again.
  *
  * The body-by-name case holds before and after the fix: it guards the id layer's
  * routing, which `idLayoutKeys.test.mjs` proves case by case.
@@ -29,13 +31,13 @@ const NOTES = [
 ];
 
 /** A keyed workspace: every note's bytes at its id key only, and a tree whose rows say so. */
-function keyedWorkspace({ served = true } = {}) {
+function keyedWorkspace({ served = true, rowEtag = (etag) => etag } = {}) {
   const bucket = createBucket();
   const rows = new Map();
   for (const { path, noteId, body } of NOTES) {
     const key = idKeyFor(noteId, path);
     bucket.seed(key, body);
-    rows.set(path, { path, noteId, key, etag: bucket.etagOf(key), size: body.length });
+    rows.set(path, { path, noteId, key, etag: rowEtag(bucket.etagOf(key)), size: body.length });
   }
   const raw = new R2Store(bucket);
   Object.defineProperty(raw, "treeManifest", {
@@ -109,4 +111,16 @@ test("a keyed workspace whose tree is still loading gets no census, and the buck
   await assert.rejects(syncShardedIndex(store, { budget: createSearchBudget(200), isIndexable: defaultIsIndexable }));
   assert.equal(bucket.counts.list, 0, "no bucket listing while the tree is loading");
   assert.equal(storedManifest(bucket), null, "no index is written from a census nobody has");
+});
+
+test("an index whose tree etags are not the stored objects' settles, and a second pass reads no note", async () => {
+  // A row's etag need not be the object's: a sealed note's, or a row written
+  // by another path. Recording the read's etag made every such note look stale
+  // to the next listing, so every pass read it again (production, 2026-10-16).
+  const { bucket, store } = keyedWorkspace({ rowEtag: (etag) => `row-${etag}` });
+  await syncShardedIndex(store, { budget: createSearchBudget(200), isIndexable: defaultIsIndexable });
+  const readsBefore = bucket.counts.gets.length;
+  await syncShardedIndex(store, { budget: createSearchBudget(200), isIndexable: defaultIsIndexable });
+  const reread = bucket.counts.gets.slice(readsBefore).filter((key) => key.startsWith("notes/"));
+  assert.deepEqual(reread, [], "the second pass found every note current");
 });

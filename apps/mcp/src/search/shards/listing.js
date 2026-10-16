@@ -104,9 +104,6 @@ export async function listNoteObjects(store, budget, reserve, isIndexable) {
     entries.set(object.key, {
       version: versionOf(object),
       uploaded: toIso(object.uploaded),
-      // Whether that token is the backend's own etag, which decides what the
-      // backfill may store back — see the comment at the `addDoc` call.
-      fromEtag: typeof object.etag === "string" && object.etag.length > 0,
       // What the sizing and the placement are computed from, and the reason
       // both cost no store op: R2, S3 and Dropbox all report a size on a
       // listing, so how much index a note will take up is knowable before
