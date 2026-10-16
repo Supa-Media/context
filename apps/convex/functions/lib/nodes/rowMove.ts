@@ -162,6 +162,8 @@ export async function applyRowMove(
   // A byte move still queued from before the flip names paths the rows no longer hold the notes at.
   const queued = await ctx.db.query("moveQueue").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).first();
   if (queued !== null) return refuse("busy");
+  // The file version the caller was handed (`privacyEtag` is the file's etag, from `loadPrivacyState`): a file
+  // version check, so it compares the file's mirror, not the rows' view. Classified as a guard, not a reader.
   const mirror = await readMirror(ctx.db, ws);
   if (!trash && (mirror?.etag ?? null) !== args.privacyEtag) return refuse("rules_changed");
   if (invalidMove(from, to)) return refuse("invalid");

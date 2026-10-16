@@ -89,6 +89,8 @@ export const exportOwedNow = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId }) => {
+    // In rows mode nothing is written to `privacy.md`: an export already scheduled before the switch finds nothing owed.
+    if ((await accessSourceOf(ctx.db)) === "rows") return false;
     const row = await ctx.db
       .query("nodePrivacy")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

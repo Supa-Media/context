@@ -117,6 +117,22 @@ function fileAuthority() {
   };
 }
 
+test("rows mode: the export of privacy.md is skipped, so the bucket's file is never written from the rows", async () => {
+  // Sabotage: drop the `accessVersion` skip in `exportNow` and `memory.puts` gains `privacy.md`.
+  const memory = new MemoryStore();
+  memory.seed(PRIVACY_KEY, FILE);
+  const authority = rowsAuthority();
+  let exported = 0;
+  authority.exported = async () => {
+    exported += 1;
+  };
+  const store = withPrivacyAuthority(memory, authority);
+  const answer = await store.exportPrivacy();
+  assert.equal(answer, null, "nothing was exported");
+  assert.equal(exported, 0, "the authority is not told an export happened");
+  assert.deepEqual(memory.puts, [], "privacy.md is not written in rows mode");
+});
+
 test("rows mode: a note's tier is one setAccess from the held version, and the bucket's privacy.md is not written", async () => {
   const memory = new MemoryStore();
   memory.seed(PRIVACY_KEY, FILE);

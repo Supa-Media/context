@@ -9,7 +9,8 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type DatabaseReader } from "../_generated/server";
 import { routinePathsOf, scheduleReconcile } from "./lib/routines/sync";
-import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { treeServesNow } from "./lib/nodes/listing";
+import { readerMirror } from "./lib/nodes/readerRules";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { PUBLICATION_SCOPE } from "./lib/websites/publication";
@@ -464,7 +465,7 @@ export const publishedRows = internalQuery({
   handler: async (ctx, { workspaceId, paths }) => {
     if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const mirror = await readMirror(ctx.db, workspaceId);
+    const mirror = await readerMirror(ctx, workspaceId);
     // Rules that cannot be read publish nothing.
     if (mirror?.invalid === true) return [];
     const { rules, overrides } = await mirrorRules(mirror);
@@ -503,7 +504,7 @@ export const visibleNotes = internalQuery({
   handler: async (ctx, { workspaceId, paths, scope, names }) => {
     if (paths.length > PROPS_AT_PATHS) throw new Error("nodes.props_at_too_many");
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const mirror = await readMirror(ctx.db, workspaceId);
+    const mirror = await readerMirror(ctx, workspaceId);
     if (mirror?.invalid === true) return null;
     const { rules, overrides } = await mirrorRules(mirror);
     const granted = new Set(names);

@@ -154,9 +154,10 @@ describe("rows mode: a member's archive is judged by the rows, not by a stale mi
       base: "private",
       actor: { userId: f.ids.owner, role: "owner" },
     });
-    // The premise: the tree's own list (`notePaths`) still names the note, because the mirror does.
+    // The tree's own list (`notePaths`) now judges by the rows too (`rowsReaders.test.ts`); the archive's
+    // intersection is still what keeps it from reading a stale list.
     const listed = await f.bob.action(api.functions.files.notePaths, { workspaceId: f.ws });
-    expect(listed.paths ?? []).toContain("1-projects/plan.md");
+    expect(listed.paths ?? []).not.toContain("1-projects/plan.md");
     const answer = await f.bob.action(api.functions.exportAccess.exportAccess, { workspaceId: f.ws, folder: "" });
     expect(answer.mode).toBe("rows");
     expect(pathsOf(answer)).not.toContain("1-projects/plan.md");

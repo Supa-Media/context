@@ -219,14 +219,24 @@ describe("2. the feed token", () => {
     expect(after?.split("|")[0]).toContain("^a");
   });
 
-  test("rows mode: new folder rules change the token", async () => {
+  test("rows mode: a row's access change moves the token, and a file edit does not", async () => {
+    // In rows mode the rows are the truth: a rules write to `privacy.md` changes nothing a reader judges
+    // (`savePrivacy` stands down), so only a row's own change moves the token devices re-judge by.
     const f = await movesFixture();
     await rulesWrite(f, mirrorOf("tok-rules-1", [{ prefix: "1-projects/secret", visibility: "private" }]));
     await setSource(f, "rows");
     const before = (await f.member.query(api.functions.nodesFeed.head, { workspaceId: f.ws }))?.token;
     await rulesWrite(f, mirrorOf("tok-rules-2", [{ prefix: "1-projects/secret", visibility: "team" }]));
-    const after = (await f.member.query(api.functions.nodesFeed.head, { workspaceId: f.ws }))?.token;
-    expect(after).not.toBe(before);
+    const afterFile = (await f.member.query(api.functions.nodesFeed.head, { workspaceId: f.ws }))?.token;
+    expect(afterFile).toBe(before);
+    await f.t.mutation(internal.functions.nodesAccess.setAccess, {
+      workspaceId: f.ws,
+      path: "1-projects/secret",
+      base: "team",
+      actor: { userId: f.ownerId, role: "owner" },
+    });
+    const afterRow = (await f.member.query(api.functions.nodesFeed.head, { workspaceId: f.ws }))?.token;
+    expect(afterRow).not.toBe(before);
   });
 });
 

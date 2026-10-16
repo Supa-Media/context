@@ -18,7 +18,7 @@ import { listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile, readMirror } from "./privacyMirror";
-import { rulesForReaders } from "./readerRules";
+import { readerMirror, rulesForReaders } from "./readerRules";
 import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 
@@ -162,8 +162,8 @@ export async function listFolderFromNodes(
   const { rows, more } = moves.length === 0
     ? await childrenOf(ctx, workspaceId, folder)
     : await childrenThroughMoves(folder, moves, (source) => childrenOf(ctx, workspaceId, source), (key) => rowAt(ctx, workspaceId, key));
-  const mirror = await readMirror(ctx.db, workspaceId);
   // The rules readers judge by (`readerRules.ts`): the mirror's own, or the access rows' once they are the source.
+  const mirror = await readerMirror(ctx, workspaceId);
   const judged = await rulesForReaders(ctx, workspaceId);
   const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
   return await listFolder(folderRowsStore(folder, rows, more, mirror), {
