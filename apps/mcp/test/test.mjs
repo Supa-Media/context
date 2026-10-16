@@ -138,8 +138,8 @@ await suite("runStoreFactoryChecks", () => runStoreFactoryChecks(check));
 // -- multi-tenancy, OAuth, and the ways both are supposed to fail
 //
 // Last, and with its own control plane and object store: it swaps
-// globalThis.fetch and restores it, so it must not run while the calendar cron
-// checks above still own that global.
+// globalThis.fetch and restores it, so it must not run beside a check that
+// still owns that global.
 // Orientation's budgeted walk and fail-soft handshake, against a bucket that
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.

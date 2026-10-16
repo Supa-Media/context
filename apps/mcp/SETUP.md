@@ -12,7 +12,8 @@ Two audiences, and you probably want only one of them:
   no keys, nothing to paste but a URL. Start at [Connect an AI client](#connect-an-ai-client).
 - **Self-hosting the gateway** over your own bucket. Start at
   [Self-host the gateway](#self-host-the-gateway). You will need a control plane
-  (`apps/convex`) as well; the gateway refuses every request without one.
+  (`apps/convex`) as well; the gateway refuses every request without one, and
+  there is no mode that runs without it.
 
 There is no static-token access path any more. `PRIVATE_TOKEN`, `TEAM_TOKEN`,
 `PUBLIC_TOKEN` and `INBOX_TOKEN` are gone — not deprecated, gone — and no
@@ -138,7 +139,6 @@ owner granted access to.
 | `/oauth/authorize`                              | GET    | authorization code + PKCE (`S256`)            |
 | `/oauth/token`                                  | POST   | code exchange and refresh                     |
 | `/oauth/revoke`                                 | POST   | RFC 7009, one grant at a time                 |
-| `/granola-webhook`                              | POST   | single-deployment ingestion only              |
 
 ---
 
@@ -161,8 +161,8 @@ own bucket, and have a working context without us. These are those steps.
 
 `wrangler.toml` in this directory is the product / self-host config. It binds no
 bucket by default and that is deliberate — storage arrives per request from the
-control plane. Read its comments before editing; the cron and native-binding
-sections are commented out because they are self-host-only.
+control plane. Read its comments before editing; the native-binding section is
+commented out because it is self-host-only.
 
 The `SITE_SHOTS` service binding names the Worker in `infra/site-shots`, which
 photographs a published website for an agent (`manage` with action `website`,
@@ -188,9 +188,10 @@ wrangler secret put CONTROL_PLANE_URL   # https://<deployment>.convex.site, no t
 wrangler secret put GATEWAY_SECRET      # the same value the control plane expects
 ```
 
-Without both, the worker refuses every request rather than degrading into some
-other access path. `CONTROL_PLANE_URL` must be `https` (the sole exception is the
-offline test host used by the suite).
+Without both, the worker answers every request with `503` and a JSON body naming
+the setting that is missing or unusable (never its value), rather than degrading
+into some other access path. `CONTROL_PLANE_URL` must be `https`; the one
+exception is a loopback address, for a control plane on the same machine.
 
 **`GATEWAY_SECRET` is not sufficient on its own to fetch a storage credential,
 and must never become sufficient.** A binding is opened with two independent
@@ -263,59 +264,6 @@ The suite covers both properties offline:
 node test/test.mjs        # or: pnpm test
 ```
 
-### 7. Single-deployment ingestion (optional)
-
-The calendar cron and the Granola webhook are the two features with no user
-behind them — no OAuth token arrives on a cron tick — so they write to one
-bucket bound directly to the Worker instead of going through the per-request
-credential path. That only makes sense when you host the gateway over your own
-single context. Bind it:
-
-```toml
-[[r2_buckets]]
-binding = "LOCAL_CONTEXT_BUCKET"
-bucket_name = "my-context"
-```
-
-`LOCAL_CONTEXT_BUCKET` is not an access path and no MCP session can reach it.
-Anything a *caller* can reach goes through the per-request store, which requires
-a live grant. On a multi-tenant deployment it is unset, the webhook answers
-`404`, and the cron returns immediately.
-
-`LOCAL_CONTEXT_ROOT_PREFIX` is optional and applied inside the storage adapter.
-
-**Calendar.** Google Calendar → Settings → *your calendar* → "Integrate
-calendar" → **Secret address in iCal format**, then:
-
-```sh
-wrangler secret put CALENDAR_ICS_URL
-```
-
-Uncomment the `[triggers]` block in `wrangler.toml` and deploy. The cron
-rewrites `2-areas/calendar/next-14-days.md` daily at 05:00 UTC. The
-zero-dependency parser expands common daily, weekly, monthly and yearly
-recurrence rules, including exclusions and moved or cancelled instances. Treat
-the note as useful planning context, not a substitute for the source calendar:
-unusually complex rules and timezone conversion can still be approximate.
-
-**Granola.** Granola Business/Enterprise sends first-party webhooks:
-
-1. Granola → **Settings → Connectors → Webhooks** → **Set up a webhook**.
-2. Endpoint: `https://<host>/granola-webhook`.
-3. Select the `personal` scope and the `note.generated`, `note.edited` and
-   `note.access_granted` events. Optionally filter to a Granola folder.
-4. Copy the one-time signing secret and a compatible personal API key from the
-   confirmation dialog.
-5. `wrangler secret put GRANOLA_WEBHOOK_SECRET` and
-   `wrangler secret put GRANOLA_API_KEY`, then deploy.
-6. Send Granola's test event. The note appears privately under `0-inbox/granola/`.
-
-The Worker verifies Standard Webhooks HMAC signatures and rejects deliveries
-more than five minutes old. It acknowledges accepted events quickly, fetches the
-full summary through Granola's API, keeps note edits at a stable path with
-history, and retries pending failures on the daily scheduled run. Neither Granola
-secret is ever written into a note or an audit record.
-
 ### Environment variables
 
 | Name                        | Required | Kind   | What it is                                                        |
@@ -325,11 +273,6 @@ secret is ever written into a note or an audit record.
 | `PUBLIC_ORIGIN`             | in prod  | var    | the gateway's public origin, used in every discovery document      |
 | `ALLOWED_ORIGINS`           | no       | var    | browser origins allowed to reach `/mcp` and `/inbox` (see below)   |
 | `NATIVE_BINDINGS`           | no       | var    | self-host only; allowlist of Worker binding names                  |
-| `LOCAL_CONTEXT_BUCKET`      | no       | binding| single-deployment ingestion only; unreachable from any request     |
-| `LOCAL_CONTEXT_ROOT_PREFIX` | no       | var    | root prefix for that bucket, applied inside the adapter            |
-| `CALENDAR_ICS_URL`          | no       | secret | calendar cron                                                      |
-| `GRANOLA_API_KEY`           | no       | secret | reads Granola note contents                                        |
-| `GRANOLA_WEBHOOK_SECRET`    | no       | secret | verifies Granola deliveries                                        |
 
 #### `ALLOWED_ORIGINS`
 
