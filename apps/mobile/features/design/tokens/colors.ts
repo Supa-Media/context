@@ -232,6 +232,15 @@ export const darkColors = {
   chromeSurface: "#191715",
   pageSurface: "#201E1B",
   /**
+   * The fill of a card or floating control lying on a screen: Home's tiles and
+   * lists, the folder card, the search capsule, the round buttons. On a pointer
+   * layout it is `pageSurface`, the page lighter than the chrome it lies on.
+   * On a phone the screen is one shade edge to edge (the owner, 2026-10-16),
+   * so `pageSurface` is that shade and a card needs a value of its own — see
+   * `phoneColors.ts`.
+   */
+  cardSurface: "#201E1B",
+  /**
    * The desk a cast's chat scene sets its two apps on: the chat app and
    * Context, each its own window, so neither reads as a panel of the other.
    */
@@ -455,6 +464,7 @@ export const lightColors: Colors = {
   /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
+  cardSurface: "#FFFDF9",
   castDesk: "#DDD7CC",
   castSwitcher: "#2B2825",
 

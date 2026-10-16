@@ -192,7 +192,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       height: FIELD_HEIGHT,
       borderRadius: radii.pill,
       overflow: "hidden",
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       boxShadow: shadows.floating,
     },
     fieldPress: {

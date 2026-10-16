@@ -621,11 +621,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
       names for exactly that relationship is `chromeSurface` / `pageSurface`:
       the page is lighter than the chrome around it, in both worlds.
 
-      So the card is `pageSurface` and `BrowsePane`'s listing scroller grounds
-      the screen in `chromeSurface`. A listing is not a document; it is the
-      furniture you pick a document from.
+      So the card was `pageSurface` and `BrowsePane`'s listing scroller
+      grounded the screen in `chromeSurface`. Since 2026-10-16 those two are
+      one shade on a phone (the owner wanted no two-toned backgrounds there), so
+      the card is `cardSurface`: `pageSurface` on a pointer layout, and on a
+      phone the gray Apple Notes raises its cards in.
     */
-    backgroundColor: colors.pageSurface,
+    backgroundColor: colors.cardSurface,
     borderRadius: radii.sheet,
     overflow: "hidden",
   },
