@@ -1,19 +1,20 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { fonts, layout, leading, pointerType as t, space, tracking } from "../design/tokens";
-import { useThemedStyles, type Colors } from "../design/theme";
+import { useThemedStyles } from "../design/theme";
 import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { PhoneNumberField } from "./PhoneNumberField";
-import { JOINED_BODY, JOINED_TITLE, confirmError, sendError } from "./phoneCheck";
+import { confirmError, sendError } from "./phoneCheck";
+import { AccountSetupJoined } from "./AccountSetupJoined";
 import { useSwitchAccount } from "./useSwitchAccount";
 import { confirmError as emailConfirmError, startError } from "../console/settings/panels/signInEmails";
 import { canFinishSetup, finishFailure, initialName, phoneAlreadyDone } from "./accountSetupModel";
+import { makeAccountSetupStyles } from "./accountSetupStyles";
 
 /**
  * "Make your account" (board 2 of the domain sign-up, 2026-10-16). Drawn by
@@ -28,7 +29,7 @@ import { canFinishSetup, finishFailure, initialName, phoneAlreadyDone } from "./
  * `signInEmails.ts`).
  */
 export function AccountSetupScreen({ email, suggestedName }: { email: string | null; suggestedName: string }) {
-  const styles = useThemedStyles(makeStyles);
+  const styles = useThemedStyles(makeAccountSetupStyles);
   const check = useQuery(api.functions.phoneCheck.myPhoneCheck, {});
   const sendPhoneText = useAction(api.functions.phoneCheck.sendPhoneCode);
   const checkPhoneText = useAction(api.functions.phoneCheck.confirmPhoneCode);
@@ -123,23 +124,7 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
       await finish({ name: name.trim() });
     }, setFinishError);
 
-  if (joined) {
-    return (
-      <CenteredScroll testID="account-setup">
-        <View style={styles.form}>
-          <Text role="heading" aria-level={1} style={styles.pitch}>
-            {JOINED_TITLE}
-          </Text>
-          <Text variant="rowSub" style={styles.body}>
-            {JOINED_BODY}
-          </Text>
-          <View style={styles.primaryRow}>
-            <Button label="Sign in again" variant="accent" onPress={() => switchAccount("/")} testID="account-setup-sign-in" />
-          </View>
-        </View>
-      </CenteredScroll>
-    );
-  }
+  if (joined) return <AccountSetupJoined />;
 
   return (
     <CenteredScroll testID="account-setup">
@@ -310,29 +295,3 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
   );
 }
 
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    form: {
-      width: "100%",
-      maxWidth: 400,
-      alignSelf: "center",
-      paddingHorizontal: layout.gutter,
-      paddingVertical: 48,
-    },
-    pitch: {
-      fontFamily: fonts.display,
-      fontSize: t.h2,
-      lineHeight: leading(26, 1.25),
-      letterSpacing: tracking(26, -0.015),
-      fontWeight: "600",
-      color: colors.text,
-    },
-    body: { marginTop: space.x3, color: colors.text2, lineHeight: leading(12.5, 1.5) },
-    strong: { fontWeight: "600", color: colors.text },
-    hint: { marginTop: space.x2, color: colors.muted, lineHeight: leading(12.5, 1.5) },
-    field: { marginTop: space.x5 },
-    error: { marginTop: space.x3 },
-    primaryRow: { marginTop: space.x4, alignSelf: "stretch" },
-    row: { marginTop: space.x4, flexDirection: "row", flexWrap: "wrap", gap: space.x3 },
-    signOut: { marginTop: space.x6, color: colors.muted, textDecorationLine: "underline" },
-  });
