@@ -209,14 +209,12 @@ describe("file mode (unset and file) reads the privacy mirror, unchanged", () =>
   });
 });
 
-describe("shadow reads the mirror and logs disagreement by count", () => {
-  test("agreement logs nothing; a row that disagrees logs one line with a count and no paths", async () => {
+describe("shadow reads the mirror, whatever the rows say", () => {
+  test("a row that disagrees changes nothing a reader sees, and costs no comparison", async () => {
     const f = await fixture();
     await setSource(f, "shadow");
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const agreed = await f.t.run(async (ctx) => plain(await rulesForReaders(ctx as unknown as QueryCtx, f.ws)));
-    expect(agreed.rules.map((rule) => rule.prefix)).toEqual(["1-projects", "1-projects/secret", "2-areas", "2-areas/vault"]);
-    expect(log).not.toHaveBeenCalled();
+    const before = await f.t.run(async (ctx) => plain(await rulesForReaders(ctx as unknown as QueryCtx, f.ws)));
+    expect(before.rules.map((rule) => rule.prefix)).toEqual(["1-projects", "1-projects/secret", "2-areas", "2-areas/vault"]);
 
     // Make one folder's row disagree with the rule that says team.
     await f.t.run(async (ctx) => {
@@ -227,11 +225,8 @@ describe("shadow reads the mirror and logs disagreement by count", () => {
       if (row === null || row.access === undefined) throw new Error("no derived row");
       await ctx.db.patch(row._id, { access: { base: "private" } });
     });
-    await f.t.run(async (ctx) => plain(await rulesForReaders(ctx as unknown as QueryCtx, f.ws)));
-    expect(log).toHaveBeenCalledTimes(1);
-    const line = String(log.mock.calls[0][0]);
-    expect(JSON.parse(line)).toEqual({ event: "access.shadow_diff", workspaceId: f.ws, count: 2 });
-    expect(line).not.toContain("1-projects");
+    const after = await f.t.run(async (ctx) => plain(await rulesForReaders(ctx as unknown as QueryCtx, f.ws)));
+    expect(after).toEqual(before);
   });
 });
 
