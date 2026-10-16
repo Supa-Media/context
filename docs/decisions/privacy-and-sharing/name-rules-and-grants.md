@@ -379,7 +379,9 @@ groups to `accessNamesFor` and no emails. Now a member holds the grant when the
 address is one they have proved they read: their main `users.email` once it is
 verified, or an added sign-in email. `ownedConfirmedEmailsOf` (`lib/signInEmails.ts`)
 gives that list, and drops any address that `accountForEmail` does not give to
-this same account. Membership is still checked first, so a non-member gets
+this same account. A full account holds one main address and ten added ones,
+so the list is bounded at eleven, and the newest added address still grants.
+Membership is still checked first, so a non-member gets
 `[]` as before; outsiders are a later slice.
 
 An address two accounts hold matches neither of them. That state is one the

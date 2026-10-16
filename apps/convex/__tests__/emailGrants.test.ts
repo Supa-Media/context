@@ -9,6 +9,8 @@
  * Sabotage (run by hand, each must fail a test here):
  *  - drop the `accountForEmail === userId` check in `ownedConfirmedEmailsOf`: "an address two accounts hold grants neither" fails;
  *  - drop `emails` from the `accessNamesFor` call in `grantedNames.ts`: "an added, confirmed address grants the note" fails;
+ *  - cap the list at ten addresses (`slice(0, MAX_EMAILS_PER_ACCOUNT)`) so the eleventh, a main plus ten added, is dropped:
+ *    "a full account ... grants on the newest added address" fails;
  *  - count `users.email` without `emailVerificationTime` as confirmed, in `confirmedEmailsOf` AND in `accountsForEmail`
  *    (its `verifiedOnly` default): "an unverified users.email grants nothing" fails. One layer alone is not enough:
  *    the ownership lookup refuses an unverified address too, so the test is a guard only when both are broken.
@@ -121,6 +123,19 @@ describe("an added, confirmed address grants a member the note", () => {
     // Another member, who holds no such address, still does not see it.
     expect(await folderNamesFor(w, w.bob)).toEqual([]);
     expect(await namesFor(w, w.bob)).toEqual([]);
+  });
+
+  test("a full account, a verified main address and ten added ones, grants on the newest added address", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) => {
+      // KOLA_WORK from `world()` is the first of the ten added; these eight and the newest make ten.
+      for (let i = 1; i <= 8; i += 1) {
+        await ctx.db.insert("signInEmails", { userId: w.kola, email: `kola.${i}@example.test`, addedAt: 1000 + i });
+      }
+      await ctx.db.insert("signInEmails", { userId: w.kola, email: "kola.newest@example.test", addedAt: 2000 });
+    });
+    expect(await emailGrant(w, "kola.newest@example.test")).toMatchObject({ ok: true });
+    expect(await folderNamesFor(w, w.kola)).toEqual(["plan.md"]);
   });
 
   test("a member's main address, once verified, grants the note the same way", async () => {
