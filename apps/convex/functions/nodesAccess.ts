@@ -19,6 +19,7 @@ import { livePending } from "./lib/nodes/pendingAccess";
 import { narrowRowForMove, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
+import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 const granteeValidator = v.union(
@@ -39,6 +40,33 @@ export const rowsMode = internalQuery({
   args: {},
   returns: v.boolean(),
   handler: async (ctx): Promise<boolean> => (await accessSourceOf(ctx.db)) === "rows",
+});
+
+/**
+ * The access state an archive is made from (`lib/filesFns/exportAccess.ts`), in rows mode. `null` in any
+ * other mode, so the archive is made exactly as it was before rows existed.
+ */
+export const exportAccessState = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      rules: v.array(v.object({ prefix: v.string(), vis: v.string() })),
+      overrides: v.array(v.array(v.string())),
+      lines: v.array(
+        v.object({
+          path: v.string(),
+          kind: v.union(v.literal("file"), v.literal("folder")),
+          base: v.optional(v.union(v.literal("private"), v.literal("team"))),
+          grants: v.array(v.string()),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, { workspaceId }) => {
+    if ((await accessSourceOf(ctx.db)) !== "rows") return null;
+    return await exportAccessStateOf(ctx, workspaceId);
+  },
 });
 
 /** One row's base and list, for the gateway (`/gateway/privacy`, op `setAccess`). Refused outside rows mode. */
