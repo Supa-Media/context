@@ -57,5 +57,48 @@ export const nodeAccessTables = {
         visibility: v.optional(v.string()),
       }),
     ),
+    /**
+     * Every row that carries a setting or a grant, as `accessRowsOf` reads
+     * them, rebuilt by each finished derivation. Absent while a derivation is
+     * walking (the readers scan the rows then) and whenever the set is too
+     * large for one document (`accessBackfill.ts`, `SNAPSHOT_MAX_ROWS`).
+     */
+    snapshot: v.optional(
+      v.array(
+        v.object({
+          path: v.string(),
+          noteId: v.string(),
+          kind: v.union(v.literal("file"), v.literal("folder")),
+          base: v.optional(v.union(v.literal("private"), v.literal("team"))),
+          grantees: v.array(
+            v.object({
+              kind: v.union(v.literal("user"), v.literal("group"), v.literal("email")),
+              id: v.string(),
+              role: v.union(v.literal("view"), v.literal("edit")),
+            }),
+          ),
+        }),
+      ),
+    ),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Staff's last parity check of one workspace's access rows against its rules
+   * (`lib/nodes/accessParity.ts`), run by `privacyRows.checkPage`. Counts and
+   * the first few differences as path and clearance only, never note text.
+   * `version` is the derivation version the check ran against; a check is
+   * current only while `nodeAccessState.version` still equals it.
+   */
+  privacyRowChecks: defineTable({
+    workspaceId: v.id("workspaces"),
+    runId: v.number(),
+    status: v.union(v.literal("running"), v.literal("done")),
+    version: v.number(),
+    startedAt: v.number(),
+    checkedAt: v.optional(v.number()),
+    checked: v.number(),
+    differences: v.number(),
+    sample: v.array(v.object({ path: v.string(), clearance: v.string() })),
+    orphans: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),
 };

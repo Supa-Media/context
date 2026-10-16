@@ -44,6 +44,8 @@ import type { DatabaseReader, MutationCtx, QueryCtx } from "../../../_generated/
 import { PrivacyOverrides, isGroupScope, overrideFor, type Visibility } from "../privacy";
 import { resolveAddressedUser } from "../identities";
 import { privacyRowOf } from "./privacyAuthority";
+import { scanAccessRows } from "./accessRows";
+import type { AccessRow } from "./rowAccess";
 
 /** The `source` every derived grant carries. */
 export const ACCESS_SOURCE = "privacy.md" as const;
@@ -53,6 +55,16 @@ export const INLINE_DERIVE_MAX_FILES = 2_000;
 
 /** Rows one page of the walk reads. */
 export const DERIVE_PAGE = 500;
+
+/**
+ * The most rows the snapshot holds. Past this (or `SNAPSHOT_MAX_BYTES`, which
+ * a document also has to fit under) the snapshot is not stored and readers
+ * scan the rows, as they did before there was one.
+ */
+export const SNAPSHOT_MAX_ROWS = 4_000;
+
+/** The most bytes of JSON the snapshot may be; a Convex document is capped well above this. */
+export const SNAPSHOT_MAX_BYTES = 800_000;
 
 /** The deployment's access switch: `file` (the default) derives nothing. */
 export type AccessSource = "file" | "shadow" | "rows";
@@ -205,7 +217,33 @@ async function syncGrants(ctx: MutationCtx, workspaceId: Id<"workspaces">, nodeI
   }
 }
 
-/** The orphans of these rules, and the version bump that closes a finished walk. */
+/**
+ * The snapshot a finished derivation leaves: every row that carries a setting or a grant. Read after the
+ * walk's writes, so it sees this derivation's rows. `undefined` when it is too large to store.
+ */
+async function snapshotOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[] | undefined> {
+  const rows = await scanAccessRows(ctx, workspaceId);
+  const bytes = JSON.stringify(rows).length;
+  if (rows.length > SNAPSHOT_MAX_ROWS || bytes > SNAPSHOT_MAX_BYTES) {
+    console.log(JSON.stringify({ event: "access.snapshot_too_large", workspaceId, count: rows.length }));
+    return undefined;
+  }
+  return rows;
+}
+
+/**
+ * Drop the snapshot while a walk runs. Its rows are being rewritten page by page, so a snapshot left from
+ * before would name paths the rows no longer hold; readers scan until the walk finishes and rebuilds it.
+ */
+async function clearSnapshot(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const state = await ctx.db
+    .query("nodeAccessState")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (state !== null && state.snapshot !== undefined) await ctx.db.patch(state._id, { snapshot: undefined });
+}
+
+/** The orphans of these rules, the snapshot of the rows, and the version bump that closes a finished walk. */
 async function finishDerivation(ctx: MutationCtx, workspaceId: Id<"workspaces">, rules: Rules): Promise<void> {
   const cache: Cache = new Map();
   const orphans: Orphan[] = [];
@@ -228,7 +266,14 @@ async function finishDerivation(ctx: MutationCtx, workspaceId: Id<"workspaces">,
     .query("nodeAccessState")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  const fields = { version: (state?.version ?? 0) + 1, migratedFromEtag: rules.etag, migratedAt: Date.now(), orphans };
+  const snapshot = await snapshotOf(ctx, workspaceId);
+  const fields = {
+    version: (state?.version ?? 0) + 1,
+    migratedFromEtag: rules.etag,
+    migratedAt: Date.now(),
+    orphans,
+    snapshot,
+  };
   if (state === null) await ctx.db.insert("nodeAccessState", { workspaceId, ...fields });
   else await ctx.db.patch(state._id, fields);
 }
@@ -245,6 +290,7 @@ export async function deriveAccessPage(
 ): Promise<DerivePage> {
   const size = options.pageSize ?? DERIVE_PAGE;
   const after = options.after;
+  if (after === null) await clearSnapshot(ctx, workspaceId);
   const rules = await rulesOf(ctx, workspaceId);
   const cache: Cache = new Map();
   const rows = await ctx.db

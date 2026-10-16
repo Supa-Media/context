@@ -27,6 +27,7 @@ export const ADMIN_ACTIONS = [
   "texts.sender_set",
   "tex.allowlist_added",
   "tex.allowlist_removed",
+  "rows.source_set",
 ] as const;
 
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];

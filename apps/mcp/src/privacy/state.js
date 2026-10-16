@@ -18,6 +18,7 @@ import {
   replacePrivacyRulesBlock,
   visibilityOf,
 } from "./engine.js";
+import { PRE_PARSED_RULES } from "./engine.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { NOTE_ACL_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
@@ -53,6 +54,9 @@ async function loadLegacyPrivacyState(store) {
 export async function loadPrivacyState(store) {
   const object = await getWithLegacyFallback(store, PRIVACY_KEY);
   if (!object) return loadLegacyPrivacyState(store);
+  // Rules the authority holds parsed, with row tokens in them: taken as held. The text is still the file's.
+  const preParsed = object[PRE_PARSED_RULES];
+  if (preParsed !== undefined) return { ...preParsed, text: await object.text(), object, legacy: false };
   try {
     const text = await object.text();
     return { ...parsePrivacyManifest(text), text, object, legacy: false };

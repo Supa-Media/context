@@ -40,6 +40,7 @@
 import { StorageUnavailable } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { RESERVED_FIRST_SEGMENTS, SLUG_PATTERN } from "./workspacePath.js";
+import { ROW_NAME_PATTERN } from "./privacy/rowAccess.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -379,7 +380,7 @@ function normalizeSession(raw) {
       // form here keeps this boundary compatible with older gateway fixtures,
       // while the set consumed by privacy always has the exact `@name` form.
       const normalizedName = name.trim().replace(/^@/, "").toLowerCase();
-      if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName)) throw fail();
+      if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName) && !ROW_NAME_PATTERN.test(normalizedName)) throw fail();
       return normalizedName;
     });
     return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames };
@@ -575,7 +576,7 @@ export function accessForLiveGrant(raw, expectedWorkspaceId) {
   const grantedGroups = new Set();
   for (const name of raw.grantedNames || []) {
     const normalized = name.trim().replace(/^@/, "").toLowerCase();
-    if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalized)) return null;
+    if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalized) && !ROW_NAME_PATTERN.test(normalized)) return null;
     grantedGroups.add(`@${normalized}`);
   }
   const scopes = effectiveScopes(raw.scopes, raw.role);

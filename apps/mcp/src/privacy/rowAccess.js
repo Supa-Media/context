@@ -57,6 +57,26 @@ export function editNameFor(noteId) {
 }
 
 /**
+ * A row token as a rule carries it: `@#` and the note's id, as `rowAccess` renders it. Ids are lowercase
+ * (`noteIds.ts`, and Convex ids are lowercase alphanumerics), so the pattern takes nothing else. Only
+ * rendered rules hold one; `GROUP_SCOPE_PATTERN` still refuses it in file text.
+ */
+export const ROW_TOKEN_PATTERN = /^@#[a-z0-9-]{8,64}$/;
+
+/**
+ * A grant name the control plane sends for a row, without its `@` (`grantedNamesFor` strips it): the token's
+ * `#` and id, and `!edit` for an edit grant. Accepted beside a group name at the grant boundary
+ * (`session.js`), and nowhere else.
+ */
+export const ROW_NAME_PATTERN = /^#[a-z0-9-]{8,64}(?:!edit)?$/;
+
+/** Whether any rule in these held rules names a row token. */
+export function hasRowToken(rules) {
+  return rules.folders.some((folder) => ROW_TOKEN_PATTERN.test(folder.visibility)) ||
+    rules.notes.some((note) => ROW_TOKEN_PATTERN.test(note.visibility));
+}
+
+/**
  * @param {AccessRow} row
  * @param {Audience} audience
  * @returns {string}

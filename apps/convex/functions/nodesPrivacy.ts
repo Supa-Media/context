@@ -12,10 +12,12 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, internalQuery } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalMutation, internalQuery, type QueryCtx } from "../_generated/server";
 import {
   EXPORT_RETRY_MS,
   heldRules,
+  type HeldRules,
   isAuthority,
   newRulesVersion,
   privacyAuthorityOn,
@@ -24,13 +26,34 @@ import {
 } from "./lib/nodes/privacyAuthority";
 import { privacyIsNewer } from "./lib/nodes/observe";
 import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
-import { accessDerived, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
+import { accessDerived, accessSourceOf, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
+import { accessVersionOf } from "./lib/nodes/accessRows";
 import { accessParityPage } from "./lib/nodes/accessParity";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
-const heldValidator = v.object({ etag: v.string(), folders, notes });
+const heldValidator = v.object({ etag: v.string(), folders, notes, accessVersion: v.optional(v.number()) });
+
+/**
+ * The rules as the gateway holds them. While rows judge (`accessSource` = `rows`) they are the rules the rows
+ * render for a member (`rulesForReaders`), with the rows' version beside the `privacy.md` etag the gateway
+ * compares writes by. Otherwise they are the stored rules, exactly as before the switch.
+ */
+async function heldFor(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  row: Doc<"nodePrivacy"> & { etag: string },
+): Promise<HeldRules & { accessVersion?: number }> {
+  if ((await accessSourceOf(ctx.db)) !== "rows") return heldRules(row);
+  const rendered = await rulesForReaders(ctx, workspaceId);
+  return {
+    etag: row.etag,
+    folders: rendered.rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
+    notes: [...rendered.overrides].map(([path, visibility]) => ({ path, visibility })),
+    accessVersion: await accessVersionOf(ctx, workspaceId),
+  };
+}
 
 /** The rules, while they are this workspace's authority; `null` while `privacy.md` is. */
 export const authority = internalQuery({
@@ -41,7 +64,7 @@ export const authority = internalQuery({
       .query("nodePrivacy")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
-    return isAuthority(row, await privacyAuthorityOn(ctx.db)) ? heldRules(row) : null;
+    return isAuthority(row, await privacyAuthorityOn(ctx.db)) ? await heldFor(ctx, workspaceId, row) : null;
   },
 });
 
@@ -94,7 +117,9 @@ export const write = internalMutation({
   handler: async (ctx, args) => {
     const row = await rowOf(ctx, args.workspaceId);
     if (!isAuthority(row, await privacyAuthorityOn(ctx.db))) return null;
-    if (args.expected !== null && args.expected !== row.etag) return { current: heldRules(row) };
+    if (args.expected !== null && args.expected !== row.etag) {
+      return { current: await heldFor(ctx, args.workspaceId, row) };
+    }
     const now = Date.now();
     const etag = newRulesVersion(now, Math.random);
     await ctx.db.patch(row._id, {
