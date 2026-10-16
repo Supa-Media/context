@@ -21,7 +21,8 @@
  * comparison and the stale case passes; drop the `staffActor` call and the
  * stranger cases change state. Drop the same-rules case of `checkStatus` and a
  * busy workspace never stands; drop its rules-changed test, or its
- * `derivedEtag` comparison, and a stale check stands; derive every page in rows
+ * `derivedDigest` comparison, and a stale check stands; compare the rules' version
+ * rather than what they say and the same rules written again stale it; derive every page in rows
  * mode and the owner's decision is clobbered.
  */
 
@@ -346,6 +347,30 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("rows");
   });
 
+  test("a check stands when the same rules are written again under a new version", async () => {
+    const t = tester();
+    const workspaceId = await ruledWorkspace(t, "acme");
+    await keepRows(t);
+    await checkEverything(t);
+    const staff = await signedIn(t, ADMIN);
+    await keysOn(t);
+    await ruleAuthorityOn(t);
+
+    // A tool rewrote the rules with nothing changed: a new version, the same folders and notes.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("nodePrivacy")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, { etag: "v1-again" });
+    });
+    expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("clean");
+    await t.mutation(internal.functions.privacyRows.deriveWorkspace, { workspaceId });
+    const after = await staff.query(api.functions.privacyRows.report, {});
+    expect(after.rows[0]?.status).toBe("clean");
+    expect(after.ready.ok).toBe(true);
+  });
+
   test("refused as stale once the rules change after the check, derived or not", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
@@ -392,7 +417,7 @@ describe("Use rows", () => {
         .query("privacyRowChecks")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .unique();
-      await ctx.db.patch(row!._id, { rulesEtag: undefined, derivedEtag: undefined });
+      await ctx.db.patch(row!._id, { rulesDigest: undefined, derivedDigest: undefined });
     });
     const staff = await signedIn(t, ADMIN);
     expect((await staff.query(api.functions.privacyRows.report, {})).rows[0]?.status).toBe("clean");

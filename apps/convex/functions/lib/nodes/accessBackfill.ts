@@ -44,6 +44,7 @@ import type { DatabaseReader, MutationCtx, QueryCtx } from "../../../_generated/
 import { PrivacyOverrides, isGroupScope, overrideFor, type Visibility } from "../privacy";
 import { resolveAddressedUser } from "../identities";
 import { privacyRowOf } from "./privacyAuthority";
+import { rulesDigest } from "./rulesDigest";
 import { scanAccessRows } from "./accessRows";
 import type { AccessRow } from "./rowAccess";
 
@@ -99,6 +100,8 @@ interface Rules {
   overrides: PrivacyOverrides;
   /** The `privacy.md` version these rules were read from. */
   etag: string | undefined;
+  /** What they say (`rulesDigest`), so a rewrite that changed nothing reads as the same rules. */
+  digest: string | null;
 }
 
 /** Handles resolved within one page, so a name that many rows name is looked up once. */
@@ -130,7 +133,7 @@ async function rulesOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise
   }
   const overrides = new PrivacyOverrides();
   for (const note of row?.notes ?? []) overrides.set(note.path, note.visibility as Visibility);
-  return { folders, overrides, etag: row?.etag };
+  return { folders, overrides, etag: row?.etag, digest: await rulesDigest(row) };
 }
 
 /**
@@ -286,6 +289,7 @@ async function finishDerivation(ctx: MutationCtx, workspaceId: Id<"workspaces">,
   const fields = {
     version: (state?.version ?? 0) + 1,
     migratedFromEtag: rules.etag,
+    migratedFromDigest: rules.digest,
     migratedAt: Date.now(),
     orphans,
     snapshot,
