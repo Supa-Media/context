@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { toolDefinitions } from "../src/tools/registry.js";
 import { TOOL_NEWS } from "../src/tools/news.js";
-import { liveToolListSection, purposeOf, toolLine, typeOf } from "../src/tools/liveList.js";
+import { appDropsUnknownArguments, liveToolListSection, refreshStep, purposeOf, toolLine, typeOf } from "../src/tools/liveList.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 
@@ -96,6 +96,7 @@ const TEAM = token("team");
 const OWNER = token("owner");
 const UNKNOWN = token("unknown");
 const ACROSS = token("across");
+const CODEX = token("codex");
 const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 const OLDEST = TOOL_NEWS[TOOL_NEWS.length - 1];
 
@@ -131,6 +132,7 @@ before(async () => {
   await grant(TEAM, { toolsListedAt: longAgo, scopes: ["context:read", "context:write"] });
   await grant(OWNER, { toolsListedAt: longAgo, scopes: ["context:read", "context:write", "context:private"] });
   await grant(UNKNOWN, { userId: "user_unknown" });
+  await grant(CODEX, { toolsListedAt: longAgo, clientName: "Codex", userId: "user_codex" });
   controlPlane.addWorkspace("ws_live_other", "liveother", {
     provider: "s3",
     endpoint: S3_ENDPOINT,
@@ -241,6 +243,42 @@ test("orient addressed to another workspace lists this connection's tools", asyn
 test("tools sent as text by a client that does not know its type still works", async () => {
   // How Claude Code sent it on production, holding an orient with no `tools`.
   assert.ok((await orient(CURRENT, { tools: "true" })).includes(HEADING));
+});
+
+test("apps known to drop arguments their copy does not show are recognised by name", () => {
+  for (const name of ["Codex", "codex-mcp-client", "OpenAI Codex CLI"]) assert.equal(appDropsUnknownArguments(name), true, name);
+  for (const name of ["Claude", "ChatGPT", "Cursor", "", null, undefined]) assert.equal(appDropsUnknownArguments(name), false, String(name));
+});
+
+test("each app is told its own way to load today's tools", () => {
+  assert.match(refreshStep("ChatGPT"), /Settings › Connectors › Context › Refresh/);
+  assert.match(refreshStep("Codex"), /^In Codex/);
+  assert.match(refreshStep("OpenAI Codex CLI"), /^In Codex/, "Codex before ChatGPT: both are OpenAI's");
+  assert.match(refreshStep("claude-code"), /^In Claude Code/);
+  assert.match(refreshStep("Claude"), /remove the Context connector and add it again/);
+  assert.match(refreshStep("Cursor"), /restart Cursor/);
+  assert.match(refreshStep("Something else"), /Reconnect Context in your app/);
+  assert.match(refreshStep(null), /Reconnect Context in your app/);
+});
+
+test("most apps are told to pass unlisted arguments, with reconnecting as the way out", async () => {
+  const text = await orient(STALE);
+  const list = text.slice(text.indexOf(HEADING));
+  assert.match(list, /Pass arguments exactly as listed here, even where your copy does not show them\./);
+  assert.match(list, /refuses one or seems to ignore it, ask the person to reconnect\. .*Reconnect Context in your app/);
+  assert.ok(!/drops/.test(list));
+});
+
+test("Codex, which drops arguments its copy does not show, is told to reconnect instead", async () => {
+  const text = await orient(CODEX);
+  const news = text.slice(text.indexOf("## New in Context's tools"), text.indexOf(HEADING));
+  const list = text.slice(text.indexOf(HEADING), text.indexOf("## Front page"));
+  for (const section of [news, list]) {
+    assert.match(section, /Your app drops any argument its own copy of a tool does not show/);
+    assert.match(section, /In Codex, reconnect Context or start a new session\./);
+    assert.ok(!/even where your copy/.test(section), "never told to pass what will be dropped");
+  }
+  assert.ok(listedNames(text).includes("write_note"), "the list is still there, as the reason to reconnect");
 });
 
 test("tools must be a boolean", async () => {

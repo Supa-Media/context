@@ -83,17 +83,79 @@ export function toolLine(tool) {
 }
 
 /**
+ * Apps that send only the arguments in their own copy of a tool and drop the
+ * rest before the call leaves them, so an argument added since they loaded
+ * our tools never reaches the gateway, whatever `coercedArguments` would do
+ * with it.
+ *
+ * Found 2026-10-16: Codex stripped `mail` from a stale `write_note`. Matched
+ * on the name the client registered, as `CLIENT_FAMILIES` in the control
+ * plane's `usage.ts` matches it. The name is the client's own claim, which is
+ * fine here: it only chooses which advice an agent reads.
+ */
+const DROPS_UNKNOWN_ARGUMENTS = /codex/i;
+
+/** Does the app with this registered name drop arguments its copy does not show? */
+export function appDropsUnknownArguments(clientName) {
+  return typeof clientName === "string" && DROPS_UNKNOWN_ARGUMENTS.test(clientName);
+}
+
+/**
+ * How a person makes their app load today's tools, by the name it registered.
+ * First match wins, so Codex is tested before ChatGPT and Claude Code before
+ * Claude. From the 2026-10-16 survey of each app's own docs and issues (the
+ * project's `mcp-tool-staleness` notes): none of them refreshes by itself.
+ */
+const REFRESH_STEPS = [
+  [/codex/i, "In Codex, reconnect Context or start a new session."],
+  [/chatgpt|openai/i, "In ChatGPT: Settings › Connectors › Context › Refresh."],
+  [/claude.?code/i, "In Claude Code, start a new session."],
+  [/claude/i, "In Claude, remove the Context connector and add it again (Settings › Connectors)."],
+  [/cursor/i, "In Cursor, restart Cursor."],
+];
+
+/** The step for this app, or a general one for an app not named above. */
+export function refreshStep(clientName) {
+  const name = typeof clientName === "string" ? clientName : "";
+  const found = REFRESH_STEPS.find(([pattern]) => pattern.test(name));
+  return found ? found[1] : "Reconnect Context in your app, or start a new chat.";
+}
+
+/**
+ * What to do with an argument the app's copy does not show, for the app the
+ * agent is running in. Shared with `news.js`, so the two sections never give
+ * opposite advice.
+ *
+ * @param {{dropsUnknown?: boolean, client?: string | null}} [app]
+ */
+export function unlistedArgumentAdvice({ dropsUnknown = false, client = null } = {}) {
+  const refresh = `To load today's tools, ask the person to refresh: ${refreshStep(client)}`;
+  return dropsUnknown
+    ? "Your app drops any argument its own copy of a tool does not show, so an argument named here that " +
+        `your copy lacks never reaches Context. ${refresh} Until then, use what your copy shows.`
+    : "Pass arguments exactly as listed here, even where your copy does not show them. If your app refuses " +
+        `one or seems to ignore it, ask the person to reconnect. ${refresh}`;
+}
+
+/** The app as the advice above needs it, from the store's actor. */
+export function appOf(store) {
+  const client = store?.actor?.client ?? null;
+  return { client, dropsUnknown: appDropsUnknownArguments(client) };
+}
+
+/**
  * The full list, as an orient section.
  *
  * @param {Array<{name: string, description?: string, inputSchema?: object}>} tools
+ * @param {{dropsUnknown?: boolean, client?: string | null}} [app]
  */
-export function liveToolListSection(tools) {
+export function liveToolListSection(tools, app = {}) {
   const shared = tools.some((tool) => tool.inputSchema?.properties?.[SHARED_ARGUMENT]);
   return (
     "## Context's tools as they are today\n\n" +
-    "Trust this list over your app's copy of these tools, which may be older. Pass arguments exactly " +
-    "as listed here, even where your copy does not show them: they work. A tool listed here that your " +
-    "app does not offer needs Context reconnected (or a new chat) before you can call it.\n\n" +
+    `Trust this list over your app's copy of these tools, which may be older. ${unlistedArgumentAdvice(app)} ` +
+    "A tool listed here that your app does not offer needs Context reconnected (or a new chat) before you " +
+    "can call it.\n\n" +
     `\`*\` marks a required argument; \`{a, b}\` is an object with those keys.` +
     (shared ? ` Every tool also takes \`${SHARED_ARGUMENT}: "@name"\` to act in another workspace.` : "") +
     "\n\n" +
@@ -114,7 +176,7 @@ export async function liveToolsSection(store, { full }) {
   if (typeof store?.offeredTools !== "function") return null;
   if (!full) return liveToolPointer(store.actor?.toolsListedAt);
   try {
-    return liveToolListSection(await store.offeredTools());
+    return liveToolListSection(await store.offeredTools(), appOf(store));
   } catch {
     return liveToolPointer(null);
   }
