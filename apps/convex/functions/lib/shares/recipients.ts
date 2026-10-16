@@ -96,27 +96,27 @@ export const listSharedWithMeArgs = {};
  * A grant is not a token and opens by its note id, so it carries no token; `kind` says which.
  */
 const sharedItemValidator = v.object({
-    kind: v.literal("share"),
-    token: v.string(),
-    workspaceId: v.id("workspaces"),
-    slug: v.string(),
-    displayName: v.string(),
-    /** Whether the note lives in somebody's own context or a shared one. */
-    workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
-    entryPath: v.string(),
-    sharedBy: v.id("users"),
-    /**
-     * The sharer's handle, without the `@`, so the list can draw their face
-     * and name them. `null` for an account with none. The sharer chose to
-     * address the reader, and the reader can already see who sent the link
-     * on the share page, so naming them here discloses nothing new.
-     */
-    sharedByHandle: v.union(v.string(), v.null()),
-    /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
-    sharedByName: v.union(v.string(), v.null()),
-    /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
-    title: v.union(v.string(), v.null()),
-    createdAt: v.number(),
+  kind: v.literal("share"),
+  token: v.string(),
+  workspaceId: v.id("workspaces"),
+  slug: v.string(),
+  displayName: v.string(),
+  /** Whether the note lives in somebody's own context or a shared one. */
+  workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
+  entryPath: v.string(),
+  sharedBy: v.id("users"),
+  /**
+   * The sharer's handle, without the `@`, so the list can draw their face
+   * and name them. `null` for an account with none. The sharer chose to
+   * address the reader, and the reader can already see who sent the link
+   * on the share page, so naming them here discloses nothing new.
+   */
+  sharedByHandle: v.union(v.string(), v.null()),
+  /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
+  sharedByName: v.union(v.string(), v.null()),
+  /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
+  title: v.union(v.string(), v.null()),
+  createdAt: v.number(),
 });
 
 export const listSharedWithMeReturns = v.array(v.union(sharedItemValidator, grantedItemValidator));
