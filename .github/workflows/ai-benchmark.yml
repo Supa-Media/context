@@ -47,7 +47,7 @@ on:
         required: false
         default: ""
       setups:
-        description: "Setups to run, comma-separated; empty runs every setup in setups/<job>/"
+        description: "Setups to run, comma-separated; empty runs production (ai/production/<job>.md with its live skills); all runs every setup in setups/<job>/ as well"
         required: false
         default: ""
       questions:
@@ -134,7 +134,10 @@ jobs:
       # 2026-10-14), named here so the result is named after it too; the long
       # sets run by name. Another job runs its own test, as `pnpm ai run` does.
       BENCH_TEST: ${{ inputs.test || ((inputs.job || 'texting-assistant') == 'texting-assistant' && 'core') || '' }}
-      BENCH_SETUPS: ${{ inputs.setups }}
+      # Empty measures what people get today: the live setup and its skills,
+      # pulled as `production` (decided by the owner, 2026-10-16). `all` runs
+      # every setup in `ai/setups/<job>/` too. Search has no live setup file.
+      BENCH_SETUPS: ${{ inputs.setups || ((inputs.job || 'texting-assistant') == 'search' && 'all') || 'production' }}
       BENCH_QUESTIONS: ${{ inputs.questions }}
       BENCH_RUNS: ${{ inputs.runs }}
       BENCH_JUDGE: ${{ inputs.judge }}
@@ -240,7 +243,7 @@ jobs:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
           args=(--out "$RESULT")
-          [ -n "$BENCH_SETUPS" ] && args+=(--setups "$BENCH_SETUPS")
+          [ -n "$BENCH_SETUPS" ] && [ "$BENCH_SETUPS" != "all" ] && args+=(--setups "$BENCH_SETUPS")
           [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
           pnpm ai search "${args[@]}"
@@ -252,7 +255,7 @@ jobs:
         run: |
           args=("$BENCH_JOB" --parallel "$BENCH_PARALLEL" --out "$RESULT")
           [ -n "$BENCH_TEST" ] && args+=(--test "$BENCH_TEST")
-          [ -n "$BENCH_SETUPS" ] && args+=(--setups "$BENCH_SETUPS")
+          [ -n "$BENCH_SETUPS" ] && [ "$BENCH_SETUPS" != "all" ] && args+=(--setups "$BENCH_SETUPS")
           [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
           [ -n "$BENCH_RUNS" ] && args+=(--runs "$BENCH_RUNS")
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
