@@ -8,15 +8,10 @@
  * or the request fails; the caller then says what it could not do (links left
  * to forwarding, no chaos line, a listing without front matter), and never
  * reads the bucket in their place.
- *
- * The exception is a store with no control plane at all (the single-tenant
- * token deployment, a self-hosted gateway): there is no tree to ask, so
- * `factProps` parses the notes themselves, as the tree's own fill would.
  */
 
 import { bareNameOf } from "./links.js";
 import { propsOf } from "./props.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
 
 /**
  * The notes a rewrite for these renames must read: every note pointing at a
@@ -101,9 +96,6 @@ const PROPS_CONCURRENCY = 4;
  * @returns {Promise<Map<string, { sealed: boolean, props: { properties: Record<string, unknown>, inlineTags: string[], heading: string | null, lede: string | null, lines?: number } | null }> | null>}
  */
 export async function factProps(store, paths) {
-  if (typeof store?.treeManifest !== "function" && typeof store?.treeFacts !== "function") {
-    return await bucketProps(store, paths);
-  }
   if (typeof store?.treeFacts !== "function") return null;
   const unique = [...new Set(paths)];
   const batches = [];
@@ -156,14 +148,3 @@ function parsedProps(text) {
   }
 }
 
-/** `factProps` for a store with no control plane: each note parsed where it lies. */
-async function bucketProps(store, paths) {
-  const found = new Map();
-  for (const path of new Set(paths)) {
-    const object = await getWithLegacyFallback(store, path).catch(() => null);
-    if (!object) continue;
-    const parsed = propsOf(await object.text());
-    found.set(path, parsed === null ? { sealed: true, props: null } : { sealed: false, props: parsedProps(JSON.stringify(parsed)) });
-  }
-  return found;
-}

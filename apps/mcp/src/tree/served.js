@@ -24,16 +24,10 @@
  *  - **No tree, no listing.** A workspace whose first copy has not finished
  *    (`served: false`) is told it is still loading; a request that failed,
  *    timed out or came back malformed is told the list could not be read just
- *    now. Neither walks the bucket instead (`TreeUnavailable`).
- *
- * The one store that lists its bucket is one with no control plane at all:
- * the single-tenant token deployment and a self-hosted gateway, which have no
- * Convex to hold a tree. Nothing else could answer them, so this is not a
- * fallback from a tree that failed; a session that has a control plane never
- * reaches it.
+ *    now. Neither walks the bucket instead (`TreeUnavailable`). A store with
+ *    no way to ask the control plane is the same case: there is no tree, so
+ *    its notes cannot be listed at all.
  */
-
-import { listAllKeys } from "../notes/storage.js";
 
 /** Why a listing could not be answered: the tree is still being copied, or could not be asked. */
 export class TreeUnavailable extends Error {
@@ -92,13 +86,13 @@ function covers(folder, wanted) {
  * @param {object} store a session-bound store
  */
 export function servedListingStore(store) {
-  if (typeof store?.treeManifest !== "function") return bucketListing(store);
   /** Folder → its keys, sorted (a promise of them), for each subtree read so far in this call. */
   const subtrees = new Map();
   /** The first refusal, repeated for the rest of the call. */
   let refused = null;
 
   async function read(folder) {
+    if (typeof store?.treeManifest !== "function") throw new TreeUnavailable("unreachable");
     const entries = [];
     let cursor;
     for (let page = 0; page < MANIFEST_PAGES; page += 1) {
@@ -191,18 +185,3 @@ function objectOf(entry) {
   };
 }
 
-/**
- * A store with no control plane (see the header): its own listing, with
- * `treeKeys` and `treeEntries` walking the bucket, since there is no tree.
- */
-function bucketListing(store) {
-  const listing = Object.create(store);
-  let everything = null;
-  const all = () => {
-    everything ??= listAllKeys(store, "").then((objects) => objects.filter(({ key }) => !plumbingPrefix(key)));
-    return everything;
-  };
-  listing.treeKeys = async () => (await all()).map(({ key }) => key);
-  listing.treeEntries = async () => await all();
-  return listing;
-}

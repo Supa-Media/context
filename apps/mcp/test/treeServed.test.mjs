@@ -6,10 +6,11 @@
  *
  * The bucket below counts every listing it answers, so "the tool never walks
  * the bucket" is a number, not a reading of the code. Every tool's answer is
- * compared with the answer the bucket alone gives (a store with no control
- * plane, the one store that still lists its bucket), at owner and team
- * clearance, so serving from the tree changes where the keys and front
- * matter come from and nothing a person sees.
+ * compared with the answer a tree that holds every key the bucket does gives
+ * (no narrowing, so the tools' own rules are the only filter), at owner and
+ * team clearance, so serving from the tree changes where the keys and front
+ * matter come from and nothing a person sees. A store with no control plane
+ * has no tree and lists nothing (`TreeUnavailable`); it never walks the bucket.
  *
  * ## Sabotage record
  *
@@ -167,7 +168,8 @@ const CALLS = [
 for (const scope of ["private", "team"]) {
   test(`at ${scope} clearance, every listing tool answers as the bucket does, without listing a note folder`, async () => {
     for (const [name, args] of CALLS) {
-      const plain = bucketOf(NOTES);
+      const plainBucket = bucketOf(NOTES);
+      const plain = served(plainBucket, treeOf(plainBucket, { see: () => true, pageSize: 1000 }));
       const expected = await callTool(name, args, plain, scope);
       const bucket = bucketOf(NOTES);
       const tree = treeOf(bucket, { see: scope === "private" ? () => true : teamSees });
@@ -289,12 +291,12 @@ test("plumbing is listed from the bucket", async () => {
   assert.equal(tree.requests.length, 0);
 });
 
-test("a store with no control plane lists its own bucket: there is no tree to ask", async () => {
+test("a store with no control plane cannot list notes: there is no tree to ask, and the bucket is not walked", async () => {
   const bucket = bucketOf(NOTES);
   const store = servedListingStore(bucket);
-  const keys = await store.treeKeys();
-  assert.ok(keys.includes("1-projects/beta.md") && !keys.some((key) => key.startsWith(".")));
-  assert.ok(bucket.listings.length > 0);
+  await assert.rejects(() => store.treeKeys(), (error) => error instanceof TreeUnavailable);
+  await assert.rejects(() => store.list({}), (error) => error instanceof TreeUnavailable);
+  assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), [], "the bucket was not walked");
 });
 
 test("listings page by key, and one level answers folders as delimited prefixes", async () => {

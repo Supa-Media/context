@@ -22,13 +22,11 @@
  * cannot see is taken, as it was over the bucket, and the tools decide what
  * to say with `canSee`.
  *
- * The one store with no control plane (the single-tenant token deployment, a
- * self-hosted gateway) has no tree to ask, so it reads the bucket by name:
- * not a fallback from a tree that failed (see `served.js`).
+ * A store with no way to ask the control plane has no tree, so it cannot
+ * answer either: `TreeUnavailable`, never a read of the bucket by name.
  */
 
 import { TreeUnavailable } from "./served.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
 
 /** Names one ask may carry (`TAKEN_PATHS` in the control plane). */
 const NAMES_PER_ASK = 100;
@@ -47,10 +45,7 @@ export async function takenInTree(store, paths) {
   const folders = new Set();
   const unique = [...new Set(paths)];
   if (unique.length === 0) return { files, folders };
-  if (typeof store?.treeFacts !== "function") {
-    for (const path of unique) if (await getWithLegacyFallback(store, path)) files.add(path);
-    return { files, folders };
-  }
+  if (typeof store?.treeFacts !== "function") throw new TreeUnavailable("unreachable");
   for (let at = 0; at < unique.length; at += NAMES_PER_ASK) {
     let answer;
     try {
