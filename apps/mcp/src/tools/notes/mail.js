@@ -142,10 +142,10 @@ function joinedText(path, mailbox, events, again) {
   return [
     `mail: ${again ? "already joined" : "joined"} as ${mailbox.name}. mailbox: ${mailbox.mailboxId}`,
     `Pass mailbox: ${id} on every Context call from now on, whatever the tool; each answer then ends with a line when mail is new for you.`,
-    `Read new mail: read_note { path: ${JSON.stringify(path)}, mail: true, mailbox: ${id} }. ` +
-      `Send: write_note { path: ${JSON.stringify(path)}, mail: { text, to }, mailbox: ${id} }, to "${EVERYONE}" or a name.`,
+    `Read new mail: fetch { id: ${JSON.stringify(path)}, args: { mail: "new" }, mailbox: ${id} }. ` +
+      `Send: write { path: ${JSON.stringify(path)}, action: "mail", args: { text, to }, mailbox: ${id} }, to "${EVERYONE}" or a name.`,
     earlier
-      ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with mail: "all". The lead's first message usually says how often to check.`
+      ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }. The lead's first message usually says how often to check.`
       : "No mail yet. If you lead this work, send the first message: what each of you does and how often you will check mail.",
   ].join("\n");
 }
