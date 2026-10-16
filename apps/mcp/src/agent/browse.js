@@ -66,8 +66,9 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
-  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. ";
+  "When the person has to do something themselves (a code, a captcha, a payment, or a sign-in they said they'd rather do), add a handoff step: " +
+  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
+  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";

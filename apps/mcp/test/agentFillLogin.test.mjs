@@ -9,10 +9,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { webSession } from "../src/agent/computer.js";
+import { webPrompt, webSession } from "../src/agent/computer.js";
 import { BROWSE_TOOL } from "../src/agent/browse.js";
-import { FILL_LOGIN_TOOL, MAX_FILLS_PER_TURN } from "../src/agent/fillLogin.js";
-import { newEntryId, writeEntry } from "../src/vault/entries.js";
+import { FILL_LOGIN_DEFINITION, FILL_LOGIN_TOOL, MAX_FILLS_PER_TURN } from "../src/agent/fillLogin.js";
+import { newEntryId, siteMatches, writeEntry } from "../src/vault/entries.js";
 
 const PASSWORD = "hunter2-correct-horse";
 const USERNAME = "seyi@example.test";
@@ -216,4 +216,23 @@ test(`one question fills at most ${MAX_FILLS_PER_TURN} times`, async () => {
   const over = await web.call(FILL_LOGIN_TOOL, { entry: id, password_ref: 2 });
   assert.equal(over.isError, true);
   assert.equal(fills(computer).length, MAX_FILLS_PER_TURN);
+});
+
+test("signing in is Tex's to do: no saved login means asking Gmail or another email, not handing the browser over", () => {
+  // Owner, 2026-10-16: Tex handed its browser over to sign in when it should
+  // have asked "do you log in with Gmail or another email?" and had the login
+  // saved in the vault. Handing over is for a code, a captcha or a payment.
+  const prompt = webPrompt(new Set([BROWSE_TOOL, FILL_LOGIN_TOOL]));
+  assert.match(prompt, /Gmail or another email/);
+  assert.match(prompt, /vault_add_link/);
+  assert.match(prompt, /only for what truly needs them, a code, a captcha or a payment/);
+  assert.doesNotMatch(prompt, /so they sign in themselves/);
+  assert.match(FILL_LOGIN_DEFINITION.description, /Gmail or another email/);
+  assert.doesNotMatch(FILL_LOGIN_DEFINITION.description, /hand the browser over/);
+});
+
+test("a Google login saved for google.com fills on Google's sign-in page, and nowhere that only looks like it", () => {
+  assert.equal(siteMatches(["google.com"], "https://accounts.google.com"), true);
+  assert.equal(siteMatches(["google.com"], "https://accounts.google.com.example.test"), false);
+  assert.equal(siteMatches(["google.com"], "https://chatgpt.com"), false);
 });

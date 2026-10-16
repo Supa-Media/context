@@ -673,6 +673,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
+- [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
 - The built-in model is for Premium, capped, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
