@@ -123,5 +123,11 @@ export const nodeAccessTables = {
     differences: v.number(),
     sample: v.array(v.object({ path: v.string(), clearance: v.string() })),
     orphans: v.optional(v.number()),
+    /**
+     * The rules' version when the check began (null: the workspace has none), and the version the rows had
+     * then been derived from. A check stands across later derivations from the same rules (`checkStatus`).
+     */
+    rulesEtag: v.optional(v.union(v.string(), v.null())),
+    derivedEtag: v.optional(v.union(v.string(), v.null())),
   }).index("by_workspace", ["workspaceId"]),
 };

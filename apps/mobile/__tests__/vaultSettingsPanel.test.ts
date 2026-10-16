@@ -139,6 +139,14 @@ function press(id: string) {
   if (el === null) throw new Error(`no ${id}`);
   act(() => el.click());
 }
+function type(id: string, text: string) {
+  const field = find(id);
+  if (field === null) throw new Error(`no field called ${id}`);
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -167,7 +175,28 @@ function fakes(listed: VaultEntry[]) {
       const refusal = entry.proxy!.refused.find((no) => no.id === clientId)!;
       return keep({ ...entry, proxy: { ...entry.proxy!, clients: [...entry.proxy!.clients, refusal], refused: [] } });
     },
-    link: async (kind, entryId) => void calls.push(["link", kind, entryId]),
+    link: async (kind, entryId) => {
+      calls.push(["link", kind, entryId]);
+      return `tok-${kind}`;
+    },
+    calls: {
+      describe: async (token) => {
+        calls.push(["describe", token]);
+        const workspace = { handle: "seyi", name: "Seyi", kind: "personal" as const };
+        if (token === "tok-add") return { kind: "add", workspace, grantee: null, entry: null, expiresAt: 1 };
+        const fields = [{ name: "API_KEY", perEnv: false, set: ["_"] }];
+        return { kind: "view", workspace, grantee: null, entry: { type: "secret", name: "Shown", sites: [], fields }, expiresAt: 1 };
+      },
+      save: async (token, draft) => {
+        calls.push(["save", token, draft.name]);
+        entries.push({ ...unpinned, entryId: "v000000000000000000000009", name: draft.name, savedAt: NOW.getTime() });
+        return { name: draft.name, site: "" };
+      },
+      reveal: async (token) => {
+        calls.push(["reveal", token]);
+        return { type: "secret", name: "Shown", sites: [], username: "", password: "", fields: [{ name: "API_KEY", perEnv: false, values: { _: "fake-value-123" } }] };
+      },
+    },
   };
   return { actions, calls };
 }
@@ -237,20 +266,72 @@ describe("on a narrow screen", () => {
     expect(find(`vault-row-${unpinned.entryId}`)).not.toBeNull();
   });
 
-  test("New key and Show the key ask for a fresh link", async () => {
+  test("New key opens its form in place, and a save picks the new key", async () => {
     const { actions, calls } = fakes([unpinned]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW })));
     await flush();
     press("vault-new");
     await flush();
-    press(`vault-row-${unpinned.entryId}`);
+    await flush();
+    expect(find("vault-inline-add")).not.toBeNull();
+    expect(find(`vault-row-${unpinned.entryId}`)).toBeNull();
+    expect(calls).toEqual([
+      ["link", "add", undefined],
+      ["describe", "tok-add"],
+    ]);
+    press("vault-inline-cancel");
+    expect(find("vault-inline-add")).toBeNull();
+    expect(find(`vault-row-${unpinned.entryId}`)).not.toBeNull();
+
+    press("vault-new");
+    await flush();
+    await flush();
+    type("vault-name", "Fresh bank");
+    type("vault-site", "fresh.example.test");
+    type("vault-username", "me@example.test");
+    type("vault-password", "fake-password-1");
+    press("vault-save");
+    await flush();
+    await flush();
+    expect(calls).toContainEqual(["save", "tok-add", "Fresh bank"]);
+    expect(find("vault-inline-add")).toBeNull();
+    expect(find("vault-detail-v000000000000000000000009")?.textContent).toContain("Fresh bank");
+  });
+
+  test("Show the key reveals its values under the key, and Hide drops them", async () => {
+    const { actions, calls } = fakes([unpinned]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
     expect(container.textContent).not.toContain("AIs that can use it");
     press(`vault-show-${unpinned.entryId}`);
     await flush();
+    await flush();
     expect(calls).toEqual([
-      ["link", "add", undefined],
       ["link", "view", unpinned.entryId],
+      ["describe", "tok-view"],
+      ["reveal", "tok-view"],
     ]);
+    expect(find("vault-inline-view")?.textContent).toContain("fake-value-123");
+    expect(find(`vault-show-${unpinned.entryId}`)?.textContent).toBe("Hide the key");
+    expect(find("vault-view-hide")).toBeNull();
+    press(`vault-show-${unpinned.entryId}`);
+    expect(find("vault-inline-view")).toBeNull();
+    expect(container.textContent).not.toContain("fake-value-123");
+  });
+
+  test("picking another key closes the one shown, values and all", async () => {
+    const { actions } = fakes([unpinned, login]);
+    act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
+    await flush();
+    press(`vault-show-${unpinned.entryId}`);
+    await flush();
+    await flush();
+    expect(container.textContent).toContain("fake-value-123");
+    press(`vault-row-${login.entryId}`);
+    expect(container.textContent).not.toContain("fake-value-123");
+    press(`vault-row-${unpinned.entryId}`);
+    expect(container.textContent).not.toContain("fake-value-123");
+    expect(find(`vault-show-${unpinned.entryId}`)?.textContent).toBe("Show the key");
   });
 
   test("a refusal is said in the server's words", async () => {
@@ -264,6 +345,17 @@ describe("on a narrow screen", () => {
       },
       link: async () => {
         throw Object.assign(new Error("x"), { data: { code: "FORBIDDEN", message: "Editors and owners add keys here." } });
+      },
+      calls: {
+        describe: async () => {
+          throw new Error("unused");
+        },
+        save: async () => {
+          throw new Error("unused");
+        },
+        reveal: async () => {
+          throw new Error("unused");
+        },
       },
     };
     act(() => root.render(createElement(VaultList, { actions })));

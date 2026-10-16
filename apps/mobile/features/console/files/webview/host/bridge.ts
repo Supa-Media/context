@@ -140,6 +140,12 @@ export interface HostBridge extends Pick<HostExtras, "setCommenter" | "setLists"
   setCrdtSnapshot: (snapshot: { documentId: string; update: string } | null) => void;
   /** Hold the guest read-only while durable state is loading. */
   setCrdtMode: (enabled: boolean) => void;
+  /**
+   * The text to draw, read-only, while a durable note's snapshot is loading.
+   * Sent only in durable mode with no snapshot bound; see `preview` in
+   * `protocol.ts`.
+   */
+  setCrdtPreview: (text: string) => void;
   setEditable: (editable: boolean) => void;
   setTheme: (vars: Readonly<Record<string, string>>) => void;
   /** How many points of the editor something else is covering. */
@@ -226,6 +232,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   let revision = "";
   let crdtSnapshot: { documentId: string; update: string } | null = null;
   let crdtMode = false;
+  let preview = "";
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
   /**
@@ -295,6 +302,11 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       crdtMode = true;
       post({ v: PROTOCOL_VERSION, type: "crdtSnapshot", ...snapshot });
       post({ v: PROTOCOL_VERSION, type: "editable", editable });
+    },
+    setCrdtPreview: (text) => {
+      if (text === preview) return;
+      preview = text;
+      if (ready && crdtMode && crdtSnapshot === null) send(encode({ v: PROTOCOL_VERSION, type: "preview", text }));
     },
     setCrdtMode: (enabled) => {
       const wasCrdt = crdtMode;
@@ -401,6 +413,10 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             // its canonical state was loading. Release that gate only after
             // the snapshot has crossed the bridge.
             send(encode({ v: PROTOCOL_VERSION, type: "editable", editable }));
+          } else {
+            // Durable, snapshot still loading: the note's words, read-only,
+            // rather than an empty page under its name.
+            send(encode({ v: PROTOCOL_VERSION, type: "preview", text: preview }));
           }
           return;
         case "change":
