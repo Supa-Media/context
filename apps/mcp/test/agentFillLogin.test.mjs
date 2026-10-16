@@ -224,7 +224,7 @@ test("signing in is Tex's to do: no saved login means asking Gmail or another em
   // saved in the vault. Handing over is for a code, a captcha or a payment.
   const prompt = webPrompt(new Set([BROWSE_TOOL, FILL_LOGIN_TOOL]));
   assert.match(prompt, /Gmail or another email/);
-  assert.match(prompt, /vault_add_link/);
+  assert.match(prompt, /vault_add/);
   assert.match(prompt, /only for what truly needs them, a code, a captcha or a payment/);
   assert.doesNotMatch(prompt, /so they sign in themselves/);
   assert.match(FILL_LOGIN_DEFINITION.description, /Gmail or another email/);

@@ -28,7 +28,7 @@ test/agentProgress.test.mjs
 test/agentRouterWebJobs.test.mjs
 test/agentSkills.test.mjs
 test/agentThinking.test.mjs
-test/agentToolShelf.test.mjs
+test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs
 test/agentTurnLimits.test.mjs
@@ -121,3 +121,4 @@ test/v2Actions.test.mjs
 test/v2SearchFetch.test.mjs
 test/orientV2.test.mjs
 test/controlPlaneRequired.test.mjs
+test/cleanupPage.test.mjs

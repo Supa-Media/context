@@ -29,7 +29,7 @@ export function workspacesPrompt(contexts) {
   const list = Array.isArray(contexts) ? contexts.filter((entry) => typeof entry?.name === "string") : [];
   if (list.length < 2) return "";
   const shown = list.slice(0, MAX_LISTED_WORKSPACES).map(describe).join("; ");
-  const more = list.length > MAX_LISTED_WORKSPACES ? ` and ${list.length - MAX_LISTED_WORKSPACES} more (scope_info lists them all)` : "";
+  const more = list.length > MAX_LISTED_WORKSPACES ? ` and ${list.length - MAX_LISTED_WORKSPACES} more (orient lists them all)` : "";
   const fallback = list.find((entry) => entry.current)?.name;
   return (
     `\n\nThey can reach these workspaces: ${shown}${more}. ` +

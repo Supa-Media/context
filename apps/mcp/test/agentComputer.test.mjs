@@ -9,6 +9,7 @@
  * a fake browser binding, and then the helpers directly.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -114,7 +115,7 @@ async function ask(env, token, body) {
 }
 
 function offered(call) {
-  return (call?.input?.tools ?? []).map((tool) => tool.function?.name);
+  return [...shown((call?.input?.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
 }
 
 function toolReplies(call) {
@@ -180,7 +181,7 @@ export async function runAgentComputerChecks(check) {
       answered.status === 200 &&
         answered.body?.answer === "Pro is $12 and Teams is $40." &&
         browser.asked.join(" ") === "https://example.com/pricing https://example.com/teams" &&
-        offered(ai.calls[0]).includes(OPEN_PAGE_TOOL),
+        offered(ai.calls[0]).includes(`send.${OPEN_PAGE_TOOL}`),
     );
     check(
       "a page's text reaches the model marked as not from the person",
@@ -287,7 +288,7 @@ export async function runAgentComputerChecks(check) {
     await ask(env, TOKEN_APP, { question: "Open example.com/pricing" });
     check(
       "only the texting client is given the computer",
-      ai.calls.length === 1 && !offered(ai.calls[0]).includes(OPEN_PAGE_TOOL),
+      ai.calls.length === 1 && !offered(ai.calls[0]).includes(`send.${OPEN_PAGE_TOOL}`),
     );
     check("a deployment with no browser binding has no computer", computerFor({}) === null);
     check("an unknown provider name is no computer, never a default", computerFor({ AGENT_COMPUTER: "nope", SITE_SHOTS: browser }) === null);
