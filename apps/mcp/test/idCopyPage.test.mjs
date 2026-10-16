@@ -128,7 +128,18 @@ test("an etag that moved since the plan is changed, and nothing is written", asy
     const { buildStore } = buildWith(store);
     const planned = item("a.md", "notes/n1.md", store, { etag: "stale-etag" });
     const { results } = await runIdCopyPage({ kind: "idCopy", workspaceId: WS, source, items: [planned], limits }, { buildStore });
-    assert.deepEqual(results, [{ path: "a.md", ok: false, reason: "changed" }]);
+    assert.deepEqual(results, [{ path: "a.md", ok: false, reason: "changed", currentEtag: "s0", currentSize: 3 }]);
+    assert.equal(store.objects.has("notes/n1.md"), false);
+  }
+});
+
+test("a source that changed under the copy names its current version, so the record can refresh the row", async () => {
+  for (const serverCopy of [false, true]) {
+    const store = memoryStore({ seed: { "a.md": "newer bytes" }, serverCopy });
+    const { buildStore } = buildWith(store);
+    const planned = item("a.md", "notes/n1.md", store, { etag: "the-row-etag", size: 3 });
+    const { results } = await runIdCopyPage({ kind: "idCopy", workspaceId: WS, source, items: [planned], limits }, { buildStore });
+    assert.deepEqual(results, [{ path: "a.md", ok: false, reason: "changed", currentEtag: "s0", currentSize: 11 }]);
     assert.equal(store.objects.has("notes/n1.md"), false);
   }
 });

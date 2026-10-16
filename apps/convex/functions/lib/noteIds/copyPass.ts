@@ -66,7 +66,16 @@ export function normalizeCopy(items: readonly NoteIdItem[], answers: readonly un
         : { path: item.path, ok: false, reason: "verify_failed" };
     }
     const reason = typeof answer.reason === "string" && COPY_REASONS.has(answer.reason) ? answer.reason : "copy_failed";
-    return { path: item.path, ok: false, reason };
+    if (reason !== "changed") return { path: item.path, ok: false, reason };
+    const currentEtag = typeof answer.currentEtag === "string" && answer.currentEtag !== "" ? answer.currentEtag : undefined;
+    const currentSize = typeof answer.currentSize === "number" ? answer.currentSize : undefined;
+    return {
+      path: item.path,
+      ok: false,
+      reason,
+      ...(currentEtag === undefined ? {} : { currentEtag }),
+      ...(currentSize === undefined ? {} : { currentSize }),
+    };
   });
 }
 

@@ -135,6 +135,8 @@ export interface NodeTable {
   observedBefore(before: number, limit: number): Promise<StoredNode[]>;
   /** Whether the folder `parentId` holds any row that is not gone (a file, a marker, or a live folder). */
   hasLiveChild(parentId: string): Promise<boolean>;
+  /** Whether a live row other than `exceptId` holds this note id. Optional: a table without it is treated as yes. */
+  idHeldElsewhere?(noteId: string, exceptId: string): Promise<boolean>;
   /**
    * Records that the file row at `path` appeared or changed version
    * (`gone: false`), or left (`gone: true`), in the tree's change log

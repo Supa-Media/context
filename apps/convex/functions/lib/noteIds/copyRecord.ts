@@ -11,10 +11,21 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
-import { COPY_FAILED_LABEL, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
-import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow } from "./state";
+import { applyObservation } from "../nodes/observe";
+import { convexNodeTable } from "../nodes/convexTable";
+import { COPY_FAILED_LABEL, COPY_HEAL_MAX, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
+import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
 
-export type CopyResult = { path: string; ok: boolean; etag?: string; keyEtag?: string; reason?: string };
+export type CopyResult = {
+  path: string;
+  ok: boolean;
+  etag?: string;
+  keyEtag?: string;
+  reason?: string;
+  /** For `changed`: the bucket's current version of the path (`copyOne` in `apps/mcp/src/moves/idCopyPage.js`). */
+  currentEtag?: string;
+  currentSize?: number;
+};
 export type CopyRefusal = { noteId: string; reason: string };
 
 /** A lease for this run's next page, or `null` when the run is not current, paused, or already leased. */
@@ -54,6 +65,27 @@ export async function failCopyRun(
   }
   await ctx.db.patch(row._id, { error: COPY_FAILED_LABEL, leaseAt: undefined, updatedAt: now });
   return "retry";
+}
+
+/**
+ * Set a live row to the bucket's version of its path: the same observation a
+ * sweep makes of that path (`observe.ts`), so the row's etag and size are what
+ * the bucket holds now. Only the row the copy named is touched.
+ */
+async function refreshRow(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  node: NodeDoc,
+  current: { etag: string; size?: number },
+  at: number,
+): Promise<void> {
+  await applyObservation(convexNodeTable(ctx, workspaceId), {
+    at,
+    rows: [{ path: node.path, etag: current.etag, size: current.size ?? node.size, uploaded: node.uploaded }],
+    gone: [],
+    vanishedUnder: [],
+    source: "bucket",
+  });
 }
 
 /** What one page's scan and copies add to the pass, and what the next step is. */
@@ -96,7 +128,8 @@ export async function recordCopyPage(
   let failed = first ? 0 : row.failed;
   const failWith = (noteId: string, reason: string) => {
     failed += 1;
-    if (failures.length < FAILURES_MAX) failures.push({ noteId, reason });
+    // Listed once per id: two rows that name one id are one line in the report, and each still counts as failed.
+    if (failures.length < FAILURES_MAX && !failures.some((failure) => failure.noteId === noteId)) failures.push({ noteId, reason });
   };
 
   for (const refusal of args.refused) failWith(refusal.noteId, refusal.reason);
@@ -108,6 +141,20 @@ export async function recordCopyPage(
     // A keyed row's bytes live at its key alone: a copy made from its frozen path object marks nothing.
     if (node.storageKey !== undefined) continue;
     if (!result.ok) {
+      if (result.reason === "changed" && result.currentEtag !== undefined && result.currentEtag !== node.etag) {
+        // The bucket holds a version the row does not: a writer changed the object without the tree hearing of it,
+        // so the row is what is stale. Refresh it to the bucket's version (as a sweep would) and copy again next pass.
+        // A note that keeps changing is healed a few passes in a row, then reported as changed.
+        await refreshRow(ctx, args.workspaceId, node, { etag: result.currentEtag, size: result.currentSize }, now);
+        const heals = node.idHeals ?? 0;
+        if (heals < COPY_HEAL_MAX) {
+          await ctx.db.patch(node._id, { idHeals: heals + 1 });
+          editedAny = true;
+        } else {
+          failWith(node.noteId, "changed");
+        }
+        continue;
+      }
       failWith(node.noteId, result.reason ?? "copy_failed");
       continue;
     }
@@ -118,6 +165,7 @@ export async function recordCopyPage(
       continue;
     }
     await ctx.db.patch(node._id, {
+      idHeals: undefined,
       idCopy: {
         key: idKeyFor(node.noteId, node.path),
         etag: result.etag,

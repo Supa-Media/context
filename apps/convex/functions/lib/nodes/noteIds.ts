@@ -31,6 +31,12 @@ export const ID_ITEMS_MAX = 500;
 export const FAILURES_MAX = 20;
 /** Consecutive failed pages before the copy is shown as failed. */
 export const COPY_STREAK_MAX = 3;
+/**
+ * Passes in a row in which a note's bytes changed under its row before the
+ * change is reported as `changed` instead of healed (`copyRecord.ts`). Each
+ * heal refreshes the row to the bucket's version and copies it on the next pass.
+ */
+export const COPY_HEAL_MAX = 3;
 export const COPY_RETRY_MS = 30_000;
 /** A page holds the lease this long; the mover's own page timeout is shorter. */
 export const COPY_LEASE_MS = 6 * 60_000;

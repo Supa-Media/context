@@ -58,6 +58,20 @@ export async function runIdCopyPage(page, { buildStore = storeForBinding } = {})
   return { results };
 }
 
+/**
+ * A source whose version is not the one the row names. The bucket's current
+ * version is returned too, so the record can refresh a row the bucket has
+ * moved past (`copyRecord.ts`): the row, not the bucket, is what went stale.
+ */
+function changed(item, current) {
+  const result = { path: item.path, ok: false, reason: "changed" };
+  if (typeof current?.etag === "string" && current.etag !== "" && current.etag !== item.etag) {
+    result.currentEtag = current.etag;
+    if (typeof current.size === "number") result.currentSize = current.size;
+  }
+  return result;
+}
+
 /** Never throws: a failure is this item's result, so the pool keeps going. */
 async function copyOne(store, item) {
   try {
@@ -67,12 +81,15 @@ async function copyOne(store, item) {
     let copiedEtag;
     if (typeof store.copy === "function" && store.capabilities?.serverSideCopy === "same-store") {
       const copied = await store.copy(item.path, item.key, { sourceOnlyIf: { etagMatches: item.etag } });
-      if (copied === null || copied === undefined) return { path: item.path, ok: false, reason: "changed" };
+      if (copied === null || copied === undefined) {
+        const head = typeof store.head === "function" ? await store.head(item.path) : undefined;
+        return changed(item, head ?? undefined);
+      }
       copiedEtag = copied.etag ?? null;
     } else {
       const object = await store.get(item.path);
       if (object === null || object === undefined) return { path: item.path, ok: false, reason: "missing" };
-      if (object.etag !== item.etag) return { path: item.path, ok: false, reason: "changed" };
+      if (object.etag !== item.etag) return changed(item, { etag: object.etag, size: object.size });
       const written = await store.put(item.key, await object.arrayBuffer(), { contentType: object.contentType });
       if (written === null || written === undefined) return { path: item.path, ok: false, reason: "copy_failed" };
       copiedEtag = written.etag ?? null;
