@@ -253,7 +253,7 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("shadow");
   });
 
-  test("refused while a difference stands, and allowed once the next check finds none", async () => {
+  test("refused while a difference stands, and held once the next check finds none", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
     await keepRows(t);
@@ -266,11 +266,11 @@ describe("Use rows", () => {
 
     await corruptRow(t, workspaceId, "1-projects/plan.md", undefined);
     await checkEverything(t);
-    // Every check passed: the switch goes to rows, and the switch is audited each time it moves.
+    // Every check passed; only the hold remains (new private notes can't be saved on rows yet).
     await ruleAuthorityOn(t);
-    await staff.mutation(api.functions.privacyRows.useRows, {});
-    expect(await sourceOf(t)).toBe("rows");
-    expect(await auditActions(t)).toEqual(["rows.source_set", "rows.source_set"]);
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
+    expect(await sourceOf(t)).toBe("shadow");
+    expect(await auditActions(t)).toEqual(["rows.source_set"]);
   });
 
   test("refused when a check was made before the rows were derived again, as stale", async () => {
@@ -305,10 +305,9 @@ describe("Use rows", () => {
     const staff = await signedIn(t, ADMIN);
     const report = await staff.query(api.functions.privacyRows.report, {});
     expect(report.rows[0]?.orphans).toBe(1);
-    // Every check passed, orphans and all: the switch goes to rows.
+    // Every check passed, orphans and all; only the hold remains.
     await ruleAuthorityOn(t);
-    await staff.mutation(api.functions.privacyRows.useRows, {});
-    expect(await sourceOf(t)).toBe("rows");
+    expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
   });
 });
 
