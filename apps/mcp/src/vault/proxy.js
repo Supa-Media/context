@@ -192,8 +192,21 @@ export function blankOut(text, forms) {
 const TEXT_TYPE = /^(text\/|application\/(json|xml|x-www-form-urlencoded|[a-z0-9.+-]+\+(json|xml))|application\/javascript)/i;
 /** Headers a model may read back. Set-Cookie and the like stay with Context. */
 const ANSWER_HEADERS = ["content-type", "content-length", "location", "retry-after", "x-request-id", "request-id", "link"];
-/** Headers the AI may not set: the transport's own, and what would carry credentials it does not hold. */
-const REFUSED_HEADERS = new Set(["host", "content-length", "connection", "transfer-encoding", "cookie", "proxy-authorization"]);
+/**
+ * Headers the AI may not set: the transport's own, what would carry
+ * credentials it does not hold, and `accept-encoding` — an answer Context
+ * cannot decode is an answer it cannot blank the key out of, so the AI does
+ * not get to choose the encoding it comes back in.
+ */
+const REFUSED_HEADERS = new Set([
+  "host",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+  "cookie",
+  "proxy-authorization",
+  "accept-encoding",
+]);
 
 function outgoingHeaders(raw, pin, value) {
   const headers = new Headers();
@@ -278,12 +291,18 @@ export async function proxyFetch(store, request, { allowed, fetchImpl = fetch })
     if (text !== null) answerHeaders[name] = blank(text);
   }
   const type = response.headers.get("content-type") ?? "";
+  // An answer still in an encoding Context did not decode cannot be searched
+  // for the key, so it is never handed over (`vault.md`, "Blanked from the
+  // answer"). `accept-encoding` is refused above, so an honest site sends none.
+  const encoding = (response.headers.get("content-encoding") ?? "").trim().toLowerCase();
+  const encoded = encoding !== "" && encoding !== "identity";
   const declared = Number(response.headers.get("content-length"));
   const tooBig = Number.isFinite(declared) && declared > MAX_READ;
   const bytes = method === "HEAD" || tooBig ? new Uint8Array() : new Uint8Array(await response.arrayBuffer());
   let answer;
   if (tooBig) answer = `(an answer of ${declared} bytes, too large to read through Context)`;
   else if (bytes.length === 0) answer = "";
+  else if (encoded) answer = `(a ${blank(encoding)} answer of ${bytes.length} bytes that Context could not read, not shown)`;
   // Blanked like any other echo: the type is a header the site chose, and it reaches the model.
   else if (!TEXT_TYPE.test(type)) answer = `(a ${blank(type) || "binary"} answer of ${bytes.length} bytes, not shown)`;
   else {
