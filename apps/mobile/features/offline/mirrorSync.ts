@@ -145,6 +145,8 @@ export interface MirrorSyncDeps {
   onListed?: (workspaceId: string) => void;
   /** This run committed new note bodies, which `onListed` came before. */
   onFetched?: (workspaceId: string) => void;
+  /** A catch-up found nothing changed, so nothing was written: the copy is current as of now. */
+  onChecked?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
   concurrency?: number;
@@ -260,6 +262,7 @@ export async function refreshMetadata(
 ): Promise<boolean> {
   const listing = await listForSync(deps, target);
   if (listing === null || listing === "aborted" || listing.pagesListed === 0) return false;
+  if (listing.unchanged === true) return false;
   const committed = await commitListing(deps, listing);
   if (committed !== null && deps.mine()) deps.onListed?.(listing.workspaceId);
   return committed !== null;
@@ -558,9 +561,24 @@ async function fetchContext(
       }
     }
 
+    /*
+      A catch-up names only what changed, so what an earlier run could not
+      fetch is counted from the index — and a copy that was short before a
+      catch-up stays short until a walk says otherwise: a body left behind at
+      an older version is not something the index can see.
+    */
+    let carried: IncompleteReason | undefined;
+    if (listing.delta !== undefined) {
+      for (const [path, entry] of index.entries) {
+        if (listed.has(path) || gone.has(path)) continue;
+        if (isNotePath(path) && kept(path) && !entry.body) remaining += 1;
+      }
+      if (index.complete === false) carried = index.incomplete ?? "read-failed";
+    }
+
     run.remaining = remaining;
-    run.complete = complete && remaining === 0;
-    if (!run.complete) run.incomplete = incomplete ?? "read-failed";
+    run.complete = complete && remaining === 0 && carried === undefined;
+    if (!run.complete) run.incomplete = incomplete ?? carried ?? "read-failed";
     index.lastSyncedAt = now;
     index.complete = run.complete;
     index.remaining = remaining;
@@ -638,6 +656,11 @@ export async function syncAll(
     if (listing === "aborted") {
       runs.push(abortedRun(target));
       return runs;
+    }
+    // Nothing changed: no index to rewrite, no body to ask for.
+    if (listing.unchanged === true) {
+      deps.onChecked?.(listing.workspaceId);
+      continue;
     }
     const committed = listing.pagesListed > 0 ? await commitListing(deps, listing) : null;
     if (committed !== null) {

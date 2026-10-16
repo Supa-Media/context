@@ -33,6 +33,7 @@ import {
 import { keepsBody, loadDownloadChoices, onDownloadChoiceChange } from "./downloadChoice";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
+import { readForMirror } from "./mirrorReads";
 import { visibilityTierForRole, type VisibilityTier } from "../console/visibility";
 
 /**
@@ -86,7 +87,7 @@ export interface MirrorActions {
     cursor?: string;
     source?: "tree";
   }) => Promise<ManifestPage & { source?: "tree" | "bucket" | "nodes" }>;
-  readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
+  readNotes: (args: { workspaceId: string; paths: string[]; plain?: boolean }) => Promise<{ results: BatchRead[] }>;
   /** What changed since a cursor; absent, every sync walks the whole tree. */
   syncTreeChanges?: (args: {
     workspaceId: string;
@@ -200,18 +201,31 @@ export function useMirrorSync(options: {
                   MANIFEST_TIMEOUT_MS,
                 ),
             }),
-        readNotes: async (workspaceId, paths) =>
-          (
-            await withTimeout(
-              actionsRef.current.readNotes({ workspaceId, paths }),
-              READ_TIMEOUT_MS,
-            )
-          ).results,
+        readNotes: (workspaceId, paths) =>
+          readForMirror(
+            async (asked, plain) =>
+              (
+                await withTimeout(
+                  actionsRef.current.readNotes({ workspaceId, paths: asked, ...(plain ? { plain: true } : {}) }),
+                  READ_TIMEOUT_MS,
+                )
+              ).results,
+            paths,
+          ),
         onListed: (workspaceId) => {
           if (mine()) publishMirrorListed(workspaceId);
         },
         onFetched: (workspaceId) => {
           if (mine()) publishMirrorNotesChanged(workspaceId);
+        },
+        onChecked: (workspaceId) => {
+          if (!mine()) return;
+          // Said without reading the index back: the point of a quiet
+          // catch-up is that it parses and writes nothing.
+          const before = mirrorStatuses().get(workspaceId);
+          if (before?.state === "synced" || before?.state === "partial") {
+            publishMirrorStatus(workspaceId, { ...before, lastSyncedAt: Date.now() });
+          }
         },
         onProgress: (workspaceId, progress) => {
           if (!mine()) return;

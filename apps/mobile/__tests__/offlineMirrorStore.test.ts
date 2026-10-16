@@ -229,6 +229,29 @@ describe("the native store keeps everything under its own directory", () => {
     expect(mockDisk.get(`${ROOT}/team/w1/index.json`)).toBe("{\"v\":1}");
   });
 
+  test("a long run of writes and removals lets a tap through part-way (breathe.ts)", async () => {
+    // Every write here is synchronous, as `expo-file-system`'s is; without a
+    // breath the timer below could only run after the last one.
+    let at = 1e9;
+    const clock = jest.spyOn(performance, "now").mockImplementation(() => (at += 5));
+    try {
+      const store = native.fileMirrorStore();
+      let written = 0;
+      let tappedAt = -1;
+      setTimeout(() => {
+        tappedAt = written;
+      }, 0);
+      for (; written < 100; written += 1) {
+        await store.writeBody(currentEpoch(), "private", "w1", "current", `n${written}.md`, "x");
+        await store.removeBody("private", "w1", "current", `n${written}.md`);
+      }
+      expect(tappedAt).toBeGreaterThanOrEqual(0);
+      expect(tappedAt).toBeLessThan(100);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   conformance(() => native.fileMirrorStore());
 });
 

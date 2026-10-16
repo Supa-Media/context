@@ -24,6 +24,11 @@ import { shareableRules } from "../../functions/lib/shares/inboxTitle";
 import { mirrorFile } from "../../functions/lib/nodes/privacyMirror";
 import { loadPrivacyState } from "../../functions/lib/fileOps/privacyState";
 import { PRE_PARSED_RULES } from "../../../mcp/src/privacy/engine.js";
+import { clearanceOf } from "../../functions/lib/clearance";
+import { type FileStore, resetPrivacyManifest, syncManifest } from "../../functions/lib/fileOps";
+import { recordActivity } from "../../functions/lib/activity";
+import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { memoryStore } from "../storeStub.helpers";
 
 const makeTest = () => convexTest(schema, modules);
 type T = ReturnType<typeof makeTest>;
@@ -284,6 +289,57 @@ describe("the privacy engine reads rows the mirror's way", () => {
     const state = await loadPrivacyState({ get: async () => object } as never);
     expect(state.overrides.get("1-projects/x.md")).toBe("@#0190-abc");
     expect(state.rules).toEqual([{ prefix: "1-projects", vis: "team" }]);
+  });
+});
+
+/** A store whose `privacy.md` is the rows' view, as every tree-served store answers it in rows mode. */
+function rowsServedStore(): FileStore {
+  const store = memoryStore() as unknown as FileStore & { seed: (key: string, text: string) => void };
+  store.seed("1-projects/plan.md", "# Plan\n");
+  store.seed("3-resources/book.md", "# Book\n");
+  const object = mirrorFile({
+    etag: "rows:1",
+    invalid: false,
+    rows: true,
+    folders: [{ prefix: "1-projects", visibility: "team" }],
+    notes: [],
+  });
+  const get = store.get.bind(store);
+  store.get = (async (key: string, ...rest: unknown[]) =>
+    key === PRIVACY_KEY ? object : await (get as (...args: unknown[]) => unknown)(key, ...rest)) as FileStore["get"];
+  return store;
+}
+
+describe("the rows' rules are a usable manifest", () => {
+  test("a walk says the manifest is usable, so no 'privacy.md could not be read' banner", async () => {
+    const manifest = await syncManifest(rowsServedStore(), { clearance: clearanceOf("private") });
+    expect(manifest.manifestUsable).toBe(true);
+    expect(manifest.entries.map((entry) => entry.path)).toContain("1-projects/plan.md");
+  });
+
+  test("Reset privacy.md is refused: the rules are readable, nothing is broken", async () => {
+    const store = rowsServedStore();
+    const put = store.put;
+    let wrote = false;
+    store.put = (async (...args: Parameters<FileStore["put"]>) => {
+      wrote = true;
+      return await put(...args);
+    }) as FileStore["put"];
+    await expect(resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: 1 })).rejects.toMatchObject({
+      code: "PRIVACY_MANIFEST_USABLE",
+    });
+    expect(wrote).toBe(false);
+  });
+
+  test("activity is still recorded under the rows' rules", async () => {
+    const landed = await recordActivity(rowsServedStore(), {
+      action: "update_note",
+      paths: ["1-projects/plan.md"],
+      details: {},
+      actor: null,
+      teamVisible: true,
+    });
+    expect(landed).not.toBeNull();
   });
 });
 
