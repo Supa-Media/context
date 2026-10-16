@@ -13,27 +13,22 @@ import { managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption"
 import { directionOf, intoOwnersBucket, outOfManagedBucket } from "./lib/managedProvisioningFns/direction";
 import {
   ACTION_PAGE_LIMITS,
-  MOVER_PAGE_LIMITS,
   type MigrationPageResult,
   migrationPageFor,
   runMigrationPageHere,
 } from "./lib/managedProvisioningFns/migrationRun";
 import { runMigrationPageOnMover, storageMoverOrigin } from "./lib/storageMover";
-import { openWalkPage, type WalkMoverPage, type WalkTicket } from "./lib/managedEncryptionFns/walkMover";
-import { type ContextMoveMoverPage, type ContextMoveTicket, openContextMovePage } from "./lib/contextMoveMover";
-import { type NoteIdMoverPage, type NoteIdTicket, openNoteIdPage } from "./lib/noteIds/mover";
-import { type CleanupMoverPage, openCleanupTicket } from "./lib/cleanup/mover";
 import { requireUserId } from "./lib/managedProvisioningFns/helpers";
+import { openMoverPageHandler } from "./lib/managedProvisioningFns/moverDoor";
+import { deleteManagedStorageAfterRetention } from "./lib/managedProvisioningFns/handoffDelete";
 import {
   CloudflareApiError,
   createBucketScopedToken,
   createR2Bucket,
   deriveS3SecretAccessKey,
-  emptyAndDeleteR2Bucket,
   r2Endpoint,
   R2_CREDENTIAL_SETTLE_MS,
   resolvePermissionGroupId,
-  revokeApiToken,
   scopedTokenName,
 } from "./lib/cloudflare";
 import {
@@ -89,70 +84,6 @@ export const deleteManagedStorageAfterHandoff = internalAction({
   returns: v.null(),
   handler: (ctx, args) => deleteManagedStorageAfterRetention(ctx, args),
 });
-
-async function deleteManagedStorageAfterRetention(
-  ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; bucket: string; tokenId: string; retainedUntil?: number },
-): Promise<null> {
-  const standing: { inUse: boolean; tokenLive: boolean } = await ctx.runQuery(
-    internal.functions.managedProvisioning.managedBucketInUse,
-    { workspaceId: args.workspaceId, tokenId: args.tokenId, retainedUntil: args.retainedUntil },
-  );
-  await ctx.runMutation(internal.functions.managedProvisioning.clearManagedRetention, {
-    workspaceId: args.workspaceId,
-    retainedUntil: args.retainedUntil,
-  });
-  if (!standing.inUse) {
-    await deleteManagedResources(ctx, args);
-    // Only once the bucket is gone: until then its sealed files need the row.
-    await ctx.runMutation(internal.functions.managedEncryption.forgetKeptBucket, {
-      workspaceId: args.workspaceId,
-    });
-    return null;
-  }
-  // Switched back inside the week: the bucket stays. The provisioning run that
-  // re-adopted it minted a token of its own, so the one from before the move
-  // opens nothing anyone holds and is revoked rather than left standing.
-  if (!standing.tokenLive) await revokeRetiredToken(ctx, args.tokenId);
-  return null;
-}
-
-async function revokeRetiredToken(ctx: ActionCtx, tokenId: string): Promise<void> {
-  const accountId = managedAccountId();
-  const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
-    name: MANAGED_R2_API_TOKEN_SECRET,
-  });
-  if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) return;
-  await revokeApiToken({ apiToken, accountId, tokenId });
-}
-
-async function deleteManagedResources(
-  ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; bucket: string; tokenId: string },
-): Promise<null> {
-  if (args.bucket !== managedBucketName(args.workspaceId)) {
-    throw new Error("Refusing to delete a bucket outside the managed workspace boundary.");
-  }
-  const accountId = managedAccountId();
-  const apiToken = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
-    name: MANAGED_R2_API_TOKEN_SECRET,
-  });
-  if (accountId === null || typeof apiToken !== "string" || apiToken.length === 0) {
-    throw new Error("Managed R2 cleanup is not configured.");
-  }
-  let bucketFailure: unknown;
-  try {
-    await emptyAndDeleteR2Bucket({ apiToken, accountId, bucket: args.bucket });
-  } catch (error) {
-    bucketFailure = error;
-  }
-  // Revoke even when emptying fails: leaving a standing bucket credential is
-  // strictly worse than leaving an unreachable bucket for operator cleanup.
-  const revoked = await revokeApiToken({ apiToken, accountId, tokenId: args.tokenId });
-  if (bucketFailure !== undefined) throw bucketFailure;
-  if (!revoked) throw new Error("Managed bucket was deleted but its scoped token could not be revoked.");
-  return null;
-}
 
 /**
  * Whether a workspace that moved out has come back to its managed bucket.
@@ -695,58 +626,11 @@ export const failManagedStorageMigration = internalMutation({
   handler: async (ctx, args) => failManagedStorageMigrationHandler(ctx, args),
 });
 
-/**
- * The mover's door (`lib/storageMover.ts`): spend one page's ticket and open
- * the buckets for it. Everything comes off the ticket and the row, never the
- * request; a ticket for a page already passed opens nothing.
- */
-type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
-type MoverTicketJobs = Partial<NoteIdTicket> & {
-  walkRunId?: number;
-  migrationId?: Id<"managedStorageMigrations">;
-  contextMoveId?: Id<"contextMoves">;
-  objects?: ContextMoveTicket["objects"];
-  cleanupRunId?: number;
-  cleanupKeys?: string[];
-};
-
+/** The mover's door: spend one page's ticket and open the buckets for it (`lib/managedProvisioningFns/moverDoor.ts`). */
 export const openMoverPage = internalAction({
   args: { hashedTicket: v.string() },
   returns: v.any(),
-  handler: async (ctx, args): Promise<ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | NoteIdMoverPage | CleanupMoverPage | null> => {
-    const ticket: (Omit<WalkTicket, "walkRunId"> & MoverTicketJobs) | null =
-      await ctx.runMutation(internal.functions.storageMover.claimPage, { hashedTicket: args.hashedTicket, now: Date.now() });
-    if (ticket === null) return null;
-    if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
-    if (ticket.contextMoveId !== undefined) return await openContextMovePage(ctx, { ...ticket, contextMoveId: ticket.contextMoveId, objects: ticket.objects ?? [] });
-    if (ticket.idRunId !== undefined) return await openNoteIdPage(ctx, { workspaceId: ticket.workspaceId, phase: ticket.phase, runId: ticket.idRunId, items: ticket.idItems ?? [] });
-    if (ticket.cleanupRunId !== undefined) return await openCleanupTicket(ctx, { ...ticket, cleanupRunId: ticket.cleanupRunId });
-    const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(
-      internal.functions.managedProvisioning.migrationForCopy,
-      { workspaceId: ticket.workspaceId },
-    );
-    if (
-      migration === null ||
-      migration._id !== ticket.migrationId ||
-      migration.status !== "copying" ||
-      migration.readyToCutover === true ||
-      migration.phase !== ticket.phase ||
-      migration.cursor !== ticket.expectedCursor
-    ) {
-      return null;
-    }
-    const sourceCredential: GatewayCredential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
-      workspaceId: ticket.workspaceId,
-    });
-    if (sourceCredential === null) throw new Error("SOURCE_UNAVAILABLE");
-    const secretAccessKey = await decryptSecret(migration.encryptedTargetSecretAccessKey, requireKeyset(), {
-      workspaceId: ticket.workspaceId,
-    });
-    const sourceEncryption = outOfManagedBucket(migration)
-      ? await managedEncryptionOption(ctx, ticket.workspaceId)
-      : null;
-    return migrationPageFor(ticket.workspaceId, migration, sourceCredential, secretAccessKey, sourceEncryption, MOVER_PAGE_LIMITS);
-  },
+  handler: (ctx, args) => openMoverPageHandler(ctx, args),
 });
 
 /** The encrypted destination and progress, visible only to the copy action. */
