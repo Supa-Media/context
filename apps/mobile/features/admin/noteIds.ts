@@ -308,3 +308,20 @@ export function keysNote(): string {
     "This cannot be switched back."
   );
 }
+
+/** How many notes in one workspace share an id with another note (the rows in each group, summed). */
+export function sharedIdsLine(count: number): string {
+  if (count === 0) return "No notes share an id with another note";
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "note shares" : "notes share"} an id with another note`;
+}
+
+/**
+ * A group that is left as it is, in plain words: the heading says why, and each
+ * path is listed under it. Nothing in the group changes until someone has looked.
+ */
+export function needsLookLines(paths: readonly string[]): { heading: string; paths: string[] } {
+  return {
+    heading: "These notes share an id. One is stored under the id's key, so they were left as they are. Look at them first.",
+    paths: [...paths],
+  };
+}

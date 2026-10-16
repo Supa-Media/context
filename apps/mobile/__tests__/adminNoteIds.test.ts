@@ -16,7 +16,9 @@ import {
   keyedLine,
   modeLabel,
   nextMode,
+  needsLookLines,
   pauseLabel,
+  sharedIdsLine,
   percentOf,
   sortWorkspaces,
   statusLabel,
@@ -339,5 +341,17 @@ describe("old copies: the count and the delete", () => {
       enabled: false,
       reason: "The id copy is paused. Resume it first.",
     });
+describe("shared ids: the words for the check and the fix", () => {
+  test("the count line says how many notes share an id, in plain words", () => {
+    expect(sharedIdsLine(0)).toBe("No notes share an id with another note");
+    expect(sharedIdsLine(2)).toBe("2 notes share an id with another note");
+    expect(sharedIdsLine(1234)).toBe("1,234 notes share an id with another note");
+  });
+
+  test("a group that needs a look says it was left as it is, and lists every path in it", () => {
+    const lines = needsLookLines(["notes/keep.md", "notes/keyed.md"]);
+    expect(lines.heading).toMatch(/share an id/);
+    expect(lines.heading).toMatch(/left as they are/);
+    expect(lines.paths).toEqual(["notes/keep.md", "notes/keyed.md"]);
   });
 });
