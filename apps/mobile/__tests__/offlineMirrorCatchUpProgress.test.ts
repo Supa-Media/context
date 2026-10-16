@@ -62,7 +62,7 @@ function deps(): MirrorSyncDeps {
       paths.map((path): BatchRead => {
         const note = bucket.find((n) => n.path === path)!;
         if (refused.has(path)) return { path, outcome: "error", code: "READ_FAILED", message: "no" };
-        return { path, outcome: "read", note: { ...entryOf(note), text: note.text, encrypted: false } };
+        return { path, outcome: "read", note: { ...entryOf(note), etag: note.etag, text: note.text, encrypted: false } };
       }),
     onProgress: (_workspaceId, p) => progress.push(p),
   };
