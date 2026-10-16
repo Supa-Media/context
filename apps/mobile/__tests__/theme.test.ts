@@ -14,8 +14,10 @@ import {
   lightGraphColors,
   lightShadows,
 } from "../features/design/tokens";
+import { darkPhoneColors, lightPhoneColors } from "../features/design/tokens/phoneColors";
 import {
   ThemeProvider,
+  paletteFor,
   resolveScheme,
   useColors,
   useScheme,
@@ -407,6 +409,15 @@ describe("resolveScheme", () => {
   });
 });
 
+/** The window's width as react-native-web reads it; jsdom's own is 0, a phone. */
+function setWidth(width: number): void {
+  Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+}
+
+// The palettes below are a pointer layout's; the phone's have their own block.
+setWidth(1280);
+
 function mount(node: ReactNode): () => void {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -533,5 +544,52 @@ describe("the frame's surfaces", () => {
     // eye needs far less than text does. 1.04 is roughly the point at which a
     // large flat area stops looking like a rendering artefact.
     expect(contrast(palette.pageSurface, palette.chromeSurface)).toBeGreaterThan(1.04);
+  });
+});
+
+/**
+ * A phone draws Apple Notes contrast (owner, 2026-10-15/16: "Phone only").
+ *
+ * SABOTAGE: `paletteFor` answering the scheme alone fails the first two;
+ * `phoneColors.ts` keeping the warm ink (#EDE8E0 on #191715) fails the floors.
+ */
+describe("the phone's palette", () => {
+  test("a phone-width window draws the phone palettes, a wider one does not", () => {
+    expect(paletteFor("dark", 390)).toBe("darkPhone");
+    expect(paletteFor("light", 390)).toBe("lightPhone");
+    expect(paletteFor("dark", 1280)).toBe("dark");
+    expect(paletteFor("light", 1280)).toBe("light");
+  });
+
+  test("useColors hands a phone the phone palette, and back when it widens", () => {
+    setWidth(390);
+    try {
+      expect(readHook("dark", useColors)).toBe(darkPhoneColors);
+      expect(readHook("light", useColors)).toBe(lightPhoneColors);
+    } finally {
+      setWidth(1280);
+    }
+    expect(readHook("dark", useColors)).toBe(darkColors);
+  });
+
+  test("has every token the palettes have", () => {
+    expect(Object.keys(darkPhoneColors).sort()).toEqual(Object.keys(darkColors).sort());
+    expect(Object.keys(lightPhoneColors).sort()).toEqual(Object.keys(lightColors).sort());
+  });
+
+  test("ink and gray text clear the outdoor floors on every surface a phone draws", () => {
+    for (const colors of [darkPhoneColors, lightPhoneColors]) {
+      for (const ground of [colors.chromeSurface, colors.pageSurface, colors.surface]) {
+        expect(contrast(colors.text, ground)).toBeGreaterThanOrEqual(17);
+        expect(contrast(colors.muted, ground)).toBeGreaterThanOrEqual(7);
+      }
+    }
+    // Stronger than the warm palettes on the note page, which is the point.
+    expect(contrast(darkPhoneColors.text, darkPhoneColors.chromeSurface)).toBeGreaterThan(
+      contrast(darkColors.text, darkColors.chromeSurface),
+    );
+    expect(contrast(lightPhoneColors.text, lightPhoneColors.pageSurface)).toBeGreaterThan(
+      contrast(lightColors.text, lightColors.pageSurface),
+    );
   });
 });

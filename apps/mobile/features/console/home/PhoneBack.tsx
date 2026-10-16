@@ -14,6 +14,8 @@ import type { PhoneBackTarget } from "./phoneBack";
  * il click back three times to get to root folder"*. So one press is one level
  * — a note to its folder, a folder to the one it is in, the top to Home — and
  * there is no menu of levels to choose from (that was 2026-10-13's board C).
+ * Holding it goes straight Home (2026-10-16), as does a swipe in from the
+ * left edge (`EdgeSwipeHome`).
  *
  * `after` is anything that has to stay beside it: a signed-out visitor's Sign
  * in, which is the one call to action the top bar carries and has nowhere else
@@ -32,12 +34,17 @@ export function PhoneBack({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const nearest = levels[levels.length - 1]!;
+  const home = levels[0]!;
   return (
     <View style={styles.row}>
       <Pressable
         onPress={() => onGo(nearest)}
+        // Held: straight Home, however deep (owner, 2026-10-16). One level
+        // below Home it is the same place a press goes.
+        onLongPress={() => onGo(home)}
         accessibilityRole="button"
         accessibilityLabel={`Back to ${nearest.label}`}
+        accessibilityHint={home === nearest ? undefined : "Hold to go Home"}
         style={({ pressed }) => [styles.key, pressed ? styles.pressed : null]}
         testID="phone-back"
       >
