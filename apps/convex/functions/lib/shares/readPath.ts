@@ -400,13 +400,15 @@ async function readWithinSharedFolder(
  * bucket that is unreachable, a binding that is gone — is passed through. See
  * `readSharedNote` for why those two are not one answer.
  */
-async function readThroughShare(
+export async function readThroughShare(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   path: string,
   actorUserId: Id<"users"> | null,
   openToAnyone: boolean,
   scope: "private" | "team" = "team",
+  // An outsider's names (`lib/grants/outsider.ts`), read through the same barrier. Empty for every other share.
+  grantedNames: readonly string[] = [],
 ): Promise<{ text: string }> {
   try {
     /*
@@ -429,6 +431,7 @@ async function readThroughShare(
         workspaceId,
         scope,
         operation: { kind: "read", path },
+        ...(grantedNames.length === 0 ? {} : { grantedNames: [...grantedNames] }),
       },
     );
     if (result.kind !== "file")

@@ -36,7 +36,11 @@ export const nodeAccessTables = {
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_user", ["workspaceId", "granteeUserId"])
     .index("by_workspace_group", ["workspaceId", "granteeGroupId"])
-    .index("by_workspace_email", ["workspaceId", "granteeEmail"]),
+    .index("by_workspace_email", ["workspaceId", "granteeEmail"])
+    // Across every workspace, for the outsider path (`lib/grants/outsider.ts`): the grants one account holds
+    // anywhere. Candidates only; each is re-derived from its workspace's live rows before anything is shown.
+    .index("by_grantee_user", ["granteeUserId"])
+    .index("by_grantee_email", ["granteeEmail"]),
 
   /**
    * One workspace's access derivation: the version of its rows (bumped by
