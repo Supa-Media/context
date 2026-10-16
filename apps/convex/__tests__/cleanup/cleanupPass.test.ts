@@ -33,6 +33,7 @@ import type { ActionCtx } from "../../_generated/server";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import type { CleanupDeps } from "../../functions/lib/cleanup/pass";
 import { runCountChain, runDeleteChain } from "../../functions/lib/cleanup/pass";
+import { GATE_CLOSED_LABEL } from "../../functions/lib/cleanup/gate";
 import { runCleanupDeletePage, runCleanupListPage } from "../../../mcp/src/moves/cleanupPage.js";
 import { errorCode } from "../fixtures.helpers";
 import { ADMIN, boundWorkspace, tester, user, type T } from "../noteIds/noteIds.helpers";
@@ -121,7 +122,7 @@ function harness(t: T, buckets: Map<string, FakeBucket>) {
     async settle(limit = 200): Promise<number> {
       const jobs = await t.run((c) => c.db.system.query("_scheduled_functions").collect());
       for (const job of jobs) {
-        if (seen.has(job._id) || !/noteIdsCleanup:run(Count|Delete)$/.test(job.name)) continue;
+        if (seen.has(job._id) || !/noteIdsCleanupRun:run(Count|Delete)$/.test(job.name)) continue;
         seen.add(job._id);
         pending.push({ name: job.name, args: job.args[0] as Record<string, unknown> });
       }
@@ -130,7 +131,7 @@ function harness(t: T, buckets: Map<string, FakeBucket>) {
         if (ran >= limit) throw new Error("the cleanup did not settle");
         const next = pending.shift()!;
         ran += 1;
-        if (next.name.endsWith("noteIdsCleanup:runCount")) await runCountChain(ctx, next.args as never, deps);
+        if (next.name.endsWith("noteIdsCleanupRun:runCount")) await runCountChain(ctx, next.args as never, deps);
         else await runDeleteChain(ctx, next.args as never, deps);
       }
       return ran;
@@ -234,7 +235,30 @@ describe("Delete is refused by name, and nothing starts", () => {
       expect(errorCode(error), item.name).toBe(item.code);
       if (item.message !== undefined) expect((error as { data?: { message?: string } }).data?.message, item.name).toBe(item.message);
       expect((await cleanupOf(t, ws))?.running, item.name).toBeUndefined();
+      // A refused Delete schedules nothing: no run page is waiting for it.
+      const scheduled = await t.run((c) => c.db.system.query("_scheduled_functions").collect());
+      expect(scheduled.filter((job) => /noteIdsCleanup/.test(job.name)), item.name).toEqual([]);
     }
+  });
+
+  test("a gate that closes after the Delete was accepted stops the run before any bucket call", async () => {
+    const t = tester();
+    const ws = await keyedWorkspace(t, "closes", 8, 1000);
+    const bucket = fakeBucket(["1-projects/old.md", "notes/n1.md"]);
+    const buckets = new Map([[String(ws), bucket]]);
+    await (await staffOf(t)).mutation(api.functions.noteIdsCleanup.deleteOld, { workspaceId: ws });
+    // The switch is put back after the click: the flip is newer than the wait, so the gate refuses again.
+    await t.run(async (ctx) => {
+      const row = (await ctx.db.query("noteIdCopies").collect()).find((copy) => copy.workspaceId === ws);
+      await ctx.db.patch(row!._id, { keyedAt: Date.now() });
+    });
+    await harness(t, buckets).settle();
+    expect(bucket.lists).toBe(0);
+    expect(bucket.deletes).toEqual([]);
+    expect([...bucket.objects].sort()).toEqual(["1-projects/old.md", "notes/n1.md"]);
+    const cleanup = await cleanupOf(t, ws);
+    expect(cleanup?.error).toBe(GATE_CLOSED_LABEL);
+    expect(cleanup?.running).toBeUndefined();
   });
 
   test("paused is refused with the pause code", async () => {

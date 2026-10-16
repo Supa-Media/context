@@ -1,5 +1,5 @@
 /**
- * The old-copy cleanup's two chains (`functions/noteIdsCleanup.ts` runs them):
+ * The old-copy cleanup's two chains (`functions/noteIdsCleanupRun.ts` schedules them):
  *
  * - Count: pages the bucket's keys through the gateway (`cleanupList`), counts
  *   what a Delete would remove and how many of those no row names, then pages
@@ -20,12 +20,13 @@ import type { ActionCtx } from "../../../_generated/server";
 import type { GatewayCredential } from "../storage/shapes";
 import { COPY_RETRY_MS, COPY_STREAK_MAX } from "../nodes/noteIds";
 import { runCleanupDeleteOnMover, runCleanupListOnMover } from "../storageMover";
+import { CLEANUP_FAILED_LABEL, COUNT_FAILED_LABEL, GATE_CLOSED_LABEL } from "./gate";
+
+export { CLEANUP_FAILED_LABEL, COUNT_FAILED_LABEL } from "./gate";
 
 /** Keys one page of the bucket lists, and so one delete page names at most. */
 export const CLEANUP_PAGE = 200;
 
-export const CLEANUP_FAILED_LABEL = "Deleting old copies failed; start it again";
-export const COUNT_FAILED_LABEL = "Counting old copies failed; count again";
 
 export interface CleanupListPage {
   workspaceId: string;
@@ -135,7 +136,7 @@ export async function runCountChain(ctx: ActionCtx, args: CountArgs, deps: Clean
         unclaimed: args.unclaimed + counts.unclaimed,
         readingPaths: args.readingPaths,
       };
-      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanup.runCount, {
+      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanupRun.runCount, {
         workspaceId,
         runId,
         phase: page.nextCursor === null ? "rows" : "bucket",
@@ -157,7 +158,7 @@ export async function runCountChain(ctx: ActionCtx, args: CountArgs, deps: Clean
       });
       return;
     }
-    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanup.runCount, {
+    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanupRun.runCount, {
       workspaceId,
       runId,
       phase: "rows",
@@ -174,7 +175,7 @@ export async function runCountChain(ctx: ActionCtx, args: CountArgs, deps: Clean
       await ctx.runMutation(internal.functions.noteIdsCleanup.failCleanup, { workspaceId, runId, label: COUNT_FAILED_LABEL });
       return;
     }
-    await ctx.scheduler.runAfter(COPY_RETRY_MS, internal.functions.noteIdsCleanup.runCount, { ...args, streak: streak + 1 });
+    await ctx.scheduler.runAfter(COPY_RETRY_MS, internal.functions.noteIdsCleanupRun.runCount, { ...args, streak: streak + 1 });
   }
 }
 
@@ -187,6 +188,11 @@ export async function runDeleteChain(ctx: ActionCtx, args: DeleteArgs, deps: Cle
   const streak = args.streak ?? 0;
   try {
     if (!(await ctx.runQuery(internal.functions.noteIdsCleanup.deleteCurrent, { workspaceId, runId, cursor }))) return;
+    // The gate can close after the run started (the switch, the count's age): every page asks again.
+    if (!(await ctx.runQuery(internal.functions.noteIdsCleanup.deleteGateOpen, { workspaceId }))) {
+      await ctx.runMutation(internal.functions.noteIdsCleanup.failCleanup, { workspaceId, runId, label: GATE_CLOSED_LABEL });
+      return;
+    }
     const page = await listKeys(ctx, workspaceId, runId, cursor, deps);
     if (page === null) return;
     const candidates = await ctx.runQuery(internal.functions.noteIdsCleanup.deletableForPage, { workspaceId, keys: page.keys });
@@ -204,7 +210,7 @@ export async function runDeleteChain(ctx: ActionCtx, args: DeleteArgs, deps: Cle
       await ctx.runMutation(internal.functions.noteIdsCleanup.finishDelete, { workspaceId, runId });
       return;
     }
-    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanup.runDelete, {
+    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanupRun.runDelete, {
       workspaceId,
       runId,
       cursor: page.nextCursor,
@@ -216,7 +222,7 @@ export async function runDeleteChain(ctx: ActionCtx, args: DeleteArgs, deps: Cle
       await ctx.runMutation(internal.functions.noteIdsCleanup.failCleanup, { workspaceId, runId, label: CLEANUP_FAILED_LABEL });
       return;
     }
-    await ctx.scheduler.runAfter(COPY_RETRY_MS, internal.functions.noteIdsCleanup.runDelete, {
+    await ctx.scheduler.runAfter(COPY_RETRY_MS, internal.functions.noteIdsCleanupRun.runDelete, {
       workspaceId,
       runId,
       ...(cursor === undefined ? {} : { cursor }),

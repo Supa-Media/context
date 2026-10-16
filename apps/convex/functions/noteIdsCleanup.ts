@@ -20,12 +20,19 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, type DatabaseReader, type MutationCtx } from "../_generated/server";
-import { productionDeps } from "./lib/noteIds/deps";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { copyRowOf, ensureCopyRow, idCopyPaused } from "./lib/noteIds/state";
 import { staffOnly } from "./nodesMigration";
-import { CLEANUP_FAILED_LABEL, COUNT_FAILED_LABEL, runCountChain, runDeleteChain } from "./lib/cleanup/pass";
-import { countRefusal, deleteRefusal, type CleanupGateInput, type Refusal } from "./lib/cleanup/gate";
+import {
+  CLEANUP_FAILED_LABEL,
+  COUNT_FAILED_LABEL,
+  GATE_CLOSED_LABEL,
+  countRefusal,
+  deleteRecheckRefusal,
+  deleteRefusal,
+  type CleanupGateInput,
+  type Refusal,
+} from "./lib/cleanup/gate";
 import { classifyKeys, deletableKeys, readingPathsPage } from "./lib/cleanup/rows";
 
 type CleanupRow = NonNullable<Doc<"noteIdCopies">["cleanup"]>;
@@ -111,7 +118,12 @@ async function currentRun(db: DatabaseReader, workspaceId: Id<"workspaces">, run
 }
 
 /** Start a run: a new run id, its own counts reset, and the first page scheduled. */
-async function startRun(ctx: MutationCtx, workspaceId: Id<"workspaces">, running: "count" | "delete"): Promise<void> {
+/**
+ * Writes the run and returns its id. The scheduling is done by the public
+ * function that calls this, in its own body: a scheduler reference in a
+ * shared helper reads as a call from every export (the structure analyzer).
+ */
+async function startRun(ctx: MutationCtx, workspaceId: Id<"workspaces">, running: "count" | "delete"): Promise<number> {
   const row = await ensureCopyRow(ctx, workspaceId);
   const base: NonNullable<CleanupRow> = row.cleanup ?? {
     runId: 0,
@@ -126,24 +138,30 @@ async function startRun(ctx: MutationCtx, workspaceId: Id<"workspaces">, running
   if (running === "count") {
     // A new count replaces the old one: a Delete waits for it to finish again.
     await ctx.db.patch(row._id, {
-      cleanup: { ...base, runId, running, countedAt: undefined, toDelete: 0, unclaimed: 0, readingPaths: 0, cursor: undefined, error: undefined },
+      cleanup: {
+        ...base,
+        runId,
+        running,
+        mode: running,
+        requestedAt: now,
+        countedAt: undefined,
+        toDelete: 0,
+        unclaimed: 0,
+        readingPaths: 0,
+        cursor: undefined,
+        error: undefined,
+      },
       updatedAt: now,
     });
-    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanup.runCount, {
-      workspaceId,
-      runId,
-      phase: "bucket",
-      toDelete: 0,
-      unclaimed: 0,
-      readingPaths: 0,
-    });
-    return;
+    return runId;
   }
   await ctx.db.patch(row._id, {
     cleanup: {
       ...base,
       runId,
       running,
+      mode: running,
+      requestedAt: now,
       startedAt: now,
       finishedAt: undefined,
       deleted: 0,
@@ -153,7 +171,7 @@ async function startRun(ctx: MutationCtx, workspaceId: Id<"workspaces">, running
     },
     updatedAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanup.runDelete, { workspaceId, runId });
+  return runId;
 }
 
 /** Count what a Delete would remove, for one workspace. Refused only while paused or already running. */
@@ -164,7 +182,15 @@ export const countOld = mutation({
     await staffOnly(ctx);
     const refusal = countRefusal(await gateInput(ctx.db, workspaceId, Date.now()));
     if (refusal !== null) throw new ConvexError({ code: refusal.code, message: refusal.message });
-    await startRun(ctx, workspaceId, "count");
+    const runId = await startRun(ctx, workspaceId, "count");
+    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanupRun.runCount, {
+      workspaceId,
+      runId,
+      phase: "bucket",
+      toDelete: 0,
+      unclaimed: 0,
+      readingPaths: 0,
+    });
     return { started: 1 };
   },
 });
@@ -182,43 +208,20 @@ export const deleteOld = mutation({
     await staffOnly(ctx);
     const refusal = deleteRefusal(await gateInput(ctx.db, workspaceId, Date.now()));
     if (refusal !== null) throw new ConvexError({ code: refusal.code, message: refusal.message });
-    await startRun(ctx, workspaceId, "delete");
+    const runId = await startRun(ctx, workspaceId, "delete");
+    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCleanupRun.runDelete, { workspaceId, runId });
     return { started: 1 };
   },
 });
 
-/** One page of the Count (`lib/cleanup/pass.ts`). */
-export const runCount = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    runId: v.number(),
-    phase: v.union(v.literal("bucket"), v.literal("rows")),
-    cursor: v.optional(v.string()),
-    toDelete: v.number(),
-    unclaimed: v.number(),
-    readingPaths: v.number(),
-    streak: v.optional(v.number()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    await runCountChain(ctx, args, productionDeps().cleanup);
-    return null;
-  },
-});
-
-/** One page of the Delete (`lib/cleanup/pass.ts`). */
-export const runDelete = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    runId: v.number(),
-    cursor: v.optional(v.string()),
-    streak: v.optional(v.number()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    await runDeleteChain(ctx, args, productionDeps().cleanup);
-    return null;
-  },
+/**
+ * Whether a Delete may go on, read as each page starts: the gate, not counting
+ * the run's own flag. `false` stops the run, recorded with `GATE_CLOSED_LABEL`.
+ */
+export const deleteGateOpen = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }) => deleteRecheckRefusal(await gateInput(ctx.db, workspaceId, Date.now())) === null,
 });
 
 /** Whether a count page may run: its run is current and not paused. */
@@ -380,7 +383,7 @@ export const failCleanup = internalMutation({
   handler: async (ctx, { workspaceId, runId, label }): Promise<null> => {
     const row = await ensureCopyRow(ctx, workspaceId);
     if (row.cleanup === undefined || row.cleanup.runId !== runId || row.cleanup.running === undefined) return null;
-    const allowed = [COUNT_FAILED_LABEL, CLEANUP_FAILED_LABEL];
+    const allowed = [COUNT_FAILED_LABEL, CLEANUP_FAILED_LABEL, GATE_CLOSED_LABEL];
     await ctx.db.patch(row._id, {
       cleanup: { ...row.cleanup, running: undefined, error: allowed.includes(label) ? label : CLEANUP_FAILED_LABEL },
       updatedAt: Date.now(),

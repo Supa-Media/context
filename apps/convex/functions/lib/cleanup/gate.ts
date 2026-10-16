@@ -16,6 +16,11 @@ export const CLEANUP_WAIT_MS = 7 * DAY_MS;
 /** A Count older than this does not allow a Delete: the bucket may have changed since. */
 export const COUNT_FRESH_MS = DAY_MS;
 
+export const CLEANUP_FAILED_LABEL = "Deleting old copies failed; start it again";
+export const COUNT_FAILED_LABEL = "Counting old copies failed; count again";
+/** A Delete stopped because the gate closed after it started: the switch or the count changed. */
+export const GATE_CLOSED_LABEL = "Deleting old copies stopped: the switch or the count changed; count again, then delete";
+
 export interface CleanupGateInput {
   now: number;
   /** The id copy is paused: nothing new starts. */
@@ -47,6 +52,14 @@ export function countRefusal(input: CleanupGateInput): Refusal | null {
     return { code: "CLEANUP_RUNNING", message: "A count or a delete is already running for this workspace." };
   }
   return null;
+}
+
+/**
+ * The Delete's gate, read again while the run goes on. The run's own `running`
+ * flag is not a refusal here; every other gate is, paused included.
+ */
+export function deleteRecheckRefusal(input: CleanupGateInput): Refusal | null {
+  return deleteRefusal({ ...input, cleanup: input.cleanup === undefined ? undefined : { ...input.cleanup, running: undefined } });
 }
 
 /** A Delete is refused in this order: paused, running, not keyed, waiting, not counted, stale count, notes still read by path. */

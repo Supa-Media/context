@@ -227,13 +227,13 @@ describe("no public function can reach a storage secret", () => {
         // and each page records ids, etags and counts, never a path or a byte.
         "functions.noteIdsCopy.run",
         "functions.noteIdsCopy.runCheck",
-        // The old-copy cleanup's two passes (`functions/noteIdsCleanup.ts`, `lib/cleanup/pass.ts`).
+        // The old-copy cleanup's two passes (`functions/noteIdsCleanupRun.ts`, `lib/cleanup/pass.ts`).
         // Each internalAction lists one page of a workspace's bucket (a count) or lists and deletes one
         // page of old path copies (a delete), through the gateway's mover when one is set, or here through
         // the bucket's own credential when it is not. Reached only by schedule edges from the two staff
         // mutations and from themselves; the pages record counts, times and fixed labels, never a key.
-        "functions.noteIdsCleanup.runCount",
-        "functions.noteIdsCleanup.runDelete",
+        "functions.noteIdsCleanupRun.runCount",
+        "functions.noteIdsCleanupRun.runDelete",
         // THE THIRD KIND, AND THE WEAKEST ONE.
         //
         // Opens the parked PKCE verifier so the authorization code can be

@@ -387,6 +387,9 @@ export const nodeTables = {
       v.object({
         runId: v.number(),
         running: v.optional(v.union(v.literal("count"), v.literal("delete"))),
+        /** What the staff asked for, and when: written by the public function, read by the gate's record. */
+        mode: v.optional(v.union(v.literal("count"), v.literal("delete"))),
+        requestedAt: v.optional(v.number()),
         countedAt: v.optional(v.number()),
         /** Keys a Delete would remove, and how many of them no tree row's path or key ever named. */
         toDelete: v.number(),
