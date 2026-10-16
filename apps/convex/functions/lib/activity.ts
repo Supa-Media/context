@@ -33,6 +33,7 @@ import {
   type Visibility,
 } from "./privacy";
 import { loadPrivacyState, setExactVisibility, type FileStore } from "./fileOps";
+import { manifestUsable } from "./fileOps/privacyState";
 import { forwardPath, readForwarding } from "../../../mcp/src/forwarding.js";
 
 export { ACTIVITY_PATH };
@@ -83,7 +84,7 @@ export async function recordActivity(
   try {
     if (!mayBeReportable(change.action, change.paths)) return null;
     const privacy = await loadPrivacyState(store);
-    if (privacy.invalid || privacy.text === null) return null;
+    if (!manifestUsable(privacy)) return null;
     const teamVisible =
       change.teamVisible ??
       change.paths.every((path) => effectiveVisibility(path, privacy.rules, privacy.overrides) === "team");

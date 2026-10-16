@@ -9,7 +9,7 @@ import { type Visibility, canSee, visibilityOf } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import { requireFolderPath, requirePath, parentOf } from "./paths";
-import { loadPrivacyState } from "./privacyState";
+import { loadPrivacyState, manifestUsable as isManifestUsable } from "./privacyState";
 import { folderVisibleAtScope, describeFile } from "./listing";
 
 /* -------------------------------------------------------------------------- */
@@ -158,7 +158,7 @@ export async function syncManifest(
   const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
   const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
   const state = await loadPrivacyState(store);
-  const manifestUsable = state.text !== null && !state.invalid;
+  const manifestUsable = isManifestUsable(state);
   const folder = options.folder === undefined ? "" : requireFolderPath(options.folder);
   const prefix = folder === "" ? "" : `${folder}/`;
   if (folder !== "" && !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {

@@ -24,6 +24,15 @@ export interface PrivacyState {
 }
 
 /**
+ * Whether the rules read are ones to judge by: a file that parsed, or the rows' rules handed over parsed (rows
+ * mode, which carry no file `text`). Not a missing file, not one that failed to parse. Judge by this, never by
+ * `text !== null`: in rows mode that read every workspace as broken, and offered Reset over working rules.
+ */
+export function manifestUsable(state: Pick<PrivacyState, "etag" | "invalid">): boolean {
+  return state.etag !== null && !state.invalid;
+}
+
+/**
  * Read `privacy.md`.
  *
  * Three outcomes, and the fallbacks are chosen to fail *closed*:
