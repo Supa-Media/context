@@ -66,6 +66,10 @@ Moved to [The two onboarding gates ask two different questions](./identity-and-a
 
 Moved to […and a third question nobody was asking: how do you get one?](./identity-and-access/invitations-and-signin.md#and-a-third-question-nobody-was-asking-how-do-you-get-one).
 
+### Everybody starts with a personal workspace, and is not asked for folders
+
+Moved to [Everybody starts with a personal workspace, and is not asked for folders](./identity-and-access/invitations-and-signin.md#everybody-starts-with-a-personal-workspace-and-is-not-asked-for-folders).
+
 ### Sign-in is invite-only, and the lock is on the server
 
 Moved to [Sign-in is invite-only, and the lock is on the server](./identity-and-access/invitations-and-signin.md#sign-in-is-invite-only-and-the-lock-is-on-the-server).

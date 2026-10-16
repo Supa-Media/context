@@ -78,6 +78,18 @@ export function afterDryRun(): Next {
 }
 
 /**
+ * Whether "continue" past the report also writes the five starting folders.
+ *
+ * Nobody is asked which folders they want: an empty bucket gets the suggested
+ * ones, as a bucket we made does (decided by the owner, 2026-10-16). Only on
+ * the verifier's own word `empty` — `undefined` is a bucket nobody looked in,
+ * and `existing-context` is somebody's notes, which are never laid out.
+ */
+export function laysOutAfterDryRun(scaffoldReason: string | undefined): boolean {
+  return scaffoldReason === "empty";
+}
+
+/**
  * The line in the top corner of each screen — the canvas's, board by board.
  *
  * Not "Step n of m" across the run: the handle is the only screen that is a

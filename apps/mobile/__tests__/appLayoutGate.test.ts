@@ -334,7 +334,7 @@ describe("the (app) gate on a cold start", () => {
     mockAuthState = { isLoading: false, isAuthenticated: true };
     mockPathname = "/console";
 
-    const { html, error } = render(signedInClient([{ workspaceId: "w1", slug: "seyi" }]));
+    const { html, error } = render(signedInClient([{ workspaceId: "w1", slug: "seyi", kind: "personal", role: "owner" }]));
     expect(error).toBeNull();
     expect(html).toContain('data-testid="stack"');
     expect(html).not.toContain("recording-bar");
@@ -349,7 +349,7 @@ describe("the (app) gate on a cold start", () => {
     expect(empty.error).toBeNull();
     expect(empty.html).toContain('data-href="/welcome"');
 
-    const one = render(signedInClient([{ workspaceId: "w1", slug: "seyi" }]));
+    const one = render(signedInClient([{ workspaceId: "w1", slug: "seyi", kind: "personal", role: "owner" }]));
     expect(one.error).toBeNull();
     expect(one.html).toContain('data-testid="stack"');
   });

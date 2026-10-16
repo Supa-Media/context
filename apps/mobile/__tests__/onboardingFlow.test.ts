@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 import {
   afterDryRun,
+  laysOutAfterDryRun,
   afterName,
   afterStorage,
   headerLabel,
@@ -154,5 +155,17 @@ describe("a layout that fails to land", () => {
     const failure = describeStructureFailure(new Error("bucket said no"));
     expect(failure.next).toMatch(/workspace and your bucket are fine/i);
     expect(failure.next).toMatch(/bucket said no/);
+  });
+});
+
+describe("an empty bucket somebody brought", () => {
+  test("gets the five starting folders on continue, without a question", () => {
+    expect(laysOutAfterDryRun("empty")).toBe(true);
+  });
+
+  test("a bucket with notes in it, or one nobody looked in, is never laid out", () => {
+    expect(laysOutAfterDryRun("existing-context")).toBe(false);
+    expect(laysOutAfterDryRun(undefined)).toBe(false);
+    expect(laysOutAfterDryRun("created")).toBe(false);
   });
 });

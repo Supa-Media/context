@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -69,11 +69,20 @@ import { setupCopy, type ContextSetup } from "../setup";
  * `CreateWorkspaceScreen` says a modal is the wrong frame for a name claim. The
  * last line says the layout can be reorganised afterwards, including by asking
  * a connected client, which is the honest route to a custom shape from here.
+ *
+ * ## A personal workspace is not asked
+ *
+ * With `autoStart`, an empty personal workspace gets its five folders the
+ * moment the card is drawn, the way "Start fresh" lays them out: nobody is
+ * asked which folders they want (decided by the owner, 2026-10-16). Once per
+ * mount, so a refusal leaves the card and its button rather than a stream of
+ * retries.
  */
 export function SetupPrompt({
   setup,
   workspaceId,
   shared = false,
+  autoStart = false,
   onImportVault,
 }: {
   setup: ContextSetup;
@@ -81,6 +90,12 @@ export function SetupPrompt({
   workspaceId: string;
   /** A shared workspace: offer the kinds of workspace rather than PARA alone. */
   shared?: boolean;
+  /**
+   * Lay the standard folders down without waiting for a press. The caller
+   * passes it only for the owner's own personal workspace, never a visitor's
+   * or the demo's view.
+   */
+  autoStart?: boolean;
   /** Opens Settings → Storage, where the importer lives. */
   onImportVault?: () => void;
 }) {
@@ -114,6 +129,13 @@ export function SetupPrompt({
       .finally(() => setApplying(false));
   }, [applyStructure, choosing, preset, workspaceId]);
 
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!startsOnItsOwn(setup, shared, autoStart) || autoStarted.current) return;
+    autoStarted.current = true;
+    apply();
+  }, [apply, autoStart, setup, shared]);
+
   return (
     <SetupPromptBody
       setup={setup}
@@ -144,6 +166,15 @@ export const SETUP_KINDS = WORKSPACE_PRESETS.filter((entry) => entry.key !== "cu
  */
 export function offersKinds(setup: ContextSetup, shared: boolean): boolean {
   return shared && setup.kind === "empty";
+}
+
+/**
+ * Whether the card writes the folders without being pressed: an empty personal
+ * workspace, when the caller allows it. A shared one is still asked its kind,
+ * and a half-written layout is still finished by hand.
+ */
+export function startsOnItsOwn(setup: ContextSetup, shared: boolean, autoStart: boolean): boolean {
+  return autoStart && !shared && setup.kind === "empty";
 }
 
 /** The folder lines the card lists for a choice: the preset's, or PARA's. */
