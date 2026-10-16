@@ -25,6 +25,7 @@ import {
 import { privacyIsNewer } from "./lib/nodes/observe";
 import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
 import { accessDerived, backfillAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
+import { accessParityPage } from "./lib/nodes/accessParity";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
@@ -218,4 +219,18 @@ export const setAccessSource = internalMutation({
     if (accessDerived(source)) await backfillAccess(ctx, workspaceId);
     return null;
   },
+});
+
+/**
+ * Shadow parity (`lib/nodes/accessParity.ts`): one page of every live row's answer from the rules against
+ * its answer from the access rows, under each clearance. Staff reads it; a diff is a derivation bug.
+ */
+export const accessParity = internalQuery({
+  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()) },
+  returns: v.object({
+    diffs: v.array(v.object({ path: v.string(), clearance: v.string(), old: v.boolean(), new: v.boolean() })),
+    next: v.union(v.null(), v.string()),
+    checked: v.number(),
+  }),
+  handler: async (ctx, { workspaceId, cursor }) => await accessParityPage(ctx, workspaceId, cursor ?? null),
 });

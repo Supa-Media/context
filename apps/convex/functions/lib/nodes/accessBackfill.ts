@@ -40,7 +40,7 @@
 
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
-import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
+import type { DatabaseReader, MutationCtx, QueryCtx } from "../../../_generated/server";
 import { PrivacyOverrides, isGroupScope, overrideFor, type Visibility } from "../privacy";
 import { resolveAddressedUser } from "../identities";
 import { privacyRowOf } from "./privacyAuthority";
@@ -130,7 +130,7 @@ async function rulesOf(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise
  * person resolves the way every addressed share does (`resolveAddressedUser`).
  */
 export async function resolveHandle(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   visibility: Visibility,
   cache: Cache,
