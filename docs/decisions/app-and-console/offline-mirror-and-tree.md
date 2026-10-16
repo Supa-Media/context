@@ -575,3 +575,12 @@ the sheet's Downloads block with a line and a Don't download button per
 workspace. Tests: `offlineDownloadChoice.test.ts` (sabotage: removing the
 reconcile's body sweep fails "a body an older build downloaded goes") and
 `downloadPillRender.test.ts`.
+
+A note whose collaboration document will not open (`STORAGE_UNSAFE`) is asked
+for again as the Markdown the bucket holds (`plain`), the read a folder List
+already uses (2026-10-16). Some of those documents never recover on their own,
+and without the second read the mirror counted the same notes missing on every
+pass, holding the pill at "2,828 / 2,831". The plain copy's version is the
+object's, which is what the listing names, so it settles; the editor still
+refuses the note. Test: `offlineMirrorUnsafeReads.test.ts` (sabotage: returning
+the first answer fails "the copy settles").
