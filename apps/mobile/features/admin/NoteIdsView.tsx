@@ -26,6 +26,7 @@ import {
   barShare,
   countsLine,
   diagnosisLine,
+  failureLines,
   formatPercent,
   handleLabel,
   isFailing,
@@ -317,6 +318,11 @@ function WorkspaceRow({
             {diagnosis}
           </Text>
         ) : null}
+        {failureLines(row.failures).map((line) => (
+          <Text key={line} variant="meta" style={styles.bad} testID={`admin-noteids-failure-${row.workspaceId}`}>
+            {line}
+          </Text>
+        ))}
       </View>
       <View style={styles.rowActions}>
         <Button

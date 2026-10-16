@@ -20,6 +20,7 @@ import { narrowRowForMove, setAccessRow, type SetAccessAnswer, type GranteeInput
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
+import { privacyEtagOf } from "./lib/nodes/readerRules";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 const granteeValidator = v.union(
@@ -40,6 +41,17 @@ export const rowsMode = internalQuery({
   args: {},
   returns: v.boolean(),
   handler: async (ctx): Promise<boolean> => (await accessSourceOf(ctx.db)) === "rows",
+});
+
+/**
+ * The privacy etag a move is made under, as its guard (`rowMove`, `nodeMoves`) compares it: the rows'
+ * version in rows mode (`readerMirror`), the mirror's in file mode. Movers hand this out at the start of a
+ * move, after their own narrowing, so only a change that lands between the start and the move refuses it.
+ */
+export const privacyEtagNow = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, { workspaceId }): Promise<string | null> => await privacyEtagOf(ctx, workspaceId),
 });
 
 /**

@@ -16,7 +16,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { accessSourceOf } from "./accessBackfill";
-import { accessRowsOf } from "./accessRows";
+import { accessRowsOf, accessVersionOf } from "./accessRows";
 import { mirrorRules, type Rules } from "./log";
 import { readMirror } from "./privacyMirror";
 import { renderAccess } from "./rowAccess";
@@ -60,6 +60,17 @@ export async function readerMirror(ctx: QueryCtx, workspaceId: Id<"workspaces">)
     .map(([path, visibility]) => ({ path, visibility: visibility as string }))
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return { etag: rowsEtag(folders, notes), invalid: false, folders, notes, rows: true };
+}
+
+/**
+ * The version a move is judged under, as its handout and its guard both compare it. File mode: the mirror's
+ * etag, as it has always been. Rows mode: the rows' rules plus the access version, so a grant (which changes no
+ * rendered rule) also refuses a move that was judged before it. Feed tokens keep the rules-only etag.
+ */
+export async function privacyEtagOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
+  const mirror = await readerMirror(ctx, workspaceId);
+  if (mirror === null || mirror.rows !== true) return mirror?.etag ?? null;
+  return `${mirror.etag}.${await accessVersionOf(ctx, workspaceId)}`;
 }
 
 /** A version of the rows' rules: a 32-bit FNV-1a of what they say, so it moves exactly when they do. */

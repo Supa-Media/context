@@ -28,7 +28,8 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { keyedWorkspace } from "../noteIds/keyedState";
 import { convexNodeTable } from "./convexTable";
-import { readMirror, treeServesNow } from "./listing";
+import { treeServesNow } from "./listing";
+import { privacyEtagOf, readerMirror } from "./readerRules";
 import { newNoteId } from "./noteIds";
 import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
@@ -162,10 +163,9 @@ export async function applyRowMove(
   // A byte move still queued from before the flip names paths the rows no longer hold the notes at.
   const queued = await ctx.db.query("moveQueue").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).first();
   if (queued !== null) return refuse("busy");
-  // The file version the caller was handed (`privacyEtag` is the file's etag, from `loadPrivacyState`): a file
-  // version check, so it compares the file's mirror, not the rows' view. Classified as a guard, not a reader.
-  const mirror = await readMirror(ctx.db, ws);
-  if (!trash && (mirror?.etag ?? null) !== args.privacyEtag) return refuse("rules_changed");
+  // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
+  if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
+  const mirror = await readerMirror(ctx, ws);
   if (invalidMove(from, to)) return refuse("invalid");
   if (trash && !from.startsWith(`${TRASH_ROOT}/`) && !to.startsWith(`${TRASH_ROOT}/`)) return refuse("invalid");
 

@@ -40,6 +40,8 @@ const rowValidator = v.object({
   /** A fixed, path-free label. */
   error: v.union(v.string(), v.null()),
   diagnosis: v.union(v.null(), diagnosisValidator),
+  /** Why files failed: a fixed reason per note id, no paths (the first few the copy kept). */
+  failures: v.array(v.object({ noteId: v.string(), reason: v.string() })),
   /** Keys mode only (0 otherwise): files the last copy pass counted, and how many rows the flip has keyed (`notes/` only). */
   liveFiles: v.number(),
   keyed: v.number(),
@@ -74,6 +76,7 @@ export const report = query({
       status: "idle" | "copying" | "done" | "failed";
       error: string | null;
       diagnosis: { checkedAt: number; checked: number; missing: number; differs: number } | null;
+      failures: { noteId: string; reason: string }[];
       liveFiles: number;
       keyed: number;
       keyedAt: number | null;
@@ -99,6 +102,7 @@ export const report = query({
         status: row?.status ?? "idle",
         error: row?.error ?? null,
         diagnosis: row?.diagnosis ?? null,
+        failures: (row?.failures ?? []).slice(0, 5).map(({ noteId, reason }) => ({ noteId, reason })),
         ...keys,
         keyedAt: row?.keyedAt ?? null,
         keyedDoneAt: row?.keyedDoneAt ?? null,

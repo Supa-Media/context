@@ -149,11 +149,12 @@ describe("1. the snapshot", () => {
     const f = await keyedFixture();
     await rulesWrite(f, mirrorOf("snap-move", [{ prefix: "1-projects/launch", visibility: "private" }]));
     await setSource(f, "rows");
+    // In rows mode a move is made under the rows' version (`privacyEtagNow`), not the file's.
     const answer = await f.t.mutation(internal.functions.nodeRowMoves.rowMove, {
       workspaceId: f.ws,
       from: "1-projects/launch",
       to: "3-resources/launch",
-      privacyEtag: await privacyEtag(f),
+      privacyEtag: await f.t.query(internal.functions.nodesAccess.privacyEtagNow, { workspaceId: f.ws }),
       now: Date.now(),
     });
     expect(answer).toMatchObject({ ok: true });

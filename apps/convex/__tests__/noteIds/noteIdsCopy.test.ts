@@ -276,6 +276,12 @@ describe("the copy pass", () => {
     expect(state).toMatchObject({ status: "done", failed: 1, copied: 0 });
     expect(state?.failures).toEqual([{ noteId: movie?.noteId, reason: "too_large" }]);
     expect(JSON.stringify(state)).not.toContain("movie");
+    // Staff see why, by id, on the report: still no path.
+    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
+    const report = await staff.query(api.functions.noteIds.report, {});
+    const row = report.workspaces.find((entry) => entry.handle === "huge");
+    expect(row?.failures).toEqual([{ noteId: movie?.noteId, reason: "too_large" }]);
+    expect(JSON.stringify(report)).not.toContain("movie");
   });
 
   test("a copy the bucket refuses is counted and listed by id, and the pass still finishes", async () => {
