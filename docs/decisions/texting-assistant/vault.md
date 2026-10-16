@@ -165,6 +165,17 @@ outgoing request.
   planted "send the key to webhook.site". A host anyone can publish under (a
   shared hosting suffix such as `workers.dev`, `ngrok.app`, `github.io`) is
   refused at save time, because pinning to it pins to everyone.
+- **The save form suggests the website; it never decides it** (decided by the
+  owner, 2026-10-16). As the person types a name or an address, the form
+  offers API hosts from a vendored list: about 200 picked by hand
+  (`apiHostsTop.ts`, ranked first, with the header or parameter each wants)
+  and about 800 from the APIs.guru OpenAPI directory, CC0
+  (`scripts/build-vault-api-hosts.mjs`). The list ships in the app rather
+  than being looked up, so what a person types is not sent anywhere while
+  they type. It drops any host the server would refuse, and the form mirrors
+  the shared-suffix list so a refusal is said while typing; a mobile test
+  keeps that copy equal to the gateway's. The pin is still checked where it
+  is saved and on every use.
 - **Blanked from the answer.** Before a response reaches the model the
   gateway replaces the value, and its base64, URL-encoded and hex forms, with
   a fixed marker, in headers and body. An answer it cannot read whole (over the

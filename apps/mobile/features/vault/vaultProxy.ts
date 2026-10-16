@@ -11,6 +11,8 @@
  * not store a pin that breaks one.
  */
 
+import { TOP_APIS } from "./apiHostsTop";
+
 export type ProxyStyle = "bearer" | "header" | "query";
 
 /** What `saveVaultLogin` takes as `proxy`. */
@@ -35,18 +37,68 @@ export interface ProxyFormState {
 export const PROXY_OFF: ProxyFormState = { on: false, host: "", style: null, headerName: "", paramName: "", ask: true };
 
 /**
- * Sites known not to take the key as `Authorization: Bearer`. Everything else
- * is guessed as a sign-in header, which is what most APIs want; Advanced is
- * there for the rest.
+ * Sites known not to take the key as `Authorization: Bearer`, from the
+ * hand-picked API list. Everything else is guessed as a sign-in header, which
+ * is what most APIs want; Advanced is there for the rest.
  */
-const KNOWN: Record<string, { style: ProxyStyle; name: string }> = {
-  "api.anthropic.com": { style: "header", name: "x-api-key" },
-  "api.elevenlabs.io": { style: "header", name: "xi-api-key" },
-  "api.search.brave.com": { style: "header", name: "X-Subscription-Token" },
-  "generativelanguage.googleapis.com": { style: "header", name: "x-goog-api-key" },
-  "maps.googleapis.com": { style: "query", name: "key" },
-  "api.pagespeedonline.googleapis.com": { style: "query", name: "key" },
-};
+const KNOWN: Record<string, { style: ProxyStyle; name: string }> = Object.fromEntries(
+  TOP_APIS.flatMap(([host, , how]) => {
+    const [kind, name] = how?.split(":") ?? [];
+    return kind === "header" || kind === "query" ? [[host, { style: kind, name }]] : [];
+  }),
+);
+
+/**
+ * Hosts anyone can publish a page under, so a key can't be kept to one site
+ * there. The server refuses these (`SHARED_SUFFIXES` in
+ * `apps/mcp/src/vault/proxy.js`, kept equal to this by
+ * `__tests__/vaultApiHosts.test.ts`); the form says so as soon as one is typed.
+ */
+const SHARED_SUFFIXES = [
+  "workers.dev",
+  "pages.dev",
+  "github.io",
+  "githubusercontent.com",
+  "gitlab.io",
+  "vercel.app",
+  "netlify.app",
+  "herokuapp.com",
+  "onrender.com",
+  "fly.dev",
+  "glitch.me",
+  "repl.co",
+  "replit.app",
+  "ngrok.io",
+  "ngrok.app",
+  "ngrok-free.app",
+  "trycloudflare.com",
+  "loca.lt",
+  "web.app",
+  "firebaseapp.com",
+  "appspot.com",
+  "azurewebsites.net",
+  "cloudfront.net",
+  "amazonaws.com",
+  "blogspot.com",
+  "wordpress.com",
+  "webhook.site",
+  "requestbin.com",
+  "pipedream.net",
+  "beeceptor.com",
+  "hookbin.com",
+  "requestcatcher.com",
+  "mockbin.org",
+  "httpbin.org",
+  "postb.in",
+  "ptsv3.com",
+];
+
+export const SHARED_HOST_SUFFIXES: readonly string[] = SHARED_SUFFIXES;
+
+/** Whether anyone can publish under this host, as the gateway's `isSharedHost` decides. */
+export function isSharedHost(host: string): boolean {
+  return SHARED_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
 
 /** The host a typed website names, the way the server reads it, or "". */
 export function typedHost(raw: string): string {
@@ -58,6 +110,37 @@ export function typedHost(raw: string): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * Why a typed website can't take a key, in the server's words, or null when
+ * it can (or nothing is typed yet). Mirrors `siteHost` and `savedPin` in the
+ * gateway so the person hears it while typing rather than after Save.
+ */
+export function hostProblem(raw: string): string | null {
+  const text = raw.trim();
+  if (text.length === 0) return null;
+  let url: URL | null = null;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    url = null;
+  }
+  const host = url?.hostname.toLowerCase() ?? "";
+  const usable =
+    url !== null &&
+    (url.protocol === "https:" || url.protocol === "http:") &&
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    host.includes(".") &&
+    !/^[0-9.]+$/.test(host) &&
+    !host.startsWith("[");
+  if (!usable) return "Enter the website the key is for, like api.example.com.";
+  if (isSharedHost(host)) {
+    return `Anyone can put a page on ${host}, so a key can't be kept to it. Use the site's own address.`;
+  }
+  return null;
 }
 
 /** How the site probably wants the key, with the header or parameter name. */
@@ -89,12 +172,15 @@ export function styleWords(style: ProxyStyle, name: string): string {
   return name ? `?${name}= in the address` : "in the address";
 }
 
-/** Why the switch's part of the form can't be saved yet, or null when it can. */
+/** Why the switch's part of the form can't be saved yet, said above Save, or null when it can. */
 export function proxyProblem(state: ProxyFormState): string | null {
   if (!state.on) return null;
-  if (typedHost(state.host) === "") return "Enter the website the key is for.";
+  if (state.host.trim() === "") return "To save, enter the website the key is for.";
+  if (hostProblem(state.host) !== null) return "To save, finish the website above.";
   const { style, name } = chosenStyle(state);
-  if (style !== "bearer" && name === "") return style === "header" ? "Name the header." : "Name the address part.";
+  if (style !== "bearer" && name === "") {
+    return style === "header" ? "To save, name the header under Advanced." : "To save, name the address part under Advanced.";
+  }
   return null;
 }
 
@@ -102,5 +188,5 @@ export function proxyProblem(state: ProxyFormState): string | null {
 export function proxyDraft(state: ProxyFormState): ProxyPinDraft | undefined {
   if (!state.on) return undefined;
   const { style, name } = chosenStyle(state);
-  return { host: state.host.trim(), style, ...(style === "bearer" ? {} : { name }), ask: state.ask };
+  return { host: typedHost(state.host), style, ...(style === "bearer" ? {} : { name }), ask: state.ask };
 }

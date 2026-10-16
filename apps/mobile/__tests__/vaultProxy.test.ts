@@ -13,6 +13,8 @@ describe("the save page's AI switch", () => {
     expect(proxyProblem(on)).toMatch(/website/);
     expect(typedHost(" https://API.Stripe.com/v1 ")).toBe("api.stripe.com");
     expect(proxyProblem({ ...on, host: "api.stripe.com" })).toBeNull();
+    expect(proxyProblem({ ...on, host: "myapp.vercel.app" })).toMatch(/finish the website/);
+    expect(proxyDraft({ ...on, host: " https://API.Stripe.com/v1 " })?.host).toBe("api.stripe.com");
   });
 
   test("most sites are a sign-in header; known ones are found", () => {
