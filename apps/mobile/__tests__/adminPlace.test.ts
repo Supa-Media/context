@@ -159,3 +159,24 @@ describe("the router gives places a Back step without a second page", () => {
     expect(router.getRehydratedState(stored, options)).toBe(stored);
   });
 });
+
+describe("the AI tab's addresses", () => {
+  test("bare /admin/ai is the jobs view", () => {
+    expect(parseAdminPlace(["ai"])).toEqual({ tab: "ai", sub: null });
+  });
+
+  test("each AI view has its address", () => {
+    expect(parseAdminPlace(["ai", "skills"])).toEqual({ tab: "ai", sub: "skills" });
+    expect(parseAdminPlace(["ai", "results"])).toEqual({ tab: "ai", sub: "results" });
+  });
+
+  test("an AI view the tab does not have names no place", () => {
+    expect(parseAdminPlace(["ai", "nope"])).toBeNull();
+    expect(parseAdminPlace(["ai", "skills", "extra"])).toBeNull();
+  });
+
+  test("the AI tab's place round-trips through its address", () => {
+    expect(adminPath({ tab: "ai", sub: null })).toBe("/admin/ai");
+    expect(adminPath({ tab: "ai", sub: "skills" })).toBe("/admin/ai/skills");
+  });
+});

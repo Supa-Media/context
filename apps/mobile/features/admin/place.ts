@@ -14,6 +14,7 @@
  *   /admin/search[/indexes|/notes|/rows|/speed]     bare = indexes
  *   /admin/waitlist[/waiting|/let-in|/removed|/friends]   bare = waiting
  *   /admin/people
+ *   /admin/ai[/skills|/tests|/setups|/results|/other]     bare = jobs
  *
  * plus `?days=` for the window Growth, Activity and AI costs read over, which
  * is a filter rather than a place: changing it replaces the address instead
@@ -41,10 +42,12 @@ const SLUGS: Partial<Record<AdminTab, string>> = { aiCosts: "ai-costs" };
 /** Views a tab names with a fixed word. Tabs absent here take an id, or nothing. */
 export const SEARCH_PLACES = ["indexes", "notes", "rows", "speed"] as const;
 export const WAITLIST_PLACES = ["waiting", "let-in", "removed", "friends"] as const;
+export const AI_PLACES = ["jobs", "skills", "tests", "setups", "results", "other"] as const;
 
 const FIXED: Partial<Record<AdminTab, readonly string[]>> = {
   search: SEARCH_PLACES,
   waitlist: WAITLIST_PLACES,
+  ai: AI_PLACES,
 };
 
 /** Tabs whose second segment is a record's id (an answer, an account). */
