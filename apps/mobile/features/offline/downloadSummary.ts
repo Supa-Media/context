@@ -65,11 +65,17 @@ export interface DownloadPill {
 }
 
 /**
- * The pill, or `null` when nothing is coming down. Across every workspace,
- * so there is one entry point however many are syncing.
+ * The pill, or `null` when everything this device keeps is here. Across every
+ * workspace, so there is one entry point however many are syncing.
+ *
+ * Shown while anything is left, not only while a pass runs: passes start and
+ * stop all the time (a change, the app coming back, the five-minute timer),
+ * and a pill that only lived inside a pass blinked out between them with
+ * notes still missing (owner, 2026-10-16: "the note counter disappears
+ * sometimes").
  */
 export function downloadPill(rows: readonly DownloadRow[]): DownloadPill | null {
-  if (!rows.some((row) => row.state === "downloading")) return null;
+  if (!rows.some((row) => row.state === "downloading" || row.state === "partial")) return null;
   let done = 0;
   let total = 0;
   for (const row of rows) {
