@@ -247,11 +247,11 @@ export const checkAll = mutation({
 
 /** Move the readers to the rows. Refused unless every workspace's check stands and found nothing. */
 /**
- * Whether gateway privacy writes understand row tokens yet. Until they do (privacy-rows step 3), a
- * deployment judged by rows would refuse every privacy change that touches a listed note, so Use rows
- * is held even when every check is clean. Step 3 turns this on together with the writes.
+ * Whether the privacy writes understand rows yet: the gateway writes a row's tier through `setAccess`, the console
+ * writes rows, and moves carry their narrowing on the row (privacy-rows step 3). Until this was true, Use rows
+ * was held even when every check was clean, since a judged-by-rows deployment would refuse a listed note's change.
  */
-export const ROWS_WRITES_READY = false;
+export const ROWS_WRITES_READY = true;
 
 const ROWS_WRITES_PENDING = {
   code: "ROWS_WRITES_PENDING",

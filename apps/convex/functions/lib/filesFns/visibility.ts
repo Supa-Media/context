@@ -119,6 +119,36 @@ async function rowsChange(
   };
 }
 
+/**
+ * The activity line a tier change records on its path in the file mode, written in rows mode too: the change
+ * itself went to the rows, and the activity file is the same. `visibility.note` and `visibility.folder` only;
+ * a group records no line in the file mode either. `teamVisible` is the rows' answer for the paths.
+ */
+export async function recordRowsVisibilityLine(
+  ctx: ActionCtx,
+  line: {
+    workspaceId: Id<"workspaces">;
+    action: "visibility.note" | "visibility.folder";
+    path: string;
+    to: string;
+    teamVisible: boolean;
+    actorName?: string | null;
+  },
+): Promise<void> {
+  await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: line.workspaceId,
+    scope: "private",
+    ...(line.actorName === undefined ? {} : { actorName: line.actorName }),
+    operation: {
+      kind: "visibilityLine",
+      action: line.action,
+      path: line.path,
+      to: line.to,
+      teamVisible: line.teamVisible,
+    },
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                 handlers                                   */
 /* -------------------------------------------------------------------------- */
@@ -145,19 +175,30 @@ export async function setNoteVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
-  const result = (await rowsOn(ctx))
-    ? await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "note", tier: args.visibility })
-    : ((await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope,
-        grantedNames,
-        actorName,
-        operation: {
-          kind: "setVisibility",
-          path: args.path,
-          visibility: args.visibility,
-        },
-      })) as Extract<OperationResult, { kind: "visibility" }>);
+  let result: VisibilityOperationResult;
+  if (await rowsOn(ctx)) {
+    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "note", tier: args.visibility });
+    await recordRowsVisibilityLine(ctx, {
+      workspaceId: args.workspaceId,
+      action: "visibility.note",
+      path: result.path,
+      to: args.visibility,
+      teamVisible: result.visibility === "team",
+      actorName,
+    });
+  } else {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "setVisibility",
+        path: args.path,
+        visibility: args.visibility,
+      },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+  }
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,
@@ -316,19 +357,30 @@ export async function setDirectoryVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
-  const result = (await rowsOn(ctx))
-    ? await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "folder", tier: args.visibility })
-    : ((await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope,
-        grantedNames,
-        actorName,
-        operation: {
-          kind: "setFolderVisibility",
-          path: args.path,
-          visibility: args.visibility,
-        },
-      })) as Extract<OperationResult, { kind: "visibility" }>);
+  let result: VisibilityOperationResult;
+  if (await rowsOn(ctx)) {
+    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "folder", tier: args.visibility });
+    await recordRowsVisibilityLine(ctx, {
+      workspaceId: args.workspaceId,
+      action: "visibility.folder",
+      path: result.path,
+      to: args.visibility,
+      teamVisible: args.visibility === "team",
+      actorName,
+    });
+  } else {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "setFolderVisibility",
+        path: args.path,
+        visibility: args.visibility,
+      },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+  }
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,

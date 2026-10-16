@@ -77,6 +77,34 @@ async function loadNoteVisibilityOverrides(store) {
   return (await loadPrivacyState(store)).overrides;
 }
 
+/**
+ * A rows-mode write the control plane refused: `code` is the control plane's answer (`FORBIDDEN` for a
+ * change this grant may not make; `CONFLICT`, `NOT_FOUND`, `NOT_ROWS_MODE` otherwise).
+ */
+export class RowsWriteRefused extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "RowsWriteRefused";
+    this.code = code;
+  }
+}
+
+/** The text a CONFLICT has always carried in file mode: the same words whichever authority answered. */
+export const PRIVACY_CONCURRENT_ERROR = "privacy manifest changed concurrently; retry the operation";
+
+/**
+ * Rows mode (`store.rowAccess`): one row's tier through the control plane. The rows are the truth, so the
+ * rules are never edited. `missingOk` is for a clear: a row that is gone (a note moved away) has nothing to clear.
+ */
+export async function setRowTier(store, path, tier, { folder = false, missingOk = false } = {}) {
+  const answer = await store.rowAccess.setTier(path, tier, { folder });
+  if (answer.ok === true) return true;
+  if (answer.code === "NOT_FOUND" && missingOk) return false;
+  if (answer.code === "CONFLICT") throw new Error(PRIVACY_CONCURRENT_ERROR);
+  if (answer.code === "NOT_FOUND") throw new Error(`${path} has no access row yet; try again`);
+  throw new RowsWriteRefused(answer.code ?? "FORBIDDEN", "privacy rows refused the change");
+}
+
 export const UNWRITABLE_PATH_REFUSAL =
   "that path cannot be recorded in privacy.md: a note path may not contain a character " +
   "the rule format uses. Rename the note and try again.";
@@ -126,6 +154,10 @@ export async function persistExactVisibility(store, path, visibility, rules) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await loadPrivacyState(store);
     if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
+    if (store.rowAccess) {
+      await setRowTier(store, path, visibility);
+      return;
+    }
     if (state.legacy) {
       const inherited = visibilityOf(path, rules);
       if (visibility === "private" && inherited === "team") {
@@ -165,6 +197,10 @@ export async function clearExactVisibility(store, path) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await loadPrivacyState(store);
     if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
+    if (store.rowAccess) {
+      await setRowTier(store, path, "inherit", { missingOk: true });
+      return;
+    }
     if (state.legacy) {
       await deleteWithLegacyFallback(store, noteAclKey(path));
       return;

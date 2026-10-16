@@ -49,6 +49,11 @@ export interface ActivityChange {
   paths: string[];
   details: Record<string, string | number | boolean | null | undefined>;
   actor: ActivityActor | null;
+  /**
+   * Rows mode only: whether the paths are team-visible, as the rows answer it. The rules are not the
+   * authority there, so `privacy.md` cannot say. Unset everywhere else, and the file decides.
+   */
+  teamVisible?: boolean;
 }
 
 /**
@@ -79,10 +84,9 @@ export async function recordActivity(
     if (!mayBeReportable(change.action, change.paths)) return null;
     const privacy = await loadPrivacyState(store);
     if (privacy.invalid || privacy.text === null) return null;
-    const teamVisible = change.paths.every(
-      (path) =>
-        effectiveVisibility(path, privacy.rules, privacy.overrides) === "team",
-    );
+    const teamVisible =
+      change.teamVisible ??
+      change.paths.every((path) => effectiveVisibility(path, privacy.rules, privacy.overrides) === "team");
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const existing = await store.get(ACTIVITY_PATH);

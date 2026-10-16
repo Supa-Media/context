@@ -832,6 +832,19 @@ export async function executeOperation(
         });
         return { kind: "visibility", ...result };
       }
+      case "visibilityLine": {
+        // Rows mode: the change went to the rows (`visibility.ts`), and this is the activity line the file path
+        // records for the same change. The team flag is the rows' answer, not the rules'.
+        const landed = await recordActivity(store, {
+          action: operation.action,
+          paths: [operation.path],
+          details: { to: operation.to },
+          actor,
+          teamVisible: operation.teamVisible,
+        });
+        if (landed !== null) onActivity?.(landed);
+        return { kind: "activityRecorded" };
+      }
       case "setFolderVisibility": {
         const { result, changed } = operation.onlyIfUnset === true
           ? await ensureFolderVisibility(store, {

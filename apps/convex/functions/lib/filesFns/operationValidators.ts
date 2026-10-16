@@ -37,6 +37,7 @@ import {
   vaultClearResultValidator,
   vaultImportResultValidator,
   visibilityResultValidator,
+  activityRecordedValidator,
   visibilityValidator,
   writtenValidator,
 } from "./validators";
@@ -129,6 +130,7 @@ export const operationResultValidator = v.union(
   contextMovePlannedValidator,
   contextMoveSettledValidator,
   visibilityResultValidator,
+  activityRecordedValidator,
   folderCreatedValidator,
   privacyResetValidator,
   storageMigrationResultValidator,
@@ -515,6 +517,13 @@ export const operationValidator = v.union(
      * nothing without the control plane.
      */
     group: v.string(),
+  }),
+  v.object({
+    kind: v.literal("visibilityLine"),
+    action: v.union(v.literal("visibility.note"), v.literal("visibility.folder")),
+    path: v.string(),
+    to: v.string(),
+    teamVisible: v.boolean(),
   }),
   v.object({
     kind: v.literal("setFolderVisibility"),
