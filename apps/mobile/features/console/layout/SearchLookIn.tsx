@@ -271,7 +271,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.pill,
       borderWidth: 1,
       borderColor: colors.line,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
     },
     chipOn: { backgroundColor: colors.accentDim, borderColor: colors.accent },
     chipText: { fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text2, fontWeight: "500" },
@@ -281,7 +281,7 @@ const makeStyles = (colors: Colors) =>
     none: { paddingHorizontal: layout.readingMargin + space.x1, paddingVertical: space.x3 },
     card: {
       marginHorizontal: layout.readingMargin,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       borderRadius: radii.sheet,
       overflow: "hidden",
     },

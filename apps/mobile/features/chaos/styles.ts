@@ -47,7 +47,7 @@ export const makeChaosStyles = (colors: Colors, shadows: Shadows) =>
       paddingVertical: space.x2,
       paddingHorizontal: space.x3,
       borderRadius: radii.lg,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
     },
     pressed: { opacity: 0.6 },
 

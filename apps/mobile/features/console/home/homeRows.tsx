@@ -217,7 +217,7 @@ const makeStyles = (colors: Colors) =>
     section: { gap: space.x2 },
     sectionLabel: { paddingHorizontal: space.x1 },
     tile: {
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       borderRadius: radii.sheet,
       padding: space.x4,
       gap: space.x1,
@@ -231,7 +231,7 @@ const makeStyles = (colors: Colors) =>
       color: colors.text,
       flexShrink: 1,
     },
-    card: { backgroundColor: colors.pageSurface, borderRadius: radii.sheet, overflow: "hidden" },
+    card: { backgroundColor: colors.cardSurface, borderRadius: radii.sheet, overflow: "hidden" },
     rule: { height: 1, marginLeft: space.x4 + 20 + space.x3, backgroundColor: colors.line },
     row: {
       flexDirection: "row",

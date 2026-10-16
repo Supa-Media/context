@@ -548,6 +548,37 @@ describe("the frame's surfaces", () => {
 });
 
 /**
+ * A phone screen is one shade edge to edge (the owner, 2026-10-16: "Can we get
+ * rid of the 2 toned backgrounds everywhere in the app?" — then "Desktop is
+ * fine, mobile isn't. Uh, phone only.").
+ *
+ * The note's top bar and bottom bar are `pageSurface`, its body is the
+ * editor's `surface`, and Home sits on `ground`: all one value on a phone.
+ * Cards and floating controls are `cardSurface`, which must still read
+ * against that ground; on a pointer layout `cardSurface` is `pageSurface`, so
+ * nothing there moves.
+ *
+ * SABOTAGE: the dark phone's `pageSurface` back at `#1C1C1E`, or the light
+ * phone's `chromeSurface`/`ground` back at `#F2F2F7`, fails the first test.
+ */
+describe("one shade per phone screen", () => {
+  test.each([
+    ["light phone", lightPhoneColors],
+    ["dark phone", darkPhoneColors],
+  ])("in %s, ground, chrome, page and note body are one value", (_name, palette) => {
+    expect(new Set([palette.ground, palette.surface, palette.chromeSurface, palette.pageSurface]).size).toBe(1);
+    expect(contrast(palette.cardSurface, palette.surface)).toBeGreaterThan(1.04);
+  });
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s (pointer), a card is the page, as before", (_name, palette) => {
+    expect(palette.cardSurface).toBe(palette.pageSurface);
+  });
+});
+
+/**
  * A phone draws Apple Notes contrast (owner, 2026-10-15/16: "Phone only").
  *
  * SABOTAGE: `paletteFor` answering the scheme alone fails the first two;

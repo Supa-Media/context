@@ -99,7 +99,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       height: FIELD_HEIGHT,
       paddingHorizontal: (FIELD_HEIGHT - KEY) / 2,
       borderRadius: radii.pill,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       boxShadow: shadows.floating,
     },
     key: { width: KEY, height: KEY, alignItems: "center", justifyContent: "center", borderRadius: KEY / 2 },

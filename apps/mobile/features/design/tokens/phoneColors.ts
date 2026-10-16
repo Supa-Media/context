@@ -17,6 +17,12 @@ import { darkColors, lightColors, type Colors } from "./colors";
  * Contrast (WCAG): ink on every phone surface at least 17:1 (21:1 on the
  * black and white grounds; it was 13.6:1 dark and 15.8:1 light), gray text
  * at least 7:1 (it was about 6.4:1). `theme.test.ts` holds those floors.
+ *
+ * One ground per screen (the owner, 2026-10-16): `ground`, `surface`,
+ * `chromeSurface` and `pageSurface` are the same black or white, so a note's
+ * top bar, body and bottom bar are one shade. Tiles, chips and the floating
+ * controls are `cardSurface`, the gray Apple Notes raises its cards in. A
+ * pointer layout keeps its two tones (the owner: "Desktop is fine").
  */
 export const darkPhoneColors: Colors = {
   ...darkColors,
@@ -35,7 +41,8 @@ export const darkPhoneColors: Colors = {
   muted: "#B4B4BA",
   heroDim: "#8E8E93",
   chromeSurface: "#000000",
-  pageSurface: "#1C1C1E",
+  pageSurface: "#000000",
+  cardSurface: "#1C1C1E",
   ink: "#000000",
   white: "#FFFFFF",
   well: "#000000",
@@ -46,7 +53,7 @@ export const darkPhoneColors: Colors = {
 
 export const lightPhoneColors: Colors = {
   ...lightColors,
-  ground: "#F2F2F7",
+  ground: "#FFFFFF",
   surface: "#FFFFFF",
   surfaceClear: "rgba(255,255,255,0)",
   surface2: "#F2F2F7",
@@ -60,8 +67,9 @@ export const lightPhoneColors: Colors = {
   text2: "#1C1C1E",
   muted: "#48484A",
   heroDim: "#6C6C70",
-  chromeSurface: "#F2F2F7",
+  chromeSurface: "#FFFFFF",
   pageSurface: "#FFFFFF",
+  cardSurface: "#F2F2F7",
   ink: "#FFFFFF",
   white: "#000000",
   well: "#F2F2F7",
