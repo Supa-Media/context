@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { basename, join, resolve } from "node:path";
 
 import { parseSetup } from "../src/agent/production.js";
-import { expandWorkspaces, readBenchFolder } from "./load.mjs";
+import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
@@ -168,7 +168,7 @@ async function loadRun(options) {
   if (!test) throw new Error(`no tests/${testName}.md`);
   const setups = await readSetups(dir, options.job, list(options.setups));
   const only = list(options.questions)?.map(Number);
-  const questions = test.questions.filter((question) => !only || only.includes(question.n));
+  const questions = runnableQuestions(test.questions, only);
   const runs = Number(options.runs ?? test.front.runs);
   // Every conversation the run will have, in the order the result lists them.
   const jobs = [];
