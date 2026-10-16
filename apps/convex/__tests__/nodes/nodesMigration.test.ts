@@ -176,6 +176,11 @@ describe("stageOf", () => {
     expect(stageOf({ ...base, status: "ready", parity })).toBe("matches");
     expect(stageOf({ ...base, status: "ready", parity: { ...parity, mismatches: 2 } })).toBe("differs");
     expect(stageOf({ ...base, status: "ready", parity: { ...parity, privacyMatches: false } })).toBe("differs");
+    // Keyed: the bucket holds notes/<id>.md, so a path check from before the flip is void.
+    expect(stageOf({ ...base, status: "ready", parity: { ...parity, mismatches: 70 } }, true)).toBe("keyed");
+    expect(stageOf({ ...base, status: "ready" }, true)).toBe("keyed");
+    expect(stageOf({ ...base, status: "ready", error: "failed" }, true)).toBe("stuck");
+    expect(stageOf({ ...base, status: "ready", cursor: "a" }, true)).toBe("copying");
   });
 });
 

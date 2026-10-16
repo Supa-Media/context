@@ -105,15 +105,18 @@ const stateOf = (row: Doc<"nodeTrees"> | null): NodeTreeState | null =>
  * `waiting` (never started), `copying`, `stuck` (the last pass failed),
  * `copied` (swept, not checked against the bucket yet), `matches`,
  * `differs` (the last check found mismatches), `skipped` (a store that
- * can be listed neither in order nor by token, retried daily).
+ * can be listed neither in order nor by token, retried daily), `keyed`
+ * (the notes live at `notes/<id>.md`, so no check against the bucket's paths
+ * runs, and a result left from before the flip says nothing any more).
  */
-export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped";
+export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped" | "keyed";
 
-export function stageOf(row: Doc<"nodeTrees"> | null): MigrationStage {
+export function stageOf(row: Doc<"nodeTrees"> | null, keyed = false): MigrationStage {
   if (row === null || row.status === "empty") return row?.error ? "stuck" : "waiting";
   if (row.status === "unsupported") return "skipped";
   if (row.error !== undefined) return "stuck";
   if (row.status === "filling" || row.cursor !== undefined) return "copying";
+  if (keyed) return "keyed";
   if (row.parity === undefined) return "copied";
   return row.parity.mismatches === 0 && row.parity.privacyMatches ? "matches" : "differs";
 }
@@ -126,6 +129,7 @@ const stageValidator = v.union(
   v.literal("matches"),
   v.literal("differs"),
   v.literal("skipped"),
+  v.literal("keyed"),
 );
 
 const rowValidator = v.object({
@@ -205,7 +209,7 @@ export const report = query({
       rows.push({
         workspaceId,
         slug: workspace.slug ?? null,
-        stage: stageOf(tree),
+        stage: stageOf(tree, await keyedWorkspace(ctx.db, workspaceId)),
         files: tree?.files ?? 0,
         archived: await workspaceArchived(ctx.db, workspace),
         running: tree?.leaseAt !== undefined && now - tree.leaseAt < NODE_SWEEP_LEASE_MS,
