@@ -19,7 +19,7 @@ import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import { requireFolderPath, parentOf, baseName } from "./paths";
 import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
-import { loadPrivacyState } from "./privacyState";
+import { loadPrivacyState, manifestUsable as isManifestUsable } from "./privacyState";
 
 /* -------------------------------------------------------------------------- */
 /*                                  listing                                   */
@@ -292,7 +292,7 @@ export async function listFolder(
     // returned, and the store is theirs.
     entries: withheld ? [] : entries,
     truncated: withheld ? false : truncated,
-    manifestUsable: "manifestUsable" in state ? state.manifestUsable : state.text !== null && !state.invalid,
+    manifestUsable: "manifestUsable" in state ? state.manifestUsable : isManifestUsable(state),
   };
 }
 

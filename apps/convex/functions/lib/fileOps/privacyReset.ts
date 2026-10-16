@@ -18,7 +18,7 @@ import { renderPrivacyManifestForFolders } from "../scaffold";
 import { LIST_PAGE_CAP, RECOVER_PREFIX, type FileStore } from "./store";
 import { FileOpError } from "./errors";
 import { timestampSlug } from "./paths";
-import { loadPrivacyState } from "./privacyState";
+import { loadPrivacyState, manifestUsable } from "./privacyState";
 import { namesListing } from "./walk";
 
 /* -------------------------------------------------------------------------- */
@@ -71,7 +71,7 @@ export interface PrivacyResetResult {
  *     somebody's curated access map gets flattened. That check is the whole
  *     safety argument, and it is the state the console's own banner reports —
  *     `manifestUsable === false` on the root listing is exactly
- *     `text === null || invalid`.
+ *     `!manifestUsable(state)`, the rows' rules included.
  *  2. **Every folder is written `private`.** The bucket was already failing
  *     closed, so an all-private manifest is the one rewrite under which no note
  *     changes hands.
@@ -124,7 +124,7 @@ export async function resetPrivacyManifest(
   }
 
   const state = await loadPrivacyState(store);
-  if (state.text !== null && !state.invalid) {
+  if (manifestUsable(state)) {
     throw new FileOpError(
       "PRIVACY_MANIFEST_USABLE",
       "privacy.md is readable, so there is nothing to reset. Change a folder or note's visibility instead.",
