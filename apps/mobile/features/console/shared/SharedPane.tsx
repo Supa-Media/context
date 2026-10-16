@@ -232,14 +232,17 @@ export function SharedList({
                         <View style={styles.grow}>
                           <SharedRow item={item} now={now} fresh={isNew(item)} phone={phone} onOpen={onOpen} />
                         </View>
-                        {token === null ? null : (
-                          <ReportLink
-                            target={{ kind: "share", token }}
-                            person={{ handle: item.sharedByHandle, name: item.sharedByName }}
-                            label={phone ? "Report" : "Report or block"}
-                            testID={`shared-report-${token}`}
-                          />
-                        )}
+                        {/* One slot width for every row, so pills and times line up whether or not the row can be reported. */}
+                        <View style={phone ? styles.reportSlotPhone : styles.reportSlot}>
+                          {token === null ? null : (
+                            <ReportLink
+                              target={{ kind: "share", token }}
+                              person={{ handle: item.sharedByHandle, name: item.sharedByName }}
+                              label={phone ? "Report" : "Report or block"}
+                              testID={`shared-report-${token}`}
+                            />
+                          )}
+                        </View>
                       </View>
                     );
                   })}
@@ -369,6 +372,8 @@ const makeStyles = (colors: Colors) =>
     byline: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
     grow: { flex: 1, minWidth: 0 },
     rowLine: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    reportSlot: { width: 104, alignItems: "flex-end" },
+    reportSlotPhone: { width: 52, alignItems: "flex-end" },
     when: { minWidth: 64, textAlign: "right" },
     empty: { alignItems: "center", gap: space.x2, paddingVertical: space.x8 * 2 },
     emptyTitle: { fontSize: t.h3, fontWeight: "600", marginTop: space.x2 },

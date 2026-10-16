@@ -40,7 +40,7 @@ export function SharedGrantView({
   onList: () => void;
   onGo: (href: string) => void;
 }) {
-  if (target.folder) return <GrantedFolder target={target} item={item} onList={onList} onGo={onGo} />;
+  if (target.folder) return <GrantedFolder target={target} item={item} phone={phone} onList={onList} onGo={onGo} />;
   return <GrantedNote target={target} item={item} phone={phone} now={now} onList={onList} onGo={onGo} />;
 }
 
@@ -112,11 +112,13 @@ type Listing = { kind: "loading" } | { kind: "listing"; path: string; entries: E
 function GrantedFolder({
   target,
   item,
+  phone,
   onList,
   onGo,
 }: {
   target: GrantTarget;
   item: SharedItem | null;
+  phone: boolean;
   onList: () => void;
   onGo: (href: string) => void;
 }) {
@@ -146,52 +148,69 @@ function GrantedFolder({
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content} testID="shared-grant-folder">
-      <View style={styles.head}>
-        <PressRow accessibilityLabel="Shared with me" onPress={onList} radius={radii.sm} style={styles.crumb} testID="shared-grant-root">
-          <Text variant="treeMetaMono">Shared with me</Text>
-        </PressRow>
-        <Text variant="treeMetaMono">/</Text>
-        <Text variant="treeMetaMono" numberOfLines={1} style={styles.grow}>
-          {name}
-        </Text>
-        <Pill>Can read</Pill>
-      </View>
+      <View style={styles.column}>
+        <View style={styles.head}>
+          {phone ? (
+            <PressRow
+              accessibilityLabel="Back to Shared with me"
+              onPress={onList}
+              radius={radii.pill}
+              style={styles.back}
+              testID="shared-grant-root"
+            >
+              <Icon name="chevronLeft" size={16} />
+            </PressRow>
+          ) : (
+            <>
+              <PressRow accessibilityLabel="Shared with me" onPress={onList} radius={radii.sm} style={styles.crumb} testID="shared-grant-root">
+                <Text variant="treeMetaMono">Shared with me</Text>
+              </PressRow>
+              <Text variant="treeMetaMono">/</Text>
+            </>
+          )}
+          <Text variant="treeMetaMono" numberOfLines={1} style={styles.grow}>
+            {name}
+          </Text>
+          <Pill>Can read</Pill>
+        </View>
 
-      {state.kind === "loading" ? null : state.kind === "refused" ? (
-        <View style={styles.message}>
-          <Text variant="rowTitle">This folder isn't shared with you any more.</Text>
-          <Text variant="rowSub">Its owner may have stopped sharing it, or moved it somewhere it can't be read.</Text>
-        </View>
-      ) : state.entries.length === 0 ? (
-        <View style={styles.message}>
-          <Text variant="rowSub">Nothing in this folder is shared with you.</Text>
-        </View>
-      ) : (
-        state.entries.map((entry) => (
-          <PressRow
-            key={entry.path}
-            accessibilityLabel={`${entry.name}${entry.kind === "folder" ? ", folder" : ""}`}
-            onPress={() =>
-              onGo(
-                grantHrefOf({
-                  workspaceId,
-                  ref: { by: "path", path: entry.path },
-                  folder: entry.kind === "folder",
-                }),
-              )
-            }
-            radius={radii.sm}
-            style={styles.row}
-            hoverStyle={styles.rowHover}
-            testID={`shared-grant-entry-${entry.path}`}
-          >
-            <Icon name={entry.kind === "folder" ? "folder" : "file"} size={14} />
-            <Text variant="tree" numberOfLines={1} style={styles.grow}>
-              {entry.name}
-            </Text>
-          </PressRow>
-        ))
-      )}
+        {state.kind === "loading" ? null : state.kind === "refused" ? (
+          <View style={styles.message}>
+            <Text variant="rowTitle">This folder isn't shared with you any more.</Text>
+            <Text variant="rowSub">Its owner may have stopped sharing it, or moved it somewhere it can't be read.</Text>
+          </View>
+        ) : state.entries.length === 0 ? (
+          <View style={styles.message}>
+            <Text variant="rowTitle">Nothing in here is open to you yet.</Text>
+            <Text variant="rowSub">This folder is shared with you, but none of the notes in it are. Ask its owner if you expected to see something.</Text>
+          </View>
+        ) : (
+          state.entries.map((entry) => (
+            <PressRow
+              key={entry.path}
+              accessibilityLabel={`${entry.name}${entry.kind === "folder" ? ", folder" : ""}`}
+              onPress={() =>
+                onGo(
+                  grantHrefOf({
+                    workspaceId,
+                    ref: { by: "path", path: entry.path },
+                    folder: entry.kind === "folder",
+                  }),
+                )
+              }
+              radius={radii.sm}
+              style={styles.row}
+              hoverStyle={styles.rowHover}
+              testID={`shared-grant-entry-${entry.path}`}
+            >
+              <Icon name={entry.kind === "folder" ? "folder" : "file"} size={14} />
+              <Text variant="tree" numberOfLines={1} style={styles.grow}>
+                {entry.name}
+              </Text>
+            </PressRow>
+          ))
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -201,7 +220,18 @@ const makeStyles = (colors: Colors) =>
     page: { flex: 1, minHeight: 0 },
     content: { paddingHorizontal: space.x7, paddingTop: space.x3, paddingBottom: space.x8, gap: space.x1 },
     head: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x3 },
+    column: { width: "100%", maxWidth: 760, alignSelf: "center", gap: space.x1 },
     crumb: { paddingHorizontal: 2 },
+    back: {
+      width: 36,
+      height: 36,
+      borderRadius: radii.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surface2,
+    },
     grow: { flex: 1, minWidth: 0, color: colors.text },
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingVertical: space.x2, paddingHorizontal: space.x2 },
     rowHover: { backgroundColor: colors.surface3 },
