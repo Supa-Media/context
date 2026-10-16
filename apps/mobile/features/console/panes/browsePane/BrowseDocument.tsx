@@ -415,6 +415,7 @@ export function BrowseDocument({
         // `FolderView`'s header.
         foot={contextFoot}
         onSelect={files.select}
+        opening={files.opening}
         menu={folderMenuFor(selected.path)}
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
