@@ -162,7 +162,8 @@ export function useNoteText(workspaceId: Id<"workspaces">, path: string | null):
 export function useNoteWriter(workspaceId: Id<"workspaces">) {
   const { readNote, writeNote } = useIo();
   return useCallback(
-    async (path: string, change: (text: string | null) => string): Promise<void> => {
+    // `change` answers null to leave the note as it is (or unwritten, when there is none).
+    async (path: string, change: (text: string | null) => string | null): Promise<void> => {
       let current: { text: string; etag: string } | null = null;
       try {
         current = await readNote({ workspaceId, path });
@@ -170,7 +171,7 @@ export function useNoteWriter(workspaceId: Id<"workspaces">) {
         current = null; // a new note: written with no version, which the server refuses over one that exists
       }
       const next = change(current?.text ?? null);
-      if (current !== null && next === current.text) return;
+      if (next === null || (current !== null && next === current.text)) return;
       await writeNote({ workspaceId, path, text: next, ...(current === null ? {} : { expectedEtag: current.etag }) });
     },
     [workspaceId, readNote, writeNote],

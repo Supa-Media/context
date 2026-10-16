@@ -165,7 +165,7 @@ export function AiCompare(props: AiScreenProps & { job: string; setup: string })
       await write(liveRow.path, () => promotedText(mineText, { job: props.job, from: candidate.name, day: new Date().toISOString().slice(0, 10), by: props.me }));
       await write(candidate.row.path, (text) => withFrontKey(text ?? mineText, "status", "live"));
       const was = page.candidates.find((item) => item.name === page.live);
-      if (was && was.name !== candidate.name) await write(was.row.path, (text) => withFrontKey(text ?? "", "status", "was live"));
+      if (was && was.name !== candidate.name) await write(was.row.path, (text) => (text === null ? null : withFrontKey(text, "status", "retired")));
       props.reload();
       goJob("overview");
     } catch (failure) {
