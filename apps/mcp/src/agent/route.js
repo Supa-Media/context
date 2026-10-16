@@ -30,7 +30,7 @@ import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
-import { toolsForSession } from "../tools/advertised.js";
+import { grantedToolsFor } from "./sixTools.js";
 import {
   SHOWN_HISTORY_TURNS,
   appendConversation,
@@ -227,7 +227,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // Voice messages become their words only now, once the turn is allowed and counted.
   const attachments = await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId);
 
-  const offered = await toolsForSession(session, store, { shape: "v1" });
+  const offered = await grantedToolsFor(session, store);
 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
@@ -491,7 +491,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       web,
       history: shown,
       local: earlier,
-      coreTools: production?.coreTools ?? null,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
       localNow: { now: Date.now(), timeZone },

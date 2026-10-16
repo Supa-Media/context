@@ -32,11 +32,11 @@ const PROBE = { path: "p", content: "c", expected_etag: "e", args: {} };
  * arguments under one key; a note action keeps the note fields at the top;
  * a plain one returns its arguments unchanged.
  */
-function shapeOf(entry) {
+function shapeOf(entry, carrier = carrierOf(entry)) {
   const produced = entry.take(PROBE) || {};
   const keys = Object.keys(produced);
   // A note field the carrying tool does not take is not one to send at all.
-  const takes = carrierOf(entry)?.inputSchema?.properties || {};
+  const takes = carrier?.inputSchema?.properties || {};
   return {
     note: NOTE_FIELDS.filter((field) => keys.includes(field) && Object.hasOwn(takes, field)),
     nested: keys.find((key) => !NOTE_FIELDS.includes(key)) ?? null,
@@ -57,11 +57,14 @@ function carrierOf(entry) {
   return toolDefinitions().find((tool) => tool.name === entry.tool) ?? null;
 }
 
-/** The argument list an action takes, from its carrying tool's schema. */
-function actionArguments(entry) {
-  const tool = carrierOf(entry);
-  const schema = tool?.inputSchema || {};
-  const { nested } = shapeOf(entry);
+/**
+ * The argument list an action takes, from its carrying tool's schema: the
+ * advertised one, or `carrier` where the caller holds its own definition
+ * (the texting assistant's, `agent/sixTools.js`).
+ */
+export function actionArguments(entry, carrier = carrierOf(entry)) {
+  const schema = carrier?.inputSchema || {};
+  const { nested } = shapeOf(entry, carrier);
   if (nested) {
     const sub = schema.properties?.[nested];
     // A list (upload's files) travels as `args.files`, see `tools/v2/actions.js`.
@@ -72,7 +75,7 @@ function actionArguments(entry) {
   // `manage` action has no top level, so its path is one of its args.
   return argumentsLine(schema.properties || {}, schema.required || [], [
     ...ADDRESSING,
-    ...shapeOf(entry).note,
+    ...shapeOf(entry, carrier).note,
     ...NESTED_KEYS,
   ]);
 }

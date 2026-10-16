@@ -178,7 +178,7 @@ function describe(attachments) {
     ...lines,
     ...(pictures.length > 0
       ? [
-          'To keep a picture in a note, pass write_note images: [{ name: "<a file name>.jpg", data: "attachment:<number>" }] and embed it by that name; never type out its bytes.',
+          'To keep a picture in a note, save the note with write and args: { images: [{ name: "<a file name>.jpg", data: "attachment:<number>" }] }, and embed it by that name; never type out its bytes.',
         ]
       : []),
   ].join("\n");

@@ -15,6 +15,7 @@
  * tool error, never their answer.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -120,7 +121,7 @@ async function ask(env, token, body) {
   return { status: response.status, body: JSON.parse(text) };
 }
 
-const offered = (call) => (call?.input?.tools ?? []).map((tool) => tool.function?.name);
+const offered = (call) => [...shown((call?.input?.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
 const toolReplies = (call) => (call?.input?.messages ?? []).filter((m) => m.role === "tool").map((m) => m.content);
 const systemText = (call) => (call?.input?.messages ?? []).find((m) => m.role === "system")?.content ?? "";
 
@@ -178,7 +179,7 @@ export async function runAgentSearchChecks(check) {
     await ask(base, TOKEN_TEXTS, { question: "Is Joe's pizza open late?" });
     check(
       "without a search key the texting assistant is offered no search tool",
-      ai.calls.length === 1 && !offered(ai.calls[0]).includes(SEARCH_WEB_TOOL) && brave.requests.length === 0,
+      ai.calls.length === 1 && !offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) && brave.requests.length === 0,
     );
 
     /* ---------------- searching, then opening a result ---------------- */
@@ -195,7 +196,7 @@ export async function runAgentSearchChecks(check) {
       "the texting assistant searches on its own and opens a result",
       answered.status === 200 &&
         answered.body?.answer === "Yes, Joe's is open until 4am." &&
-        offered(ai.calls[0]).includes(SEARCH_WEB_TOOL) &&
+        offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) &&
         new URL(request.url).searchParams.get("q") === "joe's pizza soho hours" &&
         browser.asked.join(" ") === "https://joes.example/soho",
     );
@@ -267,14 +268,14 @@ export async function runAgentSearchChecks(check) {
     ai.calls.length = 0;
     ai.install([chat("ok")]);
     await ask(env, TOKEN_APP, { question: "Search the web for pizza" });
-    check("only the texting client is given web search", ai.calls.length === 1 && !offered(ai.calls[0]).includes(SEARCH_WEB_TOOL));
+    check("only the texting client is given web search", ai.calls.length === 1 && !offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`));
 
     ai.calls.length = 0;
     ai.install([chat("ok")]);
     await ask({ ...env, SITE_SHOTS: undefined }, TOKEN_TEXTS, { question: "Search for pizza" });
     check(
       "search works on a deployment with no browser, which then offers no page opening",
-      offered(ai.calls[0]).includes(SEARCH_WEB_TOOL) && !offered(ai.calls[0]).includes(OPEN_PAGE_TOOL),
+      offered(ai.calls[0]).includes(`send.${SEARCH_WEB_TOOL}`) && !offered(ai.calls[0]).includes(`send.${OPEN_PAGE_TOOL}`),
     );
 
     /* ---------------- the helpers ---------------- */
