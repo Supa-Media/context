@@ -95,7 +95,17 @@ describe("reading a standing off the two subscriptions", () => {
     // shape that means "send this person to onboarding" — so an invitee whose
     // second query is a few milliseconds slower would be bounced anyway, some
     // of the time.
-    expect(standingFrom([{ kind: "personal", role: "member" }], undefined)).toBeUndefined();
+    expect(standingFrom([{ kind: "personal", role: "owner" }], undefined)).toBeUndefined();
+  });
+
+  test("somebody who owns nothing is answered without the invitation list", () => {
+    // It cannot change where they go: owning no workspace sends them to claim
+    // one whether or not an invitation is waiting (owner, 2026-10-16).
+    expect(standingFrom([{ kind: "personal", role: "member" }], undefined)).toEqual({
+      owned: 0,
+      reachable: 1,
+      invitations: 0,
+    });
   });
 
   test("but somebody who can reach nothing is still sent to onboarding", () => {
@@ -132,12 +142,23 @@ describe("the (app) gate", () => {
     ).toEqual({ action: "render" });
   });
 
-  test("leaves alone somebody whose only context belongs to someone else", () => {
-    // Being given a context is having somewhere to be. Prompting them to build
-    // their own is a banner's job, not a redirect's.
+  test("sends somebody whose only context belongs to someone else to claim their own", () => {
+    // Everybody starts with a personal workspace (owner, 2026-10-16); what was
+    // shared with them sits beside it once they have one.
     expect(
       needsOnboarding({ standing: { ...NOTHING, reachable: 1 }, pathname: "/console" }),
-    ).toEqual({ action: "render" });
+    ).toEqual({ action: "redirect", href: WELCOME_ROUTE });
+  });
+
+  test("after accepting an invitation, the next stop is their own name, not the invitation again", () => {
+    // Accepted one, another still pending: they already have something to
+    // open, so the invitations wait in the console and the name comes first.
+    expect(
+      needsOnboarding({
+        standing: { owned: 0, reachable: 1, invitations: 1 },
+        pathname: "/console",
+      }),
+    ).toEqual({ action: "redirect", href: WELCOME_ROUTE });
   });
 
   test("sends somebody with a pending invitation to the invitation, not to onboarding", () => {

@@ -435,7 +435,7 @@ describe("the redesigned steps, wired", () => {
     harness.unmount();
   });
 
-  test("a bucket somebody brought is reported on, then the console — and never written to", async () => {
+  async function throughTheReport(scaffoldReason: string, noteCount: number) {
     const results: Record<string, unknown> = {
       ...happyDeployment(),
       "functions/storage:getStorageBinding": null,
@@ -452,8 +452,8 @@ describe("the redesigned steps, wired", () => {
       provider: "r2",
       bucket: "example-bucket",
       capabilities: { conditionalWrite: true },
-      scaffoldReason: "empty",
-      noteCount: 0,
+      scaffoldReason,
+      noteCount,
     };
     await harness.act(async () => {
       await harness.current().connect(FAKE_VALUES);
@@ -466,8 +466,18 @@ describe("the redesigned steps, wired", () => {
 
     await harness.act(() => harness.current().finishDryRun());
     expect(harness.current().finished).toBe(true);
-    // Their bucket: nothing is laid out into it from here, empty or not. The
-    // console's own offer is the only thing that ever does.
+    return harness;
+  }
+
+  test("an empty bucket somebody brought gets the five folders, without a question", async () => {
+    const harness = await throughTheReport("empty", 0);
+    const layout = harness.calls.find((call) => call.name === APPLY_STRUCTURE);
+    expect(layout?.args).toMatchObject({ template: "para" });
+    harness.unmount();
+  });
+
+  test("a bucket with notes in it is reported on, then the console — and never written to", async () => {
+    const harness = await throughTheReport("existing-context", 12);
     expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
     harness.unmount();
   });

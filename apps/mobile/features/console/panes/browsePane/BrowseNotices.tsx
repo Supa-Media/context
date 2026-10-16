@@ -97,6 +97,7 @@ export function BrowseNotices({
           setup={setup}
           workspaceId={current.id}
           shared={current.kind === "shared"}
+          autoStart={data.visitor === undefined && data.demo !== true}
           /*
             The importer is Settings → Storage's and is not rebuilt here. A
             lambda with the section it means, for `browse-connect-storage`'s
