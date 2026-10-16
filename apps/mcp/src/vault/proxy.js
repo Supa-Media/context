@@ -234,6 +234,39 @@ function outgoingHeaders(raw, pin, value) {
  * is the outgoing fetch; both are the caller's, so this module decides
  * nothing about who is asking.
  */
+/**
+ * At most `limit` bytes of an answer, or `{over: true}`. A declared
+ * `content-length` is the site's word for it and a site need not give one at
+ * all, so the cap is applied to what actually arrives: the read stops and the
+ * rest is never pulled.
+ */
+async function readBounded(response, limit) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const whole = new Uint8Array(await response.arrayBuffer());
+    return whole.length > limit ? { over: true } : { bytes: whole };
+  }
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return { over: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.length;
+  }
+  return { bytes };
+}
+
 export async function proxyFetch(store, request, { allowed, fetchImpl = fetch }) {
   const keys = store?.encryptionKey;
   const workspaceId = store?.actor?.workspaceId;
@@ -297,10 +330,20 @@ export async function proxyFetch(store, request, { allowed, fetchImpl = fetch })
   const encoding = (response.headers.get("content-encoding") ?? "").trim().toLowerCase();
   const encoded = encoding !== "" && encoding !== "identity";
   const declared = Number(response.headers.get("content-length"));
-  const tooBig = Number.isFinite(declared) && declared > MAX_READ;
-  const bytes = method === "HEAD" || tooBig ? new Uint8Array() : new Uint8Array(await response.arrayBuffer());
+  const overDeclared = Number.isFinite(declared) && declared > MAX_READ;
+  let tooBig = overDeclared;
+  let bytes = new Uint8Array();
+  if (method !== "HEAD" && !tooBig) {
+    const read = await readBounded(response, MAX_READ);
+    if (read.over) tooBig = true;
+    else bytes = read.bytes;
+  }
   let answer;
-  if (tooBig) answer = `(an answer of ${declared} bytes, too large to read through Context)`;
+  if (tooBig) {
+    answer = overDeclared
+      ? `(an answer of ${declared} bytes, too large to read through Context)`
+      : `(an answer over ${MAX_READ} bytes, too large to read through Context)`;
+  }
   else if (bytes.length === 0) answer = "";
   else if (encoded) answer = `(a ${blank(encoding)} answer of ${bytes.length} bytes that Context could not read, not shown)`;
   // Blanked like any other echo: the type is a header the site chose, and it reaches the model.
