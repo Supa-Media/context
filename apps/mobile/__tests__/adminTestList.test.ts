@@ -97,14 +97,17 @@ describe("case classification", () => {
     const c = caseByNumber(parseTestList(readExample("tasks")), 1);
     expect(c.replies.map((r) => r.key)).toEqual([
       "person starts",
+      "if asked whether she signs in with Gmail or another email, or sent a link to save her login",
       "if asked to sign in, open a link, or take over the browser",
       "if asked whether to go ahead",
       "if asked which plan she has",
     ]);
     expect(c.replies[0].value).toBe(`"can you make sure my chatgpt is properly set up to use context"`);
-    expect(c.replies[2]).toMatchObject({ value: `"Yes, go ahead"` });
+    expect(c.replies[3]).toMatchObject({ value: `"Yes, go ahead"` });
     expect(c.rules.find((r) => r.key === "must call")?.value).toBe("read_skill");
-    expect(c.rules.find((r) => r.key === "must not call")?.value).toBe("vault_add_link");
+    // Since #1778 offering to save the login is case 1's wanted first move; the vault ban is still parsed on core case 12, the same task.
+    const twelve = caseByNumber(parseTestList(CORE), 12);
+    expect(twelve.rules.find((r) => r.key === "must not call")?.value).toBe("vault_add_link");
   });
 
   test("a case with an as: line keeps it out of the rules", () => {
