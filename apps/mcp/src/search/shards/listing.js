@@ -71,15 +71,18 @@ async function listPaged(store, { prefix, delimiter }, budget, reserve, onObject
  *
  * - The Convex barrier attaches the tree as `treeListing` (`namesListing`,
  *   `lib/fileOps/walk.ts`), and that is what it reads.
- * - Otherwise a gateway session's listings come from the tree, through
- *   `servedListingStore`.
+ * - A gateway session carries `treeManifest`, and `servedListingStore`
+ *   answers its listings from the tree.
+ * - A store with neither is the Convex barrier's `maintainIndex` and
+ *   `indexNotes` passes (`executeOperation.ts`): scope-blind, they index the
+ *   bucket as it is, so their own listing is the one they read.
  *
  * A tree that is still loading or cannot be asked throws `TreeUnavailable`
  * rather than falling back to the bucket, as every other tree listing does.
  */
 export function namesOf(store) {
   if (store.treeListing) return store.treeListing;
-  return servedListingStore(store);
+  return typeof store.treeManifest === "function" ? servedListingStore(store) : store;
 }
 
 /**
