@@ -222,13 +222,151 @@ export function matches(row: AiNoteRow, query: string): boolean {
   return words.every((word) => hay.includes(word));
 }
 
-/** What a job's quality cell says. */
-export function jobQuality(row: JobRow): { label: string; tone: "ok" | "warn" | "none" } {
+/** What a job's quality cell says; `read` is its latest round read from the note's text. */
+export function jobQuality(row: JobRow, read?: ScoresRead): { label: string; tone: "ok" | "warn" | "none" } {
   if (row.tests.length === 0) return { label: "No test yet", tone: "none" };
   if (row.latest === null) return { label: "Not run yet", tone: "none" };
-  // Rounds scored before the scores note carried its score in front matter.
-  if (row.latest.score === null) return { label: `Ran ${row.latest.day ?? "before"}, open for scores`, tone: "none" };
-  const passed = row.latest.goodEnough === "yes" || row.latest.goodEnough === "true";
-  const gates = row.latest.gates === null ? "" : ` · gates ${row.latest.gates}`;
-  return { label: `${row.latest.score}${gates}`, tone: passed ? "ok" : "warn" };
+  const score = row.latest.score ?? read?.score ?? null;
+  if (score === null) return { label: `Ran ${row.latest.day ?? "before"}`, tone: "none" };
+  const gates = row.latest.gates ?? read?.gates ?? null;
+  const verdict = row.latest.goodEnough ?? (read ? (read.goodEnough ? "yes" : "no") : null);
+  const passed = verdict === "yes" || verdict === "true";
+  return { label: `${score}${gates === null ? "" : ` · gates ${gates}`}`, tone: passed ? "ok" : "warn" };
+}
+
+/** `anthropic/claude-haiku-5-5` → `Haiku 5.5`; anything else keeps its last segment. */
+export function modelName(id: string): string {
+  const last = id.slice(id.lastIndexOf("/") + 1);
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(last);
+  if (claude) return `${claude[1]![0]!.toUpperCase()}${claude[1]!.slice(1)} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
+  return last;
+}
+
+/** The models a setup names (`models: { main, smart }` or `model:`), as one line. */
+export function setupModels(setup: AiNoteRow | null): string | null {
+  if (setup === null) return null;
+  const props = setup.properties;
+  const one = text(props.model);
+  if (one !== null) return modelName(one);
+  const many = props.models;
+  if (many !== null && typeof many === "object" && !Array.isArray(many)) {
+    const ids = Object.values(many as Record<string, unknown>).map(text).filter((id): id is string => id !== null);
+    const names = [...new Set(ids.map(modelName))];
+    return names.length === 0 ? null : names.join(" → ");
+  }
+  return null;
+}
+
+function list(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(text).filter((item): item is string => item !== null);
+  const one = text(value);
+  return one === null ? [] : one.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+export type Reach = "tex" | "mcp";
+
+/**
+ * Who gets a skill, from its `reach:` front matter. Absent is Tex alone, which
+ * is what every skill is today: only Tex reads `ai/production/skills/`.
+ */
+export function reachOf(row: AiNoteRow): Reach[] {
+  const named = list(row.properties.reach).map((item) => item.toLowerCase());
+  const reach = (["tex", "mcp"] as const).filter((item) => named.includes(item));
+  return reach.length === 0 ? ["tex"] : reach;
+}
+
+/** The test lists whose `covers:` names this note, by its file name. */
+export function provedBy(row: AiNoteRow, tests: readonly AiNoteRow[]): AiNoteRow[] {
+  return tests.filter((test) => list(test.properties.covers).includes(row.name));
+}
+
+/** The folder a skill sits in under `ai/production/skills/`, `""` at its top. */
+export function skillFolder(row: AiNoteRow): string {
+  const rest = row.path.slice("ai/production/skills/".length);
+  return rest.includes("/") ? rest.slice(0, rest.lastIndexOf("/")) : "";
+}
+
+/**
+ * Where a job's model spend is counted in the AI costs report. Tex by text and
+ * the app assistant are one `assistant` feature there, so both rows show it.
+ */
+export const COST_FEATURE: Readonly<Record<string, string>> = {
+  "texting-assistant": "assistant",
+  "app-assistant": "assistant",
+  "auto-organize": "organizer",
+  "what-changed": "whatChanged",
+  "meeting-transcription": "transcription",
+  search: "meaning",
+};
+
+export interface GateMiss {
+  question: number;
+  rule: string;
+  runs: string;
+}
+
+export interface ScoresRead {
+  setup: string;
+  score: string;
+  gates: string;
+  goodEnough: boolean;
+  misses: GateMiss[];
+}
+
+/**
+ * A scores note's live result, read from its text: the `production` row of the
+ * latest "## Scored by" table (else its first row), and that setup's
+ * "Why gates failed" lines. The same reading `liveScoreRow` in
+ * `apps/mcp/bench/context.mjs` does, for rounds scored before the note
+ * carried it in front matter.
+ */
+export function readScores(raw: string): ScoresRead | null {
+  const at = `\n${raw}`.lastIndexOf("\n## Scored by ");
+  if (at === -1) return null;
+  const section = raw.slice(at);
+  const end = section.indexOf("\n## ", 3);
+  const body = end === -1 ? section : section.slice(0, end);
+  const rows = body
+    .split("\n")
+    .filter((line) => line.startsWith("| ") && !line.startsWith("| setup ") && !line.startsWith("| ---"))
+    .map((line) => line.slice(2, -2).split(" | ").map((cell) => cell.trim()));
+  const row = rows.find((cells) => cells[0] === "production") ?? rows[0];
+  if (!row || row.length < 3) return null;
+  const setup = row[0]!;
+  const misses: GateMiss[] = [];
+  const why = body.indexOf(`Why gates failed, ${setup}:`);
+  if (why !== -1) {
+    for (const line of body.slice(why).split("\n").slice(1)) {
+      if (!line.startsWith("- ")) break;
+      const m = /^- q(\d+) (.+?):\s*(.+)$/.exec(line);
+      if (m) misses.push({ question: Number(m[1]), rule: m[2]!, runs: m[3]! });
+    }
+  }
+  return { setup, score: row[1]!, gates: row[2]!, goodEnough: (row[8] ?? "") === "yes", misses };
+}
+
+export interface Attention {
+  /** Jobs whose latest round did not pass. */
+  failing: JobRow[];
+  /** Jobs with no test list. */
+  untested: JobRow[];
+  /** Skills no test list `covers:`. */
+  unproved: AiNoteRow[];
+  /** Jobs with no live setup note. */
+  noSetup: JobRow[];
+}
+
+/** `scores` is each latest round read from its text, for rounds older than the front matter. */
+export function attention(catalog: AiCatalog, scores: ReadonlyMap<string, ScoresRead> = new Map()): Attention {
+  const passed = (row: JobRow): boolean | null => {
+    if (row.latest === null) return null;
+    if (row.latest.goodEnough !== null) return ["yes", "true"].includes(row.latest.goodEnough);
+    return scores.get(row.latest.path)?.goodEnough ?? null;
+  };
+  return {
+    failing: catalog.jobs.filter((row) => passed(row) === false),
+    untested: catalog.jobs.filter((row) => row.tests.length === 0),
+    unproved: catalog.skills.filter((skill) => provedBy(skill, catalog.tests).length === 0),
+    noSetup: catalog.jobs.filter((row) => row.setup === null && row.job.key !== "connected-ais"),
+  };
 }

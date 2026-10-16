@@ -24,7 +24,7 @@ export type AiCatalogState =
   | { kind: "notEditor" }
   | { kind: "unavailable" }
   | { kind: "failed"; message: string }
-  | { kind: "ready"; catalog: AiCatalog; missing: number; truncated: boolean };
+  | { kind: "ready"; workspaceId: Id<"workspaces">; catalog: AiCatalog; missing: number; truncated: boolean };
 
 export function canEditAi(role: string | undefined): boolean {
   return role === "owner" || role === "editor";
@@ -70,7 +70,7 @@ export function useAiCatalog(): { state: AiCatalogState; reload: () => void } {
           cursor = answer.cursor;
           truncated = page === MAX_PAGES - 1;
         }
-        if (live) setState({ kind: "ready", catalog: buildCatalog(notes), missing, truncated });
+        if (live) setState({ kind: "ready", workspaceId: workspaceId as Id<"workspaces">, catalog: buildCatalog(notes), missing, truncated });
       } catch (error: unknown) {
         if (live) setState({ kind: "failed", message: error instanceof Error ? error.message : String(error) });
       }

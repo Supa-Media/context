@@ -6,7 +6,38 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { AI_JOBS, buildCatalog, jobQuality, matches, type FolderNote, type JobRow } from "../features/admin/aiCatalog";
+import {
+  AI_JOBS,
+  attention,
+  buildCatalog,
+  jobQuality,
+  matches,
+  modelName,
+  provedBy,
+  reachOf,
+  readScores,
+  setupModels,
+  type FolderNote,
+  type JobRow,
+} from "../features/admin/aiCatalog";
+
+/** The shape the AI Benchmark Action writes (`apps/mcp/bench/score.mjs`). */
+const SCORES = [
+  "# texting-assistant, 2026-10-14: scores",
+  "",
+  "## Scored by claude-haiku-5-5, 2026-10-14",
+  "",
+  "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  "| live-5 | 93.3% | failed (q5) | 203 of 225 (90.2%) | $0.0177 | 6.6 s | 1.2 | 0 | no |",
+  "",
+  "Why gates failed, live-5:",
+  '- q5 must not "invent a to-do that isn\'t in the notes": 1 of 3 runs',
+  "",
+  "## Summary",
+  "",
+  "| Setup | Model |",
+].join("\n");
 
 function note(path: string, properties: Record<string, unknown> = {}, extra: { heading?: string; lede?: string; updatedAt?: number } = {}): FolderNote {
   return {
@@ -206,12 +237,14 @@ describe("jobQuality", () => {
     expect(jobQuality(job(catalog, "texting-assistant"))).toEqual({ label: "40 · gates fail", tone: "warn" });
   });
 
-  test("a round without a score in front matter says it is open for scores", () => {
+  test("a round without a score in front matter takes it from the note's text, once read", () => {
     const catalog = buildCatalog([
       note("ai/tests/core.md", { job: "texting-assistant" }),
       note("ai/results/2026-10-14 core gh-33 scores.md", {}),
     ]);
-    expect(jobQuality(job(catalog, "texting-assistant"))).toEqual({ label: "Ran 2026-10-14, open for scores", tone: "none" });
+    expect(jobQuality(job(catalog, "texting-assistant"))).toEqual({ label: "Ran 2026-10-14", tone: "none" });
+    const read = readScores(SCORES)!;
+    expect(jobQuality(job(catalog, "texting-assistant"), read)).toEqual({ label: "93.3% · gates failed (q5)", tone: "warn" });
   });
 
   test("every declared job has a row", () => {
@@ -264,5 +297,76 @@ describe("malformed input", () => {
   test("a job property that is not text does not attach a test", () => {
     const catalog = buildCatalog([note("ai/tests/core.md", { job: { nested: true } })]);
     expect(job(catalog, "texting-assistant").tests).toEqual([]);
+  });
+});
+
+describe("reading a scores note's text", () => {
+  test("takes the first row when the live setup did not run, and its gate failures", () => {
+    expect(readScores(SCORES)).toEqual({
+      setup: "live-5",
+      score: "93.3%",
+      gates: "failed (q5)",
+      goodEnough: false,
+      misses: [{ question: 5, rule: 'must not "invent a to-do that isn\'t in the notes"', runs: "1 of 3 runs" }],
+    });
+  });
+
+  test("prefers the production row, and reads yes as good enough", () => {
+    const raw = SCORES.replace("| live-5 | 93.3%", "| production | 100% | passed | 1 | $0.01 | 1 s | 1 | 0 | yes |\n| live-5 | 93.3%");
+    expect(readScores(raw)).toEqual(expect.objectContaining({ setup: "production", score: "100%", goodEnough: true, misses: [] }));
+  });
+
+  test("a note with no Scored by section reads as nothing", () => {
+    expect(readScores("# Just a note\n")).toBeNull();
+  });
+});
+
+describe("a setup's models, a skill's reach and its tests", () => {
+  test("model ids read as names, a main and smart pair joined", () => {
+    expect(modelName("anthropic/claude-haiku-5-5")).toBe("Haiku 5.5");
+    expect(modelName("@cf/zai-org/glm-4.7-flash")).toBe("glm-4.7-flash");
+    const catalog = buildCatalog([note("ai/production/texting-assistant.md", { models: { main: "anthropic/claude-haiku-5-5", smart: "anthropic/claude-opus-5-5" } })]);
+    expect(setupModels(job(catalog, "texting-assistant").setup)).toBe("Haiku 5.5 → Opus 5.5");
+    expect(setupModels(null)).toBeNull();
+  });
+
+  test("a skill with no reach is Tex's alone; reach names who else", () => {
+    const catalog = buildCatalog([
+      note("ai/production/skills/a.md", {}),
+      note("ai/production/skills/b.md", { reach: ["tex", "mcp"] }),
+      note("ai/production/skills/c.md", { reach: "mcp" }),
+    ]);
+    expect(catalog.skills.map(reachOf)).toEqual([["tex"], ["tex", "mcp"], ["mcp"]]);
+  });
+
+  test("a test proves the skills its covers names", () => {
+    const catalog = buildCatalog([
+      note("ai/production/skills/send-email.md", {}),
+      note("ai/production/skills/draft.md", {}),
+      note("ai/tests/email.md", { job: "texting-assistant", covers: ["send-email"] }),
+    ]);
+    const [draft, send] = catalog.skills;
+    expect(provedBy(send!, catalog.tests).map((test) => test.name)).toEqual(["email"]);
+    expect(provedBy(draft!, catalog.tests)).toEqual([]);
+  });
+});
+
+describe("what needs attention", () => {
+  test("failing rounds, untested jobs, skills no test covers and missing setups", () => {
+    const catalog = buildCatalog([
+      note("ai/production/texting-assistant.md", {}),
+      note("ai/production/skills/x.md", {}),
+      note("ai/tests/core.md", { job: "texting-assistant" }),
+      note("ai/results/2026-10-14 core gh-33 scores.md", {}),
+    ]);
+    const before = attention(catalog);
+    expect(before.failing).toEqual([]);
+    const path = job(catalog, "texting-assistant").latest!.path;
+    const after = attention(catalog, new Map([[path, readScores(SCORES)!]]));
+    expect(after.failing.map((row) => row.job.key)).toEqual(["texting-assistant"]);
+    expect(after.untested.map((row) => row.job.key)).not.toContain("texting-assistant");
+    expect(after.unproved.map((row) => row.name)).toEqual(["x"]);
+    expect(after.noSetup.map((row) => row.job.key)).not.toContain("connected-ais");
+    expect(after.noSetup.map((row) => row.job.key)).toContain("dream");
   });
 });
