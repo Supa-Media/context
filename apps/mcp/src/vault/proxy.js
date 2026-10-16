@@ -284,7 +284,8 @@ export async function proxyFetch(store, request, { allowed, fetchImpl = fetch })
   let answer;
   if (tooBig) answer = `(an answer of ${declared} bytes, too large to read through Context)`;
   else if (bytes.length === 0) answer = "";
-  else if (!TEXT_TYPE.test(type)) answer = `(a ${type || "binary"} answer of ${bytes.length} bytes, not shown)`;
+  // Blanked like any other echo: the type is a header the site chose, and it reaches the model.
+  else if (!TEXT_TYPE.test(type)) answer = `(a ${blank(type) || "binary"} answer of ${bytes.length} bytes, not shown)`;
   else {
     const text = blank(new TextDecoder().decode(bytes));
     answer = text.length > MAX_ANSWER ? `${text.slice(0, MAX_ANSWER)}\n(cut off after ${MAX_ANSWER} characters)` : text;

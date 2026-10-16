@@ -310,3 +310,19 @@ test("the save page's pin is checked by the rules every use checks", () => {
   const { pin } = savedPin({ host: "api.example.com", style: "header", name: "x-api-key", ask: false });
   assert.deepEqual(proxyPin({ proxy: pin }), { host: "api.example.com", style: "header", name: "x-api-key" });
 });
+
+test("a non-text answer cannot hand the key back in its content type", async () => {
+  const { store, id } = await proxyVault();
+  const net = fakeFetch(
+    () =>
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { "content-type": `application/octet-stream; boundary=${KEY}` },
+      }),
+  );
+  withProxy(store, net.impl);
+  const result = await toolVaultFetch(store, ask(id, "https://api.stripe.com/v1/files/f_1"));
+  assert.notEqual(result.isError, true);
+  const text = JSON.stringify(result);
+  assert.equal(text.includes(KEY), false, "the content type echoed the key back to the model");
+  assert.ok(text.includes(HIDDEN));
+});
