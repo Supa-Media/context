@@ -543,6 +543,9 @@ export async function runTurn(options) {
       const called = clock();
       // Held but not loaded: the model knew its name from the prompt, so it is loaded and run.
       if (shelf?.isShelved(call.name)) shelf.loadOne(call.name);
+      // Which model made this call, for the usage breakdown. Per call, because
+      // routing and fallback can change the model mid-turn.
+      options.onModel?.(model);
       try {
         result = await withinTime(
           shelf && call.name === FIND_TOOLS

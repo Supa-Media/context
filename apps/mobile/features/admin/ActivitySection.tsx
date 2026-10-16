@@ -33,6 +33,8 @@ import {
   type Column,
 } from "./AdminTable";
 import { TrendBars } from "./Charts";
+import { TokenUsageSection } from "./TokenUsageSection";
+import { isTokenMetric } from "./tokens";
 import {
   dayOverDay,
   formatCount,
@@ -46,7 +48,11 @@ export function ActivitySection({ days }: { days: number }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
   const report = useQuery(api.functions.admin.usageReport, { days });
-  const series = useMemo(() => (report ? orderSeries(report.series) : []), [report]);
+  // The per-agent token counters are the Token usage panel's, never Events rows.
+  const series = useMemo(
+    () => (report ? orderSeries(report.series.filter((entry) => !isTokenMetric(entry.metric))) : []),
+    [report],
+  );
 
   if (report === undefined) {
     return (
@@ -74,6 +80,7 @@ export function ActivitySection({ days }: { days: number }) {
 
   return (
     <View style={styles.section}>
+      <TokenUsageSection days={report.days} />
       <Panel
         title="Contexts seen"
         meta={`distinct, last ${report.days} days`}

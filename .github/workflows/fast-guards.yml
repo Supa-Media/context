@@ -124,13 +124,14 @@ jobs:
           import { readFileSync } from 'node:fs';
           import assert from 'node:assert/strict';
           const manifest = JSON.parse(readFileSync('apps/mcp/package.json', 'utf8'));
-          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*' });
+          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*', 'js-tiktoken': '1.0.21' });
           for (const field of ['optionalDependencies', 'peerDependencies', 'bundleDependencies']) {
             assert.deepEqual(manifest[field] ?? {}, {}, `apps/mcp declared ${field}`);
           }
           JS
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs apps/mcp/src
+          # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
+          node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
       - name: Gateway health probe can still fail
         run: node scripts/health-check-gateway.mjs --self-test

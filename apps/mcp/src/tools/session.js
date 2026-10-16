@@ -30,7 +30,7 @@ import {
 import { isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
 import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
-import { reportToolUsage } from "../mcp/usage.js";
+import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
@@ -310,6 +310,10 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
+  return measuredCall(store, session, params, (routed) => routeToolCall(params, store, session, routed));
+}
+
+async function routeToolCall(params, store, session, routed) {
   // Read as the advertised types first: a stale client sends an argument its
   // copy of the tool does not show as text (`advertised.js`).
   const supplied = coercedArguments(params?.name, params?.arguments);
@@ -369,6 +373,7 @@ export async function callToolForSession(params, store, session) {
     }
     try {
       ({ session: target, store: targetStore } = await store.openContext(requested));
+      routed.workspaceId = target.workspaceId;
     } catch (error) {
       // One answer for a name that is not covered, a name that is not a name,
       // and a name nobody has ever registered — the refusal `selectWorkspace`
@@ -424,6 +429,7 @@ export async function callToolForSession(params, store, session) {
     try {
       sourceTarget = await openNamedContext(args.source_context);
       destinationTarget = await openNamedContext(args.destination_context);
+      routed.workspaceId = destinationTarget.session.workspaceId;
     } catch (error) {
       if (error instanceof SessionRefusal) {
         return toolError("this connection has no access to that context");

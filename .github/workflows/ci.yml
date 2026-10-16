@@ -319,7 +319,8 @@ jobs:
       - name: The gateway imports none of it
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs apps/mcp/src
+          # js-tiktoken: the usage tokenizer, in its one file (docs/decisions/observability/token-usage.md).
+          node scripts/check-gateway-imports.mjs --allow-import=js-tiktoken/lite:src/mcp/tokens.js --allow-import=js-tiktoken/ranks/o200k_base:src/mcp/tokens.js apps/mcp/src
 
       # The mirror of the check above: the gateway imports none of the desktop
       # bridge, and the control plane imports plenty of the gateway — so its

@@ -57,6 +57,7 @@ import {
   abandonedRuns,
   askPlan,
   localAgentFor,
+  mainModel,
   mcpConfigFor,
   readLocalAnswer,
 } from "../src/core/agent/localCli.ts";
@@ -154,6 +155,29 @@ export async function runLocalAgentChecks(check) {
 
     const blank = readLocalAnswer(true, JSON.stringify({ result: "   ", is_error: false }));
     check("a blank answer is not an answer", blank === LOCAL_MESSAGES.empty);
+
+    const withModels = readLocalAnswer(
+      true,
+      JSON.stringify({
+        result: "ok",
+        is_error: false,
+        modelUsage: {
+          "claude-haiku-5-5": { inputTokens: 40, outputTokens: 5 },
+          "claude-sonnet-5-5": { inputTokens: 2, outputTokens: 4, cacheReadInputTokens: 13000 },
+        },
+      }),
+    );
+    check(
+      "the model that did most of the run is read from modelUsage",
+      typeof withModels === "object" && withModels.model === "claude-sonnet-5-5",
+    );
+    check("no modelUsage is no model", typeof ok === "object" && ok.model === null);
+    check("a malformed modelUsage is no model", mainModel([1, 2]) === null && mainModel("x") === null);
+
+    const labelled = mcpConfigFor(ENDPOINT, TOKEN, "claude-sonnet-5-5").mcpServers[MCP_SERVER_NAME].headers;
+    check("the remembered model travels as a header", labelled["X-Context-Model"] === "claude-sonnet-5-5");
+    const unlabelled = mcpConfigFor(ENDPOINT, TOKEN).mcpServers[MCP_SERVER_NAME].headers;
+    check("no model yet sends no header", !("X-Context-Model" in unlabelled));
   }
 
   /*

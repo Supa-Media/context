@@ -270,6 +270,8 @@ export const deleteAccount = mutation({
  *    the hourly sweep in `crons.ts` removes it regardless. Left open rather
  *    than fixed here because reaching it needs an index this table does not
  *    have (`by_workspace`), which is a schema change, not a sweep addition.
+ *  - **`usageHourly`** — swept, by a scheduled `usage.purgeWorkspaceHourly`:
+ *    it names the agents and models a customer used, hour by hour.
  *  - **`usageDaily`**, **`usageActiveDaily`** — deliberately NOT swept. These
  *    hold no credential and no customer content — a day, a metric name from a
  *    closed vocabulary, and a count (`docs/decisions/storage-and-credentials.md`,
@@ -285,6 +287,10 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  // Premium usage analytics go with the workspace (`usage.purgeWorkspaceHourly`).
+  await ctx.scheduler.runAfter(0, internal.functions.usage.purgeWorkspaceHourly, {
+    workspaceId,
+  });
   // A managed-storage copy parks a second encrypted bucket credential. Remove
   // it before its source binding so no orphan can survive account deletion;
   // a move INTO storage we run names a managed bucket of its own, which is

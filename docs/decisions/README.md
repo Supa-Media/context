@@ -27,6 +27,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Platform credentials seal to a scope, customers' seal to a workspace
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
+- [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
