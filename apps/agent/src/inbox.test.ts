@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accept, CARD_EVERY_MS, drain, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, type InboxDeps } from "./inbox";
-import type { Message } from "./reply";
+import { accept, CARD_EVERY_MS, drain, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, type InboxDeps } from "./inbox";
+import { COPY, type Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
 
@@ -27,6 +27,8 @@ function deps(opts: {
   cardStatus?: number;
   readStatus?: number;
   progress?: string[];
+  agentStatus?: () => number;
+  sessionStatus?: () => number;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -47,6 +49,8 @@ function deps(opts: {
       return new Response("{}", { status: opts.cardStatus ?? 200 });
     }
     if (path === "/agent-texts/session") {
+      const status = opts.sessionStatus?.() ?? 200;
+      if (status !== 200) return Response.json({}, { status });
       return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
     }
     if (path === "/agent-texts/invite") {
@@ -54,6 +58,8 @@ function deps(opts: {
     }
     if (path === "/agent") {
       opts.asks?.push(body.question);
+      const status = opts.agentStatus?.() ?? 200;
+      if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
       if (opts.progress) {
         const lines = [...opts.progress.map((progress) => ({ progress })), { status: 200, body: { answer: `answer to ${body.question}` } }];
         return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", {
@@ -85,7 +91,7 @@ describe("inbox", () => {
     const storage = new MemoryStorage();
     expect(await accept(storage, msg("e1", "first"), 1_000)).toBe("queued");
     expect(await accept(storage, msg("e2", "second"), 1_000)).toBe("queued");
-    expect(storage.alarms).toEqual([1_000, 1_000]);
+    expect(storage.alarms).toEqual([1_000 + TEXT_WAIT_MS, 1_000]);
 
     const sent: Sent[] = [];
     await drain(storage, deps({ sent }));
@@ -132,6 +138,46 @@ describe("inbox", () => {
     await drain(storage, deps({ asks, sent, linqStatus: () => status }));
     expect(asks).toEqual(["q"]);
     expect(sent).toEqual([{ text: "answer to q", idempotency: "reply:e1" }]);
+  });
+
+  it("asks again later when the turn could not start, rather than saying something went wrong", async () => {
+    // A production deploy mid-text answered "Something went wrong" (2026-10-16).
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    let agent = 503;
+    let session = 500;
+    await drain(storage, deps({ asks, sent, sessionStatus: () => session, agentStatus: () => agent }));
+    expect(sent).toEqual([]);
+    expect(storage.alarms.at(-1)).toBeGreaterThan(1_000);
+    session = 200;
+    await drain(storage, deps({ asks, sent, sessionStatus: () => session, agentStatus: () => agent }));
+    expect(sent).toEqual([]);
+    agent = 200;
+    await drain(storage, deps({ asks, sent, sessionStatus: () => session, agentStatus: () => agent }));
+    expect(asks).toEqual(["q", "q"]);
+    expect(sent).toEqual([{ text: "answer to q", idempotency: "reply:e1" }]);
+    expect(storage.data.has("pending:000000000001")).toBe(false);
+  });
+
+  it("says something went wrong once the turn still could not start on the last try", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const sent: Sent[] = [];
+    for (let i = 0; i < MAX_ANSWER_ATTEMPTS; i++) await drain(storage, deps({ sent, agentStatus: () => 503 }));
+    expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
+    expect(storage.data.has("pending:000000000001")).toBe(false);
+  });
+
+  it("never asks again a turn that failed after it started, since its tools may have run", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "q"), 1_000);
+    const asks: string[] = [];
+    const sent: Sent[] = [];
+    await drain(storage, deps({ asks, sent, agentStatus: () => 502 }));
+    expect(asks).toEqual(["q"]);
+    expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
   });
 
   it("sends a sign-in link as its own text, and a retry repeats neither text's key", async () => {

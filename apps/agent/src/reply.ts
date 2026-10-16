@@ -50,7 +50,22 @@ export type ReplyDeps = {
   images?: ImagesLike;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[]) => void;
+  /**
+   * Not the last try (`inbox.ts`): a text that could not be started (the
+   * control plane unreachable, or the gateway answering 503 before the turn
+   * ran, as during a deploy) throws `TryLater` instead of saying something
+   * went wrong. Never for a turn that started: its tools may have run.
+   */
+  retry?: boolean;
 };
+
+/** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
+export class TryLater extends Error {
+  constructor() {
+    super("try this text again later");
+    this.name = "TryLater";
+  }
+}
 
 /**
  * The code the app shows is 8 characters from an unambiguous alphabet, but the
@@ -120,7 +135,9 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.controlPlaneOrigin,
       deps.workerSecret,
       message.from,
-    );
+    ).catch((error) => {
+      throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
+    });
     if (session.status === "unlinked") {
       const invite = await requestLinkInvite(
         deps.fetch,
@@ -151,6 +168,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
+    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     return COPY.unavailable;
   } catch (error) {
     if (error instanceof ServiceError) return COPY.unavailable;

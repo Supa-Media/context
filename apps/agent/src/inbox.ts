@@ -24,14 +24,16 @@
  * A photo and its words often arrive as two texts, the photo first. So a text
  * that is only files waits `MEDIA_WAIT_MS` for words to follow, and `drain`
  * folds it into the next text, so the person gets one answer about the photo
- * rather than "what photo?" and then a reply to the photo alone.
+ * rather than "what photo?" and then a reply to the photo alone. The words can
+ * also arrive first, so words alone wait `TEXT_WAIT_MS`, and a photo that
+ * lands behind them is folded into them.
  */
 
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { PICTURE_FAILED, describePart, partsFor, sendLinqMedia, uploadLinqPicture, type OutgoingPicture, type SendPart } from "./outgoing";
-import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
+import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -49,10 +51,12 @@ export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
  * `reply` was one string before a reply could be several texts; both are read.
  * A picture in it is an uploaded attachment's id or a web address, never bytes.
  */
-type Pending = { message: Message; reply?: SendPart[] | string; attempts: number };
+type Pending = { message: Message; reply?: SendPart[] | string; attempts: number; tries?: number };
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 export const MAX_SEND_ATTEMPTS = 3;
+/** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
+export const MAX_ANSWER_ATTEMPTS = 3;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
 export const MAX_PENDING = 20;
 
@@ -70,7 +74,16 @@ export type RememberedChat = { chatId: string; channel?: "simulator"; at: number
 /** How long a text that is only a photo or file waits for its words. */
 export const MEDIA_WAIT_MS = 4_000;
 
+/**
+ * How long words with no file wait for a photo sent just before them: Messages
+ * sends the photo first, but its upload can make Linq deliver the words first
+ * (2026-10-16, a photo then "and this one?" 0.4 s apart arrived words first and
+ * got two answers).
+ */
+export const TEXT_WAIT_MS = 3_000;
+
 const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
+const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
@@ -93,8 +106,10 @@ export async function accept(
     ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
     at: now,
   });
-  // Nothing else is waiting, so a lone photo can wait for its words.
-  await storage.setAlarm(mediaOnly(message) && pending.size === 0 ? now + MEDIA_WAIT_MS : now);
+  // Nothing else is waiting, so a lone photo can wait for its words, and lone
+  // words for a photo still on its way.
+  const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
+  await storage.setAlarm(now + wait);
   return "queued";
 }
 
@@ -103,7 +118,20 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
   for (const [key, item] of pending) {
     const stored = item.reply;
-    const reply = stored === undefined ? await answering(item.message, deps, storage) : [stored].flat();
+    let reply: SendPart[];
+    if (stored !== undefined) reply = [stored].flat();
+    else {
+      const tries = (item.tries ?? 0) + 1;
+      try {
+        reply = await answering(item.message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage);
+      } catch (error) {
+        if (!(error instanceof TryLater)) throw error;
+        // Nothing ran, so this text and the ones behind it wait; later ones keep their order.
+        await storage.put<Pending>(key, { ...item, tries });
+        await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
+        return;
+      }
+    }
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
       // send repeats nothing Linq already accepted.
@@ -259,8 +287,9 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 
 /**
  * A text that is only files, followed by another not yet answered, becomes
- * part of that one: its files go first, in the order sent. The last text is
- * never folded, so files with no words after them are still answered.
+ * part of that one: its files go first, in the order sent. Files with no words
+ * after them join the words-only text just before them instead, which they
+ * overtook on the way; otherwise they are answered on their own.
  */
 async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promise<Map<string, Pending>> {
   const entries = [...pending];
@@ -273,6 +302,13 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);
+      await storage.delete(key);
+      continue;
+    }
+    const before = [...kept].at(-1);
+    if (before && item.reply === undefined && before[1].reply === undefined && mediaOnly(item.message) && wordsOnly(before[1].message)) {
+      before[1].message = { ...before[1].message, attachments: (item.message.attachments ?? []).slice(0, MAX_INBOUND_ATTACHMENTS) };
+      await storage.put<Pending>(before[0], before[1]);
       await storage.delete(key);
       continue;
     }
