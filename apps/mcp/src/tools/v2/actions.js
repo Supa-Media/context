@@ -43,7 +43,12 @@ export const ACTIONS = {
     save: { tool: "write_note", summary: "Create or replace a note (the default).", take: (call) => withNote(call) },
     comment: { tool: "write_note", summary: "Comment on words in a note, reply, resolve or delete.", take: nested("comment") },
     mail: { tool: "write_note", summary: "Join a note's mail or send mail to agents working on it.", take: nested("mail") },
-    upload: { tool: "write_note", summary: "Get upload commands for image files too big to send inline.", take: nested("upload") },
+    upload: {
+      tool: "write_note",
+      summary: "Get upload commands for image files too big to send inline.",
+      // write_note's `upload` is a list, so it travels as `args.files`.
+      take: (call) => ({ ...(call.path !== undefined ? { path: call.path } : {}), upload: call.args?.files }),
+    },
     remember: { tool: "remember", summary: "Save one durable fact about the person.", take: plain },
     propose: { tool: "propose_note", summary: "Queue a note for a folder you cannot write.", take: (call) => withNote(call) },
     answer: { tool: "submit_form", summary: "Answer a Markdown form.", take: (call) => withNote(call) },

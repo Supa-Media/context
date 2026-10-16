@@ -35,8 +35,10 @@ const PROBE = { path: "p", content: "c", expected_etag: "e", args: {} };
 function shapeOf(entry) {
   const produced = entry.take(PROBE) || {};
   const keys = Object.keys(produced);
+  // A note field the carrying tool does not take is not one to send at all.
+  const takes = carrierOf(entry)?.inputSchema?.properties || {};
   return {
-    note: NOTE_FIELDS.filter((field) => keys.includes(field)),
+    note: NOTE_FIELDS.filter((field) => keys.includes(field) && Object.hasOwn(takes, field)),
     nested: keys.find((key) => !NOTE_FIELDS.includes(key)) ?? null,
   };
 }
@@ -62,11 +64,15 @@ function actionArguments(entry) {
   const { nested } = shapeOf(entry);
   if (nested) {
     const sub = schema.properties?.[nested];
+    // A list (upload's files) travels as `args.files`, see `tools/v2/actions.js`.
+    if (sub?.type === "array") return argumentsLine({ files: sub }, ["files"]);
     return argumentsLine(sub?.properties || {}, sub?.required || []);
   }
+  // Fields the action keeps at the top level are said there, not here; a
+  // `manage` action has no top level, so its path is one of its args.
   return argumentsLine(schema.properties || {}, schema.required || [], [
     ...ADDRESSING,
-    ...NOTE_FIELDS,
+    ...shapeOf(entry).note,
     ...NESTED_KEYS,
   ]);
 }
