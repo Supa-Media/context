@@ -42,21 +42,32 @@ async function loadTokenizer() {
  * carries its leading space), and a run longer than MAX_RUN is cut, which can
  * shift a count by a token per cut and only in text no model reads as words.
  */
-const MAX_RUN = 32;
+export const MAX_RUN = 32;
 const CHUNK = 2048;
-const PIECE = new RegExp(`\\s*\\S{1,${MAX_RUN}}|\\s+$`, "g");
+/**
+ * Either a word with its leading whitespace, or a stretch of whitespace on its
+ * own — both bounded by MAX_RUN, because a run of whitespace is one word to the
+ * encoder just as `aaaa…` is, and merges just as quadratically.
+ */
+const PIECE = new RegExp(`\\s{0,${MAX_RUN}}\\S{1,${MAX_RUN}}|\\s{1,${MAX_RUN}}`, "g");
 
 export function* chunksOf(text) {
   let chunk = "";
+  let afterRun = false;
   for (const [piece] of text.matchAll(PIECE)) {
-    // A piece with no leading whitespace continues a cut run: joining it back
-    // would rebuild the long word the cut exists to break up.
-    const cut = !/^\s/.test(piece);
+    const onlySpace = !/\S/.test(piece);
+    // A piece with no leading whitespace continues a cut word. A whitespace-only
+    // piece is a cut whitespace run, and so is whatever follows it, whose own
+    // leading whitespace would otherwise extend that run past MAX_RUN again.
+    // Joining any of the three back would rebuild the long single word the cut
+    // exists to break up.
+    const cut = !/^\s/.test(piece) || onlySpace || afterRun;
     if (chunk.length > 0 && (cut || chunk.length + piece.length > CHUNK)) {
       yield chunk;
       chunk = "";
     }
     chunk += piece;
+    afterRun = onlySpace;
   }
   if (chunk.length > 0) yield chunk;
 }

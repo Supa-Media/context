@@ -82,3 +82,33 @@ test("chunking loses no text and barely moves an ordinary count", async () => {
   const { count } = await countTokens(text);
   assert.ok(Math.abs(count - whole) / whole < 0.01, `${count} vs ${whole}`);
 });
+
+test("a whitespace run cannot burn minutes of CPU either", async () => {
+  // A run of spaces is one pre-tokenized word to the encoder, exactly as
+  // "aaaa…" is, so it merges quadratically too. Measured before the fix:
+  // 8 Ki spaces took 8.2 s, and each doubling cost about four times as much.
+  const started = performance.now();
+  const { method } = await countTokens(" ".repeat(64 * 1024));
+  assert.equal(method, "exact");
+  assert.ok(performance.now() - started < 5_000);
+});
+
+test("no chunk hands the encoder an unbounded run, of either kind", async () => {
+  const { chunksOf, MAX_RUN } = await import("../src/mcp/tokens.js");
+  const longest = (text, pattern) => Math.max(0, ...(text.match(pattern) ?? []).map((run) => run.length));
+  for (const text of [
+    " ".repeat(5000),
+    `a${" ".repeat(5000)}`,
+    `${" ".repeat(5000)}a`,
+    "a".repeat(5000),
+    "\n".repeat(5000),
+    `${"\t".repeat(100)}word${" ".repeat(100)}`,
+  ]) {
+    const chunks = [...chunksOf(text)];
+    assert.equal(chunks.join(""), text, "chunking lost text");
+    for (const chunk of chunks) {
+      assert.ok(longest(chunk, /\s+/g) <= MAX_RUN, `whitespace run of ${longest(chunk, /\s+/g)}`);
+      assert.ok(longest(chunk, /\S+/g) <= MAX_RUN, `non-whitespace run of ${longest(chunk, /\S+/g)}`);
+    }
+  }
+});
