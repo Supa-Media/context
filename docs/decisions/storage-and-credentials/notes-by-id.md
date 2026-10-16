@@ -215,3 +215,32 @@ re-check guards. Dropping the wait or the fresh-count gate lets a delete run
 before the flip has settled or on a stale view of the rows. Both are guarded by
 `__tests__/cleanup/cleanupGate.test.ts` and `cleanupPass.test.ts`, and the
 gateway's key rule by `apps/mcp/test/cleanupPage.test.mjs`.
+
+## Two live rows never share an id: the repair
+
+*Built 2026-10-16 on the id copy (staff: Notes by id, "Check for shared ids").*
+
+Before the stop in PR #1731, two live rows could hold one `noteId`. They share one
+key, so one would read the other's body once keys are read. `noteIds.sharedIdReport`
+pages through a workspace's live file rows by `noteId` and lists each group with its
+copy state. `noteIds.repairSharedIds` schedules `repairSharedIdsPage`, which runs
+page by page and, per group:
+
+- keeps the id on the row whose copy is fresh under that id's key, else the oldest row;
+- gives every other row a new UUIDv7 and clears its copy record, so the next copy
+  pass copies its own bytes to its own key;
+- carries the id change into `nodeAccessState.snapshot`, the derived copy of each
+  row's id that the access derivation keeps (grants are keyed by the row's `_id`, not its id).
+
+In a keyed workspace, a group whose re-id'd row has `storageKey` equal to the shared
+key is left untouched and reported `needsLook`: its bytes may be the other row's.
+
+Two rows sharing an id also meant one row's access tokens (`@#<noteId>`) held for the
+other, so the repair closes that too. A copy page still in flight when the id changes
+records its copy only under the key it was handed (`CopyResult.key`), never under the
+row's new key.
+
+What a "simplification" would cost: keeping the newest row, or re-id'ing without the
+fresh-copy rule, leaves a note reading another's body; a repair that clears no copy
+record leaves the old copy marked fresh under a key that is no longer the row's.
+`sharedIds.test.ts` fails for each (the keeper sabotage, and the in-flight copy case).
