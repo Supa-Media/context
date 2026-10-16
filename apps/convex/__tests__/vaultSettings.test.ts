@@ -271,6 +271,87 @@ describe("editing a key in place", () => {
   });
 });
 
+describe("changing where a key goes, and deleting it", () => {
+  const viewLink = async (w: W, who: W["seyi"], entryId: string) =>
+    (await asUser(w.t, who).action(api.functions.vaultSettings.startVaultLink, { workspaceId: w.team, kind: "view", entryId })).token;
+  const firstKey = async (w: W) =>
+    (await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team }))[0];
+
+  test("the website, how it is sent and the name change in place, keep the AIs allowed, and are logged by name", async () => {
+    const w = await world();
+    await save(w, "Convex", { host: "api.convex.dev", style: "bearer", ask: true });
+    const entryId = await sayYes(w, "client-a", "Claude Code");
+    const token = await viewLink(w, w.seyi, entryId);
+    const edited = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, {
+      token,
+      name: "Convex prod",
+      proxy: { host: "https://example-deployment.convex.cloud/api", style: "header", name: "Authorization", prefix: "Convex", ask: true },
+    });
+    expect(edited.changed).toEqual(["name", "website", "how it is sent"]);
+    const after = await firstKey(w);
+    expect(after.name).toBe("Convex prod");
+    expect(after.proxy).toMatchObject({ host: "example-deployment.convex.cloud", style: "header", name: "Authorization", prefix: "Convex", ask: true });
+    expect(after.proxy?.clients.map((c: { id: string }) => c.id)).toEqual(["client-a"]);
+    const audit = await w.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    const row = audit.find((r) => (r as { action?: string }).action === "vault.edited") as { details?: Record<string, unknown> } | undefined;
+    expect(row?.details).toEqual({ changed: "name, website, how it is sent" });
+    // The values are untouched.
+    const shown = await asUser(w.t, w.seyi).action(api.functions.vault.revealVaultEntry, { token });
+    expect(shown.fields[0].values).toEqual({ dev: VALUE, prod: VALUE });
+  });
+
+  test("a website the gateway would refuse is refused here too, and nothing changes", async () => {
+    const w = await world();
+    await save(w, "Hook", { host: "api.example.com", style: "bearer", ask: true });
+    const entry = await firstKey(w);
+    const token = await viewLink(w, w.seyi, entry.entryId);
+    for (const host of ["webhook.site", "localhost", "api.example.com:8443"]) {
+      const error = await captureError(() =>
+        asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, { token, proxy: { host, style: "bearer", ask: true } }),
+      );
+      expect(errorCode(error)).toBe("INVALID_ARGUMENT");
+    }
+    expect((await firstKey(w)).proxy?.host).toBe("api.example.com");
+  });
+
+  test("turning AI use off removes the pin; the Fills on site changes", async () => {
+    const w = await world();
+    await save(w, "Stripe", { host: "api.stripe.com", style: "bearer", ask: true });
+    const entry = await firstKey(w);
+    const token = await viewLink(w, w.seyi, entry.entryId);
+    const edited = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.editVaultEntry, { token, proxy: null, site: "dashboard.stripe.com" });
+    expect(edited.changed).toEqual(["site", "AI use"]);
+    const after = await firstKey(w);
+    expect(after.proxy).toBeNull();
+    expect(after.sites).toEqual(["dashboard.stripe.com"]);
+  });
+
+  test("delete removes the key for good, logged; a member who did not save it, or someone else's link, cannot", async () => {
+    const w = await world();
+    await save(w, "Stripe", { host: "api.stripe.com", style: "bearer", ask: true });
+    const entryId = (await firstKey(w)).entryId;
+    const { store, keys } = await bucket(w);
+    const { readMeta, writeMeta } = await import("../../mcp/src/vault/entries.js");
+    const meta = (await readMeta(store, keys, String(w.team), entryId)) as { people: string[] };
+    await writeMeta(store, keys, String(w.team), entryId, { ...meta, people: [...meta.people, String(w.sayo)] });
+    const token = await viewLink(w, w.seyi, entryId);
+    expect(errorCode(await captureError(() => asUser(w.t, w.sayo).action(api.functions.vaultSettings.deleteVaultEntry, { token })))).toBe(
+      "VAULT_LINK_NOT_YOURS",
+    );
+    const theirs = await viewLink(w, w.sayo, entryId);
+    expect(errorCode(await captureError(() => asUser(w.t, w.sayo).action(api.functions.vaultSettings.deleteVaultEntry, { token: theirs })))).toBe(
+      "FORBIDDEN",
+    );
+    expect(await asUser(w.t, w.seyi).action(api.functions.vaultSettings.deleteVaultEntry, { token })).toEqual({ name: "Stripe" });
+    expect(await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team })).toEqual([]);
+    expect(await readMeta(store, keys, String(w.team), entryId)).toBeNull();
+    const audit = await w.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(audit.filter((r) => (r as { action?: string }).action === "vault.deleted")).toHaveLength(1);
+    // Its link opens nothing now.
+    expect(await captureError(() => asUser(w.t, w.seyi).action(api.functions.vault.revealVaultEntry, { token }))).toBeTruthy();
+  });
+});
+
 /** The workspace's bucket and data key, as the gateway opens them. */
 async function bucket(w: W) {
   const { storeForBinding } = await import("../../mcp/src/store/factory.js");

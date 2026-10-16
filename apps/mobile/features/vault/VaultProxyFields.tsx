@@ -117,7 +117,7 @@ export function VaultProxyFields({
           ) : null}
           <View style={styles.row}>
             <Text variant="rowSub" style={styles.grow} testID="vault-proxy-style">
-              How {site} wants it: <Text variant="rowSub" style={styles.strong}>{styleWords(chosen.style, chosen.name)}</Text>
+              How {site} wants it: <Text variant="rowSub" style={styles.strong}>{styleWords(chosen.style, chosen.name, chosen.prefix)}</Text>
               {chosen.guessed && host ? ", found for you" : ""}
             </Text>
             <TextLink
@@ -151,6 +151,20 @@ export function VaultProxyFields({
                   autoCorrect={false}
                   editable={!busy}
                   testID="vault-proxy-header"
+                />
+              ) : null}
+              {chosen.style === "header" ? (
+                <TextField
+                  label="Before the key"
+                  optional
+                  hint="One word the site wants ahead of the key, like Convex in “Authorization: Convex <key>”."
+                  value={state.headerPrefix}
+                  onChangeText={(text) => set({ headerPrefix: text })}
+                  placeholder="e.g. Convex"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!busy}
+                  testID="vault-proxy-prefix"
                 />
               ) : chosen.style === "query" ? (
                 <TextField
@@ -190,7 +204,7 @@ const makeStyles = (colors: Colors) =>
     box: { gap: 14, paddingTop: 4 },
     row: { flexDirection: "row", alignItems: "center", gap: 12 },
     grow: { flex: 1, gap: 2 },
-    strong: { color: colors.ink, fontWeight: "700" },
+    strong: { color: colors.text, fontWeight: "700" },
     chip: {
       alignSelf: "flex-start",
       paddingVertical: 8,

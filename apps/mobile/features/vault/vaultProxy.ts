@@ -20,6 +20,8 @@ export interface ProxyPinDraft {
   host: string;
   style: ProxyStyle;
   name?: string;
+  /** A named header's word before the key ("Convex" in `Authorization: Convex <key>`). */
+  prefix?: string;
   ask: boolean;
 }
 
@@ -30,11 +32,31 @@ export interface ProxyFormState {
   /** Null until the person picks under Advanced: then the guess for the host is used. */
   style: ProxyStyle | null;
   headerName: string;
+  /** A word before the key in the named header, or "". */
+  headerPrefix: string;
   paramName: string;
   ask: boolean;
 }
 
-export const PROXY_OFF: ProxyFormState = { on: false, host: "", style: null, headerName: "", paramName: "", ask: true };
+export const PROXY_OFF: ProxyFormState = { on: false, host: "", style: null, headerName: "", headerPrefix: "", paramName: "", ask: true };
+
+/** The form's state for a pin a key was saved with, to change it in place. */
+export function proxyFormOf(pin: { host: string; style: ProxyStyle; name: string | null; prefix?: string | null; ask: boolean } | null): ProxyFormState {
+  if (pin === null) return PROXY_OFF;
+  // A pin that is what the host would be guessed as stays a guess, so a new
+  // address is guessed afresh (api.convex.dev to a deployment's own address).
+  const guess = guessStyle(pin.host);
+  const guessed = guess.style === pin.style && guess.name === (pin.name ?? "") && (guess.prefix ?? "") === (pin.prefix ?? "");
+  return {
+    on: true,
+    host: pin.host,
+    style: guessed ? null : pin.style,
+    headerName: pin.style === "header" ? pin.name ?? "" : "",
+    headerPrefix: pin.style === "header" ? pin.prefix ?? "" : "",
+    paramName: pin.style === "query" ? pin.name ?? "" : "",
+    ask: pin.ask,
+  };
+}
 
 /**
  * Sites known not to take the key as `Authorization: Bearer`, from the
@@ -145,16 +167,19 @@ export function hostProblem(raw: string): string | null {
 }
 
 /** How the site probably wants the key, with the header or parameter name. */
-export function guessStyle(host: string): { style: ProxyStyle; name: string } {
+export function guessStyle(host: string): { style: ProxyStyle; name: string; prefix?: string } {
+  // A Convex deployment's own address takes `Authorization: Convex <deploy key>`.
+  if (host.endsWith(".convex.cloud") || host.endsWith(".convex.site")) return { style: "header", name: "Authorization", prefix: "Convex" };
   return KNOWN[host] ?? { style: "bearer", name: "" };
 }
 
 /** The style and name in force: the person's pick under Advanced, else the guess. */
-export function chosenStyle(state: ProxyFormState): { style: ProxyStyle; name: string; guessed: boolean } {
+export function chosenStyle(state: ProxyFormState): { style: ProxyStyle; name: string; prefix?: string; guessed: boolean } {
   const guess = guessStyle(typedHost(state.host));
   if (state.style === null) return { ...guess, guessed: true };
   const typed = state.style === "header" ? state.headerName : state.style === "query" ? state.paramName : "";
-  return { style: state.style, name: typed.trim(), guessed: false };
+  const prefix = state.style === "header" ? state.headerPrefix.trim() : "";
+  return { style: state.style, name: typed.trim(), ...(prefix ? { prefix } : {}), guessed: false };
 }
 
 /** Pick a style under Advanced: its name starts as the guess's, when the guess is that style. */
@@ -163,12 +188,14 @@ export function pickStyle(state: ProxyFormState, style: ProxyStyle): ProxyFormSt
   const from = chosenStyle(state);
   const seed = (current: string, kind: ProxyStyle) =>
     current || (from.style === kind ? from.name : guess.style === kind ? guess.name : "");
-  return { ...state, style, headerName: seed(state.headerName, "header"), paramName: seed(state.paramName, "query") };
+  const prefix = state.headerPrefix || (from.style === "header" ? from.prefix ?? "" : guess.style === "header" ? guess.prefix ?? "" : "");
+  return { ...state, style, headerName: seed(state.headerName, "header"), headerPrefix: prefix, paramName: seed(state.paramName, "query") };
 }
 
 /** How the page says a style, in the person's words. */
-export function styleWords(style: ProxyStyle, name: string): string {
+export function styleWords(style: ProxyStyle, name: string, prefix = ""): string {
   if (style === "bearer") return "sign-in header";
+  if (style === "header" && prefix) return `${name ? `the ${name}` : "a named"} header, after “${prefix}”`;
   if (style === "header") return name ? `the ${name} header` : "a named header";
   return name ? `?${name}= in the address` : "in the address";
 }
@@ -188,6 +215,6 @@ export function proxyProblem(state: ProxyFormState): string | null {
 /** What is sent to the server, or undefined when the switch is off. */
 export function proxyDraft(state: ProxyFormState): ProxyPinDraft | undefined {
   if (!state.on) return undefined;
-  const { style, name } = chosenStyle(state);
-  return { host: typedHost(state.host), style, ...(style === "bearer" ? {} : { name }), ask: state.ask };
+  const { style, name, prefix } = chosenStyle(state);
+  return { host: typedHost(state.host), style, ...(style === "bearer" ? {} : { name }), ...(prefix ? { prefix } : {}), ask: state.ask };
 }

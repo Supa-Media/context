@@ -136,6 +136,29 @@ test("a named header and a query parameter carry the key where the entry says", 
   assert.ok(text.includes(HIDDEN));
 });
 
+test("a named header can put a word before the key, as Convex wants: Authorization: Convex <key>", async () => {
+  const { store, id } = await proxyVault({
+    proxy: { host: "example-deployment.convex.cloud", style: "header", name: "Authorization", prefix: "Convex", ask: false },
+  });
+  const net = fakeFetch((url, init) => new Response(init.headers.get("authorization"), { status: 200 }));
+  withProxy(store, net.impl);
+  const result = await toolVaultFetch(store, ask(id, "https://example-deployment.convex.cloud/api/query"));
+  assert.equal(net.calls[0].init.headers.get("authorization"), `Convex ${KEY}`);
+  assert.equal(JSON.stringify(result).includes(KEY), false, "the echoed header came back hidden");
+  // Only one word, only on a named header, and every use checks it again.
+  assert.match(savedPin({ host: "api.example.com", style: "header", name: "Authorization", prefix: "Convex x" }).problem, /one word/);
+  assert.deepEqual(savedPin({ host: "api.example.com", style: "header", name: "Authorization", prefix: " Token " }).pin, {
+    host: "api.example.com",
+    style: "header",
+    name: "Authorization",
+    prefix: "Token",
+    ask: true,
+  });
+  assert.equal(savedPin({ host: "api.example.com", style: "bearer", prefix: "Token" }).pin.prefix, undefined);
+  assert.equal(proxyPin({ proxy: { host: "api.example.com", style: "bearer", prefix: "Token" } }), null);
+  assert.equal(proxyPin({ proxy: { host: "api.example.com", style: "header", name: "A", prefix: "two words" } }), null);
+});
+
 test("an answer that repeats the key, in any encoding, reaches the model with it hidden", async () => {
   const { store, id } = await proxyVault();
   const basic = Buffer.from(`user:${KEY}`).toString("base64");

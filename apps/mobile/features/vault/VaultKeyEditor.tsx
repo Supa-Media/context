@@ -1,134 +1,214 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
 import { FormError, TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
+import { TextLink } from "../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { useCopy } from "../design/useCopy";
 import { SecretInput } from "./SecretInput";
-import { ENVS, SINGLE, type RevealedField } from "./vaultFields";
-import type { RevealedEntry } from "./vaultLink";
+import { SuggestionList } from "./SuggestionList";
+import { VaultProxyFields } from "./VaultProxyFields";
+import { suggestSites } from "./apiHostSuggest";
+import { ENVS, ENV_LABEL, SINGLE, isEnv, type RevealedField } from "./vaultFields";
+import { proxyDraft, proxyFormOf, proxyProblem, type ProxyFormState, type ProxyPinDraft } from "./vaultProxy";
+import type { VaultEntry } from "./vaultSettings";
+import type { VaultValuesShape } from "./VaultValues";
 
 /** What a save sends: only the parts that changed. */
-export type VaultEdit = { username?: string; password?: string; fields?: RevealedField[] };
+export type VaultEdit = {
+  name?: string;
+  site?: string;
+  /** The website it is only ever sent to, or null to stop AIs using it. */
+  proxy?: ProxyPinDraft | null;
+  username?: string;
+  password?: string;
+  fields?: RevealedField[];
+};
 
 /**
- * One key's values, open in Settings › Vault and changed in place (the owner
- * asked on 2026-10-16). A login's username is shown as it is; its password,
- * and every secret value, is dots until Show. Save sends only what changed,
- * and the server logs it by name ("You changed the password"), never the
- * value. The values live in this component's state and go when it closes.
+ * Edit, on a picked key in Settings › Vault (board 2's Edit; the owner asked
+ * on 2026-10-16 to change things in place, the website included, and to
+ * delete a key). One form in the key's own pane: its name, where it goes and
+ * how, and its values. Save sends only what changed, and the server logs it
+ * by name ("You changed the website"), never a value. Delete is the one-way
+ * door: said in bold red, and asked once more inline before it happens.
  */
 export function VaultKeyEditor({
-  revealed,
+  entry,
+  values,
   onSave,
+  onCancel,
+  onDelete,
 }: {
-  revealed: RevealedEntry;
+  entry: VaultEntry;
+  values: VaultValuesShape;
   /** Resolves the names of what changed. */
-  onSave: (edit: VaultEdit) => Promise<string[]>;
+  onSave: (edit: VaultEdit, after: VaultValuesShape) => Promise<string[]>;
+  onCancel: () => void;
+  onDelete: () => Promise<void>;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const login = revealed.type === "login";
-  const [saved, setSaved] = useState(() => draftOf(revealed));
-  const [draft, setDraft] = useState(() => draftOf(revealed));
+  const login = entry.type === "login";
+  const start = useMemo(() => draftOf(entry, values), [entry, values]);
+  const [draft, setDraft] = useState(start);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
-  const edit = useMemo(() => editBetween(saved, draft), [saved, draft]);
+  const [confirming, setConfirming] = useState(false);
+  const edit = useMemo(() => editBetween(entry, start, draft), [entry, start, draft]);
   const dirty = Object.keys(edit).length > 0;
-  const blocker = login && draft.password.length === 0 ? "To save, enter the password." : null;
-
-  const change = (next: Draft) => {
-    setDraft(next);
-    setSaid(null);
+  const blocker =
+    draft.name.trim() === ""
+      ? "To save, give it a name."
+      : login && draft.password.length === 0
+        ? "To save, enter the password."
+        : login
+          ? null
+          : proxyProblem(draft.proxy);
+  const change = (patch: Partial<Draft>) => {
+    setDraft((now) => ({ ...now, ...patch }));
     setProblem(null);
   };
-  const save = async () => {
+  const act = async (work: () => Promise<void>) => {
     setBusy(true);
     setProblem(null);
     try {
-      const changed = await onSave(edit);
-      setSaved(draft);
-      setSaid(changedLine(changed));
+      await work();
     } catch (error: unknown) {
       setProblem(messageOf(error));
     } finally {
       setBusy(false);
     }
   };
+  const save = () =>
+    act(async () => {
+      await onSave(edit, { username: draft.username, password: draft.password, fields: draft.fields });
+    });
 
   return (
-    <View style={styles.wrap} testID="vault-key-editor">
+    <View style={styles.form} testID="vault-key-editor">
+      <TextField label="Name" value={draft.name} onChangeText={(name) => change({ name })} editable={!busy} testID="vault-edit-name" />
       {login ? (
         <>
-          <Row value={draft.username} name="username">
-            <TextField
-              label="Username"
-              value={draft.username}
-              onChangeText={(username) => change({ ...draft, username })}
-              autoCapitalize="none"
-              autoCorrect={false}
-              testID="vault-edit-username"
-            />
-          </Row>
-          <Row value={draft.password} name="password">
-            <SecretInput
-              label="Password"
-              revealName="password"
-              value={draft.password}
-              onChangeText={(password) => change({ ...draft, password })}
-              testID="vault-edit-password"
-            />
-          </Row>
-        </>
-      ) : null}
-      {draft.fields.map((field, fieldIndex) =>
-        slotsOf(field).map((slot) => {
-          const label = slot === SINGLE ? field.name : `${field.name} · ${slot}`;
-          const value = field.values[slot] ?? "";
-          return (
-            <Row key={`${field.name}-${slot}`} value={value} name={label}>
-              <SecretInput
-                label={label}
-                revealName={label}
-                value={value}
-                onChangeText={(text) => change(withValue(draft, fieldIndex, slot, text))}
-                testID={`vault-edit-field-${fieldIndex}-${slot}`}
-              />
-            </Row>
-          );
-        }),
-      )}
-      {problem !== null ? <FormError headline={problem} /> : null}
-      {said !== null ? (
-        <Text variant="rowSub" testID="vault-edit-saved">
-          {said}
-        </Text>
-      ) : null}
-      {dirty ? (
-        <View style={styles.actions}>
-          <Button
-            label={busy ? "Saving…" : "Save changes"}
-            variant="dialogPrimary"
-            disabled={busy || blocker !== null}
-            onPress={() => void save()}
-            testID="vault-edit-save"
+          <TextField
+            label="Tex fills it on"
+            value={draft.site}
+            onChangeText={(site) => change({ site })}
+            placeholder="e.g. netflix.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            inputMode="url"
+            editable={!busy}
+            testID="vault-edit-site"
           />
-          <Button label="Undo" variant="dialog" disabled={busy} onPress={() => change(saved)} testID="vault-edit-undo" />
-          {blocker !== null ? <Text variant="hint">{blocker}</Text> : null}
+          <TextField
+            label="Username"
+            value={draft.username}
+            onChangeText={(username) => change({ username })}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!busy}
+            testID="vault-edit-username"
+          />
+          <SecretInput
+            label="Password"
+            revealName="password"
+            value={draft.password}
+            onChangeText={(password) => change({ password })}
+            editable={!busy}
+            testID="vault-edit-password"
+          />
+        </>
+      ) : (
+        <>
+          <VaultProxyFields state={draft.proxy} onChange={(proxy) => change({ proxy })} entryName={draft.name} entrySite={draft.site} busy={busy} />
+          <TextField
+            label="Fills on"
+            optional
+            hint="A site where Tex may paste these for you."
+            value={draft.site}
+            onChangeText={(site) => change({ site })}
+            placeholder="e.g. dashboard.stripe.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            inputMode="url"
+            editable={!busy}
+            testID="vault-edit-site"
+          />
+          <SuggestionList
+            items={suggestSites(draft.site).map((one) => ({ value: one.site, name: one.name }))}
+            onPick={(site) => change({ site })}
+            disabled={busy}
+            testID="vault-edit-site-suggestions"
+          />
+        </>
+      )}
+      {draft.fields.map((field, fieldIndex) => (
+        <View key={field.name} style={styles.field}>
+          <Text variant="mono" style={styles.fieldName} numberOfLines={1} ellipsizeMode="middle">
+            {field.name}
+          </Text>
+          {slotsOf(field).map((slot) => (
+            <SecretInput
+              key={slot}
+              label={slot === SINGLE ? "Value" : isEnv(slot) ? ENV_LABEL[slot] : slot}
+              revealName={slot === SINGLE ? field.name : `${field.name} for ${slot}`}
+              value={field.values[slot] ?? ""}
+              onChangeText={(text) => change({ fields: withValue(draft.fields, fieldIndex, slot, text) })}
+              editable={!busy}
+              testID={`vault-edit-field-${fieldIndex}-${slot}`}
+            />
+          ))}
         </View>
-      ) : null}
+      ))}
+      {problem !== null ? <FormError headline={problem} /> : null}
+      <View style={styles.actions}>
+        <Button
+          label={busy && !confirming ? "Saving…" : "Save changes"}
+          variant="dialogPrimary"
+          disabled={busy || !dirty || blocker !== null}
+          onPress={() => void save()}
+          testID="vault-edit-save"
+        />
+        <Button label="Cancel" variant="dialog" disabled={busy} onPress={onCancel} testID="vault-edit-cancel" />
+        {dirty && blocker !== null ? <Text variant="hint">{blocker}</Text> : null}
+      </View>
+      <View style={styles.danger}>
+        {confirming ? (
+          <>
+            <Text variant="rowSub" style={styles.dangerText} testID="vault-delete-ask">
+              Delete “{entry.name}”? Every AI loses it at once, and it can't be brought back.
+            </Text>
+            <View style={styles.actions}>
+              <Button
+                label={busy ? "Deleting…" : "Delete key"}
+                variant="dialogDanger"
+                disabled={busy}
+                onPress={() => void act(onDelete)}
+                testID="vault-delete-confirm"
+              />
+              <Button label="Keep it" variant="dialog" disabled={busy} onPress={() => setConfirming(false)} testID="vault-delete-keep" />
+            </View>
+          </>
+        ) : (
+          <TextLink label="Delete key" style={styles.dangerText} disabled={busy} onPress={() => setConfirming(true)} testID="vault-delete" />
+        )}
+      </View>
     </View>
   );
 }
 
-type Draft = { username: string; password: string; fields: RevealedField[] };
+type Draft = VaultValuesShape & { name: string; site: string; proxy: ProxyFormState };
 
-function draftOf(revealed: RevealedEntry): Draft {
+function draftOf(entry: VaultEntry, values: VaultValuesShape): Draft {
   return {
-    username: revealed.username,
-    password: revealed.password,
-    fields: revealed.fields.map((field) => ({ ...field, values: { ...field.values } })),
+    name: entry.name,
+    site: entry.sites[0] ?? "",
+    proxy: proxyFormOf(entry.proxy),
+    username: values.username,
+    password: values.password,
+    fields: values.fields.map((field) => ({ ...field, values: { ...field.values } })),
   };
 }
 
@@ -139,51 +219,57 @@ function slotsOf(field: RevealedField): string[] {
   return set.length > 0 ? set : [...ENVS];
 }
 
-function withValue(draft: Draft, fieldIndex: number, slot: string, text: string): Draft {
-  return {
-    ...draft,
-    fields: draft.fields.map((field, index) => (index === fieldIndex ? { ...field, values: { ...field.values, [slot]: text } } : field)),
-  };
+function withValue(fields: RevealedField[], fieldIndex: number, slot: string, text: string): RevealedField[] {
+  return fields.map((field, index) => (index === fieldIndex ? { ...field, values: { ...field.values, [slot]: text } } : field));
 }
 
-export function editBetween(before: Draft, after: Draft): VaultEdit {
+const pinKey = (pin: ProxyPinDraft | undefined) => (pin ? JSON.stringify([pin.host, pin.style, pin.name ?? "", pin.prefix ?? "", pin.ask]) : "");
+
+/** Only what differs from the key as it was opened. */
+export function editBetween(entry: VaultEntry, before: Draft, after: Draft): VaultEdit {
   const edit: VaultEdit = {};
+  if (after.name.trim() !== before.name) edit.name = after.name.trim();
+  if (after.site.trim() !== before.site) edit.site = after.site.trim();
+  if (entry.type === "secret") {
+    const was = proxyDraft(before.proxy);
+    const now = proxyDraft(after.proxy);
+    if (pinKey(was) !== pinKey(now)) edit.proxy = now ?? null;
+  }
   if (after.username !== before.username) edit.username = after.username;
   if (after.password !== before.password) edit.password = after.password;
   if (JSON.stringify(after.fields) !== JSON.stringify(before.fields)) edit.fields = after.fields;
   return edit;
 }
 
-/** "Saved. You changed the password." */
+/** "Saved. You changed the website and the password." */
 export function changedLine(changed: string[]): string {
   if (changed.length === 0) return "Nothing to save: it was already like that.";
-  const names = changed.map((name) => (name === "username" || name === "password" ? `the ${name}` : name));
+  const words: Record<string, string> = {
+    name: "the name",
+    site: "the site",
+    website: "the website",
+    "how it is sent": "how it is sent",
+    "first-use ask": "the first-use ask",
+    "AI use": "whether AIs can use it",
+    username: "the username",
+    password: "the password",
+  };
+  const names = changed.map((name) => words[name] ?? name);
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return `Saved. You changed ${list}.`;
 }
 
 function messageOf(error: unknown): string {
   const data = (error as { data?: { message?: unknown } } | null)?.data;
-  return typeof data?.message === "string" ? data.message : "That wasn't saved. Try again.";
+  return typeof data?.message === "string" ? data.message : "That didn't go through. Try again.";
 }
 
-/** A field and its Copy, side by side. */
-function Row({ value, name, children }: { value: string; name: string; children: ReactNode }) {
-  const styles = useThemedStyles(makeStyles);
-  const { label, copy } = useCopy(value);
-  return (
-    <View style={styles.row}>
-      <View style={styles.field}>{children}</View>
-      <Button label={label} variant="mini" disabled={value.length === 0} accessibilityLabel={`Copy ${name}`} onPress={copy} style={styles.copy} />
-    </View>
-  );
-}
-
-const makeStyles = (_colors: Colors) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    wrap: { gap: 12 },
-    row: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
-    field: { flex: 1, minWidth: 0 },
-    copy: { marginBottom: 8 },
+    form: { gap: 14 },
+    field: { gap: 8 },
+    fieldName: { color: colors.text, fontWeight: "600" },
     actions: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10 },
+    danger: { gap: 10, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+    dangerText: { color: colors.critText, fontWeight: "700" },
   });
