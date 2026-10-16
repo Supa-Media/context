@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("seven listed rows; four pages live behind a row on another page", () => {
+  test("eight listed rows; four pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -76,6 +76,9 @@ describe("the order and the grouping", () => {
       are `folded`: a row on Profile, People & sharing, Connected apps or
       General opens each. `plugins` is deprecated behind `shown` and
       `invitations` appears only while an invitation is pending.
+      Vault is the eighth row, drawn in the sidebar on the board the owner
+      approved as drawn (2026-10-16): the keys an AI may use are looked for
+      by name, not behind another page.
     */
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
@@ -83,6 +86,7 @@ describe("the order and the grouping", () => {
       "workspace",
       "sharing",
       "integrations",
+      "vault",
       "premium",
       "storage",
       "website",
@@ -92,7 +96,7 @@ describe("the order and the grouping", () => {
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(12);
+    ).toHaveLength(13);
   });
 
   test("every section sits under a heading somebody can answer", () => {

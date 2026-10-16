@@ -311,6 +311,23 @@ export const SETTINGS_SECTIONS = [
   },
   {
     /*
+      The keys a person's AIs may use without seeing them (vault boards 2 to
+      5, approved by the owner 2026-10-16: "put it in settings"). Its own row,
+      right after Connected apps, because the question it answers is the next
+      one: what may those apps use. Underneath, each key is sealed in the
+      workspace's own storage; this page never shows a value.
+    */
+    key: "vault",
+    keywords:
+      "vault key keys api secret secrets token tokens password passwords login logins env environment variables credential credentials stripe openai proxy cut off revoke ai agent",
+    scope: "context",
+    label: "Vault",
+    group: null,
+    icon: "lock",
+    personalOnly: false,
+  },
+  {
+    /*
       The audit trail, as sentences. It was a block under "Advanced" at the
       foot of the workspace page, drawn one raw event per row, and a tester
       called it "actually disgusting" (2026-09-29). Its own row because it is

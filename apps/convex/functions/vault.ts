@@ -45,6 +45,7 @@ import {
   mayUse,
   newEntryId,
   isEntryId,
+  listMeta,
   readMeta,
   readSecret,
   siteHost,
@@ -53,49 +54,41 @@ import {
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
+import {
+  fieldSummaryValidator,
+  fieldValuesValidator,
+  kindValidator,
+  metaValidator,
+  operationValidator,
+  proxyClientValidator,
+  proxyPinValidator,
+  proxyStyleValidator,
+  revealedValidator,
+  shownPinValidator,
+  shownPin,
+  type Described,
+  type EntryKind,
+  type FieldSummary,
+  type FieldValues,
+  type LiveRequest,
+  type ProxyClient,
+  type ProxyPin,
+  type RequestKind,
+  type RequestLabels,
+  type Revealed,
+  type StoredPin,
+  type VaultMeta,
+  type Listed,
+  type Shown,
+  type ShownMeta,
+} from "./lib/vaultShapes";
+export type { Listed, Shown, ShownMeta } from "./lib/vaultShapes";
 
 export const VAULT_LINK_TTL_MS = 30 * 60 * 1000;
 const REQUEST_LIMIT = 20;
 const REQUEST_WINDOW_MS = 60 * 60 * 1000;
 
-type FieldSummary = { name: string; perEnv: boolean; set: string[] };
-type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
-type EntryKind = "login" | "secret";
-/** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
-type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; ask: boolean };
 
-type VaultMeta = {
-  type?: EntryKind;
-  fields?: FieldSummary[];
-  name: string;
-  sites: string[];
-  people: string[];
-  proxy?: ProxyPin;
-  createdBy: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type RequestLabels = {
-  workspace: { handle: string; name: string; kind: "personal" | "shared" } | null;
-  grantee: string | null;
-};
-type LiveRequest = { workspaceId: Id<"workspaces">; entryId: string | null; granteeUserId: Id<"users"> | null };
-type ShownMeta = { type: EntryKind; name: string; sites: string[]; people: string[]; fields: FieldSummary[]; proxy?: ProxyPin };
-type Revealed = { username: string; password: string; fields: FieldValues[] };
-type Shown = { entryId: string; meta: ShownMeta; revealed?: Revealed };
-type RequestKind = "add" | "share" | "view";
-type Described = {
-  kind: RequestKind;
-  workspace: { handle: string; name: string; kind: "personal" | "shared" };
-  grantee: string | null;
-  entry: { type: EntryKind; name: string; sites: string[]; fields: FieldSummary[] } | null;
-  expiresAt: number;
-};
-
-const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
-const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
-const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
 function fail(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
@@ -280,7 +273,7 @@ export const recordVaultAudit = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed")),
+    action: v.union(v.literal("vault.saved"), v.literal("vault.shared"), v.literal("vault.viewed"), v.literal("vault.cut_off")),
     entryId: v.string(),
   },
   returns: v.null(),
@@ -310,36 +303,6 @@ export const purgeExpiredVaultRequests = internalMutation({
 
 /* --------------------------------- barrier -------------------------------- */
 
-const proxyStyleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
-const proxyPinValidator = v.object({ host: v.string(), style: proxyStyleValidator, name: v.optional(v.string()), ask: v.boolean() });
-
-const operationValidator = v.union(
-  v.object({ kind: v.literal("meta"), entryId: v.string() }),
-  v.object({
-    kind: v.literal("add"),
-    entryId: v.string(),
-    userId: v.string(),
-    type: v.union(v.literal("login"), v.literal("secret")),
-    name: v.string(),
-    sites: v.array(v.string()),
-    username: v.string(),
-    password: v.string(),
-    fields: v.array(fieldValuesValidator),
-    proxy: v.optional(proxyPinValidator),
-  }),
-  v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
-  v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
-);
-
-const metaValidator = v.object({
-  type: v.union(v.literal("login"), v.literal("secret")),
-  name: v.string(),
-  sites: v.array(v.string()),
-  people: v.array(v.string()),
-  fields: v.array(fieldSummaryValidator),
-  proxy: v.optional(proxyPinValidator),
-});
-const revealedValidator = v.object({ username: v.string(), password: v.string(), fields: v.array(fieldValuesValidator) });
 
 /**
  * CREDENTIAL BARRIER. Opens one workspace's bucket and data key, does one
@@ -349,8 +312,12 @@ const revealedValidator = v.object({ username: v.string(), password: v.string(),
  */
 export const runVaultOperation = internalAction({
   args: { workspaceId: v.id("workspaces"), operation: operationValidator },
-  returns: v.union(v.null(), v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) })),
-  handler: async (ctx, args): Promise<Shown | null> => {
+  returns: v.union(
+    v.null(),
+    v.object({ entryId: v.string(), meta: metaValidator, revealed: v.optional(revealedValidator) }),
+    v.object({ entries: v.array(v.object({ entryId: v.string(), meta: metaValidator })) }),
+  ),
+  handler: async (ctx, args): Promise<Shown | Listed | null> => {
     const credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
       workspaceId: args.workspaceId,
     });
@@ -371,10 +338,29 @@ export const runVaultOperation = internalAction({
         sites: meta.sites ?? [],
         people: meta.people,
         fields: Array.isArray(meta.fields) ? meta.fields : [],
-        ...(meta.proxy ? { proxy: meta.proxy } : {}),
+        ...(meta.proxy ? { proxy: shownPin(meta.proxy) } : {}),
       },
     });
     const op = args.operation;
+    if (op.kind === "list") {
+      const all = (await listMeta(store, keys, workspaceId)) as { id: string; meta: VaultMeta }[];
+      return { entries: all.filter((entry) => mayUse(entry.meta, op.userId)).map((entry) => shown(entry.id, entry.meta)) };
+    }
+    if (op.kind === "cut") {
+      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
+      if (meta === null || !mayUse(meta, op.userId)) return null;
+      if (meta.proxy) {
+        const keep = (id: string) => op.clientId !== undefined && id !== op.clientId;
+        meta.proxy = {
+          ...meta.proxy,
+          clients: (meta.proxy.clients ?? []).filter((client) => keep(client.id)),
+          once: (meta.proxy.once ?? []).filter((grant) => keep(grant.id)),
+        };
+        meta.updatedAt = Date.now();
+        await writeMeta(store, keys, workspaceId, op.entryId, meta);
+      }
+      return shown(op.entryId, meta);
+    }
     if (op.kind === "meta") {
       const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
       return meta === null ? null : shown(op.entryId, meta);
@@ -427,6 +413,7 @@ export const runVaultOperation = internalAction({
   },
 });
 
+
 /* ------------------------------ signed-in pages ---------------------------- */
 
 async function signedIn(ctx: Parameters<typeof getAuthUserId>[0]): Promise<Id<"users">> {
@@ -453,6 +440,16 @@ async function openVault(
   operation: Infer<typeof operationValidator>,
   message: string,
 ): Promise<Shown | null> {
+  return (await runVault(ctx, workspaceId, operation, message)) as Shown | null;
+}
+
+/** `openVault` for any operation, `list` included; `vaultSettings.ts` reaches the barrier through it. */
+export async function runVault(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  operation: Infer<typeof operationValidator>,
+  message: string,
+): Promise<Shown | Listed | null> {
   try {
     return await ctx.runAction(internal.functions.vault.runVaultOperation, { workspaceId, operation });
   } catch (error) {
