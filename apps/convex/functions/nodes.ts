@@ -62,6 +62,7 @@ const rowValidator = v.object({
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
   uploaded: v.optional(v.number()),
+  noteId: v.optional(v.string()),
 });
 
 const stateValidator = v.object({
@@ -335,10 +336,16 @@ export const listLive = internalQuery({
       const scoped = q.eq("workspaceId", workspaceId);
       return after === undefined ? scoped : scoped.gt("path", after);
     });
-    const rows: { path: string; etag?: string; size?: number; uploaded?: number }[] = [];
+    const rows: { path: string; etag?: string; size?: number; uploaded?: number; noteId?: string }[] = [];
     for await (const doc of query) {
       if (doc.kind !== "file" || doc.goneAt !== undefined) continue;
-      rows.push({ path: doc.path, etag: doc.etag, size: doc.size, uploaded: doc.uploaded });
+      rows.push({
+        path: doc.path,
+        etag: doc.etag,
+        size: doc.size,
+        uploaded: doc.uploaded,
+        ...(doc.noteId === undefined ? {} : { noteId: doc.noteId }),
+      });
       if (rows.length >= size) break;
     }
     const cursor = rows.length >= size ? rows[rows.length - 1].path : null;

@@ -17,6 +17,7 @@ import { convexNodeTable } from "./lib/nodes/convexTable";
 import { copyIsFresh, idKeyFor } from "./lib/nodes/noteIds";
 import { applyObservation } from "./lib/nodes/observe";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
+import { isPlumbing } from "./lib/privacy";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
@@ -308,6 +309,33 @@ export const copiesFor = internalQuery({
         keyEtag: row.idCopy?.keyEtag ?? null,
         fresh: copyIsFresh(row),
       });
+    }
+    return found;
+  },
+});
+
+/**
+ * The path each note id's live row sits at now, for `/gateway/note-ids/resolve`.
+ *
+ * Scoped by `workspaceId` through the index, so an id held by another
+ * workspace's row is not found here. A trashed row (`goneAt`) is not live, and
+ * neither is one a queued trash parked under a dot folder: the tree never lists
+ * those, so a note in the trash has no current path a search may name. An id
+ * that matches more than one live row is answered as no row, since no single
+ * path is its path. INTERNAL.
+ */
+export const pathsForNoteIds = internalQuery({
+  args: { workspaceId: v.id("workspaces"), noteIds: v.array(v.string()) },
+  returns: v.array(v.object({ noteId: v.string(), path: v.string() })),
+  handler: async (ctx, { workspaceId, noteIds }) => {
+    const found: Array<{ noteId: string; path: string }> = [];
+    for (const noteId of noteIds) {
+      const holders = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
+        .collect();
+      const live = holders.filter((row) => row.kind === "file" && row.goneAt === undefined && !isPlumbing(row.path));
+      if (live.length === 1) found.push({ noteId, path: live[0]!.path });
     }
     return found;
   },

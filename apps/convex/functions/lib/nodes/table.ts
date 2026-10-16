@@ -27,6 +27,8 @@ export interface NodeRow {
   size?: number;
   /** Epoch ms. */
   uploaded?: number;
+  /** The row's note id (`lib/nodes/noteIds.ts`), when it has one. Carried, never read to decide anything here. */
+  noteId?: string;
   /**
    * Set on a seam observation's rows (`source: "seam"`): the note the key
    * now holds and the key its bytes live at. Bucket rows never carry it.
