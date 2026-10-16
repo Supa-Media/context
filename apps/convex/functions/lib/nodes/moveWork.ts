@@ -252,7 +252,10 @@ async function finishMove(
     await ctx.runMutation(internal.functions.nodeMoves.complete, { id: claimed.id });
     return;
   }
-  await releasePrivacy(store, { from: claimed.from, undone: claimed.undone, added: claimed.added });
+  // Rows mode carried no rules at the start, so there are none to release at the old name.
+  if (!(await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    await releasePrivacy(store, { from: claimed.from, undone: claimed.undone, added: claimed.added });
+  }
   // Fast search finds the folder's notes at the new name from here on: until
   // now its rows were folded there (`atTreeNames`), and with the move gone
   // from the queue nothing would fold them.

@@ -33,6 +33,14 @@ import { ADMIN, boundWorkspace, user } from "../noteIds/noteIds.helpers";
 const tester = () => convexTest(schema, modules);
 type T = ReturnType<typeof tester>;
 
+/** The rules are the authority before rows are used: the precondition `useRows` checks (`ROWS_NEEDS_AUTHORITY`). */
+async function ruleAuthorityOn(t: T): Promise<void> {
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("nodeMigration").first();
+    if (row !== null) await ctx.db.patch(row._id, { privacyAuthority: true });
+  });
+}
+
 let previous: string | undefined;
 beforeEach(() => {
   previous = process.env[ADMIN_EMAILS_ENV_VAR];
@@ -245,7 +253,7 @@ describe("Use rows", () => {
     expect(await sourceOf(t)).toBe("shadow");
   });
 
-  test("refused while a difference stands, and held for step 3 once the next check finds none", async () => {
+  test("refused while a difference stands, and held once the next check finds none", async () => {
     const t = tester();
     const workspaceId = await ruledWorkspace(t, "acme");
     await keepRows(t);
@@ -258,7 +266,8 @@ describe("Use rows", () => {
 
     await corruptRow(t, workspaceId, "1-projects/plan.md", undefined);
     await checkEverything(t);
-    // Every check passed; only the step-3 hold remains.
+    // Every check passed; only the hold remains (new private notes can't be saved on rows yet).
+    await ruleAuthorityOn(t);
     expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
     expect(await sourceOf(t)).toBe("shadow");
     expect(await auditActions(t)).toEqual(["rows.source_set"]);
@@ -296,7 +305,8 @@ describe("Use rows", () => {
     const staff = await signedIn(t, ADMIN);
     const report = await staff.query(api.functions.privacyRows.report, {});
     expect(report.rows[0]?.orphans).toBe(1);
-    // Every check passed; only the step-3 hold remains.
+    // Every check passed, orphans and all; only the hold remains.
+    await ruleAuthorityOn(t);
     expect(errorCode(await errorOf(staff.mutation(api.functions.privacyRows.useRows, {})))).toBe("ROWS_WRITES_PENDING");
   });
 });

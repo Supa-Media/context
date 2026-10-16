@@ -36,8 +36,9 @@ import {
   parsePrivacyManifest,
   replacePrivacyRulesBlock,
   spliceRulesBlock,
+  visibilityOf,
 } from "../privacy/engine.js";
-import { hasRowToken } from "../privacy/rowAccess.js";
+import { hasRowToken, ROW_TOKEN_PATTERN } from "../privacy/rowAccess.js";
 
 /** What a workspace's `privacy.md` says when the bucket holds none, or one that will not parse. */
 const SKELETON = `# Privacy\n\n${PRIVACY_RULES_BEGIN}\n${PRIVACY_RULES_END}\n`;
@@ -57,7 +58,20 @@ const SKELETON = `# Privacy\n\n${PRIVACY_RULES_BEGIN}\n${PRIVACY_RULES_END}\n`;
  * @property {(export_: {rendered: string, etag: string|null}) => Promise<void>} exported
  *   the file was written from the rules at version `rendered`
  * @property {() => Promise<void>} owed the export did not happen; write it again later
+ * @property {(change: {path: string, base: string, expectedVersion?: number}) => Promise<{ok: true, version: number}|{ok: false, code?: string}>} [setAccess]
+ *   rows mode only: one row's base, from the access version held. Present when the rows are the truth.
  */
+
+/**
+ * The base a row's tier write sends, and what the row's grant list is after it, in the rows the gateway holds.
+ * A list (a row token) survives a tier change: a team row is open whatever its list, and a private one answers to it.
+ */
+function visibilityAfter(base, existing) {
+  if (base === "team") return "team";
+  if (existing !== undefined && ROW_TOKEN_PATTERN.test(existing)) return existing;
+  if (base === "private") return "private";
+  return null;
+}
 
 /** The rules a manifest's text holds, or `null` when it does not parse. */
 export function rulesOfText(text) {
@@ -147,6 +161,29 @@ export function withPrivacyAuthority(store, authority) {
   let held = authority.rules ?? null;
   const wrapped = Object.create(store);
 
+  /**
+   * Rows mode: a tier on one row, through the control plane's `setAccess` from the version held. The held rules
+   * are then brought up to date, so a later check in this request sees the write. `base` is `inherit` when a
+   * note's tier is what it would inherit anyway (as an exception is removed from the rules), and `tier` otherwise.
+   */
+  const setRowTier = async (path, tier, { folder = false } = {}) => {
+    const inherited = visibilityOf(
+      path,
+      held.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility })),
+    );
+    const base = !folder && tier !== "inherit" && tier === inherited ? "inherit" : tier;
+    const answer = await authority.setAccess({ path, base, expectedVersion: held.accessVersion });
+    if (answer?.ok !== true) return answer ?? { ok: false };
+    const listKey = folder ? "folders" : "notes";
+    const field = folder ? "prefix" : "path";
+    const existing = held[listKey].find((rule) => rule[field] === path)?.visibility;
+    const after = visibilityAfter(base, existing);
+    const others = held[listKey].filter((rule) => rule[field] !== path);
+    const entries = after === null ? others : [...others, folder ? { prefix: path, visibility: after } : { path, visibility: after }];
+    held = { ...held, [listKey]: entries, accessVersion: answer.version };
+    return answer;
+  };
+
   const render = async () => {
     const rules = held;
     const file = await store.get(PRIVACY_KEY);
@@ -191,6 +228,13 @@ export function withPrivacyAuthority(store, authority) {
   };
   /** The export, for the control plane's retry of one that was owed. */
   wrapped.exportPrivacy = () => exportNow();
+
+  // Rows mode only (`held.accessVersion` is set): the rows are the truth, and a row's tier goes through `setAccess`.
+  Object.defineProperty(wrapped, "rowAccess", {
+    enumerable: false,
+    get: () =>
+      held !== null && typeof held.accessVersion === "number" ? { setTier: setRowTier } : undefined,
+  });
 
   wrapped.put = async (key, value, options) => {
     if (key !== PRIVACY_KEY) return await store.put(key, value, options);

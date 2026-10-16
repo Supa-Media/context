@@ -352,6 +352,8 @@ export const contextMoveSettledValidator = v.object({
   kind: v.literal("contextMoveSettled"),
 });
 
+export const activityRecordedValidator = v.object({ kind: v.literal("activityRecorded") });
+
 export const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),

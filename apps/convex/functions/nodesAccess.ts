@@ -11,6 +11,7 @@
  */
 
 import { v } from "convex/values";
+import type { Doc } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
@@ -126,5 +127,56 @@ export const narrowMove = internalMutation({
     if ((await accessSourceOf(ctx.db)) !== "rows") return null;
     await narrowRowForMove(ctx, workspaceId, from, to);
     return null;
+  },
+});
+
+/** The owner's list on a row, as the grantees `setAccessRow` takes: a base-only write keeps it. */
+async function ownerGranteesOf(ctx: MutationCtx, row: Doc<"nodes">): Promise<GranteeInput[]> {
+  const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect();
+  const granted: GranteeInput[] = [];
+  for (const grant of grants) {
+    if (grant.source !== "owner") continue;
+    if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
+      granted.push({ kind: "user", userId: grant.granteeUserId, role: grant.role });
+    } else if (grant.granteeKind === "group" && grant.granteeGroupId !== undefined) {
+      granted.push({ kind: "group", groupId: grant.granteeGroupId, role: grant.role });
+    } else if (grant.granteeKind === "email" && grant.granteeEmail !== undefined) {
+      granted.push({ kind: "email", email: grant.granteeEmail, role: grant.role });
+    }
+  }
+  return granted;
+}
+
+/**
+ * Website publication in rows mode (`lib/websites/publication.ts`): a folder with no base of its own takes
+ * `team`, as the file's `onlyIfUnset` rule gives it; one that has a base keeps it. Its owner's list is kept.
+ * A folder with no row is `NOT_FOUND`: a row is never made here.
+ */
+export const ensureFolderDefault = internalMutation({
+  args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users"), path: v.string() },
+  returns: v.union(
+    v.object({ ok: v.literal(true), visibility: v.string(), changed: v.boolean() }),
+    v.object({
+      ok: v.literal(false),
+      code: v.union(v.literal("CONFLICT"), v.literal("NOT_FOUND"), v.literal("FORBIDDEN"), v.literal("NOT_ROWS_MODE")),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    if ((await accessSourceOf(ctx.db)) !== "rows") return { ok: false as const, code: "NOT_ROWS_MODE" as const };
+    const row = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", args.workspaceId).eq("path", args.path))
+      .unique();
+    if (row === null) return { ok: false as const, code: "NOT_FOUND" as const };
+    if (row.access?.base !== undefined) return { ok: true as const, visibility: row.access.base, changed: false };
+    const answer = await setAccessRow(ctx, {
+      workspaceId: args.workspaceId,
+      path: args.path,
+      base: "team",
+      grantees: await ownerGranteesOf(ctx, row),
+      actor: { userId: args.actorUserId, role: "owner" },
+    });
+    if (!answer.ok) return { ok: false as const, code: answer.code };
+    return { ok: true as const, visibility: "team", changed: true };
   },
 });

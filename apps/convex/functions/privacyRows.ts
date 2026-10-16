@@ -247,15 +247,16 @@ export const checkAll = mutation({
 
 /** Move the readers to the rows. Refused unless every workspace's check stands and found nothing. */
 /**
- * Whether gateway privacy writes understand row tokens yet. Until they do (privacy-rows step 3), a
- * deployment judged by rows would refuse every privacy change that touches a listed note, so Use rows
- * is held even when every check is clean. Step 3 turns this on together with the writes.
+ * Whether every privacy write works under rows. The gateway, the console and moves write rows (step 3), but
+ * still open: a new note saved private has no row yet when its privacy is written, so it is refused; unkeyed
+ * folder moves are refused; a fresh workspace's scaffold defaults can be pre-empted; a website folder with no
+ * row is not made team. Use rows stays held until those close.
  */
 export const ROWS_WRITES_READY = false;
 
 const ROWS_WRITES_PENDING = {
   code: "ROWS_WRITES_PENDING",
-  message: "Rows can be checked now, but switching to them waits until privacy changes are saved on rows.",
+  message: "Rows can be checked now, but switching to them waits until every privacy change can be saved on rows.",
 };
 
 export const useRows = mutation({

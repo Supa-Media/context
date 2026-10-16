@@ -87,6 +87,14 @@ export async function scaffoldStep(
   // and declared the bucket sealed, leaving them unreadable (`reseal.ts`).
   // The layout itself landed either way: a refusal here must not fail it,
   // and staff's Seal again still reaches anything left plain.
+  // Rows mode derives nothing on its own: a new context's folders take their scaffolded defaults once their rows
+  // exist (`nodesPrivacy.deriveNewWorkspaceRows`, which does nothing once the workspace has an access state).
+  if (result.scaffolded && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.deriveNewWorkspaceRows, {
+      workspaceId: options.workspaceId,
+      attempt: 0,
+    });
+  }
   if (sealing === null && result.written.length > 0) {
     try {
       await ctx.runMutation(internal.functions.managedEncryption.afterPlainWrites, { workspaceId: options.workspaceId });

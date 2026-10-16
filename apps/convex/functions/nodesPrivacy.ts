@@ -276,3 +276,41 @@ export const accessParity = internalQuery({
   }),
   handler: async (ctx, { workspaceId, cursor }) => await accessParityPage(ctx, workspaceId, cursor ?? null),
 });
+
+/** How many times a new workspace's rows are looked for, and how far apart: rows come with the first tree listing. */
+const SCAFFOLD_DERIVE_TRIES = 40;
+const SCAFFOLD_DERIVE_RETRY_MS = 15_000;
+
+/**
+ * A new context's folders take the defaults its scaffolded `privacy.md` gives them, once its rows exist (scheduled
+ * by `lib/scaffold/step.ts` in rows mode). Rows mode derives nothing on its own, so this is the one derivation,
+ * and only while the workspace has no access state: once it has one, the rows are the owner's and are not touched.
+ * INTERNAL.
+ */
+export const deriveNewWorkspaceRows = internalMutation({
+  args: { workspaceId: v.id("workspaces"), attempt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId, attempt }): Promise<null> => {
+    if ((await accessSourceOf(ctx.db)) !== "rows") return null;
+    const state = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (state !== null) return null;
+    const anyRow = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+      .first();
+    if (anyRow === null) {
+      if (attempt < SCAFFOLD_DERIVE_TRIES) {
+        await ctx.scheduler.runAfter(SCAFFOLD_DERIVE_RETRY_MS, internal.functions.nodesPrivacy.deriveNewWorkspaceRows, {
+          workspaceId,
+          attempt: attempt + 1,
+        });
+      }
+      return null;
+    }
+    await backfillAccess(ctx, workspaceId);
+    return null;
+  },
+});
