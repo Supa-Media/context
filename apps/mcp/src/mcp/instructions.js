@@ -173,8 +173,8 @@ stop paying.
    can carry a form — fields somebody fills in, answers appended to a second note
    — and you make one by putting a \`\`\`form block in the content you pass to
    \`write\`, which validates it and creates the answers note in the same call.
-   \`write\` carries the block's grammar in its own description, and it is in your
-   list however long ago you fetched it. Offer this when they describe collecting
+   \`orient\` with \`about: "save"\` gives the block's grammar, however long ago
+   your app fetched its tools. Offer this when they describe collecting
    the same thing from several people: an intake, a request list, a sign-up, a bug
    report. It is the one thing here that works for people who cannot write notes at
    all, and who may read the answers is the answers note's own visibility, so say

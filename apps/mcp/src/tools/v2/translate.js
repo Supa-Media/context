@@ -14,6 +14,7 @@ import { advertisedSchema, coercedArguments } from "../advertised.js";
 import { appOf } from "../liveList.js";
 import { ACTION_TOOLS, ACTIONS, actionOf } from "./actions.js";
 import { translateFetch, translateSearch } from "./searchFetch.js";
+import { resultInV2Names } from "./speak.js";
 
 /** v2 names that are translated here. `orient` is answered by itself. */
 export const TRANSLATED_TOOLS = new Set([...ACTION_TOOLS, "search", "fetch"]);
@@ -95,4 +96,9 @@ function addressing(args, out) {
     if (outer !== undefined) out[key] = outer;
   }
   return {};
+}
+
+/** A translated call's answer in the six tools' words; any other call's as it came (`speak.js`). */
+export function inWordsOf(v2, result) {
+  return v2 ? resultInV2Names(result) : result;
 }

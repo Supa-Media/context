@@ -26,6 +26,7 @@ import { ORIENT_RECENT_LIMIT } from "../src/orient/render.js";
 
 const HOME_TOKEN = `cat_orient_v2_home_${"0".repeat(18)}`;
 const MEMBER_TOKEN = `cat_orient_v2_member_${"0".repeat(15)}`;
+const EDITOR_TOKEN = `cat_orient_v2_editor_${"0".repeat(15)}`;
 const NOW = Date.now();
 const HOUR = 60 * 60 * 1000;
 
@@ -148,17 +149,33 @@ before(async () => {
   });
 });
 
+// A team-tier editor of home: writes, but only inside home's team folders.
+before(async () => {
+  await controlPlane.addGrant({
+    accessToken: EDITOR_TOKEN,
+    workspaceId: "ws_v2_home",
+    role: "editor",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_orient_v2_editor",
+    userId: "user_orient_v2_editor",
+  });
+});
+
 after(() => {
   restore?.();
 });
 
 async function orient(token, args = {}) {
+  return await call(token, "orient", args);
+}
+
+async function call(token, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "orient", arguments: args } }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
     }),
     env,
     ctx
@@ -292,6 +309,31 @@ test("about: access says what this connection may write, in full", async () => {
   assert.ok(owner.text.includes("## Write surface"));
   const member = await orient(MEMBER_TOKEN, { about: "access" });
   assert.ok(member.text.includes("## Write surface"));
+});
+
+test("about: access names only calls a v2 app can make", async () => {
+  for (const token of [HOME_TOKEN, MEMBER_TOKEN]) {
+    const { text } = await orient(token, { about: "access" });
+    assert.doesNotMatch(text, /\b(write_note|propose_note|scope_info)\b/, text);
+  }
+  const { text } = await orient(MEMBER_TOKEN, { about: "access" });
+  assert.ok(text.includes("use write with action propose"), text);
+});
+
+test("a v2 write the gate refuses is told what to call in the six tools' names", async () => {
+  const refused = await call(EDITOR_TOKEN, "write", { path: "3-resources/x.md", content: "# x\n" });
+  assert.equal(refused.isError, true, refused.text);
+  assert.match(refused.text, /^permission denied: /);
+  assert.doesNotMatch(refused.text, /\b(propose_note|scope_info)\b/, refused.text);
+  assert.ok(refused.text.includes('orient with about: "access"'), refused.text);
+  // A note that quotes the older names reads back as written.
+  const quoted = "# Old manual\n\nCall scope_info for the authorized write surface or use propose_note for the correct destination.\n";
+  home.seed("1-projects/old-manual.md", quoted, new Date(NOW));
+  const read = await call(HOME_TOKEN, "fetch", { id: "1-projects/old-manual.md" });
+  assert.ok(read.text.includes("Call scope_info for the authorized"), read.text);
+  // The same refusal reached by its older name keeps the older names.
+  const older = await call(EDITOR_TOKEN, "write_note", { path: "3-resources/x.md", content: "# x\n" });
+  assert.ok(older.text.includes("Call scope_info"), older.text);
 });
 
 test("about: website gives the guide, and says so where the context has no website folder", async () => {

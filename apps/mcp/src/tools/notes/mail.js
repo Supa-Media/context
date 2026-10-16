@@ -48,7 +48,7 @@ function members(events) {
 async function mailboxFor(store, args, path) {
   if (args.mailbox === undefined) return { mailbox: null };
   if (typeof args.mailbox !== "string" || typeof store.mail?.get !== "function") {
-    return { error: "mailbox must be the id write_note mail: { join } gave you" };
+    return { error: "mailbox must be the id joining the note's mail gave you" };
   }
   const mailbox = await store.mail.get(args.mailbox).catch(() => null);
   if (!mailbox) return { error: `mailbox ${args.mailbox} is not one this connection joined` };

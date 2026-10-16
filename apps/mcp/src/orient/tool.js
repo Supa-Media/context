@@ -22,6 +22,7 @@ import { firstParagraphOf, readFrontPage, readSaveProcedure } from "./frontPage.
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
 import { WEBSITE_GUIDE, hasWebsiteFolder } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
+import { inV2Names } from "../tools/v2/speak.js";
 import { toolNewsSection } from "../tools/news.js";
 import { appOf } from "../tools/liveList.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
@@ -120,7 +121,10 @@ async function healthAnswer(store, scope, rules, overrides) {
 /** Every `about` answer, each for the one thing it names. */
 async function aboutAnswer(store, scope, rules, overrides, about) {
   if (about === "tools") return toolText(`# Context's tools and actions\n\n${await toolsManual(store, scope)}`);
-  if (about === "access") return toolText(scopeInfoText(scope, rules, currentReach(store)));
+  if (about === "access") {
+    const text = scopeInfoText(scope, rules, currentReach(store));
+    return toolText(typeof store.offeredTools === "function" ? inV2Names(text) : text);
+  }
   if (about === "website") {
     const survey = await surveyOf(store, store, scope, rules, overrides);
     const note = hasWebsiteFolder(survey)
