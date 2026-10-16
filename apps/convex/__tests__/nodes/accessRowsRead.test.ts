@@ -15,7 +15,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import type { QueryCtx } from "../../_generated/server";
+import type { MutationCtx, QueryCtx } from "../../_generated/server";
+import { deriveAccess } from "../../functions/lib/nodes/accessBackfill";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
@@ -277,10 +278,11 @@ describe("rows mode judges members by the access rows", () => {
     expect(bob).toEqual([]);
   });
 
-  test("rows mode reads the rows, not the file: a row changed on its own changes what members see", async () => {
+  test("rows mode reads the rows as the last derivation left them: a row edited on its own is read at the next derivation", async () => {
     const f = await fixture();
     await setSource(f, "rows");
-    // The file still lists groupnote.md to @acme-leads; the row now says team. Rows win in rows mode.
+    // The file lists groupnote.md to @acme-leads and the derivation wrote that. A row edited directly (no
+    // derivation, which no code path does) is not in the snapshot readers judge by, so bob still gets plan.md.
     await f.t.run(async (ctx) => {
       const row = await ctx.db
         .query("nodes")
@@ -289,7 +291,12 @@ describe("rows mode judges members by the access rows", () => {
       if (row === null) throw new Error("no row");
       await ctx.db.patch(row._id, { access: { base: "team" } });
     });
-    expect(await listingsOf(f, "bob")).toMatchObject({ "1-projects": ["groupnote.md", "plan.md"] });
+    expect(await listingsOf(f, "bob")).toMatchObject({ "1-projects": ["plan.md"] });
+    // The next derivation rebuilds the snapshot from the rows, and the rules win again.
+    await f.t.run(async (ctx) => {
+      await deriveAccess(ctx as unknown as MutationCtx, f.ws);
+    });
+    expect(await listingsOf(f, "bob")).toMatchObject({ "1-projects": ["plan.md"] });
     await setSource(f, "file");
     expect(await listingsOf(f, "bob")).toMatchObject({ "1-projects": ["plan.md"] });
   });

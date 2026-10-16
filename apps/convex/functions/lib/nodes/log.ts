@@ -92,10 +92,17 @@ export function logReachesBack(since: number, now: number): boolean {
  * The rules version a copy judged by these rules is told, or `null` when no
  * catch-up may be built on them: a `privacy.md` that does not parse fails
  * closed, and only a walk answers that.
+ *
+ * `access` is the access rows' version, given only while rows judge
+ * (`accessSource` = `rows`). Rows change without `privacy.md` changing, so
+ * their version goes into the token too; without it a device would keep
+ * judging its copy by the rows it was told before. Absent, the token is the
+ * one `privacy.md` has always produced.
  */
-export function feedToken(mirror: PrivacyMirror | null, moves = ""): string | null {
+export function feedToken(mirror: PrivacyMirror | null, moves = "", access?: number): string | null {
   if (mirror?.invalid === true) return null;
-  return `${FEED_PREFIX}${mirror?.etag ?? ""}${moves === "" ? "" : `#${moves}`}`;
+  const rows = access === undefined ? "" : `^a${access}`;
+  return `${FEED_PREFIX}${mirror?.etag ?? ""}${moves === "" ? "" : `#${moves}`}${rows}`;
 }
 
 /** A pending move as the feed reads it: its row, and whether Undo turned it round. */

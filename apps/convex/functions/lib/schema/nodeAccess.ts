@@ -57,5 +57,28 @@ export const nodeAccessTables = {
         visibility: v.optional(v.string()),
       }),
     ),
+    /**
+     * Every row that carries a setting or a grant, as `accessRowsOf` reads
+     * them, rebuilt by each finished derivation. Absent while a derivation is
+     * walking (the readers scan the rows then) and whenever the set is too
+     * large for one document (`accessBackfill.ts`, `SNAPSHOT_MAX_ROWS`).
+     */
+    snapshot: v.optional(
+      v.array(
+        v.object({
+          path: v.string(),
+          noteId: v.string(),
+          kind: v.union(v.literal("file"), v.literal("folder")),
+          base: v.optional(v.union(v.literal("private"), v.literal("team"))),
+          grantees: v.array(
+            v.object({
+              kind: v.union(v.literal("user"), v.literal("group"), v.literal("email")),
+              id: v.string(),
+              role: v.union(v.literal("view"), v.literal("edit")),
+            }),
+          ),
+        }),
+      ),
+    ),
   }).index("by_workspace", ["workspaceId"]),
 };

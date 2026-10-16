@@ -73,6 +73,7 @@ test/orientOtherWorkspaces.test.mjs
 test/orientReadReach.test.mjs
 test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
+test/privacy/rowTokens.test.mjs
 test/queuedFolderMove.test.mjs
 test/readAtTreeNameGuard.test.mjs
 test/readFailure.test.mjs

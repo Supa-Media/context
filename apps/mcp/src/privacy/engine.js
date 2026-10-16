@@ -149,14 +149,20 @@ function renderPrivacyRulesBlock(rules, overrides) {
   ].join("\n");
 }
 
-export function replacePrivacyRulesBlock(text, rules, overrides) {
+/**
+ * `text` with its managed block replaced by these rules, unchecked: the result is not parsed. Only for rules
+ * that never reach a file (`store/privacyAuthority.js` reads rows' rules this way); a write goes through
+ * `replacePrivacyRulesBlock`.
+ */
+export function spliceRulesBlock(text, rules, overrides) {
   const begin = text.indexOf(PRIVACY_RULES_BEGIN);
   const end = text.indexOf(PRIVACY_RULES_END);
   if (begin < 0 || end < begin) throw new Error("privacy.md is missing its managed rules block");
-  const next =
-    text.slice(0, begin) +
-    renderPrivacyRulesBlock(rules, overrides) +
-    text.slice(end + PRIVACY_RULES_END.length);
+  return text.slice(0, begin) + renderPrivacyRulesBlock(rules, overrides) + text.slice(end + PRIVACY_RULES_END.length);
+}
+
+export function replacePrivacyRulesBlock(text, rules, overrides) {
+  const next = spliceRulesBlock(text, rules, overrides);
   // Never write a manifest that would not read back: it makes the whole
   // workspace private until someone resets it (`lib/privacy.ts`).
   try {
@@ -166,6 +172,13 @@ export function replacePrivacyRulesBlock(text, rules, overrides) {
   }
   return next;
 }
+
+/**
+ * Set on a `privacy.md` object whose rules were read already parsed, by the authority, and holds a row token
+ * (`rowAccess.js`). The parser refuses that token in file text, so such rules cannot come back through
+ * `parsePrivacyManifest`; `loadPrivacyState` takes them from here instead. A bucket object cannot carry it.
+ */
+export const PRE_PARSED_RULES = Symbol("preParsedRules");
 
 /** Longest matching prefix rule wins; no rule → private. Segment-aware. */
 export function visibilityOf(key, rules) {

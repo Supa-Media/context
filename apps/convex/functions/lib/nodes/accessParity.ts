@@ -31,7 +31,7 @@ import { resolveHandle, type Grant } from "./accessBackfill";
 import { readMirror } from "./listing";
 import { mirrorRules, type Rules } from "./log";
 import { accessNamesFor, renderAccess, type Caller } from "./rowAccess";
-import { accessRowsOf } from "./accessRows";
+import { scanAccessRows } from "./accessRows";
 
 /** Rows judged per page. */
 export const PARITY_PAGE = 200;
@@ -101,7 +101,7 @@ export async function accessParityPage(
   pageSize: number = PARITY_PAGE,
 ): Promise<ParityPage> {
   const old = await mirrorRules(await readMirror(ctx.db, workspaceId));
-  const accessRows = await accessRowsOf(ctx, workspaceId);
+  const accessRows = await scanAccessRows(ctx, workspaceId);
   const fresh = renderAccess(accessRows, "member");
   const holders = await holdersOf(ctx, workspaceId, old);
   const newNames = holders.map((holder) => new Set(accessNamesFor(holder.caller, accessRows)));
