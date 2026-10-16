@@ -307,6 +307,24 @@ login or a value", and a new one proves no tool, listing or search returns a
 vault note. Built with the proxy, after the boards are picked; entries saved
 before then are rewritten into notes by a one-time pass.
 
+### Tex signs in itself; handing its browser over is the rare case
+
+Decided by the owner, 2026-10-16, after Tex asked him to open its browser and
+sign in: "we should be asking the user to open up Tex's computer very rarely."
+With no saved login, Tex asks one question, "Do you sign in with Gmail or
+another email?", and sends `vault_add_link` for that login (Google's, site
+`google.com`, for Gmail; the site's own otherwise). Once it's saved, Tex signs
+in with `fill_login`; a Google login fills on Google's own sign-in page, which a
+site's "Continue with Google" button opens (`siteMatches` takes subdomains, so
+`accounts.google.com` matches and a look-alike host does not). A handoff is for
+what truly needs the person: a code, a captcha, a payment, or a sign-in they
+said they would rather do. The rule is in three places the model reads: the
+web prompt (`webPrompt`), `fill_login`'s and `browse`'s descriptions, and the
+`sign-in-for-them` skill in `@context-lc ai/production/skills/`.
+Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
+Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
+script Maya declining the save and test the handoff as the fallback.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
