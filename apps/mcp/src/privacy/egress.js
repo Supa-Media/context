@@ -320,6 +320,12 @@ async function classify(name, args, { into, privacy }) {
             publishes: facets.some((facet) => facet.publishes === true),
           };
     }
+    // A request through Context goes to a site outside the workspace, and its
+    // body or address can carry what the turn read, as an image address can.
+    case "vault_list":
+      return a.fetch && typeof a.fetch === "object"
+        ? { audience: "outside", summary: `send a request to ${hostOf(a.fetch.url)} with a saved key` }
+        : null;
     case "set_visibility":
       return a.visibility === "team" && (await nowReads(a.path)) !== "team"
         ? { audience: "team", summary: `make ${a.path} visible to the team`, publishes: true }
@@ -479,6 +485,8 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
       );
     case "create_form":
       return a.visibility === "team";
+    case "vault_list":
+      return Boolean(a.fetch && typeof a.fetch === "object");
     case "set_visibility":
       return a.visibility === "team";
     case "set_folder_visibility":

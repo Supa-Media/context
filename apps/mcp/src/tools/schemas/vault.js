@@ -9,9 +9,40 @@ export function vaultToolDefinitions() {
         "The logins and secrets (API keys, environment variables, custom fields) in this workspace's vault that this person may use: " +
         "each one's id, name, the sites it fills on, and its field names with which of dev, staging and prod hold a value. " +
         "You never see a username, password or value, and nobody can give you one; Tex's browser fills them in itself, and the person sees values on the page vault_view_link gives them. " +
-        "A personal workspace's vault is the person's own; a shared workspace's holds logins people chose to share there.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        "A personal workspace's vault is the person's own; a shared workspace's holds logins people chose to share there. " +
+        "Pass fetch to call an API with a saved key without seeing it: Context adds the key to your request, only for the one site the entry lists as usable through fetch, and hides the key if the answer repeats it.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          fetch: {
+            type: "object",
+            description: "Make one https request through Context with one field of an entry added. Instead of listing.",
+            properties: {
+              entry: { type: "string", description: "The entry's id, from vault_list." },
+              field: { type: "string", description: "The field to add, e.g. STRIPE_SECRET_KEY." },
+              env: { type: "string", enum: ["dev", "staging", "prod"], description: "Which environment's value, for a per-environment field." },
+              url: { type: "string", description: "The full https address, on the entry's site, e.g. https://api.stripe.com/v1/customers?limit=3." },
+              method: { type: "string", enum: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"], description: "Default GET." },
+              headers: {
+                type: "array",
+                maxItems: 40,
+                description: "Extra headers, e.g. [{ name: \"Content-Type\", value: \"application/json\" }]. The key's own header is added by Context.",
+                items: {
+                  type: "object",
+                  properties: { name: { type: "string" }, value: { type: "string" } },
+                  required: ["name", "value"],
+                  additionalProperties: false,
+                },
+              },
+              body: { type: "string", description: "The request body as text, e.g. JSON or form fields." },
+            },
+            required: ["entry", "field", "url"],
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     {
       name: "vault_add_link",

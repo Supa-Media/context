@@ -8,7 +8,9 @@
  * secret part.
  */
 
+import { recordChange } from "../activity/record.js";
 import { listMeta, mayUse, isEntryId, readMeta } from "../vault/entries.js";
+import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
 import { ENVS, SINGLE, entryType, isFieldName } from "../vault/fields.js";
 import { toolError, toolText } from "./results.js";
 
@@ -31,8 +33,9 @@ function describeEntry({ id, meta }) {
   const type = entryType(meta);
   const sites = (meta.sites ?? []).join(", ");
   const fields = describeFields(meta.fields);
+  const pin = proxyPin(meta);
   return [
-    `- ${meta.name || "(unnamed)"} (${type === "login" ? "login" : "secret"}${sites ? `, fills on ${sites}` : ""})`,
+    `- ${meta.name || "(unnamed)"} (${type === "login" ? "login" : "secret"}${sites ? `, fills on ${sites}` : ""}${pin ? `, usable through fetch on ${pin.host}` : ""})`,
     fields ? `fields: ${fields}` : "",
     `id: ${id}`,
   ]
@@ -40,7 +43,8 @@ function describeEntry({ id, meta }) {
     .join(" ");
 }
 
-export async function toolVaultList(store) {
+export async function toolVaultList(store, args) {
+  if (args?.fetch !== undefined) return toolVaultFetch(store, args.fetch);
   const keys = store?.encryptionKey;
   const { workspaceId, userId } = store?.actor ?? {};
   if (!keys || typeof workspaceId !== "string") return toolText(EMPTY);
@@ -122,4 +126,70 @@ export async function toolVaultViewLink(store, args) {
   const minted = await calls.request({ kind: "view", entryId: args.entry, ...(env ? { env } : {}) });
   if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now.");
   return describe(minted, `Link to see ${meta.name || "the entry"}`);
+}
+
+const NO_PROXY = "Requests through Context are not switched on for this deployment yet.";
+const NEEDS_YES = {
+  allowed: false,
+  code: "needs_yes",
+  message:
+    "This key asks the person the first time each AI uses it, and that ask is not switched on yet. They can turn the ask off for this key when they save it.",
+};
+
+/** Until the first-use ask exists, only an entry saved with its ask off may be used. */
+function allowedWithoutAsks({ meta }) {
+  return meta?.proxy?.ask === false ? { allowed: true } : NEEDS_YES;
+}
+
+function describeAnswer(answer) {
+  const lines = [`${answer.status} from ${answer.host}${answer.path}`];
+  for (const [name, value] of Object.entries(answer.headers)) lines.push(`${name}: ${value}`);
+  if (answer.hidden) lines.push("(the answer held the key; Context replaced it with [hidden by Context])");
+  lines.push("", answer.body);
+  return lines.join("\n");
+}
+
+/**
+ * `vault_list` with `fetch`: one web request through Context with one entry's
+ * field added on the way out. The model names the entry, the field and the
+ * address; it never holds the value, and the answer it gets back has the
+ * value blanked out of it (`vault/proxy.js`). Every use, and every refusal
+ * after the entry was found, is an audit entry carrying the address but never
+ * its query, a header value or a body.
+ */
+export async function toolVaultFetch(store, request) {
+  const proxy = store?.vaultProxy;
+  if (!proxy) return toolError(NO_PROXY);
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    return toolError("fetch is { entry, field, env?, url, method?, headers?, body? }.");
+  }
+  if (!isEntryId(request.entry)) return toolError("fetch.entry must be an id from vault_list.");
+  let host = null;
+  let path = null;
+  try {
+    host = new URL(request.url).hostname;
+    path = new URL(request.url).pathname;
+  } catch {}
+  const audit = (action, details) =>
+    recordChange(store, action, "private", [], {
+      entry_id: request.entry,
+      env: typeof request.env === "string" ? request.env : null,
+      method: typeof request.method === "string" ? request.method.toUpperCase().slice(0, 8) : "GET",
+      host,
+      path,
+      team_visible: false,
+      ...details,
+    }).catch(() => {});
+  try {
+    const answer = await proxyFetch(store, request, {
+      allowed: proxy.allowed ?? allowedWithoutAsks,
+      fetchImpl: proxy.fetch,
+    });
+    await audit("vault_proxied", { status: answer.status, hidden: answer.hidden });
+    return toolText(describeAnswer(answer));
+  } catch (error) {
+    if (!(error instanceof ProxyRefused)) throw error;
+    if (error.code !== "not_found" && error.code !== "no_key") await audit("vault_proxy_refused", { reason: error.code });
+    return toolError(error.message);
+  }
 }
