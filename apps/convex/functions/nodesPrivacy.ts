@@ -232,7 +232,10 @@ export const backfillAccessPage = internalMutation({
   args: { workspaceId: v.id("workspaces"), after: v.union(v.null(), v.string()), pageSize: v.optional(v.number()) },
   returns: v.null(),
   handler: async (ctx, { workspaceId, after, pageSize }): Promise<null> => {
-    const step = await deriveAccessPage(ctx, workspaceId, { after, pageSize });
+    // A walk begun in shadow may still have pages to run once rows are switched on. Rows are the truth then, so
+    // its pages only fill rows nobody has decided, as a new context's derivation does, and never clobber an owner's.
+    const onlyUnset = (await accessSourceOf(ctx.db)) === "rows";
+    const step = await deriveAccessPage(ctx, workspaceId, { after, pageSize, onlyUnset });
     if (!step.done) {
       await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.backfillAccessPage, {
         workspaceId,

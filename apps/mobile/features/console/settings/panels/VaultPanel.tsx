@@ -6,12 +6,13 @@
  * person said no to), and the last use in a sentence. On a narrow screen the
  * detail takes the list's place, with a way back.
  *
- * Values never reach this page. Show the key and New key make a fresh link to
- * the vault's own pages (`/vault/<token>`), where the value is typed or
- * revealed, so the console holds names, websites, yeses and uses only.
+ * Values never reach the list. Show the key and New key make a fresh vault
+ * link and open it in place (`VaultInline`), through the same calls as the
+ * vault's own page (`/vault/<token>`), so a value is typed or revealed only
+ * there and is dropped when it closes.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { useConvex } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -41,14 +42,20 @@ import {
   type VaultEntry,
   type VaultFilter,
 } from "../../../vault/vaultSettings";
+import type { VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
 import { PanelHead } from "./PanelHead";
+import { VaultInline } from "./VaultInline";
 
 export type VaultActions = {
   list: () => Promise<VaultEntry[]>;
   cutOff: (entryId: string, clientId?: string) => Promise<VaultEntry>;
   allow: (entryId: string, clientId: string) => Promise<VaultEntry>;
-  link: (kind: "add" | "view", entryId?: string) => Promise<void>;
+  /** A fresh vault link's token, opened in place through `calls`. */
+  link: (kind: "add" | "view", entryId?: string) => Promise<string>;
+  calls: VaultLinkCalls;
 };
+
+type Opened = { mode: "add" } | { mode: "view"; entryId: string };
 
 /** Wide enough for the list and the detail side by side, as the board draws them. */
 const SIDE_BY_SIDE = 760;
@@ -91,12 +98,12 @@ function LiveVault({ workspaceId }: { workspaceId: string }) {
         kind,
         ...(entryId === undefined ? {} : { entryId }),
       });
-      /*
-        Loaded on press: a leaf that imports `expo-router` needs a router
-        mocked in every suite that mounts Settings (`PremiumPanel` says why).
-      */
-      const { router } = await import("expo-router");
-      router.push(`/vault/${token}`);
+      return token;
+    },
+    calls: {
+      describe: (token) => client.action(api.functions.vault.describeVaultRequest, { token }),
+      save: (token, draft) => client.action(api.functions.vault.saveVaultLogin, { token, ...draft }),
+      reveal: (token) => client.action(api.functions.vault.revealVaultEntry, { token }),
     },
   };
   return <VaultList key={workspaceId} actions={actions} />;
@@ -115,7 +122,8 @@ export function VaultList({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [entries, setEntries] = useState<VaultEntry[] | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
+  const [picked, setPickedState] = useState<string | null>(null);
+  const [opened, setOpened] = useState<{ what: Opened; token: string | null; n: number } | null>(null);
   const [filter, setFilter] = useState<VaultFilter>("all");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -135,6 +143,33 @@ export function VaultList({
     // `actions` is rebuilt each render; one read per mounted list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Any other choice closes what was opened in place, and its values with it.
+  const setPicked = (entryId: string | null) => {
+    setOpened(null);
+    setPickedState(entryId);
+  };
+  const open = (what: Opened) => {
+    const n = (opened?.n ?? 0) + 1;
+    setOpened({ what, token: null, n });
+    void run(async () => {
+      try {
+        const token = await actions.link(what.mode, what.mode === "view" ? what.entryId : undefined);
+        setOpened((now) => (now?.n === n ? { ...now, token } : now));
+      } catch (error: unknown) {
+        setOpened((now) => (now?.n === n ? null : now));
+        throw error;
+      }
+    });
+  };
+  const saved = (name: string) =>
+    void run(async () => {
+      const next = await actions.list();
+      setEntries(next);
+      const added = next.filter((entry) => entry.name === name).sort((a, b) => b.savedAt - a.savedAt)[0];
+      setFilter("all");
+      setPicked(added?.entryId ?? null);
+    });
 
   const run = useCallback(async (work: () => Promise<void>) => {
     setBusy(true);
@@ -172,10 +207,29 @@ export function VaultList({
         now={now}
         onCutOff={cutOff}
         onAllow={allow}
-        onShow={() => void run(() => actions.link("view", chosen.entryId))}
+        showing={opened?.what.mode === "view" && opened.what.entryId === chosen.entryId}
+        onShow={() => (opened?.what.mode === "view" ? setOpened(null) : open({ mode: "view", entryId: chosen.entryId }))}
+        keyView={
+          opened?.what.mode === "view" && opened.what.entryId === chosen.entryId ? (
+            <VaultInline
+              key={opened.n}
+              mode="view"
+              token={opened.token}
+              calls={actions.calls}
+              onClose={() => setOpened(null)}
+              onSaved={() => undefined}
+            />
+          ) : null
+        }
         onBack={wide ? undefined : () => setPicked(null)}
       />
     );
+
+  const adding =
+    opened?.what.mode === "add" ? (
+      <VaultInline key={opened.n} mode="add" token={opened.token} calls={actions.calls} onClose={() => setOpened(null)} onSaved={saved} />
+    ) : null;
+  const side = adding ?? detail;
 
   return (
     <Card style={styles.card}>
@@ -187,15 +241,15 @@ export function VaultList({
             <Text variant="rowSub">{entries === null && problem === null ? "Reading…" : ""}</Text>
           )}
           <View style={styles.flex} />
-          <Button label="+ New key" variant="dialogPrimary" disabled={busy} testID="vault-new" onPress={() => void run(() => actions.link("add"))} />
+          <Button label="+ New key" variant="dialogPrimary" disabled={busy} testID="vault-new" onPress={() => open({ mode: "add" })} />
         </View>
-        {entries !== null && entries.length === 0 ? (
+        {entries !== null && entries.length === 0 && adding === null ? (
           <Text variant="hint">No keys yet. Save one with New key, or ask your AI to send you a link to add one.</Text>
         ) : null}
         {problem !== null ? <Text variant="error">{problem}</Text> : null}
-        {entries !== null && entries.length > 0 ? (
+        {entries !== null && (entries.length > 0 || adding !== null) ? (
           <View style={wide ? styles.split : null}>
-            {wide || chosen === null ? (
+            {(wide || side === null) && entries.length > 0 ? (
               <View style={wide ? styles.listSide : null}>
                 <View style={styles.filters} accessibilityRole="tablist">
                   {VAULT_FILTERS.map((option) => (
@@ -203,7 +257,10 @@ export function VaultList({
                       key={option.key}
                       accessibilityRole="tab"
                       accessibilityState={{ selected: filter === option.key }}
-                      onPress={() => setFilter(option.key)}
+                      onPress={() => {
+                        setOpened(null);
+                        setFilter(option.key);
+                      }}
                       style={[styles.chip, filter === option.key && styles.chipOn]}
                       testID={`vault-filter-${option.key}`}
                     >
@@ -219,13 +276,13 @@ export function VaultList({
                     key={entry.entryId}
                     entry={entry}
                     now={now}
-                    selected={chosen?.entryId === entry.entryId}
+                    selected={adding === null && chosen?.entryId === entry.entryId}
                     onPress={() => setPicked(entry.entryId)}
                   />
                 ))}
               </View>
             ) : null}
-            {detail !== null ? <View style={wide ? styles.detailSide : null}>{detail}</View> : null}
+            {side !== null ? <View style={wide && entries.length > 0 ? styles.detailSide : null}>{side}</View> : null}
           </View>
         ) : null}
       </View>
@@ -282,6 +339,8 @@ function VaultDetail({
   onCutOff,
   onAllow,
   onShow,
+  showing,
+  keyView,
   onBack,
 }: {
   entry: VaultEntry;
@@ -290,6 +349,10 @@ function VaultDetail({
   onCutOff: (entryId: string, clientId?: string) => void;
   onAllow: (entryId: string, clientId: string) => void;
   onShow: () => void;
+  /** Whether the key is open below, so the button closes it. */
+  showing: boolean;
+  /** The key's values, opened in place. */
+  keyView: ReactNode;
   /** Narrow screens only: back to the list. */
   onBack?: () => void;
 }) {
@@ -376,8 +439,15 @@ function VaultDetail({
             onPress={() => onCutOff(entry.entryId)}
           />
         ) : null}
-        <Button label="Show the key" variant="dialog" disabled={busy} testID={`vault-show-${entry.entryId}`} onPress={onShow} />
+        <Button
+          label={showing ? "Hide the key" : "Show the key"}
+          variant="dialog"
+          disabled={busy && !showing}
+          testID={`vault-show-${entry.entryId}`}
+          onPress={onShow}
+        />
       </View>
+      {keyView}
     </View>
   );
 }

@@ -202,8 +202,11 @@ export function FolderView({
   askSelect = false,
   onAskTaken,
   nesting,
+  opening = null,
 }: {
   entry: FileEntry;
+  /** The note being opened from this page, if any: its row shows it loading (`RowOpening.tsx`). */
+  opening?: string | null;
   /** The folder's own listing, or `undefined` while it loads. */
   listing: FolderListing | undefined;
   /**
@@ -493,6 +496,7 @@ export function FolderView({
                               : selection.start
                         }
                         phone={compact ? phoneRows?.(row) : undefined}
+                        opening={opening != null && row.path === opening}
                         folderIcon={iconOf?.(row.path) ?? null}
                         expanded={opened.paths.has(row.path)}
                         onToggle={opened.toggle === undefined || row.kind !== "folder" ? undefined : () => opened.toggle?.(row.path)}
@@ -512,6 +516,7 @@ export function FolderView({
                             menu,
                             drag,
                             sync: child.kind === "file" ? (pendingStateFor?.(child.path) ?? null) : null,
+                            opening: opening != null && child.path === opening,
                           })}
                           {...(iconOf === undefined ? {} : { iconOf })}
                         />

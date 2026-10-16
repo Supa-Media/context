@@ -28,7 +28,7 @@ import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { accessParityPage } from "./lib/nodes/accessParity";
 import { accessSourceOf, backfillAccess, type AccessSource } from "./lib/nodes/accessBackfill";
 import { privacyAuthorityOn } from "./lib/nodes/privacyAuthority";
-import { SAMPLE_MAX, accessStateRowOf, checkRowOf, checkStatus, type CheckStatus } from "./lib/privacyRows/checks";
+import { SAMPLE_MAX, accessStateRowOf, checkRowOf, checkStatus, rulesEtagOf, type CheckStatus } from "./lib/privacyRows/checks";
 import { boundWorkspaces } from "./nodesMigration";
 import { renderRowsAsRules } from "./lib/privacyRows/backToOff";
 
@@ -81,7 +81,7 @@ interface Gate {
 async function gateOf(db: DatabaseReader, ids: Id<"workspaces">[]): Promise<Gate> {
   const gate: Gate = { notChecked: 0, differing: 0 };
   for (const workspaceId of ids) {
-    const status = checkStatus(await checkRowOf(db, workspaceId), await accessStateRowOf(db, workspaceId));
+    const status = checkStatus(await checkRowOf(db, workspaceId), await accessStateRowOf(db, workspaceId), await rulesEtagOf(db, workspaceId));
     if (status === "differs") gate.differing += 1;
     else if (status !== "clean") gate.notChecked += 1;
   }
@@ -162,7 +162,7 @@ export const report = query({
         workspaceId,
         slug: workspace.slug ?? null,
         archived: await workspaceArchived(ctx.db, workspaceId),
-        status: checkStatus(check, state),
+        status: checkStatus(check, state, await rulesEtagOf(ctx.db, workspaceId)),
         checked: check?.checked ?? 0,
         differences: check?.differences ?? 0,
         orphans: state?.orphans.length ?? 0,
@@ -193,7 +193,7 @@ export const differencesFor = query({
     if (check === null) return null;
     const state = await accessStateRowOf(ctx.db, workspaceId);
     return {
-      status: checkStatus(check, state),
+      status: checkStatus(check, state, await rulesEtagOf(ctx.db, workspaceId)),
       checked: check.checked,
       differences: check.differences,
       checkedAt: check.checkedAt ?? null,
@@ -239,6 +239,8 @@ export const checkAll = mutation({
         runId,
         status: "running" as const,
         version: state?.version ?? 0,
+        rulesEtag: await rulesEtagOf(ctx.db, workspaceId),
+        derivedEtag: state?.migratedFromEtag ?? null,
         startedAt: Date.now(),
         checked: 0,
         differences: 0,

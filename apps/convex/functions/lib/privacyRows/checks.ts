@@ -33,16 +33,40 @@ export async function accessStateRowOf(db: DatabaseReader, workspaceId: Id<"work
 }
 
 /**
- * A check is current only if it ran against the derivation version held now
- * and began after the last finished derivation. A workspace never derived is
- * at version 0, which a check started before any derivation also reads.
+ * Whether a check still stands for the rows as they are now.
+ *
+ * Never once the rules have changed since it began.
+ * A check that ran against the derivation version held now, begun after the
+ * last finished derivation, stands. So does one whose rules are still the
+ * rules held now, when the rows had already been derived from them as it
+ * began: a derivation from unchanged rules writes the same access again, and a
+ * busy workspace derives on every move (`refreshAccess`), so without this a
+ * check could never finish before the next move made it stale. A check stored
+ * before it recorded its rules has only the first test. A workspace never
+ * derived is at version 0, which a check started before any derivation also
+ * reads.
  */
 export function checkStatus(
-  check: Pick<Doc<"privacyRowChecks">, "status" | "version" | "startedAt" | "differences"> | null,
-  state: Pick<Doc<"nodeAccessState">, "version" | "migratedAt"> | null,
+  check: Pick<Doc<"privacyRowChecks">, "status" | "version" | "startedAt" | "differences" | "rulesEtag" | "derivedEtag"> | null,
+  state: Pick<Doc<"nodeAccessState">, "version" | "migratedAt" | "migratedFromEtag"> | null,
+  rulesEtag: string | null,
 ): CheckStatus {
   if (check === null) return "unchecked";
   if (check.status === "running") return "running";
-  if (check.version !== (state?.version ?? 0) || check.startedAt < (state?.migratedAt ?? 0)) return "stale";
+  // Rules written since the check began are stale at once: a large tree's walk bumps the version only when it ends.
+  if (check.rulesEtag !== undefined && check.rulesEtag !== rulesEtag) return "stale";
+  const sameDerivation = check.version === (state?.version ?? 0) && check.startedAt >= (state?.migratedAt ?? 0);
+  const sameRules =
+    check.rulesEtag !== undefined && check.rulesEtag === check.derivedEtag && (state?.migratedFromEtag ?? null) === rulesEtag;
+  if (!sameDerivation && !sameRules) return "stale";
   return check.differences > 0 ? "differs" : "clean";
+}
+
+/** The rules' version a workspace holds now, or null when it has none. */
+export async function rulesEtagOf(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<string | null> {
+  const row = await db
+    .query("nodePrivacy")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return row?.etag ?? null;
 }
