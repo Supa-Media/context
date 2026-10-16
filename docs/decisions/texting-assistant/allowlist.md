@@ -13,7 +13,9 @@ same day: "it should be a toggle I can set in the growth tab connected to
 their account"). The account's number is the one linked to it for texting,
 else its verified sign-in phone, and is shown under its email. A number on the
 list that is no shown account is listed under the roster with Remove, so its
-slot can always be freed. A twenty-first is refused in the console before Linq
+slot can always be freed. A number with no account yet can be typed in under
+the roster too (2026-10-16): a friend Dev2 handed Tex's contact to texted
+before signing up and heard nothing, because only accounts had a switch. A twenty-first is refused in the console before Linq
 is asked, and the switches that would add one are disabled.
 
 Linq keeps the list and we keep no copy: a copy would drift the first time
