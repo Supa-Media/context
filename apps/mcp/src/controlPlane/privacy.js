@@ -63,6 +63,19 @@ export function createPrivacyMethods({ post }) {
           if (change.kind === "folder") body.kind = "folder";
           return await post("/gateway/privacy", { ...credential, expectedWorkspaceId, op: "setAccess", ...body });
         },
+        /**
+         * Rows mode: people added to one row's list (`set_visibility`'s `people`), each `{handle|email, role}`.
+         * Adds, never replaces; owner only. Answers the control plane's own answer, as `setAccess` does.
+         */
+        async addGrantees(change) {
+          return await post("/gateway/privacy", {
+            ...credential,
+            expectedWorkspaceId,
+            op: "addGrantees",
+            path: change.path,
+            entries: change.entries,
+          });
+        },
       };
     },
   };

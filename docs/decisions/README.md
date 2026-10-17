@@ -134,6 +134,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
+- [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
+- [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 

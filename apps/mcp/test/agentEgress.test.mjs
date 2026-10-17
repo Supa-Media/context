@@ -430,6 +430,43 @@ export async function runAgentEgressChecks(check) {
     check("unset, the gate holds it again", heldAgain.isError === true && team.get("notes/switched-on.md") === undefined);
     await sweep();
 
+    /*
+      Naming people on a note (`people` on `set_visibility`) waits for the
+      person whoever is named: a member's handle, a group's handle, an
+      address outside the workspace, and a whole domain. The ask names every
+      one of them, and nothing reaches the note's list until the yes.
+    */
+    const named = [
+      ["a member", [{ who: "@egress-member" }], /let @egress-member open 2-areas\/secret\.md/],
+      ["a group", [{ who: "@atlas-leads", role: "edit" }], /let @atlas-leads \(who may edit it\) open/],
+      ["someone outside the workspace", [{ who: "kola@example.invalid" }], /let kola@example\.invalid open/],
+      ["a domain", [{ who: "@acme.example" }], /let everyone at acme\.example open/],
+    ];
+    for (const [who, people, asked] of named) {
+      const before = pending().length;
+      const result = await call(env, TOKEN_MCP, "set_visibility", { path: "2-areas/secret.md", people });
+      check(`an MCP client naming ${who} on a note is held for the person's yes`, wasHeld(result) && asked.test(textOf(result)) && pending().length === before + 1);
+    }
+    const privateNow = (path) => !teamVisible(path);
+    const both = await call(env, TOKEN_MCP, "set_visibility", {
+      path: "2-areas/third.md",
+      visibility: "team",
+      people: [{ who: "kola@example.invalid" }],
+    });
+    check(
+      "a call that publishes and names people asks about both",
+      privateNow("2-areas/third.md") &&
+        wasHeld(both) &&
+        /make 2-areas\/third\.md visible to the team, and let kola@example\.invalid open/.test(textOf(both)),
+    );
+    const selfConfirmed = await call(env, TOKEN_MCP, "set_visibility", {
+      path: "2-areas/secret.md",
+      people: [{ who: "kola@example.invalid" }],
+      confirm_team_publish: true,
+    });
+    check("the model's own confirmation does not release a name", wasHeld(selfConfirmed));
+    await sweep();
+
   } finally {
     world.restore();
   }
