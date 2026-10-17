@@ -39,7 +39,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 /*
   Same boundary as `onboardingManaged.test.ts`: the storage choice reaches for
-  a Convex client to start the Dropbox redirect, and there is no backend behind
+  a Convex client, and there is no backend behind
   a step being asked what it draws.
 */
 jest.mock("convex/react", () => ({
@@ -115,7 +115,6 @@ function mount(managed: ManagedOffer | null): HTMLElement {
     root.render(
       createElement(WorkspaceStorageStepBody, {
         connectState: { kind: "idle" },
-        workspaceId: "ws",
         slug: "acme",
         connect: async () => ({ status: "ok" }),
         managed,

@@ -3,8 +3,8 @@
 ### Storage starts with ownership, then offers existing notes
 
 The first storage decision has two peer paths: **Bring your own storage** and
-**Context-managed Premium storage**. The first opens the S3-compatible and
-Dropbox provider choices. The second names the 50 GB allowance and continues to
+**Context-managed Premium storage**. The first opens the S3-compatible
+provider choices. The second names the 50 GB allowance and continues to
 the existing Premium confirmation. Neither path is marked safer or recommended;
 the choice is technical control versus convenience.
 

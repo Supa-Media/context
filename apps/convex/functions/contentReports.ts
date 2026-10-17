@@ -34,6 +34,7 @@ const EMAIL_SHAPE = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 
 const kindValidator = v.union(
   v.literal("share"),
+  v.literal("grant"),
   v.literal("invitation"),
   v.literal("workspace_note"),
   v.literal("public_page"),
@@ -41,6 +42,7 @@ const kindValidator = v.union(
 
 const KIND_WORDS: Record<Doc<"contentReports">["kind"], string> = {
   share: "a note shared with them",
+  grant: "a note shared with them by name",
   invitation: "an invitation",
   workspace_note: "a note in a workspace they belong to",
   public_page: "a public page",

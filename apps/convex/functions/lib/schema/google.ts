@@ -63,7 +63,7 @@ export const googleTables = {
    * the rotation walk hunt through per-product objects for a column that is
    * the same secret in each. The gateway is handed a short-lived access token
    * to talk to Google and the refresh token never leaves the control plane —
-   * same reasoning as the Dropbox grant one table over.
+   * same reasoning as the storage credential one table over.
    */
   googleConnections: defineTable({
     workspaceId: v.id("workspaces"),
@@ -85,7 +85,7 @@ export const googleTables = {
     /**
      * Whose Google account this is. Not a secret — it is what lets the console
      * show which account is connected and notice a reconnect landing on a
-     * *different* account, the same role `dropboxAccountId` plays.
+     * *different* account, the same role a provider account id plays.
      */
     googleAccountId: v.string(),
     /**
@@ -458,13 +458,13 @@ export const googleTables = {
 
   /**
    * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
-   * `dropboxConnectAttempts` — see that table's comment for the full argument;
+   * `googleConnectAttempts` — the argument is written there in full;
    * this restates only what differs.
    *
    * `backfillDays` and `folders` are Gmail's own connect-time choices and
    * travel here rather than being asked for on the callback screen, because
-   * the callback may carry no session (see `dropboxConnect.ts`'s
-   * `completeDropboxConnect` for why that is a security argument and not a
+   * the callback may carry no session (see the Google callback
+   * for why that is a security argument and not a
    * shortcut) — so the choice the person made *before* leaving for Google's
    * consent screen has to survive the round trip somewhere that is not the
    * browser. A future Calendar-or-Chat-only connect attempt carries no Gmail
@@ -475,7 +475,7 @@ export const googleTables = {
     /**
      * SHA-256 of the value that never travels through Google.
      *
-     * `dropboxConnectAttempts.hashedCompletion` carries the argument in full;
+     * `hashedCompletion` on the connect attempt carries the argument in full;
      * this flow was written from that one and needs the same binding. Optional
      * only because attempts parked before it existed have none, and those are
      * refused rather than trusted.

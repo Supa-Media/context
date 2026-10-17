@@ -25,10 +25,11 @@ const SHOW = [
   { key: "all", label: "All" },
 ] as const;
 
-type ReportKind = "share" | "invitation" | "workspace_note" | "public_page";
+type ReportKind = "share" | "grant" | "invitation" | "workspace_note" | "public_page";
 
 const KIND_LABELS: Record<ReportKind, string> = {
   share: "A note shared with them",
+  grant: "A note shared with them by name",
   invitation: "An invitation",
   workspace_note: "A note in their workspace",
   public_page: "A public page",

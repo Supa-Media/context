@@ -39,8 +39,8 @@ import { ScreenScroll } from "../../app/Screen";
  * ## Why it is a `ScreenScroll` and not its own `ScrollView`
  *
  * This is the scroll surface for six of the eight screens outside the console —
- * login, consent, both invitation screens, the share viewer and the Dropbox
- * callback — and until this it applied no safe-area padding at all. The share
+ * login, consent, both invitation screens, the share viewer and the storage
+ * connect callback — and until this it applied no safe-area padding at all. The share
  * viewer had no inner wrap either, so its card ran flush to the top of the
  * glass and its first line sat under the Dynamic Island.
  *

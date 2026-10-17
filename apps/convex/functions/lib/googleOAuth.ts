@@ -1,12 +1,12 @@
 /**
  * Google OAuth for a connected Google account, as pure functions.
  *
- * Same shape as `dropboxOAuth.ts` and the same reasons apply — everything
+ * The reasons behind this shape are the connect flows' own, and everything
  * here is a string transformation, a Web Crypto digest, or one `fetch`
  * against Google's token endpoint, nothing does I/O beyond that, and nothing
  * here is a Convex function, so it is testable against a stubbed socket
  * rather than against Google. This file restates only what differs from that
- * module; see it for the fuller argument behind PKCE, the optional client
+ * module; see `googleConnect.ts` for the fuller argument behind PKCE, the optional client
  * secret, and why a provider's free-text error is never passed through.
  *
  * **Generalized from a Gmail-only `gmailOAuth.ts` (2026-09-07)**: the
@@ -36,8 +36,8 @@
  *
  * ## PKCE, reused rather than reimplemented
  *
- * `createPkcePair` is RFC 7636 with no Dropbox-specific behaviour in it, so
- * this module imports it from `dropboxOAuth.ts` instead of carrying a second
+ * `createPkcePair` is RFC 7636 with no provider-specific behaviour in it, so
+ * this module imports it from `pkce.ts` instead of carrying a second
  * copy — the same reasoning `communications.md` gives for reusing
  * `normalizeRoot` rather than writing a third path validator: two
  * implementations of "hash this verifier correctly" is how one of them ends
@@ -64,7 +64,7 @@
  *  - https://support.google.com/cloud/answer/13464325 (restricted scopes list — confirms `chat.messages.readonly`)
  */
 
-import { createPkcePair, pkceChallengeFor, type PkcePair } from "./dropboxOAuth";
+import { createPkcePair, pkceChallengeFor, type PkcePair } from "./pkce";
 import { APP_ORIGIN_ENV_VAR, redirectUriIsAcceptable } from "./gatewayAuth";
 
 export type { PkcePair };
@@ -152,7 +152,7 @@ export function grantedScopesFor(product: GoogleProduct, grantedScopes: readonly
 /**
  * Is this a redirect URI we would ever send somebody to?
  *
- * Identical reasoning to `dropboxRedirectAllowed`: pinned to our own origin
+ * Same reasoning as the connect redirect check: pinned to our own origin
  * (or loopback, for local dev) so an attacker cannot start their own connect
  * with a `redirectUri` they control and hand the victim the resulting
  * authorize URL — see that function's comment for the full confused-deputy
@@ -252,7 +252,7 @@ export function googleAuthorizeUrl(options: {
 /* -------------------------------------------------------------------------- */
 
 /**
- * How a token call failed. Same taxonomy as `DropboxOAuthErrorCode`, renamed
+ * How a token call failed. The taxonomy the connect flows share, renamed
  * to Google's vocabulary:
  *
  *  - `GRANT_REVOKED`     — `invalid_grant`. The code was spent or expired, or
@@ -411,7 +411,7 @@ export interface GoogleTokenSet {
  * Spend an authorization code for a token set.
  *
  * A 200 missing any documented field is refused rather than partially
- * accepted — same reasoning as `exchangeDropboxCode`: a binding written from
+ * accepted — same reasoning as the token exchange: a binding written from
  * half a response has no answer to "how do we refresh?" or "whose account is
  * this?", forever, and the person retrying a connect is cheap by comparison.
  */

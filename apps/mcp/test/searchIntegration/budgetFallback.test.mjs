@@ -82,26 +82,26 @@ export async function runSearchIntegrationBudgetFallbackChecks(check, harness) {
         big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET
     );
 
-    // A backend whose listings carry no etag at all — Dropbox lists
-    // `server_modified` and `size` and nothing else. The diff has to converge
+    // A backend whose listings carry no etag at all — a listing carries
+    // `uploaded` and `size` and nothing else. The diff has to converge
     // on those two or the index is rebuilt from scratch on every single search,
     // which is the failure this whole module exists to remove wearing a
     // different hat.
-    const dropboxish = createBucket();
-    dropboxish.listEtags = false;
-    dropboxish.seed("privacy.md", PRIVACY_MANIFEST);
-    dropboxish.seed("1-projects/one.md", "# One\n\nA NARWHAL swims past.\n");
-    dropboxish.seed("1-projects/two.md", "# Two\n\nAnother NARWHAL entirely.\n");
-    const dropboxStore = new R2Store(dropboxish);
-    const firstPass = await syncIndex(dropboxStore, { budget: createSearchBudget(50) });
-    dropboxish.resetCounts();
-    const secondPass = await syncIndex(dropboxStore, { budget: createSearchBudget(50) });
+    const noEtagBucket = createBucket();
+    noEtagBucket.listEtags = false;
+    noEtagBucket.seed("privacy.md", PRIVACY_MANIFEST);
+    noEtagBucket.seed("1-projects/one.md", "# One\n\nA NARWHAL swims past.\n");
+    noEtagBucket.seed("1-projects/two.md", "# Two\n\nAnother NARWHAL entirely.\n");
+    const noEtagStore = new R2Store(noEtagBucket);
+    const firstPass = await syncIndex(noEtagStore, { budget: createSearchBudget(50) });
+    noEtagBucket.resetCounts();
+    const secondPass = await syncIndex(noEtagStore, { budget: createSearchBudget(50) });
     check(
       "a listing with no etag still converges, on the timestamp and size it does report",
       firstPass.index.docs.size === 2 &&
         secondPass.pending === 0 &&
-        dropboxish.counts.noteGets.length === 0 &&
-        dropboxish.counts.put === 0 &&
+        noEtagBucket.counts.noteGets.length === 0 &&
+        noEtagBucket.counts.put === 0 &&
         searchIndex(secondPass.index, "narwhal").length === 2
     );
 

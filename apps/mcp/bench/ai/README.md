@@ -21,6 +21,12 @@ this folder: it is public, like the rest of the repository.
   the `every_answer` lines graded on every answer. `tests/search.md` is the
   search job: each question is one `search_notes` call and names the notes
   that should come back (`expect:`), scored with no judge (`pnpm ai search`).
+- `tests/dream.md`, `tests/meeting-summaries.md`, `tests/meeting-transcription.md`
+  and `tests/connected-ais.md` (2026-10-17): one very simple case each for the
+  jobs that are one call, not a conversation, run with `pnpm ai check <job>`
+  (`bench/check.mjs`). A case names the notes to place (`- note:` and a fenced
+  block), its input (`- input:` and a fenced block), and words that must or
+  must not come out; no judge. Fenced blocks keep their own headings.
 - `tests/tasks.md`: the golden tasks (decided 2026-10-11), jobs the texting
   assistant must always get right: connect ChatGPT or Claude to Context, sign
   in to a site, save a login, find something on a site, set up a website,

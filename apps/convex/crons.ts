@@ -77,6 +77,10 @@ crons.interval(
  * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
  * dream runs, and as whom, is asked again when it is handed out.
  */
+// A share follows its note by id (`lib/shares/entryNote.ts`). Fills the id on shares minted before it existed,
+// and on any a mint could not stamp because its note was not in the tree yet.
+crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
+
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 crons.interval(
@@ -418,21 +422,6 @@ crons.interval(
 );
 
 /**
- * Auto-organize sweeps. A job of the "acts outside this database" kind, so it
- * owes the two paragraphs.
- *
- * It holds no decision: whether a workspace is swept is the owner's switch,
- * their plan, and the one-time notice, all of which this only reads.
- * Suggestions it leaves are suggestions; nothing moves unless the owner
- * pressed Accept or chose "without asking" for that kind of change.
- *
- * It re-asks at the moment it acts: `runSweep` claims the sweep through
- * `beginSweep`, which re-reads the plan, the switch, `startsAt` and whether a
- * sweep is already running, and every trip through the barrier re-resolves
- * the owner's clearance from live membership. Hourly, with at most one sweep a
- * day per workspace (`SWEEP_EVERY_MS`).
- */
-/**
  * Queued folder moves whose chain of passes stopped (a deployment, a lost
  * schedule) are picked up again once their lease lapses
  * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
@@ -442,13 +431,6 @@ crons.interval(
   "resume queued moves",
   { minutes: 5 },
   internal.functions.nodeMoves.resume,
-  {},
-);
-
-crons.interval(
-  "auto-organize sweeps",
-  { hours: 1 },
-  internal.functions.organizer.scheduleDueSweeps,
   {},
 );
 

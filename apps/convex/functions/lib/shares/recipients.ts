@@ -18,6 +18,7 @@ import { getMembership, roleAtLeast } from "../workspaceAuth";
 import { grantedItemValidator, grantedItemsFor, itemKey } from "./grantedInbox";
 import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
+import { liveEntryOf } from "./entryNote";
 
 export const resolveShareArgs = { token: v.string() };
 
@@ -232,7 +233,10 @@ export const authorizeShareReadReturns = v.union(
   v.object({
     shareId: v.id("noteShares"),
     workspaceId: v.id("workspaces"),
+    /** Where the share's note is now when `byId`; otherwise the path it was minted on, for the ledger to forward. */
     entryPath: v.string(),
+    /** `entryPath` was resolved from the note's id (`entryNote.ts`), so it is live and must not be forwarded again. */
+    byId: v.boolean(),
     /**
      * Whether `entryPath` is one note or a folder whose subtree this reaches.
      *
@@ -322,6 +326,8 @@ export async function authorizeShareReadHandler(
   // share whose workspace document is gone, and one whose sharer is no longer
   // the owner, both returned the note's text.
   if ((await shareStillStands(ctx, share, args.actorUserId, now)) === null) return null;
+  // The note it follows, by id where one live row holds it (`entryNote.ts`).
+  const entry = await liveEntryOf(ctx.db, share);
 
   // Their own membership, and only ever their own. `member` is deliberately
   // not enough: the console is read-only for that role too, so a route
@@ -338,7 +344,8 @@ export async function authorizeShareReadHandler(
   return {
     shareId: share._id,
     workspaceId: share.workspaceId,
-    entryPath: share.entryPath,
+    entryPath: entry.path,
+    byId: entry.byId,
     // Absent means a note. Defaulted here, at the one place every reader
     // goes through, rather than at each call site — a call site that forgot
     // would widen an old row from one note to a subtree.

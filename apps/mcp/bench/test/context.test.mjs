@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callTool, connect, liveScoreRow, notePaths, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
+import { callTool, connect, liveScoreRow, notePaths, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
 
 const ENDPOINT = "https://mcp.context.test/@context-lc/mcp";
 
@@ -176,7 +176,7 @@ test("pullSetups brings the job's skills folder too, and nothing deeper", async 
 test("pullSetups runs the live setup as production, beside the setups being tried", async () => {
   const notes = {
     "ai/production/texting-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nLive.\n",
-    "ai/production/app-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nAnother job.\n",
+    "ai/production/other-job.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nAnother job.\n",
     "ai/setups/texting-assistant/guide.md": "---\njob: texting-assistant\n---\n\nGuide.\n",
     "ai/setups/texting-assistant/production.md": "---\njob: texting-assistant\n---\n\nAn old copy someone named production.\n",
   };
@@ -385,4 +385,20 @@ test("connect registers a public client for the runner's scope, checks the state
 
   const wrongState = async () => ({ ...(await listen()), waitForCode: async () => ({ code: "code-2", state: "forged" }) });
   await assert.rejects(connect({ endpoint: ENDPOINT, fetchImpl, log: () => {}, listen: wrongState }), /another state/);
+});
+
+test("an improver's draft is written as a new setup beside live, and never over one already there", async () => {
+  const { fetchImpl, state } = fakeGateway({ notes: { "ai/setups/texting-assistant/taken.md": "---\n---\nmine\n" } });
+  const connection = { endpoint: ENDPOINT, accessToken: "cat_1" };
+  const dir = await mkdtemp(join(tmpdir(), "bench-draft-"));
+  const file = join(dir, "draft.md");
+  await writeFile(file, "---\njob: texting-assistant\n---\ndraft\n");
+  assert.equal(await publishSetup({ job: "texting-assistant", name: "give-the-place", file, connection, fetchImpl }), "ai/setups/texting-assistant/give-the-place.md");
+  assert.equal(state.written.length, 1);
+  assert.equal(state.written[0].expected_etag, undefined);
+  assert.match(state.written[0].content, /draft/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "taken", file, connection, fetchImpl }), /already in Context/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "production", file, connection, fetchImpl }), /not a setup to write/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "../production", file, connection, fetchImpl }), /not a setup to write/);
+  assert.equal(state.written.length, 1);
 });

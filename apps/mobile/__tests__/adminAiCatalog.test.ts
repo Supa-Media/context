@@ -99,7 +99,7 @@ describe("setups being tried", () => {
     const catalog = buildCatalog([note("ai/setups/texting-assistant/live.md")]);
     expect(catalog.setups.map((row) => row.path)).toEqual(["ai/setups/texting-assistant/live.md"]);
     expect(job(catalog, "texting-assistant").setupsTried).toBe(1);
-    expect(job(catalog, "app-assistant").setupsTried).toBe(0);
+    expect(job(catalog, "search").setupsTried).toBe(0);
   });
 
   test("ai/setups/texting-assistant/skills/x.md is not a setup", () => {

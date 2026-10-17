@@ -34,11 +34,10 @@ export function storageVerdict(
 
 /**
  * Whose console somebody goes to for this storage, by name where we know it:
- * "Cloudflare" for R2, "Dropbox", and otherwise "your provider". An S3-
- * compatible endpoint could be anybody's, so it is never guessed at.
+ * "Cloudflare" for R2, and otherwise "your provider". An S3-compatible
+ * endpoint could be anybody's, so it is never guessed at.
  */
 export function storageCompany(storage: Pick<ConsoleStorage, "provider">): string | null {
-  if (/dropbox/i.test(storage.provider)) return "Dropbox";
   if (/r2/i.test(storage.provider)) return "Cloudflare";
   return null;
 }
@@ -52,11 +51,9 @@ export function storageLine(storage: ConsoleStorage, now: number): string {
   const kind =
     storage.managed === true
       ? "Storage Context runs for you"
-      : company === "Dropbox"
-        ? "Your own Dropbox"
-        : company === null
-          ? "Your own storage"
-          : `Your own ${company} storage`;
+      : company === null
+        ? "Your own storage"
+        : `Your own ${company} storage`;
   const files =
     storage.objectCount === undefined
       ? null

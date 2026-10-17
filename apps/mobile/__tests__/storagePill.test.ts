@@ -4,31 +4,29 @@ import { providerLabel, storagePillLabel } from "../features/console/storage/pil
 /**
  * The storage pill's words.
  *
- * The reported bug, verbatim from the first live Dropbox connect: the top bar
- * read **"dropbox · undefined"**, because the chip interpolated
- * `provider · bucket` inline and a Dropbox binding has no bucket by design.
- * The label is a pure function now, and the case that shipped is pinned first.
+ * The reported bug: the top bar once read **"provider · undefined"**, because
+ * the chip interpolated `provider · bucket` inline and a binding without a
+ * bucket has no such value. The label is a pure function now, and the case
+ * that shipped is pinned first.
  */
 
 describe("storagePillLabel", () => {
-  test("a Dropbox binding with no folder is just 'Dropbox'", () => {
-    expect(storagePillLabel({ provider: "dropbox" })).toBe("Dropbox");
+  test("a binding with no bucket and no folder is just its provider", () => {
+    expect(storagePillLabel({ provider: "s3" })).toBe("S3");
   });
 
-  test("a Dropbox binding scoped to a folder names the folder", () => {
-    expect(storagePillLabel({ provider: "dropbox", rootPrefix: "second/" })).toBe(
-      "Dropbox · second/",
-    );
+  test("a binding with no bucket but a folder names the folder", () => {
+    expect(storagePillLabel({ provider: "s3", rootPrefix: "second/" })).toBe("S3 · second/");
   });
 
   test("the string 'undefined' is unmanufacturable", () => {
     // Every shape a binding can arrive in, including the dishonest ones a
     // newer control plane could send. None may leak a hole into the label.
     const shapes = [
-      { provider: "dropbox" },
-      { provider: "dropbox", bucket: undefined, rootPrefix: undefined },
-      { provider: "dropbox", bucket: "", rootPrefix: "" },
       { provider: "s3" },
+      { provider: "s3", bucket: undefined, rootPrefix: undefined },
+      { provider: "s3", bucket: "", rootPrefix: "" },
+      { provider: "retired-provider" },
       { provider: "some-future-provider" },
     ];
     for (const shape of shapes) {
@@ -55,7 +53,6 @@ describe("storagePillLabel", () => {
 
 describe("providerLabel", () => {
   test("the known providers read as prose", () => {
-    expect(providerLabel("dropbox")).toBe("Dropbox");
     expect(providerLabel("r2")).toBe("R2");
     expect(providerLabel("s3-compatible")).toBe("S3");
     expect(providerLabel("b2")).toBe("B2");

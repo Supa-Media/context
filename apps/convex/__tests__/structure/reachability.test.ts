@@ -234,32 +234,6 @@ describe("no public function can reach a storage secret", () => {
         // mutations and from themselves; the pages record counts, times and fixed labels, never a key.
         "functions.noteIdsCleanupRun.runCount",
         "functions.noteIdsCleanupRun.runDelete",
-        // THE THIRD KIND, AND THE WEAKEST ONE.
-        //
-        // Opens the parked PKCE verifier so the authorization code can be
-        // exchanged for a Dropbox grant. What it holds is not a key to anybody's
-        // storage — a verifier is useless without the matching code, it is
-        // ten minutes old at most, and the row carrying it is deleted *before*
-        // this runs, so a replay finds nothing.
-        //
-        // It is here rather than inside `completeDropboxConnect` precisely
-        // because that one is public: reached only by a schedule edge, which is
-        // the same shape as `verifyStorageBinding`.
-        "functions.dropboxConnect.exchangeAndBind",
-        // THE CREDENTIAL'S FUNERAL. Opens a Dropbox refresh token one last
-        // time to disable the grant at Dropbox after `disconnectStorage`
-        // deleted the row — without it, "Disconnect" forgets our copy while
-        // the authorization lives on in the person's account, and their next
-        // connect silently auto-approves. The envelope arrives in the args
-        // (the row is already gone), it is spent on one refresh + one revoke,
-        // and every failure is swallowed: after this runs, successfully or
-        // not, the control plane holds nothing. internalAction, reached only
-        // by schedule edges — three of them now: `disconnectStorage`,
-        // `applyBinding` rebinding away from Dropbox, and
-        // `applyDropboxBinding` landing on a different account. A count in
-        // this list is the sort of thing that goes stale silently, so it is
-        // here to be checked rather than trusted.
-        "functions.dropboxConnect.revokeDropboxGrant",
         // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
         // file operation and hands it to lib/fileOps.ts, which never sees the
         // credential. internalAction, and the only member of
@@ -414,15 +388,12 @@ describe("no public function can reach a storage secret", () => {
         // `__tests__/customDomains/domainConnect.test.ts` verifies the link
         // against the public half and that no failure writes anything else.
         "functions.customDomainsProvision.detectProvider",
-        // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
-        // product-specific and combined binders. See the `functions/googleConnect.ts`
+        // THE GOOGLE CONNECT FLOW'S. See the `functions/googleConnect.ts`
         // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
-        // than folding into each other, and why minting an access token for the
-        // sync job has no Dropbox analogue at all: a Dropbox binding hands the
-        // gateway a cached access token straight off the row (`storage.ts`'s own
-        // `S3`/`Dropbox` credential path), while a Google connection is read-only
-        // *from the gateway's side* and refreshes through the control plane instead,
-        // so it needs a function of its own — reused for every product on the grant.
+        // than folding into each other. Minting an access token for the sync job
+        // needs a function of its own: a Google connection is read-only from the
+        // gateway's side and refreshes through the control plane instead, and the
+        // function is reused for every product on the grant.
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",
@@ -590,7 +561,7 @@ describe("no public function can reach a storage secret", () => {
           "    provider: v.string(),",
           "    encryptedRefreshToken: v.optional(v.string()),",
           "    encryptedAccessToken: v.optional(v.string()),",
-          "    dropboxAccountId: v.optional(v.string()),",
+          "    accountId: v.optional(v.string()),",
           "  })",
         ].join("\n"),
       ),
@@ -608,7 +579,7 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsecretaccesskey");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
-    // The Dropbox columns, which the hand-written list never knew about.
+    // The legacy token columns, which the hand-written list never knew about.
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");

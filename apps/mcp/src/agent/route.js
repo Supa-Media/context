@@ -348,7 +348,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
-    turn, the app job's otherwise. Its prompt replaces the built-in words, and
+    turn, none otherwise. Its prompt replaces the built-in words, and
     its model is used only when this deployment can call it: an uncallable one
     falls back.
   */

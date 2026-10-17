@@ -48,6 +48,13 @@ export const TOOL_NEWS = Object.freeze([
       "Until their Gmail allows sending it says so, and you give them the draft instead.",
   },
   {
+    date: "2026-10-17",
+    text:
+      'manage action visibility takes `people: [{ who, role }]`: who else may open one note, named by a member\'s or a group\'s @handle ' +
+      "or by anyone's email address, with role view or edit. It adds to the people already named. Naming anybody always waits " +
+      "for the person's yes in their Context app or by text, so tell them what you asked and that it is waiting.",
+  },
+  {
     date: "2026-10-16",
     newTool: true,
     text:
@@ -130,7 +137,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "62f3e48b";
+export const TOOL_SHAPE = "b340ddf6";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -36,8 +36,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
 - A move between the owner's own buckets is a third direction, and never touches the old one
-- Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
-- Dropbox workspaces are told support is ending, without a date
+- Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
 - Deleting an account erases the storage we ran for it
@@ -134,6 +133,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
+- [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
+- [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
+- [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -333,6 +335,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
+- A note's passages are filed under its note id, and a move only re-points them
+- Fast search renames a moved note's rows, and reads it only for a new name
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -421,6 +425,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
+- [Auto-organize, What changed and the app assistant are deleted, not switched off](./app-and-console/removed-features.md) (2026-10-17)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
 - [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
@@ -668,6 +673,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
+- [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
@@ -702,6 +708,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)](./texting-assistant/benchmarks.md)
+- [A failed round drafts its own next experiment, and a person runs it (2026-10-17)](./texting-assistant/benchmarks.md)
+- [Every AI job's prompt is a note, and every job has a test (2026-10-17)](./texting-assistant/job-prompts.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A short core set is the default run; the long sets stay for rounds (2026-10-14)](./texting-assistant/golden-tasks.md)
 - [The long set is retired; the core set carries its privacy and voice questions (2026-10-17)](./texting-assistant/golden-tasks.md)

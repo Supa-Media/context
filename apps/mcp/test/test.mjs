@@ -21,14 +21,12 @@ import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runSearchV2IntegrationShardChecks } from "./searchV2IntegrationShards.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
-import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runListChecks } from "./lists.test.mjs";
 import { runProjectListChecks } from "./listProjects.test.mjs";
-import { runOrganizerChecks } from "./organizer.test.mjs";
 import { runSetPropertyChecks } from "./listSetProperty.test.mjs";
 import { runStatusAdviceChecks, runStatusChecks } from "./listStatuses.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
@@ -181,7 +179,6 @@ await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
 await suite("runFormChecks", () => runFormChecks(check));
 await suite("runListChecks", () => runListChecks(check));
 await suite("runProjectListChecks", () => runProjectListChecks(check));
-await suite("runOrganizerChecks", () => runOrganizerChecks(check));
 await suite("runSetPropertyChecks", () => runSetPropertyChecks(check));
 await suite("runStatusChecks", () => runStatusChecks(check));
 await suite("runStatusAdviceChecks", () => runStatusAdviceChecks(check));
@@ -334,7 +331,6 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
 }
 
 await suite("runTenancyChecks", () => runTenancyChecks(check));
-await suite("runDropboxFolderChecks", () => runDropboxFolderChecks(check));
 await suite("runCrossContextChecks", () => runCrossContextChecks(check));
 // The two bulk-move suites (thousands of objects through the real S3 signing
 // path) run from test/bulkMoves.mjs, in their own process beside this one;

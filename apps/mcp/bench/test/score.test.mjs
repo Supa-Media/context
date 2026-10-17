@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseBars, scoreFile } from "../score.mjs";
+import { repliesNote } from "../replies.mjs";
 
 const SETUPS = ["alpha", "beta", "gamma"];
 const QUESTIONS = [1, 2, 3, 4];
@@ -560,4 +561,26 @@ test("score writes the replies that differ beside the result, without an answer 
   } finally {
     await cleanup();
   }
+});
+
+test("a round of one setup keeps the replies it failed, so the loop can read what went wrong", () => {
+  const questions = new Map([[1, { n: 1, text: "Dentist?" }], [2, { n: 2, text: "Hello?" }]]);
+  const key = [
+    { id: "p1", setup: "production", question: 1, run: 1 },
+    { id: "p2", setup: "production", question: 1, run: 2 },
+    { id: "p3", setup: "production", question: 2, run: 1 },
+  ];
+  const verdict = (pass) => ({ verdicts: [{ kind: "must", line: "say Tuesday", pass, reason: "" }] });
+  const judged = new Map([["p1", verdict(true)], ["p2", verdict(false)], ["p3", verdict(true)]]);
+  const answers = new Map([
+    ["p1", { conversation: [{ from: "assistant", text: "Tuesday." }] }],
+    ["p2", { conversation: [{ from: "assistant", text: "Monday." }] }],
+    ["p3", { conversation: [{ from: "assistant", text: "Hey." }] }],
+  ]);
+  const note = repliesNote({ key, judged, answers, questions, front: { job: "texting-assistant" }, date: "2026-10-17" });
+  assert.match(note, /replies that failed/);
+  assert.match(note, /## 1\. Dentist\?\n\n### production · run 2 of 2 · failed\n\n- missed must: say Tuesday\n> Reply: Monday\./);
+  assert.doesNotMatch(note, /## 2\./, "a case it passed every run is not shown");
+  judged.set("p2", verdict(true));
+  assert.equal(repliesNote({ key, judged, answers, questions, front: { job: "texting-assistant" }, date: "2026-10-17" }), null);
 });

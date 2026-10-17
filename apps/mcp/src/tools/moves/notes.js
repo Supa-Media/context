@@ -85,7 +85,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       a second place to make it wrong. `toolReadNote` argues the shape in full.
 
       A metadata probe rather than reusing the `get` below: that `get` buffers
-      the whole object on S3 and Dropbox, and a source this caller may not see
+      the whole object on S3, and a source this caller may not see
       must not have its body pulled into the worker to refuse them. The cost is
       one extra metadata round trip per move in the batch, paid deliberately.
 

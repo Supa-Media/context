@@ -20,6 +20,7 @@ import { forgetMirrorStatus } from "./mirrorStatus";
 import { forgetDownloadChoices } from "./downloadChoice";
 import { forgetMirrorLists } from "./mirrorLists";
 import { forgetPageCache } from "../console/files/folderPage/pageCache";
+import { forgetFolderLines } from "../chaos/folderLineCache";
 import { forgetMirrorSearch } from "./mirrorSearch";
 import type { MirrorStore } from "./mirrorStoreCore";
 
@@ -324,6 +325,7 @@ async function clearEverything(): Promise<ForgetResult> {
     forgetMirrorLists();
     // And what folder pages were drawn from, held in memory (`pageCache.ts`).
     forgetPageCache();
+    forgetFolderLines();
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
       (mirror) => mirror.clearAll(),
@@ -401,6 +403,7 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     forgetMirrorSearch(workspaceId);
     forgetMirrorLists(workspaceId);
     forgetPageCache();
+    forgetFolderLines();
     forgetServerTree(workspaceId);
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),

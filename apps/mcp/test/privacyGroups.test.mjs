@@ -335,7 +335,7 @@ export async function runPrivacyGroupChecks(check) {
       metadata probe back for a real `get` keeps every count identical and
       measures nothing, which sabotage confirmed. It would also start pulling
       a private note's plaintext into the worker for somebody who may not read
-      it — `S3Store.get` and `DropboxStore.get` both buffer the whole object
+      it — `S3Store.get` buffers the whole object
       before any caller asks for text, so on those backends an "unread" body is
       not a thing that exists.
 
@@ -406,7 +406,7 @@ export async function runPrivacyGroupChecks(check) {
       And it never fetches the note's bytes to refuse, for `read_note`'s
       reason: equalising the COUNT with a real `get` would satisfy the check
       above while pulling a private note's plaintext into the worker on
-      `S3Store` and `DropboxStore`, which both buffer the whole object.
+      `S3Store`, which buffers the whole object.
     */
     bucket.fetched.length = 0;
     await callTool(env, TEAM_TOKEN, "read_image", {

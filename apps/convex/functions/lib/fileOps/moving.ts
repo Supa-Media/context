@@ -231,7 +231,7 @@ export async function movePath(
   // "The destination must not exist" is about a destination of either kind. The
   // collision loop below checks key against key, so a file onto a file was
   // always caught; a folder onto a folder merged, and the two crossed pairs
-  // left a file key shadowing a folder prefix — a shape a Dropbox binding
+  // left a file key shadowing a folder prefix — a shape some stores
   // cannot even represent.
   if (await isFolder(store, to)) {
     if (!folderVisibleAtScope(to, options.clearance, state.rules, state.overrides)) throw notFound();
@@ -502,7 +502,7 @@ export async function movePath(
 
       `createFolder` writes down the assumption the rest of this file is built
       on — object storage has no folders, only shared key prefixes — and it is
-      true of R2 and S3 and false of Dropbox. There the files move and the
+      true of R2 and S3 and false of some stores. There the files move and the
       directory stays, `list` keeps reporting it as a prefix, and the console
       goes on drawing the folder somebody just moved. The notes at the new name
       and the old folder still beside them is a move that reads as a copy, and

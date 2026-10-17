@@ -44,7 +44,7 @@ export interface ScaffoldStore {
     cursor?: string;
     limit?: number;
     /**
-     * Resume after this key. Honoured by `S3Store`; ignored by Dropbox, whose
+     * Resume after this key. Honoured by `S3Store`; ignored by a store whose
      * listing has no such position — `syncManifest` checks rather than trusts.
      */
     startAfter?: string;

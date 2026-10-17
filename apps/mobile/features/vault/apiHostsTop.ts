@@ -163,7 +163,6 @@ export const TOP_APIS: readonly TopApi[] = [
   ["graph.microsoft.com", "Microsoft Graph"],
   ["www.googleapis.com", "Google APIs"],
   ["sheets.googleapis.com", "Google Sheets"],
-  ["api.dropboxapi.com", "Dropbox"],
   ["api.box.com", "Box"],
   ["api.hubapi.com", "HubSpot"],
   ["api.attio.com", "Attio"],

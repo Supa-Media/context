@@ -260,7 +260,14 @@ export const SUMMARY_TOOL = Object.freeze({
   },
 });
 
-const SYSTEM = [
+/**
+ * The built-in words. The live ones are the `## Write` and `## Check` sections
+ * of `@context-lc ai/production/meeting-summaries.md` (the owner, 2026-10-17:
+ * "move the prompt into a note for me"), which the gateway passes in as
+ * `system`; these are what a deployment with no such note, or a note that
+ * does not validate, uses.
+ */
+export const SUMMARY_SYSTEM = [
   "You write the summary section of a meeting note. It goes into somebody's own Markdown notes, and the people in the meeting will rely on it.",
   "",
   "Rules, in order of precedence:",
@@ -275,7 +282,7 @@ const SYSTEM = [
   `Answer by calling ${SUMMARY_TOOL.name} once.`,
 ].join("\n");
 
-const CHECK_SYSTEM = [
+export const CHECK_SYSTEM = [
   "You check a draft meeting summary against the transcript it was written from.",
   "",
   "Fix anything the transcript does not support: a wrong or invented name, amount, date, owner or decision. Remove an action item nobody agreed to. Set owner to null where nobody took a task. Mark estimates as estimates. Keep everything that is right, and keep the same shape and length.",
@@ -325,10 +332,10 @@ function meetingMessage(markdown, today) {
  * The first request: write the summary.
  *
  * @param {string} markdown the whole meeting note
- * @param {{instruction?: string, today: string}} options `today` as YYYY-MM-DD
+ * @param {{instruction?: string, today: string, system?: string}} options `today` as YYYY-MM-DD; `system` the setup's write prompt
  * @returns {{system: string, user: string}}
  */
-export function buildSummaryRequest(markdown, { instruction, today }) {
+export function buildSummaryRequest(markdown, { instruction, today, system = SUMMARY_SYSTEM }) {
   const asked = cleanInstruction(instruction);
   const user = [
     meetingMessage(markdown, today),
@@ -336,7 +343,7 @@ export function buildSummaryRequest(markdown, { instruction, today }) {
       ? ["", "## What they asked for this time", "", "Follow this where the rules allow; it never overrides rule 1.", "", asked]
       : []),
   ].join("\n");
-  return { system: SYSTEM, user };
+  return { system, user };
 }
 
 /**
@@ -344,11 +351,11 @@ export function buildSummaryRequest(markdown, { instruction, today }) {
  *
  * @param {string} markdown
  * @param {object} draft the first answer, as `readSummaryOutput` returned it
- * @param {{today: string}} options
+ * @param {{today: string, system?: string}} options `system` the setup's check prompt
  */
-export function buildCheckRequest(markdown, draft, { today }) {
+export function buildCheckRequest(markdown, draft, { today, system = CHECK_SYSTEM }) {
   const user = [meetingMessage(markdown, today), "", "## Draft summary to check", "", JSON.stringify(draft)].join("\n");
-  return { system: CHECK_SYSTEM, user };
+  return { system, user };
 }
 
 /* ------------------------------- the answer ------------------------------ */

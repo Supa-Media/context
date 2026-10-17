@@ -18,13 +18,18 @@
  *     → "only the dreams client dreams" fails.
  *  4. `dreamEntry` leaving out the removed lines.
  *     → "the log says exactly what changed…" fails.
+ *  5. `handleDream` ignoring `ai/production/dream.md` (2026-10-17).
+ *     → "the dream runs on its setup note's words and model…" fails.
  */
 
 import worker from "../src/index.js";
 import { transcriptPath } from "../src/agent/transcript.js";
+import { PRODUCTION_DREAM_PATH } from "../src/agent/production.js";
 import {
+  DREAM_INSTRUCTIONS,
   aboutMeChanges,
   dreamCallTool,
+  dreamQuestion,
   dreamPath,
   transcriptsToRead,
   MAX_DREAM_TRANSCRIPTS,
@@ -36,6 +41,8 @@ import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModel
 const S3_ENDPOINT = "https://s3.example-dream.test";
 const TOKEN_DREAMS = `cat_dream_dreams_${"0".repeat(22)}`;
 const TOKEN_TEXTS = `cat_dream_texts_${"0".repeat(23)}`;
+const TOKEN_DREAMS_PINNED = `cat_dream_pinned_${"0".repeat(22)}`;
+const DREAM_NOTE_WORDS = "DREAM-NOTE-WORDS: keep only what lasts about them.";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const PRIVACY_MANIFEST =
@@ -192,6 +199,33 @@ export async function runAgentDreamChecks(check) {
       });
     await grant(TOKEN_DREAMS, "context_dreams");
     await grant(TOKEN_TEXTS, "context_texts");
+    // A person who is a member of @context-lc, where the dream's setup note lives.
+    controlPlane.addWorkspace("ws_pinned", "context-lc", {
+      provider: "s3",
+      status: "active",
+      endpoint: S3_ENDPOINT,
+      region: "auto",
+      bucket: "tenant-dream-pinned",
+      accessKeyId: "AKIAEXAMPLEEXAMPLEDP",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEDP",
+      forcePathStyle: true,
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    }, { kind: "shared" });
+    await controlPlane.addGrant({
+      accessToken: TOKEN_DREAMS_PINNED,
+      workspaceId: "ws_dream",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_dreams",
+      userId: "user_dream",
+      alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
+    });
+    const pinned = s3.bucketFor("tenant-dream-pinned");
+    pinned.set("privacy.md", { body: PRIVACY_MANIFEST.replace("  4-archive: private\n", "  4-archive: private\n  ai: team\n"), etag: "q0" });
+    pinned.set(PRODUCTION_DREAM_PATH, {
+      body: `---\njob: dream\nmodels:\n  main: anthropic/claude-sonnet-5-5\n---\n\n${DREAM_NOTE_WORDS}\n`,
+      etag: "q1",
+    });
     controlPlane.setBuiltinVerdict("ws_dream", BUILTIN_ALLOWED);
 
     const bucket = s3.bucketFor("tenant-dream");
@@ -274,6 +308,27 @@ export async function runAgentDreamChecks(check) {
       "a dream that changes nothing says so, in the same night's log",
       kept.status === 200 && kept.body?.outcome === "unchanged" && log().includes("_Nothing changed._") &&
         (log().match(/^## /gm) ?? []).length === 2,
+    );
+
+    /* ---------------- the setup note ---------------- */
+
+    model.install([{ text: "Nothing new worth keeping." }]);
+    const noted = await ask(env, TOKEN_DREAMS_PINNED, dream());
+    const asked1 = model.requests.at(-1);
+    const sent = JSON.stringify(asked1);
+    check(
+      "the dream runs on its setup note's words and model, with tonight's transcripts after them",
+      noted.status === 200 &&
+        sent.includes(DREAM_NOTE_WORDS) &&
+        !sent.includes("This is your nightly dream, not a text from a person") &&
+        sent.includes("## Tonight") &&
+        sent.includes(today) &&
+        String(asked1?.model ?? "").includes("claude-sonnet-5-5"),
+    );
+    check(
+      "without a setup note the dream keeps its built-in words",
+      DREAM_INSTRUCTIONS.includes("nightly dream") &&
+        dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).startsWith(DREAM_INSTRUCTIONS),
     );
 
     /* ---------------- a quiet night ---------------- */

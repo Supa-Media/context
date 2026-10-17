@@ -5,8 +5,7 @@
  * In a keyed workspace a note's bytes live only at `notes/<noteId>.md` and the
  * object at its path is a frozen copy nothing reads again. Anything that lists
  * the bucket by name, or moves and retires objects by path, is wrong there.
- * Such an operation asks the store (`isKeyedStore`) and refuses, or uses only
- * the tree's names (`treeOnlyView`).
+ * Such an operation asks the store (`isKeyedStore`) and refuses.
  *
  * The barrier attaches the question lazily (`attachWorkspaceKeyed`): nothing is
  * asked until an operation asks, and a store with no question attached is an
@@ -17,8 +16,6 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { FileOpError } from "../fileOps/errors";
-import type { FileStore } from "../fileOps/store";
-import { treeView } from "../fileOps/walk";
 
 /** What a path-based operation says in a keyed workspace. Nothing is changed. */
 export const KEYED_REFUSAL =
@@ -48,16 +45,4 @@ export async function isKeyedStore(store: object): Promise<boolean> {
 /** Refuse, before anything is listed, read or written, a path-based operation in a keyed workspace. */
 export async function refuseKeyedStore(store: object): Promise<void> {
   if (await isKeyedStore(store)) throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
-}
-
-/**
- * The store with its listings answered by the tree only. A store with no tree
- * attached is refused rather than given the bucket's listing: in a keyed
- * workspace that listing names frozen copies and id keys as if they were notes.
- */
-export function treeOnlyView(store: FileStore): FileStore {
-  if ((store as { treeListing?: unknown }).treeListing === undefined) {
-    throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
-  }
-  return treeView(store);
 }

@@ -1,8 +1,5 @@
 /** @jest-environment jsdom */
 import { test, expect, jest } from "@jest/globals";
-jest.mock("../features/console/storage/useDropboxStart", () => ({
-  useDropboxStart: () => ({ redirectUri: null, state: { kind: "idle" }, start: () => {} }),
-}));
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Platform } from "react-native";
@@ -10,7 +7,7 @@ import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import { demoPremiumView, EXPORT_PROMISE } from "../features/console/settings/panels/premium";
 import { WorkspaceStorageStepBody } from "../features/workspace/steps/WorkspaceStorageStep";
 import type { ManagedOffer } from "../features/onboarding/useManagedOffer";
-import { StorageChoiceBody } from "../features/console/storage/StorageChoice";
+import { StorageChoice } from "../features/console/storage/StorageChoice";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,9 +26,8 @@ for (const os of ["ios", "android"] as const) {
       expect(host.querySelector('[data-testid="premium-price"]')).toBeNull();
       expect(host.textContent).toContain(EXPORT_PROMISE);
       expect(host.textContent).not.toMatch(/upgrade|website|desktop|\$5/i);
-      act(() => root.render(createElement(StorageChoiceBody, {
-        dropboxReady: false, redirectUri: null, dropboxState: { kind: "idle" },
-        startDropbox: jest.fn(), connect: async () => ({ status: "bound" }),
+      act(() => root.render(createElement(StorageChoice, {
+        connect: async () => ({ status: "bound" }),
         free: { cap: 1000, onChoose: jest.fn() },
         managed: { price: "$5 a month", onChoose: jest.fn() },
       })));
@@ -45,13 +41,12 @@ for (const os of ["ios", "android"] as const) {
   });
 }
 
-test("native Premium retains its organizer controls and storage recovery", async () => {
+test("native Premium retains its storage recovery", async () => {
   const before = Platform.OS;
   Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
   const host = document.createElement("div");
   const root = createRoot(host);
   const retry = jest.fn(async () => {});
-  const sort = jest.fn();
   try {
     const base = demoPremiumView();
     const view = { ...base, retryManagedStorage: retry, status: {
@@ -59,16 +54,9 @@ test("native Premium retains its organizer controls and storage recovery", async
       selected: { managedStorage: true, fastSearch: false },
       managedProvisioning: "failed" as const, managedMigrationPhase: "copy" as const,
     } };
-    act(() => root.render(createElement(PremiumBody, { view, autoOrganize: {
-      top: createElement("span", null, "Sorting progress"),
-      afterIncludes: createElement("button", { onClick: sort }, "Sort now"),
-    } })));
+    act(() => root.render(createElement(PremiumBody, { view })));
     expect(host.querySelector('[data-testid="native-plan-title"]')?.textContent).toBe("Premium");
-    expect(host.textContent).toContain("Sorting progress");
     expect(host.textContent).toContain("Your notes are still in your original storage");
-    const button = Array.from(host.querySelectorAll("button")).find(x => x.textContent === "Sort now")!;
-    act(() => button.click());
-    expect(sort).toHaveBeenCalledTimes(1);
     await act(async () => (host.querySelector('[data-testid="managed-storage-retry"]') as HTMLElement).click());
     expect(retry).toHaveBeenCalledTimes(1);
   } finally {

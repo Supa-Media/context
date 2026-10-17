@@ -1,10 +1,10 @@
 /**
  * rootPrefix isolation and path/key traversal rejection across every backend.
  *
- * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
+ * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2 stubs.
  */
 
-import { S3Store, R2Store, DropboxStore, FAKE_CONFIG, s3, listXml, memoryBucket } from "./fixtures.mjs";
+import { S3Store, R2Store, FAKE_CONFIG, s3, listXml, memoryBucket } from "./fixtures.mjs";
 
 export async function runStoreRootPrefixAndTraversalChecks(check) {
   /* ----------------------------- rootPrefix ------------------------------- */
@@ -118,21 +118,6 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
   const traversalStore = s3(() => new Response("nope"), { rootPrefix: "team-notes" });
   const traversalBucket = memoryBucket();
   const traversalR2 = new R2Store(traversalBucket, { rootPrefix: "team-notes" });
-  // Dropbox runs the same matrix. It had one traversal check — a single key
-  // through `get` — under a name claiming parity with "every other backend".
-  // On this backend the claim matters more than on the others: the OAuth token
-  // is scoped to an ACCOUNT rather than to a bucket nobody else uses, so a key
-  // that escapes the root escapes into the customer's own Dropbox.
-  const traversalDropboxCalls = [];
-  const traversalDropbox = new DropboxStore({
-    accessToken: "sl.FAKE-not-a-real-token",
-    rootPrefix: "team-notes",
-    sleep: async () => {},
-    fetch: async (...args) => {
-      traversalDropboxCalls.push(args);
-      return new Response("{}", { status: 200 });
-    },
-  });
   const rejections = [];
   for (const key of TRAVERSAL_KEYS) {
     for (const [name, run] of [
@@ -142,9 +127,6 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
       ["R2Store.get", () => traversalR2.get(key)],
       ["R2Store.put", () => traversalR2.put(key, "x")],
       ["R2Store.delete", () => traversalR2.delete(key)],
-      ["DropboxStore.get", () => traversalDropbox.get(key)],
-      ["DropboxStore.put", () => traversalDropbox.put(key, "x")],
-      ["DropboxStore.delete", () => traversalDropbox.delete(key)],
     ]) {
       let threw = null;
       try {
@@ -165,8 +147,7 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
   check(
     "a rejected key never reaches the backend",
     traversalStore.fetchImpl.calls.length === 0 &&
-      traversalBucket.objects.size === 0 &&
-      traversalDropboxCalls.length === 0
+      traversalBucket.objects.size === 0
   );
 
   let traversalError = null;
@@ -185,28 +166,24 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
   // The same matrix, through `copy` — which takes TWO caller keys and was in
   // neither matrix above, on either argument, for any adapter. That is the
   // third time this matrix has been found short: the key matrix was widened to
-  // cover Dropbox, then the list prefix was, and `copy` was missed by both.
+  // cover one more backend, then the list prefix was, and `copy` was missed by both.
   //
   // Measured guard by guard before writing this, the way the two widenings
   // below were, because "the suite covers copy" is exactly the kind of claim
   // that is worth six runs rather than one. Removing each `assertSafeKey` in
   // turn, against the suite AS IT WAS:
   //
-  //   Dropbox source · Dropbox destination · R2 source · R2 destination ·
+  //   R2 source · R2 destination ·
   //   S3 source                                            → all green
   //   S3 destination                                       → also green
   //
-  // Five of those six were held by nothing at all. The sixth is different and
+  // Three of those four were held by nothing at all. The sixth is different and
   // the difference is worth stating rather than averaging away: `S3Store.copy`
   // passes its destination through `urlFor`, which runs `assertSafeKey` again,
   // so the local call is genuinely redundant and deleting it changes no
   // behaviour. The checks below still cover that position — with the local
   // assertion removed they stay green because the key is still refused, one
   // layer down.
-  //
-  // It matters most on Dropbox for the reason given above: the OAuth token is
-  // scoped to an ACCOUNT, so a key escaping the root escapes into the rest of
-  // the customer's own Dropbox rather than into a bucket nobody else uses.
   //
   // **R2 needs a source that EXISTS.** `copy` returns early when it does not,
   // so a destination-position check against an empty bucket would pass without
@@ -221,16 +198,6 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
     () => new Response("<CopyObjectResult><ETag>&quot;copied&quot;</ETag></CopyObjectResult>"),
     { rootPrefix: "team-notes" }
   );
-  const copyDropboxCalls = [];
-  const copyDropbox = new DropboxStore({
-    accessToken: "sl.FAKE-not-a-real-token",
-    rootPrefix: "team-notes",
-    sleep: async () => {},
-    fetch: async (...args) => {
-      copyDropboxCalls.push(args);
-      return new Response("{}", { status: 200 });
-    },
-  });
 
   const copyRejections = [];
   for (const key of TRAVERSAL_KEYS) {
@@ -239,8 +206,6 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
       ["S3Store.copy destination", () => copyS3.copy(COPY_SAFE_KEY, key)],
       ["R2Store.copy source", () => copyR2.copy(key, COPY_SAFE_KEY)],
       ["R2Store.copy destination", () => copyR2.copy(COPY_SAFE_KEY, key)],
-      ["DropboxStore.copy source", () => copyDropbox.copy(key, COPY_SAFE_KEY)],
-      ["DropboxStore.copy destination", () => copyDropbox.copy(COPY_SAFE_KEY, key)],
     ]) {
       let threw = null;
       try {
@@ -263,21 +228,11 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
   check(
     "a rejected copy never reaches the backend",
     copyS3.fetchImpl.calls.length === 0 &&
-      copyBucket.objects.size === 1 &&
-      copyDropboxCalls.length === 0
+      copyBucket.objects.size === 1
   );
 
-  // The same matrix, on the other argument. This used to be one prefix through
-  // one adapter, under a name claiming a list prefix "gets the same treatment
-  // as a key" — the key matrix above runs fourteen keys through three backends.
-  // Measured before widening it: deleting `assertSafePrefix` from
-  // `DropboxStore.list` reddened **nothing**, while deleting it from
-  // `R2Store.list` reddened one and dropping `normalizeRootPrefix` from the
-  // Dropbox constructor reddened one. So the single gap was the `list` prefix
-  // on the backend where it matters most: Dropbox's token is scoped to an
-  // ACCOUNT, not to a bucket nobody else uses, so a prefix that escapes the
-  // root escapes into the customer's own Dropbox — the reason the key matrix
-  // above was widened to include this adapter in the first place.
+  // The same matrix, on the other argument: a list prefix gets the same
+  // treatment as a key, on every adapter that lists.
   const TRAVERSAL_PREFIXES = [
     "../",
     "a/../../b/",
@@ -319,7 +274,6 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
     for (const [name, run] of [
       ["S3Store.list", () => traversalPrefixStore.list({ prefix })],
       ["R2Store.list", () => traversalPrefixR2.list({ prefix })],
-      ["DropboxStore.list", () => traversalDropbox.list({ prefix })],
     ]) {
       let threw = null;
       try {
@@ -337,15 +291,10 @@ export async function runStoreRootPrefixAndTraversalChecks(check) {
     "a list prefix gets the same treatment as a key, on every adapter",
     prefixRejections.length === 0
   );
-  // All three, like the key matrix above. `traversalDropboxCalls` is asserted
-  // empty at the end of that matrix and nothing touches the instance between
-  // there and here, so counting it again is a claim about this loop and not a
-  // restatement of that one.
   check(
     "and a refused prefix reaches no backend at all, on any of them",
     traversalPrefixStore.fetchImpl.calls.length === 0 &&
-      traversalPrefixR2Lists.length === 0 &&
-      traversalDropboxCalls.length === 0
+      traversalPrefixR2Lists.length === 0
   );
 
   const badRootPrefixes = ["..", "../other-tenant", "team/../../elsewhere", "team/./notes"];

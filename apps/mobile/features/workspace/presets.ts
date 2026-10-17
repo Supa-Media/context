@@ -38,8 +38,8 @@
  *
  * The five built-in folders (`packages/shared/src/folderRoles.cjs`) are the
  * same in every workspace: Inbox, Projects, Areas, Resources and Archive, named
- * `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `9-archive`. The gateway,
- * the organizer and `archive_note` rely on them, so the kind a person picks
+ * `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `9-archive`. The gateway
+ * and `archive_note` rely on them, so the kind a person picks
  * never removes one.
  *
  * The kind chooses only the **extras**: `business` adds clients and teams,

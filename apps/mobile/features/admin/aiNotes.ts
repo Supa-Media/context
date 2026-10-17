@@ -163,7 +163,7 @@ export const AI_HELPERS: readonly AiHelper[] = [
     needsPerson: "every send",
     tools: ["send · email"],
     state: "running",
-    callers: ["texting-assistant", "connected-ais", "app-assistant", "improver"],
+    callers: ["texting-assistant", "connected-ais", "improver"],
   },
   {
     key: "improver",

@@ -29,7 +29,7 @@
  *
  * Its own table, not a column on `storageBindings`, and that is load-bearing
  * rather than tidy. A customer who rebinds storage — a new bucket, a new
- * provider, a reconnected Dropbox — replaces their binding row. If the key
+ * provider — replaces their binding row. If the key
  * lived on it, **every note they had already encrypted would become
  * undecryptable at the moment they moved their bucket**, silently, in a flow
  * whose whole purpose is that the notes come with them. `CLAUDE.md` says a

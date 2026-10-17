@@ -17,7 +17,13 @@
  *   `underPattern` not escaping `_`                                → "a folder
  *     named with an underscore moves only its own notes" fails
  *   the tier re-check after a folder rename removed                → "a note
- *     moved into a narrower folder…" and "past the read cap…" fail
+ *     moved into a narrower folder…" and "…change tier with no reads…" fail
+ *   same-name note moves sent back to remove-and-project           → the two
+ *     "…under the same name…" checks fail on their reads
+ *   `tierMoveStatements` deleting without the copy                 → 3 fail:
+ *     "…narrower folder…", "…change tier…", "…narrower under the same name…"
+ *   the same-basename test dropped (every note move renamed)        → "a moved
+ *     note leaves its old path…" and "…a renamed note, are read…" fail
  */
 
 import test from "node:test";
@@ -41,6 +47,7 @@ import {
 import { followChange, underPattern } from "../src/search/d1/follow.js";
 import { projectNote, upsertStatements } from "../src/search/d1/project.js";
 import { searchChangeOf } from "../src/activity/record.js";
+import { fillSearchDatabase } from "./searchProjection/fill.mjs";
 
 const READY = { ...DESCRIPTOR, state: "ready" };
 /** `1-projects` is team, everything else private: see `PRIVACY_MANIFEST`. */
@@ -128,6 +135,7 @@ test(
     await seedRows(client, { "1-projects/shared/plan.md": "# Plan\n\nquokka\n" });
     const store = noteStore({ "2-areas/shared/plan.md": "# Plan\n\nquokka\n" });
     await followChange(store, client, { moved: [["1-projects/shared", "2-areas/shared"]], visibilityOf });
+    assert.deepEqual(store.reads, []);
     assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
     assert.deepEqual(pathsIn(d1, "notes_private_fts"), ["2-areas/shared/plan.md"]);
     assert.equal(d1.rows("SELECT visibility FROM notes")[0].visibility, "private");
@@ -135,21 +143,81 @@ test(
 );
 
 test(
-  "past the read cap a note's rows are removed for the sweep, never left in a wider tier",
+  "a moved folder's notes change tier with no reads, however many there are",
   withD1(async (d1, client) => {
     const seeded = {};
     for (let n = 0; n < 3; n += 1) seeded[`1-projects/team/n${n}.md`] = `# N${n}\n\nquokka\n`;
     await seedRows(client, seeded);
-    const store = noteStore(Object.fromEntries(Object.keys(seeded).map((path) => [path.replace("1-projects/team", "2-areas/team"), "# N\n\nquokka\n"])));
+    const store = noteStore({});
     const result = await followChange(store, client, {
       moved: [["1-projects/team", "2-areas/team"]],
       visibilityOf,
       noteCap: 1,
     });
-    assert.equal(result.projected, 1);
-    assert.equal(result.deferred, 2);
+    assert.equal(result.projected, 0);
+    assert.equal(result.deferred, 0);
+    assert.deepEqual(store.reads, []);
     assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
-    assert.equal(pathsIn(d1, "notes").length, 1);
+    assert.deepEqual(pathsIn(d1, "notes_private_fts"), ["2-areas/team/n0.md", "2-areas/team/n1.md", "2-areas/team/n2.md"]);
+    assert.deepEqual(d1.rows("SELECT DISTINCT visibility FROM notes").map((row) => row.visibility), ["private"]);
+    assert.equal(d1.rows("SELECT title FROM notes_private_fts WHERE path = ?", ["2-areas/team/n1.md"])[0].title, "N1");
+  }),
+);
+
+test(
+  "a note moved to another folder under the same name is renamed in place, with no read",
+  withD1(async (d1, client) => {
+    await seedRows(client, {
+      "1-projects/a/plan.md": "# Plan\n\nquokka\n",
+      "1-projects/b/plan.md": "# Stale\n\nwombat\n",
+    });
+    const store = noteStore({});
+    const result = await followChange(store, client, {
+      moved: [["1-projects/a/plan.md", "1-projects/b/plan.md"]],
+      visibilityOf,
+    });
+    assert.deepEqual(store.reads, []);
+    assert.equal(result.renamed, 1);
+    assert.equal(result.projected, 0);
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/b/plan.md"]);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), ["1-projects/b/plan.md"]);
+    assert.deepEqual(d1.rows("SELECT body FROM notes_team_fts").map((row) => row.body.includes("quokka")), [true]);
+    // The version is kept, so the sweep still checks the renamed row.
+    assert.equal(d1.rows("SELECT version FROM notes")[0].version, "old-1-projects/a/plan.md");
+  }),
+);
+
+test(
+  "a note moved somewhere narrower under the same name leaves the wider tier, with no read",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "1-projects/plan.md": "# Plan\n\nquokka\n" });
+    const store = noteStore({});
+    await followChange(store, client, { moved: [["1-projects/plan.md", "2-areas/plan.md"]], visibilityOf });
+    assert.deepEqual(store.reads, []);
+    assert.deepEqual(pathsIn(d1, "notes_team_fts"), []);
+    assert.deepEqual(pathsIn(d1, "notes_private_fts"), ["2-areas/plan.md"]);
+    assert.equal(d1.rows("SELECT visibility FROM notes")[0].visibility, "private");
+  }),
+);
+
+test(
+  "a same-name move the projection does not hold yet, and a renamed note, are read and projected",
+  withD1(async (d1, client) => {
+    await seedRows(client, { "1-projects/old.md": "# Old\n\nquokka\n" });
+    const store = noteStore({
+      "1-projects/b/new.md": "# New\n\nquokka\n",
+      "1-projects/b/fresh.md": "# Fresh\n\nquokka\n",
+    });
+    const result = await followChange(store, client, {
+      moved: [
+        ["1-projects/old.md", "1-projects/b/new.md"],
+        ["1-projects/a/fresh.md", "1-projects/b/fresh.md"],
+      ],
+      visibilityOf,
+    });
+    assert.deepEqual([...store.reads].sort(), ["1-projects/b/fresh.md", "1-projects/b/new.md"]);
+    assert.equal(result.projected, 2);
+    assert.deepEqual(pathsIn(d1, "notes"), ["1-projects/b/fresh.md", "1-projects/b/new.md"]);
   }),
 );
 
@@ -266,12 +334,13 @@ test("through the worker: a moved note and a moved folder are searchable at thei
       return JSON.stringify(body);
     }
 
-    // Converge the projection while it fills, then serve from it.
-    for (let round = 0; round < 4; round += 1) await call("search_notes", { query: "bilby" });
-    assert.equal(d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n, 3);
+    // Filled the way the control plane fills it, then served from it.
+    fillSearchDatabase(d1.dbFor(DESCRIPTOR.databaseId), [
+      { path: "1-projects/older.md", content: "# Older\n\nA bilby was seen once.\n", visibility: "team" },
+      { path: "1-projects/trip/day-one.md", content: "# Day one\n\nThe dunnart camp.\n", visibility: "team" },
+      { path: "1-projects/trip/day-two.md", content: "# Day two\n\nMore dunnart tracks.\n", visibility: "team" },
+    ]);
     controlPlane.bindings.set(WS, s3Binding("follow-bucket", READY));
-    // And make the R2 index's listing fresh, so no full pass rides the next searches.
-    await call("search_notes", { query: "bilby" });
 
     await call("write_note", { path: "1-projects/fresh.md", content: "# Fresh\n\nA second bilby, just now.\n" });
     const afterWrite = await call("search_notes", { query: "bilby" });

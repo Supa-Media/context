@@ -191,15 +191,18 @@ for (const [action, tool, args] of MANAGE) {
 }
 
 test("manage website nests its args as site, with the path beside them", () => {
-  assert.deepEqual(translated("manage", { action: "website", args: { action: "publish", path: "website/index.md" } }), {
+  assert.deepEqual(translated("manage", { action: "website", args: { action: "publish", path: "website/about.md", draft: "d1" } }), {
     name: "write_note",
-    arguments: { site: { action: "publish", path: "website/index.md" } },
+    arguments: { path: "website/about.md", site: { action: "publish", draft: "d1" } },
     v2: { tool: "manage", action: "website" },
   });
 });
 
-test("manage website with a status action carries only the site object", () => {
-  assert.deepEqual(translated("manage", { action: "website", args: { action: "status" } }).arguments, { site: { action: "status" } });
+// write_note requires a path, and manage has nowhere else to put one: before
+// 2026-10-17 every manage website call without a path in args was refused
+// with "missing required argument path", so no agent could check or publish.
+test("manage website with no path names the website's home page, which write_note requires", () => {
+  assert.deepEqual(translated("manage", { action: "website", args: { action: "status" } }).arguments, { path: "website/index.md", site: { action: "status" } });
 });
 
 test("manage with no action is refused by the advertised schema, which requires one", () => {
@@ -417,6 +420,13 @@ describe("v2 calls through the worker", { concurrency: false }, () => {
     assert.equal(textOf(viaWrite), textOf(viaNamed));
     assert.match(textOf(viaWrite), /read-only/);
     assert.equal(world.bucket.get("1-projects/v2-ro.md"), undefined);
+  });
+
+  test("manage website reaches the website's status, not a refusal for a missing path", async () => {
+    const result = await tool(TOKEN_MCP, "manage", { action: "website", args: { action: "status" } });
+    assert.doesNotMatch(textOf(result), /missing required argument|unknown argument/);
+    const named = await tool(TOKEN_MCP, "write_note", { path: "website/index.md", site: { action: "status" } });
+    assert.equal(textOf(result), textOf(named), "the same answer write_note gives");
   });
 
   test("manage move moves a note, as move_note does", async () => {

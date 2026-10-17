@@ -49,7 +49,7 @@ because nobody can check it. This one is a table of who holds what.
 
 | Who | Why not |
 | --- | --- |
-| The storage provider — Cloudflare, AWS, Backblaze, Wasabi, Dropbox | The object holds ciphertext. The key is not in the bucket. |
+| The storage provider — Cloudflare, AWS, Backblaze, Wasabi | The object holds ciphertext. The key is not in the bucket. |
 | Anyone who obtains the bucket's bytes — a misconfigured ACL, a stolen backup, a subpoena served on the provider | Same. |
 | **A leaked bucket credential** — the customer's own S3 secret, or one lifted out of `storageBindings` | This is the one that matters. Today a leaked bucket key is the entire context in plaintext. After this, it is the entire context in ciphertext plus whatever is not encrypted. |
 | A team-tier caller, on a **private** encrypted note | `canSee`. Unchanged, and it refuses before the envelope is ever loaded. |

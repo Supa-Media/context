@@ -215,7 +215,10 @@ export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
   const livePath = `${PRODUCTION_FOLDER}/${job}.md`;
   const live = production.includes(livePath);
   const paths = listed.filter((path) => dirname(path) === prefix && basename(path) !== "about.md" && basename(path) !== `${LIVE_SETUP}.md`);
-  if (paths.length === 0 && !live) throw new Error(`no setups in ${prefix}/ or ${livePath} in Context: write one there (the production file's format) and run again`);
+  // A job with no prompt (transcription, connected AIs) has only its test to pull.
+  const testPath = `${TESTS_FOLDER}/${job}.md`;
+  const hasTest = (await listPaths(connection, TESTS_FOLDER, fetchImpl)).includes(testPath);
+  if (paths.length === 0 && !live && !hasTest) throw new Error(`no setups in ${prefix}/ or ${livePath} in Context, and no ${testPath}: write one there (the production file's format) and run again`);
   const folder = join(dir, "setups", job);
   await rm(folder, { recursive: true, force: true });
   await mkdir(folder, { recursive: true });
@@ -346,6 +349,21 @@ export async function publishResult({ result, runUrl = null, connection, fetchIm
   );
   if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
   await publishReplies({ result, connection, fetchImpl });
+  return path;
+}
+
+/**
+ * Write a drafted experiment into `ai/setups/<job>/` (`bench/improve.mjs`),
+ * where the AI tab lists it beside live and a person runs or archives it. A
+ * new note only: a draft never replaces a setup someone else wrote.
+ */
+export async function publishSetup({ job, name, file, connection, fetchImpl = fetch }) {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(job) || !/^[a-z0-9][a-z0-9-]*$/.test(name) || name === LIVE_SETUP) throw new Error(`not a setup to write: ${job}/${name}`);
+  const path = `${SETUPS_FOLDER}/${job}/${name}.md`;
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  if (!existing.isError) throw new Error(`${path} is already in Context: a draft never replaces a setup`);
+  const written = await callTool(connection, "write_note", { path, content: await readFile(file, "utf8"), summary: `improver draft for ${job}` }, fetchImpl);
+  if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
   return path;
 }
 

@@ -16,8 +16,7 @@ export interface ChaosView extends ChaosSource {
 /**
  * The chaos score, handed down from the console layout.
  *
- * A context for the reason auto-organize's is one (`OrganizerContext`): the
- * surfaces are scattered — a folder page's head, the phone's Home — and each treats absence as "draw nothing", so the demo
+ * A context because the surfaces are scattered — a folder page's head, the phone's Home — and each treats absence as "draw nothing", so the demo
  * console, the homepage and every render harness keep the screen they had.
  */
 const ChaosContext = createContext<ChaosView | undefined>(undefined);

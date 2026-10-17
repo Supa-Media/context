@@ -175,7 +175,7 @@ export async function listFolder(
   // collapsed and the clock came apart, which is the same oracle one layer
   // down.
   // ...and it is walked for exactly one page, because that is what an absent
-  // folder costs. `limit` is a hint — the store is the customer's, and Dropbox
+  // folder costs. `limit` is a hint — the store is the customer's, and some stores
   // documents its own as approximate — so a page of ten turns a sixty-object
   // private folder into six round trips against the absent folder's one, and
   // past `LIST_PAGE_CAP` pages the body comes apart too: `truncated: true`

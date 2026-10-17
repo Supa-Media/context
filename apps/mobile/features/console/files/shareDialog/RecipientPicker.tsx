@@ -8,6 +8,7 @@ import { useColors, useThemedStyles } from "../../../design/theme";
 import type { noMatchHint, Recipient, recipientsFor } from "../recipients";
 import { Avatar } from "./Avatar";
 import { pickedLine } from "./copy";
+import type { GrantRole } from "./grants";
 import { GroupMaker } from "./GroupMaker";
 import type { ShareDialogProps } from "./props";
 import { makeStyles } from "./styles";
@@ -39,6 +40,7 @@ export function RecipientPicker({
   setMakeProblem,
   emptyHint,
   suggestions,
+  grant,
 }: {
   compact: boolean;
   recipient: string;
@@ -55,11 +57,21 @@ export function RecipientPicker({
   setMakeProblem: Dispatch<SetStateAction<string | null>>;
   emptyHint: ReturnType<typeof noMatchHint> | undefined;
   suggestions: ReturnType<typeof recipientsFor>;
+  /**
+   * Where a note has a list (rows mode, an owner): a pick is added to it with Can view or Can edit, rather than
+   * minted as a share or written as a group rule. `line` is the sentence beside Share for that pick.
+   */
+  grant?: {
+    onGrant: (picked: Recipient, role: GrantRole) => void;
+    line: (picked: Recipient, role: GrantRole) => string;
+    busy: boolean;
+  };
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [focused, setFocused] = useState(false);
   const [picked, setPicked] = useState<Recipient | null>(null);
+  const [role, setRole] = useState<GrantRole>("view");
   const canMakeGroup = onCreateGroup !== undefined && groupSlug !== undefined;
   const typing = recipient.trim() !== "" && picked === null && making === null;
 
@@ -71,17 +83,20 @@ export function RecipientPicker({
   */
   const commit = () => {
     if (picked === null) return;
-    if (picked.kind === "group" && onShareWithGroup !== undefined) {
+    if (grant !== undefined) {
+      grant.onGrant(picked, role);
+    } else if (picked.kind === "group" && onShareWithGroup !== undefined) {
       onShareWithGroup(picked.group!);
     } else {
       onShare(picked.kind === "member" ? picked.label : picked.key);
     }
     setPicked(null);
+    setRole("view");
     setRecipient("");
   };
 
   const pickFirst = () => {
-    const first = suggestions.find((row) => row.reaches !== true);
+    const first = suggestions.find((row) => row.reaches !== true && row.blocked !== true);
     if (first !== undefined) {
       setPicked(first);
       setRecipient("");
@@ -131,14 +146,37 @@ export function RecipientPicker({
         )}
       </View>
 
+      {picked === null || grant === undefined || picked.kind === "domain" ? null : (
+        <View role="radiogroup" aria-label={`What ${picked.label} can do`} style={styles.roleChoice} testID="share-role">
+          {(["view", "edit"] as const).map((choice) => (
+            <Pressable
+              key={choice}
+              role="radio"
+              aria-checked={role === choice}
+              accessibilityLabel={choice === "edit" ? "Can edit" : "Can view"}
+              testID={`share-role-${choice}`}
+              style={[styles.roleOption, compact && styles.roleOptionCompact, role === choice && styles.roleOptionOn]}
+              onPress={() => setRole(choice)}
+            >
+              <Text style={[styles.footLabel, compact && styles.footLabelCompact, role !== choice && styles.roleOptionOffLabel]}>
+                {choice === "edit" ? "Can edit" : "Can view"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {picked === null ? null : (
         <View style={styles.pickedRow}>
           <Text variant="meta" style={[styles.pickedNote, compact && styles.metaCompact]}>
-            {pickedLine(picked.kind === "group" ? "group" : picked.kind === "invite" ? "invite" : "person")}
+            {grant !== undefined
+              ? grant.line(picked, role)
+              : pickedLine(picked.kind === "group" ? "group" : picked.kind === "invite" ? "invite" : "person")}
           </Text>
           <Pressable
             accessibilityLabel="Share"
             testID="share-submit"
+            disabled={grant?.busy === true}
             style={[styles.footButton, styles.smallButton, styles.footPrimary]}
             onPress={commit}
           >
@@ -156,13 +194,19 @@ export function RecipientPicker({
               such person" — but greyed and with nothing behind a press, since
               sharing with them would grant nothing.
             */
-            row.reaches === true ? (
+            row.reaches === true || row.blocked === true ? (
               <View
                 key={`${row.kind}:${row.key}`}
-                style={[styles.suggestion, styles.suggestionReaching]}
+                style={[styles.suggestion, row.reaches === true && styles.suggestionReaching]}
                 testID={`share-reaching-${row.key}`}
               >
-                <Avatar label={row.label} group={row.kind === "group"} />
+                {row.kind === "domain" || row.kind === "invite" ? (
+                  <View style={styles.avatar}>
+                    <Icon name={row.kind === "domain" ? "globe" : "mail"} size={15} color={colors.text2} />
+                  </View>
+                ) : (
+                  <Avatar label={row.label} group={row.kind === "group"} />
+                )}
                 <View style={styles.rowMain}>
                   <Text style={styles.name}>{row.label}</Text>
                   {row.detail === undefined ? null : (
@@ -171,9 +215,11 @@ export function RecipientPicker({
                     </Text>
                   )}
                 </View>
-                <Text variant="meta" style={styles.hasAccess}>
-                  Has access
-                </Text>
+                {row.reaches !== true ? null : (
+                  <Text variant="meta" style={styles.hasAccess}>
+                    Has access
+                  </Text>
+                )}
               </View>
             ) : (
               <PressRow
@@ -188,9 +234,9 @@ export function RecipientPicker({
                   setRecipient("");
                 }}
               >
-                {row.kind === "invite" ? (
+                {row.kind === "invite" || row.kind === "domain" ? (
                   <View style={styles.avatar}>
-                    <Icon name="mail" size={15} color={colors.text2} />
+                    <Icon name={row.kind === "domain" ? "globe" : "mail"} size={15} color={colors.text2} />
                   </View>
                 ) : (
                   <Avatar label={row.label} group={row.kind === "group"} />

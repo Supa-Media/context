@@ -543,10 +543,13 @@ export async function maintainSearchIndex(
  */
 export async function indexChangedNotes(
   store: FileStore,
-  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean },
+  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false },
   projection: ProjectionClient | null = null,
 ): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
   if (projection !== null && change.queued !== true) await followInProjection(store, change, projection);
+  // A context with a search database keeps no index in its bucket (the
+  // barrier sets this; decided by the owner, 2026-10-17).
+  if (change.shardIndex === false) return { pending: 0, changed: false, complete: true, shed: 0, oversizedShards: 0 };
   const only = new Map<string, { version: string; uploaded: string } | null>();
   const uploaded = new Date().toISOString();
   for (const path of change.gone) only.set(path, null);

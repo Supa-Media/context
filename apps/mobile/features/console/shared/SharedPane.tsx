@@ -24,7 +24,8 @@ import {
   sharedItemKey,
   sharerFace,
   sharerLabel,
-  shareTokenOf,
+  reportPersonOf,
+  reportTargetOf,
   shortWhen,
   type SharedItem,
 } from "./sharedInbox";
@@ -223,25 +224,22 @@ export function SharedList({
                   )}
                   {group.items.map((item) => {
                     const key = sharedItemKey(item);
-                    const token = shareTokenOf(item);
                     // The report sits beside the row rather than inside it, so
-                    // it is its own control and never a press on the row. A grant
-                    // has no token to report against, so its row has none.
+                    // it is its own control and never a press on the row. A share
+                    // is reported by its token, a grant by its note id.
                     return (
                       <View key={key} style={styles.rowLine}>
                         <View style={styles.grow}>
                           <SharedRow item={item} now={now} fresh={isNew(item)} phone={phone} onOpen={onOpen} />
                         </View>
-                        {/* One slot width for every row, so pills and times line up whether or not the row can be reported. */}
+                        {/* One slot width for every row, so pills and times line up. */}
                         <View style={phone ? styles.reportSlotPhone : styles.reportSlot}>
-                          {token === null ? null : (
-                            <ReportLink
-                              target={{ kind: "share", token }}
-                              person={{ handle: item.sharedByHandle, name: item.sharedByName }}
-                              label={phone ? "Report" : "Report or block"}
-                              testID={`shared-report-${token}`}
-                            />
-                          )}
+                          <ReportLink
+                            target={reportTargetOf(item)}
+                            person={reportPersonOf(item)}
+                            label={phone || reportPersonOf(item) === null ? "Report" : "Report or block"}
+                            testID={`shared-report-${key}`}
+                          />
                         </View>
                       </View>
                     );

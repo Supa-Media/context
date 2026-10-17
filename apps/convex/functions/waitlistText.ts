@@ -20,9 +20,18 @@ import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { smsKeys } from "./phoneCodes";
+import { putOnTexLine } from "./waitlistTex";
 
-/** What the text says; `signInUrl` is the deployment's /login. */
-export function admittedText(signInUrl: string): string {
+/**
+ * What the text says; `signInUrl` is the deployment's /login. It comes from
+ * the Messaging Service, not from Tex's line, so a reply reaches nobody:
+ * `texLine` is Tex's own number, named only once this phone is on Tex's list
+ * (`waitlistTex.ts`), so "text Tex" is never an invitation the line ignores.
+ */
+export function admittedText(signInUrl: string, texLine: string | null = null): string {
+  if (texLine !== null) {
+    return `You're in! Text Tex at ${texLine} and Tex will set you up, or sign in with this phone number at ${signInUrl}`;
+  }
   return `You're in! Context is ready for you. Sign in with this phone number at ${signInUrl}`;
 }
 
@@ -43,6 +52,8 @@ export const sendAdmitted = internalAction({
   handler: async (ctx, args) => {
     const log = (event: string, extra: Record<string, unknown> = {}) =>
       console.log(JSON.stringify({ event: `waitlist_text_${event}`, waitlistId: args.waitlistId, ...extra }));
+    // On Tex's list before the text names Tex, whether or not a text goes.
+    const texLine = await putOnTexLine(ctx, args.waitlistId);
     const origin = validAppOrigin();
     if (origin === null) {
       log("skipped", { reason: "app_origin_unset" });
@@ -55,7 +66,7 @@ export const sendAdmitted = internalAction({
     }
     const facts = await ctx.runQuery(internal.functions.waitlistText.textFacts, { waitlistId: args.waitlistId });
     if (facts === null) return null;
-    const result = await sendTwilioSms(sms, facts.phone, admittedText(new URL("/login", origin).toString()));
+    const result = await sendTwilioSms(sms, facts.phone, admittedText(new URL("/login", origin).toString(), texLine));
     log(result.ok ? "sent" : "failed", result.ok ? {} : { reason: result.reason });
     return null;
   },

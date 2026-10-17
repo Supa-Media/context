@@ -40,7 +40,7 @@ export async function runGmailAdversarialFilenameChecks(check) {
     })(),
   );
 
-  // Dropbox folds case and R2 does not, so two attachments whose names differ
+  // A case-folding backend folds case and R2 does not, so two attachments whose names differ
   // only in case are one object on one backend and two on another. It cannot
   // become an overwrite of somebody else's file regardless, and the reason is
   // structural rather than lucky: the key is `<sha256>-<name>`, so colliding

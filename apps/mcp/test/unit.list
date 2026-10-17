@@ -59,6 +59,7 @@ test/managedEncryption.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningServe.test.mjs
+test/meaningById.test.mjs
 test/meaningWrite.test.mjs
 test/meetingClaimTree.test.mjs
 test/meetingResolveTree.test.mjs
@@ -75,6 +76,7 @@ test/orientReadReach.test.mjs
 test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
+test/privacy/notePeople.test.mjs
 test/privacy/rowsWrites.test.mjs
 test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
@@ -115,6 +117,7 @@ test/featureSwitches.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
+bench/test/improve.test.mjs
 bench/test/search.test.mjs
 bench/test/summary.test.mjs
 test/v2Actions.test.mjs
@@ -123,4 +126,5 @@ test/orientV2.test.mjs
 test/controlPlaneRequired.test.mjs
 test/cleanupPage.test.mjs
 test/searchHeldPasses.test.mjs
+bench/test/check.test.mjs
 bench/test/core.test.mjs

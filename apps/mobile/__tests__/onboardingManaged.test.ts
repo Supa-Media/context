@@ -37,11 +37,9 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 /*
-  The storage choice reaches for a Convex client to start the Dropbox redirect
-  — `useDropboxStart` calls `useAction` unconditionally — and there is no
-  backend behind a step being asked what it draws. The boundary is drawn at
-  the module, as `scripts/ux-audit-shots.ts` draws it, rather than at the one
-  hook: a component that asks for a client gets one that answers nothing.
+  There is no backend behind a step being asked what it draws. The boundary is
+  drawn at the module, as `scripts/ux-audit-shots.ts` draws it: a component
+  that asks for a client gets one that answers nothing.
 */
 jest.mock("convex/react", () => ({
   useAction: () => async () => undefined,
@@ -54,7 +52,7 @@ jest.mock("convex/react", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StorageStepBody } from "../features/onboarding/steps/StorageStep";
-import { StorageChoiceBody } from "../features/console/storage/StorageChoice";
+import { StorageChoice } from "../features/console/storage/StorageChoice";
 import {
   EARLY_TESTER_PRICE_SHORT,
   EXPORT_PROMISE,
@@ -119,7 +117,6 @@ function mount(managed: ManagedOffer | null, storageReady = false): HTMLElement 
     root.render(
       createElement(StorageStepBody, {
         connectState: { kind: "idle" },
-        workspaceId: "ws",
         contextName: "@seyi",
         connect: async () => ({ status: "ok" }),
         managed,
@@ -147,11 +144,7 @@ describe("offering storage we keep", () => {
     });
     act(() => {
       root.render(
-        createElement(StorageChoiceBody, {
-          dropboxReady: true,
-          redirectUri: null,
-          dropboxState: { kind: "idle" },
-          startDropbox: () => {},
+        createElement(StorageChoice, {
           connect: async () => ({ status: "ok" }),
           free: { cap: 1000, onChoose: () => (started += 1) },
         }),
@@ -177,8 +170,6 @@ describe("offering storage we keep", () => {
       expect(own).not.toBeNull();
       act(() => own.click());
       expect(container.querySelector('[data-testid="choose-bucket"]')).not.toBeNull();
-      // First run never offers a new Dropbox connection (owner, 2026-09-24).
-      expect(container.querySelector('[data-testid="choose-dropbox"]')).toBeNull();
     }
   });
 

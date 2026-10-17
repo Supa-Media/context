@@ -286,9 +286,9 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg, 
     The folder itself, on a backend that has one.
 
     Every other adapter here has no folders to remove — a prefix with no keys
-    under it is gone — but Dropbox does, so the notes arrived at the new name
+    under it is gone — but a store with real folders does, so the notes arrived at the new name
     and the old folder went on being listed beside them. That is a folder move
-    that reads as a copy, and it read that way on exactly one backend.
+    that reads as a copy, and it read that way on every backend with real folders.
 
     `destination` is kept explicitly: a move *into* a subfolder of the source's
     parent must not have its own destination tidied out from under it.

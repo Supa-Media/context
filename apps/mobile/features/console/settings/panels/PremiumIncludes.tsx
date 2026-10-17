@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Card } from "../../../design/components/Card";
 import { Pill } from "../../../design/components/Pill";
@@ -18,11 +17,6 @@ import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
  * Fast search is no longer part of Premium. Since 2026-10-08 it is on for every
  * workspace, free or paid, and the owner can still switch it off under Storage
  * & search, so it is not listed here at all.
- *
- * Auto-organize is not a row here: its own line (`IncludedLine`) is handed in
- * as `extra`, because only the organizer knows whether it is switched on for
- * this deployment, and a row saying it was included where it is not would be
- * selling something that does not arrive.
  */
 export interface IncludeRow {
   key: "notes" | "domain";
@@ -49,14 +43,7 @@ export function premiumIncludeRows(status: PremiumStatus): IncludeRow[] {
   return rows;
 }
 
-export function PremiumIncludes({
-  status,
-  extra,
-}: {
-  status: PremiumStatus;
-  /** Auto-organize's line, where the organizer offers it. */
-  extra?: ReactNode;
-}) {
+export function PremiumIncludes({ status }: { status: PremiumStatus }) {
   const styles = useThemedStyles(makeStyles);
   const paying = premiumStateOf(status.status) === "premium";
 
@@ -74,7 +61,6 @@ export function PremiumIncludes({
           </Text>
         </View>
       ))}
-      {extra ?? null}
     </Card>
   );
 }

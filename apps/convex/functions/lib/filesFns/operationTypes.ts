@@ -52,6 +52,16 @@ export const IDLE_PROJECTION = {
 /** What a pruning pass answers when there is no `ready` database to prune. */
 export const IDLE_PRUNE = { kind: "indexPruned", deleted: 0, checked: false } as const;
 
+/** What a bucket-index pass answers for a context whose search database replaces that index. */
+export const IDLE_INDEX_PASS = {
+  kind: "indexMaintained",
+  pending: 0,
+  changed: false,
+  complete: true,
+  shed: 0,
+  oversizedShards: 0,
+} as const;
+
 /** What a meaning pass answers when its index is not there to fill. */
 export const IDLE_MEANING = {
   kind: "meaningProjected",
@@ -101,7 +111,11 @@ export type FileOperation =
    * Re-index the notes one file operation changed, without listing the bucket.
    * Scheduled by the barrier behind that operation; never sent by a client.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
+  /**
+   * `shardIndex: false` is set by the barrier, never by a caller, for a
+   * context whose search database replaces the bucket's index.
+   */
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false }
   | { kind: "projectIndex"; passes?: number }
   /** Remove a `ready` database's rows for notes that are gone. See `prunePass.ts`. */
   | { kind: "pruneIndex"; passes?: number }
@@ -249,13 +263,7 @@ export type FileOperation =
     }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
-  | { kind: "readStorageLayout" }
-  | {
-      kind: "organizer";
-      action: "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
-      input: string;
-      autopilot?: boolean;
-    };
+  | { kind: "readStorageLayout" };
 
 /**
  * What a file operation hands back to the console.
@@ -336,6 +344,7 @@ export type OperationResult =
   | {
       kind: "meaningProjected";
       embedded: number;
+      repathed?: number;
       deleted: number;
       notesIndexed: number;
       notesPending: number;
@@ -478,8 +487,7 @@ export type OperationResult =
   | { kind: "image"; bytes: ArrayBuffer }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
-  | { kind: "emojiRemoved" }
-  | { kind: "organizerResult"; output: string };
+  | { kind: "emojiRemoved" };
 
 /**
  * One page of what changed since a device's last sync (`treeChanges.ts`).

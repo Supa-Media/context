@@ -60,6 +60,8 @@ const SKELETON = `# Privacy\n\n${PRIVACY_RULES_BEGIN}\n${PRIVACY_RULES_END}\n`;
  * @property {() => Promise<void>} owed the export did not happen; write it again later
  * @property {(change: {path: string, base: string, expectedVersion?: number}) => Promise<{ok: true, version: number}|{ok: false, code?: string}>} [setAccess]
  *   rows mode only: one row's base, from the access version held. Present when the rows are the truth.
+ * @property {(change: {path: string, entries: Array<{handle?: string, email?: string, role: string}>}) => Promise<{ok: true, version: number}|{ok: false, code?: string}>} [addGrantees]
+ *   rows mode only: people added to one row's list, owner only.
  */
 
 /**
@@ -189,6 +191,15 @@ export function withPrivacyAuthority(store, authority) {
     return answer;
   };
 
+  /** Rows mode: people added to one row's list through the control plane. The held rules move to its version. */
+  const addRowPeople = async (path, entries) => {
+    if (typeof authority.addGrantees !== "function") return { ok: false, code: "NOT_ROWS_MODE" };
+    const answer = await authority.addGrantees({ path, entries });
+    if (answer?.ok !== true) return answer ?? { ok: false };
+    held = { ...held, accessVersion: answer.version };
+    return answer;
+  };
+
   const render = async () => {
     const rules = held;
     const file = await store.get(PRIVACY_KEY);
@@ -240,7 +251,7 @@ export function withPrivacyAuthority(store, authority) {
   Object.defineProperty(wrapped, "rowAccess", {
     enumerable: false,
     get: () =>
-      held !== null && typeof held.accessVersion === "number" ? { setTier: setRowTier } : undefined,
+      held !== null && typeof held.accessVersion === "number" ? { setTier: setRowTier, addPeople: addRowPeople } : undefined,
   });
 
   wrapped.put = async (key, value, options) => {

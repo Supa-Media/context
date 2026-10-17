@@ -33,7 +33,7 @@ import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
  *
  * This file's own first line said "every route inside the app" over an
  * enumerator that saw eight of seventeen route files. `/login`, `/invite`,
- * `/s/<token>`, `/note/…`, `/authorize`, `/connect/dropbox`, `+not-found` and
+ * `/s/<token>`, `/note/…`, `/authorize`, `/connect/google`, `+not-found` and
  * the root itself were outside the walk, so the completeness claim — the one
  * thing this guard has that the mounted tests do not — was false about more
  * than half of the app. It is the whole tree now, minus Expo Router's own
@@ -421,8 +421,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     from: [
       /*
         The live map is not a route of its own: it is `?map=1` on this page, a
-        page in the document slot over Browse, the way What changed is
-        `?changes=1`. So its two ways in are claims about this route, and its
+        page in the document slot over Browse. So its two ways in are claims
+        about this route, and its
         navigation is `router.setParams` on the route it is already on.
       */
       {
@@ -434,7 +434,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+            contains: ['router.setParams({ map: "1", settings: undefined })'],
           },
         ],
         region: "screen",

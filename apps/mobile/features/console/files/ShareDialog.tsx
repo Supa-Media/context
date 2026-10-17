@@ -52,6 +52,10 @@ import { moreItems } from "./shareDialog/moreItems";
 import { isPersonShare, PeopleSection, type ShowMenu } from "./shareDialog/PeopleSection";
 import type { CopyTarget, ShareDialogProps } from "./shareDialog/props";
 import { RecipientPicker } from "./shareDialog/RecipientPicker";
+import { addGrant, type GrantWrite } from "./shareDialog/grants";
+import { domainRow, grantLine, pickOf, reachingOf } from "./shareDialog/grantMode";
+import { GrantRows } from "./shareDialog/GrantRows";
+import { contextHandle } from "../privacy/audience";
 import { ShareMenu, type MenuAnchor, type ShareMenuItem } from "./shareDialog/ShareMenu";
 import { makeStyles } from "./shareDialog/styles";
 
@@ -79,6 +83,7 @@ export function ShareDialog({
   groups,
   context = { slug: null, kind: null, viewerIsOwner: true },
   footExtra,
+  grants,
 }: ShareDialogProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -139,37 +144,75 @@ export function ShareDialog({
   */
   const namedLink = openLink ?? mine?.find((share) => share.audience === "members");
 
+  /*
+    Where the note has a list, the list is the truth: what the rest of the workspace gets is its tier, and the
+    note's own token (which `effectiveVisibility` hands an owner for a listed note) is not a group to draw.
+  */
+  const shown: ShareDialogProps["access"] =
+    access === undefined || grants === undefined
+      ? access
+      : {
+          ...access,
+          visibility: grants.list.tier,
+          exception: grants.list.from === null && (grants.list.base !== null || grants.list.grantees.length > 0),
+        };
   const group =
-    access !== undefined && isGroupVisibility(access.visibility)
-      ? groups?.find((entry) => `@${entry.name}` === access.visibility)
+    shown !== undefined && isGroupVisibility(shown.visibility)
+      ? groups?.find((entry) => `@${entry.name}` === shown.visibility)
       : undefined;
   /*
     Who this note reaches, computed ONCE and read by the list, the members
     line and the suggestions, so the three cannot disagree about who has it.
   */
   const rows =
-    access === undefined
+    shown === undefined
       ? []
-      : accessRows(access.visibility, access.exception, access.members, entryKind, group?.liveCount);
-  const reachingUserIds = new Set(rows.filter((row) => row.role !== "group").map((row) => row.key));
-  const reachingGroups =
-    access !== undefined && isGroupVisibility(access.visibility)
-      ? new Set([access.visibility.slice(1)])
-      : undefined;
-  const suggestions = recipientsFor(recipient, access?.members ?? [], groups ?? [], {
-    reachingUserIds,
-    reachingGroups,
-  });
+      : accessRows(shown.visibility, shown.exception, shown.members, entryKind, group?.liveCount);
+  const owners = (access?.members ?? []).filter((member) => member.role === "owner");
+  const scope = shown === undefined ? "private" : scopeOf(shown.visibility, openLink !== undefined);
+  const handle = contextHandle(context.slug);
+  /*
+    With a list, who already has it is who the list names (and the owners): a member who reads it through the
+    workspace can still be given edit, so they are an offer, not an answer.
+  */
+  const reaching =
+    grants === undefined
+      ? {
+          reachingUserIds: new Set(rows.filter((row) => row.role !== "group").map((row) => row.key)),
+          reachingGroups:
+            shown !== undefined && isGroupVisibility(shown.visibility) ? new Set([shown.visibility.slice(1)]) : undefined,
+        }
+      : {
+          ...reachingOf(grants.list, owners.map((owner) => owner.userId)),
+          inviteDetail: `Not in ${handle}. They can open it once they sign in with this email`,
+        };
+  const domain =
+    grants === undefined
+      ? null
+      : domainRow(recipient, grants.list, { handle, scope, personal: context.kind === "personal" });
+  const suggestions = [
+    ...recipientsFor(recipient, access?.members ?? [], groups ?? [], reaching),
+    ...(domain === null ? [] : [domain]),
+  ];
   const emptyHint = suggestions.length === 0 ? noMatchHint(recipient) : undefined;
   const submit = () => {
-    if (recipient.trim() === "") return;
+    // With a list, Enter picks a row; a bare string is never minted as a share.
+    if (recipient.trim() === "" || grants !== undefined) return;
     onShare(recipient.trim());
     setRecipient("");
   };
 
-  const owners = (access?.members ?? []).filter((member) => member.role === "owner");
-  const people = (mine ?? []).filter(isPersonShare).length;
-  const scope = access === undefined ? "private" : scopeOf(access.visibility, openLink !== undefined);
+  const write = (next: GrantWrite) => {
+    // One write at a time: each sends the whole list, so a second built on the list before the first landed
+    // would undo it.
+    if (grants === undefined || grants.saving) return;
+    setProblem(null);
+    void grants.save(next, grants.list.version).then((message) => {
+      if (message !== null) setProblem(message);
+    });
+  };
+
+  const people = (mine ?? []).filter(isPersonShare).length + (grants?.list.grantees.length ?? 0);
   const raw = folderLabel(baseName(path));
   const name = displayName(raw);
 
@@ -245,7 +288,8 @@ export function ShareDialog({
                 submit={submit}
                 onShare={onShare}
                 onShareWithGroup={onShareWithGroup}
-                onCreateGroup={onCreateGroup}
+                // A group made here would replace the note's list with itself; with a list, groups are made in Settings.
+                onCreateGroup={grants === undefined ? onCreateGroup : undefined}
                 groupSlug={groupSlug}
                 access={access}
                 making={making}
@@ -254,11 +298,37 @@ export function ShareDialog({
                 setMakeProblem={setMakeProblem}
                 emptyHint={emptyHint}
                 suggestions={suggestions}
+                grant={
+                  grants === undefined
+                    ? undefined
+                    : {
+                        busy: grants.saving,
+                        line: (picked, role) => grantLine(picked, role, handle),
+                        onGrant: (picked, role) => {
+                          const pick = pickOf(picked);
+                          if (pick !== null) write(addGrant(grants.list, pick, role));
+                          else if (picked.kind === "domain" && scope === "private") onSetScope?.(scope, "team");
+                        },
+                      }
+                }
               />
 
               <PeopleSection
                 owners={owners}
-                groupRow={rows.find((row) => row.role === "group")}
+                groupRow={grants === undefined ? rows.find((row) => row.role === "group") : undefined}
+                grantRows={
+                  grants === undefined ? undefined : (
+                    <GrantRows
+                      path={path}
+                      grants={grants}
+                      context={context}
+                      compact={compact}
+                      menuId={menu?.id ?? null}
+                      showMenu={showMenu}
+                      onWrite={write}
+                    />
+                  )
+                }
                 groupCount={group?.liveCount}
                 shares={mine}
                 origin={origin}
@@ -271,13 +341,13 @@ export function ShareDialog({
                 onRemovalRoute={onRemovalRoute}
               />
 
-              {access === undefined ? (
+              {shown === undefined ? (
                 linkOptions
               ) : (
                 <GeneralAccess
                   path={path}
                   name={name}
-                  access={access}
+                  access={shown}
                   scope={scope}
                   entryKind={entryKind}
                   context={context}

@@ -40,7 +40,8 @@ it now, or hands something to an address outside the workspace:
 `create_link` and `share` on `write_note`; publishing the website; an
 `images[].url` on `write_note` (the gateway fetches an address the model
 chose, so a note's text can ride in it); `set_visibility` and
-`set_folder_visibility` where the manifest reads narrower now, and
+`set_folder_visibility` where the manifest reads narrower now; naming people
+on a note (`people` on `set_visibility`, 2026-10-17), whoever is named;
 `write_note` or `save_context` publishing to the team; a move asked to
 publish (`confirm_team_publish`) into a folder more people can read or into
 another workspace — without that flag the move tools inside one workspace
@@ -166,3 +167,29 @@ here answers plain JSON and would need a server-to-client channel first. A
 push or email when an MCP client's call is held is a control-plane job for
 later; until then the app's approvals list and a text to the assistant are
 the two surfaces. The console's screen for the list is the follow-up PR.
+
+### Naming people on a note waits for the person, whoever is named (2026-10-17)
+
+An AI client can now add people to one note's list: `people: [{ who, role }]`
+on `set_visibility` (the `visibility` action of `manage`), where `who` is a
+member's or a group's `@handle` or anyone's email address. It adds and never
+removes, owner only, through the control plane's `addGrantees` op
+(`lib/nodes/addGrantees.ts`), which resolves every name the way the console's
+`setGrantees` does and gives one refusal for any that does not resolve.
+
+Every such call is a widening, at the widest audience (`outside`): the gate
+cannot tell a member's handle from an outsider's without asking the control
+plane, and a group or a domain reaches people the caller never sees. A domain
+(`@acme.com`, `*@acme.com`) is held like a person and then refused by the tool,
+since a note's list names people, not domains. The ask names every person,
+group and domain, and both facets when the same call also publishes. Like
+every other widening, this follows `EGRESS_APPROVALS`: on our deployment the
+gate is switched off, so it runs at once until the owner turns it back on.
+
+What a simplification would cost: treating a member's handle as `team` lets a
+texted turn that read team notes name an outsider's handle without asking;
+classifying only emails lets a group or a domain through. Tests:
+`egress.test.mjs` ("naming people on a note always widens, whoever they are"),
+`agentEgress.test.mjs` ("an MCP client naming a member / a group / someone
+outside the workspace / a domain on a note is held for the person's yes",
+"the model's own confirmation does not release a name").

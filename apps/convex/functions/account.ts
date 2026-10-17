@@ -32,11 +32,11 @@
  * ## The rule this file must not break
  *
  * This is a public mutation and it must never touch `decryptSecret` — see
- * `__tests__/structure.test.ts`. A Dropbox binding's grant, and a Google
- * connection's, still has to be revoked at the provider (otherwise our copy of
+ * `__tests__/structure.test.ts`. A Google
+ * connection's grant still has to be revoked at the provider (otherwise our copy of
  * the credential is forgotten while the authorization lives on in the
- * person's account), and that is done the way `disconnectStorage` does it for
- * Dropbox and `disconnectGoogleConnection` does it for Google: the revocation
+ * person's account), and that is done the way `disconnectGoogleConnection`
+ * does it: the revocation
  * is *scheduled*, envelope in the args because the row is deleted in this
  * transaction, and scheduling is not calling — the scheduler discards the
  * job's result, so no credential can flow back here.
@@ -217,7 +217,7 @@ export const deleteAccount = mutation({
  * Google connection and its product state (Gmail/Calendar/Chat) landing
  * alongside it, and what happens to each:
  *
- *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first;
+ *  - **`storageBindings`** — swept below. its row is deleted first;
  *    a bucket WE run for this workspace is queued for erasure first
  *    (`managedErasures`, `functions/managedErasure.ts`), notes and attachments
  *    included, because nobody but us could ever reach it again.
@@ -235,8 +235,7 @@ export const deleteAccount = mutation({
  *    grant revoked before its row goes.
  *  - **Every parked connect attempt, every provider** — swept below via
  *    `CONNECT_ATTEMPT_TABLES` (`functions/lib/connectAttempts.ts`), which is
- *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
- *    covered by one loop instead of one hand-maintained call per provider.
+ *    how `googleConnectAttempts` is covered by one loop instead of one hand-maintained call per provider.
  *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
  *    **`websiteStates`**, **`websiteRouteIndex`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
@@ -265,7 +264,7 @@ export const deleteAccount = mutation({
  *    has no workspace index). An authorization approved by a co-owner or
  *    editor for a workspace that is *this* deletion's target, not yet
  *    consumed, is not reached by either sweep — the same class of gap this
- *    file exists to close, bounded the same way `dropboxConnectAttempts`
+ *    file exists to close, bounded the same way parked connect attempts
  *    always was before this change: the row expires within ten minutes and
  *    the hourly sweep in `crons.ts` removes it regardless. Left open rather
  *    than fixed here because reaching it needs an index this table does not
@@ -308,7 +307,7 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(managedMigration._id);
   }
 
-  // The storage binding, with the same Dropbox care `disconnectStorage`
+  // The storage binding, with the same care `disconnectStorage`
   // takes: schedule the revocation first, envelope in the args, because the
   // row it lives on is deleted on the next line. Scheduled, not called — this
   // public mutation must not reach the decrypt.
@@ -330,19 +329,6 @@ async function deleteWorkspaceCascade(
         bucket: binding.bucket,
         tokenId: binding.accessKeyId,
       });
-    }
-    if (
-      binding.provider === "dropbox" &&
-      binding.encryptedRefreshToken !== undefined
-    ) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.dropboxConnect.revokeDropboxGrant,
-        {
-          workspaceId,
-          encryptedRefreshToken: binding.encryptedRefreshToken,
-        },
-      );
     }
     await ctx.db.delete(binding._id);
   }
@@ -382,7 +368,7 @@ async function deleteWorkspaceCascade(
   // `CONNECT_ATTEMPT_TABLES` is derived from the schema itself
   // (`functions/lib/connectAttempts.ts`), not hand-listed — see that module
   // for why: `googleConnectAttempts` was reviewed and named as missing from
-  // this exact loop when it was Dropbox-only, and a third provider built the
+  // this exact loop, and a provider built the
   // same way must not repeat it. The cast below is the price of that: Convex
   // types `db.query` per concrete table, and a table name discovered
   // generically here does not narrow to one at compile time. What is not
@@ -461,7 +447,7 @@ async function deleteWorkspaceCascade(
 
   // What this context pays for, and any checkout attempt open on it.
   //
-  // THE SUBSCRIPTION IS CANCELLED FIRST, and the same care the Dropbox
+  // THE SUBSCRIPTION IS CANCELLED FIRST, and the same care the
   // revocation above takes and for the same reason: the id rides in the args
   // because the row carrying it is deleted on the next line. Scheduled, not
   // called — this public mutation must not reach the payment key.

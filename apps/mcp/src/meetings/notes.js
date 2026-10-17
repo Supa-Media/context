@@ -27,6 +27,8 @@ import { takenInTree } from "../tree/names.js";
 import { TreeUnavailable } from "../tree/served.js";
 import { forwardPath, readForwarding } from "../forwarding.js";
 import { searchIndexedNotes } from "../search/visible.js";
+import { answerFromProjection } from "../search/d1/serve.js";
+import { createD1Client } from "../search/d1/client.js";
 
 /**
  * Where a completed session's note actually is, resolved fresh rather than
@@ -89,19 +91,30 @@ export async function resolveMeetingNotePath(store, session, tier) {
 
   let found;
   try {
-    found = await searchIndexedNotes(store, {
-      isVisible,
-      isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
-      query: title,
-      limit: MEETING_RESOLVE_CANDIDATES,
-      budget: createSearchBudget(MEETING_RESOLVE_SEARCH_BUDGET),
-      refreshOnMiss: false,
-      readSnippets: false,
-    });
+    // A context with a search database keeps no index in its bucket, so the
+    // title is asked of the database (2026-10-17).
+    found = store.searchIndex
+      ? await answerFromProjection(createD1Client(store.searchIndex), {
+          query: title,
+          tier,
+          isVisible: (key) => isVisible(key) && key.endsWith(".md") && !isPlumbing(key),
+          limit: MEETING_RESOLVE_CANDIDATES,
+          budget: createSearchBudget(MEETING_RESOLVE_SEARCH_BUDGET),
+          missIsAnswer: true,
+        })
+      : await searchIndexedNotes(store, {
+          isVisible,
+          isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
+          query: title,
+          limit: MEETING_RESOLVE_CANDIDATES,
+          budget: createSearchBudget(MEETING_RESOLVE_SEARCH_BUDGET),
+          refreshOnMiss: false,
+          readSnippets: false,
+        });
   } catch {
     return notePath;
   }
-  if (!found.indexed || !found.hits) return notePath;
+  if (!found || (!store.searchIndex && !found.indexed) || !found.hits) return notePath;
 
   const candidates = found.hits.map((hit) => hit.key);
   const facts = await factProps(store, candidates);

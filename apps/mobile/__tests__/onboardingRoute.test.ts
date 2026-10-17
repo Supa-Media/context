@@ -219,8 +219,8 @@ describe("the welcome screen's own gate", () => {
   });
 
   /**
-   * `resume=structure` is a Dropbox connect that left first-run for the OAuth
-   * redirect and came back. The person owns a context *because step 1 ran*;
+   * `resume=structure` is a link from a build that sent people out of first-run
+   * and back again. The person owns a context *because step 1 ran*;
    * without this flag the gate bounces them to the console and the layout and
    * agents steps never happen — which is exactly how the first live connect
    * failed.

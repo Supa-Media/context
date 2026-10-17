@@ -5,9 +5,8 @@ import { routeMap, type MapRoute } from "./route";
 /**
  * The live map's address, handed down from the console layout.
  *
- * A context for What changed's reason (`OrganizerContext`): the Map button is
- * in the sidebar, the page is in the document slot, and the phone's Home and
- * back button are elsewhere again. Absent everywhere outside the console
+ * A context because the Map button is in the sidebar, the page is in the
+ * document slot, and the phone's Home and back button are elsewhere again. Absent everywhere outside the console
  * layout — the homepage, the demo, every harness — and then no Map button is
  * drawn and no page can open.
  */

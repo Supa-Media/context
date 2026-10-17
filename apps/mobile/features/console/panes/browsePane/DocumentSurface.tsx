@@ -26,7 +26,6 @@ export function DocumentSurface({
   openDocument,
   notices,
   pathBar,
-  page = false,
   fill = false,
   onSwipeHome,
 }: {
@@ -37,11 +36,6 @@ export function DocumentSurface({
   openDocument: ReactNode;
   notices: ReactNode;
   pathBar: ReactNode;
-  /**
-   * A page that is not the selection is on screen (What changed): it rides the
-   * page scroller whatever is selected under it, since it brings none of its own.
-   */
-  page?: boolean;
   /**
    * A page that fills the slot edge to edge and scrolls nothing (the live
    * map): no page scroller, no reading margin. On a phone it is still one
@@ -94,7 +88,6 @@ export function DocumentSurface({
    *    they are the only two things a `file` selection can draw.
    */
   const documentOwnsScroller =
-    !page &&
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
@@ -151,7 +144,7 @@ export function DocumentSurface({
         */
         <EdgeSwipeHome onHome={onSwipeHome}>
           <PageSlide pageKey={pageKey} directionOf={slideDirection} testID="page-slide">
-            {!page && selected !== null && selected.kind === "file" ? (
+            {selected !== null && selected.kind === "file" ? (
               openDocument
             ) : (
               /*

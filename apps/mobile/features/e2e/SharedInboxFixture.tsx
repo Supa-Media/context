@@ -1,21 +1,25 @@
-import { useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { useWindowDimensions } from "react-native";
 import { AppFrame } from "../app/AppFrame";
 import { densityFor } from "../app/frame";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
+import { editorReducer, emptyEditor, type EditorState } from "../console/files/editor";
 import { SharedList } from "../console/shared/SharedPane";
 import { SharedNoteShown } from "../console/shared/SharedNoteView";
 import { SharedSidebar } from "../console/shared/SharedSidebar";
 import { sharedItemKey, sharerLabel, shareTokenOf, type SharedItem } from "../console/shared/sharedInbox";
 import { grantItemKey } from "../console/shared/sharedGrant";
+import type { GrantEditing } from "../console/shared/useGrantEditor";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { StatusBar } from "../design/components/StatusBar";
 
 /**
  * @shared on fixed rows, for looking at against boards A2, A3 and A5
- * (`/e2e-fixture?screen=shared`, `&at=note`, `&at=grant`, `&at=empty`). The real
- * sidebar, list and read-only editor inside the real `AppFrame`; nothing behind them.
- * The granted row carries a long workspace name and a long title on purpose.
+ * (`/e2e-fixture?screen=shared`, `&at=note`, `&at=grant`, `&at=grant-edit`, `&at=empty`).
+ * The real sidebar, list and editor inside the real `AppFrame`; nothing behind them.
+ * `grant-edit` opens the granted note as a grant with edit: writable, its saves
+ * going nowhere. The granted row carries a long workspace name, a long title and
+ * a long body on purpose.
  */
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.now();
@@ -51,6 +55,7 @@ const ITEMS: SharedItem[] = [
 const OPEN_AT: Record<string, string> = {
   note: "t-chaos",
   grant: grantItemKey(GRANT_WORKSPACE, GRANT_NOTE),
+  "grant-edit": grantItemKey(GRANT_WORKSPACE, GRANT_NOTE),
 };
 
 function row(
@@ -93,13 +98,66 @@ const CHAOS = [
   "",
 ].join("\n");
 
+const GRANTED = [
+  `# ${GRANT.title} and then keeps going a little longer still`,
+  "",
+  "This is the working note for the spring quarter, and every paragraph in it runs long on purpose so that wrapping, the reading measure and the editor's own padding all show. Everything here is a question we have not closed yet, and the answers belong to whoever is named beside them.",
+  "",
+  "## What we already decided",
+  "",
+  "The series runs for six Thursdays rather than eight. Guest speakers confirm one week ahead, and the room is booked for the full evening so that the sound check is never rushed. Nobody moves a date without telling the whole team in the channel first.",
+  "",
+  "- Do we pay the two guest speakers from the series budget, or from the studio fund that already covers hospitality?",
+  "- A-link-with-no-spaces-at-all-that-should-still-wrap-rather-than-push-the-page-sideways-on-a-phone",
+  "",
+].join("\n");
+
+const GRANTED_PATH = GRANT.entryPath;
+
+/** A grant with edit, drawn by the real reducer; typing changes the draft, and saving goes nowhere. */
+function useFixtureGrantEditing(on: boolean): GrantEditing | null {
+  const [state, dispatch] = useReducer(
+    editorReducer,
+    emptyEditor,
+    (empty: EditorState): EditorState =>
+      editorReducer(empty, {
+        type: "opened",
+        note: {
+          path: GRANTED_PATH,
+          text: GRANTED,
+          etag: "fixture-etag",
+          visibility: "team",
+          inherited: "team",
+          exception: false,
+          readOnly: false,
+        },
+      }),
+  );
+  return useMemo(
+    () =>
+      on
+        ? {
+            state,
+            onChange: (text: string) => dispatch({ type: "edited", text }),
+            onSave: () => {},
+            onDiscard: () => dispatch({ type: "discarded" }),
+            onUseTheirs: () => {},
+            onKeepMine: () => {},
+          }
+        : null,
+    [on, state],
+  );
+}
+
 export function SharedInboxFixture({ at }: { at?: string }) {
   const data = useE2EFixtureConsoleData();
   const { width } = useWindowDimensions();
   const phone = densityFor(width) === "compact";
   const items = at === "empty" ? [] : ITEMS;
-  const [open, setOpen] = useState<string | null>(at === "note" || at === "grant" ? OPEN_AT[at] ?? null : null);
+  const [open, setOpen] = useState<string | null>(at === undefined ? null : OPEN_AT[at] ?? null);
   const item = items.find((candidate) => sharedItemKey(candidate) === open) ?? null;
+  const granted = item?.kind === "grant";
+  const editing = useFixtureGrantEditing(granted && at === "grant-edit");
   const account = (trigger?: "avatar") => (
     <SwitcherMenu
       data={data}
@@ -137,7 +195,8 @@ export function SharedInboxFixture({ at }: { at?: string }) {
         />
       ) : (
         <SharedNoteShown
-          loaded={{ kind: "note", path: item.entryPath, text: CHAOS }}
+          loaded={{ kind: "note", path: item.entryPath, text: granted ? GRANTED : CHAOS }}
+          editing={editing}
           token={shareTokenOf(item)}
           item={item}
           phone={phone}

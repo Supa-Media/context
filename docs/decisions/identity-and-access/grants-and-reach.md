@@ -89,8 +89,8 @@ allow-list, because the attack uses the real redirect.
 
 RFC 6749 §10.12 asks for `state` to be **bound to the user-agent that started
 the flow**. A `state` that is only an unguessable server-side lookup key is not
-that. So `startDropboxConnect` mints a second value, returns it to the starting
-browser alone, and `completeDropboxConnect` requires it back:
+that. So a connect's start mints a second value, returns it to the starting
+browser alone, and its completion requires it back:
 
 - it **never travels through the provider**, which is the whole property;
 - it is stored hashed, and compared after the attempt is deleted, so a wrong
@@ -102,7 +102,7 @@ browser alone, and `completeDropboxConnect` requires it back:
 
 **It is deliberately not a session.** `#76` removed the session gate on this
 callback because the OAuth round trip can drop the session, and the sign-in
-wall that followed outlived Dropbox's single-use code on the first live
+wall that followed outlived the provider's single-use code on the first live
 connect. Browser storage binds the browser without asking who is signed in, so
 that fix stays intact. A browser that cannot keep the value cannot complete a
 connect, which is the honest outcome rather than a fallback.
@@ -114,8 +114,8 @@ it; it carries the same `completionSecret` now. **A connect that cites this
 paragraph is citing the binding, not the absence of a session** — the two
 travelled together once and that is exactly how the gap spread.
 
-**Four flows, and the fourth is why this is a guard rather than a habit.**
-Dropbox, Gmail and Calendar were bound by hand, one file at a time, and Google
+**Three flows, and the last is why this is a guard rather than a habit.**
+Gmail and Calendar were bound by hand, one file at a time, and Google
 Chat — a separate `startChatConnect` in `chatProduct.ts`, sharing the same
 attempt table — was left completing on `{state, code}` alone. The attack
 demonstrated against it bound a stranger's Chat grant, which reads every space
@@ -155,7 +155,7 @@ passed.
 
 The pull request that added `googleConnectAttempts` (and the binding above)
 named a second miss and left it out of scope: `deleteAccount`'s workspace
-cascade swept `dropboxConnectAttempts` but not `googleConnectAttempts`, so a
+cascade did not sweep `googleConnectAttempts`, so a
 parked Google connect — verifier and completion binding both — outlived a
 deleted workspace until its own ten-minute expiry. Small window, real
 half-credential, and exactly the shape the binding guard above already named:
@@ -169,10 +169,9 @@ different question of it: not "does this table declare `hashedCompletion`
 beside `hashedState`" but "does this table declare both `workspaceId` and
 `encryptedVerifier`", which is what makes a row a parked half-credential
 *somebody's workspace* can outlive. `deleteWorkspaceCascade` sweeps whatever
-that derivation finds in one loop, so `dropboxConnectAttempts` and
-`googleConnectAttempts` are not two call sites to keep in sync — they are one
-answer to one question, and a third provider's attempts table answers it
-without anyone adding a line for it.
+that derivation finds in one loop, so no attempts table is a call site to keep
+in sync by hand — each is one answer to one question, and a new provider's
+attempts table answers it without anyone adding a line for it.
 
 **The Google connection itself (`googleConnections`) needed the same audit,
 by hand rather than by derivation.** Unlike an attempt, a live connection is
@@ -180,7 +179,7 @@ not a transient row with a matching schema shape shared by every provider —
 it is `storageBindings`' direct sibling, sealing a standing refresh token
 against a workspace with no expiry of its own. It was not part of the eleven
 tables the cascade already swept, and the fix mirrors `storageBindings`'
-Dropbox handling exactly: schedule the revoke, envelope in the scheduler args,
+revoke handling exactly: schedule the revoke, envelope in the scheduler args,
 then delete the row — one workspace can hold several (one per connected
 address), so every still-live one gets its own scheduled revoke rather than
 one call for the workspace.
@@ -191,8 +190,8 @@ already gives — it opens the customer's own notes, and deleting it is an open
 product decision, not a sweep to add. `oauthAuthorizations`
 has no `workspaceId` index, so an authorization a co-owner approved for a
 workspace somebody else just deleted is reached by neither sweep — bounded
-the same way `dropboxConnectAttempts` always was before this change, by a
-ten-minute expiry and an hourly sweep, and left open for the same reason:
+the same way connect attempts always are, by a ten-minute expiry and an
+hourly sweep, and left open for the same reason:
 closing it needs a schema change, not a sweep addition. What makes that
 bound sound rather than merely short is one line further down the path:
 redeeming such a code *does* mint a grant (`consumeAuthorizationCode` checks

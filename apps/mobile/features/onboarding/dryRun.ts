@@ -47,7 +47,6 @@ const PROVIDERS: Record<string, string> = {
   b2: "Backblaze B2",
   "s3-compatible": "S3-compatible",
   "r2-binding": "Cloudflare R2",
-  dropbox: "Dropbox",
 };
 
 export function providerLabel(provider: string): string {

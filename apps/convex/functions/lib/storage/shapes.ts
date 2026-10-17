@@ -68,24 +68,35 @@ export interface BindingResult {
 }
 
 /**
+ * The providers a binding can be served to the gateway under.
+ *
+ * A provider removed from the product can still have rows in the schema until
+ * its purge has run (the purge module is named in the schema). Such a row is never
+ * served: `getBindingForGateway` reports no binding for it, exactly as it would
+ * for a provider this deployment does not know.
+ */
+export const SERVED_PROVIDERS = ["r2", "s3", "b2", "s3-compatible"] as const;
+export type ServedProvider = (typeof SERVED_PROVIDERS)[number];
+
+export function isServedProvider(provider: string): provider is ServedProvider {
+  return (SERVED_PROVIDERS as readonly string[]).includes(provider);
+}
+
+/**
  * The sealed row, as `getBindingRow` returns it.
  *
- * The S3 fields are optional because a Dropbox binding has none of them. What
- * used to be guaranteed by the type is now a per-provider check at the two
- * places that consume it, both of which refuse rather than half-build.
+ * The S3 fields are optional because a row may predate them. The per-provider
+ * check at the consumer refuses rather than half-builds.
  */
 export interface SealedBinding {
-  provider: "r2" | "s3" | "b2" | "s3-compatible" | "dropbox";
+  /** A served provider, or a row from a removed one awaiting purge. See `SERVED_PROVIDERS`. */
+  provider: string;
   endpoint?: string;
   region?: string;
   bucket?: string;
   rootPrefix?: string;
   accessKeyId?: string;
   encryptedSecretAccessKey?: string;
-  encryptedRefreshToken?: string;
-  encryptedAccessToken?: string;
-  accessTokenExpiresAt?: number;
-  dropboxAccountId?: string;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
@@ -95,21 +106,16 @@ export interface SealedBinding {
 /**
  * What the gateway gets: an opened credential that is complete.
  *
- * Spelled out rather than derived from `SealedBinding`, because the two stopped
- * being the same shape when Dropbox arrived. A *row* may be missing every S3
- * field; a credential handed to the gateway may not — `getBindingForGateway`
- * refuses a Dropbox row by name and narrows the rest before returning, so the
- * required fields here are a guarantee it has already made. Deriving this from
- * the row would push that guarantee onto every consumer as an optional-check
- * they would each get slightly wrong.
+ * Spelled out rather than derived from `SealedBinding`: a *row* may be missing
+ * fields a credential handed to the gateway may not. `getBindingForGateway`
+ * narrows the row before returning, so the required fields here are a
+ * guarantee it has already made.
  */
 export interface S3GatewayCredential {
   /**
-   * A literal union, not `string`, so the two credential shapes actually
-   * discriminate. With `string` here, `credential.provider === "dropbox"`
-   * narrows nothing and every consumer sees a union it cannot take apart.
+   * A literal union, not `string`, so consumers can narrow on it.
    */
-  provider: "r2" | "s3" | "b2" | "s3-compatible";
+  provider: ServedProvider;
   endpoint: string;
   region: string;
   bucket: string;
@@ -121,23 +127,7 @@ export interface S3GatewayCredential {
   status: string;
 }
 
-/**
- * What a Dropbox-backed workspace hands the gateway.
- *
- * Deliberately a *different shape*, not the S3 one with holes in it. The
- * gateway's factory refuses a binding carrying a credential its provider does
- * not use, so a union here is what makes that refusal unreachable by accident
- * rather than something to remember.
- */
-export interface DropboxGatewayCredential {
-  provider: "dropbox";
-  accessToken: string;
-  rootPrefix?: string;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-export type GatewayCredential = S3GatewayCredential | DropboxGatewayCredential;
+export type GatewayCredential = S3GatewayCredential;
 
 /** One batch of envelopes still sealed under an older key. */
 export interface RekeyCandidates {

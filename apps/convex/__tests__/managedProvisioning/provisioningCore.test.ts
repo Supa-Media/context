@@ -160,7 +160,7 @@ describe("provisioning a managed bucket", () => {
       */
       const row = await binding(t);
       // Asserted rather than asserted-away: `encryptedSecretAccessKey` is
-      // optional on the row (a Dropbox binding has none), so a run that wrote
+      // optional on the row (a binding from a removed provider has none), so a run that wrote
       // no secret at all would otherwise reach the decrypt below as
       // `undefined` and this test would be about nothing.
       expect(row?.encryptedSecretAccessKey).toBeDefined();

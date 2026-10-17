@@ -56,6 +56,17 @@ import {
 
 const FEATURE_NAMES = Object.keys(JEV_FEATURES) as JevFeatureName[];
 
+/**
+ * The features the report lists: every registered one, then any feature that
+ * is no longer registered but still has usage in the window (a removed one,
+ * `RETIRED_JEV_FEATURE_LABELS`), so the rows add up to the total.
+ */
+function reportedFeatures(seen: Iterable<string>): string[] {
+  const names: string[] = [...FEATURE_NAMES];
+  for (const name of seen) if (!names.includes(name)) names.push(name);
+  return names;
+}
+
 /** Only the assistant is counted in questions; every other feature in requests. */
 function unitFor(feature: string): string {
   return feature === "assistant" ? "questions" : "requests";
@@ -181,12 +192,13 @@ export async function aiCostsReportHandler(
     featureModels.set(row.feature, byModel);
   }
 
-  const features = FEATURE_NAMES.map((feature) => {
+  const listed = reportedFeatures(featureMicro.keys());
+  const features = listed.map((feature) => {
     const micro = featureMicro.get(feature) ?? 0;
     const uses = featureCalls.get(feature) ?? 0;
     return {
       feature,
-      label: JEV_FEATURES[feature].label,
+      label: featureLabel(feature),
       models: byCostDesc(featureModels.get(feature)),
       uses,
       unit: unitFor(feature),
@@ -211,7 +223,7 @@ export async function aiCostsReportHandler(
 
   const daily = win.window.map((day) => ({
     day,
-    byFeature: FEATURE_NAMES.map((feature) => ({
+    byFeature: listed.map((feature) => ({
       feature,
       costUsd: usd(dailyMicro.get(day)?.get(feature) ?? 0),
     })),

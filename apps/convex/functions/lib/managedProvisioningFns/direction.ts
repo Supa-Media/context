@@ -6,8 +6,8 @@
  *  - `to_managed`: the owner's storage into a bucket Context runs. Rows
  *    written before `direction` existed are all this one, so absent means it.
  *  - `to_customer`: out of the bucket Context runs, into one the owner holds.
- *  - `to_own`: from storage the owner holds (a bucket, or Dropbox) into
- *    another bucket they hold. Context's storage is on neither end.
+ *  - `to_own`: from a bucket the owner holds into another bucket they hold.
+ *    Context's storage is on neither end.
  *
  * Code used to ask `direction === "to_customer"` for two different questions,
  * and with a third direction those questions have different answers. So each

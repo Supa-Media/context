@@ -411,7 +411,7 @@ export const WORKSPACE_PRIVACY_NOTE =
  * here that would be false: this flow is component state and Stripe returns to
  * a URL, so the checkout is started with `origin: "settings"` and lands on the
  * workspace's own Premium section. The two steps left in this flow are skipped
- * exactly as the Dropbox route skips them, so this says where they went —
+ * exactly as the connect callback route skips them, so this says where they went —
  * before the press, on the screen that takes the payment.
  */
 export const WORKSPACE_AFTER_PAY = [

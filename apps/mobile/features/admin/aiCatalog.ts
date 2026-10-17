@@ -51,7 +51,7 @@ export interface AiJob {
   group: JobGroup;
   /** One line on where people meet it. */
   where: string;
-  /** True when AI Benchmark can run a round for it today. */
+  /** True when AI Benchmark can run a round for it today (`pnpm ai run`, `search` or `check`). */
   benchable: boolean;
   /**
    * Where its setup lives today: a note under `ai/production/`, still in code
@@ -69,14 +69,12 @@ export interface AiJob {
  */
 export const AI_JOBS: readonly AiJob[] = [
   { key: "texting-assistant", label: "Tex, by text", group: "people", where: "Everyone with Tex", benchable: true, home: "note" },
-  { key: "app-assistant", label: "App assistant", group: "people", where: "Ask in the app", benchable: false, home: "note" },
-  { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: false, home: "theirs", model: "their own models" },
-  { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: false, home: "code", model: "Haiku 5.5" },
-  { key: "auto-organize", label: "Auto-organize", group: "background", where: "Sorting the inbox", benchable: false, home: "code", model: "Clef" },
-  { key: "what-changed", label: "What changed", group: "background", where: "Tidy-up suggestions", benchable: false, home: "code", model: "GLM-4.7 Flash" },
-  { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: false, home: "none", model: "Whisper" },
-  { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: false, home: "code", model: "Haiku 5.5" },
-  { key: "search", label: "Search by meaning", group: "other", where: "Search, for people and AIs", benchable: true, home: "code", model: "bge-m3" },
+  { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: true, home: "theirs", model: "their own models" },
+  { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: true, home: "note" },
+  { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: true, home: "none", model: "Whisper" },
+  { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: true, home: "note" },
+  // Search has no prompt: bge-m3 embeds, and its settings are tuned by `ai/setups/search/` (`bench/search.mjs`).
+  { key: "search", label: "Search by meaning", group: "other", where: "Search, for people and AIs", benchable: true, home: "none", model: "bge-m3" },
 ];
 
 export interface AiNoteRow {
@@ -305,14 +303,11 @@ export function skillFolder(row: AiNoteRow): string {
 }
 
 /**
- * Where a job's model spend is counted in the AI costs report. Tex by text and
- * the app assistant are one `assistant` feature there, so both rows show it.
+ * Where a job's model spend is counted in the AI costs report. Tex by text is
+ * the `assistant` feature there.
  */
 export const COST_FEATURE: Readonly<Record<string, string>> = {
   "texting-assistant": "assistant",
-  "app-assistant": "assistant",
-  "auto-organize": "organizer",
-  "what-changed": "whatChanged",
   "meeting-transcription": "transcription",
   search: "meaning",
 };
@@ -370,7 +365,7 @@ export interface Attention {
   untested: JobRow[];
   /** Skills no test list `covers:`. */
   unproved: AiNoteRow[];
-  /** Jobs with no live setup note. */
+  /** Jobs whose setup is a note, with no live setup note. */
   noSetup: JobRow[];
 }
 
@@ -385,6 +380,7 @@ export function attention(catalog: AiCatalog, scores: ReadonlyMap<string, Scores
     failing: catalog.jobs.filter((row) => passed(row) === false),
     untested: catalog.jobs.filter((row) => row.tests.length === 0),
     unproved: catalog.skills.filter((skill) => provedBy(skill, catalog.tests).length === 0),
-    noSetup: catalog.jobs.filter((row) => row.setup === null && row.job.key !== "connected-ais"),
+    // Only a job whose setup is a note can be missing one: transcription, search and connected AIs have no prompt of ours.
+    noSetup: catalog.jobs.filter((row) => row.setup === null && row.job.home === "note"),
   };
 }

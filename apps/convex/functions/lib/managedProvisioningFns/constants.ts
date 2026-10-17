@@ -108,13 +108,6 @@ export const CATCH_UP_PASS_DELAYS_MS = [
 ] as const;
 
 /**
- * When a Dropbox grant kept for a move's catch-up passes is revoked even if
- * the passes never revoke it themselves: well after the last pass (thirty
- * minutes) would have run. Revoking a grant already revoked does nothing.
- */
-export const DROPBOX_REVOKE_BACKSTOP_MS = 45 * 60_000;
-
-/**
  * How far before the last check began a catch-up looks.
  *
  * The old bucket stamps its files with its provider's clock and the check was

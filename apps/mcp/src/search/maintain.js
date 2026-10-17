@@ -291,8 +291,8 @@ function toIso(value) {
  * The token the diff compares against.
  *
  * R2 and S3 both report an etag per listed object and that is what this uses.
- * Dropbox lists `server_modified` and `size` and no etag at all, so the
- * fallback is those two — a staleness token, not an etag, and named `version`
+ * A listing with no etag at all falls back to `uploaded` and `size`: those two
+ * are a staleness token, not an etag, and named `version`
  * everywhere below for that reason. Without it every note would compare unequal
  * on every pass and the backfill would never converge: the index would be
  * rebuilt from scratch, 20-odd notes at a time, forever.
