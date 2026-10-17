@@ -1,11 +1,11 @@
 /**
  * THE BUILT-IN MODEL: WHO MAY SPEND OURS, AND THE METER.
  *
- * The assistant runs on a model we pay for, for a Premium workspace, up to a
- * daily cap (decided by the owner, 2026-10-06: "Premium, capped"). It is the
- * only model: people's own Anthropic and OpenAI keys were deleted and are no
- * longer used (the owner, 2026-10-10; `providers.ts`). Everyone else is told
- * the assistant is not available to them.
+ * The assistant runs on a model we pay for, for every workspace, up to 100
+ * turns a day (decided by the owner, 2026-10-17: Tex is free, replacing
+ * "Premium, capped" of 2026-10-06). It is the only model: people's own
+ * Anthropic and OpenAI keys were deleted and are no longer used (the owner,
+ * 2026-10-10; `providers.ts`).
  *
  * The gateway makes the model call, because the turn's tools run there. What it
  * may not do is decide whether the call is allowed: that is this file, through

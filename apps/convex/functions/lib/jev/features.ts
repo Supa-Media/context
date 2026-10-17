@@ -48,11 +48,13 @@ export const JEV_FEATURES = {
    */
   assistant: {
     label: "Texting assistant (built-in model)",
-    // Premium, capped (decided by the owner, 2026-10-06).
+    // Free for every plan, 100 texts a day (decided by the owner, 2026-10-17,
+    // replacing "Premium, capped" of 2026-10-06).
     onByDefault: true,
     // A busy day of texting; a turn is at most eight model rounds.
     dailyCallsPerWorkspace: 100,
-    plan: "premium",
+    dailyCallsFree: 100,
+    plan: "everyone",
   },
   /**
    * Meeting summaries: a model call that writes a note from a meeting's
