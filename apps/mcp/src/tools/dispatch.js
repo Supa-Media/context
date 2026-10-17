@@ -17,6 +17,7 @@ import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
 import { toolSendEmail } from "./email.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace } from "./workspaces.js";
+import { toolDreamNow } from "./dreamNow.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
@@ -277,6 +278,8 @@ async function runTool(name, args, store, scope) {
       return toolApplyLayout(store, args);
     case "connect_google":
       return toolConnectGoogle(store, args);
+    case "dream_now":
+      return toolDreamNow(store, scope);
     case "list_links":
       return toolListLinks(store, scope);
     case "revoke_link":

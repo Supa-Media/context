@@ -21,6 +21,7 @@ import { feedbackToolDefinitions } from "./schemas/feedback.js";
 import { vaultToolDefinitions } from "./schemas/vault.js";
 import { emailToolDefinitions } from "./schemas/email.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
+import { dreamToolDefinitions } from "./schemas/dreams.js";
 import { v2ToolDefinitions } from "./v2/schemas.js";
 
 export function baseToolDefinitions() {
@@ -38,6 +39,7 @@ export function baseToolDefinitions() {
     ...vaultToolDefinitions(),
     ...emailToolDefinitions(),
     ...workspaceToolDefinitions(),
+    ...dreamToolDefinitions(),
     ...v2ToolDefinitions(),
   ];
 }

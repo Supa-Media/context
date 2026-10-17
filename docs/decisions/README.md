@@ -699,6 +699,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
 - [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
+- [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
 - [Tex keeps house: it organizes the workspace itself, and every change can be put back (2026-10-17)](./texting-assistant/housekeeping.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)

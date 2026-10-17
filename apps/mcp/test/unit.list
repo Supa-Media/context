@@ -130,3 +130,4 @@ bench/test/check.test.mjs
 bench/test/core.test.mjs
 test/agentDelegate.test.mjs
 test/workspaceSetup.test.mjs
+test/dreamNow.test.mjs

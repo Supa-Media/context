@@ -41,6 +41,9 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "create_link",
   "list_links",
   "revoke_link",
+  // Starting Tex's dream is the personal workspace's owner's, for the same
+  // reason: the control plane refuses anyone else (`lib/dreams/now.ts`).
+  "dream_now",
 ]);
 
 /**

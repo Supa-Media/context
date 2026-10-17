@@ -51,7 +51,7 @@ export function v2ToolDefinitions() {
         "Change where something lives or who sees it, in ways Context can undo: move, move_many, " +
         "move_folder, archive, visibility, folder_visibility, encrypt, review_proposal, suggest_destination, " +
         "website, share_link, revoke_link, vault_add, vault_share, vault_view, create_workspace, layout, " +
-        "connect_google. Ask the person before anything " +
+        "connect_google, dream_now. Ask the person before anything " +
         "that lets more people see something. orient lists every action and its args.",
       inputSchema: {
         type: "object",

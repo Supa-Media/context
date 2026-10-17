@@ -166,7 +166,8 @@ export async function runProtocolBasicsChecks() {
   // 52 with workspace setup's three (Dev2, 2026-10-17): create_workspace,
   // apply_layout and connect_google, reached as manage actions, and
   // `send_email`, held for the person's yes to each email (`emailGate.js`).
-  check("52 tools listed", fullTools.result?.tools.length === 52);
+  // 53 with `dream_now`, the owner starting Tex's dream now for onboarding.
+  check("53 tools listed", fullTools.result?.tools.length === 53);
   check(
     "Folder lists have an explicit read-only server evaluator",
     fullTools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
@@ -278,7 +279,7 @@ export async function runProtocolBasicsChecks() {
   const listWithFormsOff = await fullListFor("priv-token");
   check(
     "a Context plugin turned off takes its tools out of the listing",
-    listWithFormsOff.length === 48 &&
+    listWithFormsOff.length === 49 &&
       listWithFormsOff.some((tool) => tool.name === "submit_form") === false
   );
   check(
@@ -337,12 +338,12 @@ export async function runProtocolBasicsChecks() {
   await contextStore.put(enablementKey, "{ half a file");
   check(
     "a settings file that does not parse leaves every tool where it was",
-    (await fullListFor("priv-token")).length === 52
+    (await fullListFor("priv-token")).length === 53
   );
   await contextStore.delete(enablementKey);
   check(
     "and removing the file restores the full listing",
-    (await fullListFor("priv-token")).length === 52
+    (await fullListFor("priv-token")).length === 53
   );
   check("set_visibility tool is discoverable", fullTools.result?.tools.some((tool) => tool.name === "set_visibility"));
   check(

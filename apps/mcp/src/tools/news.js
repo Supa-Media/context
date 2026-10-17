@@ -41,6 +41,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
+    text:
+      "manage action dream_now (no args) starts Tex's dream for the person now instead of at 3 am: it rewrites tex/about-me.md " +
+      "within a few minutes and texts nobody. For onboarding, after you have read their recent email; read the note in a later turn " +
+      "and confirm it with them. Owner of their own personal workspace only, Premium, never while one runs, at most once every six hours; " +
+      "the answer says which, in words you can pass on.",
+  },
+  {
+    date: "2026-10-17",
     newTool: true,
     text:
       "send `email` (send_email `{ to, cc?, subject, body, from? }`) sends one email as the person through their own Gmail. " +
@@ -145,7 +153,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "df8fc296";
+export const TOOL_SHAPE = "57e45802";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

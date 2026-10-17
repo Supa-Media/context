@@ -55,3 +55,49 @@ anywhere but the person's notes is the opaque memory the owner ruled out
 (2026-10-14); dreaming every night regardless of texts spends a model turn on
 nothing. Tests: `apps/mcp/test/agentDream.test.mjs`,
 `apps/convex/__tests__/dreams.test.ts`, `apps/agent/src/dreams.test.ts`.
+
+## A first dream right away, asked for by the person's own agent (2026-10-17)
+
+Decided by the owner (Dev2), 2026-10-17, for Tex's onboarding: once Tex has
+read a new person's recent email, it runs their first dream straight away and
+writes a first `tex/about-me.md`, then confirms it with them, instead of
+leaving the note empty until 3 am.
+
+**How.** `manage` action `dream_now` (no args; its carrying tool `dream_now`,
+a row in `apps/mcp/src/tools/v2/actions.js`, not a seventh tool name). The
+gateway refuses it below the private tier and forwards the connection's own
+token and workspace to `POST /gateway/dreams/start`
+(`apps/convex/functions/lib/dreams/now.ts`). That runs nothing: it makes the
+person's `texDreams` row due now, and the minute cron hands it out through
+the same claim as a nightly dream, with the same re-checks, the dreams
+client's own 15-minute grant, the `dream.run` audit and the same one-note
+dispatcher. A first dream still looks back three days and reads `index.md`.
+
+**Who, and how often.** Only a grant that clears `gatewayOwnerClearance` on
+the person's own personal workspace (owner, write, private); never a shared
+workspace, and never the dreams client, so a dream cannot start the next.
+Only someone Tex dreams for (a linked phone, not paused). Only when the
+built-in model would run it: the Jev gate a dream's turn passes (Premium,
+founding Premium included; the switches; the daily cap), asked without
+counting, since the dream counts itself. Never while one is due or running,
+and at most once per six hours of asking (`texDreams.askedAt`). Each accepted
+ask is audited as `dream.requested` with the acting client and person; the
+claim then audits `dream.run` as the dreams client.
+
+**What the agent hears.** A code (`started`, `running`, `recent` with the
+time it can ask again, `needs_premium`, `daily_limit`, `unavailable`,
+`not_texting`, or null for anyone who may not ask, one answer for every
+reason) that the gateway turns into a sentence it can pass on. Nothing is
+texted when the dream finishes; Tex reads the note in a later turn.
+
+A row armed for tonight is spent by the dream it starts; the next text arms
+the following night, as after any dream. Only a texted turn is offered the
+action among Tex's surfaces (it is a write tool); routines, the app panel,
+Try it and a dream itself are not.
+
+**What a simplification would cost:** running the dream inside the tool call
+holds a texted turn for minutes and needs a second, wider grant; a gate that
+only the dream's turn checks tells the agent "started" for a dream that will
+be refused for want of Premium; no window lets a looping agent spend a model
+turn a minute on one note. Tests: `apps/convex/__tests__/dreamNow.test.ts`,
+`apps/mcp/test/dreamNow.test.mjs`.
