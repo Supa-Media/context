@@ -88,6 +88,11 @@ describe("the walk", () => {
       await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ours)).unique(),
     );
     expect(tree?.sweptAt).toBeTypeOf("number");
+    // The id copy never reached this workspace, so there is nothing to diagnose.
+    const checks = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) =>
+      job.name.includes("noteIdsCopy:runCheck"),
+    );
+    expect(checks).toEqual([]);
 
     const status = await asUser(t, staff).query(api.functions.managedEncryption.rolloutStatus, {});
     expect(status).toMatchObject({ state: "complete", counts: { encrypted: 1, notStarted: 1 } });
@@ -100,6 +105,36 @@ describe("the walk", () => {
       path: "1-projects/plan.md",
     });
     expect(note.text).toContain("The words people typed.");
+  });
+
+  test("a walk over a workspace with id copies ends by diagnosing them", async () => {
+    const { t, staff, ours } = await fixture();
+    // Sealing rewrites every id key too, so a keyed row's version is behind its
+    // key until the diagnosis takes the key's. A keyed workspace's sweep adopts
+    // nothing, so the sweep alone leaves it behind. Sabotage: drop the
+    // `checkAfterRewrite` call in `afterWalk` and no check is scheduled here.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("noteIdCopies", {
+        workspaceId: ours,
+        status: "done",
+        runId: 3,
+        files: 0,
+        copied: 0,
+        failed: 0,
+        failures: [],
+        updatedAt: Date.now(),
+      });
+    });
+    await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
+    await drainScheduled(t);
+    expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
+
+    const checks = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) =>
+      job.name.includes("noteIdsCopy:runCheck"),
+    );
+    expect(checks.map((job) => (job.args[0] as { workspaceId: string; runId: number }))).toEqual([
+      expect.objectContaining({ workspaceId: ours, runId: 3 }),
+    ]);
   });
 
   test("a save during the rollout is written sealed", async () => {
