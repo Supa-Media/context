@@ -159,4 +159,15 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // their hourly and daily limits, after the gateway's send-review gate.
   // `__tests__/personEmail.test.ts` carries the behavioural half.
   "http.gatewayPersonEmail",
+  // The person's own Google Calendar (`/gateway/calendar/event`, owner
+  // 2026-10-17: calendar changes for testers). The same argument as the
+  // Gmail route above: gateway secret plus the person's live write grant;
+  // the calendar is resolved from that grant's own personal workspace, and
+  // only a connection whose consent granted `calendar.events`. The token is
+  // minted inside the route, spent on a lookup and one change to the primary
+  // calendar, and never returned, logged or stored. A stolen gateway secret
+  // alone changes nothing; with a live token, that one person's calendar,
+  // inside their limits, never an event with guests.
+  // `__tests__/calendarWrite.test.ts` carries the behavioural half.
+  "http.gatewayCalendarWrite",
 ]);
