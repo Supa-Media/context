@@ -161,3 +161,19 @@ export function anonymousSafe(
 ): ConvexError<{ code: string; message: string }> {
   return actorUserId === null ? notAuthenticated() : refusal;
 }
+
+/**
+ * An outsider with edit tried to save a note with a form block in it.
+ *
+ * A form block makes its response notes on save, which is a creation, and an
+ * edit grant writes one note's body and nothing else (the member rule,
+ * `lib/filesFns/memberWrite.ts`). Its own code rather than `SHARE_UNAVAILABLE`:
+ * the caller can read and edit this note, so saying why the save was refused
+ * discloses nothing, and "not available" would read as a withdrawn grant.
+ */
+export function grantFormRefused(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "GRANT_FORM_REFUSED",
+    message: "You can edit this note's text, but adding a form needs someone in the workspace. Remove the form block to save.",
+  });
+}

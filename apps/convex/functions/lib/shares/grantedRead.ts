@@ -17,6 +17,23 @@
  * target. A storage failure is passed through, as it is for shares: an outage
  * is not a withdrawn grant.
  *
+ * ## Writing, for an outsider who holds edit
+ *
+ * `writeGrantedNote` saves one note's body for an outsider whose grant on the
+ * governing row is `edit` (`guestCanEdit`). It is a body write over a version
+ * they read, and nothing else: an `expectedEtag` is required (no etag would be a
+ * create), a form block is refused (its responses are a creation), and the path
+ * written is the one `authorizeGrant` resolved, never the one the caller typed.
+ * It goes through `runFileOperation` at `team` scope with the outsider's names,
+ * the same barrier a member's edit grant writes through. A conflict is passed
+ * through as the editor's own `CONFLICT`: the caller can already read the note,
+ * so telling them it changed says nothing new. Every other refusal is
+ * `SHARE_UNAVAILABLE`.
+ *
+ * An editor reads the note with its comments (`readGrantedNote` with
+ * `canEdit`), because the save writes the whole text back. A reader still gets
+ * them stripped, as a link does.
+ *
  * The actions are registered in `functions/shares.ts`, which is where a share's
  * API path comes from.
  */
@@ -26,8 +43,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../../../_generated/api";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
+import { parseFormBlocks } from "../../../../mcp/src/forms.js";
+import { personalNameFor } from "../filesFns/access";
+import type { OperationResult } from "../filesFns/operationTypes";
 import { authorizeGrant, visibleGrantedPaths } from "../grants/outsider";
-import { notAuthenticated, shareUnavailable } from "./errors";
+import { grantFormRefused, notAuthenticated, shareUnavailable } from "./errors";
 import { readThroughShare } from "./readPath";
 
 /** The locator an outsider names a grant by: its stable note id, or a path under it. Exactly one. */
@@ -43,6 +63,22 @@ export const readGrantedNoteArgs = locatorArgs;
 export const readGrantedNoteReturns = v.object({
   path: v.string(),
   text: v.string(),
+  /** Whether this caller may save the note (`writeGrantedNote`). */
+  canEdit: v.boolean(),
+  /** The version read, to pass back as `expectedEtag`. `null` unless `canEdit`. */
+  etag: v.union(v.string(), v.null()),
+});
+
+export const writeGrantedNoteArgs = {
+  ...locatorArgs,
+  text: v.string(),
+  /** The version the editor read. Required: a write with none would create a note, and that stays a member's. */
+  expectedEtag: v.string(),
+};
+export const writeGrantedNoteReturns = v.object({
+  path: v.string(),
+  etag: v.string(),
+  conflictCheck: v.union(v.literal("conditional"), v.literal("read-compare")),
 });
 
 export const listGrantedFolderArgs = locatorArgs;
@@ -67,8 +103,12 @@ export const authorizeGrantReadReturns = v.union(
     path: v.string(),
     kind: v.union(v.literal("file"), v.literal("folder")),
     names: v.array(v.string()),
+    canEdit: v.boolean(),
   }),
 );
+
+export const grantWriterArgs = { userId: v.id("users") };
+export const grantWriterReturns = v.union(v.string(), v.null());
 
 export const visibleGrantedPathsArgs = {
   userId: v.id("users"),
@@ -89,6 +129,11 @@ export async function authorizeGrantReadHandler(
   args: ObjectType<typeof authorizeGrantReadArgs>,
 ): Promise<Infer<typeof authorizeGrantReadReturns>> {
   return await authorizeGrant(ctx, args);
+}
+
+/** The name a history entry is signed with for this writer: their personal workspace's handle. */
+export async function grantWriterHandler(ctx: QueryCtx, args: ObjectType<typeof grantWriterArgs>): Promise<string | null> {
+  return await personalNameFor(ctx, args.userId);
 }
 
 export async function visibleGrantedPathsHandler(
@@ -114,8 +159,57 @@ export async function readGrantedNoteHandler(
     throw shareUnavailable();
   }
   // Scope `team` with the caller's names: the one path `authorizeGrant` has just decided, and no other.
-  const { text } = await readThroughShare(ctx, args.workspaceId, grant.path, userId, false, "team", grant.names);
-  return { path: grant.path, text };
+  const note = await readThroughShare(ctx, args.workspaceId, grant.path, userId, false, "team", grant.names, {
+    keepComments: grant.canEdit,
+  });
+  const canEdit = grant.canEdit && note.editable;
+  return { path: grant.path, text: note.text, canEdit, etag: canEdit ? note.etag : null };
+}
+
+/** Save one granted note's body, for an outsider whose grant on it is `edit`. See the module comment. */
+export async function writeGrantedNoteHandler(
+  ctx: ActionCtx,
+  args: ObjectType<typeof writeGrantedNoteArgs>,
+): Promise<Infer<typeof writeGrantedNoteReturns>> {
+  const userId = await signedInUser(ctx);
+  const grant = await ctx.runQuery(internal.functions.shares.authorizeGrantRead, {
+    userId,
+    workspaceId: args.workspaceId,
+    ...(args.noteId === undefined ? {} : { noteId: args.noteId }),
+    ...(args.path === undefined ? {} : { path: args.path }),
+  });
+  if (grant === null || grant.kind !== "file" || !grant.canEdit || !grant.path.toLowerCase().endsWith(".md")) {
+    throw shareUnavailable();
+  }
+  if (parseFormBlocks(args.text).length > 0) throw grantFormRefused();
+
+  const actorName = await ctx.runQuery(internal.functions.shares.grantWriter, { userId });
+  let result: Extract<OperationResult, { kind: "written" }>;
+  try {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "team",
+      grantedNames: grant.names,
+      actorName,
+      operation: { kind: "write", path: grant.path, text: args.text, expectedEtag: args.expectedEtag },
+    })) as Extract<OperationResult, { kind: "written" }>;
+  } catch (error) {
+    // Gone or hidden between the decision and the write answers as every other refusal. A conflict, and an
+    // outage, travel unchanged: the editor keeps their draft and is told what happened.
+    const code = error instanceof ConvexError ? (error.data as { code?: string } | undefined)?.code : undefined;
+    if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID" || code === "ACCESS_DENIED") throw shareUnavailable();
+    throw error;
+  }
+
+  // The acting identity is the outsider, in the workspace's own trail. Paths and an outcome, never the text.
+  await ctx.runMutation(internal.functions.audit.recordEvent, {
+    workspaceId: args.workspaceId,
+    actorUserId: userId,
+    action: "file.write",
+    paths: [result.path],
+    details: { conflictCheck: result.conflictCheck, via: "grant" },
+  });
+  return { path: result.path, etag: result.etag, conflictCheck: result.conflictCheck };
 }
 
 /**

@@ -29,7 +29,15 @@
  * ## What is not here
  *
  * Members never take this path: their reach is `grantedNamesFor`, unchanged.
- * An outsider edit grant is read as a view in this slice.
+ *
+ * ## Edit
+ *
+ * An outsider may write a note's body when the row that governs it
+ * (`governingRowOf`, the walk `canSee` makes) names them with `edit`, the same
+ * rule a member's edit grant follows (`lib/filesFns/memberWrite.ts`). Only a
+ * body write over a version they read: never a create, a move, a rename or a
+ * form block. `canEdit` on a `GrantedNode` is that answer; the write itself is
+ * `writeGrantedNote` in `lib/shares/grantedRead.ts`.
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -37,8 +45,10 @@ import type { QueryCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
 import { normalizePath } from "../fileOps";
 import { accessSourceOf } from "../nodes/accessBackfill";
+import { isCanonicalPath } from "../filesFns/memberWrite";
 import { accessRowsOf } from "../nodes/accessRows";
-import { accessNamesFor, renderAccess, viewNameFor } from "../nodes/rowAccess";
+import { governingRowOf } from "../nodes/governingRow";
+import { accessNamesFor, editNameFor, renderAccess, viewNameFor, type AccessRow } from "../nodes/rowAccess";
 import { canSee, type PrivacyOverrides, type PrivacyRule } from "../privacy";
 import { ownedConfirmedEmailsOf } from "../signInEmails";
 import { getMembership } from "../workspaceAuth";
@@ -58,6 +68,8 @@ export interface GuestView {
   names: readonly string[];
   rules: PrivacyRule[];
   overrides: PrivacyOverrides;
+  /** The workspace's live access rows the view was rendered from, for the edit walk. */
+  rows: readonly AccessRow[];
 }
 
 /** A row an outsider may read, as the live rows say it is. */
@@ -65,6 +77,8 @@ export interface GrantedNode {
   path: string;
   kind: "file" | "folder";
   names: string[];
+  /** Whether the outsider holds `edit` on the row that governs this note (`guestCanEdit`). Never for a folder. */
+  canEdit: boolean;
 }
 
 /**
@@ -97,6 +111,19 @@ export function guestCanSee(view: GuestView, path: string): boolean {
 }
 
 /**
+ * Whether the guest view lets its holder write `path`'s body: the path opens to
+ * them, it is a canonical note path, and the row that governs it names them with
+ * `edit`. A view grant is not enough, and an edit grant on some other row (a
+ * folder whose note sets its own list) is not enough: a note's list replaces its
+ * folder's.
+ */
+export function guestCanEdit(view: GuestView, path: string): boolean {
+  if (!isCanonicalPath(path) || !guestCanSee(view, path)) return false;
+  const governing = governingRowOf(view.rows, path);
+  return governing !== null && view.names.includes(editNameFor(governing.noteId));
+}
+
+/**
  * The caller's guest view of one workspace, or `null` when they have no place there.
  *
  * `null` for: rows mode not on (grants are read from rows only), a workspace
@@ -118,7 +145,7 @@ export async function guestViewOf(
   const names = accessNamesFor({ userId, emails: held }, rows);
   if (names.length === 0) return null;
   const { rules, overrides } = renderAccess(rows, "guest");
-  return { workspaceId, names, rules, overrides };
+  return { workspaceId, names, rules, overrides, rows };
 }
 
 /**
@@ -172,7 +199,8 @@ export async function authorizeGrant(
   const node = await liveNodeFor(ctx, args.workspaceId, { noteId: args.noteId, path: args.path });
   if (node === null) return null;
   if (!guestCanSee(view, node.path)) return null;
-  return { path: node.path, kind: node.kind, names: [...view.names] };
+  const canEdit = node.kind === "file" && guestCanEdit(view, node.path);
+  return { path: node.path, kind: node.kind, names: [...view.names], canEdit };
 }
 
 /**

@@ -451,6 +451,20 @@ export const readGrantedNote = action({
   handler: grantedRead.readGrantedNoteHandler,
 });
 
+/** The handle an outsider's saves are signed with. INTERNAL. */
+export const grantWriter = internalQuery({
+  args: grantedRead.grantWriterArgs,
+  returns: grantedRead.grantWriterReturns,
+  handler: grantedRead.grantWriterHandler,
+});
+
+/** Save one note granted to the signed-in caller with edit, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const writeGrantedNote = action({
+  args: grantedRead.writeGrantedNoteArgs,
+  returns: grantedRead.writeGrantedNoteReturns,
+  handler: grantedRead.writeGrantedNoteHandler,
+});
+
 /** List one folder granted to the signed-in caller, who is not a member. See `lib/shares/grantedRead.ts`. */
 export const listGrantedFolder = action({
   args: grantedRead.listGrantedFolderArgs,
