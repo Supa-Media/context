@@ -235,7 +235,7 @@ function GoogleCardBody({
       ) : null}
       <Text variant="foot" style={styles.note}>
         {empty
-          ? "Bring in Gmail, Calendar and Chat. New mail arrives after you connect; earlier mail is not imported."
+          ? "Bring in Gmail, Calendar and Chat. Your 50 most recent emails come in when you connect, then new mail as it arrives."
           : "Email, calendar and chat land in your inbox folder, checked every five minutes."}
         {actions ? "" : " Only an owner can connect or remove Google accounts."}
       </Text>
