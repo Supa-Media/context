@@ -56,6 +56,8 @@ export interface HomeOpened {
 export interface HomeRecent {
   path: string;
   at: number;
+  /** What they did last; absent on rows from before the row said. */
+  kind?: "opened" | "edited";
 }
 
 export interface HomeInput {
@@ -93,6 +95,8 @@ export interface HomeNoteTile {
   updatedAt?: number;
   /** When this person last opened or edited it: set on Recent's tiles only. */
   seenAt?: number;
+  /** Which of the two it was, when the row says. */
+  seenKind?: "opened" | "edited";
   /** The folder it is in, drawn under a recent note: `projects`. */
   place: string;
   lede: string | null;
@@ -212,7 +216,8 @@ export function buildHome(input: HomeInput): Home {
           .sort((a, b) => b.at - a.at)
           .flatMap((row) => {
             const note = noteByPath.get(row.path);
-            return note === undefined || isArchived(note.path) ? [] : [{ ...noteTile(note), seenAt: row.at }];
+            if (note === undefined || isArchived(note.path)) return [];
+            return [{ ...noteTile(note), seenAt: row.at, ...(row.kind === undefined ? {} : { seenKind: row.kind }) }];
           })
           .slice(0, RECENT_COUNT);
 
@@ -258,6 +263,18 @@ export function whenLabel(at: number, now: number): string {
   return then.getFullYear() === today.getFullYear()
     ? `${month} ${then.getDate()}`
     : `${month} ${then.getDate()}, ${then.getFullYear()}`;
+}
+
+/**
+ * A Recent row's time, saying what the person did (owner, 2026-10-17):
+ * "You edited 9:12", "You opened Mon". A row from before the row said
+ * which is the time alone.
+ */
+export function recentLabel(kind: "opened" | "edited" | undefined, at: number, now: number): string {
+  const when = whenLabel(at, now);
+  if (kind === "edited") return `You edited ${when}`;
+  if (kind === "opened") return `You opened ${when}`;
+  return when;
 }
 
 /** "14 notes · 3 folders", "1 note", "Empty". */

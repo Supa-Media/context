@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { LastChangeLine } from "./LastChangeLine";
 import { PropertyChips } from "./PropertyChips";
 import type { ChipsPlacementProps } from "./placement";
 
@@ -9,9 +10,10 @@ import type { ChipsPlacementProps } from "./placement";
  * `# title` in the body. There is no pointer, so they behave as a thumb's
  * (`touch`).
  */
-export function ChipsPlacement({ gutter, ...chips }: ChipsPlacementProps) {
+export function ChipsPlacement({ gutter, lastChange, ...chips }: ChipsPlacementProps) {
   return (
     <View style={{ paddingHorizontal: gutter, paddingBottom: 8 }}>
+      {lastChange == null ? null : <LastChangeLine {...lastChange} />}
       <PropertyChips {...chips} touch revealed={false} />
     </View>
   );

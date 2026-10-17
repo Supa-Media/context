@@ -114,7 +114,7 @@ export async function retargetPlaces(
       recentAt.set(path, { ...row, path });
       continue;
     }
-    if (row.at > existing.at) await ctx.db.patch(existing._id, { at: row.at });
+    if (row.at > existing.at) await ctx.db.patch(existing._id, { at: row.at, kind: row.kind });
     await ctx.db.delete(row._id);
   }
 }
