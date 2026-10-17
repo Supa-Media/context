@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 import { createWorld } from "../world.mjs";
-import { parseSite } from "../sites.mjs";
+import { createWeb, parseSite } from "../sites.mjs";
 import { checkVerdicts } from "../checks.mjs";
 import { parseTest } from "../load.mjs";
 
@@ -130,4 +130,47 @@ test("connecting the domain the person owns passes task 8's checks and shows the
   } finally {
     world.close();
   }
+});
+
+test("claude.ai's connectors page says one thing at a time, and keeps the Always allow choices", async () => {
+  const web = createWeb(await sites());
+  const go = async (steps, handoff = false) =>
+    (await (await web.binding.fetch("https://site-shots/browse", { method: "POST", body: JSON.stringify({ provider: "browserbase", owner: "o", steps, handoff }) })).json()).page;
+  const ref = (page, label) => page.elements.find((e) => e.label === label || e.label.startsWith(`${label} (now:`))?.ref;
+  const CONNECTORS = "https://claude.ai/customize/connectors";
+  await go([{ do: "goto", url: CONNECTORS }], true);
+  web.personSignsIn();
+
+  const fresh = await go([{ do: "read" }]);
+  assert.match(fresh.text, /Context is not added yet\./);
+  assert.doesNotMatch(fresh.text, /added, not connected|Context: connected/);
+  assert.equal(ref(fresh, "Connect"), undefined, "nothing to connect before it is added");
+
+  const modal = await go([{ do: "click", ref: ref(fresh, "Add custom connector") }]);
+  await go([
+    { do: "type", ref: ref(modal, "Name"), text: "Context" },
+    { do: "type", ref: ref(modal, "Remote MCP server URL"), text: "https://mcp.context.lc/mcp" },
+  ]);
+  const added = await go([{ do: "click", ref: ref(modal, "Add") }]);
+  assert.match(added.text, /Context: added, not connected\./);
+  assert.doesNotMatch(added.text, /not added yet/, "the page no longer says it is not added");
+  assert.ok(ref(added, "Connect"));
+
+  await go([{ do: "click", ref: ref(added, "Connect") }], true);
+  web.personSignsIn();
+  const consent = await go([{ do: "read" }]);
+  const connected = await go([{ do: "click", ref: ref(consent, "Approve") }]);
+  assert.match(connected.text, /Context: connected\./);
+  assert.doesNotMatch(connected.text, /not added yet|added, not connected/);
+  assert.equal(ref(connected, "Connect"), undefined, "no Connect button once connected");
+
+  await go([
+    { do: "select", ref: ref(connected, "Read-only tools"), option: "Always allow" },
+    { do: "select", ref: ref(connected, "Write/delete tools"), option: "Always allow" },
+  ]);
+  const reloaded = await go([{ do: "goto", url: CONNECTORS }]);
+  assert.deepEqual(
+    reloaded.elements.filter((e) => e.kind === "select").map((e) => e.label),
+    ["Read-only tools (now: Always allow)", "Write/delete tools (now: Always allow)"],
+  );
 });

@@ -100,6 +100,47 @@ test("a button goes nowhere until what it needs is filled, then sets its flag an
   assert.ok(web.events().includes('select shop.example/account "Size: M"'));
 });
 
+const SWITCH = `---
+site: switch.example
+---
+
+## https://switch.example/
+title: Switch
+text (!on): It is off.
+text (on, !locked): It is on.
+text (on, locked): It is on and locked.
+- button (!on): Turn on -> https://switch.example/ [sets on]
+- button (on, !locked): Lock -> https://switch.example/ [sets locked]
+- select (on): Speed (Slow, Fast)
+`;
+
+test("(!flag) shows only while the flag is unset, and (a, !b) needs all of them", async () => {
+  const web = createWeb([parseSite(SWITCH)]);
+  const go = async (steps) => (await post(web, "/browse", { provider: "browserbase", owner: "o", steps })).body.page;
+  const labels = (page) => page.elements.map((e) => e.label);
+  const off = await go([{ do: "goto", url: "https://switch.example/" }]);
+  assert.equal(off.text, "It is off.");
+  assert.deepEqual(labels(off), ["Turn on"]);
+  const on = await go([{ do: "click", ref: 1 }]);
+  assert.equal(on.text, "It is on.");
+  assert.deepEqual(labels(on), ["Lock", "Speed (now: Slow)"]);
+  const locked = await go([{ do: "click", ref: 1 }]);
+  assert.equal(locked.text, "It is on and locked.");
+  assert.deepEqual(labels(locked), ["Speed (now: Slow)"]);
+  assert.throws(() => parseSite(SWITCH.replace("(on, locked)", "(on, )")), /empty flag/);
+});
+
+test("a select's choice survives the page being loaded again", async () => {
+  const web = createWeb([parseSite(SWITCH)]);
+  const go = async (steps) => (await post(web, "/browse", { provider: "browserbase", owner: "o", steps })).body.page;
+  await go([{ do: "goto", url: "https://switch.example/" }, { do: "click", ref: 1 }]);
+  await go([{ do: "select", ref: 2, option: "Fast" }]);
+  const reloaded = await go([{ do: "goto", url: "https://switch.example/" }]);
+  assert.ok(reloaded.elements.some((e) => e.label === "Speed (now: Fast)"), JSON.stringify(reloaded.elements));
+  const back = await go([{ do: "goto", url: "https://switch.example/" }, { do: "back" }]);
+  assert.ok(back.elements.some((e) => e.label === "Speed (now: Fast)"), "and after going back");
+});
+
 test("a click that changes the page leaves the rest of the steps for the next call", async () => {
   const web = createWeb([parseSite(SHOP)]);
   const result = await post(web, "/browse", { provider: "browserbase", owner: "o", steps: [{ do: "goto", url: "https://shop.example/" }, { do: "click", ref: 1 }, { do: "type", ref: 1, text: "x" }] });
