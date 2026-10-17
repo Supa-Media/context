@@ -43,7 +43,7 @@ export const requestDreamNow = internalMutation({
     v.object({ status: v.literal("started") }),
     v.object({ status: v.literal("running") }),
     v.object({ status: v.literal("recent"), retryAt: v.number() }),
-    v.object({ status: v.literal("needs_premium") }),
+    v.object({ status: v.literal("not_included") }),
     v.object({ status: v.literal("daily_limit") }),
     v.object({ status: v.literal("unavailable") }),
     v.object({ status: v.literal("not_texting") }),

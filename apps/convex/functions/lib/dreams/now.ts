@@ -47,7 +47,7 @@ const DREAM_FEATURE = "assistant" as const;
 /**
  * What the agent is told, as a code. `started`: it will run within a minute or
  * two. `running`: one is due or under way. `recent`: asked within the window,
- * try again at `retryAt`. `needs_premium`, `daily_limit`, `unavailable` (the
+ * try again at `retryAt`. `not_included`, `daily_limit`, `unavailable` (the
  * built-in model is switched off): the gate's answer. `not_texting`: no linked
  * phone, or texting paused.
  */
@@ -55,13 +55,13 @@ export type DreamNowAnswer =
   | { status: "started" }
   | { status: "running" }
   | { status: "recent"; retryAt: number }
-  | { status: "needs_premium" }
+  | { status: "not_included" }
   | { status: "daily_limit" }
   | { status: "unavailable" }
   | { status: "not_texting" };
 
 const GATE_ANSWERS = {
-  not_premium: "needs_premium",
+  not_premium: "not_included",
   daily_cap: "daily_limit",
   disabled: "unavailable",
   switched_off: "unavailable",

@@ -201,7 +201,7 @@ describe("the gate", () => {
     const t = setupTest();
     const { userId, workspaceId } = await person(t, "ada", { premium: false });
     const token = await grant(t, workspaceId, userId);
-    expect(await ask(t, token, workspaceId)).toEqual({ status: "needs_premium" });
+    expect(await ask(t, token, workspaceId)).toEqual({ status: "not_included" });
     expect(await row(t, userId)).toBeNull();
     expect(await requested(t, workspaceId)).toEqual([]);
   });

@@ -2,7 +2,7 @@
  * Tex's dream now, asked for with `dream_now` (`tools/dreamNow.js`).
  */
 
-const STATUSES = new Set(["started", "running", "recent", "needs_premium", "daily_limit", "unavailable", "not_texting"]);
+const STATUSES = new Set(["started", "running", "recent", "not_included", "daily_limit", "unavailable", "not_texting"]);
 
 export function createDreamMethods({ post }) {
   return {

@@ -164,7 +164,7 @@ test("every answer is a sentence the agent can pass on", async () => {
   const cases = [
     [{ status: "running" }, false, /already under way/i],
     [{ status: "recent", retryAt: Date.parse("2026-10-17T18:00:00Z") }, true, /recently.*2026-10-17T18:00:00Z/],
-    [{ status: "needs_premium" }, true, /Premium/],
+    [{ status: "not_included" }, true, /include dreams/],
     [{ status: "daily_limit" }, true, /used up/],
     [{ status: "unavailable" }, true, /switched off/],
     [{ status: "not_texting" }, true, /linked phone/],

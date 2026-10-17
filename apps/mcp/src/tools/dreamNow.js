@@ -6,7 +6,7 @@
  * Nothing runs here. The control plane (`/gateway/dreams/start`, through
  * `store.dreamNow`, attached in `http/routing.js`) decides from this
  * connection's own token whether its person may ask: the owner of their own
- * personal workspace, Premium, with a linked phone, none under way, none asked
+ * personal workspace, a plan that includes dreams, with a linked phone, none under way, none asked
  * in the window. It then makes their dream due, and the texting Worker's
  * minute cron runs it under the dreams client's own grant, like a nightly one.
  * This turns its answer into a sentence the agent can pass on.
@@ -35,8 +35,8 @@ const ANSWERS = {
         (Number.isFinite(dream.retryAt) ? `; another can be asked for after ${when(dream.retryAt)}.` : ".") +
         " tex/about-me.md has what the last one wrote.",
     ),
-  needs_premium: () =>
-    toolError("Not started: dreaming now needs Premium. Without it, Tex keeps tex/about-me.md up to date as it texts with them."),
+  not_included: () =>
+    toolError("Not started: their plan doesn't include dreams. Without it, Tex keeps tex/about-me.md up to date as it texts with them."),
   daily_limit: () => toolError("Not started: today's use of Tex is used up. Tonight's dream will still run if one is due."),
   unavailable: () => toolError("Not started: Tex's dreams are switched off on this deployment just now."),
   not_texting: () =>
